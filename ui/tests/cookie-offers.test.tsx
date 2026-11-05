@@ -127,7 +127,7 @@ test("Never for this site can be undone for the named teammate in Settings", asy
 	}
 });
 
-test("A lend into the desk browser shows with the teammate's secrets and Remove takes it back", async () => {
+test("A lend into the desk browser is a row under the teammate's secrets, in sight without opening them, and Remove takes it back", async () => {
 	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
@@ -164,9 +164,9 @@ test("A lend into the desk browser shows with the teammate's secrets and Remove 
 	const root = createRoot(container);
 	try {
 		await act(async () => root.render(<SecretRows personaId="ada" teammate="Ada" granted={[]} computer={false} disabled={false} onChange={() => {}} />));
-		expect(container.textContent).not.toContain("porkbun.com");
-		await act(async () => container.querySelector("button")!.click());
-		expect(container.textContent).toContain("Signed in as you on porkbun.com, from Firefox");
+		// In sight without opening the fold: a row with the site, whose and from where.
+		expect(container.textContent).toContain("porkbun.com");
+		expect(container.textContent).toContain("Signed in as you, from Firefox");
 		expect(container.textContent).not.toContain("github.com");
 		await act(async () => Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Remove")!.click());
 		expect(calls).toEqual([{ cmd: "computer.cookies.remove", params: { personaId: "ada", id: "desk" } }]);

@@ -28,15 +28,18 @@ function describe(secret: SharedSecret): string {
 }
 
 /** The same, short, beside a tick. */
-function describeShort(secret: SharedSecret): string {
-	switch (secret.kind) {
-		case "login":
-			return `login for ${(secret.sites ?? []).map((site) => site.replace(/^https?:\/\//, "")).join(", ")}`;
-		case "passkey":
-			return `passkey for ${secret.rpId ?? "?"}`;
-		default:
-			return "variable";
-	}
+function describeShort(secret: SharedSecret, capital = false): string {
+	const said = (() => {
+		switch (secret.kind) {
+			case "login":
+				return `login for ${(secret.sites ?? []).map((site) => site.replace(/^https?:\/\//, "")).join(", ")}`;
+			case "passkey":
+				return `passkey for ${secret.rpId ?? "?"}`;
+			default:
+				return "variable";
+		}
+	})();
+	return capital ? said.charAt(0).toUpperCase() + said.slice(1) : said;
 }
 
 /**
@@ -512,10 +515,7 @@ export function TeammateSecrets({
 		onChange(granted.includes(name) ? granted.filter((one) => one !== name) : [...granted, name].sort());
 
 	return (
-		<div className={`${NESTED} flex-col items-stretch gap-1.5 py-3`}>
-			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				Stored under Settings → Secrets. Tick what this teammate may use; a passkey made for it is ticked by itself.
-			</span>
+		<div className={`${NESTED} flex-col items-stretch gap-0.5 py-2`}>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && <Refusal {...note} />}
 			{stored !== null && names.length === 0 && <span className="group-row-detail">None stored yet.</span>}
@@ -523,11 +523,11 @@ export function TeammateSecrets({
 				const record = stored?.find((one) => one.name === name);
 				const missing = stored !== null && record === undefined;
 				return (
-					<label key={name} className="flex cursor-pointer items-center gap-2 py-1 text-sm">
+					<label key={name} className="flex cursor-pointer items-center gap-2.5 py-1.5">
 						<input type="checkbox" className="check" checked={granted.includes(name)} disabled={disabled} onChange={() => toggle(name)} />
-						<span className="min-w-0 flex-1 truncate">
-							<span className="font-mono">{name}</span>
-							{record !== undefined && <span className="group-row-detail ml-2">{describeShort(record)}</span>}
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-sm">{record !== undefined ? describeShort(record, true) : name}</span>
+							{record !== undefined && <span className="group-row-detail font-mono">{name}</span>}
 						</span>
 						{missing && (
 							<span

@@ -81,7 +81,7 @@ test("Secrets is the teammate's own section, not a fold under Computer, and a ti
 	if (!computer || !secrets) throw new Error("No Computer or Secrets section");
 	expect(computer.textContent).not.toContain("Secrets");
 	expect(computer.contains(secrets)).toBe(false);
-	expect(secrets.textContent).toContain("1 ticked");
+	expect(secrets.textContent).toContain("Logins and passkeys · 1 given");
 
 	const fold = secrets.querySelector<HTMLButtonElement>("[aria-expanded]");
 	await act(async () => fold!.click());

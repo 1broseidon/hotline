@@ -308,6 +308,10 @@ type Results = {
 	"computer.cookies.sources": CookieSources;
 	"computer.cookies.source.set": CookieSources;
 	"computer.cookies.holders": CookieHolder[];
+	/** The local addresses a teammate's desk browser may always open, as host:port. */
+	"browser.local.list": string[];
+	/** The list once one is taken back. */
+	"browser.local.remove": string[];
 	"computer.cookies.push": CookieSite[];
 	"computer.cookies.offers": CookieOffer[];
 	"computer.cookies.sites": CookieOfferSites;

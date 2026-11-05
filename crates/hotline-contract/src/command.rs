@@ -887,6 +887,15 @@ pub enum Command {
         profile_id: String,
         on: bool,
     },
+    /// The local addresses a teammate's desk browser may always open, the
+    /// person's "Always allow" answers, as host:port. Owner or local desk
+    /// only.
+    #[serde(rename = "browser.local.list")]
+    BrowserLocalList { persona_id: String },
+    /// Takes one of those answers back: the teammate's next `navigate` to
+    /// it asks again. Owner or local desk only.
+    #[serde(rename = "browser.local.remove")]
+    BrowserLocalRemove { persona_id: String, origin: String },
     /// Every teammate holding the person's cookies, with the sites. Owner or
     /// local desk only.
     #[serde(rename = "computer.cookies.holders")]

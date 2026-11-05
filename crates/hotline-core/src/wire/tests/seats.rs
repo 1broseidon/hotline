@@ -400,6 +400,15 @@ fn only_the_desk_seat_may_share_host_cookies() {
             ends: None,
         },
         Command::ComputerCookieHolders {},
+        // The local addresses a desk browser may open are the person's
+        // answers, listed and taken back from the desk alone.
+        Command::BrowserLocalList {
+            persona_id: persona_id(),
+        },
+        Command::BrowserLocalRemove {
+            persona_id: persona_id(),
+            origin: "localhost:5173".into(),
+        },
     ];
     for command in &commands {
         assert!(Seat::Desk.permits(command), "{command:?}");

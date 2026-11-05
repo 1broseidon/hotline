@@ -842,6 +842,16 @@ pub(crate) async fn run(
             .cookie_source_set(&browser_id, &profile_id, on)
             .await
             .map(|sources| json!(sources)),
+        Command::BrowserLocalList { persona_id } => room
+            .browser_local_list(&persona_id)
+            .await
+            .map(|origins| json!(origins)),
+        Command::BrowserLocalRemove { persona_id, origin } => {
+            room.browser_local_remove(&persona_id, &origin).await?;
+            room.browser_local_list(&persona_id)
+                .await
+                .map(|origins| json!(origins))
+        }
         Command::ComputerCookieHolders {} => {
             room.cookie_holders().await.map(|holders| json!(holders))
         }

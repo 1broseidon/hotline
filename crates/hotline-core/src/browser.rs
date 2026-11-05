@@ -649,15 +649,35 @@ impl Gate {
             ports.extend(never.iter().copied());
         }
         let mut granted = self.granted.write().unwrap_or_else(PoisonError::into_inner);
-        for event in log.load(&StreamId::Room) {
-            if event["kind"] == ALLOWED
-                && event["deleted"] != true
-                && let (Some(persona), Some(origin)) =
-                    (event["persona"].as_str(), event["origin"].as_str())
-            {
-                granted.insert((persona.to_string(), origin.to_string()));
-            }
+        granted.extend(always_allowed(log));
+    }
+
+    /// A teammate's "Always allow" answers, as host:port, sorted.
+    pub fn always(&self, log: &Log, persona_id: &str) -> Vec<String> {
+        let mut origins: Vec<String> = always_allowed(log)
+            .into_iter()
+            .filter(|(persona, _)| persona == persona_id)
+            .map(|(_, origin)| origin)
+            .collect();
+        origins.sort();
+        origins
+    }
+
+    /// Takes one answer back, "Always allow" or this run's "Allow": struck
+    /// from the room and from this run, so the teammate's next `navigate` to
+    /// it asks again.
+    pub fn disallow(&self, log: &Log, persona_id: &str, origin: &str) -> Result<(), String> {
+        self.granted
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&(persona_id.to_string(), origin.to_string()));
+        if self.always(log, persona_id).iter().any(|one| one == origin) {
+            let mut struck = allowed_event(persona_id, origin);
+            struck["deleted"] = true.into();
+            log.append(&StreamId::Room, &struck)
+                .map_err(|error| error.to_string())?;
         }
+        Ok(())
     }
 
     /// Asks `live` for the running computers' published ports at each load.
@@ -734,17 +754,7 @@ impl Gate {
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|(persona, _)| persona != persona_id);
-        let always: HashSet<String> = log
-            .load(&StreamId::Room)
-            .into_iter()
-            .filter(|event| {
-                event["kind"] == ALLOWED
-                    && event["deleted"] != true
-                    && event["persona"] == persona_id
-            })
-            .filter_map(|event| event["origin"].as_str().map(str::to_string))
-            .collect();
-        for origin in &always {
+        for origin in &self.always(log, persona_id) {
             let mut struck = allowed_event(persona_id, origin);
             struck["deleted"] = true.into();
             let _ = log.append(&StreamId::Room, &struck);
@@ -856,6 +866,29 @@ fn macos_major() -> Option<u32> {
         .trim()
         .parse()
         .ok()
+}
+
+/// Every "Always allow" still standing, read in order: an answer struck
+/// later (taken back, or its teammate deleted) is gone, and one given again
+/// after that stands again.
+fn always_allowed(log: &Log) -> HashSet<(String, String)> {
+    let mut standing = HashSet::new();
+    for event in log.load(&StreamId::Room) {
+        if event["kind"] != ALLOWED {
+            continue;
+        }
+        let (Some(persona), Some(origin)) = (event["persona"].as_str(), event["origin"].as_str())
+        else {
+            continue;
+        };
+        let key = (persona.to_string(), origin.to_string());
+        if event["deleted"] == true {
+            standing.remove(&key);
+        } else {
+            standing.insert(key);
+        }
+    }
+    standing
 }
 
 fn allowed_event(persona_id: &str, origin: &str) -> Value {
@@ -1284,6 +1317,36 @@ mod tests {
             text: "hunter2".into(),
         };
         assert!(!format!("{act:?}").contains("hunter2"));
+    }
+
+    /// An answer taken back stays taken back across a restart, and one given
+    /// again after that stands again.
+    #[test]
+    fn an_always_allow_taken_back_is_gone_after_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::open(dir.path());
+        let gate = Gate::default();
+        gate.allow_always(&log, "kit", "localhost:2322").unwrap();
+        gate.allow_always(&log, "kit", "localhost:5173").unwrap();
+        assert_eq!(
+            gate.always(&log, "kit"),
+            ["localhost:2322", "localhost:5173"]
+        );
+        gate.disallow(&log, "kit", "localhost:2322").unwrap();
+        assert!(!gate.granted("kit", "localhost:2322"));
+        let restarted = Gate::default();
+        restarted.load(&log, &[]);
+        assert!(
+            !restarted.granted("kit", "localhost:2322"),
+            "struck stays struck"
+        );
+        assert!(restarted.granted("kit", "localhost:5173"));
+        restarted
+            .allow_always(&log, "kit", "localhost:2322")
+            .unwrap();
+        let again = Gate::default();
+        again.load(&log, &[]);
+        assert!(again.granted("kit", "localhost:2322"), "given again stands");
     }
 
     #[test]

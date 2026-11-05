@@ -1311,6 +1311,14 @@ impl RoomHandle for Desk {
         Ok(self.room.cookie_holders())
     }
 
+    async fn browser_local_list(&self, persona_id: &str) -> Result<Vec<String>, String> {
+        Ok(self.room.browser_local_list(persona_id))
+    }
+
+    async fn browser_local_remove(&self, persona_id: &str, origin: &str) -> Result<(), String> {
+        self.room.browser_local_remove(persona_id, origin)
+    }
+
     async fn computer_cookies_push(
         &self,
         persona_id: &str,

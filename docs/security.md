@@ -829,7 +829,12 @@ below; everything else holds on both.
   IPv6 raises a permission card on the teammate's chat: "Kit wants to open
   localhost:2322 in its browser", with the page it was on. Allow holds for
   that teammate and that host and port until the desk stops; Always allow is
-  a `browser_local_allowed` event in the room; Deny refuses the call. An
+  a `browser_local_allowed` event in the room, listed under the teammate's
+  Permissions › Local addresses (`browser.local.list`, desk or owner only),
+  where Remove (`browser.local.remove`) strikes it from the room and from the
+  run, so the next `navigate` there asks again; a struck answer stays struck
+  across a restart (`an_always_allow_taken_back_is_gone_after_a_restart`).
+  Deny refuses the call. An
   answer is for one teammate and one host and port. An address the person types into
   the pane's bar while they have control is their answer already: it opens
   with no card and is allowed as Allow would, for that teammate and that

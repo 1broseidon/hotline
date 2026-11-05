@@ -545,6 +545,16 @@ impl Room {
         *self.browser.write().unwrap_or_else(PoisonError::into_inner) = Some(browser);
     }
 
+    /// The local addresses this teammate's desk browser may always open.
+    pub fn browser_local_list(&self, persona_id: &str) -> Vec<String> {
+        self.browser_gate.always(&self.log, persona_id)
+    }
+
+    /// Takes an "Always allow" back.
+    pub fn browser_local_remove(&self, persona_id: &str, origin: &str) -> Result<(), String> {
+        self.browser_gate.disallow(&self.log, persona_id, origin)
+    }
+
     /// What the room keeps of a teammate's desk browser, let go: the PIP's
     /// view and picture, the person's short allowances for its keys, a
     /// passkey card it waits on; with `wipe`, the person's answers about

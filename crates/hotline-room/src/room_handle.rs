@@ -612,6 +612,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn cookie_holders(&self) -> Result<Vec<hotline_contract::CookieHolder>, String> {
         Err(NO_COOKIES.into())
     }
+    /// The local addresses a teammate's desk browser may always open.
+    async fn browser_local_list(&self, _persona_id: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    /// Takes an "Always allow" back.
+    async fn browser_local_remove(&self, _persona_id: &str, _origin: &str) -> Result<(), String> {
+        Err("This desk keeps no browser.".into())
+    }
     async fn computer_cookies_push(
         &self,
         _persona_id: &str,

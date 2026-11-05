@@ -234,6 +234,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.cookies.sources` | `{}` | `{sources: [{browserId, browserName, profileId, profileName, on}], blocked: string[]}` — each browser profile on the desk host, switched on or off as a cookie source; reads no cookie store. `blocked` says which installed browsers the host refuses the desk and what to allow |
 | `computer.cookies.source.set` | `{browserId, profileId, on}` | the sources as they stand; a profile switched off is read for nothing at all |
 | `computer.cookies.holders` | `{}` | `CookieHolder[]` `{teammate, name, sites}` — every teammate holding the person's cookies |
+| `browser.local.list` | `{personaId}` | `string[]` — the local addresses (host:port) the teammate's desk browser may always open, the person's "Always allow" answers. Desk or owner only |
+| `browser.local.remove` | `{personaId, origin}` | `string[]` — the list after taking one back; the teammate's next `navigate` there asks again. Desk or owner only |
 | `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
 | `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — the cookies shared with the teammate, metadata only, removable after restart; desk and phone |
 | `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery; desk and owner only |

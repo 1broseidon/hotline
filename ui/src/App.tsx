@@ -722,9 +722,9 @@ export function App() {
 						}} />}
 					</div>
 				)}
+				{full !== null && <FullView object={full} onClose={closeFull} />}
 				</div>
 				</OpenFull.Provider>
-				{full !== null && <FullView object={full} onClose={closeFull} />}
 			</main>
 			</div>
 			)}

@@ -19,6 +19,8 @@ struct Fake {
     named: StdMutex<Vec<String>>,
     /// How many viewports tall the page is, for a full-page look.
     viewports: StdMutex<u32>,
+    /// Each close the core asked for: whose, and whether it wiped.
+    closed: StdMutex<Vec<(String, bool)>>,
 }
 
 /// A blank PNG 4 wide and `height` tall, so a picture's height says which
@@ -94,6 +96,14 @@ impl DeskBrowser for Fake {
     }
     fn name_teammate(&self, _persona_id: &str, name: &str) {
         self.named.lock().unwrap().push(name.to_string());
+    }
+    async fn close(&self, persona_id: &str, wipe: bool) -> Result<(), String> {
+        self.opened.lock().unwrap().clear();
+        self.closed
+            .lock()
+            .unwrap()
+            .push((persona_id.to_string(), wipe));
+        Ok(())
     }
 }
 
@@ -353,7 +363,20 @@ async fn a_local_address_the_person_types_opens_without_a_card_but_not_the_desks
 #[tokio::test(flavor = "multi_thread")]
 async fn the_desks_own_ports_never_open_and_never_ask() {
     let (room, fake) = with_browser("browser-never", &[4000]);
-    for link in ["http://localhost:4000/", "http://127.0.0.1:11434/api/tags"] {
+    // A listener of this process's opened after install, as the MCP server
+    // or a sign-in callback is, is the desk's too.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let _held = crate::listening::hold(port);
+    let listening = format!("http://127.0.0.1:{port}/mcp");
+    for link in [
+        "http://localhost:4000/",
+        "http://127.0.0.1:11434/api/tags",
+        // A name that resolves to this machine is this machine.
+        "http://127.0.0.1.nip.io:4000/",
+        "http://localhost.:4000/",
+        &listening,
+    ] {
         let refused = tools(&room)
             .call(BROWSER, &navigate(link))
             .await
@@ -367,6 +390,74 @@ async fn the_desks_own_ports_never_open_and_never_ask() {
             .any(|event| event["kind"] == "permission"),
         "a port that never opens raises no card to wear the person down"
     );
+}
+
+/// A deleted teammate leaves nothing of its browser behind: the app closes
+/// it and wipes its web storage, lent cookies and all, and the room lets go
+/// of its picture and the person's answers about its local addresses, those
+/// kept in the room included.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_teammate_closes_and_wipes_its_browser_and_forgets_its_answers() {
+    let (room, fake) = with_browser("browser-delete", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    assert!(room.browser_view("ada").is_some());
+    let gate = room.browser_gate();
+    gate.allow_always(room.log(), "ada", "localhost:2322")
+        .unwrap();
+    gate.allow("ada", "localhost:5173");
+    gate.allow("bob", "localhost:5173");
+
+    room.forget("ada");
+    for _ in 0..200 {
+        if !fake.closed.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(*fake.closed.lock().unwrap(), [("ada".to_string(), true)]);
+    assert!(
+        room.browser_view("ada").is_none(),
+        "the PIP has nothing left"
+    );
+    assert!(room.browser_snapshot("ada").is_none());
+    assert!(!gate.granted("ada", "localhost:2322"));
+    assert!(!gate.granted("ada", "localhost:5173"));
+    assert!(gate.granted("bob", "localhost:5173"), "Bob's answer is his");
+    let next = crate::browser::Gate::default();
+    next.load(room.log(), &[]);
+    assert!(
+        !next.granted("ada", "localhost:2322"),
+        "an Always allow does not outlive the teammate"
+    );
+}
+
+/// A teammate whose computer is turned on has its computer's browser: the
+/// desk browser closes, and its storage and the person's answers stay for
+/// when the computer is turned off again, so its sign-ins move back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_computer_turned_on_closes_the_desk_browser_and_keeps_its_store() {
+    let (room, fake) = with_browser("browser-computer-on", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    room.browser_gate().allow("ada", "localhost:2322");
+    let mut ada = ada();
+    ada.computer = Some(serde_json::from_value(json!({ "enabled": true })).unwrap());
+    write_persona(room.log(), ada);
+    room.reattach("ada").await.unwrap();
+    assert_eq!(*fake.closed.lock().unwrap(), [("ada".to_string(), false)]);
+    assert!(room.browser_view("ada").is_none(), "its PIP goes");
+    assert!(
+        room.browser_gate().granted("ada", "localhost:2322"),
+        "the person's answers stay with the teammate"
+    );
+    // A reattach for anything else, with no computer, closes nothing.
+    room.reattach("bob").await.unwrap();
+    assert_eq!(fake.closed.lock().unwrap().len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]

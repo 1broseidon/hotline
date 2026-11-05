@@ -824,7 +824,8 @@ it. A teammate with a computer keeps its computer's browser, and a subagent
 run or a voice front is not offered either. Where Linux differs it is said
 below; everything else holds on both.
 
-- **Local addresses ask the person.** A link that names, or resolves to,
+- **Local addresses ask the person.** Only the agent's own `navigate` asks.
+  A link that names, or resolves to,
   loopback, a private range, link-local, carrier-grade NAT or unique-local
   IPv6 raises a permission card on the teammate's chat: "Kit wants to open
   localhost:2322 in its browser", with the page it was on. Allow holds for
@@ -835,25 +836,95 @@ below; everything else holds on both.
   with no card and is allowed as Allow would, for that teammate and that
   host and port; only the desk's own ports stay shut to them too.
 - **The desk's own ports never open.** The Door's port, the dev window's dev
-  server, Ollama's 11434 and every running computer's published port are
-  refused without a card, so no answer can open them.
+  server, Ollama's 11434, every port this process listens on and every
+  running computer's published port are refused without a card, so no
+  answer can open them, whoever asks: the teammate's `navigate`, the page's
+  own redirects, popups and frames, or the person's bar. The listeners are
+  held in a table of the process's (`hotline-support/src/listening.rs`)
+  for as long as each serves: the Door, the teammates' MCP server (the one
+  that answers 401 without its bearer), the phone's Remote, a provider's or
+  an MCP server's sign-in callback, an MCP OAuth proxy and the next
+  launch's knock; the gate asks that table and the computers at each load,
+  so a listener or a computer that came up after the browser did is
+  refused too (`Gate::never`). A port is the desk's on a local address in
+  any spelling (`127.0.0.1`, `2130706433`, `[::ffff:127.0.0.1]`, a private
+  or link-local one) and on **any host name at all**: only WebKit's own
+  lookup, at connect time, says where a name lands, and a name that
+  answered a public address to a check made first can answer loopback to
+  the load (DNS rebinding), so `127.0.0.1.nip.io:<the Door's port>` and
+  `localhost.:<port>` are refused without asking DNS (`Gate::own`). A
+  public IP address on one of those port numbers is another machine's
+  server and opens. Each listener still checks its own bearer; the gate is
+  the wall in front of it.
 - **Once a page is open, it is a browser.** The card is the teammate's
   `navigate` question only. The page's own redirects, a sign-in that
   round-trips through an identity provider on the network, and the
   pictures, scripts and frames a page loads go where they go, local or not,
-  as in any browser on this computer. WebKit still asks the core's `Gate`
-  before every top-level load, which refuses only what is not http, https or
-  `about:blank`, and the desk's own ports on a local host, the teammate's,
-  the page's or the person's. A page that opens a window gets the same view
-  instead, through the same check. Downloads are refused. The page starts
-  on `about:blank` with every load refused until the desk listens for its
-  failures (a delegate in front of wry's on macOS, `load-failed` and
-  `load-failed-with-tls-errors` handlers on WebKitGTK), then is sent on.
-  wry asks the gate for a frame's navigation as well as the page's, on both
-  platforms. The cost, by choice: a public page the teammate
-  opens can make requests to the local network, as it could in the
-  person's own browser; what it gets back stays behind the browser's
-  same-origin rules, and the teammate reads only the page it is on.
+  as in any browser on this computer. The app asks the core's `Gate` before
+  every top-level load (the agent's, the page's own and the person's;
+  `Gate::admits`), which refuses what is not http, https or
+  `about:blank`, and the desk's own ports. A frame inside the page is the
+  page's business and is judged by the frame's rule instead
+  (`Gate::admits_frame`): `about:srcdoc`, `data:` and `blob:` frames, as a
+  sign-in, payment or embed builds, load too, and only another scheme
+  (`file:`, the shell's own `tauri:` and `ipc:`) and the desk's own ports
+  are refused; a frame refused never fails the teammate's call. On macOS
+  the desk's navigation delegate in front of wry's tells the two apart by
+  WebKit's target frame: the main frame's load (and a new window's first)
+  goes on to wry's handler and the page's rule, a subframe's is judged by
+  the frame's rule there and then. WebKitGTK says not which frame a load
+  is for (its UI-process API has no main-frame flag), so on Linux every
+  load is judged by the frame's rule: there a page may also put an
+  `about:srcdoc`, `data:` or `blob:` document at the top of its own
+  window, still never a file, the shell or the desk, and a refused load
+  answers the call that was waiting. Downloads are refused. The page
+  starts on `about:blank` with every load refused until the desk listens
+  for its failures (a delegate in front of wry's on macOS, `load-failed`
+  and `load-failed-with-tls-errors` handlers on WebKitGTK), then is sent
+  on. The cost, by choice: a public page the teammate opens can make
+  requests to the local network, as it could in the person's own browser;
+  what it gets back stays behind the browser's same-origin rules, and the
+  teammate reads only the page it is on.
+- **A popup is a window of the teammate's own.** A page's `window.open`, or
+  a link it opens in a new window, opens a popup beside the page, hidden
+  as the page is unless the pane is open, made on WebKit's own
+  configuration for it: the same web data store, process and passkey
+  handler, and its `window.opener`, so an identity provider's popup
+  sign-in answers the page that opened it. Its address is asked of the
+  gate's page rule first, and its own loads and frames are asked as the
+  page's are; it has the same trust delegate, hands and shield, and no
+  capability names its window (`browser-<id>-popup-<n>`), so it reaches
+  none of the shell's commands, as the page reaches none. One is open at a time: a second `window.open` goes into it. While
+  it is open the teammate's reads, acts and screenshots go to it, and an
+  act that opened or closed it says so. It closes on its own
+  `window.close()` (the desk answers WebKit's `webViewDidClose:` on macOS,
+  which wry does not, and WebKitGTK's `close` on Linux), on the person
+  closing its window, on the teammate's `navigate` or an address the
+  person types, and with the browser; then the teammate is back on the
+  page. If a popup cannot be made the page goes to its address itself, as
+  before, which loses the opener.
+- **A closed teammate's browser goes.** `DeskBrowser::close` takes the
+  popup, the window with the page and the bar, and all the app kept for
+  them (the shield, the hands, the trust delegate, the Linux seat and its
+  offscreen window, the certificates let through). A teammate deleted has
+  its browser closed and **wiped** (`Room::forget`): its web storage is
+  emptied of every kind of data through the open page's own store (so what
+  WebKit holds in memory goes too; WebKit's store by its id, or a manager on
+  its data directory, when no page is open), then the store itself is
+  removed once no web view uses it, `WKWebsiteDataStore`'s
+  `removeDataStoreForIdentifier:` on macOS and the
+  `desk-browser/<hash>` data directory on Linux, so lent cookies leave
+  with it. The room drops its PIP view and picture, the person's short
+  key allowances, a passkey card it waits on, and every answer about its
+  local addresses: those of the run, and each Always allow struck from
+  the room. A teammate whose computer is turned on (the reattach that
+  follows the change) has its desk browser **closed, not wiped**, as its
+  computer's browser takes its place: its store, its sign-ins and the
+  person's answers stay for when the computer is turned off again, so it
+  moves back to the desk browser where it was (task-372). Residual: on
+  Linux a WebKitGTK web context lives as long as the app (Tauri keeps it
+  for the network process), so a deleted teammate's context, emptied, is
+  held in memory until the app quits.
 - **A certificate WebKit refuses stays refused, but for the person.** The
   desk listens for a teammate page's failed loads
   (`hotline-app/src/browser/native/trust.rs`): on macOS a navigation
@@ -912,12 +983,17 @@ below; everything else holds on both.
   scrolls and does nothing with them (a plain view would hand them up to the
   window, which passes them to the page), and the page loses keyboard focus,
   so watching never moves the page. On Linux the shield is an input-only GTK
-  event box in the page's overlay that stops the same events. Take control sets
-  the teammate's browser to the person (`browser.take`); until Give it back,
-  the teammate may read the page but every move it asks for is refused. The
-  bar's own back, forward, reload and address act only while the person has
-  it, and its address goes through the same gate: a local address is opened
-  by the teammate asking, so the card is raised.
+  event box in the page's overlay that stops the same events. Take control
+  (`browser_bar_take`) sets the teammate's browser to the person and lifts
+  the shield, from the page and an open popup; until Give it back, the
+  teammate may read the page but every move it asks for is refused, and
+  there is no wire command for it, so only the pane's bar can take a
+  teammate's browser. Closing the pane while the person has control hands
+  it back as Give it back would, so the teammate's calls do not wait on a
+  pane nobody sees. The bar's own back, forward, reload and address act
+  only while the person has it. An address typed there is the person's own:
+  it goes through the gate's page rule, a local one opens with no card
+  (above), and the desk's own ports never do.
 - **Logins in the desk browser.** Secrets are granted to the teammate
   (`persona.secrets`), not its computer. `browser fill` with `secret`
   `NAME.username`, `NAME.password` or `NAME.code` is typed by the desk only
@@ -969,6 +1045,12 @@ below; everything else holds on both.
   cannot be kept. The script is not added there, no passkey is reachable
   from a Linux desk browser, and WebKitGTK itself has no
   `navigator.credentials` for a site to ask.
+- **What it is told.** A teammate with no computer is told in its preamble
+  that it has a browser of its own only when this desk installed one as
+  its session started (`Room::desk_browser`), so `hotline serve` and a
+  platform the app has none for never promise one.
+- **A debug switch stays in debug.** `HOTLINE_BROWSER_SHOW`, which shows a
+  teammate's window from the start, is read only in a debug build.
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
   last JPEG the desk took after a teammate's move; the phone seat may read it,
   as it reads the conversation the page came up in.
@@ -1068,7 +1150,8 @@ extend; when a change adds a boundary, it adds a row.
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
-| A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme | `hotline-core/src/browser.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking is checked by hand |
+| A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme; a frame loads `about:srcdoc`, `data:` and `blob:` but never a file, the shell or the desk; the desk's ports are every listener of the process and every running computer, asked at the load, on any local address or any name | `hotline-core/src/browser.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`, `a_frame_loads_what_a_browser_would_but_files_the_shell_and_the_desk`, `a_desk_port_is_refused_by_any_name_and_any_local_address_but_not_a_public_one`, `every_listener_of_the_process_and_every_running_computer_is_the_desks`; `hotline-support/src/listening.rs` `a_port_is_held_while_any_holder_of_it_is_kept`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking, the frame split and popups are checked by hand |
+| A deleted teammate's desk browser is closed and its store wiped, and the room forgets its view and every answer about its local addresses, Always allow included; a computer turned on closes the desk browser and keeps its store and answers; a session is told of its desk browser only where one is installed | `hotline-core/src/mcp/server/tests/desk_browser.rs` `deleting_a_teammate_closes_and_wipes_its_browser_and_forgets_its_answers`, `a_computer_turned_on_closes_the_desk_browser_and_keeps_its_store`; `hotline-core/src/browser.rs` `a_forgotten_teammates_answers_are_gone_from_the_run_and_the_room`; `session/tests/preamble.rs` `a_session_hears_of_its_desk_browser_only_where_one_is_installed` | WebKit's store removal is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |

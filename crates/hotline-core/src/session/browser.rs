@@ -171,6 +171,12 @@ fn options(origin: &str) -> Vec<PermissionOption> {
     ]
 }
 
+/// The refusal of an address on one of the desk's own ports.
+fn own_port(url: &url::Url) -> String {
+    let origin = desk_browser::origin_key(url).unwrap_or_else(|| url.to_string());
+    format!("{origin} is one of Hotline's own ports, which a teammate's browser never opens.")
+}
+
 fn page_line(page: &Page) -> String {
     let title = if page.title.trim().is_empty() {
         "(no title)"
@@ -321,10 +327,58 @@ fn act_of(action: &str, arguments: &Value) -> Result<Act, String> {
 }
 
 impl Room {
-    /// The app's browser, with the desk's own ports the guard never offers.
+    /// The app's browser, with the desk's own ports the guard never offers:
+    /// those given, every port this process listens on, and the running
+    /// computers', each asked at the load.
     pub fn install_browser(&self, browser: Arc<dyn DeskBrowser>, never_ports: &[u16]) {
         self.browser_gate.load(&self.log, never_ports);
+        let computers = self.computers.clone();
+        self.browser_gate
+            .watch_computers(move || computers.live_ports());
         *self.browser.write().unwrap_or_else(PoisonError::into_inner) = Some(browser);
+    }
+
+    /// What the room keeps of a teammate's desk browser, let go: the PIP's
+    /// view and picture, the person's short allowances for its keys, a
+    /// passkey card it waits on; with `wipe`, the person's answers about
+    /// its local addresses too. Answers the browser to close, when the
+    /// desk has one.
+    fn browser_let_go(&self, persona_id: &str, wipe: bool) -> Option<Arc<dyn DeskBrowser>> {
+        lock(&self.browser_views).remove(persona_id);
+        lock(&self.browser_key_allows).retain(|(persona, _, _), _| persona != persona_id);
+        lock(&self.browser_passkey_asks).remove(persona_id);
+        if wipe {
+            self.browser_gate.forget(&self.log, persona_id);
+        }
+        self.desk_browser()
+    }
+
+    /// A deleted teammate's desk browser: closed, its web storage wiped and
+    /// everything the room kept of it gone.
+    pub(super) fn browser_forget(&self, persona_id: &str) {
+        if let Some(browser) = self.browser_let_go(persona_id, true) {
+            let id = persona_id.to_string();
+            tokio::spawn(async move {
+                if let Err(error) = browser.close(&id, true).await {
+                    eprintln!("[browser] a deleted teammate's browser was not wiped: {error}");
+                }
+            });
+        }
+    }
+
+    /// A teammate whose computer is on now has its computer's browser: its
+    /// desk browser closes, and its web storage stays for when the computer
+    /// is turned off again, so its sign-ins move back with it.
+    pub(super) async fn browser_retire(&self, persona_id: &str) {
+        let had = lock(&self.browser_views).contains_key(persona_id);
+        if let Some(browser) = self.browser_let_go(persona_id, false)
+            && let Err(error) = browser.close(persona_id, false).await
+        {
+            eprintln!("[browser] a teammate's desk browser did not close: {error}");
+        }
+        if had {
+            let _ = self.info_changes.send(self.info(persona_id));
+        }
     }
 
     /// The guard the app asks before every top-level load.
@@ -783,16 +837,13 @@ impl Room {
         persona_id: &str,
         url: &url::Url,
     ) -> Result<(), String> {
+        if self.browser_gate.own(url) {
+            return Err(own_port(url));
+        }
         if !desk_browser::reaches_local(url).await {
             return Ok(());
         }
         let origin = desk_browser::origin_key(url).ok_or("That address has no host and port.")?;
-        let port = url.port_or_known_default().unwrap_or(0);
-        if self.browser_gate.never(port) || self.computers.live_ports().contains(&port) {
-            return Err(format!(
-                "{origin} is one of Hotline's own ports, which a teammate's browser never opens."
-            ));
-        }
         self.browser_gate.allow(persona_id, &origin);
         Ok(())
     }
@@ -838,16 +889,13 @@ impl Room {
         url: &url::Url,
         browser: &dyn DeskBrowser,
     ) -> Result<(), String> {
+        if self.browser_gate.own(url) {
+            return Err(own_port(url));
+        }
         if !desk_browser::reaches_local(url).await {
             return Ok(());
         }
         let origin = desk_browser::origin_key(url).ok_or("That link has no host and port.")?;
-        let port = url.port_or_known_default().unwrap_or(0);
-        if self.browser_gate.never(port) || self.computers.live_ports().contains(&port) {
-            return Err(format!(
-                "{origin} is one of Hotline's own ports, which a teammate's browser never opens."
-            ));
-        }
         if self.browser_gate.granted(persona_id, &origin) {
             return Ok(());
         }

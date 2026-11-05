@@ -19,11 +19,11 @@ use std::sync::{Mutex, PoisonError};
 #[cfg(target_os = "macos")]
 mod apple;
 #[cfg(target_os = "macos")]
-pub(super) use apple::attach;
+pub(super) use apple::{attach, forget};
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub(super) use linux::{attach, let_through};
+pub(super) use linux::{attach, forget, let_through};
 
 /// The certificates the person chose to visit anyway: teammate, host:port
 /// and the leaf's SHA-256, for the desk's run.
@@ -58,6 +58,14 @@ impl Exceptions {
                 origin.to_string(),
                 fingerprint.to_string(),
             ));
+    }
+
+    /// A teammate's browser closed: the certificates let through for it go.
+    pub(super) fn forget(&self, persona_id: &str) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(persona, _, _)| persona != persona_id);
     }
 
     /// Whether the person let any certificate through on `origin`.

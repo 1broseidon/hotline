@@ -64,6 +64,10 @@ impl DeskBrowser for Browser {
         self.forgotten.lock().unwrap().push(site.into());
         Ok(())
     }
+    async fn close(&self, _persona_id: &str, _wipe: bool) -> Result<(), String> {
+        *self.page.lock().unwrap() = None;
+        Ok(())
+    }
 }
 
 fn delivered(room: &Arc<Room>, words: &str) -> bool {

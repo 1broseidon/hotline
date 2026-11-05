@@ -3,14 +3,15 @@
 
 use super::Step;
 use block2::RcBlock;
-use objc2::runtime::AnyObject;
-use objc2::{MainThreadMarker, MainThreadOnly};
+use objc2::rc::Retained;
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType, NSImage,
     NSView, NSWindow, NSWindowCollectionBehavior, NSWindowOrderingMode,
 };
 use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
-use objc2_web_kit::{WKContentWorld, WKWebView};
+use objc2_web_kit::{WKContentWorld, WKUIDelegate, WKWebView};
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::oneshot;
@@ -272,6 +273,80 @@ pub(super) fn shield(view_ptr: *mut c_void, on: bool) {
         parent.addSubview_positioned_relativeTo(&shield, NSWindowOrderingMode::Above, Some(page));
         shields.insert(key, shield);
     });
+}
+
+/// Lets go of what the desk put over a page that is closing: its shield.
+/// The hands, the trust delegate and the popup's door have their own.
+pub(super) fn forget(view_ptr: *mut c_void) {
+    shield(view_ptr, false);
+    DOORS.with(|doors| doors.borrow_mut().remove(&(view_ptr as usize)));
+}
+
+pub(super) struct DoorIvars {
+    inner: Retained<ProtocolObject<dyn WKUIDelegate>>,
+    closed: Box<dyn Fn()>,
+}
+
+objc2::define_class!(
+    /// A popup's UI delegate, in front of wry's: wry answers nothing when
+    /// the popup's own script closes it (`window.close()`, as a sign-in
+    /// popup does once it has answered its opener), so the desk does, and
+    /// passes everything else to wry's.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = DoorIvars]
+    #[name = "HotlineBrowserPopupDoor"]
+    struct PopupDoor;
+
+    impl PopupDoor {
+        #[unsafe(method(respondsToSelector:))]
+        fn responds(&self, selector: Sel) -> bool {
+            // SAFETY: NSObject's own answer for this class.
+            let ours: bool = unsafe { objc2::msg_send![super(self), respondsToSelector: selector] };
+            ours || self.ivars().inner.respondsToSelector(selector)
+        }
+
+        #[unsafe(method(forwardingTargetForSelector:))]
+        fn forwarding(&self, _selector: Sel) -> *mut AnyObject {
+            Retained::as_ptr(&self.ivars().inner) as *mut AnyObject
+        }
+    }
+
+    unsafe impl NSObjectProtocol for PopupDoor {}
+
+    unsafe impl WKUIDelegate for PopupDoor {
+        #[unsafe(method(webViewDidClose:))]
+        fn did_close(&self, _web_view: &WKWebView) {
+            (self.ivars().closed)();
+        }
+    }
+);
+
+thread_local! {
+    /// WebKit holds a UI delegate weakly: each popup's door is kept here,
+    /// by its web view, until the popup closes.
+    static DOORS: std::cell::RefCell<std::collections::HashMap<usize, Retained<PopupDoor>>> =
+        std::cell::RefCell::default();
+}
+
+/// Puts the desk's door in front of wry's UI delegate on a popup, so its
+/// own `window.close()` runs `closed`.
+pub(super) fn watch_close(view_ptr: *mut c_void, closed: Box<dyn Fn()>) {
+    let Some(main) = MainThreadMarker::new() else {
+        return;
+    };
+    // SAFETY: see `view`.
+    let view = unsafe { view(view_ptr) };
+    // SAFETY: a plain getter on the main thread.
+    let Some(inner) = (unsafe { view.UIDelegate() }) else {
+        return;
+    };
+    let door = PopupDoor::alloc(main).set_ivars(DoorIvars { inner, closed });
+    // SAFETY: allocated with its ivars set; NSObject's init returns it.
+    let door: Retained<PopupDoor> = unsafe { objc2::msg_send![super(door), init] };
+    // SAFETY: the door answers WKUIDelegate and forwards the rest.
+    unsafe { view.setUIDelegate(Some(ProtocolObject::from_ref(&*door))) };
+    DOORS.with(|doors| doors.borrow_mut().insert(view_ptr as usize, door));
 }
 
 /// Keeps a page's shield over it after the window is resized.

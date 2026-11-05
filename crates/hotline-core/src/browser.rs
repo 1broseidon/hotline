@@ -10,9 +10,10 @@
 //! this machine or the local network opens only once the person allowed
 //! that host and port for that teammate, on a card that says who wants to
 //! open what. Once a page is open the browser is a browser: its redirects,
-//! sign-in round trips and the pages it loads go where they go. Only the
-//! desk's own ports never open, by the teammate, the page or the person
-//! ([`Gate::admits`]).
+//! sign-in round trips, popups and the frames it loads go where they go.
+//! Only the desk's own ports and schemes that are not the web's never open,
+//! by the teammate, the page or the person ([`Gate::admits`] for a page,
+//! [`Gate::admits_frame`] for a frame in one).
 
 pub mod authenticator;
 
@@ -276,6 +277,15 @@ pub trait DeskBrowser: Send + Sync {
     async fn forget_cookies(&self, _persona_id: &str, _site: &str) -> Result<(), String> {
         Err(NO_COOKIES.into())
     }
+    /// Closes the teammate's browser: its window, its page, a popup it
+    /// opened, and everything the app keeps for it, so nothing of it is
+    /// left driving or drawn. With `wipe`, its web storage goes too, its
+    /// cookies (lent ones included), sign-ins and cache, as for a teammate
+    /// deleted; without it the storage stays for its next page, as for one
+    /// whose computer was turned on and may be turned off again. A teammate
+    /// with no browser open is closed already, and a wipe still empties its
+    /// storage.
+    async fn close(&self, persona_id: &str, wipe: bool) -> Result<(), String>;
 }
 
 const NO_COOKIES: &str = "This desk browser cannot hold lent cookies.";
@@ -369,12 +379,21 @@ pub fn origin_key(url: &Url) -> Option<String> {
 
 /// Which local addresses each teammate's browser may load: the person's
 /// answers, held for the desk's run ("Allow") or in the room for good
-/// ("Always allow"), and the ports never offered.
+/// ("Always allow"), and the desk's own ports, never offered.
 #[derive(Default)]
 pub struct Gate {
+    /// The ports given at install: the Door's, the dev window's server's,
+    /// Ollama's. Every listener of this process's is asked at each load
+    /// besides ([`crate::listening`]), and so are the running computers'.
     never: RwLock<HashSet<u16>>,
+    /// The loopback ports this desk's running computers are published on,
+    /// asked at each load.
+    computers: RwLock<Option<LivePorts>>,
     granted: RwLock<HashSet<(String, String)>>,
 }
+
+/// What answers the ports the desk's running computers are published on.
+type LivePorts = Box<dyn Fn() -> Vec<u16> + Send + Sync>;
 
 impl Gate {
     /// Reads the standing answers from the room and takes `never` as the
@@ -397,12 +416,48 @@ impl Gate {
         }
     }
 
-    /// Whether `port` is one the guard never offers.
+    /// Asks `live` for the running computers' published ports at each load.
+    pub fn watch_computers(&self, live: impl Fn() -> Vec<u16> + Send + Sync + 'static) {
+        *self
+            .computers
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Box::new(live));
+    }
+
+    /// Whether `port` is one of the desk's own now: one given at install,
+    /// one this process listens on, or a running computer's.
     pub fn never(&self, port: u16) -> bool {
         self.never
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .contains(&port)
+            || crate::listening::held(port)
+            || self
+                .computers
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .is_some_and(|live| live().contains(&port))
+    }
+
+    /// Whether `url` may reach one of the desk's own listeners: it is on one
+    /// of the desk's ports, and its host is this machine or the local network
+    /// by its address, or is a name. A name counts whatever it resolves to
+    /// now: only WebKit's own lookup, at connect time, says where it lands,
+    /// and a name that answered a public address to a check made first can
+    /// answer loopback to the load (DNS rebinding), so no lookup made here
+    /// could clear it. A public address on one of those ports is someone
+    /// else's server and opens.
+    pub fn own(&self, url: &Url) -> bool {
+        let Some(port) = url.port_or_known_default() else {
+            return false;
+        };
+        match url.host() {
+            Some(Host::Ipv4(ip)) => is_local_ip(IpAddr::V4(ip)) && self.never(port),
+            Some(Host::Ipv6(ip)) => is_local_ip(IpAddr::V6(ip)) && self.never(port),
+            Some(Host::Domain(_)) => self.never(port),
+            None => false,
+        }
     }
 
     pub fn granted(&self, persona_id: &str, origin: &str) -> bool {
@@ -428,21 +483,56 @@ impl Gate {
         Ok(())
     }
 
-    /// Whether the browser may load `url` as its page at all. The app asks
-    /// this before every top-level load: web pages and the blank page load,
-    /// anywhere but the desk's own ports on this machine or the network.
-    /// Which local addresses the teammate may ask for is the `navigate`
-    /// card's question, not this one's.
+    /// A deleted teammate's answers: gone from this run, and each "Always
+    /// allow" it had is struck from the room, so none outlives it.
+    pub fn forget(&self, log: &Log, persona_id: &str) {
+        self.granted
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(persona, _)| persona != persona_id);
+        let always: HashSet<String> = log
+            .load(&StreamId::Room)
+            .into_iter()
+            .filter(|event| {
+                event["kind"] == ALLOWED
+                    && event["deleted"] != true
+                    && event["persona"] == persona_id
+            })
+            .filter_map(|event| event["origin"].as_str().map(str::to_string))
+            .collect();
+        for origin in &always {
+            let mut struck = allowed_event(persona_id, origin);
+            struck["deleted"] = true.into();
+            let _ = log.append(&StreamId::Room, &struck);
+        }
+    }
+
+    /// Whether the browser may load `url` as its page, the top of the
+    /// window: the app asks this before every top-level load, the agent's,
+    /// the page's own and the person's. Web pages and the blank page load,
+    /// anywhere but the desk's own ports ([`Self::own`]). Which local
+    /// addresses the teammate may ask for is the `navigate` card's question,
+    /// not this one's.
     pub fn admits(&self, url: &Url) -> bool {
         match url.scheme() {
-            "about" => return url.as_str() == "about:blank",
-            "http" | "https" => {}
-            _ => return false,
+            "about" => url.as_str() == "about:blank",
+            "http" | "https" => !self.own(url),
+            _ => false,
         }
-        !(names_local(url)
-            && url
-                .port_or_known_default()
-                .is_some_and(|port| self.never(port)))
+    }
+
+    /// Whether a frame inside the page may load `url`. A frame is the page's
+    /// business, as in any browser: a sign-in, a payment or an embed, and
+    /// the inline documents a page builds for one (`about:srcdoc`, `data:`,
+    /// `blob:`), all load. Only what could reach this machine's files or
+    /// the desk itself is refused: any other scheme (`file:`, the shell's
+    /// own `tauri:` and `ipc:`), and the desk's own ports.
+    pub fn admits_frame(&self, url: &Url) -> bool {
+        match url.scheme() {
+            "about" => matches!(url.as_str(), "about:blank" | "about:srcdoc"),
+            "data" | "blob" => true,
+            _ => self.admits(url),
+        }
     }
 }
 
@@ -542,6 +632,112 @@ mod tests {
         assert!(!gate.admits(&url("http://127.0.0.1:4000/door")));
         assert!(!gate.admits(&url("file:///etc/passwd")));
         assert!(!gate.admits(&url("tauri://localhost/")));
+        assert!(
+            !gate.admits(&url("about:srcdoc")) && !gate.admits(&url("data:text/html,hi")),
+            "the top of the window is a web page or the blank one"
+        );
+    }
+
+    #[test]
+    fn a_frame_loads_what_a_browser_would_but_files_the_shell_and_the_desk() {
+        let gate = Gate::default();
+        gate.never.write().unwrap().insert(4000);
+        for framed in [
+            "about:blank",
+            "about:srcdoc",
+            "data:text/html,<p>hi</p>",
+            "blob:https://pay.example/1b2c",
+            "https://accounts.example/embed",
+            "http://192.168.1.20:8080/widget",
+        ] {
+            assert!(gate.admits_frame(&url(framed)), "{framed}");
+        }
+        for refused in [
+            "file:///etc/passwd",
+            "tauri://localhost/index.html",
+            "ipc://localhost/plugin",
+            "about:config",
+            "http://localhost:4000/",
+            "http://127.0.0.1.nip.io:4000/",
+        ] {
+            assert!(!gate.admits_frame(&url(refused)), "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_desk_port_is_refused_by_any_name_and_any_local_address_but_not_a_public_one() {
+        let gate = Gate::default();
+        gate.never.write().unwrap().insert(4000);
+        // A name is the desk's on one of its ports whatever it says: it may
+        // resolve to this machine (nip.io answers the address it names), or
+        // answer differently at the load than at a check.
+        for own in [
+            "http://127.0.0.1.nip.io:4000/",
+            "http://localhost.:4000/",
+            "https://example.com:4000/",
+            "http://[::ffff:127.0.0.1]:4000/",
+            "http://10.0.0.5:4000/",
+            "http://2130706433:4000/",
+        ] {
+            assert!(gate.own(&url(own)), "{own}");
+            assert!(!gate.admits(&url(own)), "{own}");
+        }
+        assert!(
+            gate.admits(&url("http://93.184.216.34:4000/")),
+            "a public address on that port is another server"
+        );
+        assert!(gate.admits(&url("http://127.0.0.1.nip.io:2322/")));
+    }
+
+    #[test]
+    fn every_listener_of_the_process_and_every_running_computer_is_the_desks() {
+        let gate = Gate::default();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let page = url(&format!("http://127.0.0.1:{port}/mcp"));
+        assert!(gate.admits(&page), "not held yet");
+        let held = crate::listening::hold(port);
+        assert!(!gate.admits(&page), "a listener held is refused");
+        drop(held);
+        assert!(gate.admits(&page), "and opens once it is let go");
+
+        let live = std::sync::Arc::new(RwLock::new(Vec::<u16>::new()));
+        {
+            let live = live.clone();
+            gate.watch_computers(move || live.read().unwrap().clone());
+        }
+        // Below every platform's ephemeral range, so no listener another
+        // test holds can be on it.
+        let computer = url("http://127.0.0.1:9417/mcp");
+        assert!(gate.admits(&computer));
+        live.write().unwrap().push(9417);
+        assert!(
+            !gate.admits(&computer),
+            "a computer that came up after install"
+        );
+        live.write().unwrap().clear();
+        assert!(gate.admits(&computer));
+    }
+
+    #[test]
+    fn a_forgotten_teammates_answers_are_gone_from_the_run_and_the_room() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::open(dir.path());
+        let gate = Gate::default();
+        gate.allow_always(&log, "kit", "localhost:2322").unwrap();
+        gate.allow("kit", "localhost:5173");
+        gate.allow_always(&log, "ada", "localhost:2322").unwrap();
+        gate.forget(&log, "kit");
+        assert!(!gate.granted("kit", "localhost:2322"));
+        assert!(!gate.granted("kit", "localhost:5173"));
+        assert!(gate.granted("ada", "localhost:2322"), "another's stand");
+        let next = Gate::default();
+        next.load(&log, &[]);
+        assert!(
+            !next.granted("kit", "localhost:2322"),
+            "struck from the room"
+        );
+        assert!(next.granted("ada", "localhost:2322"));
     }
 
     #[test]

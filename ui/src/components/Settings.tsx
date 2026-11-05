@@ -18,7 +18,6 @@ import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
 import { useActiveDesk, useDesks } from "../desks";
 import { ComputerSection } from "./settings/Computer";
-import { CookieSitesPage } from "./settings/CookieOfferSettings";
 import { GeneralSection } from "./settings/General";
 import { ImportSection } from "./settings/Import";
 import { InboundSection } from "./settings/Inbound";
@@ -197,8 +196,6 @@ export function Settings({
 }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
-	const [cookieSites, setCookieSites] = useState(false);
-	useEffect(() => { if (section !== "computer") setCookieSites(false); }, [section]);
 
 	const patch = (patch: Record<string, unknown>) => {
 		setRefusal(null);
@@ -211,7 +208,6 @@ export function Settings({
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
 	if (section === "secrets") return <SecretsSection onBack={onBack} />;
-	if (section === "computer" && cookieSites) return <CookieSitesPage settings={settings.cookieOffers} onBack={() => setCookieSites(false)} />;
 
 	return (
 		<div className="pane">
@@ -246,8 +242,6 @@ export function Settings({
 							image={settings.computerImage}
 							onRuntime={(id) => patch({ computerRuntime: id })}
 							onImage={(image) => patch({ computerImage: image })}
-							cookieOffers={settings.cookieOffers}
-							onSites={() => setCookieSites(true)}
 						/>
 					)}
 					{section === "updates" && <UpdatesSection />}

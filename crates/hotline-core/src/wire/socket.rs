@@ -473,7 +473,6 @@ fn independent(frame: &Value) -> bool {
             | Command::ComputerReleases {}
             | Command::ComputerReleasesCheck {}
             | Command::ComputerBrowsersList {}
-            | Command::ComputerCookieSettings {}
             | Command::ComputerCookieSites {}
             | Command::SecretsList {}
             | Command::ThreadList { persona_id: None }

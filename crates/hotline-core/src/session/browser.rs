@@ -622,13 +622,6 @@ impl Room {
         }
     }
 
-    /// The site this teammate's desk browser is on, by its registrable
-    /// domain, as a cookie offer names it.
-    pub(super) fn desk_browser_site(&self, persona_id: &str) -> Option<String> {
-        let page = self.lending_browser(persona_id)?.current(persona_id)?;
-        crate::computer::cookies::lending::site_for_origin(&page)
-    }
-
     /// The page again after cookies were lent or taken back, so it shows the
     /// sign-in the teammate has now; the PIP follows.
     pub(super) async fn browser_reload(&self, persona_id: &str) {

@@ -1,5 +1,6 @@
-//! Discovery reads host columns on a private copy. Only an accepted offer
-//! calls `Source::read`, which may launch a browser and unlock its keychain.
+//! Discovery reads host columns on a private copy. Only the person's Use
+//! Cookies calls `Source::read`, which may launch a browser and unlock its
+//! keychain.
 use super::*;
 use std::collections::HashSet;
 
@@ -147,57 +148,11 @@ pub(crate) fn registrable(host: &str) -> Option<String> {
     psl::domain_str(&host).map(str::to_owned)
 }
 
-pub(crate) fn site_for_origin(origin: &str) -> Option<String> {
-    let url = url::Url::parse(origin).ok()?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return None;
-    }
-    registrable(url.host_str()?)
-}
-
 fn for_site(cookies: Vec<Value>, site: &str) -> Vec<Value> {
     cookies
         .into_iter()
         .filter(|c| c["domain"].as_str().and_then(registrable).as_deref() == Some(site))
         .collect()
-}
-
-/// Older computers have no pages door and simply produce no offers.
-pub(crate) async fn pages(ready: &crate::computer::Ready) -> Result<Vec<String>, ()> {
-    #[derive(serde::Deserialize)]
-    struct Pages {
-        pages: Vec<Page>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Page {
-        origin: String,
-    }
-    let base = ready.url.strip_suffix("/mcp").unwrap_or(&ready.url);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|_| ())?;
-    let response = client
-        .get(format!("{base}/pages"))
-        .bearer_auth(&ready.token)
-        .send()
-        .await
-        .map_err(|_| ())?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(Vec::new());
-    }
-    let pages = response
-        .error_for_status()
-        .map_err(|_| ())?
-        .json::<Pages>()
-        .await
-        .map_err(|_| ())?;
-    Ok(pages
-        .pages
-        .into_iter()
-        .take(256)
-        .filter_map(|p| site_for_origin(&p.origin))
-        .collect())
 }
 
 #[cfg(test)]

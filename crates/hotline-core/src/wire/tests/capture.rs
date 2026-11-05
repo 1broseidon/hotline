@@ -53,6 +53,7 @@ async fn capture_phone_answer_settles_both_seats_once_and_other_value_commands_a
             totp: None,
         }),
         ask: false,
+        save: None,
     };
     for seat in [Seat::Owner, Seat::Phone] {
         let snapshot = super::asks::seat_snapshot(seat, &desk, &log, json!({"tape":"ada"})).await;

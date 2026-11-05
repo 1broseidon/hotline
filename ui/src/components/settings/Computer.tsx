@@ -1,12 +1,11 @@
 import { Fragment, useEffect, useState } from "react";
-import type { ComputerReleases, ComputerRuntime, RuntimeReport, RuntimeState, CookieOfferSettings as OfferSettings } from "../../generated/contract";
+import type { ComputerReleases, ComputerRuntime, RuntimeReport, RuntimeState } from "../../generated/contract";
 import { openLink, pinnedComputerImage } from "../../native";
 import { useCommitOnLeave } from "../../commitOnLeave";
 import { InfoIcon } from "../../icons";
 import { Fold, toggled } from "../../ui/Fold";
 import { Picker } from "../../ui/Menu";
 import { wire } from "../../wire";
-import { CookieOfferSettings } from "./CookieOfferSettings";
 
 const RUNTIME_NAMES: Record<ComputerRuntime, string> = {
 	docker: "Docker",
@@ -68,15 +67,11 @@ export function ComputerSection({
 	image,
 	onRuntime,
 	onImage,
-	cookieOffers,
-	onSites,
 }: {
 	runtime: string | null;
 	image: string | null;
 	onRuntime(id: string | null): void;
 	onImage(image: string | null): void;
-	cookieOffers: OfferSettings;
-	onSites(): void;
 }) {
 	const [reports, setReports] = useState<RuntimeReport[] | undefined>(undefined);
 	const [releases, setReleases] = useState<ComputerReleases | null>(null);
@@ -200,7 +195,7 @@ export function ComputerSection({
 				: `${pickedRelease} · pinned`;
 
 	return (
-		<><section>
+		<section>
 			<h3 className="group-title">Teammate computers</h3>
 			<div className="grouped">
 				<Fold title="Runs on" value={runsOn} open={open === "runs"} onToggle={() => setOpen((was) => toggled(was, "runs"))}>
@@ -308,6 +303,5 @@ export function ComputerSection({
 				</button>
 			</p>
 		</section>
-		<CookieOfferSettings settings={cookieOffers} onSites={onSites} /></>
 	);
 }

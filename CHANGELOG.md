@@ -20,6 +20,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   conversation: click it to watch in its own window, Take control, and Give
   it back. A page there never gets the microphone or camera, and an upload
   field opens a file picker only while you have control.
+- A teammate asks when it needs to be signed in to a site, with its reason,
+  on one card: Use Cookies shares that site's cookies from your browser
+  (named under it, with a choice when several have it), Sign In takes a
+  username and password in the card, saved to Secrets unless you untick it,
+  and Open Browser opens its browser for you to sign in yourself. The close
+  says Not now, and it won't ask for that site again until you next write
+  to it. The same card serves the desk browser and a computer, and the
+  teammate never sees a cookie or password.
 - SearXNG in Settings › Tools › Web search: your own instance's address,
   and a key if a gateway in front of it wants one, kept in the keychain. Off
   until you set it up and switch it on; then every search asks it beside the
@@ -29,6 +37,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- The desk no longer offers your browser cookies when a teammate's browser
+  visits a site you're signed into; the teammate asks instead. The offers
+  switch, the Sites list and Never for this site are gone from Settings.
 - What a message carries sits on one sheet in its bubble. A table has a head
   with its size, Open and Copy (as Markdown); its headings are labels, a
   column of numbers stands right, and its sources are site chips. Code names

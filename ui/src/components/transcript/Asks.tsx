@@ -21,12 +21,12 @@ export type Asker = { id: string; name: string; hash?: string | undefined };
  * line with how it ended in a chip, what was asked, and who asked. What is
  * done is history, and history should not take a card's room.
  */
-export function SettledAsk({ state, what, command = false, who }: { state: string; what: string; command?: boolean; who: string }) {
+export function SettledAsk({ state, what, command = false, who }: { state: string; what: string; command?: boolean; who?: string }) {
 	return (
 		<p className="ask-settled">
-			<span className="link-row-dot" data-tone={/allow|yes|done|signed|stored|used/i.test(state) ? "done" : /den|refus|fail/i.test(state) ? "failed" : undefined} />
+			<span className="link-row-dot" data-tone={/allow|yes|done|signed|stored|used|cookies|opened/i.test(state) ? "done" : /den|refus|fail/i.test(state) ? "failed" : undefined} />
 			{command ? <code className="ask-settled-what selectable">{what}</code> : <span className="ask-settled-what selectable">{what}</span>}
-			<span className="ask-settled-who">{who}</span>
+			{who !== undefined && <span className="ask-settled-who">{who}</span>}
 			<span className="ask-chip">{state}</span>
 		</p>
 	);

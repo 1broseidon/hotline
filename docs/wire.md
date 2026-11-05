@@ -233,13 +233,10 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
 | `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
 | `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
-| `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — metadata-only cards, including accepted lends that remain removable after restart; desk and phone |
-| `computer.cookies.settings` | `{}` | `{enabled, sites?}` — the room's `cookieOffers` preference; defaults to enabled, absent sites means all, empty means none; desk, owner and phone |
-| `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery, including while offers are off; desk and owner only |
-| `computer.cookies.answer` | `{personaId, id, answer: "use"\|"not_now"\|"never"}` | none; a live, core-bound card is required, and only Use reads values; desk and phone |
-| `computer.cookies.remove` | `{personaId, id}` | none; removes a Lent or Unconfirmed offer's site from the computer; desk and phone |
-| `computer.cookies.blocked` | `{}` | `CookieOfferBlock[]` `{teammate, name, site}`; Never choices, owner or desk only |
-| `computer.cookies.reset` | `{personaId, site}` | none; undo Never for that teammate/site, owner or desk only |
+| `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — the cookies shared with the teammate, metadata only, removable after restart; desk and phone |
+| `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery; desk and owner only |
+| `computer.cookies.answer` | `{personaId, id, answer: "use"\|"open_browser"\|"not_now", source?: {browserName, profileName}}` | none; answers a live `cookie_ask` card. Use Cookies copies the site's cookies from `source`, one the card lists, else its first, into the teammate's computer or desk browser, and only it reads values; Open Browser hands the person the teammate's browser (the window opens it); Not now is the card's close. Sign In is `secrets.capture.answer` with the card's `id` as `actionId`, and `save: false` for a login not saved to Secrets. Desk, owner and phone |
+| `computer.cookies.remove` | `{personaId, id}` | none; takes a Lent or Unconfirmed share's site back out of the teammate's browser; desk and phone |
 | `secrets.use.set` | `{name, use: "auto"\|"ask"}` | `SharedSecret`; desk/owner only, changes metadata and delivers the new set to running computers |
 | `secrets.use.answer` | `{personaId, useId, answer: "approve"\|"allow"\|"deny"}` | none; desk/owner/phone, answers one live `secret_use_ask` card. Allow covers one key/site/teammate for ten minutes on the computer |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
@@ -1291,6 +1288,7 @@ person also names its kind as `categoryId` and its request as
 | `permission` | the request's `requestId` | `session.answer_permission`, or `side.answer_permission` when `data.sideId` is present, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
 | `human_action` | the card's `actionId` | `human.answer` |
 | `passkey_ask` | the ask's `askId` | `secrets.passkey.answer` |
+| `cookie_ask` | the card's `id` | `computer.cookies.answer`, or `secrets.capture.answer` for Sign In |
 
 The answer goes over the phone seat like any other, so an answer from the
 notification lands on the tape exactly as one from the conversation.

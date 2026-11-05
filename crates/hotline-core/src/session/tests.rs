@@ -954,8 +954,8 @@ pub(crate) async fn cookie_offer_room(
     (fixture, profiles)
 }
 
-/// A teammate with no computer and the desk's browser, its session live,
-/// and the person's Firefox signed in to porkbun.com. The browser is on no
+/// A teammate with no computer and the desk's browser, its session live, a
+/// vault, and the person's Firefox signed in to porkbun.com. The browser is on no
 /// page until the test puts it on one.
 #[cfg(unix)]
 pub(crate) async fn desk_browser_cookie_room(
@@ -963,7 +963,24 @@ pub(crate) async fn desk_browser_cookie_room(
     browser: Arc<dyn crate::browser::DeskBrowser>,
 ) -> (Arc<Room>, tempfile::TempDir) {
     let profiles = tempfile::tempdir().unwrap();
-    let room = room(name, Fake::new(Scripted::new(Vec::new())));
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    // A vault of the test's own, for a login given on the ask's Sign In.
+    let vault = Arc::new(
+        Vault::open_with_store(
+            log.root(),
+            log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    let room = Room::with_agents_computers_and_vault(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(Vec::new())),
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+        Some(vault),
+    );
     *lock(&room.cookie_candidates) =
         vec![crate::computer::cookies::lending::tests::candidate_fixture(
             profiles.path(),

@@ -508,7 +508,7 @@ pub trait DeskBrowser: Send + Sync {
     /// The teammate's name, as its pointer over the page is tagged; the
     /// core says it before each call.
     fn name_teammate(&self, _persona_id: &str, _name: &str) {}
-    /// Puts the person's cookies for one site, lent on a cookie offer, into
+    /// Puts the person's cookies for one site, shared on its ask, into
     /// the teammate's own web storage. Each is `{name, value, domain, path,
     /// expires, httpOnly, secure, sameSite}`; the values go to WebKit and
     /// nowhere else, so an error never repeats one.

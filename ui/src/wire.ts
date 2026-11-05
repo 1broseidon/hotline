@@ -11,8 +11,6 @@ import type {
 	ConfigChoice,
 	CookieImport,
 	CookieOffer,
-	CookieOfferBlock,
-	CookieOfferSettings,
 	CookieOfferSites,
 	CookieSite,
 	Credential,
@@ -306,10 +304,7 @@ type Results = {
 	"computer.cookies.push": CookieSite[];
 	"computer.cookies.list": CookieImport[];
 	"computer.cookies.offers": CookieOffer[];
-	"computer.cookies.blocked": CookieOfferBlock[];
-	"computer.cookies.settings": CookieOfferSettings;
 	"computer.cookies.sites": CookieOfferSites;
-	"computer.cookies.reset": null;
 	"computer.cookies.answer": null;
 	"computer.cookies.remove": null;
 	"computer.cookies.forget": CookieImport[];

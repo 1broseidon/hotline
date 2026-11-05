@@ -308,7 +308,7 @@ impl Room {
                     .filter(|event| {
                         matches!(
                             event["kind"].as_str(),
-                            Some("human_action" | "credential_ask")
+                            Some("human_action" | "credential_ask" | "cookie_ask")
                         )
                     })
                     .map(move |event| (event, thread.id.clone()))

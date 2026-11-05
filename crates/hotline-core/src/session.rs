@@ -80,9 +80,8 @@ pub(crate) fn events_of_updates(
 }
 pub(crate) mod capture;
 pub(crate) mod consent;
+mod cookie_asks;
 mod cookie_offers;
-#[cfg(all(test, unix))]
-pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
@@ -792,13 +791,6 @@ pub struct Room {
     pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
     #[cfg(test)]
     pub(crate) cookie_discovery_calls: Arc<std::sync::atomic::AtomicUsize>,
-    /// A host permission failure is said once per browser for this desk run,
-    /// across teammates and session restarts.
-    cookie_access_notices: Mutex<HashSet<String>>,
-    /// How many times the person has stopped each teammate. A cookie card and
-    /// its answer last until the next stop, not through a restart the desk
-    /// makes on its own (an agent switch, a policy reload).
-    stops: Mutex<HashMap<String, u64>>,
     secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
     captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
@@ -976,13 +968,11 @@ impl Room {
             harness_updates: Arc::default(),
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
-            stops: Mutex::default(),
             secret_uses: Mutex::default(),
             #[cfg(test)]
             cookie_candidates: Mutex::default(),
             #[cfg(test)]
             cookie_discovery_calls: Arc::default(),
-            cookie_access_notices: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),

@@ -165,20 +165,15 @@ fn detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain(
 #[test]
 fn only_the_registrable_site_and_its_subdomains_can_be_lent() {
     assert_eq!(
-        site_for_origin("https://accounts.EXAMPLE.co.uk/path"),
+        registrable("accounts.EXAMPLE.co.uk"),
         Some("example.co.uk".into())
     );
     assert_eq!(
-        site_for_origin("https://alice.github.io"),
+        registrable("alice.github.io"),
         Some("alice.github.io".into())
     );
-    for origin in [
-        "chrome://settings",
-        "https://127.0.0.1",
-        "https://co.uk",
-        "about:blank",
-    ] {
-        assert_eq!(site_for_origin(origin), None);
+    for host in ["127.0.0.1", "co.uk", "[::1]"] {
+        assert_eq!(registrable(host), None);
     }
     let cookies = [
         ".example.co.uk",

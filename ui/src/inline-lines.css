@@ -464,11 +464,12 @@
 	}
 	.link-row-open {
 		flex-shrink: 0;
-		color: var(--ink-4);
-		transition: color var(--dur-press) var(--ease-out);
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
 	}
 	.link-row:hover .link-row-open,
 	.link-row:focus-visible .link-row-open {
+		opacity: 1;
 		color: var(--ink);
 	}
 
@@ -585,13 +586,6 @@
 		font-weight: 500;
 		color: var(--ink-2);
 	}
-	.error-line-more {
-		margin-left: 2px;
-		color: var(--ink-4);
-	}
-	.error-line:hover .error-line-more {
-		color: var(--ink-2);
-	}
 	.error-line-said::before {
 		content: "· ";
 		color: var(--ink-4);
@@ -684,7 +678,7 @@
 		user-select: none;
 	}
 	/* Needs you keeps its amber and its label, with the face of who asks. */
-	.needs-you-head {
+	.eyebrow.needs-you-head {
 		display: flex;
 		align-items: center;
 		gap: 8px;

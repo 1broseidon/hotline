@@ -1623,11 +1623,37 @@ pub(crate) fn now_ms() -> i64 {
     Local::now().timestamp_millis()
 }
 
-/// The system's own opener, so the link lands in whatever browser the
-/// person made their default.
-async fn open_in_browser(link: &str) -> Result<(), String> {
+/// Opens a link in the person's browser on this computer: their default,
+/// by the system's own opener, or the one they named, found among the apps
+/// this computer has that open web links (macOS). Answers what it opened.
+async fn open_in_browser(link: &str, named: Option<&str>) -> Result<String, String> {
+    let named = named.map(str::trim).filter(|name| !name.is_empty());
     #[cfg(target_os = "macos")]
-    let mut command = tokio::process::Command::new("open");
+    let mut command = {
+        let mut command = tokio::process::Command::new("open");
+        if let Some(name) = named {
+            let installed = web_browsers().await;
+            let app = pick_browser(name, &installed.all).ok_or_else(|| {
+                let names: Vec<&str> = installed.all.iter().map(|app| browser_name(app)).collect();
+                if names.is_empty() {
+                    format!("No browser called {name} was found on this computer. Open it in their default browser instead, or ask which one.")
+                } else {
+                    format!(
+                        "No browser called {name} is on this computer. It has: {}. Ask which one, or open it in their default.",
+                        names.join(", ")
+                    )
+                }
+            })?;
+            command.arg("-a").arg(app);
+        }
+        command
+    };
+    #[cfg(not(target_os = "macos"))]
+    if let Some(name) = named {
+        return Err(format!(
+            "Only the person's default browser can be chosen on this computer, not {name}. Call open_link again without `browser`, or give them the link."
+        ));
+    }
     #[cfg(target_os = "windows")]
     let mut command = {
         // Not `cmd /c start`: cmd would read a link's `&` as its own.
@@ -1648,10 +1674,114 @@ async fn open_in_browser(link: &str) -> Result<(), String> {
         .await
         .map_err(|_| "The browser did not answer in time.".to_string())?
         .map_err(|_| "This computer has no way to open a browser.".to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("This computer could not open its browser.".into())
+    if !status.success() {
+        return Err("This computer could not open its browser.".into());
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(name) = named {
+        let installed = web_browsers().await;
+        let app = pick_browser(name, &installed.all).map_or(name, |app| browser_name(app));
+        return Ok(format!(
+            "Opened in the person's browser on this computer: {app}."
+        ));
+    }
+    Ok("Opened in the person's browser on this computer, their default.".into())
+}
+
+/// The apps this computer has that open web links, and which is the default,
+/// as Launch Services says; empty when it cannot be asked.
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct WebBrowsers {
+    all: Vec<String>,
+}
+
+#[cfg(target_os = "macos")]
+async fn web_browsers() -> WebBrowsers {
+    const ASK: &str = "ObjC.import('AppKit'); const u = $.NSURL.URLWithString('https://example.com'); const all = $.NSWorkspace.sharedWorkspace.URLsForApplicationsToOpenURL(u); const out = []; for (let i = 0; i < all.count; i++) out.push(all.objectAtIndex(i).path.js); JSON.stringify(out)";
+    let asked = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("osascript")
+            .args(["-l", "JavaScript", "-e", ASK])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output(),
+    )
+    .await;
+    let Ok(Ok(output)) = asked else {
+        return WebBrowsers::default();
+    };
+    let all: Vec<String> = serde_json::from_slice(output.stdout.trim_ascii()).unwrap_or_default();
+    WebBrowsers { all }
+}
+
+/// An app's name as the person says it: `Brave Browser` for
+/// `/Applications/Brave Browser.app`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn browser_name(app: &str) -> &str {
+    let file = app.trim_end_matches('/').rsplit('/').next().unwrap_or(app);
+    file.strip_suffix(".app").unwrap_or(file)
+}
+
+/// The installed browser the person meant by `name`: the one whose name it
+/// is, else the shortest whose name holds it ("brave" is Brave Browser,
+/// "chrome" Google Chrome), so a Beta or Nightly beside it is never picked
+/// over the browser itself.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn pick_browser<'a>(name: &str, installed: &'a [String]) -> Option<&'a str> {
+    let plain = |words: &str| {
+        words
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase()
+    };
+    let asked = plain(name);
+    if asked.is_empty() {
+        return None;
+    }
+    let named = |app: &&String| plain(browser_name(app));
+    installed
+        .iter()
+        .find(|app| named(app) == asked)
+        .or_else(|| {
+            installed
+                .iter()
+                .filter(|app| named(app).contains(&asked))
+                .min_by_key(|app| named(app).len())
+        })
+        .map(String::as_str)
+}
+
+#[cfg(test)]
+mod browser_pick_tests {
+    use super::{browser_name, pick_browser};
+
+    fn installed() -> Vec<String> {
+        [
+            "/Applications/Safari.app",
+            "/Applications/Brave Browser.app",
+            "/Applications/Brave Browser Beta.app",
+            "/Applications/Google Chrome.app",
+            "/Applications/Firefox.app",
+            "/Applications/Microsoft Edge.app",
+        ]
+        .map(String::from)
+        .to_vec()
+    }
+
+    #[test]
+    fn a_browser_is_found_by_the_name_the_person_says() {
+        let installed = installed();
+        let picked = |name| pick_browser(name, &installed).map(browser_name);
+        assert_eq!(picked("Brave"), Some("Brave Browser"));
+        assert_eq!(picked("brave browser"), Some("Brave Browser"));
+        assert_eq!(picked("Brave Browser Beta"), Some("Brave Browser Beta"));
+        assert_eq!(picked("chrome"), Some("Google Chrome"));
+        assert_eq!(picked("Edge"), Some("Microsoft Edge"));
+        assert_eq!(picked("safari"), Some("Safari"));
+        assert_eq!(picked("Arc"), None);
+        assert_eq!(picked("  "), None);
     }
 }
 

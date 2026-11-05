@@ -412,10 +412,16 @@ impl Room {
         Ok(())
     }
 
-    /// Opens a web link in the person's own browser on this computer. Only
-    /// while they are here: their last message came from the desktop app, so
-    /// a tab never opens on a screen nobody is looking at.
-    pub async fn open_link(&self, persona_id: &str, link: &str) -> Result<String, String> {
+    /// Opens a web link in the person's own browser on this computer, their
+    /// default or the one they named. Only while they are here: their last
+    /// message came from the desktop app, so a tab never opens on a screen
+    /// nobody is looking at.
+    pub async fn open_link(
+        &self,
+        persona_id: &str,
+        link: &str,
+        browser: Option<&str>,
+    ) -> Result<String, String> {
         let link = url::Url::parse(link.trim())
             .ok()
             .filter(|link| matches!(link.scheme(), "http" | "https"))
@@ -430,8 +436,7 @@ impl Room {
         if !here {
             return Err("The person is not at this computer, so nothing was opened. Put the link in your reply instead.".into());
         }
-        open_in_browser(link.as_str()).await?;
-        Ok("Opened in the person's browser on this computer.".into())
+        open_in_browser(link.as_str(), browser).await
     }
 
     /// Hands the driver a line: on the turn in flight if there is one, on a

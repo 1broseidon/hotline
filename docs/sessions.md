@@ -481,9 +481,16 @@ preamble's clock sentence tells the agent what each means and to act on it
 without saying so: at the desktop, "my browser" is this machine's default
 browser, opened with the Hotline tool `open_link` (the system opener:
 `xdg-open`, `open`, or `url.dll` on Windows), which refuses unless the
-person's latest message came from the desktop and the link is http(s); away,
-browsing happens on the teammate's own computer and comes back as a link,
-screenshot or file.
+person's latest message came from the desktop and the link is http(s). A
+browser the person names ("open it in Brave") is its `browser` argument: on
+macOS it is matched by name among the apps Launch Services says open https
+links (asked through `osascript`, nothing hard-coded) and opened with
+`open -a`; one this machine lacks opens nothing and the teammate is told
+which it has; elsewhere only the default can be chosen. `open_link` is only
+for what the person asks to see in their browser: what the teammate opens to
+read or work on goes in its own browser, the desk's or its computer's.
+Away, browsing happens on the teammate's own browser or computer and comes
+back as a link, screenshot or file.
 
 On each turn it is given:
 

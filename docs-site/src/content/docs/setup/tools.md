@@ -19,7 +19,7 @@ conversation:
 | `message_teammate`, `list_teammates` | Asks a colleague a question or hands it work, and sees who is idle, working or waiting. The first contact waits for you to allow the pair, except from a Hotline Agent teammate with **Whole machine**. See [Teammates working together](/docs/use/teammates-together/). |
 | `send_file` | Sends you a file in the conversation: a report, a chart, a screenshot of its computer. Pictures up to 2000 pixels, other files up to 25 MB. |
 | `react` | Puts an emoji on your last message instead of a reply. |
-| `open_link` | Opens a link in your own browser, only while you are at the desktop app. |
+| `open_link` | Opens a link in your own browser when you ask for it — your default, or the one you name ("open it in Brave") — only while you are at the desktop app. What a teammate opens to work on goes in its own browser. |
 | `web_search` | Searches the web. See [Web search](#web-search). |
 | `generate_image`, `set_avatar` | Draws a picture, and sets its own profile picture. See [Pictures](/docs/use/images/). |
 | `search_thread`, `list_chapters`, `new_chapter`, `resume_chapter` | Searches its own history, including earlier chapters, side threads and calls, and opens or reopens a chapter. |

@@ -32,6 +32,12 @@ pub(crate) fn preamble(
         } else {
             "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page wants a login or passkey, use `request_credential` with its full origin: the secure card on the desk and phone sends values only to the vault and your computer. Never ask for credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
         }
+    } else if cfg!(target_os = "macos") {
+        // With no computer, the desk's own browser is the teammate's (it is
+        // offered while the desktop app runs). Said here, not left to the
+        // tool listing: an agent whose tools are found by search reads this
+        // first, and "open" with no browser named must land in its own.
+        "\n\nYou have a web browser of your own on the person's desk, the `browser` tool, while the desktop app is running: it keeps its own sign-ins, the person can watch it and take it over, and it is where you open pages. When the person asks you to open a page or a site without saying whose browser, open it there, in yours, and say it is open in your browser; only their own words for their browser (\"in my browser\", \"in Brave\") mean `open_link`."
     } else {
         ""
     };
@@ -202,4 +208,4 @@ pub(super) fn skills_index(persona: &Persona) -> String {
 }
 
 /// What the preamble says in place of a date: the clock is on the lines.
-pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from. `desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser' means opening it here with `open_link`. `phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";
+pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from. `desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser', or in one they name, means opening it here with `open_link`; a page they ask you to open without saying whose browser, and whatever you open to read or work on yourself, goes in your own browser if you have one, never theirs. `phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";

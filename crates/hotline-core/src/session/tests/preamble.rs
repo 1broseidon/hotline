@@ -113,6 +113,23 @@ fn the_preamble_says_who_where_how_far_and_when() {
     // A computer is granted outside the policy, so the preamble is where a
     // teammate learns it has one, and that the person can take it over.
     assert!(!child.contains("You have a computer"));
+    // With no computer, the desk's own browser is its own, and "open" with no
+    // browser named lands there rather than in the person's.
+    if cfg!(target_os = "macos") {
+        assert!(
+            child.contains("You have a web browser of your own"),
+            "{child}"
+        );
+        assert!(
+            child.contains("without saying whose browser, open it there"),
+            "{child}"
+        );
+    } else {
+        assert!(
+            !child.contains("You have a web browser of your own"),
+            "{child}"
+        );
+    }
     ada.computer = Some(PersonaComputer {
         cpus: None,
         enabled: true,
@@ -123,6 +140,10 @@ fn the_preamble_says_who_where_how_far_and_when() {
     });
     let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
     assert!(desk.contains("You have a computer"));
+    assert!(
+        !desk.contains("You have a web browser of your own"),
+        "{desk}"
+    );
     assert!(desk.contains("take it over"));
     assert!(desk.contains("action `guide`"));
     assert!(desk.contains("from that running computer"));

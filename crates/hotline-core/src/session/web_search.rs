@@ -37,21 +37,29 @@ impl Room {
         let settings = crate::room::try_settings(self.log())?;
         let persona = self.persona(persona_id)?;
         let keys = self.keys.web_search_keys();
-        let providers = websearch::effective_chain(
-            &websearch::disabled_on_desk(&settings),
-            persona.web_search_policy.as_ref(),
-        );
+        let desk = websearch::Switches::read(&settings);
+        let providers = websearch::effective_chain(&desk, persona.web_search_policy.as_ref());
         if providers.is_empty() {
             return Err("Web search is switched off for you. The person can turn it on in Settings, Tools, or in your own tools.".to_string());
         }
 
         let client = websearch::client();
+        // SearXNG is wherever the person's instance is, test or not.
+        let searxng = desk
+            .url(crate::contract::WebSearchProvider::Searxng)
+            .map(str::to_string);
         #[cfg(test)]
-        let endpoints = super::lock(&self.web_search_endpoints)
-            .clone()
-            .unwrap_or_default();
+        let endpoints = websearch::Endpoints {
+            searxng,
+            ..super::lock(&self.web_search_endpoints)
+                .clone()
+                .unwrap_or_default()
+        };
         #[cfg(not(test))]
-        let endpoints = websearch::Endpoints::default();
+        let endpoints = websearch::Endpoints {
+            searxng,
+            ..websearch::Endpoints::default()
+        };
         let attempts = providers
             .into_iter()
             .map(|provider| {

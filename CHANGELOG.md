@@ -10,6 +10,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- SearXNG in Settings › Tools › Web search: your own instance's address,
+  and a key if a gateway in front of it wants one, kept in the keychain. Off
+  until you set it up and switch it on; then every search asks it beside the
+  hosted providers.
 - Settings › General › Link previews. Off, the desk contacts no site an
   agent linked to, and no link card, picture or site icon is drawn.
 

@@ -1,6 +1,7 @@
 import type MermaidApi from "mermaid";
 import { type RefObject, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ExpandKey, OpenFull, Sheet, SheetKey } from "./Sheet";
+import { SourceIcon } from "../icons";
+import { OpenFull, Sheet, SheetKey } from "./Sheet";
 
 /**
  * A ```mermaid block drawn as the diagram it describes, on its sheet.
@@ -19,8 +20,8 @@ import { ExpandKey, OpenFull, Sheet, SheetKey } from "./Sheet";
  * within a screen of being seen; one drawn before is shown at once. A block
  * still streaming in is not drawn until its source stops changing, and one
  * that does not parse stays the code it was, with a line saying so. A diagram
- * drawn to fit a bubble is often too small to read, so Open (or pressing it)
- * shows it over the whole window, and Source shows what it was drawn from.
+ * drawn to fit a bubble is often too small to read, so a click on it shows it
+ * over the whole window, and Source shows what it was drawn from.
  */
 export function Mermaid({ source }: { source: string }) {
 	const look = useLook();
@@ -64,15 +65,13 @@ export function Mermaid({ source }: { source: string }) {
 			label={diagramKind(source)}
 			keys={
 				current !== null && (
-					<>
-						<ExpandKey object={object} />
-						<SheetKey
-							label="Source"
-							title={showSource ? "Show the diagram" : "Show the source"}
-							pressed={showSource}
-							onClick={() => setShowSource((was) => !was)}
-						/>
-					</>
+					<SheetKey
+						icon={<SourceIcon />}
+						label="Source"
+						title={showSource ? "Show the diagram" : "Show the source"}
+						pressed={showSource}
+						onClick={() => setShowSource((was) => !was)}
+					/>
 				)
 			}
 		>

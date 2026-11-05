@@ -1,27 +1,43 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { highlight } from "../highlight";
-import { WrapIcon } from "../icons";
-import { ExpandKey, Sheet, SheetKey } from "./Sheet";
+import { Sheet } from "./Sheet";
 
-/** A line longer than this may not fit a bubble, so the block offers Wrap. */
-const WRAP_FROM = 64;
+/** More lines than this and code is cut in a bubble, however narrow, as on the phone. */
+const INLINE_LINES = 12;
 
 /** Below this many lines a block is read at a glance, and numbers would be furniture. */
 const NUMBERED_FROM = 6;
 
 /**
  * A block of code on its sheet: the language, and the file when the fence
- * names one, on the head with Wrap and Copy. A long line scrolls across under
- * a fade rather than being cut, until Wrap folds it; Copy takes the code as
- * written, never the line numbers.
+ * names one, on the head. Code that fits the bubble reads in it whole. Code
+ * wider than the bubble, or longer than a glance, is cut: its first lines,
+ * faded where they go on, how many there are, and a click for all of it.
+ * Copy takes the code as written, never the line numbers.
  */
 export function CodeSheet({ code, language, file }: { code: string; language: string | undefined; file: string | undefined }) {
-	const [wrap, setWrap] = useState(false);
 	const lines = useMemo(() => highlight(code, language), [code, language]);
+	const body = useRef<HTMLPreElement>(null);
+	const [wide, setWide] = useState(false);
+	useLayoutEffect(() => {
+		const box = body.current;
+		if (box === null) return;
+		const look = () => setWide(box.scrollWidth > box.clientWidth + 2);
+		look();
+		const resized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(look);
+		// The box for the bubble's width, its lines for code streaming in.
+		resized?.observe(box);
+		if (box.firstElementChild !== null) resized?.observe(box.firstElementChild);
+		return () => resized?.disconnect();
+	}, []);
+	const tall = lines.length > INLINE_LINES;
+	const title = [language ?? "Code", file].filter(Boolean).join(" · ");
 	return (
 		<Sheet
 			kind="code"
 			copy={{ text: code, title: "Copy code" }}
+			open={{ kind: "code", text: fence(code, language, file), title }}
+			cut={wide || tall ? { summary: `${lines.length} ${lines.length === 1 ? "line" : "lines"}`, wide, tall } : null}
 			label={
 				<>
 					{language ?? "Code"}
@@ -33,16 +49,9 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 					)}
 				</>
 			}
-			keys={
-				<>
-					{code.split("\n").some((line) => line.length > WRAP_FROM) && (
-						<SheetKey icon={<WrapIcon />} label="Wrap" title="Wrap long lines" pressed={wrap} onClick={() => setWrap((was) => !was)} />
-					)}
-					<ExpandKey object={{ kind: "code", text: fence(code, language, file), title: [language ?? "Code", file].filter(Boolean).join(" · ") }} />
-				</>
-			}
+			keys={null}
 		>
-			<pre className="code-body" data-wrap={wrap || undefined} data-numbered={lines.length >= NUMBERED_FROM || undefined}>
+			<pre ref={body} className="code-body" data-numbered={lines.length >= NUMBERED_FROM || undefined}>
 				<code>
 					{lines.map((runs, index) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: a line is its place in the block.

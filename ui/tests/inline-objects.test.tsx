@@ -66,15 +66,30 @@ const label = (kind: string) => sheet(kind)?.querySelector(".sheet-label")?.text
 const keys = (kind: string) => [...(sheet(kind)?.querySelectorAll<HTMLButtonElement>(".sheet-key") ?? [])];
 const key = (kind: string, name: string) => keys(kind).find((one) => one.textContent === name)!;
 const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)));
+const cut = (kind: string) => sheet(kind)?.querySelector<HTMLButtonElement>(".sheet-cut") ?? null;
+
+/** Lay every box out wider than its bubble, as a table or a line too long for it is. */
+function tooWide() {
+	const proto = dom.HTMLElement.prototype as unknown as HTMLElement;
+	const was = { scroll: Object.getOwnPropertyDescriptor(proto, "scrollWidth"), client: Object.getOwnPropertyDescriptor(proto, "clientWidth") };
+	Object.defineProperty(proto, "scrollWidth", { configurable: true, get: () => 900 });
+	Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 500 });
+	return () => {
+		if (was.scroll) Object.defineProperty(proto, "scrollWidth", was.scroll);
+		else delete (proto as { scrollWidth?: number }).scrollWidth;
+		if (was.client) Object.defineProperty(proto, "clientWidth", was.client);
+		else delete (proto as { clientWidth?: number }).clientWidth;
+	};
+}
 
 const TABLE = ["| Database | License | p50 |", "| --- | --- | --- |", "| Qdrant | Apache 2.0 | 5–8 ms |", "| Weaviate | BSD-3 | 6 ms |", "| Milvus | Apache 2.0 | ~5 ms |"].join("\n");
 
 describe("a table", () => {
-	test("sits on one sheet that names nothing, with Expand and Copy", async () => {
+	test("sits on one sheet that names nothing, with Copy and no Expand", async () => {
 		await say(`Here is how they stack up:\n\n${TABLE}`);
 		expect(label("table")).toBeUndefined();
 		expect(sheet("table")?.hasAttribute("data-bare")).toBe(true);
-		expect(keys("table").map((one) => one.textContent)).toEqual(["Expand", "Copy"]);
+		expect(keys("table").map((one) => one.textContent)).toEqual(["Copy"]);
 		expect(sheet("table")?.querySelectorAll("tbody tr").length).toBe(3);
 		// The bubble may take the column; the 0.47 rule is kept on the sheet.
 		expect(container.querySelector(".speech .md-table")).not.toBeNull();
@@ -119,21 +134,71 @@ describe("a table", () => {
 		expect(chips.map((chip) => chip.textContent)).toEqual(["qdrant.tech", "zilliz.com"]);
 	});
 
-	test("has no Expand key where nothing can open it full screen", async () => {
-		await say(TABLE, false);
-		expect(keys("table").map((one) => one.textContent)).toEqual(["Copy"]);
+	test("that fits its bubble is whole in it, with no cut and nothing to open", async () => {
+		await say(TABLE);
+		expect(sheet("table")?.hasAttribute("data-cut")).toBe(false);
+		expect(cut("table")).toBeNull();
+		await act(async () => sheet("table")!.click());
+		expect(opened).toEqual([]);
+	});
+
+	test("wider than its bubble is cut, says its rows and columns, and a click anywhere on it opens it", async () => {
+		const restore = tooWide();
+		try {
+			await say(TABLE);
+			expect(sheet("table")?.getAttribute("data-cut")).toBe("wide");
+			expect(cut("table")?.textContent).toBe("3 rows · 3 columns");
+			await act(async () => sheet("table")!.querySelector("td")!.click());
+			await act(async () => cut("table")!.click());
+			expect(opened.map((one) => one.kind)).toEqual(["table", "table"]);
+		} finally {
+			restore();
+		}
+	});
+
+	test("is never cut where nothing can open it full screen", async () => {
+		const restore = tooWide();
+		try {
+			await say(TABLE, false);
+			expect(sheet("table")?.hasAttribute("data-cut")).toBe(false);
+			expect(cut("table")).toBeNull();
+		} finally {
+			restore();
+		}
 	});
 });
 
 describe("a block of code", () => {
-	test("sits on one sheet whose head names its language and file, with Expand and Copy, and Wrap only when a line is long", async () => {
+	test("sits on one sheet whose head names its language and file, with Copy and no Expand or Wrap", async () => {
 		await say("```python setup.py\nfrom qdrant_client import QdrantClient\n```");
 		expect(label("code")).toBe("python · setup.py");
-		expect(keys("code").map((one) => one.textContent)).toEqual(["Expand", "Copy"]);
-		await say(`\`\`\`python\nprint("${"x".repeat(80)}")\n\`\`\``);
-		expect(keys("code").map((one) => one.textContent)).toEqual(["Wrap", "Expand", "Copy"]);
-		await say("```python setup.py\nfrom qdrant_client import QdrantClient\n```");
+		expect(keys("code").map((one) => one.textContent)).toEqual(["Copy"]);
 		expect(sheet("code")!.querySelector(".code-keyword")?.textContent).toBe("from");
+		expect(cut("code")).toBeNull();
+	});
+
+	test("longer than twelve lines is cut, says how many, and opens on a click", async () => {
+		const lines = Array.from({ length: 13 }, (_, at) => `line ${at + 1}`).join("\n");
+		await say(`\`\`\`bash\n${lines}\n\`\`\``);
+		expect(sheet("code")?.getAttribute("data-cut")).toBe("tall");
+		expect(cut("code")?.textContent).toBe("13 lines");
+		await act(async () => sheet("code")!.click());
+		expect(opened.map((one) => one.kind)).toEqual(["code"]);
+		await say("```bash\n" + lines.split("\n").slice(0, 12).join("\n") + "\n```");
+		expect(cut("code")).toBeNull();
+	});
+
+	test("with a line wider than the bubble is cut, kept whole underneath rather than wrapped", async () => {
+		const restore = tooWide();
+		try {
+			const long = `echo ${"a".repeat(300)}`;
+			await say(`\`\`\`bash\n${long}\n\`\`\``);
+			expect(sheet("code")?.getAttribute("data-cut")).toBe("wide");
+			expect(cut("code")?.textContent).toBe("1 line");
+			expect(sheet("code")!.querySelector("pre")!.textContent).toBe(long);
+		} finally {
+			restore();
+		}
 	});
 
 	test("numbers its lines only from six lines up", async () => {
@@ -143,20 +208,6 @@ describe("a block of code", () => {
 		const pre = sheet("code")!.querySelector("pre")!;
 		expect(pre.hasAttribute("data-numbered")).toBe(true);
 		expect([...pre.querySelectorAll(".code-line")].map((line) => line.getAttribute("data-n"))).toEqual(["1", "2", "3", "4", "5", "6"]);
-	});
-
-	test("Wrap folds long lines and folds them back; unwrapped, a line is kept whole to scroll", async () => {
-		const long = `echo ${"a".repeat(300)}`;
-		await say(`\`\`\`bash\n${long}\n\`\`\``);
-		const pre = () => sheet("code")!.querySelector("pre")!;
-		expect(pre().hasAttribute("data-wrap")).toBe(false);
-		expect(pre().textContent).toBe(long);
-		await act(async () => key("code", "Wrap").click());
-		expect(pre().hasAttribute("data-wrap")).toBe(true);
-		expect(key("code", "Wrap").getAttribute("aria-pressed")).toBe("true");
-		await act(async () => key("code", "Wrap").click());
-		expect(pre().hasAttribute("data-wrap")).toBe(false);
-		expect(key("code", "Wrap").getAttribute("aria-pressed")).toBe("false");
 	});
 
 	test("Copy takes the code as written, never its line numbers", async () => {
@@ -291,9 +342,11 @@ describe("a bare link", () => {
 });
 
 describe("full screen", () => {
-	test("Expand hands the window the table, which the full view draws with the same table and no Expand of its own", async () => {
+	test("a cut table hands the window the table, which the full view draws whole and never cut", async () => {
+		const restore = tooWide();
 		await say(`Here:\n\n${TABLE}`);
-		await act(async () => key("table", "Expand").click());
+		await act(async () => cut("table")!.click());
+		restore();
 		// Titled by what the message says first, without its colon.
 		expect(opened).toEqual([{ kind: "table", text: TABLE, title: "Here" }]);
 
@@ -303,6 +356,7 @@ describe("full screen", () => {
 		const view = document.querySelector(".full-view");
 		expect(view?.getAttribute("aria-label")).toBe("Here");
 		expect(view?.querySelectorAll("tbody tr").length).toBe(3);
+		expect(view?.querySelector(".sheet-cut")).toBeNull();
 		expect([...(view?.querySelectorAll(".full-view-head .sheet-key") ?? [])].map((one) => one.textContent)).toEqual(["Copy", "Close"]);
 		await act(async () => [...view!.querySelectorAll<HTMLButtonElement>(".full-view-head .sheet-key")].at(-1)!.click());
 		expect(closed).toBe(1);
@@ -311,9 +365,11 @@ describe("full screen", () => {
 		expect(closed).toBe(2);
 	});
 
-	test("a block of code expands as the fence it was, and Copy there takes the code alone", async () => {
+	test("cut code opens as the fence it was, and Copy there takes the code alone", async () => {
+		const restore = tooWide();
 		await say("```python setup.py\nprint(1)\n```");
-		await act(async () => key("code", "Expand").click());
+		await act(async () => cut("code")!.click());
+		restore();
 		expect(opened).toEqual([{ kind: "code", text: '```python title="setup.py"\nprint(1)\n```', title: "python · setup.py" }]);
 		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => {}} />));
 		await act(async () => document.querySelector<HTMLButtonElement>(".full-view-head .sheet-key")!.click());

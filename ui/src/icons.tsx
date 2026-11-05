@@ -274,10 +274,10 @@ export const ExpandIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
-/* Soft-wrap a block of code: a long line folding back under itself. */
-export const WrapIcon = ({ className }: IconProps) => (
+/* The source a drawing was made from: angle brackets. */
+export const SourceIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
-		<path d="M2.75 4h10.5M2.75 8h8.5a2 2 0 0 1 0 4H8m0 0 1.5-1.5M8 12l1.5 1.5M2.75 12h2.5" />
+		<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" />
 	</Icon>
 );
 

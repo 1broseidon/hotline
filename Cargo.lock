@@ -4215,7 +4215,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-app"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4258,7 +4258,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-cli"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4281,7 +4281,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-contract"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -4292,7 +4292,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-core"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -4359,7 +4359,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-mcp"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "chrono",
  "hotline-contract",
@@ -4380,7 +4380,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-room"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4400,7 +4400,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-store"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4418,7 +4418,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-support"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "getrandom 0.3.4",
  "hex",
@@ -4436,7 +4436,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-tools"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "cap-std",
  "dunce",
@@ -4457,7 +4457,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-voice"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4496,7 +4496,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-websearch"
-version = "0.47.0"
+version = "0.48.0"
 dependencies = [
  "async-trait",
  "axum",

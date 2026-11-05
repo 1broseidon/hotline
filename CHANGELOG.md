@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-11-05
+
 ### Added
 
 - Cookies in a teammate's Secrets: Add Cookies lists the sites you are

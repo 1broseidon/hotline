@@ -141,6 +141,7 @@ fn a_handed_over_threads_brief_says_the_persons_words_stay_in_it() {
         &persona("ada"),
         None,
         &[],
+        false,
         OpenedBy::Handoff(&mack),
         None,
         None,

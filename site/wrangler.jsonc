@@ -16,5 +16,14 @@
 		{ "pattern": "hotline.dev/*", "zone_name": "hotline.dev" },
 		{ "pattern": "www.hotline.dev/*", "zone_name": "hotline.dev" }
 	],
-	"workers_dev": true
+	"workers_dev": true,
+	// A staging copy for opinions before a deploy: the same assets on a workers.dev URL of its own,
+	// on no route, so hotline.dev is untouched. `npx wrangler deploy --env staging` from here.
+	"env": {
+		"staging": {
+			"name": "hotline-site-staging",
+			"routes": [],
+			"workers_dev": true
+		}
+	}
 }

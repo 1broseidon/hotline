@@ -26,9 +26,9 @@
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script>document.documentElement.classList.add("js")</script>
-<link rel="preload" href="/tokens.css" as="style">
-<link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261105e">
+<link rel="preload" href="/tokens.css?v=20261105g" as="style">
+<link rel="preload" href="/base.css?v=20261105g" as="style">
+<link rel="stylesheet" href="/page.css?v=20261105k">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source desktop app that runs a team of AI agents on your own computer, each with a name, a job and a browser of its own, on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -134,27 +134,37 @@
   </div>
 </section>
 
-<section class="section container" aria-label="What stays yours">
-  <dl class="grid facts">
-    <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
-    <div><dt>Your keys, your keychain</dt><dd>I keep API keys in your system’s own credential store.</dd></div>
-    <div><dt>Your data stays put</dt><dd>Every transcript and file I make stays on your disk.</dd></div>
-    <div><dt>Signed for macOS</dt><dd>Notarized by Apple, so I open without a warning.</dd></div>
-  </dl>
-</section>
-
-
 <section class="section container" id="download" aria-labelledby="dl-h">
   <div class="dl">
     <h2 id="dl-h"><mark><span>Run </span><span>hotline </span><span>now.</span></mark></h2>
-    <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
-    <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
-    <p class="fine">Version <span data-version>0.47.0</span>. <a href="https://github.com/1broseidon/hotline/releases/latest">Every build is on GitHub</a>. For a server, <a href="/docs/server/">the docs</a>.</p>
-    <p class="fine phones"><a href="https://testflight.apple.com/join/wwK11AS7">iPhone, in beta on TestFlight</a><span class="soon">Android APK, coming soon</span></p>
+    <div class="dl-act">
+      <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
+      <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
+      <a class="dl-docs" href="/docs/">or read the docs</a>
+    </div>
+    <p class="fine">Free, version <span data-version>0.47.0</span>. No account: your keys stay in your keychain and your data on your disk.</p>
   </div>
 </section>
 
 </main>
+
+<!-- On a phone, Download opens this instead of a file: the one true thing (a desktop app), then the
+     ways to get the link onto a computer. Without script it never opens; the key is then a link
+     to the releases page, as it is everywhere. -->
+<dialog class="sheet" id="get-link" aria-labelledby="sheet-h" data-sheet>
+  <div class="sheet-in">
+    <button class="sheet-x" type="button" aria-label="Close" data-sheet-close><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg></button>
+    <h2 id="sheet-h">Hotline is a desktop app.</h2>
+    <p class="sheet-p">macOS, Windows and Linux. Get the link onto your computer and install it there.</p>
+    <ul class="ways">
+      <li><button type="button" data-way="share" hidden><svg class="way-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 7l4-4 4 4M5 12v8h14v-8"/></svg><span class="way-text">Share the link</span></button></li>
+      <li><button type="button" data-way="copy"><svg class="way-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg><span class="way-text" data-way-label>Copy the link</span></button></li>
+      <li><a data-way="mail" href="mailto:?subject=Hotline&amp;body=https%3A%2F%2Fhotline.dev%2F"><svg class="way-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h18v11H3zM3 7.5l9 6 9-6"/></svg><span class="way-text">Email it to me</span></a></li>
+      <li data-way="ios" hidden><a href="https://testflight.apple.com/join/wwK11AS7"><svg class="way-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2.5h8a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H8a1.5 1.5 0 0 1-1.5-1.5V4A1.5 1.5 0 0 1 8 2.5zM10.5 18.5h3"/></svg><span class="way-text">iPhone app, in beta<span>On TestFlight. Pairs with your desk.</span></span></a></li>
+    </ul>
+    <p class="fine">Free. Version <span data-version>0.47.0</span>. <a href="https://github.com/1broseidon/hotline/releases/latest">Builds for every system are on GitHub</a>.</p>
+  </div>
+</dialog>
 
 <footer class="foot">
   <div class="foot-in container">
@@ -162,6 +172,9 @@
     <nav class="foot-nav" aria-label="Footer">
       <a href="/docs/">Docs</a>
       <a href="https://github.com/1broseidon/hotline">GitHub</a>
+      <a href="https://github.com/1broseidon/hotline/releases/latest">Releases</a>
+      <a href="/docs/server/">Server</a>
+      <a href="https://testflight.apple.com/join/wwK11AS7">iPhone beta</a>
       <a href="https://github.com/1broseidon/hotline/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT">License</a>
     </nav>
@@ -207,7 +220,9 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
   } catch (e) {}
 })();
 
-// One primary download, named for the visitor's own system; a phone sends the link on instead.
+// One primary download, named for the visitor's own system. A phone cannot run the app, so its
+// key says Download and opens the card instead: what this is, and the ways to get the link onto
+// a computer. The card pushes a history entry, so the phone's Back closes it rather than the page.
 (() => {
   const names = { mac: "macOS", win: "Windows", linux: "Linux" };
   const p = /Windows/.test(ua) ? "win" : /Linux|X11/.test(ua) && !/Android/.test(ua) ? "linux" : "mac";
@@ -222,16 +237,24 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
   if (!onPhone) return;
   const url = "https://hotline.dev/";
   document.querySelectorAll("[data-cmd]").forEach((c) => { c.hidden = true; });
-  // A phone cannot run the app, so its line says what the app is and where it runs.
-  document.querySelectorAll("[data-hero-fine]").forEach((p) => { p.innerHTML = `Free. I’m a desktop app for ${others(Object.keys(names))}: send yourself the link. Also <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).`; });
-  document.querySelectorAll("[data-dl-auto]").forEach((a) => {
-    delete a.dataset.dl; a.href = url; a.textContent = "Send to your computer";
-    a.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (navigator.share) { try { await navigator.share({ title: "Hotline", text: "An open-source desktop app: a team of AI agents on your own computer.", url }); } catch (err) {} return; }
-      try { await navigator.clipboard.writeText(url); a.textContent = "Link copied"; setTimeout(() => { a.textContent = "Send to your computer"; }, 1800); } catch (err) {}
-    });
-  });
+  document.querySelectorAll("[data-hero-fine]").forEach((p) => { p.innerHTML = `Free. Version <span data-version>${p.querySelector("[data-version]")?.textContent ?? ""}</span>. For ${others(Object.keys(names))}, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).`; });
+  const sheet = document.querySelector("[data-sheet]");
+  if (!sheet || typeof sheet.showModal !== "function") return;
+  const keys = document.querySelectorAll("[data-dl-auto]");
+  keys.forEach((a) => { delete a.dataset.dl; a.href = REL; a.textContent = "Download"; });
+  const share = sheet.querySelector('[data-way="share"]'), copy = sheet.querySelector('[data-way="copy"]'), ios = sheet.querySelector('[data-way="ios"]');
+  if (navigator.share) share.hidden = false;
+  if (/iPhone|iPad|iPod/.test(ua)) ios.hidden = false;
+  const open = () => { history.pushState({ sheet: true }, ""); sheet.showModal(); };
+  const close = () => { if (history.state && history.state.sheet) history.back(); else sheet.close(); };
+  keys.forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); open(); }));
+  addEventListener("popstate", () => { if (sheet.open) sheet.close(); });
+  sheet.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+  sheet.addEventListener("click", (e) => { if (e.target === sheet) close(); });
+  sheet.querySelector("[data-sheet-close]").addEventListener("click", close);
+  share.addEventListener("click", async () => { try { await navigator.share({ title: "Hotline", text: "An open-source desktop app: a team of AI agents on your own computer.", url }); } catch (err) {} });
+  const copyLabel = copy.querySelector("[data-way-label]");
+  copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(url); copyLabel.textContent = "Copied"; setTimeout(() => { copyLabel.textContent = "Copy the link"; }, 1800); } catch (err) {} });
 })();
 
 // Copy an install line.

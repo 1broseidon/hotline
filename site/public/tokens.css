@@ -8,7 +8,7 @@
   --text-section: clamp(1.75rem, 1.25rem + 1.5vw, 2.5rem); --text-title: 1.1875rem; --text-lead: clamp(1.0625rem, 0.98rem + 0.35vw, 1.25rem);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
-  --container: 1280px; --gutter: 64px; --gap-columns: 32px; --section-gap: 144px;
+  --container: 1280px; --gutter: 64px; --gap-columns: 32px; --section-gap: 96px;
   --z-base: 1; --z-raised: 10; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500;
   --mast-h: 76px;
   /* The window's ground, a step deeper for the page; two lifts for panels and controls. */

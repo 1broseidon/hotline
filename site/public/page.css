@@ -5,12 +5,12 @@
 /* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread: you say yes, she hands Kit the fixes, then checks the page on her own computer." · the hero is now the desk alone, which shows the go-ahead, the handoff and the check, not the grant */
 /* By the owner's request, against Hallmark's floor (47a, a drawn OS window): the page is screenshots only, each whole window in the Mac's chrome. The chrome is drawn around real captures (the desk from the dev build, the browser's own bar over the page Kit built, the computer's own screen), with the lights where the app seats them: 12px, centred on the 40px strip. */
 /* Hallmark · reworded "Nothing sits between us." to "Your machine, your keys, your data." and "Open source, every line of me." to "Open source, MIT or Apache-2.0.", dropping the licence from the sentence under it · by the owner’s choice; later "Run me on your machine." to "Run hotline now.", in the same green highlight as the hero’s sentence */
-/* Hallmark · dropped the open-source section (its head, the clone lines, the three reasons, Browse the code, How to build it) and the head over the four facts, which are now four cards across the row · by the owner's choice; the footer still says the licence and links the code */
+/* Hallmark · dropped the open-source section (its head, the clone lines, the three reasons, Browse the code, How to build it) and the four facts (No account, Your keys your keychain, Your data stays put, Signed for macOS), folded into one line under the download: the ending is the ask alone · by the owner's choice; the footer links the code, the releases, the server docs and the iPhone beta */
 /* Hallmark · waive 2b · asked for by the owner · the gold is a light that crosses a copy of the owner's sentence once as the name lands, 1.3s, then the copy is gone; the sentence itself is always solid ink, and what stays is three green highlights, not gradient text and never runs with reduced motion */
 /* Hallmark · reworded the lead from "I’m an open-source personal agent ecosystem. I work with my teammates, have my own computer, and run on the subscriptions you already pay for." to "I’m an open-source desktop app. I run a team of AI agents on your own computer, each with a name, a job and a browser of its own, on the subscriptions you already pay for." (and the title, descriptions and share line to match), "Three things I did this morning." to "Three things my team did this morning.", "A browser of my own, or a whole desktop." to "A browser for each, or a whole desktop." · a cold visitor from a text ad must know what this is on the first screen, and "I" is always hotline, its agents always my teammates · by the owner’s choice */
 /* Hallmark · dropped .toad--hero, .toad--sign, .sign · the toad is the mark, in the masthead and the footer; at headline size it read as a sticker */
-@import url("./tokens.css");
-@import url("./base.css");
+@import url("./tokens.css?v=20261105g");
+@import url("./base.css?v=20261105g");
 
 /* Page */
 .skip { position: absolute; left: var(--space-md); top: calc(-1 * var(--space-3xl)); padding: var(--space-xs) var(--space-sm); background: var(--color-ink); color: var(--color-paper); border-radius: var(--radius-control); z-index: var(--z-toast); text-decoration: none; }
@@ -136,9 +136,8 @@ mark > span:last-child::before { right: -0.18em; }
 /* Bands: a hairline, then the head on the left and its material on the right. */
 /* The hairline is drawn inside the gutters, so it spans exactly the twelve columns it heads. */
 .band, .section, .foot-in { background: linear-gradient(var(--color-rule), var(--color-rule)) var(--gutter) 0 / calc(100% - 2 * var(--gutter)) var(--rule-hair) no-repeat; }
-.band { margin-top: var(--space-3xl); padding-top: var(--space-lg); }
+.band { margin-top: var(--section-gap); padding-top: var(--space-xl); }
 /* The band is a strip, not a section: what follows it comes close. */
-.band + .section { margin-top: var(--space-2xl); }
 .section { margin-top: var(--section-gap); padding-top: var(--space-xl); }
 .section h2 { font-size: var(--text-section); line-height: 1.1; letter-spacing: var(--tracking-section); font-weight: 600; max-width: 14ch; }
 .sec-p { font-size: var(--text-lead); line-height: 1.5; color: var(--color-ink-2); max-width: 44ch; }
@@ -200,21 +199,41 @@ mark > span:last-child::before { right: -0.18em; }
 .reach[data-shown="browser"] > #reach-desktop, .reach[data-shown="desktop"] > #reach-browser { opacity: 0; visibility: hidden; }
 
 /* What stays yours: four cards across the whole row, three columns each, no head over them. */
-.facts { margin: 0; row-gap: var(--gap-columns); }
-.facts > div { grid-column: span 3; min-width: 0; padding: var(--space-lg); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); }
-.facts dt { font-weight: 600; }
-.facts dd { margin: var(--space-xs) 0 0; color: var(--color-ink-2); }
 
 /* Download: one centred column, the page's only centred group. The head, the one button, the
    install line, a line that points at GitHub for every build and at the docs for a server, then
    the phone, smaller still. */
-.dl { display: grid; justify-items: center; gap: var(--space-md); max-width: 40rem; margin: 0 auto; text-align: center; }
-.dl h2 { margin-inline: auto; margin-bottom: var(--space-sm); }
-.dl .cmd { display: flex; }
+/* The last band is the ask alone: the head, one row of ways in (the build for this system, the
+   install line, the docs), and a line that says what it costs and what stays yours. */
+.dl { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: var(--space-lg); }
+.dl-act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); max-width: 100%; }
+.dl-docs { color: var(--color-ink-2); }
+.dl-docs:hover { color: var(--color-ink); }
 .dl .fine { margin: 0; }
+
+/* The phone's card: up from the bottom, the page dimmed behind it, in the page's own ground. Each
+   way out is a row the size of a thumb, with a hairline between. */
+.sheet { position: fixed; inset: auto 0 0 0; width: 100%; max-width: none; max-height: 90dvh; margin: 0; padding: 0; border: 0; border-radius: var(--radius-card) var(--radius-card) 0 0; background: var(--color-paper-2); color: var(--color-ink); box-shadow: 0 -1px 0 var(--color-rule); }
+.sheet::backdrop { background: color-mix(in oklab, var(--color-paper) 70%, transparent); }
+.sheet[open] { animation: sheet-up var(--dur-long) var(--ease-out); }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+.sheet-in { position: relative; padding: var(--space-lg) var(--space-md) max(var(--space-lg), env(safe-area-inset-bottom)); }
+.sheet-x { position: absolute; top: var(--space-sm); right: var(--space-sm); display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--radius-pill); background: none; color: var(--color-ink-2); cursor: pointer; }
+.sheet-x svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+.sheet-x:hover { color: var(--color-ink); background: var(--color-paper-3); }
+.sheet h2 { padding-right: 44px; font-size: var(--text-title); line-height: 1.3; font-weight: 600; }
+.sheet-p { margin-top: var(--space-xs); color: var(--color-ink-2); }
+.ways { list-style: none; margin: var(--space-lg) 0 0; padding: 0; border-top: var(--rule-hair) solid var(--color-rule); }
+.ways li { border-bottom: var(--rule-hair) solid var(--color-rule); }
+.ways button, .ways a { display: flex; align-items: center; gap: var(--space-md); width: 100%; min-height: 60px; padding: var(--space-sm) 0; border: 0; background: none; font: inherit; color: var(--color-ink); text-align: left; text-decoration: none; cursor: pointer; }
+/* One line drawing per way, in the page's green, the way the mark and the prompt are. */
+.way-ico { flex: none; width: 22px; height: 22px; fill: none; stroke: var(--color-accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.way-text { display: flex; flex-direction: column; min-width: 0; }
+.way-text span { font-size: var(--text-sm); color: var(--color-muted); }
+.ways button:hover, .ways a:hover { color: var(--color-accent); }
+.sheet .fine { margin-top: var(--space-md); }
+@media (prefers-reduced-motion: reduce) { .sheet[open] { animation: none; } }
 /* The phone, a step quieter than the line above: the beta as a link, Android as words that are not one yet. */
-.phones { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-xs) var(--space-lg); }
-.phones .soon { color: var(--color-muted); opacity: 0.6; }
 
 /* Controls: one filled button, one quiet one, text links. */
 .btn { display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 var(--space-lg); border: 0; border-radius: var(--radius-control); background: var(--color-ink); color: var(--color-paper); font-weight: 600; font-size: var(--text-md); text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out); }
@@ -241,7 +260,6 @@ mark > span:last-child::before { right: -0.18em; }
 @media (max-width: 76rem) { .majors { grid-column: 1 / -1; gap: var(--space-md) var(--gap-columns); margin-top: var(--space-lg); } .also { grid-column: 1 / -1; } }
 /* Tablet: the bands stack, the picture rows keep their columns. */
 @media (max-width: 60rem) {
-  .facts > div { grid-column: span 6; }
   :root { --mast-h: 64px; }
   .col-l, .col-r { grid-column: 1 / -1; }
   .grid:not(.proofs) { row-gap: var(--space-xl); }
@@ -251,6 +269,7 @@ mark > span:last-child::before { right: -0.18em; }
 }
 /* Phone: one column; the hero is the phone shot, and the desk stays home. */
 @media (max-width: 40rem) {
+  :root { --section-gap: 64px; }
   .mast-nav, .mast-links { gap: var(--space-md); }
   .mast .btn--nav { height: 36px; padding: 0 var(--space-sm); }
   .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-md)))); }
@@ -266,12 +285,10 @@ mark > span:last-child::before { right: -0.18em; }
   .hero-text { display: contents; }
   .stage { order: 1; }
   .hero .fine { order: 2; }
-  .band { margin-top: var(--space-2xl); }
   .majors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .proofs { row-gap: var(--space-xl); }
   .proof { grid-column: 1 / -1; }
   /* The pieces drop their trays and take the width, so their text stays at its own size. */
   .shot--piece { display: block; aspect-ratio: auto; padding: 0; border: 0; background: none; }
   .shot--piece img { width: 100%; }
-  .facts > div { grid-column: 1 / -1; }
 }

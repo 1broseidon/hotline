@@ -5032,7 +5032,7 @@
 /* That skipping clips paint to the row, so the emoji hung off a bubble's
  * lower edge, or off files sent alone, get the room below it inside the row. */
 .said-group:has(> .speech > .reactions, > .said-files > .reactions) {
-	padding-bottom: 14px;
+	padding-bottom: 20px;
 }
 
 @layer components {

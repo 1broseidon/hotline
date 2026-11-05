@@ -62,7 +62,7 @@
 		margin-top: 0;
 	}
 	.file-block {
-		width: 26rem;
+		width: 20rem;
 		max-width: 100%;
 		overflow: hidden;
 		border-radius: var(--radius-bubble);
@@ -721,6 +721,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--ink-2);
+		font-weight: 500;
 	}
 	code.ask-settled-what {
 		font-family: var(--font-mono);
@@ -791,7 +792,7 @@
 		padding: 4px 12px;
 		border-radius: 999px;
 		background: var(--raised);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		box-shadow: inset 0 0 0 var(--hairline) color-mix(in oklab, var(--line), transparent 50%);
 		font-size: var(--text-sm);
 	}
 	.chapter-title {
@@ -815,7 +816,8 @@
 @layer components {
 	/* The time over a row stands a little apart from it, so it reads as the
 	 * row's time and not as part of the line under it. */
-	.tape-stamp {
-		margin-bottom: 16px;
+	.rule-line.tape-stamp {
+		padding-top: 16px;
+		margin-bottom: 10px;
 	}
 }

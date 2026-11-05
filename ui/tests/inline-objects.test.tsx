@@ -185,13 +185,12 @@ describe("a quote", () => {
 		});
 	}
 
-	test("marked [!NOTE], [!TIP] or [!IMPORTANT] is a plain quote without its marker: only a warning is a callout", async () => {
+	test("marked [!NOTE], [!TIP] or [!IMPORTANT] is its words as prose, without its marker: only a warning is a callout", async () => {
 		for (const marker of ["NOTE", "TIP", "IMPORTANT"]) {
 			await say(`> [!${marker}]\n>\n> Worth knowing.`);
 			expect(container.querySelector(".callout")).toBeNull();
-			const quote = container.querySelector("blockquote")!;
-			// The marker's paragraph stood alone, so it goes with the marker.
-			expect([...quote.querySelectorAll("p")].map((p) => p.textContent)).toEqual(["Worth knowing."]);
+			expect(container.querySelector("blockquote")).toBeNull();
+			expect([...container.querySelectorAll(".md p")].map((p) => p.textContent)).toEqual(["Worth knowing."]);
 		}
 	});
 });
@@ -301,8 +300,8 @@ describe("full screen", () => {
 		const view = document.querySelector(".full-view");
 		expect(view?.getAttribute("aria-label")).toBe("Here");
 		expect(view?.querySelectorAll("tbody tr").length).toBe(3);
-		expect([...(view?.querySelectorAll(".sheet-key") ?? [])].map((one) => one.textContent)).toEqual(["Copy", "Copy"]);
-		await act(async () => view!.querySelector<HTMLButtonElement>(".full-view-close")!.click());
+		expect([...(view?.querySelectorAll(".full-view-head .sheet-key") ?? [])].map((one) => one.textContent)).toEqual(["Copy", "Close"]);
+		await act(async () => [...view!.querySelectorAll<HTMLButtonElement>(".full-view-head .sheet-key")].at(-1)!.click());
 		expect(closed).toBe(1);
 		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => closed++} />));
 		await act(async () => document.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event));

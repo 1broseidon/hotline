@@ -37,8 +37,9 @@ export function FullView({ object, onClose }: { object: FullObject; onClose(): v
 				<header className="full-view-head">
 					<span className="full-view-title">{object.title ?? TITLES[object.kind]}</span>
 					<CopyKey text={copyText(object)} title={object.kind === "code" ? "Copy the code" : "Copy as Markdown"} />
-					<button ref={close} type="button" className="full-view-close" title="Close" aria-label="Close" onClick={onClose}>
+					<button ref={close} type="button" className="sheet-key" title="Close (Esc)" onClick={onClose}>
 						<CloseIcon />
+						<span className="sheet-key-word">Close</span>
 					</button>
 				</header>
 				<div className="full-view-body">

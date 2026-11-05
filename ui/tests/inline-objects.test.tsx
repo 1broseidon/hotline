@@ -126,10 +126,13 @@ describe("a table", () => {
 });
 
 describe("a block of code", () => {
-	test("sits on one sheet whose head names its language and file, with Wrap, Expand and Copy", async () => {
+	test("sits on one sheet whose head names its language and file, with Expand and Copy, and Wrap only when a line is long", async () => {
 		await say("```python setup.py\nfrom qdrant_client import QdrantClient\n```");
 		expect(label("code")).toBe("python · setup.py");
+		expect(keys("code").map((one) => one.textContent)).toEqual(["Expand", "Copy"]);
+		await say(`\`\`\`python\nprint("${"x".repeat(80)}")\n\`\`\``);
 		expect(keys("code").map((one) => one.textContent)).toEqual(["Wrap", "Expand", "Copy"]);
+		await say("```python setup.py\nfrom qdrant_client import QdrantClient\n```");
 		expect(sheet("code")!.querySelector(".code-keyword")?.textContent).toBe("from");
 	});
 

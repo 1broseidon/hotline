@@ -359,7 +359,7 @@
 		border-radius: var(--radius-control);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
+		color: var(--ink-2);
 		transition: background var(--dur-press) var(--ease-out);
 	}
 	.steps-caption:hover,
@@ -464,12 +464,11 @@
 	}
 	.link-row-open {
 		flex-shrink: 0;
-		opacity: 0;
-		transition: opacity var(--dur-press) var(--ease-out);
+		color: var(--ink-4);
+		transition: color var(--dur-press) var(--ease-out);
 	}
 	.link-row:hover .link-row-open,
 	.link-row:focus-visible .link-row-open {
-		opacity: 1;
 		color: var(--ink);
 	}
 
@@ -586,6 +585,13 @@
 		font-weight: 500;
 		color: var(--ink-2);
 	}
+	.error-line-more {
+		margin-left: 2px;
+		color: var(--ink-4);
+	}
+	.error-line:hover .error-line-more {
+		color: var(--ink-2);
+	}
 	.error-line-said::before {
 		content: "· ";
 		color: var(--ink-4);
@@ -682,6 +688,10 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		letter-spacing: 0;
 	}
 	.needs-you-head b {
 		font-weight: 500;
@@ -816,8 +826,5 @@
 @layer components {
 	/* The time over a row stands a little apart from it, so it reads as the
 	 * row's time and not as part of the line under it. */
-	.rule-line.tape-stamp {
-		padding-top: 16px;
-		margin-bottom: 10px;
-	}
+
 }

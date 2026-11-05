@@ -2551,6 +2551,12 @@
 		padding: 20px 0 0;
 		margin-bottom: -4px;
 	}
+	/* Over a history line rather than a bubble, the time keeps a line's
+	 * room from it, so the two read apart. */
+	.tape-row:has(> .link-row, > .ask-settled, > .error-line, > .steps-caption) > .rule-line.tape-stamp,
+	.rule-line.tape-stamp:has(+ :is(.link-row, .ask-settled, .error-line)) {
+		margin-bottom: 8px;
+	}
 	/* A plain line is one sentence in parts, so its parts are a space apart. */
 	.rule-line-plain {
 		justify-content: center;

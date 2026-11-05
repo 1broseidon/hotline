@@ -127,6 +127,7 @@ export function ErrorCard({
                     <WarningIcon className="error-line-mark" />
                     <span className="error-line-title selectable">{error.title}</span>
                     <span className="error-line-said selectable">{error.summary}</span>
+                    <span className="error-line-more" aria-hidden="true">Details ›</span>
                 </summary>
                 {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}
                 <pre className="selectable mt-2 max-h-80 max-w-full overflow-auto whitespace-pre-wrap break-words text-xs text-ink-2" style={{ overflowWrap: "anywhere" }}>{error.details}</pre>

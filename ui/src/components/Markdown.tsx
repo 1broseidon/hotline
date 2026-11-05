@@ -7,7 +7,7 @@ import { CodeSheet, fenceOf } from "./CodeSheet";
 import { Favicon } from "./Favicon";
 import { chainOf, FlowChain } from "./FlowChain";
 import { Mermaid } from "./Mermaid";
-import { CopyKey, ExpandKey, OpenFull, Sheet } from "./Sheet";
+import { ExpandKey, OpenFull, Sheet } from "./Sheet";
 
 /** The syntax tree's element react-markdown hands a component, and what can stand inside one. */
 type Element = NonNullable<ExtraProps["node"]>;
@@ -189,12 +189,8 @@ const COMPONENTS: Components = {
 		return (
 			<Sheet
 				kind="table"
-				keys={
-					<>
-						<ExpandKey object={{ kind: "table", text: markdown, title: leadOf(source) ?? (names.join(" · ") || "Table") }} />
-						<CopyKey text={markdown} title="Copy as Markdown" />
-					</>
-				}
+				copy={{ text: markdown, title: "Copy table" }}
+				keys={<ExpandKey object={{ kind: "table", text: markdown, title: leadOf(source) ?? (names.join(" · ") || "Table") }} />}
 			>
 				<div ref={scroller} className="md-table" data-more={more || undefined}>
 					<TableColumns.Provider value={kinds}>

@@ -1245,10 +1245,12 @@ async fn searxng_unreachable_or_not_json_says_so_without_its_address() {
     assert!(error.message.contains("did not answer JSON"), "{error}");
 }
 
-/// A redirect off the instance's host is not followed, so neither the query
-/// nor the key reaches the host it names; one on the same host is.
+/// A redirect off the instance as it was asked (another host, or another
+/// port on the same host, which can be another service) is not followed,
+/// so neither the query nor the key reaches it. One within the instance is
+/// followed: `searxng::redirect_tests` holds that rule.
 #[tokio::test]
-async fn searxng_follows_a_redirect_only_on_the_instances_own_host() {
+async fn searxng_follows_a_redirect_only_within_the_instance() {
     let elsewhere = mock(Reply::json(searxng_body())).await;
     // The same machine under another name is another host.
     let away = elsewhere.base.replace("127.0.0.1", "localhost");
@@ -1261,13 +1263,14 @@ async fn searxng_follows_a_redirect_only_on_the_instances_own_host() {
     assert_eq!(server.seen.lock().unwrap().len(), 1);
     assert!(elsewhere.seen.lock().unwrap().is_empty());
 
+    // The same host on another port is refused too.
     let server = mock(Reply::redirect(format!("{}/search", elsewhere.base))).await;
-    let hits = Searxng::at(searxng::client(), server.base.clone(), None)
+    let error = Searxng::at(searxng::client(), server.base.clone(), Some(KEY.into()))
         .search(&Request::plain("q", 3))
         .await
-        .unwrap();
-    assert_eq!(hits.len(), 3);
-    assert_eq!(elsewhere.seen.lock().unwrap().len(), 1);
+        .unwrap_err();
+    assert!(error.message.contains("redirected"), "{error}");
+    assert!(elsewhere.seen.lock().unwrap().is_empty());
 }
 
 // Who is on the chain -------------------------------------------------------

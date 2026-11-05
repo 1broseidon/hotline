@@ -295,7 +295,6 @@ type Results = {
 	"computer.releases.check": ComputerReleases;
 	"computer.status": ComputerStatus;
 	"browser.snapshot": BrowserSnapshot;
-	"browser.take": null;
 	"computer.start": null;
 	"computer.stop": null;
 	"computer.remove": null;

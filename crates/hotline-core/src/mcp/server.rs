@@ -1577,7 +1577,7 @@ pub(crate) fn profile(
         "attached"
     };
     let web_search = !crate::websearch::effective_chain(
-        &crate::websearch::disabled_on_desk(settings),
+        &crate::websearch::Switches::read(settings),
         persona.web_search_policy.as_ref(),
     )
     .is_empty();
@@ -2923,6 +2923,7 @@ mod tests {
                 exa: self.exa.mcp(),
                 keenable: self.keenable.base.clone(),
                 firecrawl: self.firecrawl.base.clone(),
+                searxng: None,
             }
         }
 
@@ -3201,4 +3202,186 @@ mod tests {
     }
 
     mod desk_browser;
+    // web_search over SearXNG -----------------------------------------------
+
+    const SEARXNG_KEY: &str = "searxng-key-never-shown-0123";
+
+    /// A desk whose vault holds a key for its SearXNG instance.
+    struct KeyedSearxng;
+
+    impl ProviderKeys for KeyedSearxng {
+        fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
+            HashMap::new()
+        }
+
+        fn web_search_keys(&self) -> crate::websearch::Keys {
+            HashMap::from([(WebSearchProvider::Searxng, SEARXNG_KEY.to_string())])
+        }
+    }
+
+    /// A fake SearXNG on localhost, answering its JSON format.
+    async fn searxng_instance() -> Mock {
+        let body = json!({"query":"rust","results":[{"url":"https://searxng.example","title":"from searxng","content":"A readable sentence from searxng about the subject.","engine":"duckduckgo"}]});
+        mock(Reply::json(body.to_string())).await
+    }
+
+    /// A search room whose desk holds `setting` as its `webSearch`.
+    fn searxng_room(
+        name: &str,
+        keys: Arc<dyn ProviderKeys>,
+        policy: Option<WebSearchPolicy>,
+        setting: Value,
+        providers: &Providers,
+    ) -> Arc<Room> {
+        let room = search_room(name, keys, policy, &[], providers);
+        room.log()
+            .append(
+                &StreamId::Room,
+                &json!({ "kind": "setting", "id": "webSearch", "value": setting }),
+            )
+            .unwrap();
+        room
+    }
+
+    fn only_searxng() -> Option<WebSearchPolicy> {
+        Some(WebSearchPolicy {
+            mode: PolicyMode::Some,
+            providers: vec![WebSearchProvider::Searxng],
+        })
+    }
+
+    /// Off by default: a teammate whose policy names SearXNG still cannot
+    /// search with it, and an instance with a URL but not switched on is
+    /// never asked.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn searxng_is_never_asked_until_the_desk_switches_it_on_with_its_url() {
+        let providers = Providers::new().await;
+        let instance = searxng_instance().await;
+        let room = search_room(
+            "ws-sx-default",
+            Arc::new(NoKeys),
+            only_searxng(),
+            &[],
+            &providers,
+        );
+        let refusal = tools(&room)
+            .call(WEB_SEARCH, &json!({ "query": "rust" }))
+            .await
+            .unwrap_err();
+        assert!(
+            refusal.starts_with("Web search is switched off"),
+            "{refusal}"
+        );
+
+        for setting in [
+            json!({"disabled": [], "urls": {"searxng": instance.base}}),
+            json!({"disabled": [], "enabled": ["searxng"]}),
+        ] {
+            let room = searxng_room("ws-sx-half", Arc::new(NoKeys), None, setting, &providers);
+            let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
+            assert!(
+                answered.ends_with("Searched with Parallel, Exa, Keenable, Firecrawl."),
+                "{answered}"
+            );
+        }
+        assert!(instance.seen.lock().unwrap().is_empty());
+    }
+
+    /// Switched on with its URL, the instance is asked beside the hosted
+    /// providers and its results fused in; its key goes in headers to it
+    /// alone and never reaches the model.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_searxng_instance_switched_on_joins_the_search_and_its_key_stays_in_headers() {
+        let providers = Providers::new().await;
+        let instance = searxng_instance().await;
+        let room = searxng_room(
+            "ws-sx-on",
+            Arc::new(KeyedSearxng),
+            None,
+            json!({"disabled": [], "enabled": ["searxng"], "urls": {"searxng": instance.base}}),
+            &providers,
+        );
+        let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
+        assert!(answered.contains("from searxng"), "{answered}");
+        assert!(answered.contains("https://searxng.example"), "{answered}");
+        assert!(
+            answered.ends_with("Searched with Parallel, Exa, Keenable, Firecrawl, SearXNG."),
+            "{answered}"
+        );
+        assert!(!answered.contains(SEARXNG_KEY));
+        assert_eq!(providers.asked(), [1, 1, 1, 1]);
+        let sent = instance.only();
+        assert!(
+            sent.path.starts_with("/search?q=rust&format=json"),
+            "{}",
+            sent.path
+        );
+        assert_eq!(
+            sent.header("authorization"),
+            Some(format!("Bearer {SEARXNG_KEY}").as_str())
+        );
+        assert_eq!(sent.header("x-api-key"), Some(SEARXNG_KEY));
+        for hosted in [
+            &providers.parallel,
+            &providers.keenable,
+            &providers.firecrawl,
+        ] {
+            let seen = hosted.seen.lock().unwrap();
+            assert!(
+                seen.iter().all(|one| one.header("authorization").is_none()
+                    && one.header("x-api-key").is_none())
+            );
+        }
+    }
+
+    /// The two ways an instance fails a person can fix, said to the model in
+    /// words it can pass on, with no key and no address in them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_searxng_instance_with_json_off_or_out_of_reach_says_what_to_fix() {
+        let providers = Providers::new().await;
+        let json_off = mock(Reply::status(403, "<title>403 Forbidden</title>")).await;
+        let room = searxng_room(
+            "ws-sx-403",
+            Arc::new(NoKeys),
+            only_searxng(),
+            json!({"enabled": ["searxng"], "urls": {"searxng": json_off.base}}),
+            &providers,
+        );
+        let error = tools(&room)
+            .call(WEB_SEARCH, &json!({ "query": "rust" }))
+            .await
+            .unwrap_err();
+        assert!(
+            error.starts_with("Web search failed: all 1 providers failed (searxng:"),
+            "{error}"
+        );
+        assert!(
+            error.contains("add json under search.formats in its settings.yml"),
+            "{error}"
+        );
+
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let room = searxng_room(
+            "ws-sx-gone",
+            Arc::new(KeyedSearxng),
+            only_searxng(),
+            json!({"enabled": ["searxng"], "urls": {"searxng": format!("http://127.0.0.1:{closed}")}}),
+            &providers,
+        );
+        let error = tools(&room)
+            .call(WEB_SEARCH, &json!({ "query": "rust" }))
+            .await
+            .unwrap_err();
+        assert!(
+            error.contains("searxng: could not reach the instance"),
+            "{error}"
+        );
+        assert!(!error.contains(&closed.to_string()), "{error}");
+        assert!(!error.contains(SEARXNG_KEY), "{error}");
+        assert_eq!(providers.asked(), [0, 0, 0, 0]);
+    }
 }

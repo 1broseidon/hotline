@@ -939,6 +939,73 @@ subagent run or a voice front is not offered either.
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
   last JPEG the desk took after a teammate's move; the phone seat may read it,
   as it reads the conversation the page came up in.
+## Web search over a SearXNG instance
+
+`web_search` can also ask a SearXNG instance the person runs or chose. The
+desk sends it `GET <instance>/search?q=<query>&format=json`, with
+`language` and `time_range` when the query has them, and nothing else. No
+tool, path or lease is new: it is one more provider behind the same
+`web_search` handler, under the same web search policy and lease as the
+hosted four. What changes is that the desk now contacts an address the
+person typed. What holds it (`hotline-websearch` `searxng.rs` and
+`Switches`):
+
+- **Off until the person sets it up.** A desk with no `enabled` or `urls`
+  in its `webSearch` setting, which is every desk before this, has SearXNG
+  off: missing means off. It is on only when switched on *and* holding a
+  URL; switching it on without one is refused, a hand-written setting that
+  does is written off, and clearing the URL switches it off. A teammate's
+  `some` policy that names `searxng` narrows; it never turns it on. An
+  older build ignores `enabled` and `urls`, and its own switch write drops
+  them, so a downgrade leaves SearXNG off.
+- **The person's address, never a teammate's.** The URL is set by
+  `websearch.set_url` or `settings.update`'s `webSearch`, both owner or
+  local desk only, both checked by the same rules. A teammate has no
+  command that writes it, and the model chooses only `q`, which is encoded
+  into the query string.
+- **What the URL may be.** http or https, a host, an optional path; no user
+  or password (a key belongs in the keychain), no query (the search writes
+  its own), no fragment, no control character, at most 2,048 characters.
+  Any host: `localhost`, an address on this network and a public instance
+  alike. This is the call this change makes, and it differs from link
+  previews on purpose: there a teammate's message picks the address, so
+  only https on the internet is read; here the person types it on the
+  desk, and a SearXNG on this machine or the home network, over plain http,
+  is the usual home. It is the same call an MCP tool source's URL makes.
+- **The key stays a key.** It is kept as the hosted providers' keys are,
+  in the OS credential store with a reference in `vault/websearch/`, never
+  in the room stream, a setting or any answer. It is sent only to the
+  instance, as `Authorization: Bearer` (what oauth2-proxy and token
+  gateways take) and as `X-API-Key` (what LibreChat's SearXNG client sends,
+  so an instance set up for it works unchanged). Never in the URL, where an
+  access log would keep it.
+- **Redirects stay on the instance's host.** At most three, and only to
+  the host the person named; anything else fails the search and says so.
+  `reqwest` strips `Authorization` on a redirect to another host but not
+  `X-API-Key`, so this is what keeps the key from following one away.
+- **What comes back is data.** The answer is read to at most 8 MB in the
+  5 s every provider has, each snippet cut to 500 characters, and cleaned,
+  ranked and fused with the others as theirs are. A failure tells the
+  person what to fix (JSON off is a 403: add `json` under `search.formats`
+  in `settings.yml`; out of reach; a key refused) without the instance's
+  address or the key.
+
+Residual: an instance reached over http off this machine sees the queries,
+and the key when there is one, cross the network in the clear; use https
+for an instance that is not on this machine. Once it is on, every teammate
+whose policy inherits the desk's switches sends its queries to the
+instance, and its results are only as trustworthy as the engines it asks.
+The URL is a room setting and travels where settings do; it holds no
+credential by construction.
+
+| Boundary | Proof |
+| --- | --- |
+| Off by default and on only when switched on with a URL; a teammate's policy cannot turn it on; clearing the URL switches it off | `hotline-websearch/src/tests.rs` `searxng_is_on_only_when_switched_on_with_its_url`; `mcp/server.rs` `searxng_is_never_asked_until_the_desk_switches_it_on_with_its_url` |
+| The URL is http or https with a host, never a user, password, query or fragment, on the wire and in a hand-written setting alike; only the desk and owner seats set it | `hotline-websearch/src/tests.rs` `an_instance_url_is_http_or_https_with_a_host_and_nothing_secret`, `the_desk_setting_reads_leniently_and_is_written_in_one_shape`; `wire/tests/settings.rs` `searxng_needs_its_url_before_it_is_on_and_its_key_never_leaves_the_vault`, `only_the_desk_and_owner_seats_may_touch_web_search_settings` |
+| The key is kept in the vault, sent to the instance in headers alone, and never answered or shown to the model | `hotline-websearch/src/tests.rs` `searxng_sends_a_key_as_a_bearer_and_an_api_key_header_never_in_the_url`; `mcp/server.rs` `a_searxng_instance_switched_on_joins_the_search_and_its_key_stays_in_headers`; `wire/tests/settings.rs` `searxng_needs_its_url_before_it_is_on_and_its_key_never_leaves_the_vault` |
+| A redirect off the instance's host is not followed | `hotline-websearch/src/tests.rs` `searxng_follows_a_redirect_only_on_the_instances_own_host` |
+| JSON off, an unreachable instance and an answer that is not JSON each say what to fix, without the address or the key | `hotline-websearch/src/tests.rs` `searxng_with_json_off_says_how_to_turn_it_on`, `searxng_unreachable_or_not_json_says_so_without_its_address`; `mcp/server.rs` `a_searxng_instance_with_json_off_or_out_of_reach_says_what_to_fix` |
+| The Tools pane's switch waits for a URL, saves the URL and key, and never draws the key back | `ui/tests/web-search-settings.test.tsx` |
 
 ## The regression matrix
 

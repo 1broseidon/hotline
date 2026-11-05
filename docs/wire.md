@@ -121,9 +121,10 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
-| `websearch.status` | `{}` | `WebSearchStatus` `{providers: [{provider, name, enabled, hasKey}]}` — each web search provider, whether the desk has it on and whether a key is saved, never the key; owner or local desk only |
-| `websearch.set_enabled` | `{provider, enabled}` | `WebSearchStatus`; one provider on or off for the whole desk; owner or local desk only |
-| `websearch.set_key` | `{provider, key?}` | `WebSearchStatus`; saves the provider's key in the vault, or forgets it when `key` is absent or blank. A keyed provider is tried before the keyless ones; owner or local desk only |
+| `websearch.status` | `{}` | `WebSearchStatus` `{providers: [{provider, name, enabled, hasKey, takesUrl?, url?}]}` — each web search provider (`parallel`, `exa`, `keenable`, `firecrawl`, `searxng`), whether the desk has it on and whether a key is saved, never the key. SearXNG, the person's own instance, has `takesUrl` and, once set, its `url`; it is on only when switched on with a URL; owner or local desk only |
+| `websearch.set_enabled` | `{provider, enabled}` | `WebSearchStatus`; one provider on or off for the whole desk. SearXNG is refused on until its URL is set; owner or local desk only |
+| `websearch.set_key` | `{provider, key?}` | `WebSearchStatus`; saves the provider's key in the vault, or forgets it when `key` is absent or blank. A keyed provider is tried before the keyless ones. SearXNG's key is sent to its instance as `Authorization: Bearer` and `X-API-Key`; owner or local desk only |
+| `websearch.set_url` | `{provider, url?}` | `WebSearchStatus`; sets SearXNG's instance URL (http or https, a host, an optional path; no user, password, query or fragment), kept in the `webSearch` setting, or clears it when `url` is absent or blank, which switches SearXNG off. Any other provider is refused; owner or local desk only |
 | `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
@@ -460,6 +461,12 @@ does not prevent the remaining teammates from applying the change.
 `linkPreviews` is `true` unless the person turned link previews off;
 `false` makes `link.preview` and `link.icon` answer `null` without the desk
 contacting any site ([security.md](security.md#link-previews)).
+`webSearch` is `{disabled, enabled?, urls?}`: `disabled` lists the hosted
+providers switched off (absent is all on), `enabled` the self-hosted ones
+switched on (absent is all off; only `searxng`), and `urls` SearXNG's
+instance as `{searxng: url}`. A self-hosted provider switched on with no URL
+is written off, and a URL that `websearch.set_url` would refuse is refused
+here too ([security.md](security.md#web-search-over-a-searxng-instance)).
 `computerRuntime` is the user's pick of `"docker"`, `"podman"` or
 `"container"`; absent means the first available runtime. `computerImage`
 is the room's default image, under a teammate's own. Neither reattaches

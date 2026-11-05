@@ -405,6 +405,17 @@ pub enum Command {
         #[serde(default)]
         key: Option<String>,
     },
+    /// Sets the URL of a provider the person runs themselves (SearXNG), or
+    /// clears it when `url` is absent or blank, which also switches the
+    /// provider off. An http or https URL with a host and no credentials,
+    /// query or fragment; any other provider is refused. Answers the status.
+    /// Owner or local desk only.
+    #[serde(rename = "websearch.set_url")]
+    WebsearchSetUrl {
+        provider: WebSearchProvider,
+        #[serde(default)]
+        url: Option<String>,
+    },
     /// The card for a link written in a message, read by the desk; `null`
     /// when the page has none, is not one the desk will read, or link
     /// previews are off.

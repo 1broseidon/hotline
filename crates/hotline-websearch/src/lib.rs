@@ -1,12 +1,14 @@
 //! Web search for every teammate, keyless by default.
 //!
-//! Four providers answer, each a port of ketch's: Parallel, Exa, Keenable and
-//! Firecrawl. A search asks every one that is switched on at once, as ketch's
-//! `multi.go` does, and fuses what comes back by Reciprocal Rank Fusion; a
-//! slow or broken provider costs its list, not the search. An optional key per
-//! provider gives its list a little more weight. Which providers a teammate
-//! searches with is the desk's switches intersected with the teammate's own
-//! policy; see [`effective_chain`].
+//! Four hosted providers answer, each a port of ketch's: Parallel, Exa,
+//! Keenable and Firecrawl. A fifth, SearXNG, is an instance the person runs or
+//! chose, off until they switch it on with its URL. A search asks every one
+//! that is switched on at once, as ketch's `multi.go` does, and fuses what
+//! comes back by Reciprocal Rank Fusion; a slow or broken provider costs its
+//! list, not the search. An optional key per provider gives its list a little
+//! more weight. Which providers a teammate searches with is the desk's
+//! switches intersected with the teammate's own policy; see
+//! [`effective_chain`].
 //!
 //! The results are then made fit to read, by `clean`, `rank` and `query`:
 //! error pages and page chrome out, duplicates and language mirrors merged,
@@ -30,6 +32,7 @@ mod mcp;
 mod parallel;
 pub mod query;
 pub mod rank;
+mod searxng;
 pub mod when;
 
 use async_trait::async_trait;
@@ -48,6 +51,7 @@ pub use exa::Exa;
 pub use firecrawl::Firecrawl;
 pub use keenable::Keenable;
 pub use parallel::Parallel;
+pub use searxng::{Searxng, instance_url};
 
 /// How long one provider may take. Fan-out is parallel, so the search takes
 /// about the slowest provider, and this is what bounds it.
@@ -70,13 +74,21 @@ pub fn depth_for(limit: usize) -> usize {
 }
 
 /// The providers in ketch's AutoRank order: Parallel 70, Exa 80, Keenable 90,
-/// Firecrawl 110. Fusion does not depend on it beyond breaking ties.
-pub const ORDER: [WebSearchProvider; 4] = [
+/// Firecrawl 110, then SearXNG, the one the person runs. Fusion does not
+/// depend on it beyond breaking ties, so a hosted provider wins a tie.
+pub const ORDER: [WebSearchProvider; 5] = [
     WebSearchProvider::Parallel,
     WebSearchProvider::Exa,
     WebSearchProvider::Keenable,
     WebSearchProvider::Firecrawl,
+    WebSearchProvider::Searxng,
 ];
+
+/// Whether the person runs the provider themselves: it is off until the desk
+/// switches it on, and is reached only at the URL the desk holds for it.
+pub fn self_hosted(provider: WebSearchProvider) -> bool {
+    matches!(provider, WebSearchProvider::Searxng)
+}
 
 /// The name a person reads for a provider.
 pub fn display_name(provider: WebSearchProvider) -> &'static str {
@@ -85,6 +97,7 @@ pub fn display_name(provider: WebSearchProvider) -> &'static str {
         WebSearchProvider::Exa => "Exa",
         WebSearchProvider::Keenable => "Keenable",
         WebSearchProvider::Firecrawl => "Firecrawl",
+        WebSearchProvider::Searxng => "SearXNG",
     }
 }
 
@@ -95,6 +108,7 @@ pub fn id(provider: WebSearchProvider) -> &'static str {
         WebSearchProvider::Exa => "exa",
         WebSearchProvider::Keenable => "keenable",
         WebSearchProvider::Firecrawl => "firecrawl",
+        WebSearchProvider::Searxng => "searxng",
     }
 }
 
@@ -320,13 +334,15 @@ pub struct Attempt {
 }
 
 /// Where each provider is reached. The real ones by default; a test points
-/// them at a mock server on localhost.
+/// them at a mock server on localhost. SearXNG has no address of its own: it
+/// is the instance the desk's setting names ([`Switches::url`]).
 #[derive(Clone, Debug)]
 pub struct Endpoints {
     pub parallel: String,
     pub exa: String,
     pub keenable: String,
     pub firecrawl: String,
+    pub searxng: Option<String>,
 }
 
 impl Default for Endpoints {
@@ -336,6 +352,7 @@ impl Default for Endpoints {
             exa: exa::ENDPOINT.into(),
             keenable: keenable::BASE.into(),
             firecrawl: firecrawl::BASE.into(),
+            searxng: None,
         }
     }
 }
@@ -359,6 +376,13 @@ pub fn attempt(
         WebSearchProvider::Firecrawl => {
             Box::new(Firecrawl::at(client, &endpoints.firecrawl, key.clone()))
         }
+        // Its own client, whose redirects stay on the instance's host. With
+        // no URL it fails on its own reason; the chain never builds it so.
+        WebSearchProvider::Searxng => Box::new(Searxng::at(
+            searxng::client(),
+            endpoints.searxng.clone().unwrap_or_default(),
+            key.clone(),
+        )),
     };
     Attempt {
         provider,
@@ -367,60 +391,215 @@ pub fn attempt(
     }
 }
 
-/// The providers the desk has switched off: `settings.webSearch.disabled`.
-/// Absent is all on, and a name this build does not know is ignored.
-pub fn disabled_on_desk(
-    settings: &serde_json::Map<String, serde_json::Value>,
-) -> HashSet<WebSearchProvider> {
-    settings
-        .get("webSearch")
-        .and_then(|value| value.get("disabled"))
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|name| serde_json::from_value(name.clone()).ok())
-        .collect()
+/// The desk's web search switches: `settings.webSearch`.
+///
+/// `disabled` lists the hosted providers the desk switched off; absent is all
+/// on. `enabled` lists the self-hosted ones it switched on; absent is all off.
+/// `urls` holds a self-hosted provider's instance, by id. A name this build
+/// does not know is ignored, and so is a self-hosted provider switched on with
+/// no URL: it is not on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Switches {
+    disabled: HashSet<WebSearchProvider>,
+    enabled: HashSet<WebSearchProvider>,
+    urls: HashMap<WebSearchProvider, String>,
+}
+
+impl Switches {
+    /// The switches as the room's settings hold them, read leniently.
+    pub fn read(settings: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let Some(setting) = settings.get("webSearch") else {
+            return Self::default();
+        };
+        let named = |field: &str| -> HashSet<WebSearchProvider> {
+            setting
+                .get(field)
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|name| serde_json::from_value(name.clone()).ok())
+                .collect()
+        };
+        let urls = setting
+            .get("urls")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(id, url)| {
+                let provider: WebSearchProvider =
+                    serde_json::from_value(serde_json::Value::from(id.as_str())).ok()?;
+                let url = instance_url(url.as_str()?).ok()??;
+                self_hosted(provider).then_some((provider, url))
+            })
+            .collect();
+        let mut switches = Self {
+            disabled: named("disabled"),
+            enabled: named("enabled"),
+            urls,
+        };
+        switches.settle();
+        switches
+    }
+
+    /// Each list holds only what it can mean: a hosted provider is never
+    /// "enabled", a self-hosted one never "disabled", and a self-hosted one
+    /// with no URL is off.
+    fn settle(&mut self) {
+        self.disabled.retain(|provider| !self_hosted(*provider));
+        let urls = &self.urls;
+        self.enabled
+            .retain(|provider| self_hosted(*provider) && urls.contains_key(provider));
+    }
+
+    /// Whether the desk has the provider on: a hosted one unless switched
+    /// off, a self-hosted one only when switched on with its URL.
+    pub fn on(&self, provider: WebSearchProvider) -> bool {
+        if self_hosted(provider) {
+            self.enabled.contains(&provider) && self.urls.contains_key(&provider)
+        } else {
+            !self.disabled.contains(&provider)
+        }
+    }
+
+    /// The instance a self-hosted provider is reached at.
+    pub fn url(&self, provider: WebSearchProvider) -> Option<&str> {
+        self.urls.get(&provider).map(String::as_str)
+    }
+
+    /// Switches a provider on or off. A self-hosted provider cannot be on
+    /// without its URL.
+    pub fn set_enabled(&mut self, provider: WebSearchProvider, on: bool) -> Result<(), String> {
+        if self_hosted(provider) {
+            if on && !self.urls.contains_key(&provider) {
+                return Err(format!(
+                    "Set the {} instance's URL before switching it on.",
+                    display_name(provider)
+                ));
+            }
+            if on {
+                self.enabled.insert(provider);
+            } else {
+                self.enabled.remove(&provider);
+            }
+        } else if on {
+            self.disabled.remove(&provider);
+        } else {
+            self.disabled.insert(provider);
+        }
+        Ok(())
+    }
+
+    /// Sets or clears a self-hosted provider's URL; clearing it switches the
+    /// provider off. A hosted provider has no URL to set.
+    pub fn set_url(
+        &mut self,
+        provider: WebSearchProvider,
+        url: Option<&str>,
+    ) -> Result<(), String> {
+        if !self_hosted(provider) {
+            return Err(format!(
+                "{} is reached at its own address; only SearXNG takes a URL.",
+                display_name(provider)
+            ));
+        }
+        match url.map(instance_url).transpose()?.flatten() {
+            Some(url) => {
+                self.urls.insert(provider, url);
+            }
+            None => {
+                self.urls.remove(&provider);
+            }
+        }
+        self.settle();
+        Ok(())
+    }
+
+    /// The setting, in its one shape: `disabled` always, `enabled` and `urls`
+    /// only when they hold something, so a desk that never set SearXNG up
+    /// writes what it always wrote.
+    pub fn to_setting(&self) -> serde_json::Value {
+        let listed = |set: &HashSet<WebSearchProvider>| -> Vec<&'static str> {
+            ORDER
+                .into_iter()
+                .filter(|provider| set.contains(provider))
+                .map(id)
+                .collect()
+        };
+        let mut setting = serde_json::json!({ "disabled": listed(&self.disabled) });
+        if !self.enabled.is_empty() {
+            setting["enabled"] = serde_json::json!(listed(&self.enabled));
+        }
+        if !self.urls.is_empty() {
+            let urls: serde_json::Map<String, serde_json::Value> = ORDER
+                .into_iter()
+                .filter_map(|provider| {
+                    let url = self.urls.get(&provider)?;
+                    Some((
+                        id(provider).to_string(),
+                        serde_json::Value::from(url.as_str()),
+                    ))
+                })
+                .collect();
+            setting["urls"] = serde_json::Value::Object(urls);
+        }
+        setting
+    }
 }
 
 /// Checks a `webSearch` setting and writes it back in its one shape.
 pub fn normalize_setting(value: &serde_json::Value) -> Result<serde_json::Value, String> {
     let wrong = || {
-        "The webSearch setting must be an object whose disabled list names providers: parallel, exa, keenable or firecrawl."
+        "The webSearch setting must be an object whose disabled and enabled lists name providers (parallel, exa, keenable, firecrawl or searxng) and whose urls give searxng's instance."
             .to_string()
     };
     let object = value.as_object().ok_or_else(wrong)?;
-    if object.keys().any(|key| key != "disabled") {
+    if object
+        .keys()
+        .any(|key| !matches!(key.as_str(), "disabled" | "enabled" | "urls"))
+    {
         return Err(wrong());
     }
-    let listed = match object.get("disabled") {
-        None => Vec::new(),
-        Some(list) => list.as_array().ok_or_else(wrong)?.clone(),
-    };
-    let mut disabled = HashSet::new();
-    for name in listed {
-        disabled.insert(serde_json::from_value::<WebSearchProvider>(name).map_err(|_| wrong())?);
+    let mut switches = Switches::default();
+    // The URLs first: setting one settles the lists, which are read after.
+    if let Some(urls) = object.get("urls") {
+        for (name, url) in urls.as_object().ok_or_else(wrong)? {
+            let provider =
+                serde_json::from_value::<WebSearchProvider>(serde_json::Value::from(name.as_str()))
+                    .map_err(|_| wrong())?;
+            switches.set_url(provider, Some(url.as_str().ok_or_else(wrong)?))?;
+        }
     }
-    let disabled: Vec<&str> = ORDER
-        .into_iter()
-        .filter(|provider| disabled.contains(provider))
-        .map(id)
-        .collect();
-    Ok(serde_json::json!({ "disabled": disabled }))
+    for (field, set) in [
+        ("disabled", &mut switches.disabled),
+        ("enabled", &mut switches.enabled),
+    ] {
+        if let Some(list) = object.get(field) {
+            for name in list.as_array().ok_or_else(wrong)? {
+                set.insert(
+                    serde_json::from_value::<WebSearchProvider>(name.clone())
+                        .map_err(|_| wrong())?,
+                );
+            }
+        }
+    }
+    switches.settle();
+    Ok(switches.to_setting())
 }
 
 /// The providers a teammate's search asks, in [`ORDER`].
 ///
-/// The desk's switches decide what exists: a provider switched off there is
-/// off for everyone. The teammate's policy then narrows it: absent or `all`
-/// inherits whatever the desk has on, `none` leaves nothing, `some` keeps only
-/// what it names.
+/// The desk's switches decide what exists: a provider the desk has off is off
+/// for everyone, and a self-hosted one is off until it is switched on with its
+/// URL. The teammate's policy then narrows it: absent or `all` inherits
+/// whatever the desk has on, `none` leaves nothing, `some` keeps only what it
+/// names.
 pub fn effective_chain(
-    disabled_on_desk: &HashSet<WebSearchProvider>,
+    desk: &Switches,
     policy: Option<&WebSearchPolicy>,
 ) -> Vec<WebSearchProvider> {
     ORDER
         .into_iter()
-        .filter(|provider| !disabled_on_desk.contains(provider))
+        .filter(|provider| desk.on(*provider))
         .filter(|provider| match policy {
             None => true,
             Some(policy) => match policy.mode {

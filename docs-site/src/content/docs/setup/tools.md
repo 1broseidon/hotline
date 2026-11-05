@@ -109,3 +109,11 @@ the result. Only the query is sent.
 stop every teammate using it. **Add key** gives a provider your own API key,
 kept in the keychain: a provider with a key counts for more and lifts its
 free rate limit.
+
+**SearXNG** is a search engine you run yourself, or one you trust. It is off
+until you set it up: **Set up** takes the instance's address, such as
+`http://localhost:8888`, and a key if your instance sits behind a gateway
+that wants one (sent as `Authorization: Bearer` and as `X-API-Key`). Then
+switch it on, and every search asks it beside the others. The instance must
+serve JSON: add `json` under `search.formats` in its `settings.yml`, or it
+answers 403 and Hotline says so.

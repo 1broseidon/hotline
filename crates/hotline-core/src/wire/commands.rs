@@ -71,6 +71,9 @@ pub(crate) async fn run(
         Command::WebsearchSetEnabled { provider, enabled } => {
             settings::set_web_search_enabled(log, room, provider, enabled).await
         }
+        Command::WebsearchSetUrl { provider, url } => {
+            settings::set_web_search_url(log, room, provider, url.as_deref()).await
+        }
         Command::WebsearchSetKey { provider, key } => {
             room.websearch_set_key(provider, key.as_deref())?;
             web_search_status(log, room)

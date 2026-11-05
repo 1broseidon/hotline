@@ -1,6 +1,6 @@
 [package]
 name = "hotline-websearch"
-description = "Web search for every teammate: the four providers, the chain that asks them at once and fuses their lists, and the cleaning of what they answer. Depends on hotline-contract and no other Hotline crate by design."
+description = "Web search for every teammate: the four hosted providers and a SearXNG instance the person runs, the chain that asks them at once and fuses their lists, and the cleaning of what they answer. Depends on hotline-contract and no other Hotline crate by design."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

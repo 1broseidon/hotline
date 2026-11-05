@@ -381,10 +381,12 @@ impl<'de> Deserialize<'de> for WebSearchPolicy {
     }
 }
 
-/// The four providers web search has. The chain tries them Parallel, Exa,
-/// Keenable, Firecrawl before any key promotes one. A record may name one
-/// this build does not have; it is left out on read rather than taking the
-/// whole teammate with it.
+/// The providers web search has. The four hosted ones are on until the desk
+/// switches one off, and the chain tries them Parallel, Exa, Keenable,
+/// Firecrawl before any key promotes one. SearXNG is the person's own
+/// instance: off until the desk switches it on, and never searched without
+/// the instance's URL. A record may name one this build does not have; it is
+/// left out on read rather than taking the whole teammate with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -393,18 +395,29 @@ pub enum WebSearchProvider {
     Exa,
     Firecrawl,
     Keenable,
+    Searxng,
 }
 
 /// One provider as the Tools pane shows it: whether the desk has it on, and
-/// whether a key is saved for it. Never the key.
+/// whether a key is saved for it. Never the key. A provider the person runs
+/// themselves (SearXNG) also says it takes an instance URL, and the URL the
+/// desk holds, which carries no credentials.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct WebSearchProviderStatus {
     pub provider: WebSearchProvider,
     pub name: String,
     pub enabled: bool,
     pub has_key: bool,
+    /// Whether this provider is reached at a URL the person sets. Absent is
+    /// false: a hosted provider.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub takes_url: bool,
+    /// The instance URL, when one is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// What `websearch.status` answers: the providers in the order a search with

@@ -1084,11 +1084,193 @@ fn depth_asks_for_more_than_the_limit_within_bounds() {
     );
 }
 
-// Who is on the chain -------------------------------------------------------
+// SearXNG -------------------------------------------------------------------
 
-fn set(providers: &[P]) -> HashSet<P> {
-    providers.iter().copied().collect()
+fn searxng_body() -> String {
+    json!({
+        "query": "rust",
+        "number_of_results": 0,
+        "results": [
+            {"url":"https://www.rust-lang.org/","title":"Rust\n Programming  Language","content":"A language empowering everyone.","engine":"duckduckgo","publishedDate":null},
+            {"url":"","title":"no url","content":"x"},
+            {"url":"https://doc.rust-lang.org/book/","title":"The Book","content":"word ".repeat(200),"publishedDate":"2025-03-01T00:00:00"},
+            {"url":"https://blog.rust-lang.org/","title":"Blog","content":""},
+        ],
+        "answers": [],
+        "suggestions": [],
+        "unresponsive_engines": [],
+    })
+    .to_string()
 }
+
+#[tokio::test]
+async fn searxng_asks_the_instance_for_json_and_maps_title_url_and_content() {
+    let server = mock(Reply::json(searxng_body())).await;
+    let hits = Searxng::at(searxng::client(), format!("{}/searx", server.base), None)
+        .search(&Request::plain("rust lang", 2))
+        .await
+        .unwrap();
+    assert_eq!(
+        hits,
+        vec![
+            Hit {
+                title: "Rust Programming Language".into(),
+                url: "https://www.rust-lang.org/".into(),
+                snippet: "A language empowering everyone.".into(),
+                published: None,
+            },
+            Hit {
+                title: "The Book".into(),
+                url: "https://doc.rust-lang.org/book/".into(),
+                snippet: "word ".repeat(200).trim().chars().take(500).collect(),
+                published: Some("2025-03-01T00:00:00".into()),
+            },
+        ]
+    );
+    let seen = server.only();
+    assert_eq!(seen.path, "/searx/search?q=rust+lang&format=json");
+    assert_eq!(seen.header("accept"), Some("application/json"));
+    assert!(seen.header("authorization").is_none());
+    assert!(seen.header("x-api-key").is_none());
+}
+
+#[tokio::test]
+async fn searxng_sends_a_key_as_a_bearer_and_an_api_key_header_never_in_the_url() {
+    let server = mock(Reply::json(searxng_body())).await;
+    Searxng::at(searxng::client(), server.base.clone(), Some(KEY.into()))
+        .search(&Request::plain("rust", 3))
+        .await
+        .unwrap();
+    let seen = server.only();
+    assert_eq!(
+        seen.header("authorization"),
+        Some(format!("Bearer {KEY}").as_str())
+    );
+    assert_eq!(seen.header("x-api-key"), Some(KEY));
+    assert!(!seen.path.contains(KEY));
+}
+
+#[tokio::test]
+async fn searxng_takes_a_language_and_a_recent_window_as_a_time_range() {
+    let server = mock(Reply::json(searxng_body())).await;
+    Searxng::at(searxng::client(), server.base.clone(), None)
+        .search(&french_news())
+        .await
+        .unwrap();
+    let path = server.only().path;
+    assert!(path.contains("&language=fr"), "{path}");
+    assert!(path.contains("&time_range=week"), "{path}");
+
+    let today = day(2026, 11, 5);
+    let window = |from, to| when::Window { from, to };
+    assert_eq!(
+        searxng::time_range(window(today, today), today),
+        Some("day")
+    );
+    assert_eq!(
+        searxng::time_range(window(day(2026, 10, 20), today), today),
+        Some("month")
+    );
+    assert_eq!(
+        searxng::time_range(window(day(2025, 1, 1), today), today),
+        Some("year")
+    );
+    // A window in the past has no range SearXNG can say.
+    assert_eq!(
+        searxng::time_range(window(day(2024, 1, 1), day(2024, 1, 31)), today),
+        None
+    );
+}
+
+#[tokio::test]
+async fn searxng_with_json_off_says_how_to_turn_it_on() {
+    let server = mock(Reply::status(
+        403,
+        "<html><title>403 Forbidden</title></html>",
+    ))
+    .await;
+    let error = Searxng::at(searxng::client(), server.base.clone(), None)
+        .search(&Request::plain("q", 3))
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, Kind::Status(403));
+    assert!(error.message.starts_with("searxng: "), "{error}");
+    assert!(error.message.contains("search.formats"), "{error}");
+    assert!(error.message.contains("settings.yml"), "{error}");
+    assert!(error.cooldown().is_none(), "waiting does not turn JSON on");
+
+    let server = mock(Reply::status(403, "")).await;
+    let keyed = Searxng::at(searxng::client(), server.base.clone(), Some(KEY.into()))
+        .search(&Request::plain("q", 3))
+        .await
+        .unwrap_err();
+    assert!(keyed.message.contains("refused the key"), "{keyed}");
+    assert!(!keyed.message.contains(KEY));
+
+    let server = mock(Reply::status(401, "")).await;
+    let gated = Searxng::at(searxng::client(), server.base.clone(), None)
+        .search(&Request::plain("q", 3))
+        .await
+        .unwrap_err();
+    assert!(gated.message.contains("asks for a key"), "{gated}");
+}
+
+#[tokio::test]
+async fn searxng_unreachable_or_not_json_says_so_without_its_address() {
+    // A port that was just free: nothing answers there.
+    let closed = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let error = Searxng::at(
+        searxng::client(),
+        format!("http://127.0.0.1:{closed}"),
+        Some(KEY.into()),
+    )
+    .search(&Request::plain("q", 3))
+    .await
+    .unwrap_err();
+    assert!(
+        error.message.contains("could not reach the instance"),
+        "{error}"
+    );
+    assert!(!error.message.contains(&closed.to_string()), "{error}");
+    assert!(!error.message.contains(KEY));
+
+    let server = mock(Reply::json("<html>SearXNG</html>")).await;
+    let error = Searxng::at(searxng::client(), server.base.clone(), None)
+        .search(&Request::plain("q", 3))
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("did not answer JSON"), "{error}");
+}
+
+/// A redirect off the instance's host is not followed, so neither the query
+/// nor the key reaches the host it names; one on the same host is.
+#[tokio::test]
+async fn searxng_follows_a_redirect_only_on_the_instances_own_host() {
+    let elsewhere = mock(Reply::json(searxng_body())).await;
+    // The same machine under another name is another host.
+    let away = elsewhere.base.replace("127.0.0.1", "localhost");
+    let server = mock(Reply::redirect(format!("{away}/search"))).await;
+    let error = Searxng::at(searxng::client(), server.base.clone(), Some(KEY.into()))
+        .search(&Request::plain("q", 3))
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("redirected"), "{error}");
+    assert_eq!(server.seen.lock().unwrap().len(), 1);
+    assert!(elsewhere.seen.lock().unwrap().is_empty());
+
+    let server = mock(Reply::redirect(format!("{}/search", elsewhere.base))).await;
+    let hits = Searxng::at(searxng::client(), server.base.clone(), None)
+        .search(&Request::plain("q", 3))
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 3);
+    assert_eq!(elsewhere.seen.lock().unwrap().len(), 1);
+}
+
+// Who is on the chain -------------------------------------------------------
 
 fn policy(mode: PolicyMode, providers: &[P]) -> WebSearchPolicy {
     WebSearchPolicy {
@@ -1097,10 +1279,23 @@ fn policy(mode: PolicyMode, providers: &[P]) -> WebSearchPolicy {
     }
 }
 
+/// The desk with `off` switched off.
+fn desk_without(off: &[P]) -> Switches {
+    let mut desk = Switches::default();
+    for provider in off {
+        desk.set_enabled(*provider, false).unwrap();
+    }
+    desk
+}
+
+fn read(setting: serde_json::Value) -> Switches {
+    Switches::read(json!({ "webSearch": setting }).as_object().unwrap())
+}
+
 #[test]
-fn every_provider_is_on_by_default_in_ketchs_order() {
+fn every_hosted_provider_is_on_by_default_in_ketchs_order() {
     assert_eq!(
-        effective_chain(&set(&[]), None),
+        effective_chain(&Switches::default(), None),
         vec![P::Parallel, P::Exa, P::Keenable, P::Firecrawl]
     );
 }
@@ -1109,12 +1304,12 @@ fn every_provider_is_on_by_default_in_ketchs_order() {
 fn the_desk_switch_wins_over_a_teammates_policy() {
     let all = policy(PolicyMode::All, &[]);
     assert_eq!(
-        effective_chain(&set(&[P::Exa]), Some(&all)),
+        effective_chain(&desk_without(&[P::Exa]), Some(&all)),
         vec![P::Parallel, P::Keenable, P::Firecrawl]
     );
     let wants_exa = policy(PolicyMode::Some, &[P::Exa, P::Keenable]);
     assert_eq!(
-        effective_chain(&set(&[P::Exa]), Some(&wants_exa)),
+        effective_chain(&desk_without(&[P::Exa]), Some(&wants_exa)),
         vec![P::Keenable]
     );
 }
@@ -1123,29 +1318,105 @@ fn the_desk_switch_wins_over_a_teammates_policy() {
 fn a_teammates_some_narrows_the_chain_and_none_empties_it() {
     let some = policy(PolicyMode::Some, &[P::Firecrawl, P::Parallel]);
     assert_eq!(
-        effective_chain(&set(&[]), Some(&some)),
+        effective_chain(&Switches::default(), Some(&some)),
         vec![P::Parallel, P::Firecrawl]
     );
     let none = policy(PolicyMode::None, &[P::Exa]);
     assert_eq!(
-        effective_chain(&set(&[]), Some(&none)),
+        effective_chain(&Switches::default(), Some(&none)),
         [] as [WebSearchProvider; 0]
     );
     let nothing_named = policy(PolicyMode::Some, &[]);
     assert_eq!(
-        effective_chain(&set(&[]), Some(&nothing_named)),
+        effective_chain(&Switches::default(), Some(&nothing_named)),
         [] as [WebSearchProvider; 0]
     );
 }
 
+/// SearXNG is never on by default, by a policy that names it, or by a hand
+/// edit that switches it on without a URL; it joins the chain, last, only
+/// once it is switched on with one, and clearing the URL takes it off.
+#[test]
+fn searxng_is_on_only_when_switched_on_with_its_url() {
+    let names_it = policy(PolicyMode::Some, &[P::Searxng, P::Exa]);
+    let mut desk = Switches::default();
+    assert!(!desk.on(P::Searxng));
+    assert_eq!(effective_chain(&desk, Some(&names_it)), vec![P::Exa]);
+
+    assert!(desk.set_enabled(P::Searxng, true).is_err());
+    assert!(!read(json!({"enabled": ["searxng"]})).on(P::Searxng));
+
+    desk.set_url(P::Searxng, Some("http://localhost:8888/"))
+        .unwrap();
+    assert_eq!(desk.url(P::Searxng), Some("http://localhost:8888"));
+    assert!(!desk.on(P::Searxng), "a URL alone does not switch it on");
+    desk.set_enabled(P::Searxng, true).unwrap();
+    assert_eq!(
+        effective_chain(&desk, None),
+        vec![P::Parallel, P::Exa, P::Keenable, P::Firecrawl, P::Searxng]
+    );
+    assert_eq!(
+        effective_chain(&desk, Some(&names_it)),
+        vec![P::Exa, P::Searxng]
+    );
+
+    desk.set_url(P::Searxng, Some("  ")).unwrap();
+    assert!(!desk.on(P::Searxng));
+    desk.set_url(P::Searxng, Some("http://localhost:8888"))
+        .unwrap();
+    assert!(
+        !desk.on(P::Searxng),
+        "a URL set again does not switch it back on"
+    );
+
+    assert!(desk.set_url(P::Exa, Some("https://exa.example")).is_err());
+}
+
+#[test]
+fn an_instance_url_is_http_or_https_with_a_host_and_nothing_secret() {
+    for (raw, kept) in [
+        ("http://localhost:8888", "http://localhost:8888"),
+        (
+            "  https://search.example.org/  ",
+            "https://search.example.org",
+        ),
+        (
+            "http://192.168.1.20:8080/searx/",
+            "http://192.168.1.20:8080/searx",
+        ),
+        ("http://[::1]:8888", "http://[::1]:8888"),
+    ] {
+        assert_eq!(instance_url(raw).unwrap().as_deref(), Some(kept), "{raw}");
+    }
+    assert_eq!(instance_url("   ").unwrap(), None);
+    for bad in [
+        "localhost:8888",
+        "ftp://search.example.org",
+        "file:///etc/passwd",
+        "https://user:pass@search.example.org",
+        "https://token@search.example.org",
+        "https://search.example.org/?token=x",
+        "https://search.example.org/#x",
+        "https://search.\nexample.org/",
+        "http://",
+    ] {
+        assert!(instance_url(bad).is_err(), "{bad}");
+    }
+    assert!(instance_url(&format!("https://a.example/{}", "x".repeat(3000))).is_err());
+}
+
 #[test]
 fn the_desk_setting_reads_leniently_and_is_written_in_one_shape() {
-    let settings = json!({"webSearch": {"disabled": ["exa", "youcom", 7]}});
-    assert_eq!(
-        disabled_on_desk(settings.as_object().unwrap()),
-        set(&[P::Exa])
-    );
-    assert!(disabled_on_desk(&serde_json::Map::new()).is_empty());
+    let switches = read(json!({"disabled": ["exa", "youcom", 7, "searxng"]}));
+    assert!(!switches.on(P::Exa));
+    assert!(switches.on(P::Parallel));
+    assert!(!switches.on(P::Searxng));
+    assert_eq!(Switches::read(&serde_json::Map::new()), Switches::default());
+    // A URL that is not one an instance may have is no URL.
+    let planted =
+        read(json!({"enabled": ["searxng"], "urls": {"searxng": "https://u:p@x.example"}}));
+    assert!(!planted.on(P::Searxng));
+    assert_eq!(planted.url(P::Searxng), None);
 
     assert_eq!(
         normalize_setting(&json!({"disabled": ["firecrawl", "parallel", "firecrawl"]})).unwrap(),
@@ -1155,11 +1426,29 @@ fn the_desk_setting_reads_leniently_and_is_written_in_one_shape() {
         normalize_setting(&json!({})).unwrap(),
         json!({"disabled": []})
     );
+    assert_eq!(
+        normalize_setting(&json!({
+            "enabled": ["searxng", "exa"],
+            "disabled": ["searxng"],
+            "urls": {"searxng": "http://localhost:8888/"},
+        }))
+        .unwrap(),
+        json!({"disabled": [], "enabled": ["searxng"], "urls": {"searxng": "http://localhost:8888"}})
+    );
+    // Switched on with no URL is written off.
+    assert_eq!(
+        normalize_setting(&json!({"enabled": ["searxng"]})).unwrap(),
+        json!({"disabled": []})
+    );
     for bad in [
         json!([]),
         json!({"disabled": "exa"}),
         json!({"disabled": ["brave"]}),
         json!({"other": 1}),
+        json!({"urls": {"exa": "https://exa.example"}}),
+        json!({"urls": {"searxng": "https://u:p@x.example"}}),
+        json!({"urls": {"searxng": 7}}),
+        json!({"urls": ["x"]}),
     ] {
         assert!(normalize_setting(&bad).is_err(), "{bad}");
     }

@@ -164,7 +164,13 @@ async fn openrouter_login_at(
             }
         }),
     );
+    // Held while it serves: a teammate's desk browser never opens it.
+    let held = listener
+        .local_addr()
+        .map(|address| crate::listening::hold(address.port()))
+        .ok();
     let _server = CallbackServer(tokio::spawn(async move {
+        let _held = held;
         let _ = axum::serve(listener, app).await;
     }));
     let mut url = Url::parse(authorize_url).map_err(|error| error.to_string())?;

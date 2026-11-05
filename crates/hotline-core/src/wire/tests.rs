@@ -67,6 +67,7 @@ fn idle(persona_id: &str) -> SessionInfo {
         awaiting_subagents: false,
         processes: Vec::new(),
         plan_usage: None,
+        browser: None,
     }
 }
 
@@ -1264,7 +1265,7 @@ mod capabilities;
 mod capture;
 mod consent;
 #[cfg(unix)]
-mod cookie_offers;
+mod cookie_asks;
 mod deltas;
 mod door;
 mod files;

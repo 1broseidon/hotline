@@ -13,7 +13,8 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
     std::fs::create_dir(&path).unwrap();
     let mut ada = persona("ada");
     assert!(
-        !preamble(&ada, Some(Reach::Workspace), None, &[]).contains("granted you these folders")
+        !preamble(&ada, Some(Reach::Workspace), None, &[], false)
+            .contains("granted you these folders")
     );
     ada.folders = Some(vec![
         crate::contract::FolderGrant {
@@ -25,7 +26,7 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
             writable: true,
         },
     ]);
-    let walled = preamble(&ada, Some(Reach::Workspace), None, &[]);
+    let walled = preamble(&ada, Some(Reach::Workspace), None, &[], false);
     assert!(
         walled.contains(&format!(
             "{} (read only), /srv/shared (you may change it)",
@@ -35,9 +36,9 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
     );
     assert!(walled.contains("your file tools and shell reach by absolute path"));
     assert!(walled.contains("A change inside a read-only one is refused."));
-    let open = preamble(&ada, Some(Reach::Machine), None, &[]);
+    let open = preamble(&ada, Some(Reach::Machine), None, &[], false);
     assert!(open.contains("so this is not enforced"), "{open}");
-    let child = preamble(&ada, None, None, &[]);
+    let child = preamble(&ada, None, None, &[], false);
     assert!(child.contains("File operations delegated to Hotline through ACP may use them"));
     assert!(child.contains("your harness's own tools keep their own permissions"));
     assert!(!child.contains("Your computer has them"));
@@ -48,9 +49,8 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
-    let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
+    let desk = preamble(&ada, Some(Reach::Workspace), None, &[], false);
     // Only a folder still on this machine is mounted, so only it is named.
     assert!(
         desk.contains(&format!(
@@ -66,7 +66,7 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
 fn the_preamble_says_who_where_how_far_and_when() {
     let mut ada = persona("ada");
     ada.cwd = "/tmp/harbour".to_string();
-    let walled = preamble(&ada, Some(Reach::Workspace), None, &[]);
+    let walled = preamble(&ada, Some(Reach::Workspace), None, &[], false);
     assert!(walled.contains("You are Ada."));
     assert!(walled.contains("Keep the harbour running."));
     assert!(walled.contains("Your working directory is /tmp/harbour."));
@@ -93,12 +93,13 @@ fn the_preamble_says_who_where_how_far_and_when() {
         Some(Reach::Machine),
         Some("the wake block".to_string()),
         &[],
+        false,
     );
     assert!(open.contains("reach the whole machine"));
     assert!(open.ends_with("the wake block"));
 
     // The harness owns its tools' permissions; Hotline owns its file callbacks.
-    let child = preamble(&ada, None, None, &[]);
+    let child = preamble(&ada, None, None, &[], false);
     assert!(child.contains("Your working directory is /tmp/harbour."));
     assert!(!child.contains("reach the whole machine"));
     assert!(!child.contains("a path that leaves it is refused"));
@@ -114,6 +115,27 @@ fn the_preamble_says_who_where_how_far_and_when() {
     // A computer is granted outside the policy, so the preamble is where a
     // teammate learns it has one, and that the person can take it over.
     assert!(!child.contains("You have a computer"));
+    // With no computer, the desk's own browser is its own, and "open" with no
+    // browser named lands there rather than in the person's; but only on a
+    // desk that has one installed. `hotline serve`, a Mac before 14 and a desk whose
+    // app never put one in are told nothing of it, whatever the platform.
+    assert!(
+        !child.contains("You have a web browser of your own"),
+        "no desk browser is installed: {child}"
+    );
+    let browsing = preamble(&ada, None, None, &[], true);
+    assert!(
+        browsing.contains("You have a web browser of your own"),
+        "{browsing}"
+    );
+    assert!(
+        browsing.contains("without saying whose browser, open it there"),
+        "{browsing}"
+    );
+    assert!(
+        !browsing.contains("while the desktop app is running"),
+        "it is told only when it has one, so it is not told when: {browsing}"
+    );
     ada.computer = Some(PersonaComputer {
         cpus: None,
         enabled: true,
@@ -121,10 +143,13 @@ fn the_preamble_says_who_where_how_far_and_when() {
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
-    let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
+    let desk = preamble(&ada, Some(Reach::Workspace), None, &[], true);
     assert!(desk.contains("You have a computer"));
+    assert!(
+        !desk.contains("You have a web browser of your own"),
+        "{desk}"
+    );
     assert!(desk.contains("take it over"));
     assert!(desk.contains("action `guide`"));
     assert!(desk.contains("from that running computer"));
@@ -293,4 +318,67 @@ fn a_stamp_names_the_app_only_when_it_is_known() {
         "[Fri 2 Oct 2026, 16:20 · desktop] open it"
     );
     assert_eq!(timed_from(at, None, "open it"), timed(at, "open it"));
+}
+
+/// A desk browser that is only there: the preamble asks whether one is
+/// installed, never what it does.
+struct Installed;
+
+#[async_trait]
+impl crate::browser::DeskBrowser for Installed {
+    async fn open(
+        &self,
+        _persona_id: &str,
+        _url: &url::Url,
+    ) -> Result<crate::browser::Page, String> {
+        Err("unused".into())
+    }
+    async fn step(
+        &self,
+        _persona_id: &str,
+        _step: crate::browser::Step,
+    ) -> Result<crate::browser::Page, String> {
+        Err("unused".into())
+    }
+    async fn read(
+        &self,
+        _persona_id: &str,
+        _reading: crate::browser::Reading,
+    ) -> Result<String, String> {
+        Err("unused".into())
+    }
+    async fn act(
+        &self,
+        _persona_id: &str,
+        _act: &crate::browser::Act,
+    ) -> Result<crate::browser::Acted, String> {
+        Err("unused".into())
+    }
+    async fn screenshot(&self, _persona_id: &str) -> Result<Vec<u8>, String> {
+        Err("unused".into())
+    }
+    fn current(&self, _persona_id: &str) -> Option<String> {
+        None
+    }
+    async fn close(&self, _persona_id: &str, _wipe: bool) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// The session's agent hears it has a browser of its own only on a desk
+/// that installed one when the session started: a desk with no window
+/// (`hotline serve`) says nothing of it, on any platform.
+#[tokio::test]
+async fn a_session_hears_of_its_desk_browser_only_where_one_is_installed() {
+    const SAID: &str = "You have a web browser of your own";
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = room("preamble-desk-browser", agents.clone());
+    room.start("ada").await.unwrap();
+    let windowless = lock(&agents.preambles).last().cloned().unwrap();
+    assert!(!windowless.contains(SAID), "{windowless}");
+
+    room.install_browser(Arc::new(Installed), &[]);
+    room.reattach("ada").await.unwrap();
+    let windowed = lock(&agents.preambles).last().cloned().unwrap();
+    assert!(windowed.contains(SAID), "{windowed}");
 }

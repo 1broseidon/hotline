@@ -826,6 +826,9 @@ pub enum Command {
     /// A peek: never wakes the container.
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },
+    /// The picture of a teammate's desk browser the PIP and the phone show.
+    #[serde(rename = "browser.snapshot")]
+    BrowserSnapshot { persona_id: String },
     /// Brings the computer up from the teammate's pane, with the session it
     /// serves: a teammate at rest starts, and a running one whose computer was
     /// stopped is attached to it again between turns.
@@ -843,81 +846,91 @@ pub enum Command {
     /// has now, between turns if it is running. The volumes survive.
     #[serde(rename = "computer.restart")]
     ComputerRestart { persona_id: String },
-    /// The browsers on the host the operator could bring cookies from, with
-    /// their profiles. Names only; no cookie store is opened. Owner or local desk only —
-    /// this reads the desk host, never a teammate's computer, and no agent
-    /// tool can reach it.
-    #[serde(rename = "computer.browsers.list")]
-    ComputerBrowsersList {},
-    /// The sites in one host browser profile and how many cookies each has,
-    /// for the operator's picker. Domains and counts only; a value is never
-    /// read out. Owner or local desk only.
-    #[serde(rename = "computer.cookies.preview")]
-    ComputerCookiesPreview {
-        browser_id: String,
-        profile_id: String,
-    },
-    /// Copies the cookies for the ticked `domains` from a host browser into
-    /// the teammate's computer, so its browser starts signed in to them. The
-    /// operator chooses the sites; the values pass host → desk → container and
-    /// never touch the tape, the model, or a log. Owner or local desk only, and there is
-    /// no agent tool that does this — the agent can never pull cookies itself.
-    #[serde(rename = "computer.cookies.import")]
-    ComputerCookiesImport {
+    /// The person's cookies lent to this teammate, one row a site, whether
+    /// lent from its pane or on a card it raised. Metadata only. Owner or
+    /// local desk only.
+    #[serde(rename = "computer.cookies.lends")]
+    ComputerCookieLends { persona_id: String },
+    /// The sites the person is signed into across the cookie sources
+    /// switched on, with where each is from: site names only, read from the
+    /// host's browsers when Add Cookies opens and never before. Owner or
+    /// local desk only.
+    #[serde(rename = "computer.cookies.lendable")]
+    ComputerCookieLendable {},
+    /// Lends one site's cookies to the teammate's browser, its computer's or
+    /// its desk browser, from the first switched-on source signed into it.
+    /// The values go host to browser and never reach the wire, the tape or
+    /// the model. Owner or local desk only; no agent tool reaches it.
+    #[serde(rename = "computer.cookies.lend")]
+    ComputerCookieLend { persona_id: String, site: String },
+    /// A lend's options: whether it is kept fresh from its source, and when
+    /// it ends. Owner or local desk only.
+    #[serde(rename = "computer.cookies.lend.set")]
+    ComputerCookieLendSet {
         persona_id: String,
+        id: String,
+        #[serde(default)]
+        keep_fresh: Option<bool>,
+        #[serde(default)]
+        ends: Option<CookieLendEnds>,
+    },
+    /// Each browser profile on this machine Hotline could read cookies from,
+    /// and whether it is switched on; reads no cookie store. Owner or local
+    /// desk only.
+    #[serde(rename = "computer.cookies.sources")]
+    ComputerCookieSources {},
+    /// Switches one browser profile on or off as a cookie source. Off, it is
+    /// read for nothing at all. Owner or local desk only.
+    #[serde(rename = "computer.cookies.source.set")]
+    ComputerCookieSourceSet {
         browser_id: String,
         profile_id: String,
-        domains: Vec<String>,
+        on: bool,
     },
+    /// The local addresses a teammate's desk browser may always open, the
+    /// person's "Always allow" answers, as host:port. Owner or local desk
+    /// only.
+    #[serde(rename = "browser.local.list")]
+    BrowserLocalList { persona_id: String },
+    /// Takes one of those answers back: the teammate's next `navigate` to
+    /// it asks again. Owner or local desk only.
+    #[serde(rename = "browser.local.remove")]
+    BrowserLocalRemove { persona_id: String, origin: String },
+    /// Every teammate holding the person's cookies, with the sites. Owner or
+    /// local desk only.
+    #[serde(rename = "computer.cookies.holders")]
+    ComputerCookieHolders {},
     /// Selected laptop cookies, available to an owner or the local desk.
     #[serde(rename = "computer.cookies.push")]
     ComputerCookiesPush {
         persona_id: String,
         transfer: CookieTransfer,
     },
-    /// What has been brought over to this teammate's computer, by browser
-    /// and profile, with the sites: the record the pane lists. Owner or local desk only.
-    #[serde(rename = "computer.cookies.list")]
-    ComputerCookiesList { persona_id: String },
-    /// Takes brought-over cookies back out of the teammate's computer: one
-    /// site of an import when `domain` is given, the whole import when not.
-    /// The computer's browser drops them at once, and the record answers as
-    /// it stands afterwards. Starts the computer if it is stopped, the same
-    /// as the import did. Owner or local desk only.
-    #[serde(rename = "computer.cookies.forget")]
-    ComputerCookiesForget {
-        persona_id: String,
-        browser_id: String,
-        profile_id: String,
-        #[serde(default)]
-        domain: Option<String>,
-    },
     /// The secrets the operator has stored for teammates: names and when
     /// each changed, never a value. Owner or local desk only.
     /// The single owner/phone door for a live credential card.
     #[serde(rename = "secrets.capture.answer")]
     SecretsCaptureAnswer(CredentialAnswer),
-    /// Changes only a login or passkey's use policy; desk/owner only.
+    /// The person's sign-ins lent to a teammate, as metadata only.
     #[serde(rename = "computer.cookies.offers")]
     ComputerCookieOffers { persona_id: String },
-    /// The room's offer preference, readable by the phone too.
-    #[serde(rename = "computer.cookies.settings")]
-    ComputerCookieSettings {},
-    /// On-demand host-name discovery; desk and owner only, even while offers are off.
+    /// On-demand host-name discovery; desk and owner only.
     #[serde(rename = "computer.cookies.sites")]
     ComputerCookieSites {},
+    /// Answers a teammate's live cookie ask (`cookie_ask`): Use Cookies from
+    /// `source`, or the browser the card lists first; Open Browser; or Not now.
+    /// Sign In is `secrets.capture.answer` with the ask's id.
     #[serde(rename = "computer.cookies.answer")]
     ComputerCookieAnswer {
         persona_id: String,
         id: String,
         answer: CookieOfferAnswer,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        source: Option<CookieOfferSource>,
     },
     #[serde(rename = "computer.cookies.remove")]
     ComputerCookieRemove { persona_id: String, id: String },
-    #[serde(rename = "computer.cookies.blocked")]
-    ComputerCookieBlocked {},
-    #[serde(rename = "computer.cookies.reset")]
-    ComputerCookieReset { persona_id: String, site: String },
     #[serde(rename = "secrets.use.set")]
     SecretsUseSet { name: String, r#use: SecretUse },
     /// Answers one live computer use; desk, owner and phone only.

@@ -171,7 +171,7 @@ async fn what_cannot_be_sent_is_refused_and_leaves_nothing_behind() {
     );
     assert_eq!(
         refused(json!({ "source": "mailbox", "path": "notes.txt" })).await,
-        "send_file needs a `source`: `workspace`, `computer` or `screen`."
+        "send_file needs a `source`: `workspace`, `computer`, `screen` or `browser`."
     );
     assert_eq!(
         refused(json!({

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { SecretUse, SharedSecret, SharedSecretKind } from "../generated/contract";
+import type { Persona, SecretUse, SharedSecret, SharedSecretKind } from "../generated/contract";
 import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Chips } from "../ui/Chips";
@@ -7,6 +7,7 @@ import { Fold } from "../ui/Fold";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
+import { CookieSourcesGroup, CookiesInUse } from "./settings/CookieSettings";
 
 const NESTED = "group-row pl-7";
 /** What the desk asks of a value, said here before the desk has to. */
@@ -28,15 +29,18 @@ function describe(secret: SharedSecret): string {
 }
 
 /** The same, short, beside a tick. */
-function describeShort(secret: SharedSecret): string {
-	switch (secret.kind) {
-		case "login":
-			return `login for ${(secret.sites ?? []).map((site) => site.replace(/^https?:\/\//, "")).join(", ")}`;
-		case "passkey":
-			return `passkey for ${secret.rpId ?? "?"}`;
-		default:
-			return "variable";
-	}
+function describeShort(secret: SharedSecret, capital = false): string {
+	const said = (() => {
+		switch (secret.kind) {
+			case "login":
+				return `login for ${(secret.sites ?? []).map((site) => site.replace(/^https?:\/\//, "")).join(", ")}`;
+			case "passkey":
+				return `passkey for ${secret.rpId ?? "?"}`;
+			default:
+				return "variable";
+		}
+	})();
+	return capital ? said.charAt(0).toUpperCase() + said.slice(1) : said;
 }
 
 /**
@@ -50,9 +54,18 @@ function describeShort(secret: SharedSecret): string {
  * teammate, removing it here, or deleting it at the site. Every value is
  * written once and never shown again, here or to a teammate. Which teammate
  * gets which is decided on that teammate, under its computer, one tick per
- * name. Every command here is desk-seat only.
+ * name. Under them, the browsers Hotline may read cookies from, and who
+ * holds the person's cookies now. Every command here is desk-seat only.
  */
-export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }) {
+export function SecretsSection({
+	onBack,
+	team = [],
+	onOpenTeammate,
+}: {
+	onBack?: (() => void) | undefined;
+	team?: readonly { id: string; avatar?: Persona["avatar"] }[];
+	onOpenTeammate?: ((personaId: string) => void) | undefined;
+}) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [refusal, setRefusal] = useState<Refused | null>(null);
 	// Which kind is being added, if one is.
@@ -261,6 +274,8 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 							Kept in your keychain. Allow one for a teammate's computer in that teammate's settings.
 						</p>
 					</section>
+					<CookieSourcesGroup />
+					<CookiesInUse team={team} onOpenTeammate={onOpenTeammate} />
 					{refusal !== null && <Refusal {...refusal} />}
 				</div>
 			</Scroll>
@@ -473,13 +488,13 @@ function LoginForm({
 }
 
 /**
- * On a teammate, under its computer's Secrets fold: the stored names, one tick each. A
+ * On a teammate, under its own Secrets: the stored names, one tick each. A
  * tick is the grant — nothing is ticked until the person ticks it — and a
  * name the keychain no longer has stays in the list with a warning until
  * it is unticked, so a stale grant is seen rather than silently dropped.
  * Unticking a passkey is one of the three ways to take it back.
  */
-export function ComputerSecrets({
+export function TeammateSecrets({
 	granted,
 	disabled,
 	onChange,
@@ -512,10 +527,7 @@ export function ComputerSecrets({
 		onChange(granted.includes(name) ? granted.filter((one) => one !== name) : [...granted, name].sort());
 
 	return (
-		<div className={`${NESTED} flex-col items-stretch gap-1.5 py-3`}>
-			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				Stored under Settings → Secrets. Tick what this computer may use; a passkey made for this teammate is ticked by itself.
-			</span>
+		<div className={`${NESTED} flex-col items-stretch gap-0.5 py-2`}>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && <Refusal {...note} />}
 			{stored !== null && names.length === 0 && <span className="group-row-detail">None stored yet.</span>}
@@ -523,11 +535,11 @@ export function ComputerSecrets({
 				const record = stored?.find((one) => one.name === name);
 				const missing = stored !== null && record === undefined;
 				return (
-					<label key={name} className="flex cursor-pointer items-center gap-2 py-1 text-sm">
+					<label key={name} className="flex cursor-pointer items-center gap-2.5 py-1.5">
 						<input type="checkbox" className="check" checked={granted.includes(name)} disabled={disabled} onChange={() => toggle(name)} />
-						<span className="min-w-0 flex-1 truncate">
-							<span className="font-mono">{name}</span>
-							{record !== undefined && <span className="group-row-detail ml-2">{describeShort(record)}</span>}
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-sm">{record !== undefined ? describeShort(record, true) : name}</span>
+							{record !== undefined && <span className="group-row-detail font-mono">{name}</span>}
 						</span>
 						{missing && (
 							<span

@@ -48,6 +48,8 @@ pub(crate) enum Source {
         window: Option<String>,
         region: Option<[i64; 4]>,
     },
+    /// The page in its desk browser now (`session/browser.rs`).
+    Browser,
 }
 
 /// A file as it came off its source.
@@ -99,6 +101,11 @@ impl Room {
                     origin: format!("{path} on the computer"),
                 }
             }
+            Source::Browser => Taken {
+                name: "browser.png".to_string(),
+                bytes: self.browser_screenshot(persona_id).await?,
+                origin: "its desk browser".to_string(),
+            },
             Source::Screen { window, region } => {
                 let ready = self.computer_to_send_from(persona_id).await?;
                 let bytes = computer::files::screenshot(&ready, window.as_deref(), region).await?;

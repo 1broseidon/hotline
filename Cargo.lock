@@ -4217,17 +4217,27 @@ dependencies = [
 name = "hotline-app"
 version = "0.47.0"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "block2",
+ "cairo-rs",
  "futures-util",
+ "gtk",
  "hotline-core",
+ "javascriptcore-rs",
  "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation",
+ "objc2-quartz-core",
  "objc2-user-notifications",
+ "objc2-web-kit",
  "rand 0.9.5",
  "semver",
  "serde",
  "serde_json",
+ "soup3",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -4242,6 +4252,8 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "tokio-util",
  "webkit2gtk",
+ "webview2-com",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -4289,12 +4301,14 @@ dependencies = [
  "bytes",
  "bzip2 0.6.1",
  "chrono",
+ "data-encoding",
  "dunce",
  "flate2",
  "futures-util",
  "gethostname",
  "getrandom 0.3.4",
  "hex",
+ "hmac 0.12.1",
  "hotline-contract",
  "hotline-core",
  "hotline-mcp",
@@ -4321,10 +4335,12 @@ dependencies = [
  "regex",
  "reqwest 0.13.4",
  "rig",
+ "ring",
  "rmcp",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "snow",
  "socket2",
@@ -6740,6 +6756,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation",
+ "objc2-quartz-core",
 ]
 
 [[package]]
@@ -6877,8 +6894,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96c1358452b371bf9f104e21ec536d37a650eb10f7ee379fff67d2e08d537f1f"
 dependencies = [
  "bitflags 2.13.1",
+ "block2",
  "objc2",
  "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation",
 ]
 

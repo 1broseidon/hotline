@@ -1382,67 +1382,38 @@ A computer returning 404 on the use door gets automatic policy for all keys,
 with one stderr explanation per running endpoint; the vault keeps the person's
 choice for a newer computer.
 
-### A host browser session is lent only after Use
+### A teammate asks for a sign-in; the desk never offers one
 
-The same two-second computer watch polls `GET /pages`, taking only HTTP(S)
-origins. On the first appearance of a registrable site during a live teammate
-session, the core copies each host browser's SQLite cookie store and reads
-only `host_key` (Chromium) or `host` (Firefox). Discovery neither launches a
-browser nor asks its keychain to decrypt. A missing `/pages` door offers
-nothing. If several profiles have the site, the first browser by id and its
-first profile supplies one offer; the card names that browser and profile.
+(epic-34, docs/design/sign-ins.html A, B and E, George's wording.) Only the
+teammate knows a page is a wall: GitHub answers a private pull request with
+404, not a sign-in form. So the desk raises no card on navigation, from the
+desk browser or a computer, and the offers switch, Sites, Never for this site
+and the day's Not now quieting are gone with the watch that offered. An old
+room's `cookieOffers` setting is skipped on read, an old Never record is
+never read, and an old pending `cookie_offer` expires at start; a share
+record (`cookie_offer`, Lent) stays listed and removable from the pane, and
+the conversation no longer draws one.
 
-An installed browser whose data folder the host refuses is not an empty
-cookie inventory. For an otherwise eligible site, the first affected
-teammate's chat says why once per browser per desk run, with the Full Disk
-Access remedy on macOS. Settings' blocked import picker uses the same
-explanation, naming Hotline's app bundle or the actual development binary.
-Refused discovery leaves sites eligible for the next poll, so the same open
-page can get an offer after access becomes available; a readable browser
-can still supply its one card while another is refused.
+The teammate calls `ask_cookies` with a site and its reason. One `cookie_ask`
+card shows a lock, the site (`github.com`) and the reason, and three answers
+in order: **Use Cookies** (primary when a browser has the site) copies that
+site's cookies from the browser named small under it ("From Brave"), with a
+chooser when several do, the one last shared from first; **Sign In** opens
+username and password in this same card, with Save to Secrets ticked; **Open
+Browser** opens the teammate's browser for the person, the desk browser's
+pane or the computer's screen. The corner's × (tooltip Not now) tells the
+teammate no, and it cannot ask for that site again until the person next
+writes to it. One card per site while it is up. Settled, it folds to one
+line: `github.com · Cookies from Brave`, `· Signed in`, `· Browser opened`,
+`· Not now`.
 
-The additive `cookie_offer` event is one shared desk/phone card. Use always
-asks: it says the teammate will be signed in as the person. Only an explicit
-`computer.cookies.answer` with `use`, bound to the source, teammate, site,
-running computer and live capability lease, opens cookie values through the
-existing browser reader. The PSL, including private suffixes, bounds the
-selection to the registrable domain and subdomains; expired cookies stay on
-the host. Values pass only to the authenticated computer login door. Not now
-lasts for this session; Never for this site is a per-teammate room record,
-undone with Undo in Settings → Computer → Sites. Voice cannot answer the card.
-
-The room's `cookieOffers` setting defaults to `{enabled: true}` on old and
-new desks. An absent `sites` list means all registrable sites; a list means
-only those sites, and an empty list means none. Settings → Computer owns the
-switch and the Sites page. Selecting every listed site saves no list, so new
-sites are eligible too. The page groups host-column discovery by registrable
-domain and names each browser and profile, with search, Save, Back and the
-per-teammate Never blocks' Undo. It explains that google.com, apple.com and
-microsoft.com lend the whole account.
-
-Off returns before the computer's pages or any host browser discovery is
-read. Settings writes, automatic discovery and offer answers share the
-policy gate; an update waits for a discovery already in flight, expires
-pending cards before its reply and writes a notice saying offers are off.
-Narrowing the list also expires pending cards outside it. A poll skips a busy
-policy gate rather than waiting while holding its computer watch. Accepted
-lends stay removable. Only opening Sites explicitly reads host names while
-offers are off; opening Computer or reading the preference does not.
-Desk and owner seats may change the setting and discover sites; the phone
-has a narrow preference read, without access to host discovery or room writes.
-
-A metadata-only Unconfirmed record precedes delivery, so a crash midway still
-leaves Remove available; only confirmed delivery says Signed in as you.
-Each lend has a unique `lent-<browser>-<profile>-<id>` login, so another site
-cannot overwrite its removal record. The settled card and computer pane say
-Signed in as you and offer Remove. It calls `DELETE /logins/{name}` with
-`domains: [site]` and tells the agent that the session was taken back; Use
-tells it it may reload. These records survive restart, while saved pending
-cards expire and have no authority. Removal clears the container's browser
-and saved login, not the person's host cookies or the site's session token.
-Existing event shapes, segments and the importer are unchanged.
-
-The native phone renders this additive card in its own repository; this tree
-proves its subscription and answer protocol through both authenticated seats.
-Task-274 supplies the computer's pages door. A real Brave/Porkbun sign-in and
-removal on George's Mac remains a device acceptance check.
+The card is a credential capture with cookie parts, so Sign In is
+`secrets.capture.answer` with the card's id and reuses the capture's lock,
+lease, lifetime and vault path; the other answers are
+`computer.cookies.answer` (`use` with an optional `source`, `open_browser`,
+`not_now`). A login given without Save to Secrets is stored and granted for
+an hour, then the sweep removes it; the card's `keptUntil` makes that
+survive a closed desk. The card and its answers are the same for a desk
+browser and a computer; only where the cookies land and what Open Browser
+opens differ. The phone answers through the same commands; its own card is a
+separate item. Every outcome reaches the teammate without a value.

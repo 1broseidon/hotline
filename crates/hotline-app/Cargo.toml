@@ -30,7 +30,9 @@ tauri-build = { version = "2", features = [] }
 serde_json.workspace = true
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# `unstable` for the desk browser's window, which holds two web views: Hotline's
+# bar and the page (`browser.rs`).
+tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
 tauri-plugin-clipboard-manager = "=2.3.3"
 tauri-plugin-dialog = "=2.7.3"
 tauri-plugin-opener = "=2.5.5"
@@ -63,14 +65,49 @@ hotline-core = { path = "../hotline-core" }
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 tauri-plugin-notification = "=2.4.0"
 
-# The window's microphone, for a call with the desk (`allow_microphone`).
+# The window's microphone, for a call with the desk (`allow_microphone`),
+# and a teammate's desk browser (`browser.rs`): scripts in a world of the
+# desk's own, a PNG snapshot, the page's overlay and synthesized input, and
+# cookies lent into its store. The same versions wry and tauri build on.
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+async-trait = "0.1.92"
+gtk = "0.18"
+cairo-rs = { version = "0.18", features = ["png"] }
+soup3 = "0.5"
+javascriptcore-rs = "1.1"
+
+# A teammate's desk browser on Windows (`browser/native/win.rs`): the
+# WebView2 controller `with_webview` hands over, its events and the DevTools
+# protocol the desk's scripts and input go through, a PNG of the page, the
+# shield's disabled window, and cookies lent into its store. The same
+# versions wry builds on.
+[target.'cfg(windows)'.dependencies]
+async-trait = "0.1.92"
+webview2-com = "0.38"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_System_Com",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSDictionary", "NSError", "NSValue", "NSObject", "NSGeometry"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSDictionary", "NSError", "NSValue", "NSObject", "NSGeometry", "NSData", "NSProcessInfo", "NSURL", "NSURLRequest", "NSArray", "NSDate", "NSHTTPCookie", "NSUUID", "NSURLAuthenticationChallenge", "NSURLProtectionSpace", "NSURLCredential", "NSURLSession", "NSSet" ] }
+# A teammate's desk browser (`browser.rs`): scripts in a content world of
+# the desk's own, a snapshot of the page, and cookies lent into its store.
+async-trait = "0.1.92"
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration", "WKNavigation", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKSecurityOrigin", "WKUserContentController", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKHTTPCookieStore", "WKNavigationDelegate", "WKNavigationAction", "WKUIDelegate", "WKOpenPanelParameters"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSEvent", "NSGraphicsContext", "NSWindow", "NSFont", "objc2-quartz-core"] }
+# A teammate's hands over its page (`browser/native/hands.rs`).
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-foundation", "objc2-core-graphics", "CALayer", "CAShapeLayer", "CATextLayer", "CATransaction", "CAAnimation", "CAMediaTiming", "CAMediaTimingFunction"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGPath", "CGColor", "CGAffineTransform"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
 objc2-user-notifications = { version = "0.3", features = [
     "UNUserNotificationCenter",
     "UNNotificationRequest",

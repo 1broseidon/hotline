@@ -370,34 +370,49 @@ fn the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create() {
     }));
 }
 
-/// Cookie import reads the person's own machine, so it is the desk's alone:
-/// the phone cannot list host browsers, preview, or import, and there is no
-/// agent tool for any of it. This is the enforcement point behind the promise
-/// that the agent can never pull cookies itself.
+/// Sharing cookies reads the person's own machine, so it is the desk's
+/// alone: the phone cannot list the sources or switch one, list the sites,
+/// share one, change a share's options, or see who holds what, and there is
+/// no agent tool for any of it. This is the enforcement point behind the
+/// promise that the agent can never pull cookies itself.
 #[test]
-fn only_the_desk_seat_may_import_host_cookies() {
-    let browsers = Command::ComputerBrowsersList {};
-    let preview = Command::ComputerCookiesPreview {
-        browser_id: "chrome".to_string(),
-        profile_id: "Default".to_string(),
-    };
-    let import = Command::ComputerCookiesImport {
-        persona_id: "ada".to_string(),
-        browser_id: "chrome".to_string(),
-        profile_id: "Default".to_string(),
-        domains: vec!["example.com".to_string()],
-    };
-    let list = Command::ComputerCookiesList {
-        persona_id: "ada".to_string(),
-    };
-    let forget = Command::ComputerCookiesForget {
-        persona_id: "ada".to_string(),
-        browser_id: "chrome".to_string(),
-        profile_id: "Default".to_string(),
-        domain: Some("example.com".to_string()),
-    };
-    for command in [&browsers, &preview, &import, &list, &forget] {
+fn only_the_desk_seat_may_share_host_cookies() {
+    let persona_id = || "ada".to_string();
+    let commands = [
+        Command::ComputerCookieSources {},
+        Command::ComputerCookieSourceSet {
+            browser_id: "chrome".into(),
+            profile_id: "Default".into(),
+            on: true,
+        },
+        Command::ComputerCookieLendable {},
+        Command::ComputerCookieLend {
+            persona_id: persona_id(),
+            site: "example.com".into(),
+        },
+        Command::ComputerCookieLends {
+            persona_id: persona_id(),
+        },
+        Command::ComputerCookieLendSet {
+            persona_id: persona_id(),
+            id: "lend".into(),
+            keep_fresh: Some(true),
+            ends: None,
+        },
+        Command::ComputerCookieHolders {},
+        // The local addresses a desk browser may open are the person's
+        // answers, listed and taken back from the desk alone.
+        Command::BrowserLocalList {
+            persona_id: persona_id(),
+        },
+        Command::BrowserLocalRemove {
+            persona_id: persona_id(),
+            origin: "localhost:5173".into(),
+        },
+    ];
+    for command in &commands {
         assert!(Seat::Desk.permits(command), "{command:?}");
+        assert!(Seat::Owner.permits(command), "{command:?}");
         assert!(!Seat::Phone.permits(command), "{command:?}");
     }
 }

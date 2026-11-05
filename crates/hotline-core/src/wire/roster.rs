@@ -145,7 +145,7 @@ pub(super) async fn view(
                         }
                         continue;
                     }
-                    let Ok(persona) = serde_json::from_value::<Persona>(event) else {
+                    let Ok(persona) = Persona::from_record(&event) else {
                         continue;
                     };
                     watch(&log, &persona.id, &dirty, &mut watched);
@@ -565,11 +565,8 @@ pub(crate) fn waiting_on(tail: &[Value]) -> bool {
             TranscriptEvent::CredentialAsk { id, status, .. } => {
                 open.insert(id, status == crate::contract::CredentialStatus::Pending);
             }
-            TranscriptEvent::CookieOffer { offer } => {
-                open.insert(
-                    offer.id,
-                    offer.status == crate::contract::CookieOfferStatus::Pending,
-                );
+            TranscriptEvent::CookieAsk { id, status, .. } => {
+                open.insert(id, status == crate::contract::CookieAskStatus::Pending);
             }
             TranscriptEvent::SecretUseAsk { id, status, .. } => {
                 open.insert(id, status == crate::contract::SecretUseStatus::Pending);

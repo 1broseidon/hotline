@@ -390,7 +390,7 @@ fn card_of(events: &[Value]) -> Option<String> {
     events.iter().rev().find_map(|event| {
         let pending = match event.get("kind").and_then(Value::as_str)? {
             "permission" => event.get("decision").is_none(),
-            "human_action" | "credential_ask" => {
+            "human_action" | "credential_ask" | "cookie_ask" => {
                 event.get("status").and_then(Value::as_str) == Some("pending")
             }
             _ => false,

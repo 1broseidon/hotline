@@ -620,6 +620,11 @@ export function App() {
 							onSection={setSettingsSection}
 							onAddDesk={() => togglePane("add-desk")}
 							team={roster.map((entry) => entry.persona)}
+							onOpenTeammate={(personaId) => {
+								closePane();
+								select(personaId);
+								setInspector(true);
+							}}
 						/>
 					</Suspense>
 				) : pane === "add-desk" ? (

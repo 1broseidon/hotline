@@ -227,26 +227,27 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.remove` | `{personaId}` | none |
 | `computer.restart` | `{personaId}` | none; makes the teammate's computer again with the memory and CPUs it has now, between turns if it is running, or stops it for the next start if not ([computer.md](computer.md)) |
 | `computer.update` | `{personaId}` | none; recreates the teammate's computer on the release it would be created on now, keeping its volumes, and starts the teammate again if it was running ([computer.md](computer.md)) |
-| `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}], blocked}]` — the host browsers cookies could come from; names only. `blocked` marks one that is installed but whose data the host refuses the desk (macOS without Full Disk Access), listed with no profiles so the window can say what to allow |
-| `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
-| `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
+| `computer.cookies.lends` | `{personaId}` | `CookieLend[]` `{id, teammate, site, browserName, profileName, lentAt, keepFresh?, endsAt?, waiting?, fromLaptop?}` — the person's cookies shared with that teammate, a row a site, whether shared from its pane, on a card it raised, or brought over by the import the pane had before; metadata only. `waiting` is a copy not yet in the teammate's browser (its computer not up since the share moved there, or its source unreadable) |
+| `computer.cookies.lendable` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — the sites the switched-on cookie sources are signed into; host names only, read when Add Cookies opens |
+| `computer.cookies.lend` | `{personaId, site}` | `CookieLend` — shares the registrable site's cookies, and its subdomains', from the first switched-on source signed into it, into the teammate's browser: its desk browser's storage, or its computer's saved login (copied when the computer is next up if it is down). Refuses a site already shared |
+| `computer.cookies.lend.set` | `{personaId, id, keepFresh?, ends?: "day"\|"never"}` | `CookieLend` — Keep fresh copies the site again whenever its cookies in the source change; `day` ends the share a day from now, `never` takes the end off |
+| `computer.cookies.sources` | `{}` | `{sources: [{browserId, browserName, profileId, profileName, on}], blocked: string[]}` — each browser profile on the desk host, switched on or off as a cookie source; reads no cookie store. `blocked` says which installed browsers the host refuses the desk and what to allow |
+| `computer.cookies.source.set` | `{browserId, profileId, on}` | the sources as they stand; a profile switched off is read for nothing at all |
+| `computer.cookies.holders` | `{}` | `CookieHolder[]` `{teammate, name, sites}` — every teammate holding the person's cookies |
+| `browser.local.list` | `{personaId}` | `string[]` — the local addresses (host:port) the teammate's desk browser may always open, the person's "Always allow" answers. Desk or owner only |
+| `browser.local.remove` | `{personaId, origin}` | `string[]` — the list after taking one back; the teammate's next `navigate` there asks again. Desk or owner only |
 | `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
-| `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
-| `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
-| `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — metadata-only cards, including accepted lends that remain removable after restart; desk and phone |
-| `computer.cookies.settings` | `{}` | `{enabled, sites?}` — the room's `cookieOffers` preference; defaults to enabled, absent sites means all, empty means none; desk, owner and phone |
-| `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery, including while offers are off; desk and owner only |
-| `computer.cookies.answer` | `{personaId, id, answer: "use"\|"not_now"\|"never"}` | none; a live, core-bound card is required, and only Use reads values; desk and phone |
-| `computer.cookies.remove` | `{personaId, id}` | none; removes a Lent or Unconfirmed offer's site from the computer; desk and phone |
-| `computer.cookies.blocked` | `{}` | `CookieOfferBlock[]` `{teammate, name, site}`; Never choices, owner or desk only |
-| `computer.cookies.reset` | `{personaId, site}` | none; undo Never for that teammate/site, owner or desk only |
+| `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — the cookies shared with the teammate, metadata only, removable after restart; desk and phone |
+| `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery; desk and owner only |
+| `computer.cookies.answer` | `{personaId, id, answer: "use"\|"open_browser"\|"not_now", source?: {browserName, profileName}}` | none; answers a live `cookie_ask` card. Use Cookies copies the site's cookies from `source`, one the card lists, else its first, into the teammate's computer or desk browser, and only it reads values; Open Browser hands the person the teammate's browser (the window opens it); Not now is the card's close. Sign In is `secrets.capture.answer` with the card's `id` as `actionId`, and `save: false` for a login not saved to Secrets. Desk, owner and phone |
+| `computer.cookies.remove` | `{personaId, id}` | none; takes a share back (any `CookieLend` id, an answered ask's included) out of the browser it is in; desk and phone |
 | `secrets.use.set` | `{name, use: "auto"\|"ask"}` | `SharedSecret`; desk/owner only, changes metadata and delivers the new set to running computers |
 | `secrets.use.answer` | `{personaId, useId, answer: "approve"\|"allow"\|"deny"}` | none; desk/owner/phone, answers one live `secret_use_ask` card. Allow covers one key/site/teammate for ten minutes on the computer |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
 | `secrets.set` | `{name, value}` | the `SharedSecret` stored, a variable; the value is never answered back |
 | `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |
 | `secrets.delete` | `{name}` | none |
-| `secrets.passkey.register` | `{name, personaId, rpId}` | `PasskeyRegistration` `{state: "armed", name, rpId, expiresAt}` — that teammate's computer is armed for ten minutes to make one passkey for `rpId` |
+| `secrets.passkey.register` | `{name, personaId, rpId}` | `PasskeyRegistration` `{state: "armed", name, rpId, expiresAt}` — that teammate's computer is armed for ten minutes to make one passkey for `rpId`; a teammate with no computer has its desk browser armed instead, where the desk makes the passkey itself once the card is approved |
 | `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "asked" \| "approved" \| "stored", name?, rpId?, expiresAt?, ask?, secret?}` — where the making stands; `asked` and `approved` carry the site's request `{id, rpId, origin, rpName?, userName?, userDisplayName?, askedAt}`, which waits for the card on the teammate's tape; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
 | `secrets.passkey.answer` | `{personaId, askId, approved}` | `PasskeyRegistration` — the person's answer to the passkey card: approved, the browser makes it (`approved`, then `stored` once the room has it); denied, the arming ends (`idle`). Refused when no such request is waiting. The phone may send this one |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored; a card nobody answered expires |
@@ -258,25 +259,24 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `files.upload_finish` | `{uploadId}` | `{path, size}`; never replaces a file already there |
 | `files.upload_cancel` | `{uploadId}` | none |
 
-`computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
-`computer.cookies.list` and `computer.cookies.forget` are the operator's cookie
-import and its record: reading a browser on the desk host, handing
-the chosen sites' cookies to a teammate's computer, and taking them back. They
-require an owner or local desk seat — the companion allowlist does not name
-them and no agent tool reaches them, so the agent can never pull cookies itself. A preview carries
-domains and counts, and leaves expired cookies behind, since the browser would
-drop them on its next look; a value crosses only on import, host to desk to
-container, and never enters the tape, the model, or a log. `browsers.list` and
-`cookies.preview` read the host and touch no teammate. `cookies.import` starts
-the teammate's computer if it is stopped, the same as opening its screen would,
-and records what it carried — browser, profile, time, domains and counts — on
-the room stream, one record per teammate, folded into what was recorded before
-for the same browser and profile. `cookies.list` answers that record.
-`cookies.forget` names the exact domains to the computer's `DELETE
-/logins/{name}` door, so a site is taken back whatever the saved login holds by
-then, starts a stopped computer to do it, and trims the record; a site never
-brought over is refused, and a release from before the door is named with the
-pane's Update.
+`computer.cookies.sources`, `computer.cookies.source.set`,
+`computer.cookies.lendable`, `computer.cookies.lend`, `computer.cookies.lends`,
+`computer.cookies.lend.set` and `computer.cookies.holders` are the person's
+shared cookies (`session/cookie_lends.rs`). They require an owner or local
+desk seat — the phone's allowlist does not name them and no agent tool
+reaches them, so the agent can never pull cookies itself. Only `lendable`
+reads the host's browsers before a share, and it reads host names; a value
+crosses only on `lend`, host to desk to the teammate's browser, and never
+enters the tape, the model, the room or a log. A share is recorded on the
+room stream (`cookie_lend`) before any value leaves, so it can be taken
+back. The rows also read a card answered Use and a site the old import
+(`computer.cookies.push` from a laptop, and the retired pane import) brought
+over, without rewriting them until something about them changes. When the
+teammate's computer is turned on or off its shares move with it, read again
+from their sources. A source switched off (`cookie_sources` on the room
+stream) is not discovered and refuses every read, whoever asks: `lendable`,
+`lend`, Keep fresh, a share's move, and the teammate's own cookie card.
+The teammate hears the site names it holds at the start of its next turn.
 
 `secrets.list`, `secrets.set`, `secrets.login.set` and `secrets.delete` are
 the operator's store of secrets for teammates to use without seeing them,
@@ -298,7 +298,7 @@ site, the origin, the account the site named — and tells the phones, and
 `secrets.passkey.answer` is the person's answer to that card, from the
 desk or the phone. Approved, the browser makes it, and the look that finds
 the credential minted stores it under `name`, ticks `name` on that
-teammate's `persona.computer.secrets`, hands the computer its set, ends
+teammate's `persona.secrets`, hands the computer its set, ends
 the arming and writes a notice on the teammate's tape, whatever pane is
 open — the passkey is made from the teammate's screen, or by the teammate,
 so no pane's poll is running at that moment. Denied, the site hears no and
@@ -313,7 +313,9 @@ subscription or room event ever carries a value or a private key. All but
 `answer` require an owner or local desk seat; `answer` is one answer to one request the
 person armed for at the desk, so the phone may give it, as it may answer a
 permission card. Which teammate may use which secret is
-`persona.computer.secrets` through `persona.update`; a change to a stored
+`persona.secrets` through `persona.update`, the teammate's own grant and
+not its computer's (a patch still spelling it `computer.secrets`, as an
+older client does, is read the same way); a change to a stored
 secret also hands every running computer the set its teammate is granted
 now, so a rotation or a revocation lands without a restart (see
 [security.md](security.md)).
@@ -1289,6 +1291,7 @@ person also names its kind as `categoryId` and its request as
 | `permission` | the request's `requestId` | `session.answer_permission`, or `side.answer_permission` when `data.sideId` is present, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
 | `human_action` | the card's `actionId` | `human.answer` |
 | `passkey_ask` | the ask's `askId` | `secrets.passkey.answer` |
+| `cookie_ask` | the card's `id` | `computer.cookies.answer`, or `secrets.capture.answer` for Sign In |
 
 The answer goes over the phone seat like any other, so an answer from the
 notification lands on the tape exactly as one from the conversation.

@@ -152,6 +152,16 @@ pub struct Persona {
     /// user-configured servers. Absent means off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
+    /// The stored secrets this teammate is granted, by name (see
+    /// [`SharedSecret`](crate::SharedSecret)): the teammate's, used by
+    /// whichever shell and browser it has. The value never leaves the vault
+    /// except on its way to that machine, which redacts it from what it
+    /// answers the agent. Absent means none: a teammate nobody granted
+    /// anything is handed nothing. A record from before secrets were the
+    /// teammate's own kept them on its computer; [`Persona::from_record`]
+    /// reads them from there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<Vec<String>>,
     /// The voice this teammate speaks in on a direct call, as picked from the
     /// desk's speaking model. It applies only while the desk still speaks
     /// with that provider and model; otherwise the desk's own voice is used.
@@ -170,6 +180,23 @@ pub struct Persona {
     pub last_session_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl Persona {
+    /// The teammate a room record holds. A record written before secrets
+    /// were the teammate's own carries them as `computer.secrets`; they were
+    /// always this teammate's grant, so they are read as its `secrets`, and
+    /// the next write puts them there. A record that already says
+    /// `secrets` keeps its own.
+    pub fn from_record(record: &serde_json::Value) -> serde_json::Result<Self> {
+        let mut persona = Self::deserialize(record)?;
+        if persona.secrets.is_none()
+            && let Some(names) = record.pointer("/computer/secrets")
+        {
+            persona.secrets = Option::<Vec<String>>::deserialize(names)?;
+        }
+        Ok(persona)
+    }
 }
 
 /// The linked desktop a teammate lives on.

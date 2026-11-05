@@ -37,7 +37,7 @@ import type { SentItem } from "./SentFile";
 import { LinkRow } from "./transcript/LinkRow";
 import { Plan } from "./transcript/Plan";
 import { CredentialAsk } from "./transcript/CredentialAsk";
-import { CookieOfferCard } from "./transcript/CookieOfferCard";
+import { CookieAskCard } from "./transcript/CookieAskCard";
 import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
@@ -830,8 +830,13 @@ const Row = memo(function Row({
 		case "credential_ask":
 			return <CredentialAsk event={event} teammate={ownerName} />;
 
+		case "cookie_ask":
+			return <CookieAskCard event={event} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />;
+
+		/* A share record: the cookies the person shared, listed and removed
+		 * in the teammate's pane. The ask that led to it is the line here. */
 		case "cookie_offer":
-			return <CookieOfferCard offer={event} teammate={ownerName} />;
+			return null;
 		case "secret_use_ask":
 			return <SecretUseAsk event={event} teammate={ownerName} />;
 

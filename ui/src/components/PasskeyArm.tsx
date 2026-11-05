@@ -20,9 +20,10 @@ export function askedFor(ask: Pick<PasskeyAsk, "userName" | "userDisplayName">):
 }
 
 /**
- * Under a teammate's computer, in its Browser fold: a passkey is made, not
- * typed. The operator names it and the site, and arms this teammate's
- * computer for ten minutes. Then they open the teammate's screen, sign in
+ * Under a teammate's computer, in its Browser fold, or under its Secrets
+ * when its browser is the desk's own: a passkey is made, not typed. The
+ * operator names it and the site, and arms this teammate's computer, or
+ * its desk browser, for ten minutes. Then they open the teammate's screen, sign in
  * to the site as the teammate should be, and add a passkey in the site's
  * security settings — or ask the teammate to. The site's request waits in
  * the browser until the person approves it on the teammate's tape; then
@@ -34,11 +35,14 @@ export function askedFor(ask: Pick<PasskeyAsk, "userName" | "userDisplayName">):
 export function PasskeyArm({
 	personaId,
 	teammate,
+	desk = false,
 	disabled,
 	onStored,
 }: {
 	personaId: string;
 	teammate: string;
+	/** Armed in the desk's own browser, for a teammate with no computer. */
+	desk?: boolean;
 	disabled: boolean;
 	onStored(): void;
 }) {
@@ -83,7 +87,7 @@ export function PasskeyArm({
 				} else if (next.state === "idle") {
 					setRegistration(null);
 					setNote(
-						"The arming ended without a passkey: the request was denied on the tape, its ten minutes ran out, or the computer restarted. Arm it again when you are ready.",
+						`The arming ended without a passkey: the request was denied on the tape, its ten minutes ran out, or the ${desk ? "desk" : "computer"} restarted. Arm it again when you are ready.`,
 					);
 				} else {
 					setRegistration(next);
@@ -99,7 +103,7 @@ export function PasskeyArm({
 			gone = true;
 			clearInterval(timer);
 		};
-	}, [live, personaId, onStored]);
+	}, [live, personaId, onStored, desk]);
 
 	const close = () => {
 		setOpen(false);
@@ -173,7 +177,7 @@ export function PasskeyArm({
 		let waiting: string;
 		if (registration.state === "armed" || ask === undefined) {
 			title = `Armed for ${rpId}${until !== null ? ` until ${until}` : ""}`;
-			detail = `Open ${teammate}'s screen, sign in to ${rpId} the way the teammate should be signed in, and add a passkey in the site's security settings; or ask ${teammate} to. When the site asks, a card on ${teammate}'s tape asks you to approve it, whether or not this pane is open. Nothing is made without that answer, and nothing at all when not armed.`;
+			detail = `${desk ? `Open ${teammate}'s browser from its corner picture and take control` : `Open ${teammate}'s screen`}, sign in to ${rpId} the way the teammate should be signed in, and add a passkey in the site's security settings; or ask ${teammate} to. When the site asks, a card on ${teammate}'s tape asks you to approve it, whether or not this pane is open. Nothing is made without that answer, and nothing at all when not armed.`;
 			waiting = "Waiting for the site to ask…";
 		} else if (registration.state === "asked") {
 			title = `${rpId} asks for a passkey`;
@@ -234,8 +238,8 @@ export function PasskeyArm({
 				/>
 			</div>
 			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				The site is its host name, as the passkey will be registered: github.com, not a page. Arming lasts ten minutes and starts{" "}
-				{teammate}'s computer if it is stopped. The passkey is {teammate}'s own, made by its browser once you approve the site's
+				The site is its host name, as the passkey will be registered: github.com, not a page. Arming lasts ten minutes
+				{desk ? "." : ` and starts ${teammate}'s computer if it is stopped.`} The passkey is {teammate}'s own, made by its browser once you approve the site's
 				request on its tape; it is stored here only once made, and ticked for {teammate}.
 			</span>
 			{note !== null && (
@@ -248,7 +252,7 @@ export function PasskeyArm({
 					Cancel
 				</button>
 				<button type="button" className="control btn" disabled={working || !ready} onClick={() => void register()}>
-					{working ? "Arming…" : "Arm the computer"}
+					{working ? "Arming…" : desk ? "Arm the browser" : "Arm the computer"}
 				</button>
 			</div>
 			{refusal !== null && <Refusal message={refusal} />}

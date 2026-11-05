@@ -46,16 +46,14 @@ impl Room {
                 answerable: true,
             });
         }
-        if card.kind == "cookie_offer" {
+        if card.kind == "cookie_ask" {
             let pending = self.tape(&card.persona).iter().any(|event| {
-                event["kind"] == "cookie_offer"
+                event["kind"] == "cookie_ask"
                     && event["id"] == card.request
                     && event["status"] == "pending"
             });
             return pending.then(|| Notice {
-                text:
-                    "A browser sign-in offer waits on the desk and phone. Please answer it there."
-                        .into(),
+                text: "A sign-in ask waits on the desk and phone. Please answer it there.".into(),
                 answerable: false,
             });
         }
@@ -210,7 +208,7 @@ impl Room {
 pub(super) fn is_card(event: &Value) -> bool {
     matches!(
         event["kind"].as_str(),
-        Some("permission" | "human_action" | "credential_ask" | "passkey_ask")
+        Some("permission" | "human_action" | "credential_ask" | "passkey_ask" | "cookie_ask")
     )
 }
 

@@ -745,7 +745,6 @@ async fn a_computer_that_cannot_start_leaves_the_teammate_answering_without_one(
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     enrol(&log, &ada);
     let agents = Fake::new(Scripted::new(spoken_turn()));
@@ -907,14 +906,35 @@ async fn a_link_opens_only_for_a_person_at_this_computer() {
         .await
         .unwrap();
     let away = room
-        .open_link("ada", "https://ketch.run")
+        .open_link("ada", "https://ketch.run", None)
         .await
         .unwrap_err();
     assert!(away.contains("not at this computer"), "{away}");
     for refused in ["file:///etc/passwd", "javascript:alert(1)", "ketch.run", ""] {
-        let refused = room.open_link("ada", refused).await.unwrap_err();
+        let refused = room.open_link("ada", refused, None).await.unwrap_err();
         assert!(refused.contains("http or https"), "{refused}");
     }
+}
+
+/// A browser the person named that this computer does not have opens
+/// nothing: the teammate is told so, by name, never handed their default
+/// in its place.
+#[tokio::test]
+async fn a_named_browser_this_computer_lacks_opens_nothing_and_says_so() {
+    let room = room("open-link-named", Fake::new(Scripted::new(Vec::new())));
+    room.start("ada").await.unwrap();
+    crate::wire::commands::PROMPT_CLIENT
+        .scope(
+            crate::contract::Client::Desktop,
+            room.prompt("ada", "open ketch.run in Zorblax", None, None),
+        )
+        .await
+        .unwrap();
+    let refused = room
+        .open_link("ada", "https://ketch.run", Some("Zorblax Navigator"))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("Zorblax Navigator"), "{refused}");
 }
 
 /// One agent can stand behind two sessions in these tests, as a chapter's swap

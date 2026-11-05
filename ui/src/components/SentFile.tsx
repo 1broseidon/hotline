@@ -272,11 +272,13 @@ function PictureTile({ personaId, item, mine, more, onMore }: { personaId: strin
 function PictureViewer({ personaId, item, mine, preview, onClose }: { personaId: string; item: SentItem; mine: boolean; preview: string; onClose(): void }) {
 	const full = useSentFile(personaId, item.eventId, item.index, undefined, mine);
 	const [error, act] = useRefusal();
-	if (mine) return <Viewer src={full ?? preview} alt={item.file.name} onClose={onClose} />;
+	const fact = [item.file.name, item.file.size !== undefined ? sizeText(item.file.size) : null].filter(Boolean).join(" · ");
+	if (mine) return <Viewer src={full ?? preview} alt={item.file.name} fact={fact} onClose={onClose} />;
 	return (
 		<Viewer
 			src={preview}
 			alt={item.file.name}
+			fact={fact}
 			onClose={onClose}
 			actions={
 				<>

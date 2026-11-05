@@ -1,18 +1,18 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { PaneClose } from "./PaneClose";
+import { OpenBand } from "./OpenBand";
 
 /**
  * A picture over the whole window: a diagram, a picture a teammate sent, a
  * capture of a computer's screen. It opens fitted to the window; pressing the
- * picture shows it at its own size, scrolling when that is bigger. Escape, the
- * close button or a press outside the picture closes it.
+ * picture shows it at its own size, scrolling when that is bigger. Escape, ←
+ * or a press outside the picture goes back.
  *
  * The window's own, rather than the system's viewer: handing a file to
  * whatever the desktop has registered for it fails on enough machines that a
  * picture in a chat should never depend on it.
  */
-export function Viewer({ src, alt, onClose, actions }: { src: string; alt: string; onClose(): void; actions?: ReactNode }) {
+export function Viewer({ src, alt, fact, onClose, actions }: { src: string; alt: string; fact?: string; onClose(): void; actions?: ReactNode }) {
 	const [actual, setActual] = useState(false);
 	useEffect(() => {
 		const key = (event: KeyboardEvent) => {
@@ -33,7 +33,7 @@ export function Viewer({ src, alt, onClose, actions }: { src: string; alt: strin
 				if (event.target === event.currentTarget) onClose();
 			}}
 		>
-			<ViewerBar title={alt} onClose={onClose}>
+			<ViewerBar fact={fact ?? alt} onClose={onClose}>
 				{actions}
 			</ViewerBar>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: a press beside the picture is the pointer's way out; the keyboard's is Escape or Close. */}
@@ -58,15 +58,15 @@ export function Viewer({ src, alt, onClose, actions }: { src: string; alt: strin
 
 /**
  * The bar over anything opened full window, a picture or a document: the
- * pane's band, its height and keys, so a viewer opens as every pane does.
- * What it is at the left, its actions, then the close key.
+ * open view's band (ui/OpenBand.tsx), so a picture opens with the same ←,
+ * the same who and when, the same fact and keys as a table does.
  */
-export function ViewerBar({ title, onClose, children }: { title: string; onClose(): void; children?: ReactNode }) {
+export function ViewerBar({ fact, onClose, children }: { fact: string; onClose(): void; children?: ReactNode }) {
 	return (
 		<div className="viewer-bar">
-			<span className="viewer-title">{title}</span>
-			{children !== undefined && <span className="viewer-actions">{children}</span>}
-			<PaneClose onClose={onClose} />
+			<OpenBand onBack={onClose} fact={fact}>
+				{children}
+			</OpenBand>
 		</div>
 	);
 }

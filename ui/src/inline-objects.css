@@ -275,6 +275,23 @@
 	.speech .sheet-head + .code-body {
 		padding-top: 2px;
 	}
+	/* One line of code is a command to read, not a shape to keep: it folds
+	 * in the bubble rather than run past it. */
+	.code-body[data-wrap] code {
+		width: auto;
+	}
+	.code-body[data-wrap] .code-line {
+		padding-right: 12px;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.code-body[data-wrap] {
+		mask-image: none;
+	}
+	.full-view-object .code-body[data-wrap] .code-line {
+		white-space: pre;
+		overflow-wrap: normal;
+	}
 	.code-keyword {
 		color: var(--code-keyword);
 	}
@@ -468,7 +485,10 @@
 			transition: none;
 		}
 	}
-	.full-view-name {
+	/* The open band (ui/OpenBand.tsx): the same over a table, a picture and
+	 * a file. Who and when at its left, the fact and keys at its right, each
+	 * key a glyph with its word. */
+	.open-band-name {
 		margin-left: 4px;
 		font-size: var(--text-md);
 		line-height: 18px;
@@ -476,17 +496,30 @@
 		color: var(--ink);
 		white-space: nowrap;
 	}
-	.full-view-fact {
+	.open-band-fact {
+		min-width: 0;
 		margin-right: 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	/* In the band a key says its word. */
-	.full-view-band .sheet-key {
+	.open-band :is(.sheet-key, .line-key) {
+		width: auto;
 		height: 26px;
+		padding: 0 8px;
 		font-size: var(--text-sm);
 	}
-	.full-view-band .sheet-key-word {
+	.open-band :is(.sheet-key, .line-key):has(> svg:only-child) {
+		width: 26px;
+		padding: 0;
+		justify-content: center;
+	}
+	.open-band .sheet-key-word {
 		position: static;
+	}
+	.open-band .sent-error {
+		font-size: var(--text-sm);
+		color: var(--danger);
 	}
 	.full-view-scroll {
 		position: relative;

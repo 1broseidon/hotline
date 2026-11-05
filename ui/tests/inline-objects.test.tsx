@@ -16,7 +16,8 @@ class NoResize {
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Markdown } = await import("../src/components/Markdown");
 const { OpenFull, SaidBy } = await import("../src/components/Sheet");
-const { FullView, agoOf } = await import("../src/components/FullView");
+const { FullView } = await import("../src/components/FullView");
+const { agoOf, Speakers } = await import("../src/ui/OpenBand");
 const { lit, mermaidConfig, factOf } = await import("../src/components/Mermaid");
 const { dockBack } = await import("../src/dock");
 type FullObject = import("../src/components/Sheet").FullObject;
@@ -71,11 +72,17 @@ async function say(text: string, full = true) {
 async function openView(object: import("../src/components/Sheet").FullObject, onClose: () => void = () => {}) {
 	const { sheet: _, ...still } = object;
 	await act(async () => root.render(null));
-	await act(async () => root.render(<FullView object={still} onClose={onClose} who={(id) => (id === "juno" ? JUNO : undefined)} />));
+	await act(async () =>
+		root.render(
+			<Speakers.Provider value={(id) => (id === "juno" ? JUNO : undefined)}>
+				<FullView object={still} onClose={onClose} />
+			</Speakers.Provider>,
+		),
+	);
 	await settle();
 	return document.querySelector<HTMLElement>(".full-view")!;
 }
-const band = (view: HTMLElement) => view.querySelector<HTMLElement>(".full-view-band")!;
+const band = (view: HTMLElement) => view.querySelector<HTMLElement>(".open-band")!;
 
 const sheet = (kind: string) => container.querySelector<HTMLElement>(`[data-sheet="${kind}"]`);
 const label = (kind: string) => sheet(kind)?.querySelector(".sheet-label")?.textContent;
@@ -221,14 +228,20 @@ describe("a block of code", () => {
 		expect(cut("code")).toBeNull();
 	});
 
-	test("with a line wider than the bubble is cut, kept whole underneath rather than wrapped", async () => {
+	test("of one line too long for the bubble wraps in it, never cut; of more lines, it is cut and says so", async () => {
 		const restore = tooWide();
 		try {
 			const long = `echo ${"a".repeat(300)}`;
 			await say(`\`\`\`bash\n${long}\n\`\`\``);
+			expect(sheet("code")?.hasAttribute("data-cut")).toBe(false);
+			expect(cut("code")).toBeNull();
+			const pre = sheet("code")!.querySelector("pre")!;
+			expect(pre.hasAttribute("data-wrap")).toBe(true);
+			expect(pre.textContent).toBe(long);
+			await say(`\`\`\`bash\n${long}\necho done\n\`\`\``);
 			expect(sheet("code")?.getAttribute("data-cut")).toBe("wide");
-			expect(cut("code")?.textContent).toBe("1 long line");
-			expect(sheet("code")!.querySelector("pre")!.textContent).toBe(long);
+			expect(cut("code")?.textContent).toBe("2 lines, some long");
+			expect(sheet("code")!.querySelector("pre")!.hasAttribute("data-wrap")).toBe(false);
 		} finally {
 			restore();
 		}
@@ -396,7 +409,7 @@ describe("the open view", () => {
 		expect(head.querySelector(".band")).not.toBeNull();
 		expect(head.querySelector("button")?.getAttribute("aria-label")).toBe("Back to the conversation");
 		expect(head.querySelector(".avatar")).not.toBeNull();
-		expect(head.querySelector(".full-view-name")?.textContent).toBe("Juno");
+		expect(head.querySelector(".open-band-name")?.textContent).toBe("Juno");
 		expect([...head.querySelectorAll(".instrument")].map((one) => one.textContent)).toEqual(["· 4 min ago", "Table · 3 rows × 3 columns"]);
 		expect([...head.querySelectorAll(".sheet-key")].map((one) => one.textContent)).toEqual(["Copy"]);
 		expect(view.querySelector(".full-view-title, .full-view-head")).toBeNull();
@@ -441,14 +454,35 @@ describe("the open view", () => {
 
 	test("cut code opens as the fence it was, its language, file and length the band's fact, and Copy takes the code alone", async () => {
 		const restore = tooWide();
-		await say("```python setup.py\nprint(1)\n```");
+		await say("```python setup.py\nprint(1)\nprint(2)\n```");
 		await act(async () => cut("code")!.click());
 		restore();
 		const { sheet: _, from: __, ...rest } = opened[0]!;
-		expect(rest).toEqual({ kind: "code", text: '```python title="setup.py"\nprint(1)\n```', fact: "Python · setup.py · 1 line", caption: undefined });
+		expect(rest).toEqual({ kind: "code", text: '```python title="setup.py"\nprint(1)\nprint(2)\n```', fact: "Python · setup.py · 2 lines", caption: undefined });
 		const view = await openView(opened[0]!);
 		await act(async () => band(view).querySelector<HTMLButtonElement>(".sheet-key")!.click());
-		expect(clipboard).toEqual(["print(1)"]);
+		expect(clipboard).toEqual(["print(1)\nprint(2)"]);
+	});
+
+	test("a picture opens under the same band: ← back, who and when, its fact and keys with their words, and no Close", async () => {
+		const { Viewer } = await import("../src/ui/Viewer");
+		let closed = 0;
+		await act(async () =>
+			root.render(
+				<Speakers.Provider value={(id) => (id === "juno" ? JUNO : undefined)}>
+					<SaidBy.Provider value={SAID}>
+						<Viewer src="blob:picture" alt="mochi.png" fact="mochi.png · 2.1 MB" onClose={() => closed++} actions={<button type="button" className="line-key">Save</button>} />
+					</SaidBy.Provider>
+				</Speakers.Provider>,
+			),
+		);
+		const head = document.querySelector<HTMLElement>(".viewer .open-band")!;
+		expect(head.querySelector(".open-band-name")?.textContent).toBe("Juno");
+		expect([...head.querySelectorAll(".instrument")].map((one) => one.textContent)).toEqual(["· 4 min ago", "mochi.png · 2.1 MB"]);
+		expect(head.querySelector('[aria-label="Close"]')).toBeNull();
+		expect(head.querySelector(".line-key")?.textContent).toBe("Save");
+		await act(async () => head.querySelector<HTMLButtonElement>('[aria-label="Back to the conversation"]')!.click());
+		expect(closed).toBe(1);
 	});
 
 	test("a diagram's fact is its kind as a word", () => {

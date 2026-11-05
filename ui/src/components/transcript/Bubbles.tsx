@@ -7,7 +7,8 @@ import { CheckIcon, CopyIcon, ReplyIcon, SmileIcon, SpeakerIcon } from "../../ic
 import { popupMessageMenu, writeClipboard } from "../../native";
 import { lineOf, type Run } from "../../transcriptFolds";
 import { Markdown } from "../Markdown";
-import { type BlockCopy, BubbleToolbar, SaidBy } from "../Sheet";
+import { type BlockCopy, BubbleToolbar } from "../Sheet";
+import { SaidBy } from "../../ui/OpenBand";
 import { SentFiles, type SentItem } from "../SentFile";
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
@@ -110,7 +111,8 @@ export function AgentSay({
 		if (block !== null && at.closest(".sheet, .bubble-actions") === null) setBlock(null);
 	};
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: the pointer leaving the message puts its toolbar back; a keyboard reaches each block's keys by focusing it.
+		<SaidBy.Provider value={said}>
+		{/* biome-ignore lint/a11y/noStaticElementInteractions: the pointer leaving the message puts its toolbar back; a keyboard reaches each block's keys by focusing it. */}
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`} onMouseLeave={() => setBlock(null)}>
 			{origin !== null && (event.from !== undefined && onOpenThread !== undefined ? <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: event.from!.kind, key: event.from!.thread }, ...(event.from!.title !== undefined ? { title: event.from!.title } : {}) })}>{origin}</button> : <p className="said-name">{origin}</p>)}
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
@@ -118,9 +120,7 @@ export function AgentSay({
 				// biome-ignore lint/a11y/noStaticElementInteractions: the pointer back on the words puts the toolbar's own keys back; nothing is done by it.
 				<div className={`speech said-them ${runClass(run)}`} data-bubble={bubble} onMouseOver={onWords} {...answerable(actions, onReply === undefined ? undefined : reply)}>
 					<BubbleToolbar.Provider value={tools}>
-						<SaidBy.Provider value={said}>
-							<Markdown text={event.text} />
-						</SaidBy.Provider>
+						<Markdown text={event.text} />
 					</BubbleToolbar.Provider>
 					{sent.length === 0 && <Reactions {...reactions} />}
 					<BubbleActions {...actions} slot={setSlot} level={block?.level ?? null} {...(block?.copy ? { block: block.copy } : {})} />
@@ -136,6 +136,7 @@ export function AgentSay({
 			{event.from !== undefined && onOpenThread !== undefined && (event.from.sources?.length ? event.from.sources : event.from.kind === "call" ? [{ kind: event.from.kind, key: event.from.thread }] : []).map((thread, index, sources) => <button key={`${thread.kind}:${thread.key}`} type="button" className="said-name" onClick={() => onOpenThread({ thread })}>{sources.length > 1 ? `Open call ${index + 1}` : "Open the call"}</button>)}
 			{link !== null && onlyLink(event.text, link) && <LinkCard url={link} always />}
 		</div>
+		</SaidBy.Provider>
 	);
 }
 

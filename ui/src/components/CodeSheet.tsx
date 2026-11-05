@@ -8,8 +8,9 @@ const INLINE_LINES = 12;
 
 /**
  * A block of code on its sheet: the language, and the file when the fence
- * names one, on the head. Code that fits the bubble reads in it whole. Code
- * wider than the bubble, or longer than a glance, is cut: its first lines,
+ * names one, on the head. Code that fits the bubble reads in it whole, and a
+ * single line too long for it wraps. Code of more lines wider than the
+ * bubble, or longer than a glance, is cut: its first lines,
  * faded where they go on, how many there are, and a click for all of it.
  * Copy takes the code as written, never the line numbers.
  */
@@ -40,13 +41,15 @@ export function CodeSheet({
 		return () => resized?.disconnect();
 	}, []);
 	const tall = lines.length > INLINE_LINES;
+	// One line wraps in the bubble rather than being cut: a command is read, not opened.
+	const single = lines.length === 1;
 	const fact = [languageName(language), file, `${lines.length} ${lines.length === 1 ? "line" : "lines"}`].filter(Boolean).join(" · ");
 	return (
 		<Sheet
 			kind="code"
 			copy={{ text: code, title: "Copy code" }}
 			open={{ kind: "code", text: fence(code, language, file), fact, caption }}
-			cut={wide || tall ? { summary: summaryOf(lines.length, tall), wide, tall } : null}
+			cut={(wide && !single) || tall ? { summary: summaryOf(lines.length, tall), wide, tall } : null}
 			label={
 				<>
 					{language ?? "Code"}
@@ -60,7 +63,7 @@ export function CodeSheet({
 			}
 			keys={null}
 		>
-			<pre ref={body} className="code-body">
+			<pre ref={body} className="code-body" data-wrap={single || undefined}>
 				<code>
 					{lines.map((runs, index) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: a line is its place in the block.
@@ -102,8 +105,7 @@ function languageName(language: string | undefined): string {
 
 /** What a cut block says under it: how long it is, or that its lines run past the bubble. */
 function summaryOf(lines: number, tall: boolean): string {
-	if (tall) return `${lines} lines`;
-	return lines === 1 ? "1 long line" : `${lines} lines, some long`;
+	return tall ? `${lines} lines` : `${lines} lines, some long`;
 }
 
 /** The block as a fence again, so the full view draws it the same way. */

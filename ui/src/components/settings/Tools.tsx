@@ -152,7 +152,9 @@ export function ToolsSection({
  * this order: the switch is the desk's (off stays off for every teammate).
  * A key is optional, so it is one quiet action on the row; the field opens
  * only to add or change one, and the key goes to the keychain, never shown
- * again. A provider with a key is tried first.
+ * again. A provider with a key is tried first. SearXNG is the person's own
+ * instance: its row opens its URL and an optional key, and its switch stays
+ * off until the desk holds a URL.
  */
 function WebSearchGroup() {
 	const [providers, setProviders] = useState<WebSearchProviderStatus[] | null>(null);
@@ -193,7 +195,7 @@ function WebSearchGroup() {
 							<div className="group-row">
 								<span className="group-row-text">
 									<span className="group-row-title">{one.name}</span>
-									<span className="group-row-detail">{one.hasKey ? "Your key" : "Keyless"}</span>
+									<span className={one.url === undefined ? "group-row-detail" : "group-row-detail font-mono"}>{providerDetail(one)}</span>
 								</span>
 								<button
 									type="button"
@@ -202,19 +204,41 @@ function WebSearchGroup() {
 									disabled={busy}
 									onClick={() => setEditing((was) => (was === one.provider ? null : one.provider))}
 								>
-									{editing === one.provider ? "Cancel" : one.hasKey ? "Change key" : "Add key"}
+									{editing === one.provider
+										? "Cancel"
+										: one.takesUrl
+											? one.url === undefined
+												? "Set up"
+												: "Edit"
+											: one.hasKey
+												? "Change key"
+												: "Add key"}
 								</button>
 								<input
 									type="checkbox"
 									role="switch"
 									className="switch"
 									aria-label={`Search with ${one.name}`}
+									title={one.takesUrl && one.url === undefined ? "Set URL first" : undefined}
 									checked={one.enabled}
-									disabled={busy}
+									disabled={busy || (one.takesUrl === true && one.url === undefined)}
 									onChange={(event) => void apply(() => wire.command("websearch.set_enabled", { provider: one.provider, enabled: event.target.checked }))}
 								/>
 							</div>
-							{editing === one.provider && (
+							{editing === one.provider && one.takesUrl && (
+								<WebSearchInstance
+									provider={one}
+									busy={busy}
+									onSave={async (url, key) => {
+										const saved =
+											(url === (one.url ?? "") || (await apply(() => wire.command("websearch.set_url", url === "" ? { provider: one.provider } : { provider: one.provider, url })))) &&
+											(key === "" || (await apply(() => wire.command("websearch.set_key", { provider: one.provider, key }))));
+										if (saved) setEditing(null);
+									}}
+									onForgetKey={() => void apply(() => wire.command("websearch.set_key", { provider: one.provider }))}
+								/>
+							)}
+							{editing === one.provider && !one.takesUrl && (
 								<WebSearchKey
 									provider={one}
 									busy={busy}
@@ -233,6 +257,87 @@ function WebSearchGroup() {
 			<p className="group-hint">Tried in order, one with a key first. Off here is off for every teammate.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
+	);
+}
+
+/** What a provider's row says under its name: the instance it searches, or whose key it uses. */
+function providerDetail(provider: WebSearchProviderStatus): string {
+	if (!provider.takesUrl) return provider.hasKey ? "Your key" : "Keyless";
+	if (provider.url === undefined) return "No instance set";
+	return provider.url;
+}
+
+/**
+ * A self-hosted provider's instance, opened from its row: the URL it is
+ * reached at and an optional key, which the keychain keeps and nobody sees
+ * again. A blank URL takes the instance away and switches it off.
+ */
+function WebSearchInstance({
+	provider,
+	busy,
+	onSave,
+	onForgetKey,
+}: {
+	provider: WebSearchProviderStatus;
+	busy: boolean;
+	onSave(url: string, key: string): Promise<void>;
+	onForgetKey(): void;
+}) {
+	const [url, setUrl] = useState(provider.url ?? "");
+	const [key, setKey] = useState("");
+	const changed = url.trim() !== (provider.url ?? "") || key.trim() !== "";
+
+	return (
+		<form
+			className="group-row flex-col items-stretch gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (changed) void onSave(url.trim(), key.trim());
+			}}
+		>
+			<div className="flex items-center gap-2">
+				<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor={`${provider.provider}-url`}>
+					URL
+				</label>
+				<input
+					id={`${provider.provider}-url`}
+					className="field min-w-0 flex-1 font-mono text-sm"
+					placeholder="http://localhost:8888"
+					// biome-ignore lint/a11y/noAutofocus: the field opens on a press of Set up or Edit, which wants the address typed next.
+					autoFocus
+					spellCheck={false}
+					value={url}
+					disabled={busy}
+					onChange={(event) => setUrl(event.target.value)}
+				/>
+			</div>
+			<div className="flex items-center gap-2">
+				<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor={`${provider.provider}-key`}>
+					Key
+				</label>
+				<input
+					id={`${provider.provider}-key`}
+					type="password"
+					className="field min-w-0 flex-1 font-mono text-sm"
+					placeholder={provider.hasKey ? "Saved · paste to replace" : "Optional"}
+					autoComplete="new-password"
+					spellCheck={false}
+					value={key}
+					disabled={busy}
+					onChange={(event) => setKey(event.target.value)}
+				/>
+			</div>
+			<div className="flex justify-end gap-2">
+				{provider.hasKey && (
+					<button type="button" className="control btn-quiet shrink-0 text-danger" disabled={busy} onClick={onForgetKey}>
+						Remove key
+					</button>
+				)}
+				<button type="submit" className="control btn btn-primary shrink-0" disabled={busy || !changed}>
+					Save
+				</button>
+			</div>
+		</form>
 	);
 }
 

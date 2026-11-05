@@ -18,21 +18,32 @@ pub(super) async fn set_web_search_enabled(
 ) -> Result<Value, String> {
     let gate = room.policy_update_lock();
     let _held = gate.lock().await;
-    let mut disabled = crate::websearch::disabled_on_desk(&room::try_settings(log)?);
-    if enabled {
-        disabled.remove(&provider);
-    } else {
-        disabled.insert(provider);
-    }
-    let names: Vec<&str> = crate::websearch::ORDER
-        .into_iter()
-        .filter(|provider| disabled.contains(provider))
-        .map(crate::websearch::id)
-        .collect();
-    let mut patch = Map::new();
-    patch.insert("webSearch".into(), json!({ "disabled": names }));
-    update_settings(log, patch)?;
+    let mut switches = crate::websearch::Switches::read(&room::try_settings(log)?);
+    switches.set_enabled(provider, enabled)?;
+    write_web_search(log, &switches)?;
     web_search_status(log, room)
+}
+
+/// Sets or clears the instance URL of a provider the person runs themselves
+/// (SearXNG), under the policy gate. Clearing it switches the provider off.
+pub(super) async fn set_web_search_url(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    provider: WebSearchProvider,
+    url: Option<&str>,
+) -> Result<Value, String> {
+    let gate = room.policy_update_lock();
+    let _held = gate.lock().await;
+    let mut switches = crate::websearch::Switches::read(&room::try_settings(log)?);
+    switches.set_url(provider, url)?;
+    write_web_search(log, &switches)?;
+    web_search_status(log, room)
+}
+
+fn write_web_search(log: &Log, switches: &crate::websearch::Switches) -> Result<(), String> {
+    let mut patch = Map::new();
+    patch.insert("webSearch".into(), switches.to_setting());
+    update_settings(log, patch).map(drop)
 }
 
 /// `settings.update`: each value normalised, tool sources sealed before they
@@ -103,9 +114,10 @@ pub(super) async fn apply_update(
 }
 
 /// Each web search provider as the Tools pane lists it: on or off at the
-/// desk, and whether a key is saved. Never a key.
+/// desk, whether a key is saved, and for SearXNG its instance URL. Never a
+/// key.
 pub(super) fn web_search_status(log: &Log, room: &Arc<dyn RoomHandle>) -> Result<Value, String> {
-    let disabled = crate::websearch::disabled_on_desk(&room::try_settings(log)?);
+    let switches = crate::websearch::Switches::read(&room::try_settings(log)?);
     let keyed = room.websearch_keyed();
     Ok(json!(crate::contract::WebSearchStatus {
         providers: crate::websearch::ORDER
@@ -113,8 +125,10 @@ pub(super) fn web_search_status(log: &Log, room: &Arc<dyn RoomHandle>) -> Result
             .map(|provider| crate::contract::WebSearchProviderStatus {
                 provider,
                 name: crate::websearch::display_name(provider).to_string(),
-                enabled: !disabled.contains(&provider),
+                enabled: switches.on(provider),
                 has_key: keyed.contains(&provider),
+                takes_url: crate::websearch::self_hosted(provider),
+                url: switches.url(provider).map(str::to_string),
             })
             .collect(),
     }))

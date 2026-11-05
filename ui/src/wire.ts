@@ -159,6 +159,7 @@ type Results = {
 	"websearch.status": WebSearchStatus;
 	"websearch.set_enabled": WebSearchStatus;
 	"websearch.set_key": WebSearchStatus;
+	"websearch.set_url": WebSearchStatus;
 	"link.preview": LinkPreview | null;
 	/** A site's icon as a `data:` URL the desk fetched and keeps. */
 	"link.icon": string | null;

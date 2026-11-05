@@ -70,7 +70,7 @@ crates/hotline-tools/src/     a teammate's workspace and shell tools; on the two
   workspace.rs               workspace tools on cap-std: the wall, granted folders, read, grep, edit
   shell.rs                   the shell command, confined: Seatbelt on macOS, bubblewrap on Linux
 crates/hotline-websearch/src/ web search for every teammate, keyless by default, ranked and cleaned; on the contract alone
-  exa.rs, parallel.rs, ...   the four providers, one file each
+  exa.rs, parallel.rs, ...   the four hosted providers and SearXNG, one file each
   clean.rs, rank.rs          error pages and chrome out, duplicates and mirrors merged
   query.rs, when.rs          what the query asked for: its language, its dates
   mock.rs                    a provider on localhost, for tests (the `test-support` feature)

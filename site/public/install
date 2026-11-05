@@ -289,35 +289,35 @@ desktop_macos() {
 }
 
 desktop_linux() {
-    [ "$(arch)" = x86_64 ] || fail "the desktop app is x86_64 only on Linux; for a server, add --server"
+    package="hotline_${version}_linux_$(arch)"
     if command -v apt-get >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1; then
-        asset "hotline_${version}_linux_x86_64.deb"
+        asset "${package}.deb"
         # apt reads a local package as its own sandbox user.
         chmod 0755 "$work"
-        chmod 0644 "$work/hotline_${version}_linux_x86_64.deb"
+        chmod 0644 "$work/${package}.deb"
         if [ -n "$force" ]; then
-            as_root apt-get install --reinstall -y "$work/hotline_${version}_linux_x86_64.deb"
+            as_root apt-get install --reinstall -y "$work/${package}.deb"
         else
-            as_root apt-get install -y "$work/hotline_${version}_linux_x86_64.deb"
+            as_root apt-get install -y "$work/${package}.deb"
         fi
     elif command -v dnf >/dev/null 2>&1; then
-        asset "hotline_${version}_linux_x86_64.rpm"
+        asset "${package}.rpm"
         if [ -n "$force" ] && [ "$current" = "$version" ]; then
-            as_root dnf reinstall -y "$work/hotline_${version}_linux_x86_64.rpm"
+            as_root dnf reinstall -y "$work/${package}.rpm"
         else
-            as_root dnf install -y "$work/hotline_${version}_linux_x86_64.rpm"
+            as_root dnf install -y "$work/${package}.rpm"
         fi
     elif command -v zypper >/dev/null 2>&1; then
-        asset "hotline_${version}_linux_x86_64.rpm"
+        asset "${package}.rpm"
         if [ -n "$force" ]; then
-            as_root zypper --non-interactive install --force --allow-unsigned-rpm "$work/hotline_${version}_linux_x86_64.rpm"
+            as_root zypper --non-interactive install --force --allow-unsigned-rpm "$work/${package}.rpm"
         else
-            as_root zypper --non-interactive install --allow-unsigned-rpm "$work/hotline_${version}_linux_x86_64.rpm"
+            as_root zypper --non-interactive install --allow-unsigned-rpm "$work/${package}.rpm"
         fi
     else
-        asset "hotline_${version}_linux_x86_64.AppImage"
+        asset "${package}.AppImage"
         mkdir -p "$HOME/.local/bin"
-        install -m 0755 "$work/hotline_${version}_linux_x86_64.AppImage" "$HOME/.local/bin/Hotline.AppImage"
+        install -m 0755 "$work/${package}.AppImage" "$HOME/.local/bin/Hotline.AppImage"
         printf '%s\n%s\n' "$version" "$(sha256 "$HOME/.local/bin/Hotline.AppImage")" >"$HOME/.local/bin/Hotline.AppImage.version"
         say ""
         say "Hotline $version is at ~/.local/bin/Hotline.AppImage."

@@ -16,6 +16,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   hosted providers.
 - Settings › General › Link previews. Off, the desk contacts no site an
   agent linked to, and no link card, picture or site icon is drawn.
+- The desktop app for ARM Linux. Each release carries
+  `hotline_<version>_linux_aarch64` AppImage, deb and rpm builds beside the
+  x86_64 ones, the install script picks the one for your machine, and an
+  ARM install updates itself like any other.
 
 ### Changed
 

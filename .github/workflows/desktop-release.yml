@@ -49,6 +49,11 @@ jobs:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             suffix: linux_x86_64
+          # Built natively on GitHub's Arm runner, like the server's aarch64
+          # tarball; the same toolkit packages exist for arm64.
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: linux_aarch64
           - runner: windows-2025
             target: x86_64-pc-windows-msvc
             suffix: windows_x86_64

@@ -142,7 +142,7 @@ fn target_for(
     };
     if !matches!(
         (os, arch),
-        ("linux" | "windows", "x86_64") | ("macos", "x86_64" | "aarch64")
+        ("windows", "x86_64") | ("linux" | "macos", "x86_64" | "aarch64")
     ) {
         return None;
     }
@@ -640,7 +640,15 @@ mod tests {
             target_for("macos", "x86_64", Some(Dmg)).as_deref(),
             Some("darwin-x86_64-app")
         );
-        assert!(target_for("linux", "aarch64", Some(Deb)).is_none());
+        assert_eq!(
+            target_for("linux", "aarch64", Some(Deb)).as_deref(),
+            Some("linux-aarch64-deb")
+        );
+        assert_eq!(
+            target_for("linux", "aarch64", Some(AppImage)).as_deref(),
+            Some("linux-aarch64-appimage")
+        );
+        assert!(target_for("linux", "riscv64", Some(Deb)).is_none());
         assert_eq!(
             target_for("windows", "x86_64", Some(Nsis)).as_deref(),
             Some("windows-x86_64-nsis")
@@ -657,6 +665,9 @@ mod tests {
             ("linux", "x86_64", Deb, ".deb"),
             ("linux", "x86_64", Rpm, ".rpm"),
             ("linux", "x86_64", AppImage, ".AppImage"),
+            ("linux", "aarch64", Deb, ".deb"),
+            ("linux", "aarch64", Rpm, ".rpm"),
+            ("linux", "aarch64", AppImage, ".AppImage"),
             ("macos", "aarch64", App, ".app.tar.gz"),
             ("macos", "x86_64", Dmg, ".app.tar.gz"),
             ("windows", "x86_64", Nsis, "-setup.exe"),

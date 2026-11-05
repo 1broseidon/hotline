@@ -14,6 +14,9 @@ PACKAGES = {
     "linux-x86_64-appimage": "linux_x86_64.AppImage",
     "linux-x86_64-deb": "linux_x86_64.deb",
     "linux-x86_64-rpm": "linux_x86_64.rpm",
+    "linux-aarch64-appimage": "linux_aarch64.AppImage",
+    "linux-aarch64-deb": "linux_aarch64.deb",
+    "linux-aarch64-rpm": "linux_aarch64.rpm",
     "windows-x86_64-nsis": "windows_x86_64-setup.exe",
 }
 

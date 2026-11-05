@@ -1719,7 +1719,10 @@ async fn web_browsers() -> WebBrowsers {
 
 /// An app's name as the person says it: `Brave Browser` for
 /// `/Applications/Brave Browser.app`.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only macOS names its browsers by app")
+)]
 fn browser_name(app: &str) -> &str {
     let file = app.trim_end_matches('/').rsplit('/').next().unwrap_or(app);
     file.strip_suffix(".app").unwrap_or(file)
@@ -1729,7 +1732,10 @@ fn browser_name(app: &str) -> &str {
 /// is, else the shortest whose name holds it ("brave" is Brave Browser,
 /// "chrome" Google Chrome), so a Beta or Nightly beside it is never picked
 /// over the browser itself.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only macOS names its browsers by app")
+)]
 fn pick_browser<'a>(name: &str, installed: &'a [String]) -> Option<&'a str> {
     let plain = |words: &str| {
         words

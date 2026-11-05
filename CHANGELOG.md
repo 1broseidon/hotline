@@ -61,18 +61,42 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - The desk no longer offers your browser cookies when a teammate's browser
   visits a site you're signed into; the teammate asks instead. The offers
   switch, the Sites list and Never for this site are gone from Settings.
-- What a message carries sits on one sheet in its bubble. A table has a head
-  with its size, Open and Copy (as Markdown); its headings are labels, a
-  column of numbers stands right, and its sources are site chips. Code names
-  its language and file, numbers its lines from six up, colours its syntax,
-  and has Wrap and Copy; a long line scrolls instead of being cut. A diagram
-  is drawn in the desk's own colours, lights a node only where its source
-  marks one, and has Open and Source. Open shows a table or a diagram at full
-  width in the pane beside the conversation; Escape or its close goes back.
+- What a message carries sits on one sheet in its bubble, edge to edge. A
+  table's headings are labels, a column of numbers stands right and its
+  sources are site chips, each column as wide as its widest chip. Code names
+  its language and file and colours its syntax; one long line wraps in the
+  bubble. A table or code too wide or too long for the bubble is cut, as on
+  the phone: what fits, faded where it goes on (a table's head row never
+  fades), a line saying what it is ("Table · 7 rows · 8 columns", "24
+  lines"), and a click anywhere opens it. A straight-line flow is said as one
+  line of steps; only a diagram that branches is drawn, in the desk's own
+  colours, lighting a node only where its source marks one.
+- A bubble has one toolbar: react, reply and one Copy, which takes the
+  table or code under the pointer as it stands when pressed, or the message.
+  From the keyboard a table or code block takes the focus, and ⌘C copies it.
+- An object opens in the conversation's place, grown from its bubble. Its
+  band has ← back (Escape too), the teammate's face and name and when it
+  said it, the object as a fact ("Table · 7 rows × 8 columns", "Rust ·
+  src/lease.rs · 48 lines") and Copy; the sentence that introduced it is its
+  caption. A table stands at its own width with its head row held as it
+  scrolls; code is numbered there and nowhere else; a diagram opens at its
+  own size, zooms with a pinch or ⌘-scroll and pans with a drag. A picture,
+  a capture of a computer's screen and an opened file wear the same band.
 - Headings, lists and inline code read better on every bubble colour. A
   quote has a plain edge; a GitHub `[!WARNING]` or `[!CAUTION]` alert is an
-  amber callout with its label, and `[!NOTE]`, `[!TIP]` and `[!IMPORTANT]`
-  are labelled callouts.
+  amber callout, and `[!NOTE]`, `[!TIP]` and `[!IMPORTANT]` read as the
+  words around them.
+- A teammate opens what it reads or works on in its own browser, its desk
+  browser or its computer's. `open_link` is for when you ask: your default
+  browser, or the one you name ("open it in Brave"), found among the apps
+  that open web links on this Mac. The desk browser tells sites it is
+  Safari (Edge on Windows), so Gmail and the like don't call it unsupported,
+  and `viewport` shows a page as a phone, a tablet or a wide screen would
+  (or at an exact size); its picture in the corner takes that shape.
+- A teammate's pane answers three questions: Computer is the machine,
+  Secrets is what it signs in with (logins, passkeys and Cookies, whichever
+  browser it has), and Permissions is what it may reach, now with Local
+  addresses: the ones you told it "Always allow", each with Remove.
 - A link's card puts the site first, then the title and two lines of what
   the page is, with its picture beside them only when it has a real one.
   The desk fetches that picture, and every site icon, once over https,
@@ -89,14 +113,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   any settled ask folds to one line. Reactions are chips with a count,
   yours ringed, and a chapter is a labeled pill on its rule.
 
-
 ### Fixed
 
 - A reply's quote names who said it and no longer shows the Markdown it was
   written in.
 - A failed turn's card leads with what the report said happened, instead of
   "Turn failed" with the reason hidden under Details.
-
+- Scrolling up a long conversation no longer jumps or sticks: rows not yet
+  drawn are laid out in the background with the view held still, and older
+  lines arriving keep a scroll made while they loaded.
+- An object open from a message closes when you switch teammate or open
+  Settings, and nothing behind it takes the keyboard while it is open.
+- A run of files keeps its pictures as more files join it.
+- A SearXNG instance's redirects are followed only within the instance, so
+  its key never goes elsewhere or down to http.
 - A Claude Code subagent's run shows the prompt it was given once. The
   adapter can send it twice, once under a stand-in id and again under its
   call's, and the run showed both.

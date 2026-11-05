@@ -7,7 +7,7 @@ import { CheckIcon, CopyIcon, ReplyIcon, SmileIcon, SpeakerIcon } from "../../ic
 import { popupMessageMenu, writeClipboard } from "../../native";
 import { lineOf, type Run } from "../../transcriptFolds";
 import { Markdown } from "../Markdown";
-import { type BlockCopy, BubbleToolbar } from "../Sheet";
+import { type BlockCopy, BubbleToolbar, SaidBy } from "../Sheet";
 import { SentFiles, type SentItem } from "../SentFile";
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
@@ -94,6 +94,7 @@ export function AgentSay({
 		...(onReact !== undefined ? { react: (emoji: string) => onReact({ eventId: event.id, text: event.text || lineOf(event) }, emoji) } : {}),
 	};
 	const origin = postedFrom(event);
+	const said = useMemo(() => ({ personaId, ts: event.ts }), [personaId, event.ts]);
 	// One toolbar: a table, code or diagram pointed at adds its keys to it.
 	const [slot, setSlot] = useState<HTMLElement | null>(null);
 	const [block, setBlock] = useState<{ id: string; level: number; copy?: BlockCopy } | null>(null);
@@ -117,7 +118,9 @@ export function AgentSay({
 				// biome-ignore lint/a11y/noStaticElementInteractions: the pointer back on the words puts the toolbar's own keys back; nothing is done by it.
 				<div className={`speech said-them ${runClass(run)}`} data-bubble={bubble} onMouseOver={onWords} {...answerable(actions, onReply === undefined ? undefined : reply)}>
 					<BubbleToolbar.Provider value={tools}>
-						<Markdown text={event.text} />
+						<SaidBy.Provider value={said}>
+							<Markdown text={event.text} />
+						</SaidBy.Provider>
 					</BubbleToolbar.Provider>
 					{sent.length === 0 && <Reactions {...reactions} />}
 					<BubbleActions {...actions} slot={setSlot} level={block?.level ?? null} {...(block?.copy ? { block: block.copy } : {})} />

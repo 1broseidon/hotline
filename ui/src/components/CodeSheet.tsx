@@ -5,8 +5,6 @@ import { Sheet } from "./Sheet";
 /** More lines than this and code is cut in a bubble, however narrow, as on the phone. */
 const INLINE_LINES = 12;
 
-/** Below this many lines a block is read at a glance, and numbers would be furniture. */
-const NUMBERED_FROM = 6;
 
 /**
  * A block of code on its sheet: the language, and the file when the fence
@@ -15,7 +13,18 @@ const NUMBERED_FROM = 6;
  * faded where they go on, how many there are, and a click for all of it.
  * Copy takes the code as written, never the line numbers.
  */
-export function CodeSheet({ code, language, file }: { code: string; language: string | undefined; file: string | undefined }) {
+export function CodeSheet({
+	code,
+	language,
+	file,
+	caption,
+}: {
+	code: string;
+	language: string | undefined;
+	file: string | undefined;
+	/** The sentence that introduced the code, for the open view. */
+	caption?: string | undefined;
+}) {
 	const lines = useMemo(() => highlight(code, language), [code, language]);
 	const body = useRef<HTMLPreElement>(null);
 	const [wide, setWide] = useState(false);
@@ -31,12 +40,12 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 		return () => resized?.disconnect();
 	}, []);
 	const tall = lines.length > INLINE_LINES;
-	const title = [language ?? "Code", file].filter(Boolean).join(" · ");
+	const fact = [languageName(language), file, `${lines.length} ${lines.length === 1 ? "line" : "lines"}`].filter(Boolean).join(" · ");
 	return (
 		<Sheet
 			kind="code"
 			copy={{ text: code, title: "Copy code" }}
-			open={{ kind: "code", text: fence(code, language, file), title }}
+			open={{ kind: "code", text: fence(code, language, file), fact, caption }}
 			cut={wide || tall ? { summary: summaryOf(lines.length, tall), wide, tall } : null}
 			label={
 				<>
@@ -51,7 +60,7 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			}
 			keys={null}
 		>
-			<pre ref={body} className="code-body" data-numbered={lines.length >= NUMBERED_FROM || undefined}>
+			<pre ref={body} className="code-body">
 				<code>
 					{lines.map((runs, index) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: a line is its place in the block.
@@ -72,6 +81,23 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			</pre>
 		</Sheet>
 	);
+}
+
+/** Languages by the names people call them; a fence's tag otherwise, as written. */
+const NAMES: Record<string, string> = {
+	js: "JavaScript", javascript: "JavaScript", jsx: "JSX", ts: "TypeScript", typescript: "TypeScript", tsx: "TSX",
+	py: "Python", python: "Python", rs: "Rust", rust: "Rust", go: "Go", rb: "Ruby", ruby: "Ruby", java: "Java",
+	kt: "Kotlin", kotlin: "Kotlin", swift: "Swift", c: "C", cpp: "C++", "c++": "C++", cs: "C#", csharp: "C#",
+	sh: "Shell", bash: "Shell", zsh: "Shell", shell: "Shell", console: "Shell", fish: "Shell", ps1: "PowerShell", powershell: "PowerShell",
+	json: "JSON", jsonc: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", xml: "XML", html: "HTML", css: "CSS", scss: "SCSS",
+	sql: "SQL", md: "Markdown", markdown: "Markdown", diff: "Diff", dockerfile: "Dockerfile", makefile: "Makefile", nix: "Nix", lua: "Lua",
+	php: "PHP", r: "R", dart: "Dart", zig: "Zig", ex: "Elixir", elixir: "Elixir", hs: "Haskell", haskell: "Haskell", graphql: "GraphQL", proto: "Protobuf",
+};
+
+/** A fence's language as a name: Rust for rs, the tag as written when it is not one of ours, Code for none. */
+function languageName(language: string | undefined): string {
+	if (language === undefined || language === "") return "Code";
+	return NAMES[language.toLowerCase()] ?? language;
 }
 
 /** What a cut block says under it: how long it is, or that its lines run past the bubble. */

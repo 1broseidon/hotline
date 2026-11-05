@@ -136,14 +136,15 @@ const COMPONENTS: Components = {
 	},
 
 	/* A fenced block tagged mermaid is a diagram; every other block is code. */
-	pre: ({ children, node }) => {
+	pre: function Pre({ children, node }) {
+		const source = useContext(MarkdownSource);
 		const code = codeOf(children, node);
 		if (code === null) return <pre>{children}</pre>;
 		if (code.language === "mermaid") {
 			const steps = chainOf(code.text);
-			return steps === null ? <Mermaid source={code.text} /> : <FlowChain steps={steps} />;
+			return steps === null ? <Mermaid source={code.text} caption={captionOf(source, node)} /> : <FlowChain steps={steps} />;
 		}
-		return <CodeSheet code={code.text} {...fenceOf(code.language, code.meta)} />;
+		return <CodeSheet code={code.text} {...fenceOf(code.language, code.meta)} caption={captionOf(source, node)} />;
 	},
 
 	/* A list's number counts from where the markdown said it starts. */
@@ -178,6 +179,8 @@ const COMPONENTS: Components = {
 			const table = box.current;
 			if (table === null) return;
 			const look = () => {
+				const head = table.querySelector("thead");
+				if (head !== null) table.style.setProperty("--cut-head", `${head.getBoundingClientRect().height}px`);
 				const wide = table.scrollWidth > table.clientWidth + 2;
 				const tall = wide && table.scrollHeight > TABLE_PREVIEW;
 				setCut((was) => (was.wide === wide && was.tall === tall ? was : { wide, tall }));
@@ -194,8 +197,8 @@ const COMPONENTS: Components = {
 			<Sheet
 				kind="table"
 				copy={{ text: markdown, title: "Copy table" }}
-				open={{ kind: "table", text: markdown, title: leadOf(source) ?? (names.join(" · ") || "Table") }}
-				cut={cut.wide ? { summary: `${rows} ${rows === 1 ? "row" : "rows"} · ${columns} ${columns === 1 ? "column" : "columns"}`, ...cut } : null}
+				open={{ kind: "table", text: markdown, fact: `Table · ${count(rows, "row")} × ${count(columns, "column")}`, caption: captionOf(source, node) }}
+				cut={cut.wide ? { summary: `Table · ${count(rows, "row")} · ${count(columns, "column")}`, ...cut } : null}
 				keys={null}
 			>
 				<div ref={box} className="md-table">
@@ -232,25 +235,29 @@ const COMPONENTS: Components = {
 	},
 };
 
+/** A count and its noun: 1 row, 7 rows. */
+const count = (n: number, noun: string) => `${n} ${n === 1 ? noun : `${noun}s`}`;
+
 /**
- * What a message says first, as a title for an object expanded from it:
- * its first line of words, without markdown marks or a closing colon; none
- * when it opens with the object itself.
+ * The sentence that introduced an object, for the open view's caption: the
+ * paragraph written just before it, its markdown marks dropped. None when
+ * the object opens the message or follows something that is not words (a
+ * heading, a list, another object).
  */
-function leadOf(source: string | null | undefined): string | null {
-	const first = source
-		?.split("\n")
-		.map((line) => line.trim())
-		.find((line) => line !== "");
-	if (first === undefined || /^(\||```|~~~|>)/.test(first)) return null;
-	const words = first
-		.replace(/^#+\s*/, "")
-		.replace(/[*_`]/g, "")
+function captionOf(source: string, node: Element | undefined): string | undefined {
+	const start = node?.position?.start.offset;
+	if (start === undefined) return undefined;
+	const before = source.slice(0, start).replace(/\n[ \t>]*$/, "").trimEnd();
+	const last = before.split(/\n[ \t>]*\n/).at(-1)?.trim();
+	if (last === undefined || last === "" || /^(\||```|~~~|#|[-*+] |\d+[.)] )/.test(last)) return undefined;
+	const words = last
+		.replace(/^>\s*/gm, "")
+		.replace(/\s*\n\s*/g, " ")
+		.replace(/\*\*|__|[*_`]/g, "")
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-		.replace(/[:：]\s*$/, "")
 		.trim();
-	if (words === "") return null;
-	return words.length > 90 ? `${words.slice(0, 89)}…` : words;
+	if (words === "") return undefined;
+	return words.length > 240 ? `${words.slice(0, 239)}…` : words;
 }
 
 /**

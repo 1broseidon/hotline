@@ -416,6 +416,7 @@ export function App() {
 	const calling = call !== null && callPhase !== "ended";
 	const { available: voice, directCalls } = useVoiceSupport(connection);
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
+	const personaOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona, [roster]);
 	const callTeammate = useCallback(
 		(entry: RosterEntry) =>
 			void startCall(nameOf, { personaId: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash }),
@@ -722,7 +723,7 @@ export function App() {
 						}} />}
 					</div>
 				)}
-				{full !== null && <FullView object={full} onClose={closeFull} />}
+				{full !== null && <FullView object={full} onClose={closeFull} who={personaOf} />}
 				</div>
 				</OpenFull.Provider>
 			</main>

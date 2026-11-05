@@ -15,9 +15,9 @@ class NoResize {
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Markdown } = await import("../src/components/Markdown");
-const { OpenFull } = await import("../src/components/Sheet");
-const { FullView } = await import("../src/components/FullView");
-const { lit, mermaidConfig } = await import("../src/components/Mermaid");
+const { OpenFull, SaidBy } = await import("../src/components/Sheet");
+const { FullView, agoOf } = await import("../src/components/FullView");
+const { lit, mermaidConfig, factOf } = await import("../src/components/Mermaid");
 const { dockBack } = await import("../src/dock");
 type FullObject = import("../src/components/Sheet").FullObject;
 
@@ -48,18 +48,34 @@ afterEach(async () => {
 	await teardown();
 });
 
-/** A message as a teammate's bubble draws it, where the window can take an object full screen. */
+/** When Juno said everything here: four minutes ago. */
+const SAID = { personaId: "juno", ts: Date.now() - 4 * 60_000 };
+const JUNO = { id: "juno", name: "Juno" };
+
+/** A message as Juno's bubble draws it, where the window can open an object in the conversation's place. */
 async function say(text: string, full = true) {
 	await act(async () =>
 		root.render(
 			<div className="speech said-them">
-				<OpenFull.Provider value={full ? (object) => opened.push(object) : null}>
-					<Markdown text={text} />
-				</OpenFull.Provider>
+				<SaidBy.Provider value={SAID}>
+					<OpenFull.Provider value={full ? (object) => opened.push(object) : null}>
+						<Markdown text={text} />
+					</OpenFull.Provider>
+				</SaidBy.Provider>
 			</div>,
 		),
 	);
 }
+
+/** An opened object as the view draws it, without the sheet it came from (happy-dom lays nothing out to grow from). */
+async function openView(object: import("../src/components/Sheet").FullObject, onClose: () => void = () => {}) {
+	const { sheet: _, ...still } = object;
+	await act(async () => root.render(null));
+	await act(async () => root.render(<FullView object={still} onClose={onClose} who={(id) => (id === "juno" ? JUNO : undefined)} />));
+	await settle();
+	return document.querySelector<HTMLElement>(".full-view")!;
+}
+const band = (view: HTMLElement) => view.querySelector<HTMLElement>(".full-view-band")!;
 
 const sheet = (kind: string) => container.querySelector<HTMLElement>(`[data-sheet="${kind}"]`);
 const label = (kind: string) => sheet(kind)?.querySelector(".sheet-label")?.textContent;
@@ -147,12 +163,29 @@ describe("a table", () => {
 		try {
 			await say(TABLE);
 			expect(sheet("table")?.getAttribute("data-cut")).toBe("wide");
-			expect(cut("table")?.textContent).toBe("3 rows · 3 columns");
+			expect(cut("table")?.textContent).toBe("Table · 3 rows · 3 columns");
 			await act(async () => sheet("table")!.querySelector("td")!.click());
 			await act(async () => cut("table")!.click());
 			expect(opened.map((one) => one.kind)).toEqual(["table", "table"]);
 		} finally {
 			restore();
+		}
+	});
+
+	test("cut, keeps its head row clear of the fade: the head's height is measured onto the mask's layer that keeps it whole", async () => {
+		const restore = tooWide();
+		try {
+			await say(TABLE);
+			const box = sheet("table")!.querySelector<HTMLElement>(".md-table")!;
+			expect(box.style.getPropertyValue("--cut-head")).toMatch(/^\d+(\.\d+)?px$/);
+		} finally {
+			restore();
+		}
+		const css = readFileSync(new URL("../src/inline-objects.css", import.meta.url), "utf8");
+		expect(css).toMatch(/--keep-head:\s*linear-gradient\(black, black\) top \/ 100% var\(--cut-head/);
+		for (const cut of ["wide", "wide tall"]) {
+			const rule = css.match(new RegExp(`\\.sheet\\[data-cut="${cut}"\\] > \\.md-table \\{([^}]*)\\}`))?.[1] ?? "";
+			expect({ cut, keepsHead: /mask:\s*var\(--keep-head\)/.test(rule) }).toEqual({ cut, keepsHead: true });
 		}
 	});
 
@@ -201,13 +234,13 @@ describe("a block of code", () => {
 		}
 	});
 
-	test("numbers its lines only from six lines up", async () => {
-		await say("```bash\none\ntwo\nthree\nfour\nfive\n```");
-		expect(sheet("code")!.querySelector("pre")!.hasAttribute("data-numbered")).toBe(false);
-		await say("```bash\none\ntwo\nthree\nfour\nfive\nsix\n```");
+	test("carries its line numbers for the open view, which alone shows them", async () => {
+		await say("```bash\none\ntwo\nthree\n```");
 		const pre = sheet("code")!.querySelector("pre")!;
-		expect(pre.hasAttribute("data-numbered")).toBe(true);
-		expect([...pre.querySelectorAll(".code-line")].map((line) => line.getAttribute("data-n"))).toEqual(["1", "2", "3", "4", "5", "6"]);
+		expect([...pre.querySelectorAll(".code-line")].map((line) => line.getAttribute("data-n"))).toEqual(["1", "2", "3"]);
+		const css = readFileSync(new URL("../src/inline-objects.css", import.meta.url), "utf8");
+		const gutters = [...css.matchAll(/([^{}]+)\{[^}]*content:\s*attr\(data-n\)/g)].map(([, selector]) => selector!.trim());
+		expect(gutters).toEqual([".full-view-object .code-line::before"]);
 	});
 
 	test("Copy takes the code as written, never its line numbers", async () => {
@@ -341,39 +374,96 @@ describe("a bare link", () => {
 	});
 });
 
-describe("full screen", () => {
-	test("a cut table hands the window the table, which the full view draws whole and never cut", async () => {
+describe("the open view", () => {
+	test("a cut table opens with its fact, the sentence that introduced it, who said it and the sheet it grows from", async () => {
+		const restore = tooWide();
+		await say(`Here are the **three** we looked at:\n\n${TABLE}`);
+		await act(async () => cut("table")!.click());
+		restore();
+		expect(opened.length).toBe(1);
+		const { sheet: from, ...rest } = opened[0]!;
+		expect(rest).toEqual({ kind: "table", text: TABLE, fact: "Table · 3 rows × 3 columns", caption: "Here are the three we looked at:", from: SAID });
+		expect(from).toBe(sheet("table")!);
+	});
+
+	test("wears the band: ← back, the teammate's face and name, when, the object as a fact and Copy with its word; no title, no Close", async () => {
+		const restore = tooWide();
+		await say(`Here are the three we looked at:\n\n${TABLE}`);
+		await act(async () => cut("table")!.click());
+		restore();
+		const view = await openView(opened[0]!);
+		const head = band(view);
+		expect(head.querySelector(".band")).not.toBeNull();
+		expect(head.querySelector("button")?.getAttribute("aria-label")).toBe("Back to the conversation");
+		expect(head.querySelector(".avatar")).not.toBeNull();
+		expect(head.querySelector(".full-view-name")?.textContent).toBe("Juno");
+		expect([...head.querySelectorAll(".instrument")].map((one) => one.textContent)).toEqual(["· 4 min ago", "Table · 3 rows × 3 columns"]);
+		expect([...head.querySelectorAll(".sheet-key")].map((one) => one.textContent)).toEqual(["Copy"]);
+		expect(view.querySelector(".full-view-title, .full-view-head")).toBeNull();
+		expect(view.getAttribute("aria-label")).toBe("Table · 3 rows × 3 columns");
+		// Drawn whole and never cut.
+		expect(view.querySelectorAll("tbody tr").length).toBe(3);
+		expect(view.querySelector(".sheet-cut")).toBeNull();
+	});
+
+	test("captions the object with the sentence that introduced it, after the teammate's name, and has no caption when none did", async () => {
+		const restore = tooWide();
+		await say(`Here are the three we looked at:\n\n${TABLE}`);
+		await act(async () => cut("table")!.click());
+		await say(TABLE);
+		await act(async () => cut("table")!.click());
+		await say(`- one\n- two\n\n${TABLE}`);
+		await act(async () => cut("table")!.click());
+		restore();
+		expect(opened.map((one) => one.caption)).toEqual(["Here are the three we looked at:", undefined, undefined]);
+		const view = await openView(opened[0]!);
+		expect(view.querySelector(".full-view-caption")?.textContent).toBe("Juno: Here are the three we looked at:");
+		expect(view.querySelector(".full-view-caption-who")?.textContent).toBe("Juno:");
+		const bare = await openView(opened[1]!);
+		expect(bare.querySelector(".full-view-caption")).toBeNull();
+	});
+
+	test("← and Escape go back", async () => {
 		const restore = tooWide();
 		await say(`Here:\n\n${TABLE}`);
 		await act(async () => cut("table")!.click());
 		restore();
-		// Titled by what the message says first, without its colon.
-		expect(opened).toEqual([{ kind: "table", text: TABLE, title: "Here" }]);
-
 		let closed = 0;
-		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => closed++} />));
+		const view = await openView(opened[0]!, () => closed++);
+		await act(async () => band(view).querySelector<HTMLButtonElement>("button")!.click());
 		await settle();
-		const view = document.querySelector(".full-view");
-		expect(view?.getAttribute("aria-label")).toBe("Here");
-		expect(view?.querySelectorAll("tbody tr").length).toBe(3);
-		expect(view?.querySelector(".sheet-cut")).toBeNull();
-		expect([...(view?.querySelectorAll(".full-view-head .sheet-key") ?? [])].map((one) => one.textContent)).toEqual(["Copy", "Close"]);
-		await act(async () => [...view!.querySelectorAll<HTMLButtonElement>(".full-view-head .sheet-key")].at(-1)!.click());
 		expect(closed).toBe(1);
-		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => closed++} />));
+		await openView(opened[0]!, () => closed++);
 		await act(async () => document.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event));
+		await settle();
 		expect(closed).toBe(2);
 	});
 
-	test("cut code opens as the fence it was, and Copy there takes the code alone", async () => {
+	test("cut code opens as the fence it was, its language, file and length the band's fact, and Copy takes the code alone", async () => {
 		const restore = tooWide();
 		await say("```python setup.py\nprint(1)\n```");
 		await act(async () => cut("code")!.click());
 		restore();
-		expect(opened).toEqual([{ kind: "code", text: '```python title="setup.py"\nprint(1)\n```', title: "python · setup.py" }]);
-		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => {}} />));
-		await act(async () => document.querySelector<HTMLButtonElement>(".full-view-head .sheet-key")!.click());
+		const { sheet: _, from: __, ...rest } = opened[0]!;
+		expect(rest).toEqual({ kind: "code", text: '```python title="setup.py"\nprint(1)\n```', fact: "Python · setup.py · 1 line", caption: undefined });
+		const view = await openView(opened[0]!);
+		await act(async () => band(view).querySelector<HTMLButtonElement>(".sheet-key")!.click());
 		expect(clipboard).toEqual(["print(1)"]);
+	});
+
+	test("a diagram's fact is its kind as a word", () => {
+		expect(factOf("flowchart TD\n  A --> B")).toBe("Flowchart");
+		expect(factOf("graph LR\n  A --> B")).toBe("Flowchart");
+		expect(factOf("sequenceDiagram\n  A->>B: hi")).toBe("Sequence");
+	});
+
+	test("says when as the band does: just now, minutes, hours, yesterday, then the date", () => {
+		const now = Date.UTC(2026, 10, 5, 12);
+		expect(agoOf(now - 20_000, now)).toBe("just now");
+		expect(agoOf(now - 4 * 60_000, now)).toBe("4 min ago");
+		expect(agoOf(now - 3 * 3_600_000, now)).toBe("3 h ago");
+		expect(agoOf(now - 30 * 3_600_000, now)).toBe("yesterday");
+		expect(agoOf(now - 5 * 86_400_000, now)).not.toMatch(/ago|yesterday/);
 	});
 
 	test("Escape in the pane steps from a thread to the list, then out", () => {

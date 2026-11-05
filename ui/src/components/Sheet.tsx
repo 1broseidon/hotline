@@ -3,19 +3,48 @@ import { createPortal } from "react-dom";
 import { CheckIcon, CopyIcon, ExpandIcon } from "../icons";
 import { writeClipboard } from "../native";
 
-/**
- * An object a message carries, as the full-window view draws it: its kind,
- * for the view's title, and its markdown, which the view renders with the
- * same components the bubble did.
- */
-export type FullObject = { kind: "table" | "code" | "diagram"; text: string; title?: string };
+/** Who said a message and when: the bubble's, for the open view's band. */
+export type Said = { personaId: string; ts: number };
 
 /**
- * How an object in a message opens over the whole window. The window provides
- * it around the conversation; inside the full view itself, and in a document
- * already open at full size, there is no provider, and nothing there is cut.
+ * An object a message carries, as the open view draws it: its kind; its
+ * markdown, which the view renders with the same components the bubble did
+ * (a diagram's is its mermaid source); the object as a fact for the band
+ * ("Table · 7 rows × 8 columns"); the sentence that introduced it, if one
+ * did; and, once opened from a bubble, who said it and the sheet it grows
+ * from and goes back to.
+ */
+export type FullObject = {
+	kind: "table" | "code" | "diagram";
+	text: string;
+	fact: string;
+	caption?: string | undefined;
+	from?: Said | undefined;
+	sheet?: HTMLElement | undefined;
+};
+
+/**
+ * How an object in a message opens in the conversation's place. The window
+ * provides it around the conversation; inside the open view itself, and in
+ * a document already open at full size, there is no provider, and nothing
+ * there is cut.
  */
 export const OpenFull = createContext<((object: FullObject) => void) | null>(null);
+
+/** The bubble an object sits in: who said it and when. None outside a teammate's bubble. */
+export const SaidBy = createContext<Said | null>(null);
+
+/**
+ * Opening an object from the sheet it sits on: the window's OpenFull, with
+ * the bubble's teammate and time and the sheet itself added. Null where
+ * nothing opens.
+ */
+export function useOpen(): ((object: FullObject, sheet: HTMLElement | null) => void) | null {
+	const openFull = useContext(OpenFull);
+	const said = useContext(SaidBy);
+	if (openFull === null) return null;
+	return (object, sheet) => openFull({ ...object, ...(said !== null ? { from: said } : {}), ...(sheet !== null ? { sheet } : {}) });
+}
 
 /**
  * A bubble's one toolbar, as a sheet in it sees it: where to put its keys
@@ -66,9 +95,9 @@ export function Sheet({
 	children: ReactNode;
 }) {
 	const tools = useContext(BubbleToolbar);
-	const openFull = useContext(OpenFull);
-	const opens = cut != null && open !== undefined && openFull !== null ? () => openFull(open) : null;
+	const openFrom = useOpen();
 	const self = useRef<HTMLDivElement>(null);
+	const opens = cut != null && open !== undefined && openFrom !== null ? () => openFrom(open, self.current) : null;
 	const id = useId();
 	// In a bubble the keys join the bubble's toolbar, one belt, while this
 	// sheet is the one pointed at; elsewhere they stand on its own head.
@@ -82,7 +111,6 @@ export function Sheet({
 			data-bare={label === undefined || undefined}
 			data-cut={opens !== null ? [cut?.wide && "wide", cut?.tall && "tall"].filter(Boolean).join(" ") : undefined}
 			{...(tools !== null ? { onMouseEnter: enter, onFocus: enter } : {})}
-			// biome-ignore lint/a11y/useKeyWithClickEvents: the cut's own button under it opens it from the keyboard.
 			{...(opens !== null ? { onClick: opens } : {})}
 		>
 			{(label !== undefined || tools === null) && (
@@ -102,7 +130,7 @@ export function Sheet({
 				<button
 					type="button"
 					className="sheet-cut"
-					title="Full screen"
+					title="Open"
 					onClick={(event) => {
 						event.stopPropagation();
 						opens();

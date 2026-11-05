@@ -32,6 +32,35 @@ use url::{Host, Url};
 /// an agent's harness moves a long tool answer out to a file.
 pub const READ_LIMIT: usize = 20_000;
 
+/// The page's size when nothing asked for another, in CSS pixels.
+pub const VIEWPORT: (u32, u32) = (1280, 800);
+/// The narrowest and widest, shortest and tallest page `viewport` takes.
+pub const VIEWPORT_WIDTH: std::ops::RangeInclusive<u32> = 240..=3840;
+pub const VIEWPORT_HEIGHT: std::ops::RangeInclusive<u32> = 240..=2400;
+
+/// The size `viewport` was asked for: `width`, and `height` or the default
+/// height; no width is the desk's own size again. Out of range is said, not
+/// clamped, so the teammate knows what it got.
+pub fn viewport_of(width: Option<u64>, height: Option<u64>) -> Result<Option<(u32, u32)>, String> {
+    let Some(width) = width else {
+        return Ok(None);
+    };
+    let height = height.unwrap_or(u64::from(VIEWPORT.1));
+    let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
+        return Err("viewport takes a width and height in pixels.".into());
+    };
+    if !VIEWPORT_WIDTH.contains(&width) || !VIEWPORT_HEIGHT.contains(&height) {
+        return Err(format!(
+            "viewport takes a width from {} to {} and a height from {} to {} pixels.",
+            VIEWPORT_WIDTH.start(),
+            VIEWPORT_WIDTH.end(),
+            VIEWPORT_HEIGHT.start(),
+            VIEWPORT_HEIGHT.end()
+        ));
+    }
+    Ok(Some((width, height)))
+}
+
 /// Ollama's own port. A teammate's browser has no business with the
 /// desk's model server, whatever the person answers.
 const OLLAMA_PORT: u16 = 11434;
@@ -497,6 +526,12 @@ pub trait DeskBrowser: Send + Sync {
     /// say takes no picture while there is a secret to look for.
     async fn showing(&self, _persona_id: &str) -> Result<Showing, String> {
         Err("This browser cannot check its page for your secrets, so it takes no picture while you hold any.".into())
+    }
+    /// Sizes the page to `size`, width by height in CSS pixels, so it lays
+    /// out and is pictured as a screen that size would show it (a phone's
+    /// 390 by 844); `None` puts back the desk's own. Answers the page.
+    async fn viewport(&self, _persona_id: &str, _size: Option<(u32, u32)>) -> Result<Page, String> {
+        Err("This browser cannot change its size.".into())
     }
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
@@ -1317,6 +1352,15 @@ mod tests {
             text: "hunter2".into(),
         };
         assert!(!format!("{act:?}").contains("hunter2"));
+    }
+
+    #[test]
+    fn a_viewport_is_a_size_in_range_or_the_desks_own() {
+        assert_eq!(viewport_of(Some(390), Some(844)), Ok(Some((390, 844))));
+        assert_eq!(viewport_of(Some(768), None), Ok(Some((768, VIEWPORT.1))));
+        assert_eq!(viewport_of(None, Some(844)), Ok(None));
+        assert!(viewport_of(Some(100), None).is_err());
+        assert!(viewport_of(Some(390), Some(10_000)).is_err());
     }
 
     /// An answer taken back stays taken back across a restart, and one given

@@ -779,6 +779,18 @@ impl Room {
                     page_line(&acted.page)
                 )))
             }
+            "viewport" => {
+                let size = crate::browser::viewport_of(
+                    arguments.get("width").and_then(Value::as_u64),
+                    arguments.get("height").and_then(Value::as_u64),
+                )?;
+                let page = browser.viewport(persona_id, size).await?;
+                let (width, height) = size.unwrap_or(crate::browser::VIEWPORT);
+                Ok(BrowserAnswer::Text(format!(
+                    "The page is {width} by {height} now; screenshots and reads see it at that size.\n{}",
+                    hidden.hide(&page_line(&page))
+                )))
+            }
             "screenshot" if arguments.get("full_page").and_then(Value::as_bool) == Some(true) => {
                 let page = shown_clear(persona_id, browser, hidden, async {
                     browser.full_page(persona_id, FULL_PAGE_PICTURES).await
@@ -804,7 +816,7 @@ impl Room {
                 })
             }
             other => Err(format!(
-                "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
+                "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, viewport, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
             )),
         }
     }

@@ -253,6 +253,38 @@ pub(super) fn forget(view: WebView) {
 /// The overlay keeps the shield over the page whatever the window's size.
 pub(super) fn shield_follow(_view: WebView) {}
 
+/// Sizes the page the teammate asked for: the page's overlay keeps that
+/// size, centred at the top where the pane shows it, and the offscreen
+/// window it is parked in while hidden takes it too, so a picture is that
+/// size. `None` lets it fill again.
+pub(super) fn fit(view: WebView, size: Option<(u32, u32)>) {
+    SEATS.with(|seats| {
+        let seats = seats.borrow();
+        let Some(seat) = seats.get(&key(&view)) else {
+            return;
+        };
+        let (width, height) = size.map_or(
+            (super::WIDTH as i32, super::HEIGHT as i32),
+            |(width, height)| {
+                (
+                    i32::try_from(width).unwrap_or(i32::MAX),
+                    i32::try_from(height).unwrap_or(i32::MAX),
+                )
+            },
+        );
+        if size.is_some() {
+            seat.overlay.set_size_request(width, height);
+            seat.overlay.set_halign(gtk::Align::Center);
+            seat.overlay.set_valign(gtk::Align::Start);
+        } else {
+            seat.overlay.set_size_request(-1, -1);
+            seat.overlay.set_halign(gtk::Align::Fill);
+            seat.overlay.set_valign(gtk::Align::Fill);
+        }
+        seat.parked.resize(width, height);
+    });
+}
+
 /// Runs `body` as an async function in the desk's script world and
 /// answers its string.
 pub(super) fn call(view: WebView, body: &str, reply: Reply<String>) {

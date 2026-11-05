@@ -13,7 +13,7 @@ export type FullObject = { kind: "table" | "code" | "diagram"; text: string; tit
 /**
  * How an object in a message opens over the whole window. The window provides
  * it around the conversation; inside the full view itself, and in a document
- * already open at full size, there is no provider, and so no Expand key.
+ * already open at full size, there is no provider, and nothing there is cut.
  */
 export const OpenFull = createContext<((object: FullObject) => void) | null>(null);
 
@@ -31,6 +31,14 @@ export type BubbleTools = { node: HTMLElement | null; active: string | null; off
 export const BubbleToolbar = createContext<BubbleTools | null>(null);
 
 /**
+ * How a sheet is too much for its bubble: wider than it, longer than a
+ * glance, or both, and what it is, said under the cut. A cut sheet shows
+ * what fits, faded at the edge it goes on past, and opens whole on a click,
+ * as the phone's card does; nothing in a bubble scrolls sideways.
+ */
+export type Cut = { summary: string; wide: boolean; tall: boolean };
+
+/**
  * The one sheet every object in a message sits on: the full width of its
  * bubble, edge to edge, no border and no card, with a quiet band under it.
  * A head names it, when naming it says something the object does not, and
@@ -42,6 +50,8 @@ export function Sheet({
 	label,
 	keys,
 	copy,
+	open,
+	cut,
 	children,
 }: {
 	kind: "table" | "code" | "diagram";
@@ -49,9 +59,15 @@ export function Sheet({
 	keys: ReactNode;
 	/** What Copy takes from this sheet: the bubble's one Copy while pointed at, else a key of its own. */
 	copy?: BlockCopy;
+	/** What a click opens full screen once the sheet is cut. */
+	open?: FullObject;
+	/** Set when the object is too much for the bubble; ignored where there is no full view. */
+	cut?: Cut | null;
 	children: ReactNode;
 }) {
 	const tools = useContext(BubbleToolbar);
+	const openFull = useContext(OpenFull);
+	const opens = cut != null && open !== undefined && openFull !== null ? () => openFull(open) : null;
 	const self = useRef<HTMLDivElement>(null);
 	const id = useId();
 	// In a bubble the keys join the bubble's toolbar, one belt, while this
@@ -64,7 +80,10 @@ export function Sheet({
 			className="sheet"
 			data-sheet={kind}
 			data-bare={label === undefined || undefined}
+			data-cut={opens !== null ? [cut?.wide && "wide", cut?.tall && "tall"].filter(Boolean).join(" ") : undefined}
 			{...(tools !== null ? { onMouseEnter: enter, onFocus: enter } : {})}
+			// biome-ignore lint/a11y/useKeyWithClickEvents: the cut's own button under it opens it from the keyboard.
+			{...(opens !== null ? { onClick: opens } : {})}
 		>
 			{(label !== undefined || tools === null) && (
 				<div className="sheet-head">
@@ -79,6 +98,20 @@ export function Sheet({
 			)}
 			{tools !== null && pointed && tools.node !== null && createPortal(keys, tools.node)}
 			{children}
+			{opens !== null && (
+				<button
+					type="button"
+					className="sheet-cut"
+					title="Full screen"
+					onClick={(event) => {
+						event.stopPropagation();
+						opens();
+					}}
+				>
+					<span>{cut?.summary}</span>
+					<ExpandIcon />
+				</button>
+			)}
 		</div>
 	);
 }
@@ -123,9 +156,3 @@ export function CopyKey({ text, title }: { text: string; title: string }) {
 	);
 }
 
-/** Expand, where there is a full view to open the object in. */
-export function ExpandKey({ object }: { object: FullObject }) {
-	const open = useContext(OpenFull);
-	if (open === null) return null;
-	return <SheetKey icon={<ExpandIcon />} label="Expand" title="Full screen" onClick={() => open(object)} />;
-}

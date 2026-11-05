@@ -1,4 +1,4 @@
-import { Children, cloneElement, createContext, isValidElement, memo, type ReactElement, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { Children, cloneElement, createContext, isValidElement, memo, type ReactElement, type ReactNode, useContext, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { WarningIcon } from "../icons";
@@ -7,7 +7,7 @@ import { CodeSheet, fenceOf } from "./CodeSheet";
 import { Favicon } from "./Favicon";
 import { chainOf, FlowChain } from "./FlowChain";
 import { Mermaid } from "./Mermaid";
-import { ExpandKey, OpenFull, Sheet } from "./Sheet";
+import { OpenFull, Sheet } from "./Sheet";
 
 /** The syntax tree's element react-markdown hands a component, and what can stand inside one. */
 type Element = NonNullable<ExtraProps["node"]>;
@@ -169,30 +169,36 @@ const COMPONENTS: Components = {
 	table: function Table({ children, node }) {
 		const source = useContext(MarkdownSource);
 		const markdown = sourceOf(source, node);
-		const { kinds, names } = shapeOf(node);
-		const scroller = useRef<HTMLDivElement>(null);
-		const [more, setMore] = useState(false);
-		// A table wider than its bubble fades at the edge it scrolls on.
-		useEffect(() => {
-			const box = scroller.current;
-			if (box === null) return;
-			const look = () => setMore(box.scrollLeft + box.clientWidth < box.scrollWidth - 2);
-			look();
-			box.addEventListener("scroll", look, { passive: true });
-			const resized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(look);
-			resized?.observe(box);
-			return () => {
-				box.removeEventListener("scroll", look);
-				resized?.disconnect();
+		const { kinds, names, rows } = shapeOf(node);
+		const box = useRef<HTMLDivElement>(null);
+		const [cut, setCut] = useState<{ wide: boolean; tall: boolean }>({ wide: false, tall: false });
+		// A table wider than its bubble, with its cells already wrapped to
+		// fit, is cut: its head and first rows, and a click for all of it.
+		useLayoutEffect(() => {
+			const table = box.current;
+			if (table === null) return;
+			const look = () => {
+				const wide = table.scrollWidth > table.clientWidth + 2;
+				const tall = wide && table.scrollHeight > TABLE_PREVIEW;
+				setCut((was) => (was.wide === wide && was.tall === tall ? was : { wide, tall }));
 			};
+			look();
+			const resized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(look);
+			// The box for the bubble's width, the table for rows streaming in.
+			resized?.observe(table);
+			if (table.firstElementChild !== null) resized?.observe(table.firstElementChild);
+			return () => resized?.disconnect();
 		}, []);
+		const columns = names.length;
 		return (
 			<Sheet
 				kind="table"
 				copy={{ text: markdown, title: "Copy table" }}
-				keys={<ExpandKey object={{ kind: "table", text: markdown, title: leadOf(source) ?? (names.join(" · ") || "Table") }} />}
+				open={{ kind: "table", text: markdown, title: leadOf(source) ?? (names.join(" · ") || "Table") }}
+				cut={cut.wide ? { summary: `${rows} ${rows === 1 ? "row" : "rows"} · ${columns} ${columns === 1 ? "column" : "columns"}`, ...cut } : null}
+				keys={null}
 			>
-				<div ref={scroller} className="md-table" data-more={more || undefined}>
+				<div ref={box} className="md-table">
 					<TableColumns.Provider value={kinds}>
 						<table>{children}</table>
 					</TableColumns.Provider>
@@ -310,8 +316,11 @@ const NUMERIC = /^[~≈<>≤≥±+\-−]?\s*[$€£¥]?\d[\d,.]*\s*(?:[–-]\s*[
 /** Past this many characters on average, a column holds sentences. */
 const SENTENCES = 40;
 
+/** How tall a cut table's preview stands: its head and about four rows, as the phone's card. */
+const TABLE_PREVIEW = 176;
+
 /** Which of a table's columns hold only numbers, or sentences. */
-function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind>; names: string[] } {
+function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind>; names: string[]; rows: number } {
 	const part = (tag: string) => node?.children.find((child): child is Element => child.type === "element" && child.tagName === tag);
 	const rowsOf = (section: Element | undefined) => elements(section?.children ?? [], "tr");
 	const head = rowsOf(part("thead"))[0];
@@ -325,7 +334,7 @@ function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind>; n
 		else if (cells.reduce((sum, cell) => sum + cell.length, 0) / cells.length > SENTENCES) kinds.set(column, "wide");
 	}
 	const names = head === undefined ? [] : elements(head.children, "th").map((cell) => textOf(cell).trim());
-	return { kinds, names };
+	return { kinds, names, rows: body.length };
 }
 
 const elements = (nodes: ElementContent[], tag: string): Element[] =>

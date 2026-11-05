@@ -3,6 +3,9 @@ import { highlight } from "../highlight";
 import { WrapIcon } from "../icons";
 import { CopyKey, ExpandKey, Sheet, SheetKey } from "./Sheet";
 
+/** A line longer than this may not fit a bubble, so the block offers Wrap. */
+const WRAP_FROM = 64;
+
 /** Below this many lines a block is read at a glance, and numbers would be furniture. */
 const NUMBERED_FROM = 6;
 
@@ -31,7 +34,9 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			}
 			keys={
 				<>
-					<SheetKey icon={<WrapIcon />} label="Wrap" title="Wrap long lines" pressed={wrap} onClick={() => setWrap((was) => !was)} />
+					{code.split("\n").some((line) => line.length > WRAP_FROM) && (
+						<SheetKey icon={<WrapIcon />} label="Wrap" title="Wrap long lines" pressed={wrap} onClick={() => setWrap((was) => !was)} />
+					)}
 					<ExpandKey object={{ kind: "code", text: fence(code, language, file), title: [language ?? "Code", file].filter(Boolean).join(" · ") }} />
 					<CopyKey text={code} title="Copy the code" />
 				</>

@@ -185,7 +185,7 @@
 	}
 	/* A heading wraps to two lines at most before its column widens. */
 	.speech .md-table th {
-		min-width: 9ch;
+		min-width: 11ch;
 		text-wrap: balance;
 	}
 	.speech .md-table td:has(.site-chip) {
@@ -250,7 +250,7 @@
 		min-width: 14ch;
 	}
 	.speech .md-table td:not(.wide) {
-		min-width: 9ch;
+		min-width: 11ch;
 	}
 	/* A source in a table: the site's chip, its icon when the desk has one. */
 	.md a.site-chip {
@@ -575,7 +575,9 @@
 		display: flex;
 		gap: 10px;
 		margin: 0.6em 0;
-		padding: 2px 0 2px 12px;
+		padding: 8px 12px 9px;
+		border-radius: var(--radius-control);
+		background: color-mix(in oklab, var(--warn) 7%, transparent);
 		box-shadow: inset 2px 0 0 var(--warn);
 		color: var(--ink);
 	}
@@ -622,5 +624,13 @@
 	}
 	.md .callout-words > p + p {
 		margin-top: 0.6em;
+	}
+}
+
+@layer components {
+	/* In the pane a row lights under the pointer, so a wide one is followed
+	 * across. */
+	.full-view-body tbody > tr:hover > td {
+		background: var(--fill-hover);
 	}
 }

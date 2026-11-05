@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Persona } from "../generated/contract";
 import { appVersion, watchUpdates } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, KeyboardIcon } from "../icons";
@@ -187,13 +188,16 @@ export function Settings({
 	onBack,
 	onAddDesk,
 	team = [],
+	onOpenTeammate,
 }: {
 	section: SettingsSection;
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
 	onAddDesk?: () => void;
 	/** Who is on the team, to name whom an inbound source may aside. */
-	team?: readonly { id: string; name: string }[];
+	team?: readonly { id: string; name: string; avatar?: Persona["avatar"] }[];
+	/** Opens a teammate's pane, from a row naming it. */
+	onOpenTeammate?: (personaId: string) => void;
 }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -210,7 +214,7 @@ export function Settings({
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
-	if (section === "secrets") return <SecretsSection onBack={onBack} />;
+	if (section === "secrets") return <SecretsSection onBack={onBack} team={team} onOpenTeammate={onOpenTeammate} />;
 	if (section === "computer" && cookieSites) return <CookieSitesPage settings={settings.cookieOffers} onBack={() => setCookieSites(false)} />;
 
 	return (

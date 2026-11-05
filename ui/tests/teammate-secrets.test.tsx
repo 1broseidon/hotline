@@ -118,6 +118,6 @@ test("on the Mac app, a teammate with no computer arms its desk browser for a pa
 	await mount(persona);
 	expect(
 		[...(section("Secrets")?.querySelectorAll("button") ?? [])].some((node) => node.textContent?.includes("Add a passkey")),
-		"a teammate with a computer arms it under Computer",
-	).toBe(false);
+		"a teammate with a computer arms its computer's browser under Secrets too",
+	).toBe(true);
 });

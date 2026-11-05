@@ -50,13 +50,15 @@ type RoomState = {
 	jobs: ScheduledJob[];
 	/** Goes up whenever the room's model choices may have changed. */
 	modelsRevision: number;
+	/** Goes up whenever a teammate's shared cookies or the cookie sources change. */
+	cookiesRevision: number;
 	/** Identity of the room-wide read cache; unobserved rooms must reload. */
 	readEpoch: { ready: boolean };
 };
 
 /** One desk's room, folded. Each desk in the window has its own. */
 function roomOf(connection: ReturnType<typeof wireFor>) {
-	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0, readEpoch: { ready: false } };
+	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0, cookiesRevision: 0, readEpoch: { ready: false } };
 	const listeners = new Set<() => void>();
 	let readers = 0;
 	let unsub: (() => void) | null = null;
@@ -93,6 +95,9 @@ function roomOf(connection: ReturnType<typeof wireFor>) {
 					next.readEpoch = { ready: true };
 				}
 				if (changesModels(item)) next.modelsRevision = state.modelsRevision + 1;
+				if (item.kind === "cookie_lend" || item.kind === "cookie_sources" || item.kind === "cookie-imports") {
+					next.cookiesRevision = state.cookiesRevision + 1;
+				}
 				if (Object.keys(next).length > 0) set(next);
 			},
 		});
@@ -147,6 +152,16 @@ export function useRoomReadEpoch(): { ready: boolean } {
 }
 
 const pickModelsRevision = (state: RoomState) => state.modelsRevision;
+/**
+ * A count that moves when any teammate's shared cookies change, to read
+ * them again. Nought where no desk is open, which has no room to follow.
+ */
+export function useCookiesRevision(): number {
+	const deskId = activeDeskId();
+	const room = deskId === null ? null : roomFor(deskId);
+	const read = () => room?.snapshot().cookiesRevision ?? 0;
+	return useSyncExternalStore(room?.subscribe ?? noRoom, read, read);
+}
 
 /** The person's name from Settings, or "" while they have not given one. */
 export function usePersonName(): string {

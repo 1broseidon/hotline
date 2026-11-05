@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { isDesktop, platform } from "../../native";
-import { CookieLends } from "../CookieLends";
 import { PasskeyArm } from "../PasskeyArm";
 import { TeammateSecrets } from "../Secrets";
+import { Cookies } from "./Cookies";
 import { FoldRow } from "./rows";
 
 /**
@@ -12,9 +12,10 @@ import { FoldRow } from "./rows";
  * list. Without a computer, the desk's own browser (the Mac app's) types
  * its logins and signs in with its passkeys, and a passkey for it is made
  * here; with neither, nothing uses the ticks yet, and the section says so
- * rather than let a tick look like it did something. Under the fold, the
- * person's sign-ins lent into the teammate's desk browser, a row each with
- * Remove, in sight without opening anything.
+ * rather than let a tick look like it did something. A passkey for the
+ * teammate's browser, its desk browser's or its computer's, is made here.
+ * Under it, the person's cookies shared with that browser: one list for
+ * either, in sight without opening anything.
  */
 export function SecretRows({
 	personaId,
@@ -42,12 +43,13 @@ export function SecretRows({
 			<div className="grouped">
 				<FoldRow title="Logins and passkeys" value={granted.length === 0 ? "none given" : `${granted.length} given`} open={open} onToggle={() => setOpen((was) => !was)} />
 				{open && <TeammateSecrets granted={granted} disabled={disabled} onChange={onChange} />}
-				<CookieLends personaId={personaId} deskBrowser disabled={disabled} />
 				{deskBrowser && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
+				{computer && <PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />}
 			</div>
 			{open && <p className="group-hint">Kept in Settings › Secrets. A passkey made for this teammate is given by itself.</p>}
 			{deskBrowser && granted.length > 0 && <p className="group-hint">Its browser types these logins and signs in with these passkeys. A variable needs a computer's shell.</p>}
 			{!computer && !deskBrowser && granted.length > 0 && <p className="group-hint">Its computer's shell and browser use these. It has no computer, so nothing does yet.</p>}
+			{(computer || deskBrowser) && <Cookies personaId={personaId} disabled={disabled} />}
 		</section>
 	);
 }

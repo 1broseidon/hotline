@@ -363,7 +363,6 @@ export function Teammate({
 						<div className="grouped">
 							<ComputerRows
 								personaId={persona.id}
-								teammate={persona.name}
 								computer={persona.computer}
 								disabled={busy}
 								onChange={(computer) => save({ computer })}

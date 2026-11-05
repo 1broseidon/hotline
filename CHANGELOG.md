@@ -10,6 +10,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Cookies in a teammate's Secrets: Add Cookies lists the sites you are
+  signed into across your browsers, read only when you open it, and a press
+  shares that site's cookies with the teammate's browser, its desk browser or
+  its computer alike. Each shared site is a row (From Brave); open it for
+  Keep fresh, which copies the site again when your browser's cookies change,
+  Ends (1 day or Never), and Remove. The teammate is told which sites it holds
+  cookies for at the start of its next turn, never the cookies themselves.
+- Settings › Secrets › Cookie Sources: each browser and profile on this
+  computer with a switch. One switched off is never read, for anything. In
+  Use lists every teammate holding your cookies and opens its pane.
 - A teammate with no computer has a browser of its own on the desk (macOS
   14 and later, and Linux): it opens a page, reads it as text or links, and takes a
   screenshot, in a hidden window, without a container or MCP server. A page on this computer
@@ -29,6 +39,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- Shared cookies follow a teammate when its computer is turned on or off:
+  out of one browser and into the other, read again from your browser, with
+  the row unchanged. Bring over browser cookies is gone from Computer; what it
+  brought over is listed as rows under Cookies, and the Computer › Browser
+  fold is gone with it (passkeys are made under Secrets).
 - What a message carries sits on one sheet in its bubble. A table has a head
   with its size, Open and Copy (as Markdown); its headings are labels, a
   column of numbers stands right, and its sources are site chips. Code names

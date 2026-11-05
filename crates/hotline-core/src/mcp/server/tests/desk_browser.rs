@@ -3,7 +3,7 @@
 //! guard card a local address raises and each answer to it.
 
 use super::*;
-use crate::browser::{Act, Acted, DeskBrowser, FullPage, Page, Reading, Step};
+use crate::browser::{Act, Acted, DeskBrowser, Field, FullPage, Page, Reading, Showing, Step};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
@@ -19,6 +19,26 @@ struct Fake {
     named: StdMutex<Vec<String>>,
     /// How many viewports tall the page is, for a full-page look.
     viewports: StdMutex<u32>,
+    /// The fields of a sign-in page by ref; a ref not here is a password
+    /// field.
+    fields: StdMutex<std::collections::HashMap<String, Field>>,
+    /// What a picture of the page would show, as words.
+    showing: StdMutex<(String, Vec<String>)>,
+    /// What the next act answers instead of the next page: a page, a note,
+    /// or an error.
+    acted: StdMutex<Option<Result<Acted, String>>>,
+}
+
+/// A field on a sign-in page.
+fn field(kind: &str, autocomplete: &str, words: &str) -> Field {
+    Field {
+        tag: "input".into(),
+        kind: kind.into(),
+        autocomplete: autocomplete.into(),
+        words: words.into(),
+        with_password: true,
+        ..Field::default()
+    }
 }
 
 /// A blank PNG 4 wide and `height` tall, so a picture's height says which
@@ -65,6 +85,9 @@ impl DeskBrowser for Fake {
     }
     async fn act(&self, _persona_id: &str, act: &Act) -> Result<Acted, String> {
         self.acts.lock().unwrap().push(act.clone());
+        if let Some(acted) = self.acted.lock().unwrap().take() {
+            return acted;
+        }
         Ok(Acted {
             page: Page {
                 url: "https://example.com/next".into(),
@@ -85,6 +108,19 @@ impl DeskBrowser for Fake {
             pictures: (1..=shown).map(png).collect(),
             more: viewports > shown,
         })
+    }
+    async fn field(&self, _persona_id: &str, target: &str) -> Result<Field, String> {
+        Ok(self
+            .fields
+            .lock()
+            .unwrap()
+            .get(target)
+            .cloned()
+            .unwrap_or_else(|| field("password", "current-password", "password")))
+    }
+    async fn showing(&self, _persona_id: &str) -> Result<Showing, String> {
+        let (text, fields) = self.showing.lock().unwrap().clone();
+        Ok(Showing { text, fields })
     }
     fn current(&self, _persona_id: &str) -> Option<String> {
         self.opened.lock().unwrap().last().cloned()
@@ -680,6 +716,17 @@ fn with_login(name: &str, ask: bool) -> (Arc<Room>, Arc<Fake>) {
     }
     let room = Room::new_with_vault(log, Arc::new(NoKeys), vault);
     let fake = Arc::new(Fake::default());
+    fake.fields.lock().unwrap().extend([
+        ("e1".to_string(), field("text", "username", "login_field")),
+        (
+            "e3".to_string(),
+            Field {
+                inputmode: "numeric".into(),
+                with_password: false,
+                ..field("text", "one-time-code", "app_totp")
+            },
+        ),
+    ]);
     room.install_browser(fake.clone(), &[]);
     (room, fake)
 }
@@ -690,7 +737,7 @@ fn typed(fake: &Fake) -> Vec<String> {
         .unwrap()
         .iter()
         .filter_map(|act| match act {
-            Act::Fill { text, .. } => Some(text.clone()),
+            Act::Fill { text, .. } | Act::FillSecret { text, .. } => Some(text.clone()),
             _ => None,
         })
         .collect()
@@ -699,7 +746,14 @@ fn typed(fake: &Fake) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_login_fills_on_its_own_site_and_never_comes_back() {
     let (room, fake) = with_login("browser-login", false);
-    let fill = |secret: &str| json!({ "action": "fill", "ref": "e2", "secret": secret });
+    let fill = |secret: &str| {
+        let target = match secret.rsplit_once('.').map(|(_, part)| part) {
+            Some("username") => "e1",
+            Some("code") => "e3",
+            _ => "e2",
+        };
+        json!({ "action": "fill", "ref": target, "secret": secret })
+    };
     tools(&room)
         .call(BROWSER, &navigate("https://github.com/login"))
         .await
@@ -721,6 +775,13 @@ async fn a_login_fills_on_its_own_site_and_never_comes_back() {
         .call(BROWSER, &fill("GITHUB.code"))
         .await
         .unwrap();
+    let Some(Act::FillSecret { field, .. }) = fake.acts.lock().unwrap().last().cloned() else {
+        panic!("a secret's fill is its own act");
+    };
+    assert_eq!(
+        field.autocomplete, "one-time-code",
+        "the page is told the field the core checked, to check again as it types"
+    );
     let values = typed(&fake);
     assert_eq!(&values[..2], ["hunter22", "ada"]);
     assert!(values[2].len() == 6 && values[2].chars().all(|c| c.is_ascii_digit()));
@@ -798,6 +859,249 @@ async fn an_ask_me_login_waits_for_the_persons_approval() {
         .filter(|event| event["kind"] == "permission" && event["decision"].is_null())
         .count();
     assert_eq!(cards, 0);
+}
+
+/// A login's part is typed only into a field made for it: on the login's
+/// own site, a search box, a text area or a plain text field takes none,
+/// and a refused one types nothing and asks the person nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_secret_goes_only_into_a_field_made_for_its_part() {
+    let (room, fake) = with_login("browser-fields", true);
+    fake.fields.lock().unwrap().extend([
+        (
+            "e7".to_string(),
+            Field {
+                with_password: false,
+                ..field("text", "", "q search or jump to…")
+            },
+        ),
+        (
+            "e8".to_string(),
+            Field {
+                tag: "textarea".into(),
+                kind: String::new(),
+                ..field("", "", "comment")
+            },
+        ),
+        (
+            "e9".to_string(),
+            Field {
+                tag: "editable".into(),
+                kind: String::new(),
+                ..field("", "", "")
+            },
+        ),
+        (
+            "e10".to_string(),
+            Field {
+                with_password: false,
+                ..field("text", "", "name")
+            },
+        ),
+    ]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com/login"))
+        .await
+        .unwrap();
+    let fill = |target: &str, secret: &str| {
+        let tools = tools(&room);
+        let arguments = json!({ "action": "fill", "ref": target, "secret": secret });
+        async move { tools.call(BROWSER, &arguments).await }
+    };
+    for (target, secret, said) in [
+        ("e7", "GITHUB.password", "e7 is a search field"),
+        ("e7", "GITHUB.username", "e7 is a search field"),
+        ("e7", "GITHUB.code", "e7 is a search field"),
+        ("e8", "GITHUB.password", "e8 is a text area"),
+        (
+            "e9",
+            "GITHUB.password",
+            "e9 is an editable part of the page",
+        ),
+        ("e10", "GITHUB.username", "e10 is a text field"),
+        ("e1", "GITHUB.password", "goes only into a password field"),
+        ("e3", "GITHUB.password", "goes only into a password field"),
+        (
+            "e2",
+            "GITHUB.username",
+            "goes only into a username or email field",
+        ),
+        (
+            "e1",
+            "GITHUB.code",
+            "a one-time-code field or a password field",
+        ),
+    ] {
+        let refused = fill(target, secret).await.unwrap_err();
+        assert!(refused.contains(said), "{target} {secret}: {refused}");
+        assert!(refused.ends_with("Nothing was typed."), "{refused}");
+    }
+    assert!(typed(&fake).is_empty(), "a refused field is typed nothing");
+    assert!(
+        !tape(&room, "ada")
+            .iter()
+            .any(|event| event["kind"] == "permission"),
+        "a refused field asks the person nothing"
+    );
+
+    // A password into the password field is the sign-in it is for.
+    let asking = {
+        let fill = fill("e2", "GITHUB.password");
+        tokio::spawn(fill)
+    };
+    let card = guard_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), "approve")
+        .await
+        .unwrap();
+    let said = asking.await.unwrap().unwrap();
+    assert!(said.contains("Typed GITHUB.password"), "{said}");
+    assert_eq!(typed(&fake), ["hunter22"]);
+}
+
+/// Whatever the page does with a value, the agent is never answered it: not
+/// in the page line's address or title after the act, not in the act's
+/// note, not in an error, and not encoded in a link.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_value_never_comes_back_in_a_page_line_a_note_or_an_error() {
+    let (room, fake) = with_login("browser-leaks", false);
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com/login"))
+        .await
+        .unwrap();
+    let act = |arguments: Value| {
+        let tools = tools(&room);
+        async move { tools.call(BROWSER, &arguments).await }
+    };
+    *fake.acted.lock().unwrap() = Some(Ok(Acted {
+        page: Page {
+            url: "https://github.com/search?q=hunter22&type=code".into(),
+            title: "hunter22 · Search".into(),
+            loaded: true,
+        },
+        note: Some("Pressed in search field \"hunter22\".".into()),
+    }));
+    let pressed = act(json!({ "action": "press", "key": "Enter" }))
+        .await
+        .unwrap();
+    assert!(!pressed.contains("hunter22"), "{pressed}");
+    assert!(
+        pressed.contains("URL: https://github.com/search?q=[redacted GITHUB]&type=code"),
+        "{pressed}"
+    );
+    assert!(
+        pressed.contains("Page: [redacted GITHUB] · Search"),
+        "{pressed}"
+    );
+    assert!(
+        pressed.contains("Pressed in search field \"[redacted GITHUB]\"."),
+        "{pressed}"
+    );
+
+    // The value as a link carries it, percent-encoded, and the code the
+    // login's seed makes now.
+    let now = u64::try_from(crate::session::now_ms() / 1000).unwrap();
+    let code = crate::browser::totp_code("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", now).unwrap();
+    *fake.acted.lock().unwrap() = Some(Ok(Acted {
+        page: Page {
+            url: format!("https://github.com/sessions/two-factor?otp={code}&p=%68unter22"),
+            title: "Two-factor".into(),
+            loaded: true,
+        },
+        note: None,
+    }));
+    let clicked = act(json!({ "action": "click_ref", "ref": "e4" }))
+        .await
+        .unwrap();
+    assert!(!clicked.contains(&code), "{clicked}");
+    assert!(!clicked.contains("unter22"), "{clicked}");
+
+    *fake.acted.lock().unwrap() = Some(Err(
+        "The page went on to http://localhost:4000/?p=hunter22, which your browser never opens."
+            .into(),
+    ));
+    let refused = act(json!({ "action": "click_ref", "ref": "e4" }))
+        .await
+        .unwrap_err();
+    assert!(!refused.contains("hunter22"), "{refused}");
+    assert!(refused.contains("?p=[redacted GITHUB]"), "{refused}");
+
+    // A secret's own fill answers its page line hidden too.
+    *fake.acted.lock().unwrap() = Some(Ok(Acted {
+        page: Page {
+            url: "https://github.com/login?echo=hunter22".into(),
+            title: "Sign in".into(),
+            loaded: true,
+        },
+        note: None,
+    }));
+    let typed_in = act(json!({ "action": "fill", "ref": "e2", "secret": "GITHUB.password" }))
+        .await
+        .unwrap();
+    assert!(!typed_in.contains("hunter22"), "{typed_in}");
+}
+
+/// No picture of the page is taken while a value shows on it outside a
+/// masked password field: in a field, in the page's text, or as the code
+/// being typed; a value in a password field the page keeps masked is no
+/// bar.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_picture_is_taken_while_a_secret_shows_outside_a_password_field() {
+    let (room, fake) = with_login("browser-pictures", false);
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com/login"))
+        .await
+        .unwrap();
+    let (heights, _) = looked(&room, json!({ "action": "screenshot" })).await;
+    assert_eq!(heights, [3], "a page with no secret on it is looked at");
+
+    let now = u64::try_from(crate::session::now_ms() / 1000).unwrap();
+    let code = crate::browser::totp_code("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", now).unwrap();
+    for showing in [
+        (String::new(), vec!["hunter22".to_string()]),
+        ("Results for hunter22".to_string(), Vec::new()),
+        (String::new(), vec![code]),
+    ] {
+        *fake.showing.lock().unwrap() = showing.clone();
+        for arguments in [
+            json!({ "action": "screenshot" }),
+            json!({ "action": "screenshot", "full_page": true }),
+        ] {
+            let refused = tools(&room).call(BROWSER, &arguments).await.unwrap_err();
+            assert!(
+                refused.contains("no picture of it is taken"),
+                "{showing:?} {arguments}: {refused}"
+            );
+        }
+        let refused = tools(&room)
+            .call(SEND_FILE, &json!({ "source": "browser" }))
+            .await
+            .unwrap_err();
+        assert!(refused.contains("no picture of it is taken"), "{refused}");
+    }
+    *fake.showing.lock().unwrap() = ("Signed in as ada".into(), vec!["ada".into()]);
+    let (heights, _) = looked(&room, json!({ "action": "screenshot" })).await;
+    assert_eq!(heights, [3], "a username is not a secret a picture hides");
+}
+
+/// A `wait_for` the page found only inside a value answers as one that ran
+/// out, so it cannot spell the value out a guess at a time.
+#[tokio::test(flavor = "multi_thread")]
+async fn wait_for_never_finds_text_inside_a_value() {
+    let (room, fake) = with_login("browser-wait", false);
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com/login"))
+        .await
+        .unwrap();
+    *fake.showing.lock().unwrap() = ("Results for hunter22 in code".into(), Vec::new());
+    let wait = |text: &str| {
+        let tools = tools(&room);
+        let arguments = json!({ "action": "wait_for", "text": text, "timeout_ms": 50 });
+        async move { tools.call(BROWSER, &arguments).await }
+    };
+    let missed = wait("Results for hunt").await.unwrap_err();
+    assert!(missed.contains("Still not on the page"), "{missed}");
+    wait("Results for").await.unwrap();
+    wait("in code").await.unwrap();
 }
 
 mod passkeys;

@@ -929,7 +929,7 @@ below; everything else holds on both.
   windows, so a page in one reaches no command. The desk reads the page with
   scripts in a content world of its own (WebKitGTK's named script world on
   Linux), which the page's scripts cannot see or change, and a password
-  field's value is never read.
+  field's value is never answered to the teammate.
 - **What a page says is data.** The tool's description says so, as
   `web_search`'s does.
 
@@ -953,14 +953,91 @@ below; everything else holds on both.
   (`persona.secrets`), not its computer. `browser fill` with `secret`
   `NAME.username`, `NAME.password` or `NAME.code` is typed by the desk only
   when the page's origin fits one of the login's sites by the computer's
-  rule (same scheme and port, the host or a subdomain of it), and the
-  answer names the secret, never its value. A variable is never typed into a
-  page, and a passkey is not typed at all. An ask-me login raises a card on
-  the teammate's chat (Approve, Allow for 10 minutes, Deny) and nothing is
-  typed until it is answered; Approve lets the rest of that sign-in fill for
-  a minute. A text or links read replaces every value of the teammate's
-  granted secrets with `[redacted NAME]`, and an act's answer names a field
-  by its label, never its value.
+  rule (same scheme and port, the host or a subdomain of it), only into a
+  field made for that part, and the answer names the secret, never its
+  value. A variable is never typed into a page, and a passkey is not typed
+  at all. An ask-me login raises a card on the teammate's chat (Approve,
+  Allow for 10 minutes, Deny) and nothing is typed until it is answered;
+  Approve lets the rest of that sign-in fill for a minute.
+  - *Which field takes which part* (`Field::takes` in
+    `hotline-core/src/browser.rs`). Only an `<input>` takes any part; a
+    text area, a contenteditable element, a select or anything else takes
+    none, and neither does a search box: `type=search`, `role=searchbox`,
+    inside a `role=search` landmark or `<search>`, or a field whose name,
+    id, label, placeholder or ARIA label has `search` in a word or is the
+    word `q` or `query`.
+    - `.password` goes only into a password field (`type=password`).
+    - `.code` goes into a password field, or a one-time-code field: a text,
+      tel or number input whose `autocomplete` is `one-time-code` (past
+      `section-*`, address and contact-kind tokens, `on`, `off` and
+      `webauthn`), or, with no other `autocomplete` purpose, that takes
+      digits (`inputmode=numeric`, or type tel or number) and is named or
+      labelled like a code: `otp`, `mfa` or `code` as a word or at either end
+      of one, or `one-time`, `totp`, `two-factor`, `2fa`, `passcode`,
+      `verification`, `verify`, `authenticat…` or `authcode` anywhere, and
+      none of zip, postal, promo, coupon, discount, gift, voucher, referral,
+      invite, country, area, card, CVV or CVC.
+    - `.username` goes into a text, email or tel input whose `autocomplete`
+      is `username` or `email`, or, with no other `autocomplete` purpose, an
+      email input or a text input whose form has a password field. A text
+      field outside any form is a username field only by its
+      `autocomplete`.
+
+    A password goes only into a field the page masks, and never into a
+    one-time-code field, which shows what it holds. Anything else is
+    refused before the vault is read or a card raised: "e7 is a search
+    field, and GH.password goes only into a password field. Nothing was
+    typed." The page reads the field's facts with a script in the desk's
+    world (`browser/field.js`) and the core decides; the desk then sends
+    those facts with the value (`Act::FillSecret`), and the page script
+    (`browser/act.js`) reads them again as it types and types nothing if
+    the field changed, is not an input, is a search field, or is not a
+    password field for a password. The pointer's look before the act is
+    sent the ref alone. Refs come from the main frame only, so a value is
+    never typed into a frame.
+  - *What is redacted where.* The values hidden are those the vault
+    supplies for the teammate's granted secrets (`Hidden` in
+    `session/browser.rs`): a login's password, its TOTP seed and the codes
+    the seed makes for the step before, now and the step after, a
+    variable's value and a passkey's private key; values shorter than four
+    characters are not looked for. A login's username is not: sites show
+    it back as who is signed in. The vault is read once per `browser` call
+    on a blocking thread (`spawn_blocking`), never cached, so a changed
+    value or a grant taken back is hidden or let go at the next call; a
+    vault that cannot be read answers the call an error and the page
+    nothing. Each value is replaced by `[redacted NAME]` as it is and as a
+    link writes it: a word with `%` or `+` in it is percent-decoded (`+` as
+    a space and as itself), and one that carries a value is answered
+    decoded with the value hidden. That covers every word the agent is
+    answered: a text or links read before it is cut into parts; the page
+    line after navigate, back, forward, reload, every act and a secret's
+    fill (`Page:` title and `URL:`); an act's note (`describe()` names a
+    field and an editable area by its label, never its value or text, and
+    the core hides values in whatever the note still says); `wait_for`'s
+    answer; and every error, as a load the gate refused naming its
+    address. A `wait_for` whose text the page found only inside a value
+    (its text with the values hidden no longer has it) answers as one that
+    ran out, at the time it would have, so it cannot spell a value out a
+    guess at a time. A `screenshot`, a full-page look and `send_file` with
+    source `browser` are refused while a value shows on the page outside a
+    masked password field: the page answers its rendered text (with open
+    shadow roots and frames of its own origin) and the value of every field
+    but a hidden one and a password field it keeps masked
+    (`browser/showing.js`), the core looks for the values in that before
+    and after the picture is taken, and the picture is dropped if one
+    showed either time. The values themselves are never sent into a page
+    for any of this, and none is logged. The PIP's and the phone's
+    snapshots are the person's view and are not redacted.
+  - *Residual risk.* A value the page shows inside another origin's frame,
+    or drawn into a canvas or an image, is not seen by the picture check;
+    the desk never types one there, so only a site that echoes it would.
+    A page that unmasks a password field between the check and the picture
+    is caught by the check after it, not prevented. Redaction confirms a
+    guess: an agent that types a guess into a field and reads it back as
+    `[redacted NAME]` learns it guessed right. An unusual sign-in form
+    (a password in a field that is not `type=password`, a username field
+    with no `autocomplete`, outside any form) is refused, and the person
+    signs in themselves.
 - **Passkeys in the desk browser.** A page's `navigator.credentials.get()`
   and `create()` are answered by the desk with the teammate's own passkey
   from the vault, never Apple's. A script in the page's world, in every
@@ -1145,6 +1222,7 @@ extend; when a change adds a boundary, it adds a row.
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared/tests.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
 | A computer is handed only what its teammate is granted and what is stored, and a grant a record from before kept on the computer is the teammate's; the tape names what is not; the preamble names what the computer has, by kind; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is told apart, and the conversation says nothing; a login travels as one record beside a variable's bare value | `session/tests/computer.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_leaves_the_conversation_alone`, `a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites`; `hotline-room/src/room.rs` `secrets_granted_on_a_computer_before_read_as_the_teammates` | Unix for the session tests |
 | A passkey is made only under an arming for one teammate and one site, and only once the person approves the site's request: a bad site or name is refused before the computer is touched, arming starts the computer, the site's request raises a `passkey_ask` card on the tape with the site, origin and account, nothing is stored while the card waits, an answer must name the request, one answer per request, an approval lets the browser mint and the look that finds it made stores it, ticks it for the teammate, hands the computer the set and ends the arming; a denial ends the arming with nothing stored and the card says so; a request that left with its page expires its card and the next request is a new card; a cancel stores nothing and expires a waiting card; the room's own watch does all of this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a release from before passkeys is named | `session/tests/computer.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room`, `a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires` | Unix |
+| In the desk browser, a login's part is typed only into a field made for it (a password into a password field, a code into a one-time-code or password field, a username into a username or email field, never a search box, text area or editable area), and a refused field types nothing and raises no card; no value comes back in a page line's address or title, an act's note or an error, as it is, percent-encoded or as the code its seed makes; no picture is taken while a value shows outside a masked password field; `wait_for` finds no text inside a value | `browser.rs` `a_login_part_goes_only_into_a_field_made_for_it`, `a_secrets_fill_never_shows_its_text_in_debug`; `session/browser.rs` `a_value_is_hidden_as_it_is_and_as_a_link_writes_it`; `mcp/server/tests/desk_browser.rs` `a_secret_goes_only_into_a_field_made_for_its_part`, `a_value_never_comes_back_in_a_page_line_a_note_or_an_error`, `no_picture_is_taken_while_a_secret_shows_outside_a_password_field`, `wait_for_never_finds_text_inside_a_value`, `a_login_fills_on_its_own_site_and_never_comes_back` | the page scripts (`field.js`, `act.js`, `showing.js`) in WebKit: by hand in the Mac app |
 | In the desk browser, a passkey signs only for the origin WebKit reports for the calling frame, never one the page writes, and never for a frame of another site, plain HTTP or a teammate not granted it; an ask-me passkey waits on the card; one is made only under the pane's arming for its one site and the person's approval, goes to the vault and is ticked for the teammate, and the page gets its public key only | `mcp/server/tests/desk_browser/passkeys.rs` `a_passkey_signs_for_the_origin_webkit_reports_never_the_one_the_page_claims`, `an_ask_me_passkey_holds_on_the_card_until_the_person_answers`, `a_passkey_is_made_only_under_an_arming_for_its_site_and_lands_in_the_vault`; `browser/authenticator.rs` `a_passkey_is_never_offered_to_another_site_or_an_insecure_page`; `hotline-app/src/browser/passkeys.rs` `a_frames_origin_is_built_from_what_webkit_reports` | a real site (webauthn.io): manual in the Mac app |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |

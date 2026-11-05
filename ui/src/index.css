@@ -1821,6 +1821,13 @@
 		left: auto;
 		right: calc(100% + 4px);
 	}
+	/* A bubble the width of the column has no side open: its actions sit on
+	 * its own top-right corner instead, over the edge and never over words. */
+	.said-group:has(> .speech .sheet, > .speech .callout) .bubble-actions {
+		top: -14px;
+		right: 10px;
+		left: auto;
+	}
 	.said-group:hover .bubble-actions,
 	.said-group:focus-within .bubble-actions {
 		opacity: 1;

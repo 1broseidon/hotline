@@ -112,7 +112,7 @@ export function AgentSay({
 				</div>
 			)}
 			{event.from !== undefined && onOpenThread !== undefined && (event.from.sources?.length ? event.from.sources : event.from.kind === "call" ? [{ kind: event.from.kind, key: event.from.thread }] : []).map((thread, index, sources) => <button key={`${thread.kind}:${thread.key}`} type="button" className="said-name" onClick={() => onOpenThread({ thread })}>{sources.length > 1 ? `Open call ${index + 1}` : "Open the call"}</button>)}
-			{link !== null && <LinkCard url={link} always={onlyLink(event.text, link)} />}
+			{link !== null && onlyLink(event.text, link) && <LinkCard url={link} always />}
 		</div>
 	);
 }
@@ -223,7 +223,7 @@ export function UserBubble({
 					<BubbleActions {...actions} />
 				</div>
 			)}
-			{link !== null && <LinkCard url={link} always={onlyLink(text, link)} mine />}
+			{link !== null && onlyLink(text, link) && <LinkCard url={link} always mine />}
 		</div>
 	);
 }

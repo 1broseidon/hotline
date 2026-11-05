@@ -1932,7 +1932,10 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
 
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let port = listener.local_addr()?.port();
+    // Held while it serves: a teammate's desk browser never opens it.
+    let held = crate::listening::hold(port);
     let serving = tokio::spawn(async move {
+        let _held = held;
         let _ = axum::serve(listener, router).await;
     });
     Ok(Served {

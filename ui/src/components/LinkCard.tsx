@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { LinkPreview } from "../generated/contract";
 import { drawable, fetchPreview, knownPreview } from "../linkPreview";
+import { Favicon } from "./Favicon";
 import { openLink } from "../native";
 import { useLinkPreviews } from "../room";
 
@@ -45,7 +46,10 @@ export function LinkCard({ url, always = false, mine = false }: { url: string; a
 			}}
 		>
 			<span className="link-card-words">
-				<span className="link-card-site">{shown.site}</span>
+				<span className="link-card-site">
+					<Favicon site={new URL(shown.url).hostname.replace(/^www\./, "")} size={14} />
+					{shown.site}
+				</span>
 				<span className="link-card-title">{shown.title}</span>
 				{shown.description !== undefined && <span className="link-card-description">{shown.description}</span>}
 			</span>

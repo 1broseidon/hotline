@@ -33,11 +33,11 @@ export function FullView({ object, onClose }: { object: FullObject; onClose(): v
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, [onClose]);
 	return createPortal(
-		<div className="full-view" role="dialog" aria-modal="true" aria-label={TITLES[object.kind]}>
+		<div className="full-view" role="dialog" aria-modal="true" aria-label={object.title ?? TITLES[object.kind]}>
 			<button type="button" className="full-view-backdrop" aria-label="Close" tabIndex={-1} onClick={onClose} />
 			<div className="full-view-frame" data-kind={object.kind}>
 				<header className="full-view-head">
-					<span className="full-view-title">{TITLES[object.kind]}</span>
+					<span className="full-view-title">{object.title ?? TITLES[object.kind]}</span>
 					<CopyKey text={copyText(object)} title={object.kind === "code" ? "Copy the code" : "Copy as Markdown"} />
 					<button ref={close} type="button" className="full-view-close" title="Close" aria-label="Close" onClick={onClose}>
 						<CloseIcon />

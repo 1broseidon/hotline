@@ -211,12 +211,30 @@ describe("headings and lists", () => {
 });
 
 describe("a diagram", () => {
-	test("sits on one sheet whose head names its kind", async () => {
-		await say("How a query flows:\n\n```mermaid\nflowchart LR\n  A[App] --> B[Embed query]\n```");
+	test("that branches sits on one sheet whose head names its kind", async () => {
+		const source = "flowchart LR\n  A[App] --> B[Embed query]\n  A --> C[Cache]";
+		await say(`How a query flows:\n\n\`\`\`mermaid\n${source}\n\`\`\``);
 		expect(label("diagram")).toBe("flowchart");
 		// Not drawn here (bun cannot load mermaid's browser build), so its source shows, and keys wait for the drawing.
-		expect(sheet("diagram")!.querySelector(".diagram-source")?.textContent).toBe("flowchart LR\n  A[App] --> B[Embed query]");
+		expect(sheet("diagram")!.querySelector(".diagram-source")?.textContent).toBe(source);
 		expect(keys("diagram")).toEqual([]);
+	});
+
+	test("that is only a straight line is said as one line of steps, with no sheet", async () => {
+		await say("```mermaid\nflowchart LR\n  A[App] --> B[Embed query] --> C(Qdrant HNSW)\n  C --> D{Top k}\n```");
+		expect(sheet("diagram")).toBeNull();
+		const chain = container.querySelector(".flow-chain");
+		expect([...(chain?.querySelectorAll(".flow-step") ?? [])].map((one) => one.textContent)).toEqual(["App", "Embed query", "Qdrant HNSW", "Top k"]);
+		expect(chain?.getAttribute("aria-label")).toBe("App, then Embed query, then Qdrant HNSW, then Top k");
+	});
+
+	test("with a labelled edge, a loop or a style keeps its drawing", async () => {
+		const { chainOf } = await import("../src/components/FlowChain");
+		expect(chainOf("flowchart LR\n A -->|yes| B")).toBeNull();
+		expect(chainOf("flowchart LR\n A --> B\n B --> A")).toBeNull();
+		expect(chainOf("flowchart LR\n A --> B\n style A fill:#f00")).toBeNull();
+		expect(chainOf("sequenceDiagram\n A->>B: hi")).toBeNull();
+		expect(chainOf("graph TD\n A --> B")).toEqual(["A", "B"]);
 	});
 
 	const colours = {
@@ -260,17 +278,28 @@ describe("a diagram", () => {
 	});
 });
 
+describe("a bare link", () => {
+	test("says its site and last step, and keeps the whole address as its href", async () => {
+		await say("The rest: https://qdrant.tech/documentation/quickstart/ and https://example.com");
+		const links = [...container.querySelectorAll<HTMLAnchorElement>(".md a")];
+		expect(links.map((one) => [one.textContent, one.getAttribute("href")])).toEqual([
+			["qdrant.tech/…/quickstart", "https://qdrant.tech/documentation/quickstart/"],
+			["example.com", "https://example.com"],
+		]);
+	});
+});
+
 describe("full screen", () => {
 	test("Expand hands the window the table, which the full view draws with the same table and no Expand of its own", async () => {
 		await say(`Here:\n\n${TABLE}`);
 		await act(async () => key("table", "Expand").click());
-		expect(opened).toEqual([{ kind: "table", text: TABLE }]);
+		expect(opened).toEqual([{ kind: "table", text: TABLE, title: "Database · License · p50" }]);
 
 		let closed = 0;
 		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => closed++} />));
 		await settle();
 		const view = document.querySelector(".full-view");
-		expect(view?.getAttribute("aria-label")).toBe("Table");
+		expect(view?.getAttribute("aria-label")).toBe("Database · License · p50");
 		expect(view?.querySelectorAll("tbody tr").length).toBe(3);
 		expect([...(view?.querySelectorAll(".sheet-key") ?? [])].map((one) => one.textContent)).toEqual(["Copy", "Copy"]);
 		await act(async () => view!.querySelector<HTMLButtonElement>(".full-view-close")!.click());
@@ -283,7 +312,7 @@ describe("full screen", () => {
 	test("a block of code expands as the fence it was, and Copy there takes the code alone", async () => {
 		await say("```python setup.py\nprint(1)\n```");
 		await act(async () => key("code", "Expand").click());
-		expect(opened).toEqual([{ kind: "code", text: '```python title="setup.py"\nprint(1)\n```' }]);
+		expect(opened).toEqual([{ kind: "code", text: '```python title="setup.py"\nprint(1)\n```', title: "python · setup.py" }]);
 		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => {}} />));
 		await act(async () => document.querySelector<HTMLButtonElement>(".full-view-head .sheet-key")!.click());
 		expect(clipboard).toEqual(["print(1)"]);

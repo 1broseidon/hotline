@@ -88,10 +88,6 @@ const modePicker = () => container.querySelector<HTMLButtonElement>('button[aria
 
 test("a resting harness teammate's remembered modes are chosen from, and a choice is sent", async () => {
 	await mount(resting);
-	{
-		const { activeDeskId } = await import("../src/desks");
-		console.error("DIAG teammate-mode", JSON.stringify({ active: activeDeskId(), calls: calls.map((call) => call.cmd), storage: typeof localStorage === "undefined" ? "none" : localStorage.getItem("hotline.desk.active"), bunLocal: typeof (globalThis as { localStorage?: unknown }).localStorage }));
-	}
 	// Opening the pane asks the core to look at the agent when it is due.
 	expect(calls.filter((call) => call.cmd === "plan.refresh")).toEqual([{ cmd: "plan.refresh", params: { personaId: "goldie" } }]);
 	const picker = modePicker();

@@ -102,10 +102,6 @@ function core(cmd: string, params: Record<string, unknown>) {
 }
 /** The desktop's own core answers on its own connection, which `wire` reaches while it is the active desk. */
 async function mount(node = <RemoteSection />) {
-	{
-		const { wire } = await import("../src/wire");
-		console.error("DIAG relay-picker before", JSON.stringify({ facade: String(wire.command).slice(0, 400) }));
-	}
 	const own = wireFor(local.id);
 	if (!spied.has(own)) {
 		spied.add(own);
@@ -113,9 +109,6 @@ async function mount(node = <RemoteSection />) {
 		restores.push(() => command.mockRestore());
 	}
 	await settle(() => root!.render(node));
-	const { activeDeskId } = await import("../src/desks");
-	const { wire } = await import("../src/wire");
-	console.error("DIAG relay-picker", JSON.stringify({ active: activeDeskId(), calls: calls.map((call) => call.cmd), facade: String(wire.command).slice(0, 400), mocked: (wire.command as unknown as { mock?: unknown }).mock !== undefined }));
 }
 function text() { return container.textContent ?? ""; }
 function button(label: string) {

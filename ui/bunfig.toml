@@ -1,0 +1,4 @@
+[test]
+# Every test file shares one module registry, so a spy one file leaves in
+# place answers for the next: see tests/preload.ts.
+preload = ["./tests/preload.ts"]

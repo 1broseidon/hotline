@@ -27,6 +27,7 @@
 	.speech .sheet {
 		margin-inline: -12px;
 		border-radius: 0;
+		background: color-mix(in oklab, var(--sheet), oklch(0% 0 0) 18%);
 	}
 	.speech > .md > .sheet:first-child {
 		margin-top: -8px;
@@ -105,7 +106,7 @@
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		font-weight: 500;
-		color: var(--ink-4);
+		color: var(--ink-3);
 		user-select: none;
 	}
 	.sheet-label b {
@@ -184,7 +185,7 @@
 	}
 	/* A heading wraps to two lines at most before its column widens. */
 	.speech .md-table th {
-		min-width: 7.5em;
+		min-width: 9ch;
 		text-wrap: balance;
 	}
 	.speech .md-table td:has(.site-chip) {
@@ -242,6 +243,14 @@
 	}
 	.md-table td.wide {
 		min-width: 24ch;
+	}
+	/* In a bubble the column of sentences gives up room first, so short
+	 * cells (a licence, a latency) keep to one or two lines. */
+	.speech .md-table td.wide {
+		min-width: 14ch;
+	}
+	.speech .md-table td:not(.wide) {
+		min-width: 9ch;
 	}
 	/* A source in a table: the site's chip, its icon when the desk has one. */
 	.md a.site-chip {
@@ -448,6 +457,25 @@
 	.full-view-body .md-table th,
 	.full-view-body .md-table td {
 		padding-inline: 16px;
+		white-space: nowrap;
+	}
+	.full-view-body .md-table td.wide {
+		min-width: 32ch;
+		white-space: normal;
+	}
+	.full-view-body .md-table td:has(.site-chip) {
+		white-space: normal;
+	}
+	/* The pane's head row stays as the rows scroll under it, so it needs the
+	 * canvas behind it; a bubble's table has no fill on any row. */
+	.full-view-body thead > tr > th {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: var(--canvas);
+	}
+	.full-view-body .md-table {
+		overflow: visible;
 	}
 	.full-view-body .diagram-body {
 		padding: 24px;
@@ -563,10 +591,11 @@
 		margin: 0.6em 0;
 	}
 	.flow-step {
+		font-weight: 500;
 		color: var(--ink);
 	}
 	.flow-arrow {
-		color: var(--ink-4);
+		color: var(--ink-3);
 	}
 	.callout-icon {
 		flex-shrink: 0;

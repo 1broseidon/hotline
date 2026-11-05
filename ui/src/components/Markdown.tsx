@@ -157,10 +157,9 @@ const COMPONENTS: Components = {
 		if (alert === null) return <blockquote>{children}</blockquote>;
 		if (alert !== "warning" && alert !== "caution") return <blockquote>{withoutMarker(children)}</blockquote>;
 		return (
-			<div className="callout" data-alert={alert} role="note">
+			<div className="callout" data-alert={alert} role="note" aria-label={ALERT_LABELS[alert]}>
 				<WarningIcon className="callout-icon" />
 				<div className="callout-words">
-					<span className="callout-label">{ALERT_LABELS[alert]}</span>
 					{withoutMarker(children)}
 				</div>
 			</div>
@@ -211,7 +210,7 @@ const COMPONENTS: Components = {
 	td: ({ children, className }) => {
 		const parts = Children.toArray(children);
 		const chips = parts.some((part) => isValidElement(part));
-		return <td className={className}>{chips ? parts.filter((part) => !(typeof part === "string" && /^\s*[·•|,;]\s*$/.test(part))) : children}</td>;
+		return <td className={className}>{chips ? parts.filter((part) => !(typeof part === "string" && /^\s*[·•|,;]?\s*$/.test(part))) : children}</td>;
 	},
 
 	/* A column of numbers stands right, so its digits line up; a column of

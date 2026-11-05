@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
 import { LinkCard } from "../LinkCard";
 import { onlyLink, previewLink } from "../../linkPreview";
@@ -7,6 +7,7 @@ import { CheckIcon, CopyIcon, ReplyIcon, SmileIcon, SpeakerIcon } from "../../ic
 import { popupMessageMenu, writeClipboard } from "../../native";
 import { lineOf, type Run } from "../../transcriptFolds";
 import { Markdown } from "../Markdown";
+import { type BlockCopy, BubbleToolbar } from "../Sheet";
 import { SentFiles, type SentItem } from "../SentFile";
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
@@ -93,15 +94,33 @@ export function AgentSay({
 		...(onReact !== undefined ? { react: (emoji: string) => onReact({ eventId: event.id, text: event.text || lineOf(event) }, emoji) } : {}),
 	};
 	const origin = postedFrom(event);
+	// One toolbar: a table, code or diagram pointed at adds its keys to it.
+	const [slot, setSlot] = useState<HTMLElement | null>(null);
+	const [block, setBlock] = useState<{ id: string; level: number; copy?: BlockCopy } | null>(null);
+	const tools = useMemo(
+		() => ({ node: slot, active: block?.id ?? null, offer: (id: string, level: number, copy?: BlockCopy) => setBlock({ id, level, ...(copy ? { copy } : {}) }) }),
+		[slot, block?.id],
+	);
+	// Back to the message's own keys once the pointer is on its words again,
+	// or has left the message: not on leaving the block, so its keys can be
+	// reached in the toolbar beside it.
+	const onWords = (over: MouseEvent<HTMLElement>) => {
+		const at = over.target as HTMLElement;
+		if (block !== null && at.closest(".sheet, .bubble-actions") === null) setBlock(null);
+	};
 	return (
-		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
+		// biome-ignore lint/a11y/noStaticElementInteractions: the pointer leaving the message puts its toolbar back; a keyboard reaches each block's keys by focusing it.
+		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`} onMouseLeave={() => setBlock(null)}>
 			{origin !== null && (event.from !== undefined && onOpenThread !== undefined ? <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: event.from!.kind, key: event.from!.thread }, ...(event.from!.title !== undefined ? { title: event.from!.title } : {}) })}>{origin}</button> : <p className="said-name">{origin}</p>)}
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
 			{!wordless && (
-				<div className={`speech said-them ${runClass(run)}`} data-bubble={bubble} {...answerable(actions, onReply === undefined ? undefined : reply)}>
-					<Markdown text={event.text} />
+				// biome-ignore lint/a11y/noStaticElementInteractions: the pointer back on the words puts the toolbar's own keys back; nothing is done by it.
+				<div className={`speech said-them ${runClass(run)}`} data-bubble={bubble} onMouseOver={onWords} {...answerable(actions, onReply === undefined ? undefined : reply)}>
+					<BubbleToolbar.Provider value={tools}>
+						<Markdown text={event.text} />
+					</BubbleToolbar.Provider>
 					{sent.length === 0 && <Reactions {...reactions} />}
-					<BubbleActions {...actions} />
+					<BubbleActions {...actions} slot={setSlot} level={block?.level ?? null} {...(block?.copy ? { block: block.copy } : {})} />
 				</div>
 			)}
 			{sent.length > 0 && (
@@ -254,13 +273,17 @@ function Ticks({ read }: { read: boolean }) {
 const REACTIONS = ["👍", "❤️", "😂", "🔥", "👀", "🙏"] as const;
 
 type BubbleActionsProps = { copy(): void; reply?(): void; react?(emoji: string): void };
+/** Where a block in the bubble hands its keys, and how far down it stands. */
+type Belt = { slot?: (node: HTMLElement | null) => void; level?: number | null; block?: BlockCopy };
 
 /**
- * What a bubble offers a pointer: react, reply, copy. It sits beside the
- * bubble on its open side and shows on hover or focus, the desktop's long
- * press. The face swaps the row for the six emoji until the pointer leaves.
+ * What a bubble offers a pointer: react, reply, copy, and after them the
+ * keys of the table, code or diagram the pointer is on, one belt that moves
+ * level with that block. It sits beside the bubble on its open side and
+ * shows on hover or focus, the desktop's long press. The face swaps the row
+ * for the six emoji until the pointer leaves.
  */
-function BubbleActions({ copy, reply, react }: BubbleActionsProps) {
+function BubbleActions({ copy, reply, react, slot, level, block }: BubbleActionsProps & Belt) {
 	const [picking, setPicking] = useState(false);
 	const [copied, setCopied] = useState(false);
 	useEffect(() => {
@@ -269,7 +292,13 @@ function BubbleActions({ copy, reply, react }: BubbleActionsProps) {
 		return () => clearTimeout(done);
 	}, [copied]);
 	return (
-		<span className="bubble-actions" role="toolbar" aria-label="Message actions" onMouseLeave={() => setPicking(false)}>
+		<span
+			className="bubble-actions"
+			role="toolbar"
+			aria-label="Message actions"
+			style={level !== null && level !== undefined ? { top: level } : undefined}
+			onMouseLeave={() => setPicking(false)}
+		>
 			{picking && react !== undefined ? (
 				REACTIONS.map((emoji) => (
 					<button
@@ -302,10 +331,12 @@ function BubbleActions({ copy, reply, react }: BubbleActionsProps) {
 						type="button"
 						className="bubble-action"
 						tabIndex={-1}
-						title={copied ? "Copied" : "Copy"}
-						aria-label={copied ? "Copied" : "Copy"}
+						title={copied ? "Copied" : (block?.title ?? "Copy")}
+						aria-label={copied ? "Copied" : (block?.title ?? "Copy")}
 						onClick={() => {
-							copy();
+							// One Copy: the block pointed at, else the message.
+							if (block !== undefined) void writeClipboard(block.text);
+							else copy();
 							setCopied(true);
 						}}
 					>
@@ -313,6 +344,7 @@ function BubbleActions({ copy, reply, react }: BubbleActionsProps) {
 					</button>
 				</>
 			)}
+			{slot !== undefined && <span ref={slot} className="bubble-actions-more" hidden={picking} />}
 		</span>
 	);
 }

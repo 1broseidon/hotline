@@ -1,4 +1,5 @@
-import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CheckIcon, CopyIcon, ExpandIcon } from "../icons";
 import { writeClipboard } from "../native";
 
@@ -17,19 +18,66 @@ export type FullObject = { kind: "table" | "code" | "diagram"; text: string; tit
 export const OpenFull = createContext<((object: FullObject) => void) | null>(null);
 
 /**
+ * A bubble's one toolbar, as a sheet in it sees it: where to put its keys
+ * while it is pointed at (`node`, the toolbar's own slot after the
+ * bubble's react, reply and copy), and `offer`, which moves the toolbar
+ * level with the sheet and makes its one Copy take the sheet's content.
+ * The bubble puts both back once the pointer is on its words again or has
+ * left it, not as it leaves the sheet, so the keys stay to be reached. Outside a
+ * bubble there is none, and a sheet keeps its keys on its own head.
+ */
+export type BlockCopy = { text: string; title: string };
+export type BubbleTools = { node: HTMLElement | null; active: string | null; offer(id: string, top: number, copy?: BlockCopy): void };
+export const BubbleToolbar = createContext<BubbleTools | null>(null);
+
+/**
  * The one sheet every object in a message sits on: the full width of its
  * bubble, edge to edge, no border and no card, with a quiet band under it.
  * A head names it, when naming it says something the object does not, and
  * its keys wait for a hover. A table needs no name: its keys float over its
  * head row.
  */
-export function Sheet({ kind, label, keys, children }: { kind: "table" | "code" | "diagram"; label?: ReactNode; keys: ReactNode; children: ReactNode }) {
+export function Sheet({
+	kind,
+	label,
+	keys,
+	copy,
+	children,
+}: {
+	kind: "table" | "code" | "diagram";
+	label?: ReactNode;
+	keys: ReactNode;
+	/** What Copy takes from this sheet: the bubble's one Copy while pointed at, else a key of its own. */
+	copy?: BlockCopy;
+	children: ReactNode;
+}) {
+	const tools = useContext(BubbleToolbar);
+	const self = useRef<HTMLDivElement>(null);
+	const id = useId();
+	// In a bubble the keys join the bubble's toolbar, one belt, while this
+	// sheet is the one pointed at; elsewhere they stand on its own head.
+	const enter = () => tools?.offer(id, self.current?.offsetTop ?? 0, copy);
+	const pointed = tools?.active === id;
 	return (
-		<div className="sheet" data-sheet={kind} data-bare={label === undefined || undefined}>
-			<div className="sheet-head">
-				{label !== undefined && <span className="sheet-label">{label}</span>}
-				<span className="sheet-keys">{keys}</span>
-			</div>
+		<div
+			ref={self}
+			className="sheet"
+			data-sheet={kind}
+			data-bare={label === undefined || undefined}
+			{...(tools !== null ? { onMouseEnter: enter, onFocus: enter } : {})}
+		>
+			{(label !== undefined || tools === null) && (
+				<div className="sheet-head">
+					{label !== undefined && <span className="sheet-label">{label}</span>}
+					{tools === null && (
+						<span className="sheet-keys">
+							{keys}
+							{copy !== undefined && <CopyKey text={copy.text} title={copy.title} />}
+						</span>
+					)}
+				</div>
+			)}
+			{tools !== null && pointed && tools.node !== null && createPortal(keys, tools.node)}
 			{children}
 		</div>
 	);

@@ -1833,6 +1833,47 @@
 		opacity: 1;
 		pointer-events: auto;
 	}
+	/* The keys a block in the bubble adds, after a hairline: its glyphs, its
+	 * words for the tooltip and a screen reader. */
+	.bubble-actions {
+		transition:
+			opacity var(--dur-press) var(--ease-out),
+			top var(--dur-press) var(--ease-out);
+	}
+	.bubble-actions-more {
+		display: inline-flex;
+		flex-direction: inherit;
+		gap: 1px;
+		margin-left: 2px;
+		padding-left: 2px;
+		border-left: var(--hairline) solid var(--line);
+	}
+	.bubble-actions-more:empty,
+	.bubble-actions-more[hidden] {
+		display: none;
+	}
+	.said-group:has(> .speech .sheet) .bubble-actions-more {
+		margin: 2px 0 0;
+		padding: 2px 0 0;
+		border-left: 0;
+		border-top: var(--hairline) solid var(--line);
+	}
+	.bubble-actions .sheet-key {
+		width: 24px;
+		height: 24px;
+		justify-content: center;
+		padding: 0;
+		border-radius: calc(var(--radius-chip) - 2px);
+		color: var(--ink-2);
+	}
+	.bubble-actions .sheet-key-word {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
 	.bubble-action {
 		display: inline-flex;
 		width: 24px;

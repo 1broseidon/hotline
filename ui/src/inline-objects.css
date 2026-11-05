@@ -52,41 +52,11 @@
 		gap: 8px;
 		padding: 0 4px 0 12px;
 	}
-	/* In a bubble a sheet's keys stand in the gutter beside it, one above
-	 * another, as the bubble's own actions do: never over its words or its
-	 * head row. Pointing at a sheet shows its keys and hides the bubble's,
-	 * so one toolbar shows at a time. A table names nothing, so it has no
-	 * head at all. */
+	/* In a bubble a sheet's keys join the bubble's one toolbar (Bubbles.tsx)
+	 * while it is pointed at; its head keeps only its name, and a table,
+	 * which names nothing, has no head. */
 	.speech .sheet {
 		overflow: visible;
-	}
-	.speech .sheet[data-bare] > .sheet-head {
-		display: contents;
-	}
-	.speech .sheet-keys {
-		position: absolute;
-		top: 0;
-		left: calc(100% + 4px);
-		z-index: 1;
-		flex-direction: column;
-		gap: 1px;
-		padding: 2px;
-		border-radius: var(--radius-chip);
-		background: var(--pop);
-		box-shadow: var(--top-light), var(--shadow-float);
-		pointer-events: none;
-	}
-	.said-me .sheet-keys {
-		right: calc(100% + 4px);
-		left: auto;
-	}
-	.speech .sheet:hover .sheet-keys,
-	.speech .sheet:focus-within .sheet-keys {
-		pointer-events: auto;
-	}
-	.said-group:has(.sheet:hover, .sheet:focus-within) .bubble-actions {
-		opacity: 0;
-		pointer-events: none;
 	}
 	/* Keys show when the object is pointed at or holds the focus. */
 	.sheet-keys {

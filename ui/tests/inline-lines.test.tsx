@@ -290,3 +290,41 @@ test("a chapter is a labeled pill on the rule", async () => {
 	expect(pill.querySelector(".line-label")?.textContent).toBe("Chapter");
 	expect(pill.querySelector(".chapter-title")?.textContent).toBe("Vector DB notes");
 });
+
+test("a bubble has one toolbar: a table pointed at adds Expand to it and its one Copy takes the table, until the pointer is on the words again", async () => {
+	const copied: string[] = [];
+	spyOn(navigator.clipboard, "writeText").mockImplementation(async (text: string) => {
+		copied.push(text);
+	});
+	const table = "| Database | p50 |\n| --- | --- |\n| Qdrant | 5 ms |";
+	const { OpenFull } = await import("../src/components/Sheet");
+	await act(async () =>
+		root.render(
+			<OpenFull.Provider value={() => {}}>
+				<Transcript personaId="quill" name="Quill" events={[{ kind: "agent", id: "t", ts: 1, text: `How they stack up:\n\n${table}` }]} streaming={[]} live={false} focus={null} />
+			</OpenFull.Provider>,
+		),
+	);
+	const bar = container.querySelector(".bubble-actions")!;
+	const copy = () => [...bar.querySelectorAll<HTMLButtonElement>("button.bubble-action")].at(-1)!;
+	const more = () => [...bar.querySelectorAll(".bubble-actions-more button")].map((key) => key.textContent);
+	expect(more()).toEqual([]);
+	expect(copy().title).toBe("Copy");
+	// No key of the table's own on the sheet: the bubble's toolbar is the one belt.
+	expect(container.querySelector(".sheet .sheet-key")).toBeNull();
+
+	const sheet = container.querySelector<HTMLElement>(".sheet")!;
+	await act(async () => sheet.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+	expect(more()).toEqual(["Expand"]);
+	expect(copy().title).toBe("Copy table");
+	// Leaving the table for the toolbar keeps its keys there to be reached.
+	await act(async () => bar.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("mouseover", { bubbles: true, relatedTarget: sheet })));
+	expect(more()).toEqual(["Expand"]);
+	await act(async () => copy().click());
+	expect(copied).toEqual([table]);
+
+	const words = container.querySelector<HTMLElement>(".speech .md > p")!;
+	await act(async () => words.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("mouseover", { bubbles: true, relatedTarget: sheet })));
+	expect(more()).toEqual([]);
+	expect(copy().title).toBe("Copied");
+});

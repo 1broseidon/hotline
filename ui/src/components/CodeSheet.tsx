@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { highlight } from "../highlight";
 import { WrapIcon } from "../icons";
-import { CopyKey, ExpandKey, Sheet, SheetKey } from "./Sheet";
+import { ExpandKey, Sheet, SheetKey } from "./Sheet";
 
 /** A line longer than this may not fit a bubble, so the block offers Wrap. */
 const WRAP_FROM = 64;
@@ -21,6 +21,7 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 	return (
 		<Sheet
 			kind="code"
+			copy={{ text: code, title: "Copy code" }}
 			label={
 				<>
 					{language ?? "Code"}
@@ -38,7 +39,6 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 						<SheetKey icon={<WrapIcon />} label="Wrap" title="Wrap long lines" pressed={wrap} onClick={() => setWrap((was) => !was)} />
 					)}
 					<ExpandKey object={{ kind: "code", text: fence(code, language, file), title: [language ?? "Code", file].filter(Boolean).join(" · ") }} />
-					<CopyKey text={code} title="Copy the code" />
 				</>
 			}
 		>

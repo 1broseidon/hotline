@@ -238,6 +238,29 @@ mod native {
     const ACT_SETTLE: Duration = Duration::from_millis(400);
     const PAGE_INFO: &str =
         "return JSON.stringify({ title: document.title, url: location.href, text: '' });";
+
+    /// The user agent Safari on this Mac sends: WebKit's own frozen prefix
+    /// and Safari's version, read from Safari itself. A bare WKWebView sends
+    /// the prefix alone, and sites that look for a browser they know (Gmail)
+    /// call that an unsupported one. None when Safari cannot be read, and
+    /// then the web view's own goes.
+    fn safari_user_agent() -> Option<&'static str> {
+        static AGENT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        AGENT
+            .get_or_init(|| {
+                use objc2_foundation::{NSBundle, NSString};
+                let safari = NSBundle::bundleWithPath(&NSString::from_str("/Applications/Safari.app"))?;
+                let version = safari
+                    .objectForInfoDictionaryKey(&NSString::from_str("CFBundleShortVersionString"))?
+                    .downcast::<NSString>()
+                    .ok()?
+                    .to_string();
+                Some(format!(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15"
+                ))
+            })
+            .as_deref()
+    }
     /// How long a load is waited for before the call answers that the page
     /// is still loading.
     const LOAD_WAIT: Duration = Duration::from_secs(20);
@@ -614,7 +637,7 @@ mod native {
                 .build()
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             let blank = Url::parse("about:blank").map_err(|error| error.to_string())?;
-            let page = WebviewBuilder::new(&page_label, WebviewUrl::External(blank))
+            let mut page = WebviewBuilder::new(&page_label, WebviewUrl::External(blank))
                 .background_throttling(BackgroundThrottlingPolicy::Disabled)
                 .data_store_identifier(hotline_core::browser::store_id(persona_id))
                 .on_navigation(navigating)
@@ -622,6 +645,9 @@ mod native {
                 .on_download(|_, _| false)
                 .on_page_load(loaded)
                 .initialization_script_for_all_frames(super::passkeys::SCRIPT);
+            if let Some(agent) = safari_user_agent() {
+                page = page.user_agent(agent);
+            }
             let page = window
                 .add_child(
                     page,

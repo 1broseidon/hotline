@@ -740,7 +740,7 @@ const Row = memo(function Row({
 			return (
 				<p className="chapter-rule">
 					<span className="chapter-pill">
-						<span className="line-label">Chapter</span>
+						<span className="line-label chapter-label">Chapter</span>
 						<b className="chapter-title">{event.title !== undefined && event.title !== "" ? event.title : "New chapter"}</b>
 						<span className="chapter-when">· {stampText(event.ts)}</span>
 					</span>

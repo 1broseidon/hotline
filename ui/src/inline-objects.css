@@ -19,8 +19,8 @@
 	}
 	/* A bubble with an object in it may take the whole column, so a table has
 	 * the room to lay out its columns, and code its lines, before scrolling. */
-	.speech:has(.sheet) {
-		max-width: 100%;
+	.speech:has(.sheet, .callout) {
+		max-width: calc(100% - 40px);
 	}
 	/* In a bubble a sheet, and a callout, run through the bubble's padding to
 	 * its edges; at its top or its bottom one meets the bubble's corners. */
@@ -52,18 +52,11 @@
 		gap: 8px;
 		padding: 0 4px 0 12px;
 	}
-	/* A table names nothing: its keys float over its own head row. */
+	/* A table names nothing: its strip holds only its keys, at the right,
+	 * above the head row and never over it. */
 	.sheet[data-bare] > .sheet-head {
-		position: absolute;
-		top: 3px;
-		right: 0;
-		z-index: 1;
-		height: auto;
-		padding: 0 4px;
-	}
-	.sheet[data-bare] .sheet-keys {
-		border-radius: var(--radius-control);
-		background: var(--raised);
+		height: 26px;
+		justify-content: flex-end;
 	}
 	/* Keys show when the object is pointed at or holds the focus. */
 	.sheet-keys {
@@ -80,12 +73,9 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		font-weight: 500;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
 		color: var(--ink-3);
 		user-select: none;
 	}
@@ -181,13 +171,10 @@
 		padding: 9px 12px 8px;
 		vertical-align: bottom;
 		white-space: nowrap;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		font-weight: 500;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-		color: var(--ink-3);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 600;
+		color: var(--ink-2);
 	}
 	.md-table td {
 		color: var(--ink-2);
@@ -561,12 +548,9 @@
 	}
 	.callout-label {
 		display: block;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: 16px;
-		font-weight: 500;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 600;
 		color: var(--ink-2);
 		user-select: none;
 	}

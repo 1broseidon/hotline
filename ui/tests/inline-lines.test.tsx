@@ -205,14 +205,14 @@ test("reactions are chips on the line's edge with a count, yours ringed", async 
 });
 
 describe("errors", () => {
-	test("a plain report leads with what happened, in its own words, outside Details", async () => {
+	test("a plain report with nothing to press is one line: what happened and why, its details a click away", async () => {
 		await draw([{ kind: "notice", id: "n", ts: 1, level: "error", text: "Claude Code stopped: The usage limit resets at 9 PM." }]);
-		const card = container.querySelector(".error-card")!;
-		expect(card.querySelector(".error-card-head")?.textContent).toBe("Claude Code stopped");
-		expect(card.querySelector(".error-card-said")?.textContent).toBe("The usage limit resets at 9 PM.");
-		expect(card.querySelector("details")?.hasAttribute("open")).toBe(false);
-		expect(card.querySelector("details .error-card-said")).toBeNull();
-		expect(card.textContent).not.toContain("The activity could not finish");
+		expect(container.querySelector(".error-card")).toBeNull();
+		const line = container.querySelector<HTMLDetailsElement>("details.error-line")!;
+		expect(line.querySelector(".error-line-title")?.textContent).toBe("Claude Code stopped");
+		expect(line.querySelector(".error-line-said")?.textContent).toBe("The usage limit resets at 9 PM.");
+		expect(line.hasAttribute("open")).toBe(false);
+		expect(line.textContent).not.toContain("The activity could not finish");
 	});
 
 	test("a report that is only JSON says its message; one with no head says the reason whole", async () => {

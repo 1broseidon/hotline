@@ -3,8 +3,9 @@ import { createPortal } from "react-dom";
 import { CheckIcon, CopyIcon, ExpandIcon } from "../icons";
 import { writeClipboard } from "../native";
 
-/** Who said a message and when: the bubble's, for the open view's band. */
-export type Said = { personaId: string; ts: number };
+import { type Said, SaidBy } from "../ui/OpenBand";
+
+export { SaidBy };
 
 /**
  * An object a message carries, as the open view draws it: its kind; its
@@ -30,9 +31,6 @@ export type FullObject = {
  * there is cut.
  */
 export const OpenFull = createContext<((object: FullObject) => void) | null>(null);
-
-/** The bubble an object sits in: who said it and when. None outside a teammate's bubble. */
-export const SaidBy = createContext<Said | null>(null);
 
 /**
  * Opening an object from the sheet it sits on: the window's OpenFull, with

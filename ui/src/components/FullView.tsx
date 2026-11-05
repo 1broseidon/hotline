@@ -1,30 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeftIcon, SourceIcon } from "../icons";
-import { Avatar } from "../ui/Avatar";
-import { Band } from "../ui/Band";
+import { SourceIcon } from "../icons";
+import { OpenBand, useSpeaker } from "../ui/OpenBand";
 import { Markdown } from "./Markdown";
 import { DiagramStage, unfenced } from "./Mermaid";
 import { CopyKey, type FullObject, OpenFull, SheetKey } from "./Sheet";
-
-/** The teammate an object came from, as the band shows them. */
-export type Speaker = { id: string; name: string; avatar?: { hash?: string | undefined } | undefined };
 
 /** What Copy takes from an object: a block of code without its fence, else its markdown as written. */
 function copyText(object: FullObject): string {
 	if (object.kind !== "code") return object.text;
 	const lines = object.text.split("\n");
 	return lines.slice(1, lines.at(-1)?.startsWith("```") ? -1 : undefined).join("\n");
-}
-
-/** When something was said, as the band says it: just now, 4 min ago, 3 h ago, yesterday, then the date. */
-export function agoOf(at: number, now: number = Date.now()): string {
-	const minutes = Math.round((now - at) / 60_000);
-	if (minutes < 1) return "just now";
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.round(minutes / 60);
-	if (hours < 24) return `${hours} h ago`;
-	if (hours < 48) return "yesterday";
-	return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 /** The grow and the fade, as the tokens time them. */
@@ -50,13 +35,13 @@ function over(from: DOMRect, to: DOMRect): string {
  * under it, and goes back the same way, the bubble scrolled into view first;
  * with reduced motion it crossfades. Focus goes back to the sheet it came from.
  */
-export function FullView({ object, onClose, who }: { object: FullObject; onClose(): void; who?: ((personaId: string) => Speaker | undefined) | undefined }) {
+export function FullView({ object, onClose }: { object: FullObject; onClose(): void }) {
 	const view = useRef<HTMLElement>(null);
 	const thing = useRef<HTMLDivElement>(null);
 	const back = useRef<HTMLButtonElement>(null);
 	const [state, setState] = useState<"opening" | "open" | "closing">("opening");
 	const [showSource, setShowSource] = useState(false);
-	const speaker = object.from !== undefined ? who?.(object.from.personaId) : undefined;
+	const speaker = useSpeaker(object.from);
 	const sheet = object.sheet?.isConnected ? object.sheet : undefined;
 
 	// Opening: the object starts over the bubble's sheet and grows to its place, once.
@@ -113,19 +98,7 @@ export function FullView({ object, onClose, who }: { object: FullObject; onClose
 		<section ref={view} className="full-view" data-state={state} data-kind={object.kind} data-still={sheet === undefined || undefined} aria-label={object.fact}>
 			<div className="full-view-ground" aria-hidden="true" />
 			<div className="full-view-band">
-				<Band>
-					<button ref={back} type="button" className="control btn-icon -ml-1" title="Back (Esc)" aria-label="Back to the conversation" onClick={close}>
-						<ArrowLeftIcon />
-					</button>
-					{speaker !== undefined && (
-						<>
-							<Avatar id={speaker.id} name={speaker.name} size={20} hash={speaker.avatar?.hash} />
-							<span className="full-view-name">{speaker.name}</span>
-						</>
-					)}
-					{object.from !== undefined && <span className="instrument">· {agoOf(object.from.ts)}</span>}
-					<span className="min-w-0 flex-1" />
-					<span className="instrument full-view-fact">{object.fact}</span>
+				<OpenBand onBack={close} from={object.from ?? null} fact={object.fact} backRef={back}>
 					{diagram && (
 						<SheetKey
 							icon={<SourceIcon />}
@@ -136,7 +109,7 @@ export function FullView({ object, onClose, who }: { object: FullObject; onClose
 						/>
 					)}
 					<CopyKey text={copyText(object)} title={object.kind === "code" ? "Copy the code" : "Copy as Markdown"} />
-				</Band>
+				</OpenBand>
 			</div>
 			<div className="full-view-scroll">
 				<div className="full-view-body">

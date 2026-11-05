@@ -10,6 +10,7 @@ import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { FullView } from "./components/FullView";
 import { type FullObject, OpenFull } from "./components/Sheet";
+import { Speakers } from "./ui/OpenBand";
 import { FlushChrome, Titlebar } from "./ui/Titlebar";
 import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
 import { TeamSearch } from "./components/Search";
@@ -603,6 +604,7 @@ export function App() {
 				{/* A pane with no conversation has no band of its own to hang the call from. */}
 				{!conversationShown && callBar}
 				{/* Settings stands where the pane would, so nothing in it opens there. */}
+				<Speakers.Provider value={personaOf}>
 				<OpenFull.Provider value={pane === "settings" ? null : setFull}>
 				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
@@ -723,9 +725,10 @@ export function App() {
 						}} />}
 					</div>
 				)}
-				{full !== null && <FullView object={full} onClose={closeFull} who={personaOf} />}
+				{full !== null && <FullView object={full} onClose={closeFull} />}
 				</div>
 				</OpenFull.Provider>
+				</Speakers.Provider>
 			</main>
 			</div>
 			)}

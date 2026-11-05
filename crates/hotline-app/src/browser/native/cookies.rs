@@ -5,7 +5,9 @@
 //! WebKit's cookie store and are never logged, shown or answered back, so
 //! nothing here derives `Debug` on a value. The store is the open page's,
 //! or, with the browser closed, the same store found by its id (macOS) or
-//! its data directory (Linux).
+//! its data directory (Linux). WebView2 reaches a store only through a web
+//! view on it, so on Windows a closed browser's is opened for the while in
+//! a hidden web view that loads nothing (`Lease`).
 
 use super::{Native, SCRIPT_WAIT};
 use serde_json::Value;
@@ -60,6 +62,8 @@ type Reply = oneshot::Sender<Result<(), String>>;
 use apple as jar;
 #[cfg(target_os = "linux")]
 use linux as jar;
+#[cfg(windows)]
+use win as jar;
 
 impl Native {
     /// Sets the lent cookies in the teammate's store.
@@ -69,7 +73,12 @@ impl Native {
             return Err("None of the lent cookies could be read.".into());
         }
         let (reply, answer) = oneshot::channel();
+        #[cfg(not(windows))]
         self.in_store(persona_id, move |store| jar::set(store, &cookies, reply))?;
+        #[cfg(windows)]
+        let _lease = self
+            .in_store(persona_id, move |store| jar::set(store, &cookies, reply))
+            .await?;
         Self::answered(answer).await
     }
 
@@ -77,7 +86,12 @@ impl Native {
     pub(super) async fn forget(&self, persona_id: &str, site: &str) -> Result<(), String> {
         let site = site.to_ascii_lowercase();
         let (reply, answer) = oneshot::channel();
+        #[cfg(not(windows))]
         self.in_store(persona_id, move |store| jar::delete(store, site, reply))?;
+        #[cfg(windows)]
+        let _lease = self
+            .in_store(persona_id, move |store| jar::delete(store, site, reply))
+            .await?;
         Self::answered(answer).await
     }
 
@@ -91,11 +105,28 @@ impl Native {
         self.in_data(persona_id, move |store| apple::empty(store, reply))?;
         #[cfg(target_os = "linux")]
         self.in_store(persona_id, move |store| linux::empty(store, reply))?;
+        // With no page open nothing of it is in memory: the data directory
+        // is all there is, and `remove_store` takes it.
+        #[cfg(windows)]
+        {
+            let Ok(page) = self.window(persona_id) else {
+                return Ok(());
+            };
+            page.with_webview(move |view| {
+                use super::win::Inner;
+                if let Some(store) = win::page_store(&view.inner()) {
+                    win::empty(&store, reply);
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        }
         Self::answered(answer).await
     }
 
     /// Removes the teammate's web storage itself, once no page of it is
-    /// open: WebKit's store by its id on macOS, its data directory on Linux.
+    /// open: WebKit's store by its id on macOS, its data directory on Linux
+    /// and Windows, where WebView2's browser process lets go of it once the
+    /// last web view on it has closed.
     pub(super) async fn remove_store(&self, persona_id: &str) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
@@ -106,9 +137,9 @@ impl Native {
                 .map_err(|error| error.to_string())?;
             Self::answered(answer).await
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
-            let directory = super::linux::store_dir(persona_id);
+            let directory = super::store_dir(persona_id);
             let removed = {
                 let directory = directory.clone();
                 tokio::task::spawn_blocking(move || std::fs::remove_dir_all(directory))
@@ -197,11 +228,217 @@ impl Native {
                 }
             })
         } else {
-            let directory = super::linux::store_dir(persona_id);
+            let directory = super::store_dir(persona_id);
             self.app
                 .run_on_main_thread(move || work(&linux::store_in(&directory)))
         };
         ran.map_err(|error| error.to_string())
+    }
+}
+
+/// A closed teammate's store, opened for a cookie's while in a hidden web
+/// view of its own, and closed again when this goes.
+#[cfg(windows)]
+pub(super) struct Lease(Option<tauri::WebviewWindow>);
+
+#[cfg(windows)]
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if let Some(window) = self.0.take() {
+            let _ = window.destroy();
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Native {
+    /// Runs `work` on the main thread with the teammate's web view: its
+    /// open page, or, with its browser closed, a hidden one on the same
+    /// data directory that loads nothing, kept until the answer is in.
+    async fn in_store(
+        &self,
+        persona_id: &str,
+        work: impl FnOnce(&win::Store) + Send + 'static,
+    ) -> Result<Lease, String> {
+        use super::win::Inner;
+        let (view, lease) = if let Ok(page) = self.window(persona_id) {
+            (page, Lease(None))
+        } else {
+            let window = super::store_window(&self.app, persona_id)?;
+            let page = window.as_ref().clone();
+            (page, Lease(Some(window)))
+        };
+        view.with_webview(move |view| {
+            if let Some(store) = win::page_store(&view.inner()) {
+                work(&store);
+            }
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(lease)
+    }
+}
+
+/// WebView2's cookie manager and profile, on the main thread.
+#[cfg(windows)]
+mod win {
+    use super::{Cookie, Reply, on_site};
+    use crate::browser::native::edge::{self, SameSite};
+    use crate::browser::native::win::{View, webview};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE,
+        COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT, ICoreWebView2, ICoreWebView2_2,
+        ICoreWebView2_13, ICoreWebView2CookieManager, ICoreWebView2Profile2,
+    };
+    use webview2_com::{ClearBrowsingDataCompletedHandler, GetCookiesCompletedHandler, take_pwstr};
+    use windows::core::{HSTRING, Interface, PWSTR};
+
+    pub(super) type Store = ICoreWebView2;
+
+    /// The web view of a page, whose profile is the teammate's store.
+    pub(super) fn page_store(view: &View) -> Option<Store> {
+        webview(view)
+    }
+
+    fn manager(store: &Store) -> Result<ICoreWebView2CookieManager, String> {
+        // SAFETY: WebView2's getters, on the main thread.
+        unsafe {
+            store
+                .cast::<ICoreWebView2_2>()
+                .and_then(|store| store.CookieManager())
+        }
+        .map_err(|_| "WebView2 has no cookie store for this browser.".to_string())
+    }
+
+    /// Removes every kind of data from the teammate's profile, from all time.
+    pub(super) fn empty(store: &Store, reply: Reply) {
+        let reply = Rc::new(RefCell::new(Some(reply)));
+        let answered = reply.clone();
+        let handler = ClearBrowsingDataCompletedHandler::create(Box::new(move |result| {
+            if let Some(reply) = answered.borrow_mut().take() {
+                let _ = reply.send(result.map_err(|error| error.message()));
+            }
+            Ok(())
+        }));
+        // SAFETY: WebView2's profile, on the main thread, with a handler it
+        // keeps until it answers.
+        let cleared = unsafe {
+            store
+                .cast::<ICoreWebView2_13>()
+                .and_then(|store| store.Profile())
+                .and_then(|profile| profile.cast::<ICoreWebView2Profile2>())
+                .and_then(|profile| profile.ClearBrowsingDataAll(&handler))
+        };
+        if let Err(error) = cleared
+            && let Some(reply) = reply.borrow_mut().take()
+        {
+            let _ = reply.send(Err(error.message()));
+        }
+    }
+
+    pub(super) fn set(store: &Store, cookies: &[Cookie], reply: Reply) {
+        let manager = match manager(store) {
+            Ok(manager) => manager,
+            Err(error) => {
+                let _ = reply.send(Err(error));
+                return;
+            }
+        };
+        let mut taken = 0;
+        for cookie in cookies {
+            let same_site = match edge::same_site(cookie.same_site.as_deref(), cookie.secure) {
+                SameSite::None => COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE,
+                SameSite::Lax => COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX,
+                SameSite::Strict => COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT,
+            };
+            // SAFETY: WebView2's cookie manager on the main thread; each
+            // string is copied in.
+            let added = unsafe {
+                manager
+                    .CreateCookie(
+                        &HSTRING::from(cookie.name.as_str()),
+                        &HSTRING::from(cookie.value.as_str()),
+                        &HSTRING::from(cookie.domain.as_str()),
+                        &HSTRING::from(cookie.path.as_str()),
+                    )
+                    .and_then(|made| {
+                        // -1 is a session cookie, as a lent one with no expiry.
+                        made.SetExpires(cookie.expires.unwrap_or(-1.0))?;
+                        made.SetIsSecure(cookie.secure)?;
+                        made.SetIsHttpOnly(cookie.http_only)?;
+                        made.SetSameSite(same_site)?;
+                        manager.AddOrUpdateCookie(&made)
+                    })
+            };
+            if added.is_ok() {
+                taken += 1;
+            }
+        }
+        let _ = reply.send(if taken == 0 {
+            Err("WebView2 took none of the lent cookies.".into())
+        } else {
+            Ok(())
+        });
+    }
+
+    /// Deletes the cookies on `site` and the sites under it: every cookie in
+    /// the teammate's profile whose domain is one of them.
+    pub(super) fn delete(store: &Store, site: String, reply: Reply) {
+        let manager = match manager(store) {
+            Ok(manager) => manager,
+            Err(error) => {
+                let _ = reply.send(Err(error));
+                return;
+            }
+        };
+        let reply = Rc::new(RefCell::new(Some(reply)));
+        let (answered, kept) = (reply.clone(), manager.clone());
+        let handler = GetCookiesCompletedHandler::create(Box::new(move |result, list| {
+            let Some(reply) = answered.borrow_mut().take() else {
+                return Ok(());
+            };
+            let Some(list) = list.filter(|_| result.is_ok()) else {
+                let _ = reply.send(Err("WebView2 could not list this browser's cookies.".into()));
+                return Ok(());
+            };
+            let mut count = 0;
+            let mut failed = false;
+            // SAFETY: WebView2's own list and cookies, inside its callback.
+            unsafe {
+                if list.Count(&raw mut count).is_err() {
+                    failed = true;
+                }
+                for index in 0..count {
+                    let Ok(cookie) = list.GetValueAtIndex(index) else {
+                        failed = true;
+                        continue;
+                    };
+                    let mut domain = PWSTR::null();
+                    if cookie.Domain(&raw mut domain).is_err() {
+                        failed = true;
+                        continue;
+                    }
+                    if on_site(&take_pwstr(domain), &site) && kept.DeleteCookie(&cookie).is_err() {
+                        failed = true;
+                    }
+                }
+            }
+            let _ = reply.send(if failed {
+                Err("WebView2 did not delete every cookie on that site.".into())
+            } else {
+                Ok(())
+            });
+            Ok(())
+        }));
+        // SAFETY: an empty address lists every cookie of the profile; the
+        // handler is kept until WebView2 answers.
+        let listed = unsafe { manager.GetCookies(&HSTRING::new(), &handler) };
+        if let Err(error) = listed
+            && let Some(reply) = reply.borrow_mut().take()
+        {
+            let _ = reply.send(Err(error.message()));
+        }
     }
 }
 

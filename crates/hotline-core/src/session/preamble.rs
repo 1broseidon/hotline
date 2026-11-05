@@ -39,8 +39,8 @@ pub(crate) fn preamble(
     } else if desk_browser {
         // With no computer, the desk's own browser is the teammate's, when
         // this desk has one: the desktop app's window installs it (macOS 14 and
-        // later, Linux), and `hotline serve`, a Mac before 14 and a platform
-        // it is not built for do not. Said
+        // later, Linux and Windows), and `hotline serve` and a Mac before 14
+        // do not. Said
         // here, not left to the tool listing: an agent whose tools are found
         // by search reads this first, and "open" with no browser named must
         // land in its own.

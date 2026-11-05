@@ -811,20 +811,25 @@ from the phone itself; this setting does not reach it.
 
 ## A teammate's browser
 
-A teammate with no computer gets the `browser` tool: a WebKit view the
+A teammate with no computer gets the `browser` tool: a web view the
 desktop app keeps for it in a hidden window (`crates/hotline-app/src/browser.rs`),
 driven by the core (`crates/hotline-core/src/browser.rs`,
 `session/browser.rs`): navigate, text, links, screenshot and full-page
 screenshot, back, forward, reload, and the acts (click, hover, fill, select,
-check, press, scroll, wait). It is built on macOS (WKWebView) and Linux
-(WebKitGTK), one code for both but for a small seam of platform calls
-(`browser/native/apple.rs`, `browser/native/linux.rs`); a desk with no window
-(`hotline serve`), a Mac before macOS 14 and Windows install none, and no
-teammate there is offered it or told of it in its preamble
-(`hotline_core::browser::kept_here`, which both the app's install and the
-preamble ask). A teammate with a computer keeps its computer's browser, and a subagent
-run or a voice front is not offered either. Where Linux differs it is said
-below; everything else holds on both.
+check, press, scroll, wait). It is built on macOS (WKWebView), Linux
+(WebKitGTK) and Windows (WebView2), one code for all three but for a small
+seam of platform calls (`browser/native/apple.rs`, `browser/native/linux.rs`,
+`browser/native/win.rs`); a desk with no window (`hotline serve`) and a Mac
+before macOS 14 install none, and no teammate there is offered it or told
+of it in its preamble (`hotline_core::browser::kept_here`, which both the
+app's install and the preamble ask). A teammate with a computer keeps its
+computer's browser, and a subagent run or a voice front is not offered
+either. Where Linux or Windows differs it is said below; everything else
+holds on all three. What WebView2's answers mean (a load's end, a
+certificate's refusal, a key, a protocol answer) is decided in plain values
+in `browser/native/edge.rs`, tested on every platform; the WebView2 calls
+themselves are compiled and linted for Windows from the Mac
+(`scripts/precheck windows`) and run only on Windows.
 
 - **Local addresses ask the person.** Only the agent's own `navigate` asks.
   A link that names, or resolves to,
@@ -874,7 +879,12 @@ below; everything else holds on both.
   the desk's navigation delegate in front of wry's tells the two apart by
   WebKit's target frame: the main frame's load (and a new window's first)
   goes on to wry's handler and the page's rule, a subframe's is judged by
-  the frame's rule there and then. WebKitGTK says not which frame a load
+  the frame's rule there and then. On Windows WebView2 tells them apart
+  itself: `NavigationStarting` is the top of the window only and goes to
+  wry's handler and the page's rule, and `FrameNavigationStarting` is a
+  frame's, judged by the frame's rule (`browser/native/trust/win.rs`); a
+  launch of another app for a non-web scheme (`LaunchingExternalUriScheme`)
+  is cancelled besides. WebKitGTK says not which frame a load
   is for (its UI-process API has no main-frame flag), so on Linux every
   load is judged by the frame's rule: there a page may also put an
   `about:srcdoc`, `data:` or `blob:` document at the top of its own
@@ -900,11 +910,16 @@ below; everything else holds on both.
   it is open the teammate's reads, acts and screenshots go to it, and an
   act that opened or closed it says so. It closes on its own
   `window.close()` (the desk answers WebKit's `webViewDidClose:` on macOS,
-  which wry does not, and WebKitGTK's `close` on Linux), on the person
+  which wry does not, WebKitGTK's `close` on Linux, and WebView2's
+  `WindowCloseRequested` on Windows, where wry's own answer destroys only
+  the web view and leaves its window), on the person
   closing its window, on the teammate's `navigate` or an address the
   person types, and with the browser; then the teammate is back on the
   page. If a popup cannot be made the page goes to its address itself, as
-  before, which loses the opener.
+  before, which loses the opener. On Windows the popup is WebView2's
+  `NewWindowRequested` answered with a web view of the desk's in the page's
+  own environment (`SetNewWindow`), so it shares the page's store and keeps
+  its opener, as on macOS.
 - **A closed teammate's browser goes.** `DeskBrowser::close` takes the
   popup, the window with the page and the bar, and all the app kept for
   them (the shield, the hands, the trust delegate, the Linux seat and its
@@ -915,8 +930,11 @@ below; everything else holds on both.
   its data directory, when no page is open), then the store itself is
   removed once no web view uses it, `WKWebsiteDataStore`'s
   `removeDataStoreForIdentifier:` on macOS and the
-  `desk-browser/<hash>` data directory on Linux, so lent cookies leave
-  with it. The room drops its PIP view and picture, the person's short
+  `desk-browser/<hash>` data directory on Linux and Windows, so lent
+  cookies leave with it. On Windows the open page's profile is emptied
+  first (`ClearBrowsingDataAll`); with no page open nothing of it is in
+  memory, and the directory is removed once WebView2's browser process for
+  it has exited, tried for ten seconds. The room drops its PIP view and picture, the person's short
   key allowances, a passkey card it waits on, and every answer about its
   local addresses: those of the run, and each Always allow struck from
   the room. A teammate whose computer is turned on (the reattach that
@@ -945,20 +963,46 @@ below; everything else holds on both.
   `webkit_web_context_allow_tls_certificate_for_host`, only if its hash is
   the one the bar showed; WebKit keeps that in memory for the run, and pins
   it to the host, so the same certificate on another port of that host is
-  accepted in that teammate's browser too.
+  accepted in that teammate's browser too. On Windows every certificate
+  WebView2 refuses comes to `ServerCertificateErrorDetected`, the page's
+  and its pictures', scripts' and frames' alike, and every one is answered:
+  left to WebView2, Edge's own warning would show, and its "Continue to the
+  site" is a link a teammate's click could follow. The certificate pinned by
+  Visit anyway is answered `ALWAYS_ALLOW`, which WebView2 keeps for that
+  host and certificate until its browser process exits (so, as on Linux,
+  the same certificate on another port of that host passes too in that
+  teammate's browser); every other one is cancelled, and when it was the
+  page's own load the desk's warning goes into a blank page through the
+  protocol (`Page.setDocumentContent`) and the call is told. A revoked
+  certificate is cancelled with no Visit anyway, as Edge offers none. A
+  load that fails for another reason leaves WebView2's own error page up
+  (it has no way past anything), and the call is told why.
 - **Its hands are drawn outside the page.** The teammate's pointer, its
   name and its click ring are Core Animation layers in a clear native view
   over the page (`hotline-app/src/browser/native/hands.rs`), and on Linux
   cairo drawing in a GTK drawing area of the page's overlay
   (`browser/native/linux/hands.rs`), not elements in the page's document,
   so a page cannot read, move or hide them, and the view is never hit: the
-  person's clicks go past it as before.
+  person's clicks go past it as before. **Windows draws none**
+  (`browser/native/win/hands.rs`): over WebView2 they would be a window of
+  the desk's above another process's, which nothing here can check draws
+  over Chromium's output, and in the page's document the page could read
+  or move them. The person sees the page scroll to what the teammate acts
+  on, and the act, but no pointer.
 - **Its storage is its own.** Each teammate's view has its own web data
   store, so its cookies and sign-ins are neither Hotline's window's nor
   another teammate's: WebKit's store by an id hashed from the teammate's on
   macOS, and on Linux a WebKitGTK web context of its own on a data
   directory of its own, `desk-browser/<the same hash>` under Hotline's data
-  directory, with its cookies in a file there. The person's own sign-ins
+  directory, with its cookies in a file there; on Windows a WebView2
+  environment of its own (`CreateCoreWebView2EnvironmentWithOptions`, by
+  Tauri's `data_directory`) on the same `desk-browser/<hash>` directory,
+  apart from Hotline's window's, so a profile and a browser process of its
+  own. Its popups are made in that environment, and its cookies are reached
+  only through a web view on it: with the browser closed, a hidden one that
+  loads nothing is opened on the directory for the while (`Lease` in
+  `browser/native/cookies.rs`). Every web view on one directory is made with
+  the same arguments (`edge::BROWSER_ARGS`), as WebView2 requires. The person's own sign-ins
   reach it only on a host-cookie offer they answer Use (below). WebKit keeps
   a store by id only from macOS 14 (`dataStoreForIdentifier:`): before it,
   wry would give every page the default store, shared with Hotline's window,
@@ -978,7 +1022,11 @@ below; everything else holds on both.
   grant those there (WebKit's default; no test drives it). On Linux WebKitGTK's
   `permission-request` is answered, and
   every request denied by name: user media, location, notifications, device
-  info and any other kind.
+  info and any other kind. On Windows WebView2's `PermissionRequested` is
+  answered Deny for every kind, the microphone, camera, location,
+  notifications, sensors, the clipboard, files read and written through the
+  File System Access API, and the rest, so WebView2's own prompt never
+  shows; a screen capture (`ScreenCaptureStarting`) is cancelled.
 - **A file picker is the person's.** A file input opens the file picker
   only while the person has control of that teammate's browser (the pane's
   Take control, until Give it back, as the core keeps it). While the
@@ -987,20 +1035,79 @@ below; everything else holds on both.
   says only the person can choose a file there. wry's own open panel, a
   modal `NSOpenPanel` on whatever screen the person is at, runs only in the
   first case, and on Linux WebKitGTK's `run-file-chooser` is cancelled the
-  same way. Residual risk: a file the person picks while they have control
+  same way. WebView2 has no event for a file chooser, so on Windows the
+  desk holds it two ways (`browser/native/asks/win.rs`). A file input's
+  chooser is intercepted through the DevTools protocol
+  (`Page.setInterceptFileChooserDialog`, with `cancel`) while the teammate
+  drives: Chromium shows nothing, the input hears a cancel, and the desk
+  hears `Page.fileChooserOpened` and refuses the act. Take control lifts the
+  interception for that page and its popup, and Give it back, or closing the
+  pane, puts it back. A picker the protocol does not intercept, a page's
+  `showOpenFilePicker`, `showSaveFilePicker` or `showDirectoryPicker`, is a
+  dialog owned by the teammate's window: the desk watches every dialog that
+  starts on the desktop (`EVENT_SYSTEM_DIALOGSTART`) and closes one owned by
+  a teammate's window, as Cancel would, unless the person has control, and
+  refuses the act. That dialog can be on screen for a moment before it
+  closes; nothing is chosen. Residual risk: a file the person picks while they have control
   goes to that page's site, as in any browser.
 - **Its input is the person's own kind.** A click, a hover and a key reach
   the page as the platform's own events: AppKit's on macOS, GDK events of
-  the display's pointer and keyboard sent to the web view on Linux. A click
+  the display's pointer and keyboard sent to the web view on Linux, and on
+  Windows Chromium's own trusted events through the DevTools protocol
+  (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`), which reach the
+  page whether or not its window is on screen and never pass through
+  Windows' input, so the shield does not stop them. A click
   the page did not get is made by the page's own script instead. While no
   one watches, the Linux page waits in an offscreen GTK window, which WebKit
   counts as shown, so it lays out, draws and takes input at its size without
-  being on any screen or in any window list.
+  being on any screen or in any window list. The Windows page waits in its
+  hidden window with its controller left visible, in an environment made
+  without Chromium's occlusion and backgrounding (`edge::BROWSER_ARGS`),
+  so it lays out, draws and runs its timers as a page on screen does.
 - **The page cannot reach the shell.** No capability names the browser's
-  windows, so a page in one reaches no command. The desk reads the page with
+  windows, so a page in one reaches no command. On Windows the page's web
+  messages are switched off besides (`IsWebMessageEnabled`), so it has no
+  channel to the shell at all, and neither passwords nor form data are saved
+  into the teammate's store (`IsPasswordAutosaveEnabled`,
+  `IsGeneralAutofillEnabled`). The desk reads the page with
   scripts in a content world of its own (WebKitGTK's named script world on
   Linux), which the page's scripts cannot see or change, and a password
   field's value is never answered to the teammate.
+- **On Windows, the desk's world is Chromium's isolated world.** WebView2
+  has no content worlds in its API, and its `ExecuteScript` runs in the
+  page's own world, where the page's scripts could read a read's refs out of
+  a global, re-point a ref at another element (so a click meant for Cancel
+  lands on Delete), or replace `JSON.stringify`, `Map` or a prototype the
+  desk's scripts call, and so forge or read what they answer. The desk never
+  runs a script that way. It asks for an isolated world of its own in the
+  main frame through the DevTools protocol on the page's own session
+  (`CallDevToolsProtocolMethod`: `Page.createIsolatedWorld`, named
+  `hotline-desk-browser`, without universal access), the mechanism
+  Chromium's extensions' content scripts run in, and runs each read and act
+  there (`Runtime.evaluate` with `awaitPromise` and `returnByValue`); the
+  answer comes back as JSON over the protocol, not through the page. Chromium
+  finds the world by its name, so the scripts in one document meet the refs
+  the last one left, and a new document starts a fresh world, as WebKit's
+  named world does on macOS. So a hostile page can do nothing to the desk's
+  scripts on Windows that it cannot on macOS: it shares the DOM with them,
+  as on every platform (it can change what a read sees, as it can change its
+  own page), and never their variables or built-ins. If the world cannot be
+  made the read fails; there is no fallback into the page's world. What does
+  differ on Windows: the fallback click (`CLICK`) runs as a user gesture
+  (`userGesture`), as WebKit runs every script the desk runs, but a read or
+  any other act does not, so a read never hands the page a gesture; the
+  only script the desk puts in the page's own world is the passkey refusal
+  below, which a page can see and undo, reaching no authenticator for it;
+  the desk drives the page with a handful of protocol methods
+  (`Page.getFrameTree`, `Page.createIsolatedWorld`, `Runtime.evaluate`,
+  `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Page.enable`,
+  `Page.setInterceptFileChooserDialog`, `Page.setDocumentContent` for the
+  certificate warning, `WebAuthn.enable`), never `Runtime.enable`, whose
+  console reporting a page can notice; neither the page nor the teammate
+  chooses a method or its parameters, the teammate's words reaching only the
+  `A` a script reads, as JSON. The person cannot open DevTools on the page
+  (Tauri leaves them off in a release build); the protocol the desk uses is
+  WebView2's in-process one and listens on no port.
 - **What a page says is data.** The tool's description says so, as
   `web_search`'s does.
 
@@ -1152,7 +1259,18 @@ below; everything else holds on both.
   the handler stands on, an origin from WebKit and never from the page,
   cannot be kept. The script is not added there, no passkey is reachable
   from a Linux desk browser, and WebKitGTK itself has no
-  `navigator.credentials` for a site to ask.
+  `navigator.credentials` for a site to ask. **Windows has none either**:
+  WebView2's script messages carry no origin the desk could stand on, and
+  WebView2's own WebAuthn would answer a page with the person's Windows
+  Hello and security keys, which are not the teammate's. So the desk puts
+  Chromium's virtual authenticator environment, with no authenticator in
+  it, in front of every page and popup (`WebAuthn.enable`, without its UI):
+  no passkey call reaches the person's authenticators, and Windows shows no
+  prompt. A script in the page's world, before its own
+  (`edge::NO_PASSKEYS`), refuses a passkey `get()` or `create()` at once
+  with `NotAllowedError`, so a site moves on to its other sign-ins rather
+  than wait; a page that undoes it reaches the empty environment, which
+  answers nothing.
 - **What it is told.** A teammate with no computer is told in its preamble
   that it has a browser of its own only when this desk installed one as
   its session started (`Room::desk_browser`), so `hotline serve` and a
@@ -1258,7 +1376,8 @@ extend; when a change adds a boundary, it adds a row.
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
-| A desk browser page is never granted the microphone, the camera or any other permission it asks for, and is never left to WebKit's own question; its file picker opens only while the person has control, and the teammate's act that made it is refused with that said; a Mac before macOS 14 installs no desk browser and its teammates are not told of one | `hotline-app/src/browser/native/asks.rs` `media_and_every_other_ask_is_always_denied`, `the_file_picker_opens_only_while_the_person_has_control`; `hotline-app/src/browser/native/asks/apple.rs` `the_microphone_and_camera_are_always_denied_never_asked`; `hotline-core/src/browser.rs` `a_desk_browser_is_kept_only_on_macos_14_or_later`; `session/tests/preamble.rs` `the_preamble_says_who_where_how_far_and_when` | the delegate and signal wiring, and a page's real `getUserMedia` and file input, by hand in the Mac app; the Linux side is not run on a Mac |
+| A desk browser page is never granted the microphone, the camera or any other permission it asks for, and is never left to WebKit's or WebView2's own question; its file picker opens only while the person has control, and the teammate's act that made it is refused with that said; a Mac before macOS 14 installs no desk browser and its teammates are not told of one; Linux and Windows install one | `hotline-app/src/browser/native/asks.rs` `media_and_every_other_ask_is_always_denied`, `the_file_picker_opens_only_while_the_person_has_control`; `hotline-app/src/browser/native/asks/apple.rs` `the_microphone_and_camera_are_always_denied_never_asked`; `hotline-core/src/browser.rs` `a_desk_browser_is_kept_only_on_macos_14_or_later`; `session/tests/preamble.rs` `the_preamble_says_who_where_how_far_and_when` | the delegate and signal wiring, and a page's real `getUserMedia` and file input, by hand in the Mac app; the Linux and Windows sides are not run on a Mac |
+| On Windows the desk's reads and acts run in an isolated world of its own made through the DevTools protocol, never the page's; the teammate's store is a WebView2 environment on its own directory, made with Chromium's occlusion off and wry's own arguments kept; only a certificate Edge would let past is offered to the person, and only for the page's own load; a load that failed says why and one cancelled says nothing; every key the tool names is Chromium's own; a lent cookie without TLS is never sent as `SameSite=None`; a passkey call is refused in the page and reaches no authenticator | `hotline-app/src/browser/native/edge.rs` `a_script_runs_as_an_async_functions_body`, `the_desks_world_is_made_in_the_main_frame`, `an_evaluation_answers_its_string_or_what_it_threw`, `a_devtools_answer_is_its_result_or_its_message`, `a_teammates_store_keeps_wrys_arguments_and_never_backgrounds_its_page`, `only_a_certificate_edge_would_let_past_is_offered_to_the_person`, `a_certificate_error_is_the_pages_only_for_its_own_address`, `a_pem_certificate_is_its_der_bytes`, `a_load_that_failed_says_why_and_one_cancelled_says_nothing`, `every_key_the_tool_names_has_chromiums_key`, `a_click_moves_presses_and_lets_go_where_it_was_asked`, `a_lent_cookie_without_tls_is_never_sent_as_samesite_none`, `a_passkey_call_is_refused_in_the_page_and_nothing_else_is` | the WebView2 calls (`win.rs`, `trust/win.rs`, `asks/win.rs`, the cookies' Windows side) are compiled and linted for Windows from the Mac (`scripts/precheck windows`) and run only by hand in a Windows VM |
 | A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme; a frame loads `about:srcdoc`, `data:` and `blob:` but never a file, the shell or the desk; the desk's ports are every listener of the process and every running computer, asked at the load, on any local address or any name | `hotline-core/src/browser.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`, `a_frame_loads_what_a_browser_would_but_files_the_shell_and_the_desk`, `a_desk_port_is_refused_by_any_name_and_any_local_address_but_not_a_public_one`, `every_listener_of_the_process_and_every_running_computer_is_the_desks`; `hotline-support/src/listening.rs` `a_port_is_held_while_any_holder_of_it_is_kept`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking, the frame split and popups are checked by hand |
 | A deleted teammate's desk browser is closed and its store wiped, and the room forgets its view and every answer about its local addresses, Always allow included; a computer turned on closes the desk browser and keeps its store and answers; a session is told of its desk browser only where one is installed | `hotline-core/src/mcp/server/tests/desk_browser.rs` `deleting_a_teammate_closes_and_wipes_its_browser_and_forgets_its_answers`, `a_computer_turned_on_closes_the_desk_browser_and_keeps_its_store`; `hotline-core/src/browser.rs` `a_forgotten_teammates_answers_are_gone_from_the_run_and_the_room`; `session/tests/preamble.rs` `a_session_hears_of_its_desk_browser_only_where_one_is_installed` | WebKit's store removal is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
@@ -3169,8 +3288,10 @@ narrator leaves the written result available without a new spoken pointer.
   running, then the app sets the site's cookies in the teammate's own
   store (`crates/hotline-app/src/browser/native/cookies.rs`): its
   WKWebsiteDataStore on macOS, its WebKitGTK cookie manager on Linux, or,
-  with its browser not open yet, a data manager on its own data directory,
-  and the page reloads. Remove deletes every cookie on the site and its
+  with its browser not open yet, a data manager on its own data directory;
+  on Windows WebView2's cookie manager of its profile, reached with its
+  browser closed through a hidden web view on its directory that loads
+  nothing and closes when the cookies are in; and the page reloads. Remove deletes every cookie on the site and its
   subdomains from that store, open or not, and reloads; the lend is listed
   in the teammate's Secrets section. A teammate given a computer meanwhile
   sees its pending card expire, and its browser lend can still be removed.

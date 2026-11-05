@@ -77,6 +77,23 @@ cairo-rs = { version = "0.18", features = ["png"] }
 soup3 = "0.5"
 javascriptcore-rs = "1.1"
 
+# A teammate's desk browser on Windows (`browser/native/win.rs`): the
+# WebView2 controller `with_webview` hands over, its events and the DevTools
+# protocol the desk's scripts and input go through, a PNG of the page, the
+# shield's disabled window, and cookies lent into its store. The same
+# versions wry builds on.
+[target.'cfg(windows)'.dependencies]
+async-trait = "0.1.92"
+webview2-com = "0.38"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Accessibility",
+    "Win32_System_Com",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"

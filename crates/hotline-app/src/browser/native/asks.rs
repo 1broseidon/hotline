@@ -12,9 +12,11 @@
 //!
 //! wry grants every capture request and runs a modal open panel whenever a
 //! page asks, so the desk answers both itself, on each platform's terms: a UI
-//! delegate of its own in front of wry's on macOS (`asks/apple.rs`), and
+//! delegate of its own in front of wry's on macOS (`asks/apple.rs`),
 //! WebKitGTK's `permission-request` and `run-file-chooser` on Linux
-//! (`asks/linux.rs`).
+//! (`asks/linux.rs`), and on Windows WebView2's `PermissionRequested`, the
+//! DevTools protocol's file chooser interception and a watch on the
+//! dialogs a teammate's window opens (`asks/win.rs`).
 
 use super::{Loads, Tab};
 
@@ -26,6 +28,10 @@ pub(super) use apple::attach;
 mod linux;
 #[cfg(target_os = "linux")]
 pub(super) use linux::attach;
+#[cfg(windows)]
+mod win;
+#[cfg(windows)]
+pub(super) use win::{attach, forget, intercept_files};
 
 /// What a page asks the person's computer for, as either platform's request
 /// names it.
@@ -35,6 +41,13 @@ pub(super) use linux::attach;
     allow(
         dead_code,
         reason = "WebKit on macOS asks the delegate for capture only"
+    )
+)]
+#[cfg_attr(
+    windows,
+    allow(
+        dead_code,
+        reason = "WebView2 names no request for the names of a page's devices"
     )
 )]
 pub(super) enum Ask {

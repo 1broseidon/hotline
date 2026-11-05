@@ -11,7 +11,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Added
 
 - A teammate with no computer has a browser of its own on the desk (macOS
-  14 and later, and Linux): it opens a page, reads it as text or links, and takes a
+  14 and later, Linux and Windows): it opens a page, reads it as text or links, and takes a
   screenshot, in a hidden window, without a container or MCP server. A page on this computer
   or the local network opens only after you allow that address and port for
   that teammate (Allow, Always allow or Deny); Hotline's own ports never
@@ -19,7 +19,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   while it works a picture of the page sits in the corner of the
   conversation: click it to watch in its own window, Take control, and Give
   it back. A page there never gets the microphone or camera, and an upload
-  field opens a file picker only while you have control.
+  field opens a file picker only while you have control. On Windows the
+  teammate's pointer isn't drawn over the page, and its browser offers no
+  passkeys, yours in Windows Hello included.
 - SearXNG in Settings › Tools › Web search: your own instance's address,
   and a key if a gateway in front of it wants one, kept in the keychain. Off
   until you set it up and switch it on; then every search asks it beside the

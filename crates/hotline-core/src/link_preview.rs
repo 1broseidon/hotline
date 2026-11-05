@@ -398,12 +398,11 @@ static ATTR: LazyLock<Regex> = LazyLock::new(|| {
         .expect("a fixed pattern")
 });
 
-/// The value of each `<meta>` in the head, by property or name, first one winning.
+/// The value of each `<meta>` in the head, by its property, else its name; the first tag for a key wins.
 fn metas(head: &str) -> HashMap<String, String> {
     let mut found = HashMap::new();
     for tag in META.find_iter(head) {
-        let mut key = None;
-        let mut content = None;
+        let (mut property, mut name, mut content) = (None, None, None);
         for attr in ATTR.captures_iter(tag.as_str()) {
             let value = attr
                 .get(2)
@@ -411,12 +410,15 @@ fn metas(head: &str) -> HashMap<String, String> {
                 .or_else(|| attr.get(4))
                 .map_or("", |m| m.as_str());
             match attr[1].to_ascii_lowercase().as_str() {
-                "property" | "name" if key.is_none() => key = Some(value.to_ascii_lowercase()),
+                "property" if property.is_none() => property = Some(value.to_ascii_lowercase()),
+                "name" if name.is_none() => name = Some(value.to_ascii_lowercase()),
                 "content" => content = Some(value.to_string()),
                 _ => {}
             }
         }
-        if let (Some(key), Some(content)) = (key, content)
+        // A tag with both names the Open Graph key by `property`, whichever
+        // comes first: `<meta name=image property="og:image" …>`.
+        if let (Some(key), Some(content)) = (property.or(name), content)
             && !key.is_empty()
         {
             found.entry(key).or_insert(content);
@@ -519,6 +521,17 @@ pub fn parse(html: &str, url: &str, base: &Url) -> Option<(LinkPreview, Option<U
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_tag_with_a_name_before_its_property_is_read_by_its_property() {
+        let html = r#"<head><title>Local Quickstart - Qdrant</title><meta name=image property="og:image" content="https://qdrant.tech/documentation/quickstart-social-preview.png"></head>"#;
+        let base = Url::parse("https://qdrant.tech/documentation/quickstart/").unwrap();
+        let (_, picture) = parse(html, base.as_str(), &base).unwrap();
+        assert_eq!(
+            picture.map(|picture| picture.to_string()).as_deref(),
+            Some("https://qdrant.tech/documentation/quickstart-social-preview.png")
+        );
+    }
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

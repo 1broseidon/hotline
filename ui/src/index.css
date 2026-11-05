@@ -1821,12 +1821,12 @@
 		left: auto;
 		right: calc(100% + 4px);
 	}
-	/* A bubble the width of the column has no side open: its actions sit on
-	 * its own top-right corner instead, over the edge and never over words. */
+	/* A bubble as wide as the column keeps a gutter on its open side, and
+	 * its actions stand in it one above another, beside the bubble as on
+	 * every other: never over its words or its table's keys, never cut. */
 	.said-group:has(> .speech .sheet, > .speech .callout) .bubble-actions {
-		top: -14px;
-		right: 10px;
-		left: auto;
+		top: 0;
+		flex-direction: column;
 	}
 	.said-group:hover .bubble-actions,
 	.said-group:focus-within .bubble-actions {

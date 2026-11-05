@@ -114,6 +114,24 @@ export function ErrorCard({
     const error = errorDetails(text);
     const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
     const offerAgain = onRunAgain !== undefined && error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind);
+    const acts =
+        offerAgain ||
+        (error.kind === "no_provider" && onProviders !== undefined) ||
+        (error.kind === "account_gone" && error.model !== undefined && personaId !== undefined) ||
+        (error.signIn !== undefined && personaId !== undefined);
+    // Nothing to press: it is history, one line, its details a click away.
+    if (!acts)
+        return (
+            <details className="error-line" aria-label={error.title}>
+                <summary>
+                    <WarningIcon className="error-line-mark" />
+                    <span className="error-line-title selectable">{error.title}</span>
+                    <span className="error-line-said selectable">{error.summary}</span>
+                </summary>
+                {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}
+                <pre className="selectable mt-2 max-h-80 max-w-full overflow-auto whitespace-pre-wrap break-words text-xs text-ink-2" style={{ overflowWrap: "anywhere" }}>{error.details}</pre>
+            </details>
+        );
     return (
         <section className="error-card" aria-label={error.title}>
             <div className="error-card-head">

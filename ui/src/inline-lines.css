@@ -1,16 +1,21 @@
 /* The transcript's own lines (docs/design/inline-premium.html rows 7-18): files, pictures, plans, steps, links out, reply quotes, reactions, errors, asks, chapters. */
 @layer components {
 	/* ------------------------------------------------------------ shared
-	 * An instrument label: Plex Mono, upper case, spaced, in the annotating
-	 * ink; a bold part in it is the fact (a count, a name) and reads a step up. */
+	 * A label on a line: small, in sentence case and the annotating ink; a
+	 * bold part in it is the fact (a count, a name) and reads a step up.
+	 * Only the chapter rule keeps the instrument face, as its own mark. */
 	.line-label {
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 500;
+		color: var(--ink-3);
+	}
+	.line-label.chapter-label {
 		font-family: var(--font-mono);
 		font-size: 10.5px;
 		line-height: 14px;
-		font-weight: 500;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--ink-3);
 	}
 	.line-label b {
 		font-weight: 500;
@@ -550,6 +555,42 @@
 	/* ------------------------------------------------------------- error
 	 * A turn that failed leads with what happened in the report's own words;
 	 * the raw report is under Details. */
+	/* An error with nothing to press is a line: the mark, what happened and
+	 * why, and its details under it on a click. */
+	.error-line {
+		max-width: 86%;
+		margin: 2px 0;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	.error-line > summary {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		padding: 3px 0;
+		cursor: pointer;
+		list-style: none;
+	}
+	.error-line > summary::-webkit-details-marker {
+		display: none;
+	}
+	.error-line-mark {
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+		align-self: center;
+		color: var(--danger);
+	}
+	.error-line-title {
+		flex-shrink: 0;
+		font-weight: 500;
+		color: var(--danger);
+	}
+	.error-line-said::before {
+		content: "· ";
+		color: var(--ink-4);
+	}
 	.error-card {
 		width: fit-content;
 		min-width: min(22rem, 86%);
@@ -647,16 +688,17 @@
 		font-weight: 500;
 	}
 	/* Any ask once settled: one line, how it ended in a chip. */
+	/* A settled ask is history, one quiet line as a thread's is: how it
+	 * ended, what was asked, who asked. */
 	.ask-settled {
 		display: flex;
 		max-width: 86%;
-		align-items: center;
-		gap: 10px;
-		margin: 8px 0;
-		padding: 8px 12px;
-		border-radius: var(--radius-bubble);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
-		font-size: var(--text-md);
+		align-items: baseline;
+		gap: 6px;
+		margin: 2px 0;
+		padding: 3px 0;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
 	.ask-chip {
@@ -665,20 +707,18 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		padding: 1px 8px;
-		border-radius: 999px;
-		background: var(--fill-active);
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		line-height: 18px;
 		font-weight: 500;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--ink-3);
+		color: var(--ink-2);
+	}
+	.ask-settled-what::before,
+	.ask-settled-who::before {
+		content: "· ";
+		font-family: var(--font-sans);
+		color: var(--ink-4);
 	}
 	.ask-settled-what {
 		min-width: 0;
-		flex: 1;
+		flex: 0 1 auto;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;

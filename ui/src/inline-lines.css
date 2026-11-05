@@ -344,23 +344,24 @@
 	 * The machinery between messages, folded to one pill: how many steps,
 	 * the failures in red, and how long they took. The chevron only shows
 	 * itself to a hand. */
+	/* A turn's steps are one quiet line, as a thread's or a call's is. */
 	.steps-caption {
 		display: inline-flex;
 		max-width: 100%;
-		height: 28px;
 		align-items: center;
 		gap: 8px;
-		padding: 0 8px 0 10px;
-		border-radius: 999px;
-		background: var(--raised);
-		box-shadow: 0 0 0 var(--hairline) var(--line);
+		margin-left: -6px;
+		padding: 3px 8px 3px 6px;
+		border-radius: var(--radius-control);
 		font-size: var(--text-sm);
-		color: var(--ink-2);
-		transition: box-shadow var(--dur-press) var(--ease-out);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		transition: background var(--dur-press) var(--ease-out);
 	}
 	.steps-caption:hover,
 	.steps-caption[aria-expanded="true"] {
-		box-shadow: 0 0 0 var(--hairline) var(--line-strong);
+		background: var(--fill-hover);
+		color: var(--ink-2);
 	}
 	.steps-caption-failed {
 		flex-shrink: 0;
@@ -550,7 +551,8 @@
 	 * A turn that failed leads with what happened in the report's own words;
 	 * the raw report is under Details. */
 	.error-card {
-		min-width: 0;
+		width: fit-content;
+		min-width: min(22rem, 86%);
 		max-width: 86%;
 		margin: 8px 0;
 		padding: 12px 14px;

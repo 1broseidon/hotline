@@ -184,15 +184,13 @@ describe("a quote", () => {
 		});
 	}
 
-	test("marked [!NOTE], [!TIP] or [!IMPORTANT] is a labelled callout with no warning mark", async () => {
-		for (const [marker, name] of [["NOTE", "Note"], ["TIP", "Tip"], ["IMPORTANT", "Important"]] as const) {
+	test("marked [!NOTE], [!TIP] or [!IMPORTANT] is a plain quote without its marker: only a warning is a callout", async () => {
+		for (const marker of ["NOTE", "TIP", "IMPORTANT"]) {
 			await say(`> [!${marker}]\n>\n> Worth knowing.`);
-			const callout = container.querySelector<HTMLElement>(".callout")!;
-			expect(callout.dataset["alert"]).toBe(marker.toLowerCase());
-			expect(callout.querySelector("svg")).toBeNull();
-			expect(callout.querySelector(".callout-label")?.textContent).toBe(name);
+			expect(container.querySelector(".callout")).toBeNull();
+			const quote = container.querySelector("blockquote")!;
 			// The marker's paragraph stood alone, so it goes with the marker.
-			expect([...callout.querySelectorAll(".callout-words p")].map((p) => p.textContent)).toEqual(["Worth knowing."]);
+			expect([...quote.querySelectorAll("p")].map((p) => p.textContent)).toEqual(["Worth knowing."]);
 		}
 	});
 });

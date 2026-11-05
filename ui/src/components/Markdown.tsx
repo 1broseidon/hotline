@@ -116,8 +116,10 @@ const COMPONENTS: Components = {
 	 * spawn a window of its own. In a table a link is a source, so it is a
 	 * site's chip: its icon when the desk has one, and its words. */
 	a: function Link({ children, href }) {
+		// In a table a link is a source; a bare link anywhere is its site too.
 		const inTable = useContext(TableColumns) !== null;
-		const site = inTable ? siteOf(href) : null;
+		const bare = children === href && href !== undefined;
+		const site = inTable || bare ? siteOf(href) : null;
 		return (
 			<a
 				href={href}
@@ -128,7 +130,7 @@ const COMPONENTS: Components = {
 				}}
 			>
 				{site !== null && <Favicon site={site} size={14} />}
-				{site !== null && children === href ? site : children === href && href !== undefined ? shortLink(href) : children}
+				{site !== null && bare ? (inTable ? site : shortLink(href)) : children}
 			</a>
 		);
 	},
@@ -147,13 +149,16 @@ const COMPONENTS: Components = {
 	/* A list's number counts from where the markdown said it starts. */
 	ol: ({ children, start }) => <ol style={start !== undefined && start !== 1 ? { counterReset: `md-item ${start - 1}` } : undefined}>{children}</ol>,
 
+	/* Only a warning or a caution is a callout; a note, a tip or an
+	 * "important" is a quote, its marker dropped, so a reply has one way to
+	 * set words apart and one way to warn. */
 	blockquote: ({ children, node }) => {
 		const alert = alertOf(node);
 		if (alert === null) return <blockquote>{children}</blockquote>;
-		const warns = alert === "warning" || alert === "caution";
+		if (alert !== "warning" && alert !== "caution") return <blockquote>{withoutMarker(children)}</blockquote>;
 		return (
 			<div className="callout" data-alert={alert} role="note">
-				{warns && <WarningIcon className="callout-icon" />}
+				<WarningIcon className="callout-icon" />
 				<div className="callout-words">
 					<span className="callout-label">{ALERT_LABELS[alert]}</span>
 					{withoutMarker(children)}
@@ -321,7 +326,7 @@ function textOf(node: ElementContent): string {
  * remark-gfm leaves the marker as text, so it is read here.
  */
 type Alert = "note" | "tip" | "important" | "warning" | "caution";
-const ALERT_LABELS: Record<Alert, string> = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+const ALERT_LABELS: Record<"warning" | "caution", string> = { warning: "Warning", caution: "Caution" };
 const ALERT_MARKER = /^\s*\[!(note|tip|important|warning|caution)\][ \t]*\n?/i;
 
 function alertOf(node: Element | undefined): Alert | null {

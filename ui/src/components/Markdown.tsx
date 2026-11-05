@@ -124,13 +124,14 @@ const COMPONENTS: Components = {
 			<a
 				href={href}
 				className={site === null ? undefined : "site-chip"}
+				title={site !== null && inTable ? href : undefined}
 				onClick={(event) => {
 					event.preventDefault();
 					if (href) void openLink(href);
 				}}
 			>
 				{site !== null && <Favicon site={site} size={14} />}
-				{site !== null && bare ? (inTable ? site : shortLink(href)) : children}
+				{site === null ? children : <span className="site-chip-name">{bare ? (inTable ? site : shortLink(href)) : children}</span>}
 			</a>
 		);
 	},

@@ -35,10 +35,13 @@ type BarState = {
 let taken = false;
 let editing = false;
 
+let saying: ReturnType<typeof setTimeout> | undefined;
 function say(message: string | null) {
+	// A newer message keeps its own five seconds.
+	clearTimeout(saying);
 	error.hidden = !message;
 	error.textContent = message ?? "";
-	if (message) setTimeout(() => say(null), 5000);
+	if (message) saying = setTimeout(() => say(null), 5000);
 }
 
 function draw(state: BarState) {

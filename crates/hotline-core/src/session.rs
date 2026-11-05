@@ -1628,11 +1628,14 @@ pub(crate) fn now_ms() -> i64 {
 /// this computer has that open web links (macOS). Answers what it opened.
 async fn open_in_browser(link: &str, named: Option<&str>) -> Result<String, String> {
     let named = named.map(str::trim).filter(|name| !name.is_empty());
+    // Asked once: the same list names the app it opened.
+    #[cfg(target_os = "macos")]
+    let mut installed = WebBrowsers::default();
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = tokio::process::Command::new("open");
         if let Some(name) = named {
-            let installed = web_browsers().await;
+            installed = web_browsers().await;
             let app = pick_browser(name, &installed.all).ok_or_else(|| {
                 let names: Vec<&str> = installed.all.iter().map(|app| browser_name(app)).collect();
                 if names.is_empty() {
@@ -1679,7 +1682,6 @@ async fn open_in_browser(link: &str, named: Option<&str>) -> Result<String, Stri
     }
     #[cfg(target_os = "macos")]
     if let Some(name) = named {
-        let installed = web_browsers().await;
         let app = pick_browser(name, &installed.all).map_or(name, |app| browser_name(app));
         return Ok(format!(
             "Opened in the person's browser on this computer: {app}."

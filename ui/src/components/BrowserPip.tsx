@@ -59,7 +59,7 @@ export function BrowserPip({ personaId, name, view }: { personaId: string; name:
 
 	return (
 		<div
-			className={`browser-pip absolute right-4 top-3 z-20 w-64 overflow-hidden rounded-xl border bg-raised shadow-lg ${needs ? "needs" : "border-line"}`}
+			className={`browser-pip absolute right-4 top-3 z-20 w-64 overflow-hidden rounded-xl border bg-raised ${needs ? "needs" : "border-line"}`}
 		>
 			<button
 				type="button"

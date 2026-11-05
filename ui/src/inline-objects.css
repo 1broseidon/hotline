@@ -859,13 +859,25 @@
 	background: var(--color-ink-4, #6b6b70);
 }
 .browser-pip-dot.live {
-	background: #86d69c;
+	background: var(--accent);
 	animation: browser-pip-pulse 1.6s ease-in-out infinite;
 }
 .browser-pip-dot.yours {
-	background: #7fc4f0;
+	background: var(--ink-2);
+}
+@media (prefers-reduced-motion: reduce) {
+	.browser-pip-dot.live {
+		animation: none;
+	}
 }
 /* Waiting on the person: the Needs-you amber, as an outline and a chip. */
+/* It floats over the conversation, so it lies on the float's shadow, the
+ * one the composer and menus use. */
+.browser-pip {
+	box-shadow:
+		var(--top-light),
+		var(--shadow-float);
+}
 .browser-pip.needs {
 	border-color: var(--warn-ink);
 }

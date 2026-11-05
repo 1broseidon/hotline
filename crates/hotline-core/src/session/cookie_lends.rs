@@ -361,12 +361,12 @@ impl Room {
     ) -> Result<CookieLend, String> {
         let room = self.clone();
         let (persona, site) = (persona.to_string(), site.to_string());
-        tokio::spawn(async move { room.lend_site(&persona, &site).await })
+        tokio::spawn(async move { room.share_site(&persona, &site).await })
             .await
             .map_err(|_| "Sharing the cookies was interrupted.".to_string())?
     }
 
-    async fn lend_site(&self, persona: &str, site: &str) -> Result<CookieLend, String> {
+    async fn share_site(&self, persona: &str, site: &str) -> Result<CookieLend, String> {
         let teammate = self.persona(persona)?;
         let site = lending::registrable(site.trim()).ok_or("That is not a site.")?;
         let desk_browser = !teammate.computer.as_ref().is_some_and(|c| c.enabled);

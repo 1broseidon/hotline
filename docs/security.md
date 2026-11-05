@@ -423,8 +423,9 @@ browser's cookies into a teammate's computer. They use the person's own
 authority through the authenticated desk wire, are gated to owner or local desk authority, and
 add nothing to what the agent may reach on its own. They are not a call-time
 approval prompt, which the standing-consent rule forbids, because the person
-initiates them. Host-cookie offers below are a separate, always-asked path;
-the agent has no tool that selects or accepts their source.
+initiates them. Cookie asks below are a separate path: a teammate may ask,
+and only the person's answer shares; the agent has no tool that selects or
+accepts a source.
 
 Sharing cookies with a teammate (`computer.cookies.lend` and its kin, see
 [Shared cookies](#shared-cookies-epic-34)) is the sharpest case, so it is spelled
@@ -911,7 +912,7 @@ below; everything else holds on both.
   its data directory, when no page is open), then the store itself is
   removed once no web view uses it, `WKWebsiteDataStore`'s
   `removeDataStoreForIdentifier:` on macOS and the
-  `desk-browser/<hash>` data directory on Linux, so lent cookies leave
+  `desk-browser/<hash>` data directory on Linux, so shared cookies leave
   with it. The room drops its PIP view and picture, the person's short
   key allowances, a passkey card it waits on, and every answer about its
   local addresses: those of the run, and each Always allow struck from
@@ -955,10 +956,10 @@ below; everything else holds on both.
   macOS, and on Linux a WebKitGTK web context of its own on a data
   directory of its own, `desk-browser/<the same hash>` under Hotline's data
   directory, with its cookies in a file there. The person's own sign-ins
-  reach it only on a host-cookie offer they answer Use (below). WebKit keeps
+  reach it only when they answer its cookie ask with Use Cookies (below). WebKit keeps
   a store by id only from macOS 14 (`dataStoreForIdentifier:`): before it,
   wry would give every page the default store, shared with Hotline's window,
-  every other teammate and any cookies lent to one, and the lending code's
+  every other teammate and any cookies shared with one, and the sharing code's
   call would not exist. So a Mac before 14 keeps no desk browser at all,
   though Hotline itself runs from macOS 13.
 - **No microphone, camera or other permission.** A page is never given the
@@ -3048,7 +3049,9 @@ narrator leaves the written result available without a new spoken pointer.
 ## Credential capture in the chat (task-266)
 
 - **Default and grant source:** `request_credential` proposes a card under
-  the requesting session's lease and enabled computer grant. It cannot read,
+  the requesting session's lease and enabled computer grant; a cookie ask's
+  Sign In (below) is the same capture, for a teammate with a computer or the
+  desk browser. It cannot read,
   store or grant a value. Only the authenticated owner/desk or phone can
   answer `secrets.capture.answer`. Missing name declines; supplied values
   create a new login; a matching existing name grants that key without
@@ -3122,75 +3125,92 @@ narrator leaves the written result available without a new spoken pointer.
 | Voice cannot answer a secret-use card | `voice/room/tests/cards.rs` `the_card_handler_refuses_actions_forged_questions_and_stale_authority` | — |
 | Settings saves each choice; card buttons send the three exact answers once and disappear on settlement or expiry | `ui/tests/secret-use.test.tsx` | — |
 
-## Host-cookie offers
+## Cookie asks (epic-34)
 
-- **Default:** no automatic lending, including old records. An enabled, running
-  computer and live teammate session permit host-column discovery only. The
-  room's `cookieOffers` defaults to enabled for all registrable sites; an
-  explicit list restricts it and an empty list offers none. Off skips even
-  host-name discovery. An old computer without `GET /pages` produces no offers.
-- **Grant source:** Use on a core-created `cookie_offer`, through the desk,
-  owner or phone seat. The source, site and recipient are held in core memory;
-  callers supply only the card id and choice. No tool or voice answer grants it.
-- **Enforcement:** `computer/cookies/lending.rs` copies SQLite stores and selects
-  only hosts before consent. Its value reader runs only in
-  `session/cookie_offers.rs::answer_cookie_offer`, under the computer watch and
-  policy locks, with a live capability lease and matching running endpoint
-  checked before and after the read. PSL registrable-domain equality, including
-  private suffixes, limits values to the approved site and its subdomains. Error
-  bodies from the browser and computer are replaced by fixed messages.
-  Settings writes and automatic discovery share the policy gate with answers.
-  Desk and owner may write the setting, list host sites on explicit page open,
-  and undo Never. The phone may read only the preference through
-  `computer.cookies.settings`; it cannot discover sites or change settings.
-- **Revocation:** a stop, another computer or a desk restart expires pending
-  cards. A restart the person did not ask for (an agent switch, a policy
-  reload) keeps them and their answers, bound to the new session's lease once
-  it is up; Use still checks that lease and the running endpoint. Not now is
-  kept on the tape and quiets that site for that teammate for a day (only
-  fewer offers, never a grant). Each lend
-  is separately named and its metadata survives restart; Remove sends exactly
-  `domains: [site]` to the authenticated computer's `DELETE /logins/{name}`.
-  Both the browser and saved login there lose the cookies. The agent hears the
-  outcome without any values. Never is per teammate and Settings → Computer →
-  Sites can undo it. Turning offers off or excluding a site expires its pending
-  cards before acknowledging the settings write, with a notice. An already
-  started discovery finishes before Off is saved; subsequent automatic polls
-  cannot read browser data. Explicit Sites page discovery remains available
-  while off, without lending values.
-- **Into the desk browser:** a teammate with no computer and the desk's
-  browser is offered the site its browser's page is on, on the same card with
-  the same Not now, Never and settings; the card carries `deskBrowser`. Use
-  checks that the teammate is still offered the browser and has no computer
-  running, then the app sets the site's cookies in the teammate's own
-  store (`crates/hotline-app/src/browser/native/cookies.rs`): its
-  WKWebsiteDataStore on macOS, its WebKitGTK cookie manager on Linux, or,
-  with its browser not open yet, a data manager on its own data directory,
-  and the page reloads. Remove deletes every cookie on the site and its
-  subdomains from that store, open or not, and reloads; the lend is listed
-  in the teammate's Secrets section. A teammate given a computer meanwhile
-  sees its pending card expire, and its browser lend can still be removed.
-- **Residual risk:** approval gives the teammate the person's signed-in powers
-  on this site. The computer is already a granted sandbox and can read its own
-  saved login. Removing the container copy does not invalidate an exfiltrated
-  cookie or revoke the site's token, and cannot undo actions already taken.
-  The removal record is saved before delivery, with an Unconfirmed state until
-  success. A failed rollback after an interrupted delivery may require Remove;
-  container/network failure cannot prove remote deletion. The host browser may
-  ask its OS keychain for permission after Use. Physical Brave/Porkbun and the
-  native phone UI require device verification outside this tree.
+The person's sign-ins reach a teammate's browser in two ways only: the
+teammate asks with `ask_cookies` and the person answers, or the person
+shares a site from the teammate's pane. The desk never offers on its own:
+no page a teammate's browser visits, in its desk browser or on its
+computer, raises a card or reads a host browser.
+
+- **Default:** nothing is shared. `ask_cookies` raises one `cookie_ask` card
+  for one registrable site (`github.com`, named by the teammate as a site or
+  an `https://` address) with the teammate's reason, and returns at once. It
+  needs the teammate's browser: an enabled computer, or the desk browser it
+  is offered with none; a job started without the computer cannot ask for
+  one. Raising it reads only the host columns of the person's Brave, Chrome
+  and Firefox profiles, to list the browsers signed in to that site, the one
+  last shared from first; a browser Hotline may not read, or one switched
+  off in Settings › Secrets › Cookie Sources, is left off.
+  Retired records stay readable and grant nothing: an old room's
+  `cookieOffers` setting is skipped on read, an old Never
+  (`cookie_offer_never`) is never read, and an old pending `cookie_offer`
+  expires at start.
+- **Grant source:** only the person's answer on the card, through the desk,
+  owner or phone seat: **Use Cookies** (`computer.cookies.answer`, `use`,
+  with a `source` the card lists, else its first), **Sign In**
+  (`secrets.capture.answer` with the card's id), or **Open Browser**
+  (`open_browser`). The corner's close is Not now (`not_now`). The site,
+  origin, teammate, thread and the browsers' readers are held in core
+  memory; callers supply only the id, the choice and, for Sign In, the
+  login. No tool, voice answer or Link seat can answer.
+- **Enforcement:** the ask is a credential capture (`session/capture.rs`)
+  with cookie parts (`session/cookie_asks.rs`), so one per-card mutex, the
+  session's scoped lease and a two-hour deadline cover every answer, its
+  withdrawal and its expiry, and an accepted answer survives the phone's
+  socket closing. A second ask for a site whose card is up is refused, and
+  after Not now the teammate's asks for that site are refused until the
+  person writes to it, in its conversation or the thread it asked in; both
+  are read from the tape, so a stop or restart changes neither. Use Cookies
+  reads values only in `session/cookie_offers.rs::lend_site`, under the
+  policy lock and the teammate's watch, with the lease checked before and
+  after the read, into the teammate's running computer, or its desk browser
+  when it has no computer (`DeskBrowser::lend_cookies`); a computer that is
+  off is refused rather than started. PSL registrable-domain equality,
+  including private suffixes, limits values to the site and its subdomains.
+  The share's record is written Unconfirmed before any bytes leave and
+  Lent after; a failed copy is taken back. Sign In is the capture's own
+  answer: values go only to the vault as a login for the card's origin,
+  granted to the teammate, and typed by its computer or its desk browser on
+  that origin only. With Save to Secrets off (`save: false`) the card
+  records `keptUntil`, an hour on, and the desk's sweep then deletes that
+  login, if it is still the one stored for that origin, and takes it out
+  of the teammate's grant; a desk closed meanwhile does it at its first
+  sweep. Open Browser checks the teammate still has its browser; the window
+  opens the desk browser's pane or the computer's screen, where the person
+  signs in themselves.
+- **Revocation:** a stop, a policy change or the deadline expires the card,
+  and the teammate is told. A saved card cannot be answered after a desk
+  restart and expires at the first sweep. Each share is separately named and
+  its record survives restart; Remove, in the teammate's Cookies list (see
+  [Shared cookies](#shared-cookies-epic-34)), sends exactly `domains: [site]`
+  to a running computer's `DELETE /logins/{name}` (a computer that is down
+  is cleared when it next starts), or deletes the site from the desk
+  browser's own store and reloads. The teammate hears every outcome without
+  a value: shared from which browser, the key's name, the browser opened,
+  Not now, expired or withdrawn.
+- **Residual risk:** Use Cookies gives the teammate the person's signed-in
+  powers on the site. Removing the copy does not invalidate an exfiltrated
+  cookie or revoke the site's token, and cannot undo actions taken. A login
+  not saved to Secrets lives in the vault for its hour, and a desk that
+  never sweeps again keeps it until it does. A failed rollback after an
+  interrupted copy may need Remove; container or network failure cannot
+  prove remote deletion. The host browser may ask its OS keychain for
+  permission after Use Cookies. The phone app's own card is a separate item;
+  the wire carries the same card and commands to it.
 
 | Boundary | Proof | Platform |
 | --- | --- | --- |
-| Discovery selects only hosts from Chromium and Firefox fixtures; site bounds include private suffixes | `computer/cookies/lending/tests.rs` `detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain`, `discovery_never_launches_or_calls_the_browser_keychain_until_use`, `only_the_registrable_site_and_its_subdomains_can_be_lent` | — |
-| Refused installed browsers raise one notice each per desk run, never an offer; restored access retries the open page, readable browsers still offer, and Never sites stay quiet | `computer/cookies/lending/tests.rs` `discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_access_is_granted`; `wire/tests/cookie_offers.rs` `refused_browsers_raise_one_notice_each_per_desk_run_and_no_offer`, `a_refused_site_is_offered_after_access_appears_without_reopening_the_page`, `a_granted_browser_offers_once_even_when_another_browser_is_refused`, `a_refused_browser_does_not_raise_a_notice_for_a_never_site` | Unix, unprivileged runner |
-| One offer reaches desk and phone only for a matching site; racing answers lend once, and Remove names the saved login and site and tells the agent | `wire/tests/cookie_offers.rs` `cookie_offer_is_one_card_on_desk_and_phone_only_for_sites_in_chromium_or_firefox`, `use_lends_only_the_site_and_subdomains_and_remove_takes_it_back_and_tells_the_agent` | Unix |
-| Not now quiets a site for that teammate for a day, through switches, stops and restarts; persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_quiets_a_site_for_a_day_but_never_waits_until_settings_undo`, `a_restart_the_person_did_not_ask_for_keeps_the_card_and_its_answer`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
-| Values stay out of public sinks; a real desk restart expires pending offers and retains removal and preference records | `wire/tests/cookie_offers.rs` `cookie_values_never_reach_tape_room_agent_or_wire_sinks`, `failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_errors`; `tests/desk/cookie_offers.rs` `cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_never_survive` | Unix for the sink |
-| Off makes no discovery calls and expires pending cards; selected sites alone are eligible; absent lists allow every site and empty lists none | `wire/tests/cookie_offers.rs` `cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation`, `cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards`, `cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none` | Unix |
-| The desk browser's site raises one card, Not now quiets it for a day, Use lends only the site into the teammate's browser and reloads, Remove deletes the site from its store; a teammate given a computer cannot accept a browser card | `wire/tests/cookie_offers/desk_browser.rs` `the_site_the_desk_browser_is_on_raises_one_offer_and_not_now_quiets_it_for_a_day`, `use_lends_the_site_into_the_browser_and_reloads_and_remove_takes_it_back`, `an_offer_for_the_browser_expires_once_the_teammate_has_a_computer_instead`; `ui/tests/cookie-offers.test.tsx` | Unix; WebKit's store by hand |
-| Desk and owner write; phone only reads the preference; host-name discovery is explicit, and invalid domains/settings cannot widen offers | `wire/tests/cookie_offers.rs` `cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit`, `cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting` | Unix |
-| The preference survives real desk restarts; clearing restores enabled/all sites | `tests/desk/cookie_offers.rs` `cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites` | — |
+| A visit raises no card and reads no host browser, for a computer and for the desk browser | `wire/tests/cookie_asks.rs` `a_computer_on_a_signed_in_site_raises_no_card_and_reads_no_browser`; `wire/tests/cookie_asks/desk_browser.rs` `a_desk_browser_on_a_signed_in_site_raises_no_card_and_reads_no_browser` | Unix |
+| Discovery selects only hosts from Chromium and Firefox fixtures; site bounds include private suffixes | `computer/cookies/lending/tests.rs` `detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain`, `discovery_never_launches_or_calls_the_browser_keychain_until_use`, `only_the_registrable_site_and_its_subdomains_can_be_lent`; `session/cookie_asks.rs` `a_site_is_named_by_its_registrable_domain_and_a_login_by_its_https_origin` | — |
+| The ask is one card on desk and phone, and a second ask for its site is refused while it is up | `wire/tests/cookie_asks.rs` `an_ask_is_one_card_on_desk_and_phone_and_a_second_for_its_site_is_refused` | Unix |
+| Use Cookies shares only the site from the chosen browser, once across racing seats, with no value in any sink; the browser last shared from leads the next card; Remove takes it back | `wire/tests/cookie_asks.rs` `use_cookies_shares_only_the_site_from_the_chosen_browser_and_says_so_without_values`; `wire/tests/cookie_asks/desk_browser.rs` `use_cookies_shares_into_the_browser_and_reloads_and_remove_takes_it_back` | Unix |
+| Sign In stores and grants a login for the origin, values only in the vault; one not saved to Secrets leaves the vault and the grant after its hour | `wire/tests/cookie_asks/desk_browser.rs` `sign_in_stores_the_login_and_gives_it_to_the_browser_without_a_value_anywhere`, `a_login_not_saved_to_secrets_leaves_the_vault_and_the_grant_after_its_hour` | Unix |
+| Open Browser opens the right browser and tells the teammate | `wire/tests/cookie_asks.rs` `open_browser_hands_over_the_computers_screen_and_tells_the_teammate`; `wire/tests/cookie_asks/desk_browser.rs` `open_browser_hands_over_the_browser_pane_and_tells_the_teammate`; `ui/tests/cookie-asks.test.tsx` | Unix |
+| Not now blocks the site until the person next writes, through a stop | `wire/tests/cookie_asks.rs` `closing_the_card_blocks_its_site_until_the_person_next_writes` | Unix |
+| Wrong teammates, Link seats, unlisted browsers and a stopped session cannot answer; withdraw takes the card down; a failed copy keeps a removal handle and echoes no cookie | `wire/tests/cookie_asks.rs` `an_ask_refuses_a_wrong_teammate_or_seat_and_expires_with_its_session`, `withdraw_request_takes_an_ask_down`, `a_failed_share_keeps_a_removal_handle_and_never_echoes_a_cookie` | Unix |
+| Retired offer settings and commands are gone; old records are read on a real desk restart, and a saved ask cannot be answered there | `wire/tests/cookie_asks.rs` `the_retired_offer_settings_and_commands_are_gone_and_site_discovery_stays_explicit`; `tests/desk/cookie_asks.rs` `old_offer_records_are_read_and_a_saved_ask_is_history_after_a_real_desk_restart` | — |
+| The card shows the lock, site and reason with Use Cookies, Sign In and Open Browser; the chooser, the secure fields in the same card and the settled lines; Settings has no offers switch | `ui/tests/cookie-asks.test.tsx` | — |
 
 ## Shared cookies (epic-34)
 

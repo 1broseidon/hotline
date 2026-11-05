@@ -683,26 +683,18 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_cookie_offers(&self, _persona: &str) -> Vec<hotline_contract::CookieOffer> {
         Vec::new()
     }
-    async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
-        Vec::new()
-    }
     async fn computer_cookie_sites(&self) -> Result<hotline_contract::CookieOfferSites, String> {
         Err("Cookie discovery unavailable.".into())
     }
-    /// Called under the policy gate after saving the offer preference.
-    async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
-        Ok(())
-    }
-    async fn computer_cookie_reset(&self, _persona: &str, _site: &str) -> Result<(), String> {
-        Err("Cookie offers unavailable.".into())
-    }
+    /// Answers a teammate's cookie ask: Use Cookies, Open Browser or Not now.
     async fn computer_cookie_answer(
         &self,
         _persona: &str,
         _id: &str,
         _answer: hotline_contract::CookieOfferAnswer,
+        _source: Option<hotline_contract::CookieOfferSource>,
     ) -> Result<(), String> {
-        Err("Cookie offers unavailable.".into())
+        Err("Cookie asks unavailable.".into())
     }
     async fn computer_cookie_remove(&self, _persona: &str, _id: &str) -> Result<(), String> {
         Err("Cookie offers unavailable.".into())

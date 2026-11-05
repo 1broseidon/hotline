@@ -51,4 +51,9 @@ pub struct CredentialAnswer {
     pub values: Option<CredentialValues>,
     #[serde(default)]
     pub ask: bool,
+    /// Save to Secrets, on a cookie ask's Sign In: false keeps the login
+    /// only long enough for this sign-in. Absent is true, as every other
+    /// credential card stores its login.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save: Option<bool>,
 }

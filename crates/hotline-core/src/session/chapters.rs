@@ -1092,6 +1092,7 @@ pub(super) fn sweep_idle_chapters(room: Weak<Room>) {
                 Some(room) => {
                     room.sweep(now_ms(), &mut looked_again).await;
                     room.expire_stale_asks(now_ms());
+                    room.forget_unsaved_logins(now_ms()).await;
                     room.sweep_computers().await;
                 }
                 None => return,

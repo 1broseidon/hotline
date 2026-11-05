@@ -401,38 +401,6 @@ pub struct ComputerReleases {
     pub error: Option<String>,
 }
 
-/// Offers default to on for all sites, including rooms saved before this
-/// setting existed. This permits discovery, never lending without Use.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
-#[ts(export, export_to = "contract.ts")]
-pub struct CookieOfferSettings {
-    pub enabled: bool,
-    /// Absent means all sites; an empty list means none.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub sites: Option<Vec<String>>,
-}
-
-impl Default for CookieOfferSettings {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            sites: None,
-        }
-    }
-}
-
-impl CookieOfferSettings {
-    pub fn allows(&self, site: &str) -> bool {
-        self.enabled
-            && self
-                .sites
-                .as_ref()
-                .is_none_or(|sites| sites.iter().any(|s| s == site))
-    }
-}
-
 /// Site names only, read when the person opens the settings page.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -451,7 +419,7 @@ pub struct CookieOfferSite {
     pub sources: Vec<CookieOfferSource>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct CookieOfferSource {
@@ -459,7 +427,8 @@ pub struct CookieOfferSource {
     pub profile_name: String,
 }
 
-/// A host-cookie offer carries metadata only, including after settlement.
+/// A share record: one site's cookies copied into a teammate's browser,
+/// metadata only, kept so the share can be listed and removed.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -493,13 +462,18 @@ pub enum CookieOfferStatus {
     Removed,
 }
 
+/// The person's answer to a teammate's cookie ask, other than Sign In,
+/// which goes through `secrets.capture.answer` so its values reach only the
+/// vault. Use copies the site's cookies from one of the person's browsers;
+/// Open Browser hands the person the teammate's own browser; Not now is the
+/// card's close, which tells the teammate no until the person next writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
 pub enum CookieOfferAnswer {
     Use,
     NotNow,
-    Never,
+    OpenBrowser,
 }
 
 /// One site's cookies the person shared with a teammate, as its pane lists
@@ -580,11 +554,20 @@ pub struct CookieHolder {
     pub sites: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+/// Where a teammate's cookie ask stands. Pending is the card; every other
+/// status is its one settled line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
-pub struct CookieOfferBlock {
-    pub teammate: String,
-    pub name: String,
-    pub site: String,
+pub enum CookieAskStatus {
+    Pending,
+    /// The site's cookies were copied from the browser the card names.
+    Cookies,
+    /// A login was stored and given to the teammate.
+    SignedIn,
+    /// The person took the teammate's browser to sign in themselves.
+    Opened,
+    NotNow,
+    Expired,
+    Withdrawn,
 }

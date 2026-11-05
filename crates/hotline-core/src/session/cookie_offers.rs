@@ -1,19 +1,13 @@
-//! The core binds the source, site and live lease before publishing an offer.
-//! A saved lend can be removed, but a saved pending card cannot grant access.
-//! A teammate with a computer is offered the sites its computer's pages are
-//! on and borrows into the computer; one with the desk browser instead is
-//! offered the site that browser is on and borrows into its own web storage.
+//! A lend: one site's cookies copied from a browser of the person's into a
+//! teammate's browser, only because the person answered the teammate's ask
+//! (`cookie_asks.rs`). The record is written before any bytes leave, so a
+//! lend can always be listed and removed; it never carries a cookie value.
+//! A teammate with a computer borrows into the computer; one with the desk
+//! browser instead borrows into that browser's own web storage.
 use super::*;
 use crate::browser::DeskBrowser;
 use crate::computer::{Ready, cookies::lending, login};
-use crate::contract::{
-    CookieOffer, CookieOfferAnswer, CookieOfferBlock, CookieOfferSettings, CookieOfferSites,
-    CookieOfferStatus,
-};
-
-/// How long Not now keeps a site quiet for a teammate, counted from the
-/// offer: the record is on the tape, so a desk restart keeps it too.
-pub(crate) const NOT_NOW_QUIET_MS: i64 = 24 * 60 * 60 * 1000;
+use crate::contract::{CookieOffer, CookieOfferSites, CookieOfferStatus};
 
 /// Where a lend goes, and is taken back from.
 enum Sink {
@@ -57,172 +51,7 @@ impl Sink {
     }
 }
 
-#[derive(Default)]
-pub(super) struct CookieWatch {
-    ready: Option<Ready>,
-    capability: Option<CapabilityLease>,
-    stops: u64,
-    seen: HashSet<String>,
-    cards: HashMap<String, (CookieOffer, lending::Source)>,
-}
-
 impl Room {
-    pub(super) async fn look_at_cookie_offers(
-        self: &Arc<Self>,
-        persona: &str,
-        watch: &mut CookieWatch,
-    ) {
-        // Answers and settings take policy then watch. A poll already owns
-        // the watch, so it must skip rather than wait in the opposite order.
-        let updates = self.policy_update_lock();
-        let Ok(_policy) = updates.try_lock() else {
-            return;
-        };
-        let Ok(settings) = room::cookie_offer_settings(&self.log) else {
-            return;
-        };
-        let _ = self.expire_disabled_cookie_offers(persona, watch, &settings);
-        if !settings.enabled {
-            return;
-        }
-        let ready = self.computers.running(persona).await;
-        let live = lock(&self.sessions).contains_key(persona);
-        let stops = lock(&self.stops).get(persona).copied().unwrap_or_default();
-        // A stop or another computer ends what was offered. A restart the
-        // person did not ask for (an agent switch, a policy reload) keeps the
-        // cards and their answers, bound to the new session once it is up.
-        let restarted = watch.capability.as_ref().is_some_and(|c| !c.is_current());
-        if live && restarted && watch.ready == ready && watch.stops == stops {
-            watch.capability = Some(self.capability_lease(persona));
-        } else if !live
-            && watch.capability.is_some()
-            && watch.ready == ready
-            && watch.stops == stops
-        {
-            return;
-        }
-        if watch.ready != ready
-            || watch.stops != stops
-            || watch.capability.as_ref().is_none_or(|c| !c.is_current())
-            || !live
-        {
-            for (card, _) in watch.cards.values_mut() {
-                if card.status == CookieOfferStatus::Pending {
-                    card.status = CookieOfferStatus::Expired;
-                    let _ = self.write_cookie_offer(card);
-                }
-            }
-            watch.cards.clear();
-            watch.seen.clear();
-            watch.ready.clone_from(&ready);
-            watch.stops = stops;
-            watch.capability = live.then(|| self.capability_lease(persona));
-        }
-        let Some(capability) = watch.capability.clone().filter(CapabilityLease::is_current) else {
-            return;
-        };
-        let sites = match &ready {
-            Some(ready) => match lending::pages(ready).await {
-                Ok(sites) => sites,
-                Err(()) => return,
-            },
-            None => match self.desk_browser_site(persona) {
-                Some(site) => vec![site],
-                None => return,
-            },
-        };
-        let desk_browser = ready.is_none();
-        let sites: Vec<_> = sites
-            .into_iter()
-            .filter(|site| settings.allows(site) && !watch.seen.contains(site))
-            .collect();
-        if sites.is_empty() {
-            return;
-        }
-        let blocked = self.blocked_cookie_sites(persona);
-        let answered = self.computer_cookie_offers(persona);
-        let now = now_ms();
-        let mut sites: Vec<_> = sites
-            .into_iter()
-            .filter(|site| {
-                !blocked.contains(site)
-                    && !answered.iter().any(|c| {
-                        c.site == *site
-                            && match c.status {
-                                CookieOfferStatus::Lent | CookieOfferStatus::Unconfirmed => true,
-                                // Not now quiets the site for a day, through
-                                // restarts, switches and stops alike.
-                                CookieOfferStatus::Declined => now - c.ts < NOT_NOW_QUIET_MS,
-                                _ => false,
-                            }
-                    })
-            })
-            .collect();
-        if sites.is_empty() {
-            return;
-        }
-        let mut unique = HashSet::new();
-        sites.retain(|site| unique.insert(site.clone()));
-        let Ok(inventory) = self.cookie_inventory().await else {
-            return;
-        };
-        let found = sites
-            .iter()
-            .filter_map(|site| {
-                inventory
-                    .sources
-                    .iter()
-                    .find(|(_, sites)| sites.contains(site))
-                    .map(|(source, _)| (site.clone(), source.clone()))
-            })
-            .collect::<Vec<_>>();
-        if !capability.is_current() {
-            return;
-        }
-        // A refused discovery says nothing about whether this site has a
-        // session. Leave it eligible so the same open page is retried.
-        if inventory.refused.is_empty() && inventory.unavailable.is_empty() {
-            watch.seen.extend(sites.iter().cloned());
-        }
-        for browser in inventory.refused {
-            if lock(&self.cookie_access_notices).insert(browser.id) {
-                self.write(
-                    persona,
-                    &TranscriptEvent::Notice {
-                        id: new_id(),
-                        ts: now_ms(),
-                        level: NoticeLevel::Warn,
-                        text: crate::computer::cookies::access_notice(
-                            &browser.name,
-                            Some(&sites[0]),
-                        ),
-                    },
-                );
-            }
-        }
-        for (site, source) in found {
-            let id = new_id();
-            let card = CookieOffer {
-                login: source.login(&id),
-                id,
-                ts: now_ms(),
-                teammate: persona.into(),
-                site,
-                browser_name: source.browser_name().into(),
-                profile_name: source.profile_name().into(),
-                status: CookieOfferStatus::Pending,
-                desk_browser,
-            };
-            if self.write_cookie_offer(&card).is_err() {
-                continue;
-            }
-            watch.seen.insert(card.site.clone());
-            self.push.notify(&self.needs_you(persona), &format!("Use your existing cookie from {} for {}? The teammate will be signed in as you.", card.browser_name, card.site), persona,
-                Some(crate::push::Waiting::CookieOffer { id: card.id.clone() }));
-            watch.cards.insert(card.id.clone(), (card, source));
-        }
-    }
-
     /// The site names in every switched-on source: a source the person
     /// switched off in Settings › Secrets is not discovered, nor read.
     pub(super) async fn cookie_inventory(&self) -> Result<lending::Inventory, String> {
@@ -243,56 +72,6 @@ impl Room {
         self.cookie_lendable().await
     }
 
-    pub async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
-        let settings = room::cookie_offer_settings(&self.log)?;
-        let watches: Vec<_> = lock(&self.secret_uses)
-            .iter()
-            .map(|(persona, watch)| (persona.clone(), watch.clone()))
-            .collect();
-        for (persona, watch) in watches {
-            self.expire_disabled_cookie_offers(
-                &persona,
-                &mut watch.lock().await.cookies,
-                &settings,
-            )?;
-        }
-        Ok(())
-    }
-
-    fn expire_disabled_cookie_offers(
-        &self,
-        persona: &str,
-        watch: &mut CookieWatch,
-        settings: &CookieOfferSettings,
-    ) -> Result<(), String> {
-        let mut expired = false;
-        for (card, _) in watch.cards.values_mut() {
-            if card.status == CookieOfferStatus::Pending && !settings.allows(&card.site) {
-                card.status = CookieOfferStatus::Expired;
-                self.write_cookie_offer(card)?;
-                watch.seen.remove(&card.site);
-                expired = true;
-            }
-        }
-        if expired {
-            let text = if settings.enabled {
-                "Browser cookie offers for these sites are off. Pending offers have expired."
-            } else {
-                "Browser cookie offers are off. Pending offers have expired."
-            };
-            self.write(
-                persona,
-                &TranscriptEvent::Notice {
-                    id: new_id(),
-                    ts: now_ms(),
-                    level: NoticeLevel::Info,
-                    text: text.into(),
-                },
-            );
-        }
-        Ok(())
-    }
-
     pub(super) fn write_cookie_offer(&self, offer: &CookieOffer) -> Result<(), String> {
         self.log
             .append(
@@ -300,10 +79,10 @@ impl Room {
                 &serde_json::to_value(TranscriptEvent::CookieOffer {
                     offer: offer.clone(),
                 })
-                .map_err(|_| "Could not record cookie offer.")?,
+                .map_err(|_| "Could not record the shared cookies.")?,
             )
             .map(|_| ())
-            .map_err(|_| "Could not record cookie offer.".into())
+            .map_err(|_| "Could not record the shared cookies.".into())
     }
 
     pub fn computer_cookie_offers(&self, persona: &str) -> Vec<CookieOffer> {
@@ -318,201 +97,84 @@ impl Room {
             .collect()
     }
 
-    fn blocked_cookie_sites(&self, persona: &str) -> Vec<String> {
-        self.log
-            .load(&StreamId::Room)
-            .into_iter()
-            .find(|e| e["kind"] == "cookie_offer_never" && e["teammate"] == persona)
-            .and_then(|e| serde_json::from_value(e["sites"].clone()).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn computer_cookie_blocked(&self) -> Vec<CookieOfferBlock> {
-        room::roster(&self.log)
-            .into_iter()
-            .flat_map(|p| {
-                self.blocked_cookie_sites(&p.id)
-                    .into_iter()
-                    .map(move |site| CookieOfferBlock {
-                        teammate: p.id.clone(),
-                        name: p.name.clone(),
-                        site,
-                    })
-            })
-            .collect()
-    }
-
-    fn record_cookie_blocks(&self, persona: &str, sites: &[String]) -> Result<(), String> {
-        self.log.append(&StreamId::Room, &serde_json::json!({"id":format!("cookie-offer-never:{persona}"),"kind":"cookie_offer_never","ts":now_ms(),"teammate":persona,"sites":sites}))
-            .map(|_| ()).map_err(|_| "Could not save cookie offer preference.".into())
-    }
-
-    pub async fn computer_cookie_reset(&self, persona: &str, site: &str) -> Result<(), String> {
-        self.persona(persona)?;
-        let watch = self.use_watch(persona);
-        let mut watch = watch.lock().await;
-        let mut sites = self.blocked_cookie_sites(persona);
-        sites.retain(|s| s != site);
-        self.record_cookie_blocks(persona, &sites)?;
-        watch.cookies.seen.remove(site);
-        Ok(())
-    }
-
-    pub async fn computer_cookie_answer(
+    /// Copies `site`'s cookies from `source` into the teammate's browser as
+    /// it is now: its running computer, or the desk browser it has with no
+    /// computer. The record is saved unconfirmed before any bytes leave, so
+    /// a desk that stops mid-copy still leaves the person a Remove; a copy
+    /// that fails is taken back. Answers the record, lent.
+    pub(super) async fn lend_site(
         self: &Arc<Self>,
         persona: &str,
-        id: &str,
-        answer: CookieOfferAnswer,
-    ) -> Result<(), String> {
-        let room = self.clone();
-        let (persona, id) = (persona.to_string(), id.to_string());
-        tokio::spawn(async move { room.answer_cookie_offer(&persona, &id, answer).await })
-            .await
-            .map_err(|_| "The cookie answer was interrupted.".to_string())?
-    }
-
-    async fn answer_cookie_offer(
-        self: &Arc<Self>,
-        persona: &str,
-        id: &str,
-        answer: CookieOfferAnswer,
-    ) -> Result<(), String> {
+        site: &str,
+        source: &lending::Source,
+        capability: &CapabilityLease,
+    ) -> Result<CookieOffer, String> {
         let updates = self.policy_update_lock();
         let policy_guard = updates.lock().await;
         let watch = self.use_watch(persona);
-        let mut held_watch = watch.lock().await;
-        let watch = &mut held_watch.cookies;
-        let settings = room::cookie_offer_settings(&self.log)?;
-        self.expire_disabled_cookie_offers(persona, watch, &settings)?;
-        let capability = watch
-            .capability
-            .clone()
-            .ok_or("This cookie offer expired.")?;
-        let ready = watch.ready.clone();
-        let (card, source) = watch
-            .cards
-            .get_mut(id)
-            .ok_or("This cookie offer expired.")?;
-        if card.status != CookieOfferStatus::Pending {
-            return Err("This cookie offer was already answered.".into());
-        }
-        let sink = self.cookie_sink(persona, card, ready.as_ref()).await;
-        let Some(sink) = sink.filter(|_| capability.is_current()) else {
-            card.status = CookieOfferStatus::Expired;
-            self.write_cookie_offer(card)?;
-            return Err("This cookie offer expired.".into());
+        let held_watch = watch.lock().await;
+        capability.check()?;
+        let ready = self.computers.running(persona).await;
+        let sink = match &ready {
+            Some(ready) => Sink::Computer(ready.clone()),
+            None => Sink::Desk(
+                self.lending_browser(persona)
+                    .ok_or("The teammate's computer is off. Start it, then answer again.")?,
+            ),
         };
-        match answer {
-            CookieOfferAnswer::NotNow => card.status = CookieOfferStatus::Declined,
-            CookieOfferAnswer::Never => {
-                let mut blocked = self.blocked_cookie_sites(persona);
-                if !blocked.contains(&card.site) {
-                    blocked.push(card.site.clone());
-                }
-                self.record_cookie_blocks(persona, &blocked)?;
-                card.status = CookieOfferStatus::Never;
-            }
-            CookieOfferAnswer::Use => {
-                let cookies = source.read(&card.site).await?;
-                capability.check()?;
-                if self
-                    .cookie_sink(persona, card, ready.as_ref())
-                    .await
-                    .is_none()
-                {
-                    return Err("This computer changed; the cookie offer expired.".into());
-                }
-                if cookies.is_empty() {
-                    return Err("This browser no longer has live cookies for the site.".into());
-                }
-                // Neither browser nor computer error bodies are trusted sinks:
-                // either endpoint could echo a value it was handed.
-                // Save the removal handle before any bytes leave: after a
-                // crash the person must still be able to take the lend back.
-                card.status = CookieOfferStatus::Unconfirmed;
-                if let Err(error) = self.write_cookie_offer(card) {
-                    card.status = CookieOfferStatus::Pending;
-                    return Err(error);
-                }
-                let delivered = sink.put(persona, card, cookies).await;
-                let place = sink.place();
-                if delivered.is_err() || !capability.is_current() {
-                    if sink.take_back(persona, card).await.is_ok() {
-                        card.status = if capability.is_current() {
-                            CookieOfferStatus::Pending
-                        } else {
-                            CookieOfferStatus::Expired
-                        };
-                        self.write_cookie_offer(card)?;
-                        return Err(format!(
-                            "Could not lend the cookies. The {place} copy was removed."
-                        ));
-                    }
-                    return Err(format!(
-                        "Sign-in could not be confirmed. Use Remove to take the {place} copy back."
-                    ));
-                }
-                card.status = CookieOfferStatus::Lent;
-            }
+        let cookies = source.read(site).await?;
+        capability.check()?;
+        if cookies.is_empty() {
+            return Err("This browser no longer has live cookies for the site.".into());
         }
-        if let Err(error) = self.write_cookie_offer(card) {
-            if card.status == CookieOfferStatus::Lent {
-                let _ = sink.take_back(persona, card).await;
-                // The durable record is still unconfirmed and removable.
-                card.status = CookieOfferStatus::Unconfirmed;
+        let id = new_id();
+        let mut card = CookieOffer {
+            login: source.login(&id),
+            id,
+            ts: now_ms(),
+            teammate: persona.into(),
+            site: site.into(),
+            browser_name: source.browser_name().into(),
+            profile_name: source.profile_name().into(),
+            status: CookieOfferStatus::Unconfirmed,
+            desk_browser: ready.is_none(),
+        };
+        self.write_cookie_offer(&card)?;
+        // Neither browser nor computer error bodies are trusted sinks:
+        // either endpoint could echo a value it was handed.
+        let delivered = sink.put(persona, &card, cookies).await;
+        let place = sink.place();
+        if delivered.is_err()
+            || !capability.is_current()
+            || self.computers.running(persona).await != ready
+        {
+            if sink.take_back(persona, &card).await.is_ok() {
+                card.status = CookieOfferStatus::Expired;
+                self.write_cookie_offer(&card)?;
+                return Err(format!(
+                    "Could not lend the cookies. The {place} copy was removed."
+                ));
             }
+            return Err(format!(
+                "Sign-in could not be confirmed. Use Remove to take the {place} copy back."
+            ));
+        }
+        card.status = CookieOfferStatus::Lent;
+        if let Err(error) = self.write_cookie_offer(&card) {
+            // The durable record is still unconfirmed and removable.
+            let _ = sink.take_back(persona, &card).await;
             return Err(error);
         }
-        let card = card.clone();
         drop(held_watch);
         drop(policy_guard);
-        if card.status == CookieOfferStatus::Lent {
-            if card.desk_browser {
-                self.browser_reload(persona).await;
-            }
-            self.tell_cookie_outcome(&card, false).await;
+        if card.desk_browser {
+            self.browser_reload(persona).await;
         }
-        Ok(())
-    }
-
-    /// Where an answered card's cookies go now: the computer the card was
-    /// offered for, still running, or the desk browser the teammate is still
-    /// offered with no computer running. Anything else expires the card.
-    async fn cookie_sink(
-        &self,
-        persona: &str,
-        card: &CookieOffer,
-        ready: Option<&Ready>,
-    ) -> Option<Sink> {
-        if self.computers.running(persona).await.as_ref() != ready {
-            return None;
-        }
-        match ready {
-            Some(ready) if !card.desk_browser => Some(Sink::Computer(ready.clone())),
-            None if card.desk_browser => self.lending_browser(persona).map(Sink::Desk),
-            _ => None,
-        }
+        Ok(card)
     }
 
     pub(super) async fn tell_cookie_outcome(self: &Arc<Self>, card: &CookieOffer, removed: bool) {
-        let text = match (removed, card.desk_browser) {
-            (true, false) => format!(
-                "The person took back the session on {} from {}. Its cookies were removed from your computer. Stop using that sign-in.",
-                card.site, card.browser_name
-            ),
-            (true, true) => format!(
-                "The person took back the session on {} from {}. Its cookies were removed from your browser, and the page reloaded. Stop using that sign-in.",
-                card.site, card.browser_name
-            ),
-            (false, false) => format!(
-                "The person lent their {} cookies for {}. Your computer is signed in as them; you may reload the page.",
-                card.browser_name, card.site
-            ),
-            (false, true) => format!(
-                "The person lent their {} cookies for {}. Your browser is signed in as them, and the page reloaded: read it again.",
-                card.browser_name, card.site
-            ),
-        };
+        let text = cookie_outcome(card, removed);
         let id = format!("{}:{}", card.id, if removed { "removed" } else { "lent" });
         let _ = self
             .hand_over_answer(
@@ -524,5 +186,28 @@ impl Room {
                 ThreadId::dm(&card.teammate),
             )
             .await;
+    }
+}
+
+/// What the teammate is told of a lend or its removal: the site and the
+/// browser, never a cookie.
+pub(super) fn cookie_outcome(card: &CookieOffer, removed: bool) -> String {
+    match (removed, card.desk_browser) {
+        (true, false) => format!(
+            "The person took back the session on {} from {}. Its cookies were removed from your computer. Stop using that sign-in.",
+            card.site, card.browser_name
+        ),
+        (true, true) => format!(
+            "The person took back the session on {} from {}. Its cookies were removed from your browser, and the page reloaded. Stop using that sign-in.",
+            card.site, card.browser_name
+        ),
+        (false, false) => format!(
+            "The person shared their {} cookies for {}. Your computer is signed in as them; you may reload the page.",
+            card.browser_name, card.site
+        ),
+        (false, true) => format!(
+            "The person shared their {} cookies for {}. Your browser is signed in as them, and the page reloaded: read it again.",
+            card.browser_name, card.site
+        ),
     }
 }

@@ -2,7 +2,7 @@
 //! Values exist only in the answer handler, the vault and computer delivery.
 use super::*;
 use crate::contract::{
-    CaptureKind, CredentialAnswer, CredentialStatus, SharedSecretKind, ThreadKind,
+    CaptureKind, CookieAskStatus, CredentialAnswer, CredentialStatus, SharedSecretKind, ThreadKind,
 };
 
 const LIFETIME: i64 = 30 * 60_000;
@@ -18,18 +18,22 @@ pub(crate) struct CredentialRequest {
 }
 
 pub(super) struct Capture {
-    persona: String,
-    home: ThreadId,
-    capability: CapabilityLease,
-    id: String,
-    site: String,
-    reason: String,
-    name: String,
-    kind: CaptureKind,
-    expires_at: i64,
-    existing: Vec<String>,
-    armed: bool,
-    status: CredentialStatus,
+    pub(super) persona: String,
+    pub(super) home: ThreadId,
+    pub(super) capability: CapabilityLease,
+    pub(super) id: String,
+    /// The full origin the login is typed on.
+    pub(super) site: String,
+    pub(super) reason: String,
+    pub(super) name: String,
+    pub(super) kind: CaptureKind,
+    pub(super) expires_at: i64,
+    pub(super) existing: Vec<String>,
+    pub(super) armed: bool,
+    pub(super) status: CredentialStatus,
+    /// A teammate's cookie ask, whose Sign In this capture is: its card is
+    /// the ask's, and so is its settlement.
+    pub(super) ask: Option<super::cookie_asks::Parts>,
 }
 
 impl Capture {
@@ -45,7 +49,10 @@ impl Capture {
         Ok(())
     }
 
-    fn event(&self, stored_as: Option<String>) -> TranscriptEvent {
+    pub(super) fn event(&self, stored_as: Option<String>) -> TranscriptEvent {
+        if let Some(ask) = &self.ask {
+            return ask.event(self, stored_as);
+        }
         TranscriptEvent::CredentialAsk {
             from: None,
             id: self.id.clone(),
@@ -165,6 +172,7 @@ impl Room {
             existing,
             armed: false,
             status: CredentialStatus::Pending,
+            ask: None,
         };
         let event = capture.event(None);
         lock(&self.captures).insert(id.clone(), Arc::new(tokio::sync::Mutex::new(capture)));
@@ -214,6 +222,9 @@ impl Room {
         if capture.expires_at <= now_ms() || !capture.capability.is_current() {
             self.settle_capture(&mut capture, CredentialStatus::Expired, None);
             return Err(GONE.into());
+        }
+        if answer.save == Some(false) && capture.ask.is_none() {
+            return Err("Only a sign-in ask can give a login without saving it.".into());
         }
         let Some(name) = answer.name else {
             if answer.values.is_some() {
@@ -269,6 +280,11 @@ impl Room {
                     )?;
                     self.grant_captured_secret(&capture.persona, &name)?;
                     drop(held);
+                    if answer.save == Some(false)
+                        && let Some(ask) = capture.ask.as_mut()
+                    {
+                        ask.kept_until = Some(now_ms() + super::cookie_asks::UNSAVED_LOGIN_MS);
+                    }
                     self.secrets_changed().await;
                     self.settle_capture(&mut capture, CredentialStatus::Stored, Some(name));
                     return Ok(());
@@ -355,14 +371,20 @@ impl Room {
         true
     }
 
-    /// Saved cards cannot recreate a session lease after a restart.
+    /// Saved cards cannot recreate a session lease after a restart. A cookie
+    /// ask is a capture too, keyed by its own id.
     pub(super) fn expire_orphaned_credentials(self: &Arc<Self>) {
         for persona in room::roster(&self.log) {
             for (mut event, home) in self.cards_of(&persona.id) {
-                if event["kind"] != "credential_ask" || event["status"] != "pending" {
+                let key = match event["kind"].as_str() {
+                    Some("credential_ask") => "actionId",
+                    Some("cookie_ask") => "id",
+                    _ => continue,
+                };
+                if event["status"] != "pending" {
                     continue;
                 }
-                let Some(id) = event["actionId"].as_str().map(str::to_owned) else {
+                let Some(id) = event[key].as_str().map(str::to_owned) else {
                     continue;
                 };
                 if lock(&self.captures).contains_key(&id) {
@@ -379,10 +401,13 @@ impl Room {
         }
     }
 
+    /// A login is typed by the teammate's computer, or by its desk browser
+    /// when it has no computer.
     fn grant_captured_secret(&self, persona_id: &str, name: &str) -> Result<(), String> {
         let mut persona = self.persona(persona_id)?;
-        if !persona.computer.as_ref().is_some_and(|c| c.enabled) {
-            return Err("The computer grant ended.".into());
+        if !persona.computer.as_ref().is_some_and(|c| c.enabled) && !self.offers_browser(persona_id)
+        {
+            return Err("The teammate's browser is gone.".into());
         }
         let granted = persona.secrets.get_or_insert_default();
         if !granted.iter().any(|n| n == name) {
@@ -416,6 +441,17 @@ impl Room {
         status: CredentialStatus,
         name: Option<String>,
     ) {
+        if capture.ask.is_some() {
+            let outcome = match status {
+                CredentialStatus::Stored => CookieAskStatus::SignedIn,
+                CredentialStatus::Declined => CookieAskStatus::NotNow,
+                CredentialStatus::Expired => CookieAskStatus::Expired,
+                CredentialStatus::Withdrawn => CookieAskStatus::Withdrawn,
+                CredentialStatus::Pending => unreachable!("settlement is terminal"),
+            };
+            self.settle_ask(capture, outcome, name);
+            return;
+        }
         let notify_agent = capture.capability.is_current();
         capture.status = status;
         capture.capability.revoke();
@@ -494,7 +530,7 @@ fn matches_site(secret: &SharedSecret, site: &str, kind: CaptureKind) -> bool {
     }
 }
 
-fn watch(room: Weak<Room>, id: String) {
+pub(super) fn watch(room: Weak<Room>, id: String) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;

@@ -50,10 +50,6 @@ fn defaults() -> Map<String, Value> {
     settings.insert(LINK_PREVIEWS.into(), Value::Bool(true));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
-    settings.insert(
-        "cookieOffers".into(),
-        json!(hotline_contract::CookieOfferSettings::default()),
-    );
     settings.insert("images".into(), json!(ImageSettings::default()));
     settings.insert("spending".into(), json!(SpendingSettings::default()));
     settings
@@ -109,22 +105,10 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
                 )
             });
     }
-    if matches!(key, "images" | "spending" | "cookieOffers") && !value.is_object() {
+    if matches!(key, "images" | "spending") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
     }
     match key {
-        "cookieOffers" => {
-            let mut settings: hotline_contract::CookieOfferSettings =
-                serde_json::from_value(value.clone()).map_err(|_| {
-                    "Cookie offers must have an enabled switch and an optional list of sites."
-                        .to_string()
-                })?;
-            if let Some(sites) = &mut settings.sites {
-                sites.sort();
-                sites.dedup();
-            }
-            Ok(json!(settings))
-        }
         "images" => {
             let settings: ImageSettings = serde_json::from_value(value.clone()).map_err(|_| {
                 "Images settings must be an object with optional provider and model strings."
@@ -168,12 +152,6 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
         }
         _ => Ok(value.clone()),
     }
-}
-
-pub fn cookie_offer_settings(log: &Log) -> Result<hotline_contract::CookieOfferSettings, String> {
-    let value = normalize_setting("cookieOffers", &settings(log)["cookieOffers"])?;
-    serde_json::from_value(value)
-        .map_err(|_| "The room's cookie offer settings could not be read.".into())
 }
 
 /// How many teammates a desk can pin. Three faces fit a phone's header and
@@ -386,6 +364,11 @@ pub fn try_settings(log: &Log) -> Result<Map<String, Value>, String> {
     Ok(settings_from_events(&events))
 }
 
+/// Settings no feature reads any more, left on old rooms' streams and
+/// skipped on read: `cookieOffers` switched the desk's own cookie offers,
+/// which are gone, since a teammate asks for a sign-in instead.
+const RETIRED: [&str; 1] = ["cookieOffers"];
+
 pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     let mut settings = defaults();
     for event in events {
@@ -395,6 +378,9 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
         let Some(key) = event.get("id").and_then(Value::as_str) else {
             continue;
         };
+        if RETIRED.contains(&key) {
+            continue;
+        }
         let value = event.get("value").cloned().unwrap_or(Value::Null);
         let value = normalize_setting(key, &value).unwrap_or(value);
         settings.insert(key.to_string(), value);

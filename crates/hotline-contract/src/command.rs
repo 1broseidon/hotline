@@ -902,27 +902,26 @@ pub enum Command {
     /// The single owner/phone door for a live credential card.
     #[serde(rename = "secrets.capture.answer")]
     SecretsCaptureAnswer(CredentialAnswer),
-    /// Changes only a login or passkey's use policy; desk/owner only.
+    /// The person's sign-ins lent to a teammate, as metadata only.
     #[serde(rename = "computer.cookies.offers")]
     ComputerCookieOffers { persona_id: String },
-    /// The room's offer preference, readable by the phone too.
-    #[serde(rename = "computer.cookies.settings")]
-    ComputerCookieSettings {},
-    /// On-demand host-name discovery; desk and owner only, even while offers are off.
+    /// On-demand host-name discovery; desk and owner only.
     #[serde(rename = "computer.cookies.sites")]
     ComputerCookieSites {},
+    /// Answers a teammate's live cookie ask (`cookie_ask`): Use Cookies from
+    /// `source`, or the browser the card lists first; Open Browser; or Not now.
+    /// Sign In is `secrets.capture.answer` with the ask's id.
     #[serde(rename = "computer.cookies.answer")]
     ComputerCookieAnswer {
         persona_id: String,
         id: String,
         answer: CookieOfferAnswer,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        source: Option<CookieOfferSource>,
     },
     #[serde(rename = "computer.cookies.remove")]
     ComputerCookieRemove { persona_id: String, id: String },
-    #[serde(rename = "computer.cookies.blocked")]
-    ComputerCookieBlocked {},
-    #[serde(rename = "computer.cookies.reset")]
-    ComputerCookieReset { persona_id: String, site: String },
     #[serde(rename = "secrets.use.set")]
     SecretsUseSet { name: String, r#use: SecretUse },
     /// Answers one live computer use; desk, owner and phone only.

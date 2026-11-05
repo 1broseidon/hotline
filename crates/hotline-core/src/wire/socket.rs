@@ -475,7 +475,6 @@ fn independent(frame: &Value) -> bool {
             | Command::ComputerCookieSources {}
             | Command::ComputerCookieLendable {}
             | Command::ComputerCookieHolders {}
-            | Command::ComputerCookieSettings {}
             | Command::ComputerCookieSites {}
             | Command::SecretsList {}
             | Command::ThreadList { persona_id: None }

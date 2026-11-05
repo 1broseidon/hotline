@@ -12,8 +12,6 @@ import type {
 	CookieHolder,
 	CookieLend,
 	CookieOffer,
-	CookieOfferBlock,
-	CookieOfferSettings,
 	CookieOfferSites,
 	CookieSite,
 	CookieSources,
@@ -312,10 +310,7 @@ type Results = {
 	"computer.cookies.holders": CookieHolder[];
 	"computer.cookies.push": CookieSite[];
 	"computer.cookies.offers": CookieOffer[];
-	"computer.cookies.blocked": CookieOfferBlock[];
-	"computer.cookies.settings": CookieOfferSettings;
 	"computer.cookies.sites": CookieOfferSites;
-	"computer.cookies.reset": null;
 	"computer.cookies.answer": null;
 	"computer.cookies.remove": null;
 	/** Names, kinds and what each is for; never a value. */

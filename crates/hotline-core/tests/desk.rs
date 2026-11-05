@@ -81,8 +81,8 @@ mod desk {
     mod accounts;
     mod capture;
     mod connections;
+    mod cookie_asks;
     mod cookie_lends;
-    mod cookie_offers;
     mod logins;
     mod real_agents;
     mod secret_uses;

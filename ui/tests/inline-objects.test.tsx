@@ -157,6 +157,17 @@ describe("a table", () => {
 		expect(chips.map((chip) => chip.textContent)).toEqual(["qdrant.tech", "zilliz.com"]);
 	});
 
+	test("makes room for its sources: a chip is as wide as its words and never a share of its cell, so none runs past it", async () => {
+		await say("| Database | Sources |\n| --- | --- |\n| Qdrant | [Qdrant Benchmarks](https://qdrant.tech/benchmarks/) |");
+		const chip = sheet("table")!.querySelector<HTMLAnchorElement>("a.site-chip")!;
+		expect(chip.querySelector(".site-chip-name")?.textContent).toBe("Qdrant Benchmarks");
+		expect(chip.title).toBe("https://qdrant.tech/benchmarks/");
+		const css = readFileSync(new URL("../src/inline-objects.css", import.meta.url), "utf8");
+		const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, selector]) => /\.md-table td \.site-chip\s*$/.test(selector!.trim()));
+		expect(rules.map(([, , body]) => /width:\s*max-content/.test(body!))).toContain(true);
+		expect(rules.some(([, , body]) => /max-width:\s*\d+%/.test(body!))).toBe(false);
+	});
+
 	test("that fits its bubble is whole in it, with no cut and nothing to open", async () => {
 		await say(TABLE);
 		expect(sheet("table")?.hasAttribute("data-cut")).toBe(false);

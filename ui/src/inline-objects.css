@@ -161,11 +161,21 @@
 	.speech .md-table td:has(.site-chip) {
 		min-width: 9em;
 	}
+	/* A source's chip sets how narrow its column may go: a column of
+	 * sentences gives way instead, so no chip runs past its cell. A
+	 * percentage width here would count for nothing in the table's sums and
+	 * let the column squeeze under the chip; so it is as wide as its words,
+	 * which the column must make room for. One name too long for a chip at
+	 * all ends in an ellipsis, its whole address its tooltip. */
 	.md-table td .site-chip {
-		max-width: 100%;
-	}
-	.md-table td .site-chip {
+		width: max-content;
+		max-width: 28ch;
 		margin: 1px 6px 1px 0;
+	}
+	.md a.site-chip .site-chip-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.md-table table {
 		width: 100%;

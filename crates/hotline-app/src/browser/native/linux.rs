@@ -13,7 +13,6 @@
 use super::Step;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::oneshot;
 use webkit2gtk::gio::Cancellable;
@@ -56,19 +55,6 @@ fn send<T>(reply: &Reply<T>, answer: Result<T, String>) {
     if let Some(sender) = reply.lock().unwrap_or_else(PoisonError::into_inner).take() {
         let _ = sender.send(answer);
     }
-}
-
-/// The teammate's web data directory: its cookies, storage and cache, apart
-/// from Hotline's window and every other teammate's, under Hotline's own
-/// data directory and named by the same hash macOS names its store by.
-pub(super) fn store_dir(persona_id: &str) -> PathBuf {
-    let id: String = hotline_core::browser::store_id(persona_id)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    hotline_core::paths::data_root()
-        .join("desk-browser")
-        .join(id)
 }
 
 /// Where a page sits: the overlay it is in, the window's box it goes in
@@ -508,13 +494,5 @@ mod tests {
         );
         assert_eq!(key_of("a"), Some((u32::from(b'a'), false)));
         assert_eq!(key_of("Hyper+Q"), None);
-    }
-
-    #[test]
-    fn a_teammates_store_is_its_own_directory_under_hotlines() {
-        let quill = store_dir("quill");
-        assert!(quill.starts_with(hotline_core::paths::data_root().join("desk-browser")));
-        assert_ne!(quill, store_dir("kit"));
-        assert_eq!(quill, store_dir("quill"));
     }
 }

@@ -5,7 +5,8 @@
 //! wry answers neither a certificate WebKit refuses nor a load that failed
 //! to start, so the page would stay, without a word, on the one before. The
 //! desk listens for both on each teammate page, on each platform's terms
-//! (`trust/apple.rs`, `trust/linux.rs`): it says why a load failed, puts a
+//! (`trust/apple.rs`, `trust/linux.rs`, `trust/win.rs`, where WebView2
+//! would otherwise show Edge's own warning): it says why a load failed, puts a
 //! warning in the page's place, and lets a refused certificate through only
 //! when the person chose Visit anyway for that very certificate, by the
 //! SHA-256 of its leaf, for that teammate, host and port, until the desk
@@ -24,6 +25,10 @@ pub(super) use apple::{attach, forget};
 mod linux;
 #[cfg(target_os = "linux")]
 pub(super) use linux::{attach, forget, let_through};
+#[cfg(windows)]
+mod win;
+#[cfg(windows)]
+pub(super) use win::{attach, forget, watch_loads};
 
 /// The certificates the person chose to visit anyway: teammate, host:port
 /// and the leaf's SHA-256, for the desk's run.
@@ -32,7 +37,7 @@ pub(super) struct Exceptions(Mutex<HashSet<(String, String, String)>>);
 
 impl Exceptions {
     #[cfg_attr(
-        not(target_os = "macos"),
+        target_os = "linux",
         allow(
             dead_code,
             reason = "WebKitGTK is let through at Visit anyway, never asked at load time"
@@ -164,6 +169,13 @@ fn refused(tab: &Tab, untrusted: Untrusted, reason: &str) -> (String, String) {
 }
 
 /// What the call is told of a load that failed for any other reason.
+#[cfg_attr(
+    windows,
+    allow(
+        dead_code,
+        reason = "WebView2 puts its error page up, so the page is not still on the one before"
+    )
+)]
 fn failed(tab: &Tab, origin: &str, reason: &str) -> String {
     let shown = tab
         .shown

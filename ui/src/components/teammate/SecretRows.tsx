@@ -33,7 +33,7 @@ export function SecretRows({
 	onChange(granted: string[]): void;
 }) {
 	const [open, setOpen] = useState(false);
-	const deskBrowser = !computer && isDesktop() && (platform() === "macos" || platform() === "linux");
+	const deskBrowser = !computer && isDesktop() && ["macos", "linux", "windows"].includes(platform());
 	// The room ticks a passkey it stores, and the roster brings the tick.
 	const stored = useCallback(() => {}, []);
 

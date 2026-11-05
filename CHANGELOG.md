@@ -21,7 +21,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   computer with a switch. One switched off is never read, for anything. In
   Use lists every teammate holding your cookies and opens its pane.
 - A teammate with no computer has a browser of its own on the desk (macOS
-  14 and later, and Linux): it opens a page, reads it as text or links, and takes a
+  14 and later, Linux and Windows): it opens a page, reads it as text or links, and takes a
   screenshot, in a hidden window, without a container or MCP server. A page on this computer
   or the local network opens only after you allow that address and port for
   that teammate (Allow, Always allow or Deny); Hotline's own ports never
@@ -29,7 +29,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   while it works a picture of the page sits in the corner of the
   conversation: click it to watch in its own window, Take control, and Give
   it back. A page there never gets the microphone or camera, and an upload
-  field opens a file picker only while you have control.
+  field opens a file picker only while you have control. On Windows the
+  teammate's pointer isn't drawn over the page, and its browser offers no
+  passkeys, yours in Windows Hello included.
 - A teammate asks when it needs to be signed in to a site, with its reason,
   on one card: Use Cookies shares that site's cookies from your browser
   (named under it, with a choice when several have it), Sign In takes a

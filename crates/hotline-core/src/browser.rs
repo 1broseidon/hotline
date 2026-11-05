@@ -3,8 +3,8 @@
 //! container, MCP server or Playwright. The core owns what the agent may ask
 //! of it (the `browser` tool) and which addresses it may load; the app owns
 //! the web view and implements [`DeskBrowser`]. A desk with no window, such
-//! as `hotline serve`, a Mac before macOS 14 ([`kept_here`]) and Windows
-//! install none, and no teammate there is offered the tool.
+//! as `hotline serve`, and a Mac before macOS 14 ([`kept_here`]) install
+//! none, and no teammate there is offered the tool.
 //!
 //! Local addresses are guarded where the teammate asks for them
 //! (docs/security.md, "A teammate's browser"): its `navigate` to a page on
@@ -866,8 +866,9 @@ pub fn store_id(persona_id: &str) -> [u8; 16] {
 pub const MACOS_OWN_STORES: u32 = 14;
 
 /// Whether this system keeps a desk browser at all: macOS from
-/// [`MACOS_OWN_STORES`] on, and Linux, where WebKitGTK gives each teammate a
-/// web context on a data directory of its own. Windows has none yet. The app
+/// [`MACOS_OWN_STORES`] on; Linux, where WebKitGTK gives each teammate a
+/// web context on a data directory of its own; and Windows, where WebView2
+/// gives each an environment on a data directory of its own. The app
 /// installs one only where this holds, and a teammate is told it has one only
 /// where it does, so the two never disagree.
 pub fn kept_here() -> bool {
@@ -876,11 +877,11 @@ pub fn kept_here() -> bool {
         static KEPT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *KEPT.get_or_init(|| kept_on_macos(macos_major()))
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     {
         true
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         false
     }
@@ -979,9 +980,9 @@ mod tests {
             assert!(major >= 13, "{major}");
             assert_eq!(kept_here(), major >= MACOS_OWN_STORES);
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         assert!(kept_here());
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         assert!(!kept_here());
     }
 

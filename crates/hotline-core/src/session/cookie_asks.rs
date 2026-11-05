@@ -517,7 +517,8 @@ fn site_and_origin(named: &str) -> Option<(String, String)> {
     Some((site, format!("https://{host}")))
 }
 
-#[cfg(test)]
+/// Only the Unix wire tests (`wire/tests/cookie_asks.rs`) use these.
+#[cfg(all(test, unix))]
 impl Room {
     /// The tools the teammate's live session holds, under its own lease, so
     /// a stop ends what they raised.

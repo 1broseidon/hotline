@@ -117,7 +117,7 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(!child.contains("You have a computer"));
     // With no computer, the desk's own browser is its own, and "open" with no
     // browser named lands there rather than in the person's; but only on a
-    // desk that has one installed. `hotline serve`, Windows and a desk whose
+    // desk that has one installed. `hotline serve`, a Mac before 14 and a desk whose
     // app never put one in are told nothing of it, whatever the platform.
     assert!(
         !child.contains("You have a web browser of your own"),

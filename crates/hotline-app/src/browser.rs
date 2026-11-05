@@ -1,27 +1,31 @@
 //! Each teammate's own browser on the desk: a web view in a window of its own,
 //! hidden while the teammate works in it, that the core drives through
-//! [`DeskBrowser`] (`hotline_core::browser`). It is built on macOS (WKWebView)
-//! and Linux (WebKitGTK): both answer a script run in a world of the desk's
-//! own, out of the page's sight, and draw a snapshot of themselves. Windows
-//! installs nothing yet and no teammate there is offered the tool.
+//! [`DeskBrowser`] (`hotline_core::browser`). It is built on macOS (WKWebView),
+//! Linux (WebKitGTK) and Windows (WebView2): each answers a script run in a
+//! world of the desk's own, out of the page's sight, and draws a snapshot of
+//! itself. WebView2 has no content worlds of its own: there the desk's world
+//! is an isolated world Chromium makes for it through the DevTools protocol
+//! (`browser/native/win.rs`).
 //!
 //! The tabs, the [`DeskBrowser`] impl, how a load is waited for, a read, an
-//! act and the pane's bar commands are one code for both. Only the calls
-//! that need the platform's web view go through a small seam, `platform`:
-//! `apple` (`browser/native/apple.rs`) on macOS, `linux`
-//! (`browser/native/linux.rs`) on Linux. Each answers a script from its
-//! isolated world, steps through history, hides and shows the pane, puts the
-//! shield over a watched page, sends input as the person's own, and draws a
-//! snapshot; the pointer overlay (`hands`), certificate trust (`trust`), the
-//! first load (`guard`), lent cookies (`cookies`) and what a page may ask of
-//! the person's computer (`asks`) have a side for each.
+//! act and the pane's bar commands are one code for all three. Only the
+//! calls that need the platform's web view go through a small seam,
+//! `platform`: `apple` (`browser/native/apple.rs`) on macOS, `linux`
+//! (`browser/native/linux.rs`) on Linux, `win` (`browser/native/win.rs`) on
+//! Windows. Each answers a script from its isolated world, steps through
+//! history, hides and shows the pane, puts the shield over a watched page,
+//! sends input as the person's own, and draws a snapshot; the pointer
+//! overlay (`hands`, drawn on macOS and Linux only), certificate trust
+//! (`trust`), the first load (`guard`), lent cookies (`cookies`) and what a
+//! page may ask of the person's computer (`asks`) have a side for each.
 //!
 //! What it may load is the core's [`Gate`]: every top-level load, the
 //! agent's, the page's own and the person's, is asked first, and a frame
 //! inside the page is asked by the frame's rule, so neither reaches a file,
 //! the shell or one of the desk's own ports. On macOS the trust delegate
-//! tells the two apart; WebKitGTK says not which frame a load is for, so
-//! there every load is judged by the frame's rule. A page's popup (a
+//! tells the two apart, and on Windows WebView2's `NavigationStarting` and
+//! `FrameNavigationStarting`; WebKitGTK says not which frame a load is for,
+//! so there every load is judged by the frame's rule. A page's popup (a
 //! sign-in's, say) opens as a hidden window of its own beside the page, in
 //! the same store and with its opener, and the teammate's reads and acts go
 //! to it until it closes back to the page; downloads are refused. Closing a
@@ -29,7 +33,8 @@
 //! the desk kept for them, and a wipe its web storage. Each teammate's cookies
 //! and sign-ins live in a web data store of its own, apart from Hotline's
 //! window and every other teammate's: WebKit's store by an id on macOS, a
-//! data directory of its own under Hotline's on Linux. No capability names
+//! data directory of its own under Hotline's on Linux, and on Windows a
+//! WebView2 environment of its own on such a directory. No capability names
 //! these windows, so a page in one reaches none of the shell's commands.
 //! A page is never given the microphone, the camera or any other permission
 //! it asks for, and its file picker opens only while the person has
@@ -39,13 +44,17 @@
 //! Passkeys are answered on macOS only: WebKitGTK's UI-process API does not
 //! tell a script message which frame's origin sent it (only a web-process
 //! extension could, and none is built), and the desk takes an origin only
-//! from the web view, never from the page (`docs/security.md`).
+//! from the web view, never from the page (`docs/security.md`). On Windows
+//! WebView2's own WebAuthn would reach the person's Windows Hello, so a
+//! passkey call there is refused and reaches no authenticator
+//! (`browser/native/asks/win.rs`).
 
 use hotline_core::desk::Desk;
 use tauri::AppHandle;
 
 /// Installs the browser on this desk, where the system keeps one
-/// (`hotline_core::browser::kept_here`): macOS 14 and later, and Linux.
+/// (`hotline_core::browser::kept_here`): macOS 14 and later, Linux and
+/// Windows.
 /// Elsewhere nothing is installed and no teammate is offered the tool. The
 /// Door's port and, in development, the window's own dev server, are the
 /// ports it never opens, with every other port this process listens on and
@@ -65,25 +74,25 @@ pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
     {
         never.push(port);
     }
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         use tauri::Manager;
         let native = std::sync::Arc::new(native::Native::new(app.clone(), desk.browser_gate()));
         desk.install_browser(native.clone(), &never);
         app.manage(native);
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     let _ = (desk, never);
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 type Browsers<'a> = tauri::State<'a, std::sync::Arc<native::Native>>;
 type DeskState<'a> = tauri::State<'a, std::sync::Arc<Desk>>;
 
-const NOT_HERE: &str = "This desk keeps no browser: it needs macOS 14 or later, or Linux.";
+const NOT_HERE: &str = "This desk keeps no browser: it needs macOS 14 or later, Linux or Windows.";
 
 /// The desk's browsers, where it keeps them.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 fn browsers(app: &AppHandle) -> Result<Browsers<'_>, String> {
     use tauri::Manager;
     app.try_state().ok_or_else(|| NOT_HERE.to_string())
@@ -91,7 +100,7 @@ fn browsers(app: &AppHandle) -> Result<Browsers<'_>, String> {
 
 /// Whether the person has control of the teammate's browser now, as the
 /// core keeps it: from the pane's Take control until Give it back.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 fn person_has_it(desk: &Desk, persona_id: &str) -> bool {
     desk.browser_now(persona_id)
         .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person)
@@ -100,11 +109,11 @@ fn person_has_it(desk: &Desk, persona_id: &str) -> bool {
 /// The PIP's click: the teammate's browser pane, opened over the desk.
 #[tauri::command]
 pub fn browser_pane_open(app: AppHandle, persona_id: String, name: String) -> Result<(), String> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         browsers(&app)?.open_pane(&persona_id, &name)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = (app, persona_id, name);
         Err(NOT_HERE.into())
@@ -119,7 +128,7 @@ pub fn browser_bar_state(
     desk: DeskState<'_>,
     persona_id: String,
 ) -> Result<serde_json::Value, String> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         let taken = person_has_it(&desk, &persona_id);
         let mut state = serde_json::to_value(browsers(&app)?.bar_state(&persona_id, taken)?)
@@ -131,7 +140,7 @@ pub fn browser_bar_state(
             .into();
         Ok(state)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = (app, desk, persona_id);
         Err(NOT_HERE.into())
@@ -146,13 +155,13 @@ pub async fn browser_bar_take(
     persona_id: String,
     taken: bool,
 ) -> Result<(), String> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         let browsers = browsers(&app)?;
         desk.take_browser(&persona_id, taken).await?;
         browsers.shield(&persona_id, !taken)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = (app, desk, persona_id, taken);
         Err(NOT_HERE.into())
@@ -167,7 +176,7 @@ pub async fn browser_bar_trust(
     desk: DeskState<'_>,
     persona_id: String,
 ) -> Result<(), String> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         if !person_has_it(&desk, &persona_id) {
             return Err("Take control first: only you can visit past a certificate.".into());
@@ -177,7 +186,7 @@ pub async fn browser_bar_trust(
         desk.browser_person_moved(&persona_id).await;
         visited
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = (app, desk, persona_id);
         Err(NOT_HERE.into())
@@ -194,7 +203,7 @@ pub async fn browser_bar_go(
     step: Option<String>,
     url: Option<String>,
 ) -> Result<(), String> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         use hotline_core::browser::Step;
         if !person_has_it(&desk, &persona_id) {
@@ -218,7 +227,7 @@ pub async fn browser_bar_go(
             _ => Err("Nothing to go to.".into()),
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = (app, desk, persona_id, step, url);
         Err(NOT_HERE.into())
@@ -228,7 +237,7 @@ pub async fn browser_bar_go(
 #[cfg(target_os = "macos")]
 mod passkeys;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 mod native {
     mod cookies;
 
@@ -252,6 +261,7 @@ mod native {
     use tokio::sync::{oneshot, watch};
 
     mod asks;
+    mod edge;
     mod full_page;
     mod guard;
     #[cfg(target_os = "macos")]
@@ -259,17 +269,27 @@ mod native {
     #[cfg(target_os = "linux")]
     #[path = "linux/hands.rs"]
     mod hands;
+    #[cfg(windows)]
+    #[path = "win/hands.rs"]
+    mod hands;
     mod trust;
 
     #[cfg(target_os = "macos")]
     mod apple;
     #[cfg(target_os = "linux")]
     mod linux;
+    #[cfg(windows)]
+    mod win;
     /// The seam: the few calls that need the platform's own web view.
     #[cfg(target_os = "macos")]
     use apple as platform;
     #[cfg(target_os = "linux")]
     use linux as platform;
+    #[cfg(windows)]
+    use win as platform;
+    /// `view.inner()` on Windows, as the others spell their web view.
+    #[cfg(windows)]
+    use win::Inner;
 
     const WALK: &str = include_str!("browser/walk.js");
     const READ_TEXT: &str = concat!(
@@ -312,7 +332,9 @@ mod native {
     /// then the web view's own goes. On Linux the web view's own goes:
     /// WebKitGTK's standard agent is already Safari's form, on X11 with
     /// WebKitGTK's own version, the one Epiphany sends, and WebKit's own
-    /// quirks answer the few sites that want more.
+    /// quirks answer the few sites that want more. On Windows the web view's
+    /// own goes too: WebView2 sends Edge's agent, with its Chromium and Edge
+    /// versions, which is what it is.
     #[cfg(target_os = "macos")]
     fn safari_user_agent() -> Option<&'static str> {
         static AGENT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
@@ -333,8 +355,12 @@ mod native {
     }
     /// How often, and how far apart, a wiped store's removal is tried: WebKit
     /// refuses while a web view still uses it, and a closed window's go in
-    /// the main loop's next turns.
+    /// the main loop's next turns. WebView2's browser process holds its
+    /// files until it has exited, a few seconds after its last web view.
+    #[cfg(not(windows))]
     const REMOVE_TRIES: usize = 5;
+    #[cfg(windows)]
+    const REMOVE_TRIES: usize = 25;
     const REMOVE_WAIT: Duration = Duration::from_millis(400);
     /// What a call is told when the page opened a window, and when it closed.
     const POPUP_OPENED: &str = "The page opened a window of its own (a sign-in, say): your reads and acts are in it now. When it closes, as a sign-in's does once it is done, you are back on the page that opened it; navigating closes it.";
@@ -359,10 +385,11 @@ mod native {
     const BAR: f64 = 44.0;
     /// The window's own title bar above it: the traffic lights, the title
     /// and the place the person drags the window by, all macOS's. On Linux
-    /// the window manager draws the title bar outside the window.
+    /// the window manager draws the title bar outside the window, and on
+    /// Windows the system draws it outside the client area.
     #[cfg(target_os = "macos")]
     const TITLE: f64 = 28.0;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     const TITLE: f64 = 0.0;
 
     /// One teammate's browser: its window, the page and the bar in it, who
@@ -489,9 +516,11 @@ mod native {
     /// What the web view asks before a load: the gate's answer, and what
     /// the tab keeps of it. On macOS only the top of the window is asked
     /// here (the trust delegate judges a frame inside the page by the
-    /// frame's rule); WebKitGTK asks for every frame's load and says not
-    /// which, so there each is judged by the frame's rule, which a page's
-    /// own load meets too.
+    /// frame's rule), and on Windows too, where wry hands over WebView2's
+    /// `NavigationStarting`, which is the top of the window only (its
+    /// `FrameNavigationStarting` is the trust side's); WebKitGTK asks for
+    /// every frame's load and says not which, so there each is judged by
+    /// the frame's rule, which a page's own load meets too.
     fn navigating(
         gate: Arc<Gate>,
         tab: Arc<Tab>,
@@ -501,7 +530,7 @@ mod native {
             if !started.load(Ordering::Acquire) {
                 return false;
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             let admitted = gate.admits(url);
             #[cfg(target_os = "linux")]
             let admitted = gate.admits_frame(url);
@@ -572,6 +601,51 @@ mod native {
         platform::forget(view.clone());
         hands::forget(view.clone());
         trust::forget(view);
+    }
+    /// The shield and the hands are nothing kept on Windows: what goes is
+    /// the trust side's warning and the watch on the window's dialogs.
+    #[cfg(windows)]
+    fn forget_view(view: win::View) {
+        trust::forget(view.clone());
+        asks::forget(view);
+    }
+
+    /// The teammate's web data directory: its cookies, storage and cache,
+    /// apart from Hotline's window and every other teammate's, under
+    /// Hotline's own data directory and named by the same hash macOS names
+    /// its store by. WebKitGTK's web context is made on it on Linux, and
+    /// WebView2's environment on Windows.
+    #[cfg(any(target_os = "linux", windows))]
+    fn store_dir(persona_id: &str) -> std::path::PathBuf {
+        let id: String = hotline_core::browser::store_id(persona_id)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        hotline_core::paths::data_root()
+            .join("desk-browser")
+            .join(id)
+    }
+
+    /// A hidden window on the teammate's store that loads nothing, for its
+    /// cookies while its browser is closed: WebView2 reaches a profile only
+    /// through a web view on it. Made with the page's own arguments, as
+    /// every web view on one data directory must be.
+    #[cfg(windows)]
+    fn store_window(app: &AppHandle, persona_id: &str) -> Result<WebviewWindow, String> {
+        static OPENED: AtomicU64 = AtomicU64::new(0);
+        let (window, _, _) = labels_of(persona_id);
+        let label = format!("{window}-store-{}", OPENED.fetch_add(1, Ordering::SeqCst));
+        let blank = Url::parse("about:blank").map_err(|error| error.to_string())?;
+        WebviewWindowBuilder::new(app, &label, WebviewUrl::External(blank))
+            .visible(false)
+            .focused(false)
+            .data_directory(store_dir(persona_id))
+            .additional_browser_args(edge::BROWSER_ARGS)
+            .on_navigation(|_| false)
+            .on_new_window(|_, _| NewWindowResponse::Deny)
+            .on_download(|_, _| false)
+            .build()
+            .map_err(|error| format!("The browser's cookie store could not be opened: {error}"))
     }
 
     /// [`shut_popup`] once WebKit or GTK is out of the callback that asked:
@@ -673,6 +747,8 @@ mod native {
                     NewWindowResponse::Deny
                 }
             };
+            // WebView2's loads are counted by the trust side (`watch_loads`).
+            #[cfg(not(windows))]
             let loaded = {
                 let tab = self.tab.clone();
                 move |_: WebviewWindow, payload: tauri::webview::PageLoadPayload<'_>| {
@@ -691,8 +767,9 @@ mod native {
                     Arc::new(AtomicBool::new(true)),
                 ))
                 .on_new_window(nested)
-                .on_download(|_, _| false)
-                .on_page_load(loaded);
+                .on_download(|_, _| false);
+            #[cfg(not(windows))]
+            let builder = builder.on_page_load(loaded);
             #[cfg(target_os = "macos")]
             let builder = match safari_user_agent() {
                 Some(agent) => builder.user_agent(agent),
@@ -710,6 +787,17 @@ mod native {
             window
                 .with_webview(|view| linux::seat(view.inner(), false))
                 .map_err(|error| error.to_string())?;
+            // Settled before its first load, and its loads counted.
+            #[cfg(windows)]
+            {
+                let tab = self.tab.clone();
+                window
+                    .with_webview(move |view| {
+                        win::prepare(&view.inner());
+                        trust::watch_loads(view.inner(), tab, false);
+                    })
+                    .map_err(|error| error.to_string())?;
+            }
             {
                 let (persona, tab, exceptions, gate) = (
                     self.persona_id.clone(),
@@ -729,7 +817,7 @@ mod native {
                 window
                     .with_webview(move |view| {
                         let closed = move || shut_popup_later(&app, &tab);
-                        #[cfg(target_os = "macos")]
+                        #[cfg(any(target_os = "macos", windows))]
                         platform::watch_close(view.inner(), Box::new(closed));
                         #[cfg(target_os = "linux")]
                         {
@@ -765,6 +853,8 @@ mod native {
             }
             if self.tab.watched.load(Ordering::Acquire) {
                 let taken = self.tab.taken.load(Ordering::Acquire);
+                #[cfg(windows)]
+                let _ = window.show();
                 let _ = window.with_webview(move |view| {
                     platform::reveal(view.inner());
                     if taken {
@@ -904,12 +994,16 @@ mod native {
             let _ = window.set_title(&format!("{name}'s browser"));
             lay_out(&self.app, &tab);
             tab.watched.store(true, Ordering::Release);
+            #[cfg(windows)]
+            window.show().map_err(|error| error.to_string())?;
             self.page_view(persona_id)?
                 .with_webview(|view| platform::reveal(view.inner()))
                 .map_err(|error| error.to_string())?;
             let _ = window.set_focus();
             // A popup open over the page shows in front of it.
             if let Some(popup) = popup_view(&self.app, &tab) {
+                #[cfg(windows)]
+                let _ = popup.window().show();
                 let _ = popup.with_webview(|view| platform::reveal(view.inner()));
             }
             Ok(())
@@ -1069,6 +1163,8 @@ mod native {
             // Nothing loads until the desk's delegate is in front of wry's.
             let started = Arc::new(AtomicBool::new(false));
             let navigating = navigating(self.gate.clone(), tab.clone(), started.clone());
+            // WebView2's loads are counted by the trust side (`watch_loads`).
+            #[cfg(not(windows))]
             let loaded = {
                 let tab = tab.clone();
                 move |_: Webview, payload: tauri::webview::PageLoadPayload<'_>| {
@@ -1105,8 +1201,9 @@ mod native {
                 .background_throttling(BackgroundThrottlingPolicy::Disabled)
                 .on_navigation(navigating)
                 .on_new_window(popup)
-                .on_download(|_, _| false)
-                .on_page_load(loaded);
+                .on_download(|_, _| false);
+            #[cfg(not(windows))]
+            let page = page.on_page_load(loaded);
             #[cfg(target_os = "macos")]
             let page = {
                 let mut page = page
@@ -1119,7 +1216,12 @@ mod native {
             };
             // A web context of its own, on a data directory of its own.
             #[cfg(target_os = "linux")]
-            let page = page.data_directory(linux::store_dir(persona_id));
+            let page = page.data_directory(store_dir(persona_id));
+            // On Windows, a WebView2 environment of its own on it.
+            #[cfg(windows)]
+            let page = page
+                .data_directory(store_dir(persona_id))
+                .additional_browser_args(edge::BROWSER_ARGS);
             let page = window
                 .add_child(
                     page,
@@ -1132,6 +1234,16 @@ mod native {
             #[cfg(target_os = "linux")]
             page.with_webview(move |view| linux::seat(view.inner(), show))
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            // Settled before its first load, and its loads counted.
+            #[cfg(windows)]
+            {
+                let tab = tab.clone();
+                page.with_webview(move |view| {
+                    win::prepare(&view.inner());
+                    trust::watch_loads(view.inner(), tab, true);
+                })
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            }
             {
                 let (persona, tab, exceptions, gate) = (
                     persona_id.to_string(),
@@ -1178,7 +1290,7 @@ mod native {
             #[cfg(target_os = "linux")]
             bar.with_webview(|view| linux::seat_bar(view.inner(), BAR))
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             let _ = bar;
             {
                 let app = self.app.clone();
@@ -1197,6 +1309,8 @@ mod native {
                         tab.watched.store(false, Ordering::Release);
                         let views = [app.get_webview(&tab.page), popup_view(&app, &tab)];
                         for view in views.into_iter().flatten() {
+                            #[cfg(windows)]
+                            let _ = view.window().hide();
                             let _ = view.with_webview(|view| platform::conceal(view.inner()));
                         }
                         let (app, persona) = (app.clone(), persona.clone());
@@ -1753,6 +1867,19 @@ mod native {
 
         async fn close(&self, persona_id: &str, wipe: bool) -> Result<(), String> {
             self.close_tab(persona_id, wipe).await
+        }
+    }
+
+    #[cfg(all(test, any(target_os = "linux", windows)))]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_teammates_store_is_its_own_directory_under_hotlines() {
+            let quill = store_dir("quill");
+            assert!(quill.starts_with(hotline_core::paths::data_root().join("desk-browser")));
+            assert_ne!(quill, store_dir("kit"));
+            assert_eq!(quill, store_dir("quill"));
         }
     }
 }

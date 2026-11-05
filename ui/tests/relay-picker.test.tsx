@@ -109,6 +109,8 @@ async function mount(node = <RemoteSection />) {
 		restores.push(() => command.mockRestore());
 	}
 	await settle(() => root!.render(node));
+	const { activeDeskId } = await import("../src/desks");
+	console.error("DIAG relay-picker", JSON.stringify({ active: activeDeskId(), local: local.id, calls: calls.map((call) => call.cmd), storage: typeof localStorage === "undefined" ? "none" : localStorage.getItem("hotline.desk.active") }));
 }
 function text() { return container.textContent ?? ""; }
 function button(label: string) {

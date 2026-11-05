@@ -7,7 +7,7 @@
 	 * sheet reads on grey and on every teammate's tint, light and dark. */
 	.sheet {
 		position: relative;
-		margin: 0.6em 0;
+		margin: 0.8em 0;
 		overflow: hidden;
 		border-radius: var(--radius-pane);
 		background: var(--sheet);
@@ -105,7 +105,7 @@
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		font-weight: 500;
-		color: var(--ink-3);
+		color: var(--ink-4);
 		user-select: none;
 	}
 	.sheet-label b {
@@ -181,6 +181,17 @@
 	.speech .md-table th {
 		min-width: 4.5em;
 		overflow-wrap: break-word;
+	}
+	/* A heading wraps to two lines at most before its column widens. */
+	.speech .md-table th {
+		min-width: 7.5em;
+		text-wrap: balance;
+	}
+	.speech .md-table td:has(.site-chip) {
+		min-width: 9em;
+	}
+	.md-table td .site-chip {
+		max-width: 100%;
 	}
 	/* Wider than its bubble: a fade at the edge says the table goes on. */
 	.md-table[data-more] {
@@ -417,7 +428,7 @@
 		min-height: 0;
 		flex: 1;
 		overflow: auto;
-		padding: 8px 8px 24px;
+		padding: 8px 24px 32px 8px;
 		font-size: var(--text-read);
 		line-height: var(--text-read--line-height);
 		color: var(--ink);
@@ -539,7 +550,7 @@
 		margin: 0.6em 0;
 		padding: 2px 0 2px 12px;
 		box-shadow: inset 2px 0 0 var(--warn);
-		color: var(--ink-2);
+		color: var(--ink);
 	}
 	/* --------------------------------------------------------- flow chain
 	 * A diagram that is only a straight line: its steps as quiet chips with
@@ -552,11 +563,10 @@
 		margin: 0.6em 0;
 	}
 	.flow-step {
-		font-weight: 500;
 		color: var(--ink);
 	}
 	.flow-arrow {
-		color: var(--ink-3);
+		color: var(--ink-4);
 	}
 	.callout-icon {
 		flex-shrink: 0;

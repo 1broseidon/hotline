@@ -150,12 +150,12 @@ const COMPONENTS: Components = {
 	ol: ({ children, start }) => <ol style={start !== undefined && start !== 1 ? { counterReset: `md-item ${start - 1}` } : undefined}>{children}</ol>,
 
 	/* Only a warning or a caution is a callout; a note, a tip or an
-	 * "important" is a quote, its marker dropped, so a reply has one way to
-	 * set words apart and one way to warn. */
+	 * "important" is its words, as the prose around them, its marker
+	 * dropped: a quote is for quoting, and a reply has one way to warn. */
 	blockquote: ({ children, node }) => {
 		const alert = alertOf(node);
 		if (alert === null) return <blockquote>{children}</blockquote>;
-		if (alert !== "warning" && alert !== "caution") return <blockquote>{withoutMarker(children)}</blockquote>;
+		if (alert !== "warning" && alert !== "caution") return <>{withoutMarker(children)}</>;
 		return (
 			<div className="callout" data-alert={alert} role="note" aria-label={ALERT_LABELS[alert]}>
 				<WarningIcon className="callout-icon" />

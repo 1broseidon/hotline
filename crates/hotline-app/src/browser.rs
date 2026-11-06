@@ -388,6 +388,12 @@ mod native {
     /// The page's size: a common laptop viewport.
     const WIDTH: f64 = 1280.0;
     const HEIGHT: f64 = 800.0;
+    /// Where the person chooses Visit anyway on a desk with a window, as a
+    /// refused certificate's warning page (`trust.rs`) and the teammate are
+    /// told: the pane's bar, above the page.
+    const VISIT_ANYWAY_ON_PAGE: &str = "take control above and choose Visit anyway";
+    const VISIT_ANYWAY_FOR_TEAMMATE: &str =
+        "they open your browser's pane, take control and choose Visit anyway";
     /// The narrowest the window goes, as its own minimum: a phone-width
     /// page stands centred in it.
     const PANE_MIN_WIDTH: f64 = 480.0;
@@ -1844,6 +1850,11 @@ mod native {
             let answer = self.run_bare(persona_id, PAGE_SIZE.into()).await.ok()?;
             let size: Size = serde_json::from_str(&answer).ok()?;
             Some((size.width, size.height))
+        }
+
+        /// From a seat away from the desk, as the bar's own Visit anyway.
+        async fn visit_anyway(&self, persona_id: &str) -> Result<(), String> {
+            Native::visit_anyway(self, persona_id).await
         }
 
         async fn person_input(&self, persona_id: &str, input: &BrowserInput) -> Result<(), String> {

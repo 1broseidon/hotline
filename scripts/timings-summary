@@ -25,6 +25,7 @@ OWN = {
     "hotline-room",
     "hotline-mcp",
     "hotline-voice",
+    "hotline-browser-core",
 }
 
 

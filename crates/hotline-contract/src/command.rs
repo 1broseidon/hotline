@@ -865,6 +865,14 @@ pub enum Command {
     /// `BrowserSnapshot`. Owner or local desk only.
     #[serde(rename = "browser.go")]
     BrowserGo { persona_id: String, url: String },
+    /// Visit anyway, on a browser the person has taken over whose last load
+    /// was refused for its certificate: that very certificate, by its hash,
+    /// is let through for this teammate, host and port until the desk
+    /// stops, and the page loads again, as the pane's Visit anyway does.
+    /// Answers a fresh `BrowserSnapshot`. Owner or local desk only; a desk
+    /// that takes it says `browserVisitAnyway` in its hello.
+    #[serde(rename = "browser.visit_anyway")]
+    BrowserVisitAnyway { persona_id: String },
     /// Brings the computer up from the teammate's pane, with the session it
     /// serves: a teammate at rest starts, and a running one whose computer was
     /// stopped is attached to it again between turns.

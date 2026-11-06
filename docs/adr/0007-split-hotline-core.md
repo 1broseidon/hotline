@@ -56,9 +56,11 @@ not start it.
 | `hotline-tools` | the shell and workspace tools and the capability lease they check (`tools/`) | `hotline-contract`, `hotline-support` |
 | `hotline-room` | the room as the code above the core sees it (Next, step 1) | `hotline-contract`, `hotline-support`, `hotline-store`, `hotline-websearch` |
 | `hotline-mcp` | the MCP client (Next, step 2) | `hotline-contract`, `hotline-support`, `hotline-tools`, `hotline-room` |
+| `hotline-browser-core` | the desk browser's trait and types, its `Gate`, and the server helper's pipe (`browser/`, added for 0.48.2 so `hotline-browser` builds without the core) | `hotline-contract`, `hotline-support`, `hotline-store` |
 | `hotline-core` | everything else | all of the above |
 
-`hotline-app` and `hotline-cli` depend on `hotline-core` as now.
+`hotline-app` and `hotline-cli` depend on `hotline-core` as now;
+`hotline-browser`, the server's browser helper, on `hotline-browser-core`.
 
 Layers: `hotline-contract` and `hotline-support` first; `hotline-websearch`,
 `hotline-store` and `hotline-tools` on them; `hotline-core` on all five;

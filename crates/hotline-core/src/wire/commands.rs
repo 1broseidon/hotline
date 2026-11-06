@@ -808,6 +808,12 @@ pub(crate) async fn run(
                 .await
                 .map(|snapshot| json!(snapshot))
         }
+        Command::BrowserVisitAnyway { persona_id } => {
+            living(log, &persona_id)?;
+            room.browser_visit_anyway(&persona_id)
+                .await
+                .map(|snapshot| json!(snapshot))
+        }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;
             room.computer_status(&persona_id)

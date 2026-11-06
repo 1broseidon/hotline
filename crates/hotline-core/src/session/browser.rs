@@ -1302,6 +1302,22 @@ impl Room {
         Ok(self.browser_snapshot(persona_id))
     }
 
+    /// Visit anyway from a seat away from the desk, on a browser the person
+    /// has taken over: the browser lets through the certificate its last
+    /// load was refused on, as the pane's Visit anyway does (only that one,
+    /// by its hash, for this teammate, host and port, until the desk
+    /// stops), and loads the page again. Answers the page pictured after.
+    pub async fn browser_person_visit_anyway(
+        &self,
+        persona_id: &str,
+    ) -> Result<Option<BrowserSnapshot>, String> {
+        let browser = self.held_browser(persona_id)?;
+        let visited = browser.visit_anyway(persona_id).await;
+        self.browser_moved(persona_id, browser.as_ref()).await;
+        visited?;
+        Ok(self.browser_snapshot(persona_id))
+    }
+
     /// The person typed `url` into the teammate's browser bar with control:
     /// a local address is theirs to open, so it is allowed for that teammate
     /// and that host and port, as Allow on a card would, with no card. The

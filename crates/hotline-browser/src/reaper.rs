@@ -52,7 +52,7 @@ pub fn split() {
 fn reap(browser: libc::pid_t) -> ! {
     // SAFETY: the pipe is the browser's: with this copy closed, the desk
     // hears the browser hang up, not a reaper still holding it.
-    unsafe { libc::close(hotline_core::browser::pipe::PIPE_FD) };
+    unsafe { libc::close(hotline_browser_core::pipe::PIPE_FD) };
     for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
         // SAFETY: the handler only stores to an atomic. No SA_RESTART, so
         // a wait is interrupted to pass the stop on.

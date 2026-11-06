@@ -7,7 +7,7 @@
 //! id it waits on a reply to, or without one when nothing is answered (who
 //! took the browser over, the teammate's name); and the gate's answer to an
 //! ask. The helper sends [`Up`] lines: that it is ready, each call's reply,
-//! the address of every load it asks the desk's [`Gate`](super::Gate) about,
+//! the address of every load it asks the desk's [`Gate`](crate::Gate) about,
 //! and where a teammate's browser is ([`State`]) whenever that may have
 //! moved, so the trait's quick reads (`current`, `needs`, `size`) are
 //! answered on the desk's side from what was last said, without a wait.
@@ -18,12 +18,13 @@
 //! holds) is known only here.
 //!
 //! This file is both ends' shapes and the helper's end ([`answer`]); the
-//! desk's end, which starts and supervises the helper, is `helper.rs`.
+//! desk's end, which starts and supervises the helper, is the core's
+//! `browser/helper.rs`.
 
-use super::{Act, DeskBrowser, Reading, Step};
-use crate::contract::BrowserInput;
+use crate::{Act, DeskBrowser, Reading, Step};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use hotline_contract::BrowserInput;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -52,6 +53,7 @@ pub enum Call {
     Viewport { size: Option<(u32, u32)> },
     PageSize,
     PersonInput { input: BrowserInput },
+    VisitAnyway,
     Close { wipe: bool },
     Taken { taken: bool },
     Name { name: String },
@@ -85,7 +87,7 @@ pub enum Up {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    /// May a frame of a teammate's page load `url`? ([`super::Gate::admits_frame`])
+    /// May a frame of a teammate's page load `url`? ([`crate::Gate::admits_frame`])
     Ask { ask: u64, url: String },
     State {
         persona: String,
@@ -103,11 +105,11 @@ pub struct State {
 }
 
 /// A picture as a line carries it.
-pub(crate) fn picture_out(png: &[u8]) -> Value {
+pub fn picture_out(png: &[u8]) -> Value {
     Value::String(STANDARD.encode(png))
 }
 
-pub(crate) fn picture_in(value: &Value) -> Result<Vec<u8>, String> {
+pub fn picture_in(value: &Value) -> Result<Vec<u8>, String> {
     value
         .as_str()
         .and_then(|text| STANDARD.decode(text).ok())
@@ -115,7 +117,7 @@ pub(crate) fn picture_in(value: &Value) -> Result<Vec<u8>, String> {
 }
 
 /// One JSON line.
-pub(crate) fn line(value: &impl Serialize) -> String {
+pub fn line(value: &impl Serialize) -> String {
     let mut text = serde_json::to_string(value).expect("a pipe line always serializes");
     text.push('\n');
     text
@@ -293,6 +295,10 @@ async fn called(browser: &dyn DeskBrowser, persona: &str, call: Call) -> Result<
         Call::PageSize => value(&browser.page_size(persona).await),
         Call::PersonInput { input } => {
             browser.person_input(persona, &input).await?;
+            Value::Null
+        }
+        Call::VisitAnyway => {
+            browser.visit_anyway(persona).await?;
             Value::Null
         }
         Call::Close { wipe } => {

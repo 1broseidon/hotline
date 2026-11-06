@@ -899,7 +899,10 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// a teammate's reach or mode and its background work.
 /// `personaComputer`, also owner-only: `mobile.persona_computer`, enabling
 /// a computer and choosing resource limits. `browserDrive`, owner-only too:
-/// taking a teammate's desk browser over, driving it and handing it back. `computer.capacity` is read-only
+/// taking a teammate's desk browser over, driving it and handing it back.
+/// `browserVisitAnyway`, owner-only as well: `browser.visit_anyway`, past a
+/// certificate the browser refused, on one the owner has taken over; a desk
+/// from before it has no way past one from away. `computer.capacity` is read-only
 /// and available to every phone seat. `turnRetry`: `session.retry`, trying
 /// a failed turn again, so a phone shows Try again only where it works.
 /// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,

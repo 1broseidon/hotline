@@ -7,7 +7,7 @@
 //! it they are hidden, and shown again with the scroll.
 
 use super::Native;
-use hotline_core::browser::{DeskBrowser, FullPage};
+use hotline_browser_core::{DeskBrowser, FullPage};
 use serde::Deserialize;
 
 /// Notes where the page was scrolled to, to go back there after.

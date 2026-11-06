@@ -10,8 +10,8 @@
 use super::{Loads, Tab, asks, guard, hands, linux, lock, shut_popup, trust};
 use gtk::glib;
 use gtk::prelude::*;
-use hotline_core::browser::Gate;
-use hotline_core::browser::pipe::{Link, PIPE_FD};
+use hotline_browser_core::Gate;
+use hotline_browser_core::pipe::{Link, PIPE_FD};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;

@@ -1282,6 +1282,13 @@ impl RoomHandle for Desk {
         self.room.browser_person_go(persona_id, url).await
     }
 
+    async fn browser_visit_anyway(
+        &self,
+        persona_id: &str,
+    ) -> Result<Option<crate::contract::BrowserSnapshot>, String> {
+        self.room.browser_person_visit_anyway(persona_id).await
+    }
+
     async fn computer_status(
         &self,
         persona_id: &str,

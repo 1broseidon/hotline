@@ -11,14 +11,15 @@
 //! loads counted, downloads refused, and a web context of its own for each
 //! teammate, on a data directory under the desk's.
 //!
-//! What it may load is still the desk's [`Gate`](hotline_core::browser::Gate),
+//! What it may load is still the desk's [`Gate`](hotline_browser_core::Gate),
 //! asked over the pipe before every load of every frame ([`Link`]): the
 //! desk's own ports are known only to the desk.
 //!
 //! A server has no pane: nobody watches the page here, so there is no
-//! shield to raise or bar to answer, and Visit anyway, which only the bar
-//! offers, is not offered. The person drives a page they have taken over
-//! from the phone or a linked desktop, by the desk's pictures of it. A
+//! shield to raise or bar to answer. The person drives a page they have
+//! taken over from the phone or a linked desktop, by the desk's pictures of
+//! it, and chooses Visit anyway there (`browser.visit_anyway`), which lets a
+//! refused certificate through by the same trust code as the bar's. A
 //! page's file picker is refused even then: it would open on a display
 //! nobody sees, and a phone has no way to answer it.
 //!
@@ -27,6 +28,10 @@
 //! of pages and processes past the one in use: one web process a teammate,
 //! where the defaults keep three and twice the memory.
 
+#[allow(
+    dead_code,
+    reason = "the app's file: its picker refusal names the pane, which a server has none of"
+)]
 #[path = "../../hotline-app/src/browser/native/asks.rs"]
 mod asks;
 #[path = "../../hotline-app/src/browser/native/full_page.rs"]
@@ -44,17 +49,16 @@ mod hands;
 mod linux;
 #[allow(
     dead_code,
-    unused_imports,
-    reason = "the app's file: Visit anyway, which only its pane's bar offers"
+    reason = "the app's file: what its pane's bar shows of a certificate let through"
 )]
 #[path = "../../hotline-app/src/browser/native/trust.rs"]
 mod trust;
 mod views;
 
 use async_trait::async_trait;
-use hotline_core::browser::pipe::{Link, Up};
-use hotline_core::browser::{Act, Acted, DeskBrowser, Field, Page, Reading, Showing, Step};
-use hotline_core::contract::BrowserInput;
+use hotline_browser_core::pipe::{Link, Up};
+use hotline_browser_core::{Act, Acted, DeskBrowser, Field, Page, Reading, Showing, Step};
+use hotline_contract::BrowserInput;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -110,6 +114,15 @@ const SCRIPT_WAIT: Duration = Duration::from_secs(15);
 /// The page's size: a common laptop viewport, as the app's.
 const WIDTH: f64 = 1280.0;
 const HEIGHT: f64 = 800.0;
+/// Where the person chooses Visit anyway on a server, which has no pane,
+/// as a refused certificate's warning page (`trust.rs`) and the teammate
+/// are told: wherever they drive the browser from.
+const VISIT_ANYWAY_ON_PAGE: &str =
+    "take control from your phone or a linked desktop and choose Visit anyway";
+const VISIT_ANYWAY_FOR_TEAMMATE: &str = "they take control of your browser from their phone or a linked desktop and choose Visit anyway";
+/// What the call that made a page ask for a file hears: a server's browser
+/// opens no file picker, even for the person, so no file is uploaded there.
+const PICKER_REFUSED: &str = "The page asked to choose a file to upload, and a server's browser never opens a file picker, for you or the person: nothing was chosen or uploaded. If the task needs a file uploaded there, tell the person; it cannot be done from this browser.";
 
 /// One teammate's browser: its page and popup, as their web views' ids, and
 /// what the desk keeps of them. The fields the app's files read are named
@@ -198,7 +211,7 @@ pub fn run(data: &Path) -> Result<(), String> {
         let _ = looped.recv();
         let answered = runtime.block_on(async move {
             let stream = tokio::net::UnixStream::from_std(pipe)?;
-            hotline_core::browser::pipe::answer(stream, link, outbox, native, ready).await
+            hotline_browser_core::pipe::answer(stream, link, outbox, native, ready).await
         });
         if let Err(error) = answered {
             eprintln!("the desk's pipe failed: {error}");
@@ -243,7 +256,7 @@ impl Native {
     }
 
     fn store_dir(&self, persona_id: &str) -> PathBuf {
-        hotline_core::browser::store_dir(&self.data, persona_id)
+        hotline_browser_core::store_dir(&self.data, persona_id)
     }
 
     /// Closes the teammate's browser: its popup, its page, and all the desk
@@ -464,7 +477,7 @@ impl Native {
         let sender = Arc::new(Mutex::new(Some(sender)));
         on_view(front, move |view| linux::call(view, &body, sender));
         tokio::time::timeout(
-            SCRIPT_WAIT + Duration::from_millis(hotline_core::browser::WAIT_LIMIT_MS),
+            SCRIPT_WAIT + Duration::from_millis(hotline_browser_core::WAIT_LIMIT_MS),
             answer,
         )
         .await
@@ -666,7 +679,7 @@ impl DeskBrowser for Native {
         let began = {
             let loads = receiver.borrow();
             if loads.picker_refused {
-                return Err(asks::PICKER_REFUSED.into());
+                return Err(PICKER_REFUSED.into());
             }
             if let Some(blocked) = &loads.blocked {
                 return Err(format!(
@@ -728,7 +741,7 @@ impl DeskBrowser for Native {
         &self,
         persona_id: &str,
         most: usize,
-    ) -> Result<hotline_core::browser::FullPage, String> {
+    ) -> Result<hotline_browser_core::FullPage, String> {
         full_page::look(self, persona_id, most).await
     }
 
@@ -844,7 +857,66 @@ impl DeskBrowser for Native {
             .map(|untrusted| untrusted.label.to_string())
     }
 
+    /// Visit anyway from the phone or a linked desktop, as the app's bar
+    /// does it, by the same trust code: the certificate the page in front
+    /// was refused on is let through in the teammate's own web context, if
+    /// it is still the one with the hash the person was shown, and the page
+    /// loads again where it was refused.
+    async fn visit_anyway(&self, persona_id: &str) -> Result<(), String> {
+        let tab = self
+            .tab(persona_id)
+            .ok_or("That teammate's browser has closed.")?;
+        let untrusted = tab
+            .seen
+            .untrusted()
+            .ok_or("There is no refused certificate to visit past.")?;
+        let fingerprint = untrusted
+            .fingerprint
+            .ok_or("Hotline did not see that site's certificate. Reload and try again.")?;
+        let url = Url::parse(&untrusted.url)
+            .map_err(|_| "That address could not be read.".to_string())?;
+        self.shared
+            .exceptions
+            .add(persona_id, &untrusted.origin, &fingerprint);
+        let window = self.window(persona_id)?;
+        let origin = untrusted.origin.clone();
+        let (sender, answer) = oneshot::channel();
+        on_view(window, move |view| {
+            let _ = sender.send(trust::let_through(view, &origin, &fingerprint));
+        });
+        answer
+            .await
+            .map_err(|_| "The browser closed before it answered.".to_string())??;
+        tab.seen.clear();
+        tab.loads.send_modify(Loads::fresh);
+        let receiver = tab.loads.subscribe();
+        let before = receiver.borrow().finished;
+        let address = url.to_string();
+        on_view(window, move |view| {
+            use webkit2gtk::WebViewExt;
+            view.load_uri(&address);
+        });
+        self.settle(receiver, before, LOAD_WAIT).await.map(drop)
+    }
+
     async fn close(&self, persona_id: &str, wipe: bool) -> Result<(), String> {
         self.close_tab(persona_id, wipe).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A server has no pane and no bar above its page: its warning and the
+    /// teammate send the person to the seat they drive the browser from.
+    #[test]
+    fn a_servers_refused_certificate_sends_the_person_to_their_phone() {
+        for words in [VISIT_ANYWAY_ON_PAGE, VISIT_ANYWAY_FOR_TEAMMATE] {
+            assert!(words.contains("phone"), "{words}");
+            assert!(!words.contains("above"), "{words}");
+            assert!(!words.contains("pane"), "{words}");
+        }
+        assert!(!PICKER_REFUSED.contains("pane"));
     }
 }

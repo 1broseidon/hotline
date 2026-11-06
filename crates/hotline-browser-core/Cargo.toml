@@ -1,0 +1,30 @@
+[package]
+name = "hotline-browser-core"
+description = "A teammate's desk browser as the desk and its browsers share it: what the agent asks of a browser and what it answers (DeskBrowser and its types), which addresses a page may load (Gate), and the pipe the server's browser helper talks over. Depends on hotline-contract, hotline-support and hotline-store and no other Hotline crate by design, so the helper builds without the core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+hotline-store = { path = "../hotline-store" }
+async-trait = "0.1.92"
+serde.workspace = true
+serde_json.workspace = true
+url = "2.5.8"
+sha2 = "0.10"
+tokio = { workspace = true, features = ["net"] }
+
+# The pipe is a Unix socket.
+[target.'cfg(unix)'.dependencies]
+base64 = "0.22"
+tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

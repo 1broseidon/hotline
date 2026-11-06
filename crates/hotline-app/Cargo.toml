@@ -57,6 +57,10 @@ rand = "0.9"
 tokio-tungstenite = "0.30"
 futures-util = "0.3.34"
 hotline-core = { path = "../hotline-core" }
+# The desk browser's shared ground, named by its own crate in the browser's
+# files the server's helper compiles too (`browser/native/trust.rs`,
+# `linux.rs`, `full_page.rs`), where `hotline_core` is not linked.
+hotline-browser-core = { path = "../hotline-browser-core" }
 # Tauri's own `Url`, named by its crate in the browser's files the server's
 # helper compiles too (`browser/native/trust.rs`, `guard.rs`).
 url = "2.5.8"

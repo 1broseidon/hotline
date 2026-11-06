@@ -88,7 +88,7 @@ fn failure(domain: &str, code: i32, described: &str) -> Option<String> {
 /// The leaf certificate's SHA-256, in hex.
 fn fingerprint(certificate: &TlsCertificate) -> Option<String> {
     let der = certificate.certificate()?;
-    Some(hotline_core::browser::certificate_fingerprint(&der))
+    Some(hotline_browser_core::certificate_fingerprint(&der))
 }
 
 /// Notes what to put back after a failed load's own `Finished`.
@@ -111,7 +111,7 @@ pub(in super::super) fn attach(
     _persona_id: String,
     tab: Arc<Tab>,
     _exceptions: Arc<Exceptions>,
-    _gate: Arc<hotline_core::browser::Gate>,
+    _gate: Arc<hotline_browser_core::Gate>,
 ) {
     {
         let tab = tab.clone();

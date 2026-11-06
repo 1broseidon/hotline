@@ -4223,6 +4223,7 @@ dependencies = [
  "cairo-rs",
  "futures-util",
  "gtk",
+ "hotline-browser-core",
  "hotline-core",
  "javascriptcore-rs",
  "objc2",
@@ -4265,7 +4266,8 @@ dependencies = [
  "cairo-rs",
  "getrandom 0.3.4",
  "gtk",
- "hotline-core",
+ "hotline-browser-core",
+ "hotline-contract",
  "javascriptcore-rs",
  "libc",
  "serde",
@@ -4274,6 +4276,23 @@ dependencies = [
  "tokio",
  "url",
  "webkit2gtk",
+]
+
+[[package]]
+name = "hotline-browser-core"
+version = "0.48.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "hotline-contract",
+ "hotline-store",
+ "hotline-support",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -4329,6 +4348,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "hmac 0.12.1",
+ "hotline-browser-core",
  "hotline-contract",
  "hotline-core",
  "hotline-mcp",

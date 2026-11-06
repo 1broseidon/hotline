@@ -513,6 +513,11 @@ impl DeskBrowser for Helper {
         Ok(())
     }
 
+    async fn visit_anyway(&self, persona_id: &str) -> Result<(), String> {
+        self.ask(persona_id, Call::VisitAnyway).await?;
+        Ok(())
+    }
+
     fn taken(&self, persona_id: &str, taken: bool) {
         if let Some(conn) = self.running() {
             conn.tell(persona_id, Call::Taken { taken });

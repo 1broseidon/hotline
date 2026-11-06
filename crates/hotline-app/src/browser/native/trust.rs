@@ -10,10 +10,14 @@
 //! warning in the page's place, and lets a refused certificate through only
 //! when the person chose Visit anyway for that very certificate, by the
 //! SHA-256 of its leaf, for that teammate, host and port, until the desk
-//! stops. Only the bar, while the person has control, adds one; the
-//! teammate never can.
+//! stops. Only the person, while they have control, adds one: from the
+//! pane's bar on a desk with a window, from the phone or a linked desktop
+//! on a server (`browser.visit_anyway`); the teammate never can. Where that
+//! is, the warning page and the teammate are told in the parent's words
+//! (`VISIT_ANYWAY_ON_PAGE`, `VISIT_ANYWAY_FOR_TEAMMATE`), so each edition
+//! says what is true of it.
 
-use super::{Loads, Tab};
+use super::{Loads, Tab, VISIT_ANYWAY_FOR_TEAMMATE, VISIT_ANYWAY_ON_PAGE};
 use std::collections::HashSet;
 use std::sync::{Mutex, PoisonError};
 
@@ -141,9 +145,10 @@ html{{color-scheme:dark}}body{{margin:0;min-height:100vh;display:grid;place-item
 main{{max-width:440px;padding:32px}}h1{{font-size:22px;font-weight:600;margin:0 0 12px;color:#f2c46d}}p{{margin:0 0 10px;color:#b9b6ae}}b{{color:#e8e6e1;font-weight:600}}
 </style></head><body><main><h1>This connection is not private</h1>
 <p><b>{origin}</b> did not open: {reason}.</p>
-<p>The teammate cannot go past this. If you trust this site, take control above and choose Visit anyway.</p></main></body></html>"#,
+<p>The teammate cannot go past this. If you trust this site, {visit}.</p></main></body></html>"#,
         origin = escape(origin),
         reason = escape(reason),
+        visit = VISIT_ANYWAY_ON_PAGE,
     )
 }
 
@@ -152,7 +157,7 @@ fn origin_of(url: &str) -> Option<String> {
     url::Url::parse(url)
         .ok()
         .as_ref()
-        .and_then(hotline_core::browser::origin_key)
+        .and_then(hotline_browser_core::origin_key)
 }
 
 /// Keeps a load refused for its certificate for the bar, and answers the
@@ -166,7 +171,7 @@ fn refused(tab: &Tab, untrusted: Untrusted, reason: &str) -> (String, String) {
     (
         warning_page(&origin, reason),
         format!(
-            "{origin} did not open: {reason}. Your browser shows a warning in its place. Only the person can visit it anyway: they open your browser's pane, take control and choose Visit anyway. Ask them if the task needs it; you cannot do it yourself."
+            "{origin} did not open: {reason}. Your browser shows a warning in its place. Only the person can visit it anyway: {VISIT_ANYWAY_FOR_TEAMMATE}. Ask them if the task needs it; you cannot do it yourself."
         ),
     )
 }
@@ -209,6 +214,17 @@ mod tests {
         assert!(page.contains("&lt;x&gt;:443"));
         assert!(page.contains("a &quot;b&quot; &amp; c"));
         assert!(!page.contains("<x>"));
+    }
+
+    #[test]
+    fn the_warning_and_the_teammate_say_where_this_edition_visits_anyway() {
+        let page = warning_page(
+            "expired.example:443",
+            "its security certificate has expired",
+        );
+        assert!(page.contains(VISIT_ANYWAY_ON_PAGE), "{page}");
+        assert!(VISIT_ANYWAY_ON_PAGE.ends_with("choose Visit anyway"));
+        assert!(VISIT_ANYWAY_FOR_TEAMMATE.ends_with("choose Visit anyway"));
     }
 
     #[test]

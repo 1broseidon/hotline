@@ -170,14 +170,16 @@ impl Seat {
     }
 
     /// What this seat's hello says it can do: the phone's list, and
-    /// `personaAccess`, `personaComputer` and `browserDrive` (taking a
-    /// teammate's desk browser over and driving it) for the owner alone.
+    /// `personaAccess`, `personaComputer`, `browserDrive` (taking a
+    /// teammate's desk browser over and driving it) and `browserVisitAnyway`
+    /// (`browser.visit_anyway` on one taken over) for the owner alone.
     pub(super) fn capabilities(self) -> Vec<&'static str> {
         let mut capabilities = PHONE_CAPABILITIES.to_vec();
         if self == Seat::Owner {
             capabilities.push("personaAccess");
             capabilities.push("personaComputer");
             capabilities.push("browserDrive");
+            capabilities.push("browserVisitAnyway");
         }
         capabilities
     }

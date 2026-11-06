@@ -10,5 +10,7 @@ mod pair;
 mod relay;
 #[path = "serve.rs"]
 mod serve;
+#[path = "serve_browser.rs"]
+mod serve_browser;
 #[path = "update.rs"]
 mod update;

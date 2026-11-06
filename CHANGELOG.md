@@ -8,13 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-11-05
+
 ### Added
 
 - Your phone can take over a teammate's desk browser, as it can its
   computer: Take control, then tap, scroll, type, press keys, go back,
-  forward or reload, or open an address, and Give it back. The teammate waits while you
-  have it, as it does when you take over at the desk, and the picture keeps
-  up while you drive. Only a phone paired as the owner can.
+  forward or reload, or open an address, and Give it back. The teammate
+  waits while you have it, as it does when you take over at the desk, and
+  the picture keeps up while you drive. Only a phone paired as the owner
+  can.
 
 ### Changed
 

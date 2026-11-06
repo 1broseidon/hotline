@@ -17,17 +17,32 @@ Voice needs no key of its own. It uses the providers you have already
 connected, a speech model the desk downloads, or, on a Mac, the Mac's own
 speech recognition.
 
-## Something to hear you
+## Set up calls
 
-Hotline needs something that turns speech into words. Open **Settings →
-Providers → Use for → Transcription** and choose **Set up**. There are three
-kinds:
+**Settings → Providers → Calls → Model** chooses how a call runs:
+
+- **A live model**: Grok Voice, GPT-Live or GPT Realtime, listed once for
+  each connected login or key that runs it. It hears, talks and uses tools
+  in one stream, so it adds only a **Voice** row. Talk over it to interrupt.
+- **Turn by turn**: the teammate answers on its own model, and the desk
+  transcribes what you say and speaks the reply, with the **Transcription**
+  and **Speech** rows below. Tap to interrupt.
+- **Off**: no calls, to the desk or a teammate.
+
+With none chosen, calls run on Grok Voice when an xAI login or key is
+connected, and Turn by turn otherwise; with no live voice provider
+connected, the screen shows Turn by turn and its rows. **Call assistant**
+sits under both, see [Call the desk](#call-the-desk).
+
+### Transcription
+
+**Transcription** turns speech into words. There are three kinds:
 
 - **On this Mac.** Apple's on-device recognition. It is free and private,
   and nothing you say leaves the Mac. The language model downloads once.
 - **On the desk.** Speech models Hotline downloads once and runs itself, on
-  macOS, Windows, Linux or a server. They are free and private, and they cost
-  nothing against a budget.
+  macOS, Windows, Linux or a server, under **Models on the desk → Set up**.
+  They are free and private, and they cost nothing against a budget.
 
   | Model | Good for | Download |
   | --- | --- | --- |
@@ -41,10 +56,7 @@ kinds:
   that talks to this desk.
 - **A provider you connected**, such as OpenAI, Google, Groq, Mistral,
   OpenRouter or xAI. These hear you on calls only, are paid by the request,
-  and count against your **Voice** budget. An xAI sign-in with SuperGrok or
-  X Premium+ can hear and speak too, under your subscription rather than by
-  the request. It is never picked automatically: choose it yourself under
-  **Transcription** or **Voice**.
+  and count against your **Voice** budget.
 
 Dictation needs one of the first two: the Mac's own recognition or a speech
 model on the desk.
@@ -54,9 +66,7 @@ should expect. They already know your teammates' names, Hotline, and the
 providers you use, so they hear "Mack" rather than "Mac". Add anything else,
 such as a project name.
 
-To be spoken to on a call, the desk also needs a provider that can speak:
-the **Voice** row under **Use for**. Without one, a call can still hear you,
-but it has no voice.
+Turn by turn speaks with the provider on the **Speech** row.
 
 ## Dictate
 
@@ -130,7 +140,7 @@ room. An assistant answers in a sentence or two, hands work to your teammates
 by name, and tells you when it lands. Use it when you want to start several
 things at once without opening each conversation.
 
-Pick the model that answers in **Settings → Providers → Use for → Call
+Pick the model that answers in **Settings → Providers → Calls → Call
 assistant**. The same assistant also rewrites a teammate's reply for speech
 when the teammate wrote only the full version. A call to the desk is not
 kept as a thread; the work it hands out lands in each teammate's conversation.

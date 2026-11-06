@@ -10,12 +10,15 @@ Your room lives on your desk: this computer, or a server of your own.
 
 - What a teammate sends to the AI service it runs on, and what a coding tool
   such as Claude Code sends on its own behalf.
-- Speech and pictures sent to the provider chosen under **Use for**, when it
-  is not a model on this machine.
+- Speech and pictures sent to the provider chosen under **Use for** or
+  **Calls**, when it is not a model on this machine.
 - Web search queries, to the search providers switched on under
   **Settings → Tools → Web search**. Only the query is sent.
 - Whatever a teammate's tools, MCP servers and computer reach on the network.
-- The link previews shown under a message.
+- Link previews: the desk fetches a linked page's card, picture and site
+  icon over https, never from a local address. Turn them off under
+  **Settings → General → Conversations → Link previews**.
+- What a teammate's [desk browser](/docs/setup/browser/) opens.
 - Update checks to GitHub, for Hotline and for the computer image, and the
   daily read of the [Agent Client Protocol](https://agentclientprotocol.com)
   registry.
@@ -42,6 +45,9 @@ Set `HOTLINE_DATA_DIR` to put it somewhere else. Inside it:
 - `workspaces/`: the folders of teammates you did not give a folder to;
 - `skills/`: skills added under **From other folders**;
 - `acp-agents/`: agents downloaded from the registry;
+- `desk-browser/`: each teammate's [desk browser](/docs/setup/browser/),
+  its pages' storage and sign-ins, on Linux and Windows (on a Mac, WebKit
+  keeps it, one store per teammate);
 - `index.sqlite`: the search index, which can be rebuilt;
 - `cache/`: the day's copy of the agent registry, and the desk's speech
   models;
@@ -73,6 +79,11 @@ in owner-only files under its room.
 
 Nothing secret is ever written into a conversation, a teammate's folder, an
 agent's instructions or a log.
+
+Hotline reads your browsers' cookies only from the profiles switched on
+under **Settings → Secrets → Cookie Sources**, and only to share them: to
+list your sites when you open **Add Cookies** or a teammate asks, and to
+copy a site you shared into that teammate's browser, and nowhere else. See [Sign-ins](/docs/setup/sign-ins/).
 
 Teammates that run a coding tool such as Claude Code keep their own logins
 where that tool keeps them; Hotline holds nothing for them.

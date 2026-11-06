@@ -65,13 +65,20 @@ Open it with <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>I</kbd>, or by pressing the
 teammate's name at the head of the conversation. From the top:
 
 - **The card**: its picture, **Name** and **Goal**, each edited in place,
-  and its **Voice** on [calls](/docs/use/voice/). The goal is written into
-  its working directory as `AGENTS.md`.
+  the **Bubble** colour of its messages, **Team lead**, and its **Voice** on
+  [calls](/docs/use/voice/). The goal is written into its working directory
+  as `AGENTS.md`.
 - **Folders**: see below.
-- **Permissions**: **Whole machine** (Hotline Agent) or the tool's own
-  modes; **Background work**, whether it may schedule its own wakes; and
-  **Collaboration**, which colleagues may hand it work, each with **Revoke**.
-- **Computer**: a desktop of its own. See [The computer](/docs/setup/computer/).
+- **Permissions**, what it may reach: **Whole machine** (Hotline Agent) or
+  the tool's own modes; **Background work**, whether it may schedule its own
+  wakes; **Collaboration**, which colleagues may hand it work, each with
+  **Revoke**; and **Local addresses**, the ones its browser may open without
+  asking, each with **Remove**. See
+  [Desk browser](/docs/setup/browser/#local-addresses).
+- **Computer**, the machine: a desktop of its own. See
+  [The computer](/docs/setup/computer/).
+- **Secrets**, what it signs in with: logins, passkeys and your shared
+  cookies, whichever browser it has. See [Sign-ins](/docs/setup/sign-ins/).
 - **Tools**: which MCP servers and skills it gets, and what attached at its
   last start. See [Tools, skills and web search](/docs/setup/tools/).
 - **Schedules**: see [Schedules](/docs/setup/schedules/).

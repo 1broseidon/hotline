@@ -14,12 +14,31 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   desktop, and your phone is its screen: Take control, tap, type, and Give it
   back. It is opt-in: install with `--browser`, which adds WebKitGTK and Xvfb
   (about 500 MB), on x86_64 and ARM. Without them the server runs as before.
+- A desktop linked to a server opens a server teammate's browser in a viewer
+  of its own, from the corner picture or a sign-in ask's Open Browser: the
+  page shown large with the browser's own bar, where you take control, tap,
+  scroll, type, go back, forward or reload, open an address, and give it
+  back. Only a desktop paired as the owner can drive it; others watch.
+- Visit anyway works from away: past a certificate a teammate's browser
+  refused, a phone or linked desktop paired as the owner can choose Visit
+  anyway once it has taken control, as at the desk. The phone's button
+  comes in its next release.
 
 ### Changed
 
 - On a server, a teammate's sign-in ask offers Sign In and Open Browser, not
   Use Cookies, and Settings has no Cookie Sources: a server shares no
   cookies.
+- A server's browser helper is about an eighth of its old size (5 MB, from
+  37 MB) and no longer prints a CPU warning as it starts on ARM.
+- A server's browser that keeps crashing waits before starting again, from
+  a second up to a minute, and the teammate is told how long, instead of
+  starting it again at every page.
+- A server's log keeps the browser's own lines and real errors, without
+  GTK's and WebKit's routine warnings.
+- On a server, a refused certificate's warning says to take control from
+  your phone or a linked desktop, and a teammate that hits a file upload is
+  told the server's browser uploads no files.
 
 ## [0.48.1] - 2026-11-05
 

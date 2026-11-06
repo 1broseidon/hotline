@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import type { CookieOfferAnswer, CookieOfferSource, CredentialAnswer, TranscriptEvent } from "../../generated/contract";
 import { CloseIcon, LockIcon } from "../../icons";
 import { askKey, useAnswer } from "../../answering";
+import { useActiveDesk } from "../../desks";
 import { isDesktop } from "../../native";
 import { wire } from "../../wire";
+import { openRemoteBrowser } from "../RemoteBrowser";
 import { SettledAsk } from "./Asks";
 
 type Ask = Extract<TranscriptEvent, { kind: "cookie_ask" }>;
@@ -79,12 +81,14 @@ function Pending({ event, personaId, teammate, onOpenScreen }: { event: Ask; per
 			then?.();
 		});
 	};
-	// The teammate's own browser, where the person is: its pane on the desk,
-	// or its computer's screen in a window of its own.
+	const remote = useActiveDesk()?.kind === "remote";
+	// The teammate's own browser, where the person is: its pane on this desk,
+	// the window's viewer of it on another desk, or its computer's screen in
+	// a window of its own.
 	const openBrowser = () => {
-		if (event.deskBrowser === true) {
-			if (isDesktop()) void invoke("browser_pane_open", { personaId, name: teammate }).catch(() => {});
-		} else onOpenScreen?.();
+		if (event.deskBrowser !== true) onOpenScreen?.();
+		else if (remote) openRemoteBrowser(personaId, teammate);
+		else if (isDesktop()) void invoke("browser_pane_open", { personaId, name: teammate }).catch(() => {});
 	};
 	const signIn = () => {
 		if (answering || !form.current) return;

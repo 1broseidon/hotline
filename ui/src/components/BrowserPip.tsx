@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import type { BrowserView, Viewport } from "../generated/contract";
+import { useActiveDesk } from "../desks";
 import { CloseIcon } from "../icons";
 import { isDesktop } from "../native";
 import { wire } from "../wire";
+import { openRemoteBrowser } from "./RemoteBrowser";
 
 /** How long after the teammate's last move the PIP stays up. */
 const LINGER_MS = 45_000;
@@ -27,14 +29,17 @@ export function sizeName(viewport: Viewport | undefined): string | null {
  * up while the teammate is using it and for a while after, while the
  * person has it, and for as long as it waits on the person (`view.needs`,
  * as "Certificate expired"), which it marks in Needs-you amber. A click opens the browser pane, where the person watches
- * and can take control (crates/hotline-app/src/browser.rs). The picture is
- * the desk's last snapshot, fetched again whenever a newer one is taken.
+ * and can take control (crates/hotline-app/src/browser.rs); a browser on
+ * another desk has no pane here, so the click opens the window's viewer of
+ * it instead (RemoteBrowser). The picture is the desk's last snapshot,
+ * fetched again whenever a newer one is taken.
  */
 export function BrowserPip({ personaId, name, view }: { personaId: string; name: string; view: BrowserView | undefined }) {
 	const [picture, setPicture] = useState<string>();
 	const [dismissed, setDismissed] = useState<number>();
 	const [now, setNow] = useState(() => Date.now());
 	const [refused, setRefused] = useState<string>();
+	const remote = useActiveDesk()?.kind === "remote";
 
 	useEffect(() => {
 		const timer = setInterval(() => setNow(Date.now()), 5_000);
@@ -70,6 +75,10 @@ export function BrowserPip({ personaId, name, view }: { personaId: string; name:
 	} catch {}
 
 	const open = () => {
+		if (remote) {
+			openRemoteBrowser(personaId, name);
+			return;
+		}
 		if (!isDesktop()) return;
 		setRefused(undefined);
 		invoke("browser_pane_open", { personaId, name }).catch((reason) => setRefused(String(reason)));

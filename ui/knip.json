@@ -5,5 +5,5 @@
 		"src/generated/contract.ts": ["exports", "types"],
 		"src/{cadence,pacing,reveal}.ts": ["exports", "types"]
 	},
-	"ignoreFiles": ["src/computerViewer.css", "src/browserBar.css"]
+	"ignoreFiles": ["src/computerViewer.css"]
 }

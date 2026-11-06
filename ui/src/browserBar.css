@@ -1,7 +1,12 @@
-/* Hotline's bar above a teammate's desk browser (browserBar.ts): whose
- * browser, the page, and Take control / Give it back, in the computer
- * viewer's words and colours, so the two read as one product. */
-:root {
+/* Hotline's bar above a teammate's desk browser: whose browser, the page,
+ * and Take control / Give it back, in the computer viewer's words and
+ * colours, so the two read as one product. Two bars draw from these rules:
+ * the pane's own (browser.html, browserBar.ts) and the window's viewer of a
+ * browser on another desk (components/RemoteBrowser.tsx). So every rule is
+ * under `.browser-bar`, and the bar's colours are named on it rather than
+ * on :root, where they would repaint the window's own tokens of the same
+ * names. */
+.browser-bar {
 	--fill: #1c1c1f;
 	--raised: #2b2b30;
 	--rule: #38383d;
@@ -11,12 +16,13 @@
 	--you: #7fc4f0;
 	--mint: #86d69c;
 	--warn: #f0c27a;
-}
-html,
-body {
-	margin: 0;
-	height: 100%;
-	overflow: hidden;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 44px;
+	padding: 0 8px 0 12px;
+	box-sizing: border-box;
+	border-bottom: 1px solid var(--rule);
 	background: var(--fill);
 	font: 13px system-ui, -apple-system, "Segoe UI", sans-serif;
 	color: var(--ink-2);
@@ -26,16 +32,15 @@ body {
 	user-select: none;
 	cursor: default;
 }
-#bar {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	height: 44px;
-	padding: 0 8px 0 12px;
-	box-sizing: border-box;
-	border-bottom: 1px solid var(--rule);
+/* The pane is the bar and nothing else: its document is the bar's fill. */
+.browser-pane,
+.browser-pane body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: #1c1c1f;
 }
-.who {
+.browser-bar .who {
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
@@ -45,16 +50,16 @@ body {
 	border-right: 1px solid var(--rule);
 	color: var(--ink);
 }
-.dot {
+.browser-bar .dot {
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
 	background: var(--mint);
 }
-body.yours .dot {
+.browser-bar.yours .dot {
 	background: var(--you);
 }
-button {
+.browser-bar button {
 	font: inherit;
 	color: var(--ink);
 	background: transparent;
@@ -64,33 +69,37 @@ button {
 	padding: 0 12px;
 	cursor: pointer;
 }
-button:hover:not(:disabled) {
+.browser-bar button:hover:not(:disabled) {
 	background: var(--raised);
 }
-button:disabled {
+.browser-bar button:disabled {
 	color: var(--muted);
 	cursor: default;
 }
-button.icon {
+.browser-bar button.icon {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
 	width: 30px;
 	padding: 0;
 	font-size: 18px;
 	line-height: 1;
 }
-button.primary {
+.browser-bar button.primary {
+	flex: none;
 	background: var(--you);
 	color: #0d1a22;
 	font-weight: 600;
 }
-button.primary:hover {
+.browser-bar button.primary:hover {
 	background: #9bd2f4;
 }
-body.yours button.primary {
+.browser-bar.yours button.primary {
 	background: var(--raised);
 	color: var(--ink);
 	font-weight: 500;
 }
-#where {
+.browser-bar .where {
 	flex: 1;
 	min-width: 0;
 	display: flex;
@@ -101,33 +110,30 @@ body.yours button.primary {
 	border-radius: 8px;
 	background: var(--raised);
 }
-#lock {
-	font-size: 11px;
-	color: var(--muted);
-}
-#lock {
+.browser-bar .lock {
 	width: 12px;
 	height: 12px;
 	flex: none;
+	color: var(--muted);
 	background: currentColor;
 	-webkit-mask: none center / contain no-repeat;
 	mask: none center / contain no-repeat;
 }
-#lock.secure {
+.browser-bar .lock.secure {
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.5'/%3E%3Cpath d='M5.5 7V5a2.5 2.5 0 0 1 5 0v2'/%3E%3C/svg%3E");
 	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.5'/%3E%3Cpath d='M5.5 7V5a2.5 2.5 0 0 1 5 0v2'/%3E%3C/svg%3E");
 }
-#lock.local {
+.browser-bar .lock.local {
 	color: var(--warn);
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Cpath d='M2.5 8 8 3l5.5 5M4 7v6h8V7'/%3E%3C/svg%3E");
 	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Cpath d='M2.5 8 8 3l5.5 5M4 7v6h8V7'/%3E%3C/svg%3E");
 }
-#lock.excepted {
+.browser-bar .lock.excepted {
 	color: var(--warn);
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.5'/%3E%3Cpath d='M5.5 7V5a2.5 2.5 0 0 1 5 0'/%3E%3C/svg%3E");
 	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.5'/%3E%3Cpath d='M5.5 7V5a2.5 2.5 0 0 1 5 0'/%3E%3C/svg%3E");
 }
-#untrusted {
+.browser-bar .untrusted {
 	display: flex;
 	align-items: center;
 	gap: 6px;
@@ -135,19 +141,19 @@ body.yours button.primary {
 	color: var(--warn);
 	white-space: nowrap;
 }
-#untrusted[hidden] {
+.browser-bar .untrusted[hidden] {
 	display: none;
 }
-#visit {
+.browser-bar button.visit {
 	color: var(--warn);
 	border: 1px solid currentColor;
 	height: 26px;
 	padding: 0 10px;
 }
-#visit:disabled {
+.browser-bar button.visit:disabled {
 	color: var(--muted);
 }
-#url {
+.browser-bar .url {
 	flex: 1;
 	min-width: 0;
 	font: inherit;
@@ -157,13 +163,13 @@ body.yours button.primary {
 	outline: none;
 	text-overflow: ellipsis;
 }
-#url[readonly] {
+.browser-bar .url[readonly] {
 	color: var(--ink-2);
 	-webkit-user-select: none;
 	user-select: none;
 	pointer-events: none;
 }
-.error {
+.browser-bar .error {
 	color: var(--warn);
 	white-space: nowrap;
 	overflow: hidden;

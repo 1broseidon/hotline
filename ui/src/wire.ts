@@ -302,6 +302,8 @@ type Results = {
 	"browser.input": BrowserSnapshot | null;
 	"browser.step": BrowserSnapshot | null;
 	"browser.go": BrowserSnapshot | null;
+	/** Visit anyway: the certificate the last load was refused for is let through, and the page pictured once it loads. */
+	"browser.visit_anyway": BrowserSnapshot | null;
 	"computer.start": null;
 	"computer.stop": null;
 	"computer.remove": null;
@@ -446,6 +448,12 @@ export class Wire {
 	 * none, and neither does an older server: null is "not said".
 	 */
 	private said: string[] | null = null;
+	/**
+	 * What the desk's answer to this socket's `client.hello` said this seat
+	 * may do (`browserDrive`, `browserVisitAnyway`). A seat is the socket's,
+	 * so a new socket starts with nothing until its own hello is answered.
+	 */
+	private granted: readonly string[] = [];
 
 	constructor(private readonly endpoint: Endpoint) {}
 
@@ -461,6 +469,7 @@ export class Wire {
 		socket.onopen = () => {
 			this.failures = 0;
 			this.said = null;
+			this.granted = [];
 			// The window reads `threads2`: links and one delta for every kind
 			// of thread. The core reads the declaration as each frame is made,
 			// so it is made, and answered, before anything subscribes.
@@ -481,10 +490,15 @@ export class Wire {
 				this.outdated = true;
 				socket.close();
 			};
-			this.command("client.hello", { capabilities: [THREADS2, "rosterOptions"] }).then(
-				(hello) => (hello?.capabilities?.includes(THREADS2) ? ready() : refused()),
-				refused,
-			);
+			this.command("client.hello", { capabilities: [THREADS2, "rosterOptions"] }).then((hello) => {
+				if (!hello?.capabilities?.includes(THREADS2)) {
+					refused();
+					return;
+				}
+				// Kept before the state says open, so whoever hears "open" reads them.
+				if (this.socket === socket) this.granted = hello.capabilities;
+				ready();
+			}, refused);
 		};
 		socket.onmessage = (message) => this.receive(message.data);
 		socket.onclose = () => this.drop();
@@ -494,6 +508,15 @@ export class Wire {
 	/** What the desk's hello on this socket said it runs, or null when it said nothing. */
 	serves(): string[] | null {
 		return this.said;
+	}
+
+	/**
+	 * Whether the desk's hello on this socket lets this seat do `name`. It
+	 * changes only as the connection does, so `onConnection` is when to ask
+	 * again.
+	 */
+	can(name: string): boolean {
+		return this.granted.includes(name);
 	}
 
 	onConnection(watcher: (state: Connection) => void): () => void {

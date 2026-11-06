@@ -17,6 +17,10 @@
 //! [`Gate::admits_frame`] for a frame in one).
 
 pub mod authenticator;
+#[cfg(unix)]
+pub mod helper;
+#[cfg(unix)]
+pub mod pipe;
 
 use crate::contract::BrowserInput;
 use crate::log::{Log, StreamId};
@@ -89,7 +93,7 @@ const OLLAMA_PORT: u16 = 11434;
 const ALLOWED: &str = "browser_local_allowed";
 
 /// Where a teammate's browser is after a call that moved it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
     pub url: String,
     pub title: String,
@@ -98,7 +102,8 @@ pub struct Page {
 }
 
 /// A move through the browser's history, or the same page again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Step {
     Back,
     Forward,
@@ -106,7 +111,8 @@ pub enum Step {
 }
 
 /// What a read of the page returns.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Reading {
     /// The page as lines a model can read: headings, text, links, buttons and
     /// fields, each control with a ref.
@@ -120,7 +126,8 @@ pub enum Reading {
 /// One act on the page, on a ref from the latest text read where it needs
 /// one. Refs are the `e12` marks a text read puts on links and controls.
 /// Its debug form never shows what a fill types: it may be a password.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "act", rename_all = "snake_case")]
 pub enum Act {
     Click {
         target: String,
@@ -441,7 +448,7 @@ impl Field {
 /// every field but a masked password field. The core looks for a secret's
 /// value in it before and after a screenshot. It has no debug form: it may
 /// hold one.
-#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Showing {
     pub text: String,
@@ -496,7 +503,7 @@ pub const KEYS: [&str; 15] = [
 ];
 
 /// What an act left: the page it is on, and anything worth saying.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Acted {
     pub page: Page,
     pub note: Option<String>,
@@ -873,6 +880,18 @@ pub fn store_id(persona_id: &str) -> [u8; 16] {
     let mut id = [0u8; 16];
     id.copy_from_slice(&digest[..16]);
     id
+}
+
+/// A teammate's web data directory under the data directory `root`: its
+/// cookies, storage and cache, named by [`store_id`] in hex, as the Linux
+/// app names its own under Hotline's. The server's browser helper keeps
+/// each teammate's here, and a deleted teammate's is removed from here.
+pub fn store_dir(root: &std::path::Path, persona_id: &str) -> std::path::PathBuf {
+    let id: String = store_id(persona_id)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    root.join("desk-browser").join(id)
 }
 
 /// The oldest macOS whose WebKit keeps a web data store by an id

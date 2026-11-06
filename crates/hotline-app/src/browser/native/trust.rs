@@ -21,7 +21,10 @@ use std::sync::{Mutex, PoisonError};
 mod apple;
 #[cfg(target_os = "macos")]
 pub(super) use apple::{attach, forget};
+// Named by path, so the server's browser helper (`crates/hotline-browser`),
+// which compiles this file from here, finds the same one.
 #[cfg(target_os = "linux")]
+#[path = "trust/linux.rs"]
 mod linux;
 #[cfg(target_os = "linux")]
 pub(super) use linux::{attach, forget, let_through};
@@ -146,7 +149,7 @@ main{{max-width:440px;padding:32px}}h1{{font-size:22px;font-weight:600;margin:0 
 
 /// `host:port` as the gate and the bar key it.
 fn origin_of(url: &str) -> Option<String> {
-    tauri::Url::parse(url)
+    url::Url::parse(url)
         .ok()
         .as_ref()
         .and_then(hotline_core::browser::origin_key)

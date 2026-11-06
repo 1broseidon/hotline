@@ -4251,9 +4251,29 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
+ "url",
  "webkit2gtk",
  "webview2-com",
  "windows 0.61.3",
+]
+
+[[package]]
+name = "hotline-browser"
+version = "0.48.0"
+dependencies = [
+ "async-trait",
+ "cairo-rs",
+ "getrandom 0.3.4",
+ "gtk",
+ "hotline-core",
+ "javascriptcore-rs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "webkit2gtk",
 ]
 
 [[package]]

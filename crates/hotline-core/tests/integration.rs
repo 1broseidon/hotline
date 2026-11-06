@@ -21,6 +21,8 @@ mod mcp;
 mod rig_upgrade;
 #[path = "schedule.rs"]
 mod schedule;
+#[path = "server_browser.rs"]
+mod server_browser;
 #[path = "steering.rs"]
 mod steering;
 #[path = "threads.rs"]

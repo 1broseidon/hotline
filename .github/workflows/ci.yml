@@ -129,9 +129,11 @@ jobs:
   # server edition's floor, Ubuntu 22.04, with WebKitGTK, Xvfb and the fonts
   # the installer offers, driven headless through the desk's pipe (a page
   # loaded, pictured, tapped and typed into, the gate's refusal, a popup, a
-  # crash reaped and restarted), then through a real `hotline serve` from a
-  # phone paired as the owner. Both tests are ignored everywhere else: no
-  # other leg installs the browser's packages.
+  # crash reaped and restarted after its wait), then through a real `hotline
+  # serve` from a phone paired as the owner: driving a page, Visit anyway past
+  # a certificate `openssl s_server` presents, and a helper killed until its
+  # restart waits. Both tests are ignored everywhere else: no other leg
+  # installs the browser's packages.
   server-browser:
     runs-on: ubuntu-22.04
     timeout-minutes: 45

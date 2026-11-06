@@ -1,0 +1,4 @@
+# Never published: the design review's working shots, kept beside the page for a
+# redesign (git ignores them too). Workers reads this file and leaves them out.
+.hallmark
+.assetsignore

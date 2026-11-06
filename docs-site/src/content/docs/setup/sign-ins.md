@@ -66,6 +66,13 @@ ended. It also reaches a paired phone as a notification.
 The desk never offers your cookies by itself; a site you are signed into is
 shared only when you add it or answer a card.
 
+## On a server
+
+A server shares no cookies: it has no browsers of yours to read. Its
+sign-in card offers **Sign In** and **Open Browser**, never **Use Cookies**,
+and its Settings have no **Cookie Sources**. For a site with no login of its
+own, the teammate asks you for a password or a shared secret instead.
+
 ## Cookie Sources
 
 **Settings → Secrets → Cookie Sources** lists each browser and profile on

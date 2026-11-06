@@ -1,6 +1,6 @@
 ---
 title: Desk browser
-description: The web browser each teammate without a computer has on the desk, and how you watch it, take it over and size its pages.
+description: The web browser each teammate without a computer has on the desk or a server, and how you watch it, take it over and size its pages.
 ---
 
 A teammate with no [computer](/docs/setup/computer/) has a web browser of
@@ -9,10 +9,11 @@ screenshots in a hidden window, with no container or MCP server to set up.
 Each teammate's browser keeps its own sign-ins, apart from yours and from
 every other teammate's.
 
-It runs in the desktop app on macOS 14 and later, Linux and Windows. A desk
-with no window, such as `hotline serve`, and a Mac before macOS 14 have none,
-and no teammate there is offered it. A teammate with a computer uses the
-browser on its computer instead.
+It runs in the desktop app on macOS 14 and later, Linux and Windows, and on
+a server installed [with `--browser`](/docs/server/install/#a-browser-for-teammates).
+A Mac before macOS 14 and a server without WebKitGTK have none, and no
+teammate there is offered it. A teammate with a computer uses the browser on
+its computer instead.
 
 ## Your browser or its own
 
@@ -64,6 +65,26 @@ click, type and move the page yourself. **Give it back** returns it. A site
 on a certificate the browser doesn't trust opens only if you take control
 and choose **Visit anyway**.
 
+## On a server
+
+A server's browser has no window: its screen is your desktop app, with the
+server added, or your phone.
+
+In the desktop app the corner picture shows as it does on your own desk.
+Click it, or **Open Browser** on a sign-in card, and the browser opens in a
+viewer over the window, with the same bar: who is driving, the address,
+**Back**, **Forward** and **Reload**, and **Take control**. While you have
+it, the bar says **You have control**, and your clicks, scrolling, keys and
+pasted text go to the page. **Give it back**, or closing the viewer, returns
+it. Escape closes the viewer, except while you are typing in the page or the
+address. **Visit anyway** works here too.
+
+On the phone, the browser key in the conversation's header opens it full
+screen. See [Computer and browser](/docs/phone/computer/#desk-browser). The
+phone can't choose **Visit anyway** yet.
+
+Only the server's owner takes control; a companion watches.
+
 ## Page size
 
 `viewport` lays a page out and pictures it as another screen would:
@@ -90,6 +111,7 @@ again next time. Hotline's own ports never open, whatever you answer.
 ## Limits
 
 - A page never gets the microphone or camera.
-- An upload field opens a file picker only while you have control.
+- An upload field opens a file picker only while you have control, and
+  never on a server.
 - On Windows the teammate's pointer isn't drawn over the page, and the
   browser offers no passkeys, Windows Hello included.

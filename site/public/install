@@ -573,7 +573,21 @@ main() {
     [ -n "$version" ] || fail "could not find the latest release"
     version=${version#v}
     printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || fail "invalid version $version"
-    confirm_install || return 0
+    if ! confirm_install; then
+        # Already on this release: --browser on a server still adds the
+        # browser's packages, so a server installed without it gets one
+        # without reinstalling the desk.
+        if [ "$mode" = server ] && [ -n "$browser" ] && [ -z "$relay" ] && [ "$current" = "$version" ]; then
+            [ "$(uname -s)" = Linux ] || fail "the server install is for Linux with systemd; see https://hotline.dev/docs/server/"
+            ! unit_is_relay || fail "a relay runs no teammates, so it has no browser; leave out --browser"
+            browser_packages
+            if command -v apt-get >/dev/null 2>&1; then
+                as_root systemctl restart hotline
+                say "The browser is added and the desk restarted. Check: journalctl -u hotline | grep Browser:"
+            fi
+        fi
+        return 0
+    fi
 
     case "$mode" in
         server) server ;;

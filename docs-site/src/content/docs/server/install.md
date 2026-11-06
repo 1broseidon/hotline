@@ -71,8 +71,9 @@ curl -fsSL https://hotline.dev/install | sh -s -- --server --browser
 ```
 
 A first install at a terminal asks instead. To add the browser to a server
-installed without it, run the installer again with `--browser`, and
-`--force` if the server is already on the latest release. A relay runs no
+installed without it, run the installer again with `--browser`. On a
+server already on the latest release it only adds the packages and restarts
+the desk. A relay runs no
 teammates, so `--relay --browser` is refused. On a distribution without
 `apt-get`, install WebKitGTK 4.1, Xvfb and fonts yourself, then
 `sudo systemctl restart hotline`. The desk says what it found when it

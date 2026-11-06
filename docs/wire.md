@@ -1263,7 +1263,13 @@ An owner's hello adds `personaAccess` (`mobile.persona_access`),
 `personaComputer` (`mobile.persona_computer`) and `browserDrive`
 (`browser.take_over`, `browser.hand_back`, `browser.input`, `browser.step`
 and `browser.go`), and, when the desk can take
-calls, the voice capabilities ([Voice calls](#voice-calls)). `client.hello`
+calls, the voice capabilities ([Voice calls](#voice-calls)). An owner's and a
+companion's hello add `browserStream` where the desk's browser is a live
+screen (a server whose helper streams its pages): a teammate's browser opens
+at `/v2/browser/{personaId}/ws` in the computer viewer's protocol, which only
+the owner may drive ([Browser screens](#browser-screens)); without it a seat
+watches and drives by `browser.snapshot` and `browser.input`, which every
+desk still answers. `client.hello`
 answers the same list for its seat. A desk from
 before one of these sends it absent, and a phone reads that as "not on this
 desk", never as "nothing there"; asked anyway, such a desk refuses the
@@ -1445,6 +1451,51 @@ There is no viewer hello. Transport plaintexts are JSON envelopes:
 `{"type":"binary","data":"<standard padded base64>"}`. Inputs accept text
 only. The desk resolves the upstream from its own running computer status;
 the viewer address and bearer never leave the desk.
+
+### Browser screens
+
+A teammate's desk browser on a desk whose hello says `browserStream` opens at
+`<public-url>/v2/browser/{personaId}/ws`, as a computer's viewer does: Noise
+message 1 carries `{"purpose":"browser","personaId":"<id>"}`, bound to the
+path exactly as the computer's is (a computer's binding never opens the
+browser, nor the reverse), and the plaintexts are the same envelopes. The
+door admits the owner and a companion; through a relay the visitor path is
+`/relay/{deskId}/v2/browser/{personaId}/ws`.
+
+It speaks the computer viewer's protocol, so a viewer that draws a
+computer draws the browser. Down: binary frames, a 12-byte header of
+little-endian u16s (x, y, width, height, screen width, screen height) and a
+PNG of that rectangle, only for what changed, the whole page first and again
+whenever the page's size changes; and JSON text: `state` (below), `pointer`
+`{x, y}` (where the person's pointer went, which frames never draw),
+`paste` `{ok}`, `error` `{error, driving}` and `pong` `{id}`. Up, JSON text:
+`ping` `{id}`; `control` `{take}`; `move` `{x, y}`; `button` `{b, down}`
+(1 left, 2 middle, 3 right); `wheel` `{dx?, dy?}` (one notch, -1 or 1);
+`key` `{key, down}` (`KeyboardEvent.key`: a character, any, or a named key;
+a modifier is a key of its own); `paste` `{text}` (at most 1 MiB, no NUL).
+Nothing is answered with a picture, so input never waits on one. A message
+outside these is answered `error` and goes nowhere.
+
+`control` `{take: true}` is the browser's Take control (`browser.take_over`),
+for the owner only: a companion is answered `error` and watches. The seat
+that took it drives: its input reaches the page while the session's
+`browser.phase` is `person`; handed back from anywhere else, it watches
+again within a second. `{take: false}` is Give it back. A seat that
+drove and closed hands the browser back ten seconds later unless a seat of
+the person's took control again meanwhile (a viewer that reconnects sends
+`control` again). `state` is said at once and whenever it changes:
+`{holder, driving, running, completed, failed, browser}`, where `holder` is
+`you` (this seat drives), `person` (the person has it elsewhere), `agent`
+(the teammate drives) or `none`, the job counts are 0, and `browser` is
+`{phase, url, title, needs}` or null. The address, Back, Forward, Reload and
+Visit anyway stay the wire's `browser.go`, `browser.step` and
+`browser.visit_anyway`. A teammate with no page is answered `error` and the
+socket closes.
+
+The frames come no faster than the viewer takes them: each is read and
+encoded when the viewer's link has taken the one before, and covers
+everything that changed since, so a slow link is sent fewer, larger
+pictures rather than a queue of old ones.
 
 Remote controls require an owner or local desk seat, used by the window and CLI:
 

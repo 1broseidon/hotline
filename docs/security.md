@@ -1358,6 +1358,31 @@ themselves are compiled and linted for Windows from the Mac
   refused on, by its hash, for that teammate, host and port, until the desk
   stops, and loads the page again. A desk with no browser answers that it
   keeps none.
+- **A server's browser is a live screen, driven by the owner alone.**
+  (task-390.) Each teammate's page is a window of its own on the helper's
+  display, at its origin, its pixels kept in a pixmap of its own (Composite),
+  and streamed to a viewer as the computer streams its screen: damaged
+  rectangles as PNGs, at `/v2/browser/{personaId}/ws` behind the same Noise
+  binding, device grants and envelopes as `/v2/computer/…`, and on a linked
+  desktop at the bridge's `/browser/{personaId}/ws` behind a viewer token
+  minted for that persona's browser. The owner and a companion may watch;
+  `control` is `Room::browser_take` and the owner's alone, a companion is
+  refused it and anything that would move the page. The desk passes input on
+  only from the seat that took control while the phase is the person's, and
+  the helper drops it again unless the teammate's browser is taken
+  (`Taken`), so a viewer that never took control moves nothing. Input is
+  XTEST on the helper's own display, which only the helper's cookie opens;
+  before each gesture the person's hands raise the driven page's window and
+  give it the keyboard, so a key meant for one teammate's page never lands
+  in another's. The desk reaches the helper's screens through a Unix socket
+  in the helper's private folder (mode 0700, beside the display's cookie),
+  so no other user can open one. Loads still go through the gate, the bar's
+  commands are still the wire's, and file pickers still never open. A seat
+  that drove and vanished hands the browser back after ten seconds unless
+  the person took it again, so a teammate never waits on a phone that went
+  away. The helper's pages hide WebKit's overlay scrollbars (a user style
+  sheet; they take no room), which otherwise repaint forever once a pointer
+  has been over the page.
   Residual: what the person types from the phone reaches the page as
   typed, a password included, as it would at the desk; it is never written
   to the tape or the log, and only the page pictured after it is answered.
@@ -1462,6 +1487,7 @@ extend; when a change adds a boundary, it adds a row.
 | A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme; a frame loads `about:srcdoc`, `data:` and `blob:` but never a file, the shell or the desk; the desk's ports are every listener of the process and every running computer, asked at the load, on any local address or any name | `hotline-browser-core/src/tests.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`, `a_frame_loads_what_a_browser_would_but_files_the_shell_and_the_desk`, `a_desk_port_is_refused_by_any_name_and_any_local_address_but_not_a_public_one`, `every_listener_of_the_process_and_every_running_computer_is_the_desks`; `hotline-support/src/listening.rs` `a_port_is_held_while_any_holder_of_it_is_kept`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking, the frame split and popups are checked by hand |
 | Only the owner and the local desk take a teammate's desk browser over from the wire, drive it, visit past a refused certificate and hand it back; a companion phone is refused every one of those commands and changes nothing; input, steps and addresses are refused while the teammate drives and on a desk with no browser; while the owner's phone has it, the teammate's moves are refused and its reads go on, as for the pane's take-over; an address from away never opens the desk's own ports or a non-web scheme, and input of the wrong shape reaches nothing; a fresh picture is taken only while the person drives | `hotline-core/src/wire/tests/browser_drive.rs` `only_the_owner_and_the_desk_take_a_browser_over_and_drive_it`, `a_companion_phone_is_refused_every_driving_command`, `the_owners_phone_takes_over_taps_types_and_hands_back`, `the_owners_phone_visits_past_a_refused_certificate_only_with_control`, `an_address_from_away_meets_the_gate_and_bad_input_reaches_nothing`, `a_desk_with_no_browser_or_no_page_says_so`, `a_fresh_picture_is_taken_only_while_the_person_drives` | the platform's own tap, key, typing and scroll in a real web view, by hand in the Mac app; the Linux and Windows sides are not run on a Mac |
 | On a server the browser is a helper process the desk starts over a pipe: every load it asks is judged by the desk's own gate, a helper that dies fails the call in flight and a page after its wait starts another, a helper that keeps dying waits longer each time and is not started meanwhile, only a helper of the desk's own version is used, its display refuses a client without the cookie, and what it started is reaped when it dies; the owner's phone takes it over, taps, types and hands it back through a real `hotline serve` | `hotline-core/src/browser/helper/tests.rs` `every_load_the_helper_asks_about_is_judged_by_the_desks_own_gate`, `a_helper_that_dies_fails_the_call_in_flight_and_a_page_after_its_wait_starts_another`, `a_helper_that_cannot_start_is_said_and_tried_again_only_once_its_wait_is_over`, `a_helper_that_keeps_stopping_waits_longer_each_time_and_a_healthy_one_starts_over`, `only_a_helper_of_this_desks_own_version_is_used`, `whatever_a_dead_helper_left_in_its_group_goes_with_it`; `hotline-core/tests/server_browser.rs` `the_server_browser_loads_pictures_and_takes_the_teammates_and_the_persons_input`; `hotline-cli/tests/serve_browser.rs` `the_owners_phone_takes_a_server_teammates_browser_over_taps_types_and_gives_it_back` | Linux; the last two need WebKitGTK and Xvfb and run on the server-browser CI leg |
+| A server teammate's browser as a live screen: a browser viewer token opens only that persona's browser on that bridge, never its computer, and the owner's credential opens no screen; the door speaks the computer viewer's protocol (frames with their 12-byte header first); `control` is the browser's Take control and Give it back, for the owner alone; only the seat that took control reaches the page's hands, and only while the person has the browser; handed back elsewhere, that seat watches again; a companion watches and is refused control and paste; a seat that vanished while driving hands the browser back after its grace unless another took it; a teammate with no page is said so; a computer's Noise binding never opens the browser door, nor the reverse, and a relay grant is refused it; the hello says `browserStream` to the owner and a companion only where the browser streams; framing between the desk and the helper keeps messages whole and in order and holds the helper back for a slow viewer; and end to end through `hotline serve` and the bridge, the owner's desktop hovers, drags, types any character, pastes and presses Enter on a real page | `hotline-core/src/remote/tests/browser_screen.rs` (all), `remote/bridge.rs` `a_viewer_token_opens_the_one_screen_it_was_minted_for`, `remote/browser_screen.rs` tests, `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `remote/tests/relay.rs` `a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door`, `wire/tests/browser_drive.rs` `a_desk_whose_browser_streams_says_so_to_the_seats_that_watch_from_away`, `hotline-browser-core/src/screen_tests.rs`; `hotline-cli/tests/serve_browser.rs` `the_owners_desktop_drives_a_server_teammates_browser_live_with_real_hands` | the last needs WebKitGTK and Xvfb and runs on the server-browser CI leg; the desktop's viewer by eye in a running window |
 | A deleted teammate's desk browser is closed and its store wiped, and the room forgets its view and every answer about its local addresses, Always allow included; a computer turned on closes the desk browser and keeps its store and answers; a session is told of its desk browser only where one is installed | `hotline-core/src/mcp/server/tests/desk_browser.rs` `deleting_a_teammate_closes_and_wipes_its_browser_and_forgets_its_answers`, `a_computer_turned_on_closes_the_desk_browser_and_keeps_its_store`; `hotline-browser-core/src/tests.rs` `a_forgotten_teammates_answers_are_gone_from_the_run_and_the_room`; `session/tests/preamble.rs` `a_session_hears_of_its_desk_browser_only_where_one_is_installed` | WebKit's store removal is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
@@ -2615,10 +2641,14 @@ with a message or an aside, on one desk or across a link.
 ### Single-use loopback viewer tokens (BRO-148)
 
 - **Default and grant source:** the trusted shell calls
-  `Bridge::viewer_token(persona_id)` to mint an in-memory viewer capability. It
-  expires 30 seconds after minting and grants one WebSocket upgrade for that
-  persona, under the bridge's existing paired-device authority.
-- **Enforcement:** only `/computer/<that persona>/ws` accepts it, carried as
+  `Bridge::viewer_token(persona_id, viewer)` to mint an in-memory viewer
+  capability for one of the persona's screens, its computer or its browser
+  (task-390). It expires 30 seconds after minting and grants one WebSocket
+  upgrade for that persona's screen, under the bridge's existing
+  paired-device authority.
+- **Enforcement:** only `/computer/<that persona>/ws`, or
+  `/browser/<that persona>/ws` for a browser token, accepts it (a computer
+  token never opens the browser, nor the reverse), carried as
   `Sec-WebSocket-Protocol: hotline-viewer.<token>`. The bridge echoes the selected
   protocol. The token is never accepted on `/ws`, another persona, another bridge,
   or through the query string. Validation and consumption share one mutex, so

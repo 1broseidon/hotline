@@ -8,6 +8,23 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A desktop linked to a server watches and drives a server teammate's
+  browser live, as it does a teammate's computer: only what changed on the
+  page is sent, as it changes, and your pointer, wheel and keys reach the
+  page at once, hover and drag included, any character typed and text
+  pasted from your computer. On a local network a click shows in about 30 ms
+  instead of a third of a second, and a scroll runs at about 50 frames a
+  second instead of 6; an idle page sends nothing. Take control and Give it
+  back work as before, and only a desktop paired as the owner drives. The
+  phone gets it in its next release and keeps the pictures until then.
+
+### Changed
+
+- A server's browser takes about 40 MB less memory: its display runs
+  without the GL it never used.
+
 ## [0.48.2] - 2026-11-06
 
 ### Added

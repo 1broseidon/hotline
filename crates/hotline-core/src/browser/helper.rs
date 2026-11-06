@@ -378,6 +378,9 @@ impl Helper {
                 Ok(status) => eprintln!("[browser] the helper ({pid:?}) stopped: {status}"),
                 Err(error) => eprintln!("[browser] the helper ({pid:?}) was lost: {error}"),
             }
+            if let Some(group) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) {
+                let _ = tokio::task::spawn_blocking(move || clear_group(group)).await;
+            }
         });
         match ready {
             Ok(Ok(())) => Ok(conn),
@@ -396,6 +399,34 @@ impl Helper {
 
     fn state(&self, persona: &str) -> Option<State> {
         lock(&self.states).get(persona).cloned()
+    }
+}
+
+/// How long what a dead helper left in its process group has to be reaped.
+const CLEAR_WAIT: Duration = Duration::from_secs(5);
+
+/// Kills whatever a helper that is gone left in its process group, and
+/// reaps what of it this process was left. The helper's own first process
+/// reaps everything below it, so this finds nothing unless that process
+/// was killed outright: then its browser, display and WebKit's processes
+/// go to process 1, which is this desk in a container with no init, and
+/// would stay zombies of it. The group is the helper's alone (it was put
+/// in its own at spawn), so no other child's exit is taken here.
+fn clear_group(group: libc::pid_t) {
+    // SAFETY: a signal to the process group this desk made for its helper.
+    unsafe { libc::kill(-group, libc::SIGKILL) };
+    let deadline = std::time::Instant::now() + CLEAR_WAIT;
+    loop {
+        // SAFETY: a wait for any child in that group, without blocking.
+        let reaped = unsafe { libc::waitpid(-group, std::ptr::null_mut(), libc::WNOHANG) };
+        if reaped > 0 {
+            continue;
+        }
+        // None of the group is this process's child any more.
+        if reaped < 0 || std::time::Instant::now() >= deadline {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 

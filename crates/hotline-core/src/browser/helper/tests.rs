@@ -358,3 +358,31 @@ fn only_a_helper_of_this_desks_own_version_is_used() {
     assert!(older.contains("not this desk's version"), "{older}");
     assert!(ours("WebKitGTK 2.50.4").is_err());
 }
+
+#[tokio::test]
+async fn whatever_a_dead_helper_left_in_its_group_goes_with_it() {
+    let root = tempfile::tempdir().unwrap();
+    let left = root.path().join("left");
+    // Its first process killed outright, as if nothing reaped below it: a
+    // process it started is left running in its group.
+    let (program, _) = script(
+        root.path(),
+        &format!(
+            "sleep 300 &\necho $! > '{}'\nprintf '{{\"kind\":\"ready\",\"pid\":%s,\"display\":0}}\\n' $$ >&3\nread call <&3\nkill -9 $$",
+            left.display()
+        ),
+    );
+    let helper = Helper::new(program, root.path().to_path_buf(), gate(root.path()));
+    let url = Url::parse("https://example.com/").unwrap();
+    assert_eq!(helper.open("ada", &url).await, Err(STOPPED.into()));
+    let sleeper: libc::pid_t = std::fs::read_to_string(&left)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    crate::test_support::until("what the helper left is gone", || {
+        // SAFETY: a signal check of the process the script started, sending nothing.
+        unsafe { libc::kill(sleeper, 0) != 0 }
+    })
+    .await;
+}

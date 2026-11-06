@@ -188,6 +188,34 @@ describe("older lines arriving", () => {
 	});
 });
 
+describe("the line you sent, landing", () => {
+	test("keeps the conversation following when the written line takes its stand-in's row", async () => {
+		const said = (id: string): TranscriptEvent => ({ kind: "user", id, ts: 61, text: "Look at the renewals" }) as TranscriptEvent;
+		const draw = (events: TranscriptEvent[]) =>
+			root.render(<Transcript personaId="ada" name="Ada" events={events} streaming={[]} live={false} focus={null} />);
+		// Sent: the stand-in is the last row, and the column follows it.
+		await act(async () => draw([...lines(1, 60), said("saying:1")]));
+		const scroller = laidOut();
+		await scrolled(scroller);
+		expect(container.querySelector(".jump-latest")).toBeNull();
+
+		// The core writes the line: a row of its own in the stand-in's place,
+		// so the column is the height it was and nothing resizes.
+		await act(async () => draw([...lines(1, 60), said("u1")]));
+		await act(async () => new Promise((done) => setTimeout(done, 0)));
+		expect(container.querySelector('[data-event-id="u1"]')).not.toBeNull();
+		// WebKit has moved the scroll up by the row it took out: off the
+		// bottom by more than the slack, as a scroll of yours would be.
+		const bottom = scroller.scrollHeight - VIEW;
+		scroller.scrollTop = bottom - ROW;
+		await scrolled(scroller);
+
+		// It was not yours, so the conversation still follows, down to the line.
+		expect(container.querySelector(".jump-latest")).toBeNull();
+		expect(scroller.scrollTop).toBeGreaterThanOrEqual(bottom);
+	});
+});
+
 describe("a diagram", () => {
 	const diagram: TranscriptEvent = { kind: "agent", id: "d1", ts: 1, text: "```mermaid\ngraph TD; A-->B\n```" } as TranscriptEvent;
 

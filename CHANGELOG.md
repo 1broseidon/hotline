@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A message you send stays in view above the composer. Since 0.48.0 it
+  could land behind the composer with the jump to the latest showing, and
+  stay there until the teammate's next line arrived.
+
 ## [0.48.2] - 2026-11-06
 
 ### Added

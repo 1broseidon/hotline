@@ -160,6 +160,11 @@ impl Desk {
         self.room.install_browser(browser, never_ports);
     }
 
+    /// The desk shares no cookies: a server's (`Room::share_no_cookies`).
+    pub fn share_no_cookies(&self) {
+        self.room.share_no_cookies();
+    }
+
     /// The guard the app's browser asks before every top-level load.
     pub fn browser_gate(&self) -> Arc<crate::browser::Gate> {
         self.room.browser_gate()

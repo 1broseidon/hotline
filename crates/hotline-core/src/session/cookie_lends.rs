@@ -37,10 +37,15 @@ const RETRY_EVERY_MS: i64 = 5 * 60 * 1000;
 const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 /// The room record of the switched-off sources.
 const SOURCES_ID: &str = "cookie-sources";
+/// What a desk that shares no cookies says to a source switched.
+const NO_SOURCES: &str =
+    "This desk is a server: it shares no cookies, so it has no cookie sources.";
 
 /// What the room keeps for sharing, beside its stream.
 #[derive(Default)]
 pub(super) struct Lending {
+    /// The desk shares no cookies at all ([`Room::share_no_cookies`]).
+    none: std::sync::atomic::AtomicBool,
     /// The profiles switched off, as every discovered source checks them.
     pub(super) gate: lending::Gate,
     /// One share change at a time per teammate.
@@ -180,15 +185,41 @@ pub(super) fn start(room: &Arc<Room>) {
 }
 
 impl Room {
+    /// A desk with no window (`hotline serve`) shares no cookies
+    /// (decision-45): it reads no browser of the machine it runs on, so a
+    /// teammate's ask offers no Use Cookies and Settings lists no Cookie
+    /// Sources. The person signs the teammate in with a login, or in its
+    /// browser themselves.
+    pub fn share_no_cookies(&self) {
+        self.cookie_lending
+            .none
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether this desk shares the person's cookies at all.
+    pub(crate) fn shares_cookies(&self) -> bool {
+        !self
+            .cookie_lending
+            .none
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
     /// The browsers this desk could read: the host's, or a test's fixtures,
-    /// so no test ever opens the machine's own.
+    /// so no test ever opens the machine's own. None on a desk that shares
+    /// no cookies.
     #[cfg(not(test))]
     pub(super) fn host_candidates(&self) -> Vec<crate::computer::cookies::Candidate> {
+        if !self.shares_cookies() {
+            return Vec::new();
+        }
         crate::computer::cookies::candidates()
     }
 
     #[cfg(test)]
     pub(super) fn host_candidates(&self) -> Vec<crate::computer::cookies::Candidate> {
+        if !self.shares_cookies() {
+            return Vec::new();
+        }
         lock(&self.cookie_candidates).clone()
     }
 
@@ -859,6 +890,7 @@ impl Room {
         let mut sources = CookieSources {
             sources: Vec::new(),
             blocked: Vec::new(),
+            off: !self.shares_cookies(),
         };
         for browser in browsers {
             if let Some(reason) = browser.blocked_reason.filter(|_| browser.blocked) {
@@ -886,6 +918,9 @@ impl Room {
         profile_id: &str,
         on: bool,
     ) -> Result<CookieSources, String> {
+        if !self.shares_cookies() {
+            return Err(NO_SOURCES.into());
+        }
         if [browser_id, profile_id]
             .iter()
             .any(|id| id.is_empty() || id.len() > 256)

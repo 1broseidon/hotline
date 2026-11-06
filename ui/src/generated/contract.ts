@@ -753,7 +753,13 @@ export type CookieSource = { browserId: string, browserName: string, profileId: 
  * The cookie sources found, and why any installed browser could not be
  * looked into (macOS without Full Disk Access).
  */
-export type CookieSources = { sources: Array<CookieSource>, blocked: Array<string>, };
+export type CookieSources = { sources: Array<CookieSource>, blocked: Array<string>, 
+/**
+ * This desk shares no cookies at all: a server's (`hotline serve`),
+ * which reads no browser of the machine it runs on. Settings shows no
+ * Cookie Sources for it. Absent where the desk shares them.
+ */
+off?: boolean, };
 
 /**
  * Selected laptop cookies, transported inside the sealed owner channel.

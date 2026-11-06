@@ -220,3 +220,48 @@ fn granted(room: &Arc<Room>) -> Option<Vec<String>> {
         .unwrap()
         .secrets
 }
+
+#[tokio::test]
+async fn a_server_desk_asks_for_a_login_or_its_browser_and_never_shares_cookies() {
+    let browser = Arc::new(Browser::default());
+    let (room, _profiles) = desk_browser_cookie_room("desk-ask-served", browser.clone()).await;
+    // The person's Firefox here is signed in to porkbun.com, and a server
+    // reads it all the same for nothing.
+    room.share_no_cookies();
+    browser.visit("https://porkbun.com/");
+    let said = ask(&room, "porkbun.com").await.unwrap();
+    assert!(
+        said.contains("may give you a login or open your browser") && !said.contains("cookies"),
+        "{said}"
+    );
+    let card = asks(&room).remove(0);
+    assert_eq!(
+        card["sources"],
+        json!([]),
+        "no Use Cookies on desk, linked desktop or phone"
+    );
+    assert_eq!(card["deskBrowser"], true);
+    let id = card["id"].as_str().unwrap().to_string();
+    let used = answer(&room, &id, "use").await;
+    assert_ne!(used["ok"], true, "{used}");
+    assert!(browser.lent.lock().unwrap().is_empty());
+
+    // Settings has no Cookie Sources here, and none can be switched.
+    let sources = command(&room, Seat::Desk, "computer.cookies.sources", json!({})).await;
+    assert_eq!(
+        sources["result"],
+        json!({"sources": [], "blocked": [], "off": true})
+    );
+    let switched = command(
+        &room,
+        Seat::Desk,
+        "computer.cookies.source.set",
+        json!({"browserId": "firefox", "profileId": "Default", "on": false}),
+    )
+    .await;
+    assert_ne!(switched["ok"], true, "{switched}");
+
+    // Open Browser still hands the person the teammate's own browser.
+    assert_eq!(answer(&room, &id, "open_browser").await["ok"], true);
+    assert_eq!(asks(&room).remove(0)["status"], "opened");
+}

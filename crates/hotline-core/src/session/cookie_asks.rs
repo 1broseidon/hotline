@@ -198,8 +198,13 @@ impl Room {
             Some(crate::push::Waiting::CookieAsk { id: id.clone() }),
         );
         super::capture::watch(Arc::downgrade(self), id.clone());
+        let ways = if self.shares_cookies() {
+            format!("share their cookies for {site}, give you a login,")
+        } else {
+            "give you a login".to_string()
+        };
         Ok(format!(
-            "Asked: {id} waits on the desk and phone for two hours. The person may share their cookies for {site}, give you a login, or open your browser to sign in themselves. The outcome arrives as its own message, never with a value; carry on with what does not need {site}. Use withdraw_request with this id if you stop needing it."
+            "Asked: {id} waits on the desk and phone for two hours. The person may {ways} or open your browser to sign in themselves. The outcome arrives as its own message, never with a value; carry on with what does not need {site}. Use withdraw_request with this id if you stop needing it."
         ))
     }
 

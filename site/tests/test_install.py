@@ -625,6 +625,21 @@ main --server --version 0.26.0 --yes {args}
         self.server_run("--browser", unit_exists=True, hotline_exists=True)
         self.assertIn(self.BROWSER, self.actions())
 
+    def test_an_up_to_date_server_gets_the_browser_on_a_rerun_with_browser_without_force(self):
+        before = 'installed_version() { installed=1; current=0.26.0; }; uname() { echo Linux; }; command() { [ "$2" = apt-get ] && return 0; builtin command "$@"; }'
+        out = self.server_run("--browser", unit_exists=True, hotline_exists=True, before=before)
+        actions = self.actions()
+        self.assertIn(self.BROWSER, actions)
+        self.assertIn("systemctl restart hotline", actions)
+        self.assertIn("The browser is added", out)
+        self.assertFalse([a for a in actions if "/usr/local/bin/hotline " in a + " "], actions)
+
+    def test_an_up_to_date_server_without_browser_stays_as_it_is(self):
+        before = 'installed_version() { installed=1; current=0.26.0; }'
+        out = self.server_run("", unit_exists=True, hotline_exists=True, before=before)
+        self.assertIn("Already up to date", out)
+        self.assertEqual(self.actions(), [])
+
     def test_a_first_install_at_a_terminal_offers_the_browser_and_no_means_none(self):
         for answer, installs in (("N", False), ("y", True)):
             self.log.unlink(missing_ok=True)

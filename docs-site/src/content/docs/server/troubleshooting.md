@@ -51,6 +51,30 @@ or the `hotline` service account
 `npx`) is on that `PATH`, and sign the harness in as that account. See
 [Connect a model](/docs/server/models/).
 
+## Browser: off
+
+`journalctl -u hotline | grep Browser:` shows why the teammates have no
+browser, in brackets:
+
+| Why | What to do |
+| --- | --- |
+| `WebKitGTK is not installed (LIBRARY is missing)` | Run the installer again with `--browser`, adding `--force` if the server is already current. See [A browser for teammates](/docs/server/install/#a-browser-for-teammates). |
+| `Xvfb is not installed (the xvfb package)` | Install `xvfb`, then `sudo systemctl restart hotline`. |
+| `hotline-browser is not installed beside /usr/local/bin/hotline` | Put the same release's `hotline-browser` beside `hotline`: run the installer again, with `--force` if the server is already current, or copy it from the release archive ([Manual install](/docs/server/install/#install-it-as-a-service)). |
+| `hotline-browser is not this desk's version …` | The same: the two binaries must come from one release. |
+
+## "Your browser stopped again soon after it started"
+
+The teammate hears this when its browser keeps dying: the desk waits before
+starting it again, from one second doubling up to a minute, and the message
+says how many seconds are left. A browser that ran three minutes before it
+stopped starts the count over. The reason is in the log, on lines beginning
+`[browser]`:
+
+```sh
+journalctl -u hotline | grep '\[browser\]'
+```
+
 ## Another desk has the room
 
 `serve` refuses to start while the desktop app or another `serve` has the

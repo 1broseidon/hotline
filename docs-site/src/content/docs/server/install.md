@@ -61,7 +61,8 @@ the installer. Each says so and stops before changing anything.
 
 A teammate without a computer can have a web browser of its own on the
 server, as it does on the desktop: it reads pages, fills forms and signs in
-with the logins you give it, and you watch and take control from your phone.
+with the logins you give it, and you watch and take control from your phone
+or your desktop app. See [Desk browser](/docs/setup/browser/#on-a-server).
 It needs WebKitGTK, a virtual display (Xvfb) and fonts, about 500 MB on
 Ubuntu or Debian, x86_64 or ARM, so it is opt-in. Add `--browser`:
 
@@ -69,25 +70,38 @@ Ubuntu or Debian, x86_64 or ARM, so it is opt-in. Add `--browser`:
 curl -fsSL https://hotline.dev/install | sh -s -- --server --browser
 ```
 
-A first install at a terminal asks instead. Run it again with `--browser` to
-add the browser to a server installed without it. On a distribution without
-`apt-get`, install WebKitGTK 4.1, Xvfb and fonts yourself, then restart the
-unit. The desk says what it found when it starts:
+A first install at a terminal asks instead. To add the browser to a server
+installed without it, run the installer again with `--browser`. On a
+server already on the latest release it only adds the packages and restarts
+the desk. A relay runs no
+teammates, so `--relay --browser` is refused. On a distribution without
+`apt-get`, install WebKitGTK 4.1, Xvfb and fonts yourself, then
+`sudo systemctl restart hotline`. The desk says what it found when it
+starts:
 
 ```sh
 journalctl -u hotline | grep Browser:
 ```
 
-Without them the desk runs as before, and its teammates have no browser.
-A server never shares your own browsers' cookies: when a teammate asks to be
-signed in, you give it a login or take control and sign in yourself.
+```text
+Browser: on for teammates without a computer (WebKitGTK 2.50.4).
+```
+
+Without them the line says `Browser: off` and why (see
+[Troubleshooting](/docs/server/troubleshooting/#browser-off)), the desk runs
+as before, and its teammates have no browser. A server never shares your own
+browsers' cookies: when a teammate asks to be signed in, you give it a login
+or take control and sign in yourself. See
+[Sign-ins](/docs/setup/sign-ins/#on-a-server).
 
 The browser is `hotline-browser`, installed beside `hotline` and started by
 the desk at a teammate's first page. Each teammate's pages run in a process
 of their own, on a private display no other user on the server can reach.
 The browser takes about 450 MB of memory with one teammate on a simple page,
 and a teammate browsing heavy sites takes 500 to 600 MB of its own. If it
-stops, the desk starts it again at the next page.
+stops, the desk starts it again at the next page; one that keeps stopping
+waits first, from a second doubling up to a minute, and the teammate is told
+how long.
 
 ## Update a server
 

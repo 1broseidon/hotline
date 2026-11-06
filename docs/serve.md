@@ -356,8 +356,8 @@ of memory with one teammate on a simple page, and a teammate browsing heavy
 sites 500 to 600 MB of its own.
 
 A server shares no cookies from browsers of its own: a teammate's sign-in ask
-offers a login or the person's own sign-in through the phone, never Use
-Cookies, and Settings has no Cookie Sources.
+offers a login or the person's own sign-in through the phone or a desktop
+paired as the owner, never Use Cookies, and Settings has no Cookie Sources.
 
 ## Pair a device
 

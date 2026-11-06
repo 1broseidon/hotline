@@ -11,6 +11,13 @@ of its own under the room, and nothing else: no computer, no reach outside
 that workspace, no background work. Rename it, change its goal or remove it
 from the phone too.
 
+## The browser
+
+A teammate without a computer browses in a browser of its own on a server
+installed [with `--browser`](/docs/server/install/#a-browser-for-teammates).
+Watch it and take control from your desktop app or phone. See
+[Desk browser](/docs/setup/browser/#on-a-server).
+
 ## Give a teammate a computer
 
 A computer is a Linux desktop in a container on the server that the teammate

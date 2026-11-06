@@ -52,6 +52,7 @@ Everything is under the room, `/var/lib/hotline/room`:
 | `door.json` | How the terminal commands reach the running desk; removed on a clean stop |
 | `serve.json` | What the server runs; absent means agents and relay |
 | `pending.json` | What a restart kept for the next start; absent otherwise |
+| `desk-browser/` | Each teammate's [browser](/docs/setup/browser/#on-a-server) storage: cookies, sign-ins and cache |
 
 Back up the whole directory with the desk stopped, and encrypt the backup:
 it holds your keys.

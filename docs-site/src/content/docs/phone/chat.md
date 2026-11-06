@@ -26,20 +26,22 @@ working while the phone is closed.
   what it is; tap it to open it.
 - A file a teammate sends opens in place.
 
-<!-- TODO(phone 0.13, story 7, task-66): check the open view's band, code colour and file names, the callout and diagrams against the build. -->
+In a message, code names its language and file and colours its syntax, and
+a block of one line wraps. A `[!WARNING]` or `[!CAUTION]` quote is a
+callout. A straight-line flow reads as its steps; any other diagram shows
+its source, named Diagram.
 
-An opened table, code block, diagram or picture fills the screen under a
-band with back, who said it and when, what it is ("Rust · src/lease.rs · 48
-lines") and **Copy**, as on the desk. Code names its language and file and
-colours its syntax, a `[!WARNING]` or `[!CAUTION]` quote is an amber
-callout, and a diagram that branches is drawn.
+An opened table or code block, picture, document or page fills a sheet; pull
+it down to close it. Its band shows who said it and how long ago, with
+**Copy**, and over it what it is ("Table · 7 rows × 8 columns",
+"TypeScript · bills.ts · 24 lines"). A table keeps its head row and first
+column in place as it scrolls; code is numbered there.
 
-<!-- TODO(phone 0.13, story 6, task-63): check where the colours come from and whether the phone can change them. -->
+The desk's owner sees the desk's colours: its **Accent** on your bubble,
+**Send** and the call keys, and each teammate's **Bubble** on its replies,
+from desk 0.47.
 
-The phone wears the desk's colours: its **Accent** (**Settings → General**
-on the desk) and each teammate's **Bubble**.
-
-<!-- TODO(phone 0.13, story 9): check that the phone draws no card with the desk's switch off. -->
+<!-- TODO(phone 0.13, story 9): not in release/0.13.0 yet; the phone still fetches link cards itself. Check once previews come through the desk. -->
 
 Link cards come through the desk, so **Link previews** off on the desk
 (**Settings → General → Conversations**) turns them off on the phone too.
@@ -48,14 +50,15 @@ Link cards come through the desk, so **Link previews** off on the desk
 
 <!-- TODO(screenshot, iOS simulator): Noted, listing a teammate's asides; and a work thread's Loop in… choosing a colleague. -->
 
-<!-- TODO(phone 0.13, story 5, task-62): written from the plan. Check where Noted and Loop in… sit on the phone, and how a handed-off thread opens. -->
-
-- **Noted** lists a teammate's asides: what its threads and colleagues told
-  it without telling you, newest first.
-- **Loop in…** in a work thread brings in a colleague, who answers once in
-  the thread.
-- A work thread one teammate handed to another opens like any thread, and
-  you can talk in it.
+- An aside, what a teammate's threads and colleagues told it without
+  telling you, is a quiet (·) line in its conversation. Tap it to open the
+  thread it came from.
+- **Noted**, on the teammate's card between **Threads** and **Search**,
+  lists its asides under New and Earlier, with a count of the new ones.
+- **Loop in…**, in a work thread's menu, asks a colleague to answer once in
+  the thread. **End thread** is in the same menu.
+- You can talk in a thread one teammate handed to another. A bar says when
+  the handoff has ended.
 
 See [Teammates working together](/docs/use/teammates-together/).
 
@@ -70,12 +73,11 @@ A card in the conversation says what the teammate needs:
 | Permission to use a tool | **Allow** or **Deny** |
 | **Needs you**: something only you can do, like a sign-in | **Done** or **Won't do** |
 | A passkey to create | **Approve** or **Deny** |
-| A site to sign in to | **Use Cookies**, **Sign In**, **Open Browser**, or **Not now** |
+| A site to sign in to | **Use Cookies**, **Sign In**, **Open Browser** or **Not now** |
 
-The same buttons are on the notification. Your phone asks you to unlock it
-first, then sends the answer.
-
-<!-- TODO(phone 0.13, task-67): check the sign-in card against the build: the four answers, Face ID before Use Cookies, the browser choice, what Open Browser opens on the phone, and which buttons its notification carries. -->
+The same buttons are on the notification, except a sign-in's, which offers
+**Use Cookies** and **Not now**. Your phone asks you to unlock it first,
+then sends the answer.
 
 ### A sign-in
 
@@ -84,11 +86,14 @@ first, then sends the answer.
 A teammate that needs to be signed in to a site asks with the site and its
 reason, and counts as **Needs you** until you answer:
 
-- **Use Cookies** shares that site's cookies from your browser on the desk.
-  Choose the browser when several have it. The phone asks for Face ID first.
-- **Sign In** takes a username and password, which go to the desk, never
-  to the teammate.
-- **Open Browser** opens the teammate's browser for you to sign in yourself.
+- **Use Cookies** shares that site's cookies from your browser on the desk,
+  named under the buttons; choose one when several have it. The phone asks
+  for Face ID first, and the cookies go from the desk to the teammate,
+  never through the phone.
+- **Sign In** takes a username and password in the card. **Save to
+  Secrets** keeps the login on the desk. The teammate never sees either.
+- **Open Browser** opens the teammate's computer screen for you to sign in
+  yourself. It is offered only for a teammate with a computer.
 - **Not now** declines; it won't ask for that site again until you next
   write to it.
 

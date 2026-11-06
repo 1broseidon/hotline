@@ -35,19 +35,23 @@ screen, so a forgotten viewer doesn't drain the phone.
 
 ## Desk browser
 
-<!-- TODO(screenshot, iOS simulator): the chat header with the browser icon; then the desk browser full screen with its title, address and Take over. -->
-
-<!-- TODO(phone 0.13, story 4, task-65; desk 0.48.1, hotline task-382): written from George's spec, not a build. Check the icon, when it shows, the screen's contents, and the words Take over and Hand back. -->
+<!-- TODO(screenshot, iOS simulator): the conversation's header with the browser key lit; then the desk browser full screen with its title, address and Take control. -->
 
 A teammate with no computer browses in its
-[desk browser](/docs/setup/browser/). While it does, a browser icon sits in
-the conversation's header, where the computer key would be. Tap it to open
-the browser full screen, as the computer's screen opens: the page, its title
-and address, and **Take over**.
+[desk browser](/docs/setup/browser/). Its browser key sits in the
+conversation's header beside the computer's: lit while the browser is in
+use, amber while it waits on you, quiet otherwise. Tap it to open the
+browser full screen: the latest picture of the page in the page's shape,
+its title and address. Pinch to zoom, drag to look around, and double-tap
+to switch between fitting the page and one to one.
 
-After **Take over**, your taps, scrolling and typing go to the desk browser,
-and so do **Back**, **Reload** and the address. **Hand back** returns it to
-the teammate.
+**Take control** to drive it from the phone:
 
-Taking over needs desk 0.48.1 or later. An older desk shows the browser to
-watch only.
+- tap the picture to tap the page, and drag one finger to scroll it (two
+  fingers move the picture);
+- the keyboard types where the page has its focus, with keys above it for
+  Tab, Escape and the arrows;
+- **Back**, **Forward**, **Reload** and the address move the page.
+
+**Give it back** returns it to the teammate. Only the desk's owner can take
+control, and only on desk 0.48.1 or later; otherwise the phone watches.

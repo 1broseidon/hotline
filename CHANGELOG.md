@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-11-06
+
 ### Added
 
 - A server's teammates without a computer get a web browser, as on the

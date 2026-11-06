@@ -32,6 +32,8 @@ the server? [Run a relay](/docs/server/relay/): a Raspberry Pi is enough.
 - An address your phone can reach: the same network or VPN, or a public
   address or name.
 - Docker or Podman, only if a teammate will have a computer.
+- WebKitGTK and Xvfb, about 500 MB, only if teammates without a computer
+  will browse. The installer adds them [with `--browser`](/docs/server/install/#a-browser-for-teammates).
 - Node, if your teammates will run harnesses installed through `npx`.
 
 ## How the phone and the server trust each other

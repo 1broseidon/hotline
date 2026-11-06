@@ -33,9 +33,10 @@ repeating your message.
 
 ## Replies, reactions and copying
 
-Hover over a message for a small bar with **React**, **Reply** and **Copy**,
-or right-click it for the same actions as a menu. With a few words selected,
-right-click copies just those.
+Hover over a message for its one bar: **React**, **Reply** and **Copy**, or
+right-click it for the same actions as a menu. **Copy** takes the table or
+code under the pointer, or else the whole message. With a few words
+selected, right-click copies just those.
 
 - **Reply** quotes the message above the box ("Replying to…"). Press
   <kbd>R</kbd> on a teammate's message to do the same from the keyboard, and
@@ -43,9 +44,44 @@ right-click copies just those.
   back to the message it quotes.
 - **React** offers six emoji, the same ones as on the phone.
 
-Code blocks have a copy key in their corner. A bare link gets a preview
-card. Mermaid diagrams are drawn in place, with a toggle to see their source.
-Pictures and diagrams open full size in the window's own viewer.
+## Tables and code
+
+Tables, code and diagrams sit inline in the bubble:
+
+- A table's numbers stand right, and its sources show as site chips.
+- Code names its language, and its file when the fence gives one
+  (`` ```rust src/lease.rs ``), and colours its syntax. A block of one line
+  wraps.
+- A diagram that branches is drawn. A straight-line flow is written as one
+  line of steps.
+- A `[!WARNING]` or `[!CAUTION]` quote is an amber callout. `[!NOTE]`,
+  `[!TIP]` and `[!IMPORTANT]` read as plain text.
+
+A table or code block too wide or too long for the bubble is cut: what fits,
+faded at the edge, and a line saying what it is ("Table · 7 rows · 8
+columns", "24 lines"). From the keyboard, a table or code block takes the
+focus and <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>C</kbd> copies it.
+
+### The open view
+
+Click a table, code block or diagram to open it in the conversation's place.
+Pictures, captures of a computer's screen and opened files open the same
+way. The band at the top has **←** back (or <kbd>Esc</kbd>), who said it and
+when, what it is ("Rust · src/lease.rs · 48 lines") and **Copy**; the
+sentence that introduced it is its caption.
+
+- A table stands at its own width, with its head row held as it scrolls.
+- Code is numbered here.
+- A diagram zooms with a pinch or <kbd>⌘</kbd>/<kbd>Ctrl</kbd>-scroll and
+  pans with a drag. **Source** shows what it was written in.
+
+## Link previews
+
+A link gets a card: the site, the title and two lines about the page, with
+its picture when it has one. The desk fetches them over https, never from a
+local address. **Settings → General → Conversations → Link previews** off
+draws no card, picture or site icon, and the desk contacts no site a
+teammate linked to.
 
 ## Attach files and pictures
 

@@ -6,6 +6,20 @@ description: Where Hotline keeps everything, and what leaves your machine.
 Hotline is local-first. There is no Hotline account and no Hotline cloud.
 Your room lives on your desk: this computer, or a server of your own.
 
+## Local and cloud
+
+Local-first is about where Hotline keeps things, not where a model runs.
+
+- **Stays on your machine:** conversations, settings, schedules and keys.
+- **Goes to the model provider you connect:** what each turn sends it: the
+  current chapter's context, your message, and what the teammate reads
+  during the turn, such as files, pictures and tool results. A coding tool such as Claude Code sends its own, to its own
+  provider.
+- **With a local model** (Ollama Local, or an OpenAI-compatible server on
+  this machine) and the desk's own speech models, that stays here too.
+  Web search, link previews and a teammate's tools still reach the network,
+  as listed below.
+
 ## What leaves your machine
 
 - What a teammate sends to the AI service it runs on, and what a coding tool

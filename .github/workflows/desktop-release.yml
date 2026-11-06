@@ -230,8 +230,10 @@ jobs:
           if-no-files-found: error
 
   # The server edition: `hotline`, the desk with no window, for `hotline
-  # serve` under systemd (docs/serve.md). A tarball of the binary and its
-  # unit, beside the desktop packages in the same release; no updater.
+  # serve` under systemd (docs/serve.md), and `hotline-browser`, the
+  # teammates' browser it starts where WebKitGTK is installed. A tarball of
+  # the two binaries and the units, beside the desktop packages in the same
+  # release; `hotline update` replaces both.
   # Built on 22.04 so the binary needs glibc 2.35 at most and runs on Debian
   # 12 and Raspberry Pi OS bookworm (2.36); a 24.04 build needs 2.39.
   server:
@@ -261,23 +263,28 @@ jobs:
         shell: bash
         run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
       # libdbus only because the core links the keyring crate; `--store
-      # file` never talks to it.
+      # file` never talks to it. WebKitGTK's headers for hotline-browser,
+      # which links it; `hotline` never does.
       - name: Install the build's libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential libssl-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y --no-install-recommends build-essential libssl-dev libdbus-1-dev pkg-config libwebkit2gtk-4.1-dev
       - name: Build and pack
         env:
           SUFFIX: ${{ matrix.suffix }}
         run: |
           version="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
-          cargo build --release -p hotline-cli --locked
-          floor="$(objdump -T target/release/hotline | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
-          echo "hotline needs $floor"
-          [ "$(printf '%s\n' "$floor" GLIBC_2.35 | sort -V | tail -1)" = GLIBC_2.35 ] || { echo "::error::hotline needs $floor, above the 2.35 floor"; exit 1; }
+          cargo build --release -p hotline-cli -p hotline-browser --locked
+          for binary in hotline hotline-browser; do
+            floor="$(objdump -T "target/release/$binary" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
+            echo "$binary needs $floor"
+            [ "$(printf '%s\n' "$floor" GLIBC_2.35 | sort -V | tail -1)" = GLIBC_2.35 ] || { echo "::error::$binary needs $floor, above the 2.35 floor"; exit 1; }
+          done
+          # The server's binary must run where WebKitGTK is not installed.
+          ! ldd target/release/hotline | grep -E 'webkit|gtk' || { echo "::error::hotline links GTK or WebKit"; exit 1; }
           name="hotline-server_${version}_${SUFFIX}"
           mkdir -p "pack/$name" out
-          cp target/release/hotline packaging/hotline.service packaging/hotline-relay.service docs/serve.md LICENSE-APACHE LICENSE-MIT "pack/$name/"
+          cp target/release/hotline target/release/hotline-browser packaging/hotline.service packaging/hotline-relay.service docs/serve.md LICENSE-APACHE LICENSE-MIT "pack/$name/"
           tar -C pack -czf "out/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v7
         with:

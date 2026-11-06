@@ -4,6 +4,7 @@ import type { CookieHolder, CookieSources, Persona } from "../../generated/contr
 /** Who is on the team, as much as a row needs: its picture. */
 type Member = { id: string; avatar?: Persona["avatar"] };
 import { ChevronRightIcon } from "../../icons";
+import { useActiveDesk } from "../../desks";
 import { useCookiesRevision } from "../../room";
 import { Avatar } from "../../ui/Avatar";
 import { wire } from "../../wire";
@@ -16,12 +17,14 @@ function reason(error: unknown): string {
  * Settings › Secrets › Cookie Sources: each browser and profile on this
  * machine, a switch each. Off, the desk reads it for nothing, not even its
  * site names; the core holds that, this only says so. Listing them opens no
- * cookie store.
+ * cookie store. A server shares no cookies, so it has no group at all, nor
+ * a "Looking for browsers…" line before it says so.
  */
 export function CookieSourcesGroup() {
 	const [sources, setSources] = useState<CookieSources | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const remote = useActiveDesk()?.kind === "remote";
 	useEffect(() => {
 		let gone = false;
 		void wire
@@ -43,6 +46,7 @@ export function CookieSourcesGroup() {
 			setBusy(null);
 		}
 	};
+	if (sources?.off === true || (remote && sources === null)) return null;
 	return (
 		<section>
 			<h3 className="group-title">Cookie Sources</h3>

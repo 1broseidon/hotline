@@ -86,6 +86,9 @@ crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the sup
   lib.rs                     the servers settings name, a teammate's grant, the live connections
   tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
   oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
+crates/hotline-browser-core/src/ the desk browser as the desk and its browsers share it; on the leaves and the store
+  lib.rs                     DeskBrowser and its types, the Gate a page's loads are asked of, a teammate's web data
+  pipe.rs                    the JSON lines between `hotline serve` and its browser helper, and the helper's end
 crates/hotline-voice/src/     calls and voice engines; the room is reached through CallRoom
   call_room.rs               the core's callbacks, with temporary operations labelled by removal slice
   lib.rs, call.rs, input.rs   call ownership, lifecycle and bounded input
@@ -128,6 +131,7 @@ crates/hotline-core/models.json  the model catalogue: a filtered snapshot of mod
 crates/hotline-core/tests/   headless proofs driving the real core over the wire
 crates/hotline-app/          the Tauri 2 shell: plugins, the menu, the door
 crates/hotline-cli/          `hotline`: the desk with no window (`hotline serve`), and its operator commands
+crates/hotline-browser/      `hotline-browser`: the server's desk browser, Linux only, a helper `hotline serve` starts; it compiles the app's Linux browser files from crates/hotline-app, and stands on hotline-browser-core, not the core
 ui/                          the React window, built against the generated contract; ui/src/ui is the design system
 assets/                      the mark and the app tile it sits on; `make icons` renders the icon set from them
 docs/                        what is

@@ -601,6 +601,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<Option<hotline_contract::BrowserSnapshot>, String> {
         Err(NO_BROWSER.into())
     }
+    /// Visit anyway, on a desk browser the person has taken over whose last
+    /// load was refused for its certificate.
+    async fn browser_visit_anyway(
+        &self,
+        _persona_id: &str,
+    ) -> Result<Option<hotline_contract::BrowserSnapshot>, String> {
+        Err(NO_BROWSER.into())
+    }
     /// Brings a teammate's computer up with its session. A room with no
     /// computers under it has nothing to start.
     async fn computer_start(&self, _persona_id: &str) -> Result<(), String> {

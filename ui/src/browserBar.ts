@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { lockKind } from "./remoteBrowser";
 
 /**
  * Hotline's bar above a teammate's desk browser, in the pane the PIP opens
@@ -12,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 const persona = new URLSearchParams(location.hash.slice(1)).get("persona") ?? "";
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const bar = element("bar");
 const status = element("status");
 const url = element<HTMLInputElement>("url");
 const lock = element("lock");
@@ -46,7 +48,7 @@ function say(message: string | null) {
 
 function draw(state: BarState) {
 	taken = state.taken;
-	document.body.classList.toggle("yours", taken);
+	bar.classList.toggle("yours", taken);
 	document.title = state.title ? `${state.name}: ${state.title}` : `${state.name}'s browser`;
 	status.textContent = taken ? "You have control" : `${state.name} is driving`;
 	take.textContent = taken ? "Give it back" : "Take control";
@@ -58,21 +60,7 @@ function draw(state: BarState) {
 	visit.disabled = !taken;
 	visit.title = taken ? "" : "Take control first";
 	if (!editing) url.value = state.url;
-	let host = "";
-	try {
-		const parsed = new URL(state.url);
-		host = parsed.hostname;
-		lock.className =
-			host === "localhost" || /^(127\.|10\.|192\.168\.|\[::1\])/.test(host)
-				? "local"
-				: state.excepted
-					? "excepted"
-					: parsed.protocol === "https:"
-					? "secure"
-					: "";
-	} catch {
-		lock.className = "";
-	}
+	lock.className = `lock ${lockKind(state.url, state.excepted)}`;
 }
 
 async function refresh() {

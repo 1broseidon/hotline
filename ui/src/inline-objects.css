@@ -951,6 +951,56 @@
 		opacity: 0.35;
 	}
 }
+/* A teammate's desk browser on another desk, in the window (RemoteBrowser):
+ * the pane's own bar (browserBar.css) over the page's picture, framed as the
+ * computer's viewer frames a remote screen, on the viewer's dim. */
+.remote-browser {
+	padding: 24px;
+}
+/* Over the whole window: the traffic lights keep their corner. */
+html[data-platform="macos"]:not([data-fullscreen]) .remote-browser {
+	padding-top: 40px;
+}
+.remote-browser-frame {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+	border: 1px solid #38383d;
+	border-radius: 12px;
+	background: #000;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+.remote-browser-frame .browser-bar {
+	flex: none;
+}
+/* The picture fits the stage whole in the page's own shape: as wide as the
+ * stage, or as tall, whichever comes first. */
+.remote-browser-stage {
+	display: grid;
+	flex: 1;
+	min-height: 0;
+	place-items: center;
+	padding: 12px;
+	container-type: size;
+}
+.remote-browser-page {
+	overflow: hidden;
+	background: #1c1c1f;
+	outline: none;
+	cursor: default;
+}
+/* A crosshair only while a click lands on the page. */
+.remote-browser-page.yours {
+	cursor: crosshair;
+}
+.remote-browser-page img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
 @layer components {
 	/* In the pane a row lights under the pointer, so a wide one is followed
 	 * across. */

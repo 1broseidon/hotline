@@ -57,6 +57,38 @@ A re-run keeps what the server is: one installed with `--relay` is updated
 only with `--relay`, and one installed without it is never made a relay by
 the installer. Each says so and stops before changing anything.
 
+## A browser for teammates
+
+A teammate without a computer can have a web browser of its own on the
+server, as it does on the desktop: it reads pages, fills forms and signs in
+with the logins you give it, and you watch and take control from your phone.
+It needs WebKitGTK, a virtual display (Xvfb) and fonts, about 500 MB on
+Ubuntu or Debian, x86_64 or ARM, so it is opt-in. Add `--browser`:
+
+```sh
+curl -fsSL https://hotline.dev/install | sh -s -- --server --browser
+```
+
+A first install at a terminal asks instead. Run it again with `--browser` to
+add the browser to a server installed without it. On a distribution without
+`apt-get`, install WebKitGTK 4.1, Xvfb and fonts yourself, then restart the
+unit. The desk says what it found when it starts:
+
+```sh
+journalctl -u hotline | grep Browser:
+```
+
+Without them the desk runs as before, and its teammates have no browser.
+A server never shares your own browsers' cookies: when a teammate asks to be
+signed in, you give it a login or take control and sign in yourself.
+
+The browser is `hotline-browser`, installed beside `hotline` and started by
+the desk at a teammate's first page. Each teammate's pages run in a process
+of their own, on a private display no other user on the server can reach.
+The browser takes about 450 MB of memory with one teammate on a simple page,
+and a teammate browsing heavy sites takes 500 to 600 MB of its own. If it
+stops, the desk starts it again at the next page.
+
 ## Update a server
 
 For a server installed at `/usr/local/bin/hotline` with the `hotline` systemd
@@ -74,7 +106,8 @@ sudo /usr/local/bin/hotline update --version X.Y.Z
 ```
 
 The updater downloads the server archive for your architecture, verifies its
-SHA-256 checksum, and replaces only the binary with an atomic rename. The
+SHA-256 checksum, and replaces only the binaries, `hotline` and the browser's
+`hotline-browser`, with an atomic rename. The
 room, pairings and systemd unit stay untouched. If the unit is running, it
 restarts and the updater checks that the desk comes back; a failed start
 restores the previous binary and tries to restart it. A stopped unit stays
@@ -111,10 +144,12 @@ The rest of this page is the same install done by hand.
 Each [release](https://github.com/1broseidon/hotline/releases/latest) from
 0.26.0 carries `hotline-server_<version>_linux_x86_64.tar.gz` and
 `hotline-server_<version>_linux_aarch64.tar.gz`, each with the `hotline`
-binary and a systemd unit. To build it yourself instead:
+binary, the browser's `hotline-browser` and a systemd unit.
+To build it yourself instead:
 
 ```sh
-cargo build --release -p hotline-cli   # target/release/hotline
+cargo build --release -p hotline-cli       # target/release/hotline
+cargo build --release -p hotline-browser   # the browser, which needs libwebkit2gtk-4.1-dev
 ```
 
 ## Install it as a service
@@ -122,6 +157,7 @@ cargo build --release -p hotline-cli   # target/release/hotline
 ```sh
 tar xzf hotline-server_*_linux_x86_64.tar.gz
 sudo install -m 0755 hotline-server_*/hotline /usr/local/bin/hotline
+sudo install -m 0755 hotline-server_*/hotline-browser /usr/local/bin/hotline-browser
 sudo useradd --system --create-home --home-dir /var/lib/hotline --shell /usr/sbin/nologin hotline
 sudo install -m 0644 hotline-server_*/hotline.service /etc/systemd/system/hotline.service
 sudo systemctl edit --full hotline     # set --listen and --public-url, below

@@ -24,7 +24,10 @@ use super::{Loads, Tab};
 mod apple;
 #[cfg(target_os = "macos")]
 pub(super) use apple::attach;
+// Named by path, so the server's browser helper (`crates/hotline-browser`),
+// which compiles this file from here, finds the same one.
 #[cfg(target_os = "linux")]
+#[path = "asks/linux.rs"]
 mod linux;
 #[cfg(target_os = "linux")]
 pub(super) use linux::attach;

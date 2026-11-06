@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn every_key_the_tool_names_has_a_gdk_key() {
-        for key in hotline_core::browser::KEYS {
+        for key in hotline_browser_core::KEYS {
             assert!(key_of(key).is_some(), "{key}");
         }
         assert_eq!(

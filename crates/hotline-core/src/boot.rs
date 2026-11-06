@@ -73,6 +73,10 @@ pub async fn boot(
     // quietly, so the picker never waits on them.
     if let Some(desk) = &desk {
         desk.look_at_agents();
+        // A server reads no browser of the machine it runs on.
+        if served.is_some() {
+            desk.share_no_cookies();
+        }
     }
     let room = desk.as_ref().map(|desk| Agents {
         log: desk.log.clone(),

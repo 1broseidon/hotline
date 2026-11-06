@@ -732,7 +732,7 @@ impl Room {
         arguments: &Value,
     ) -> Result<BrowserAnswer, String> {
         if !self.offers_browser(persona_id) {
-            return Err("You have no desk browser: either Hotline is running without its window, or you have a computer, whose browser is your own.".into());
+            return Err("You have no desk browser: either this desk keeps none (a server without WebKitGTK, or a Mac before macOS 14), or you have a computer, whose browser is your own.".into());
         }
         let browser = self.desk_browser().ok_or("The desk browser has closed.")?;
         let action = arguments
@@ -1299,6 +1299,22 @@ impl Room {
         let went = browser.open(persona_id, &url).await;
         self.browser_moved(persona_id, browser.as_ref()).await;
         went?;
+        Ok(self.browser_snapshot(persona_id))
+    }
+
+    /// Visit anyway from a seat away from the desk, on a browser the person
+    /// has taken over: the browser lets through the certificate its last
+    /// load was refused on, as the pane's Visit anyway does (only that one,
+    /// by its hash, for this teammate, host and port, until the desk
+    /// stops), and loads the page again. Answers the page pictured after.
+    pub async fn browser_person_visit_anyway(
+        &self,
+        persona_id: &str,
+    ) -> Result<Option<BrowserSnapshot>, String> {
+        let browser = self.held_browser(persona_id)?;
+        let visited = browser.visit_anyway(persona_id).await;
+        self.browser_moved(persona_id, browser.as_ref()).await;
+        visited?;
         Ok(self.browser_snapshot(persona_id))
     }
 

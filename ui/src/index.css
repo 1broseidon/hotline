@@ -3,6 +3,8 @@
 /* 0.48 inline elements (epic-32): message objects, then transcript lines. */
 @import "./inline-objects.css";
 @import "./inline-lines.css";
+/* The bar above a teammate's desk browser, shared with its pane (browser.html). */
+@import "./browserBar.css";
 
 /* ---------------------------------------------------------------------------
  * The window: a well, and panes standing in it.

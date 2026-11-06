@@ -49,7 +49,7 @@ mod apple {
 mod linux {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use tauri::Url;
+    use url::Url;
     use webkit2gtk::{WebView, WebViewExt};
 
     /// Lets the page's loads through (`started`) and sends it to `url`.

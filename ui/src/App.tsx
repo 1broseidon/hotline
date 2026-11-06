@@ -9,6 +9,7 @@ import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./c
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { FullView } from "./components/FullView";
+import { RemoteBrowser } from "./components/RemoteBrowser";
 import { type FullObject, OpenFull } from "./components/Sheet";
 import { Speakers } from "./ui/OpenBand";
 import { FlushChrome, Titlebar } from "./ui/Titlebar";
@@ -737,6 +738,7 @@ export function App() {
 					</div>
 				)}
 				{full !== null && <FullView object={full} onClose={closeFull} />}
+				<RemoteBrowser roster={roster} />
 				</div>
 				</OpenFull.Provider>
 				</Speakers.Provider>

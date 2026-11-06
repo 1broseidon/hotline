@@ -8,6 +8,8 @@ const DAY = 24 * 60 * 60 * 1000;
 let asked: { cmd: string; params: Record<string, unknown> }[];
 let lends: CookieLend[];
 let lendable: CookieOfferSites;
+/** The desk is a server, which shares no cookies. */
+let served: boolean;
 let root: Root;
 let container: HTMLDivElement;
 let act: typeof import("react").act;
@@ -25,6 +27,7 @@ beforeEach(async () => {
 	// A desk of its own for each test, so each starts from its own room.
 	replaceDesks([{ id: `cookie-lends-${++desks}`, kind: "local", name: "Test", origin: "ws://localhost", token: "test" }]);
 	asked = [];
+	served = false;
 	lends = [github];
 	lendable = {
 		sites: [
@@ -60,6 +63,7 @@ beforeEach(async () => {
 			case "computer.cookies.holders":
 				return [{ teammate: "kit", name: "Kit", sites: ["github.com", "linear.app"] }];
 			case "computer.cookies.sources":
+				if (served) return { sources: [], blocked: [], off: true };
 				return { sources: [{ browserId: "brave", browserName: "Brave", profileId: "Default", profileName: "George", on: true }], blocked: [] };
 			case "computer.cookies.source.set":
 				return { sources: [{ browserId: "brave", browserName: "Brave", profileId: "Default", profileName: "George", on: params["on"] === true }], blocked: [] };
@@ -165,6 +169,15 @@ test("Settings › Secrets has Cookie Sources, a switch each, and In Use, which 
 	await act(async () => button("Kit").click());
 	expect(opened).toEqual(["kit"]);
 	expect(commands()).not.toContain("computer.cookies.lendable");
+});
+
+test("A server's Settings › Secrets has no Cookie Sources, since it shares no cookies", async () => {
+	served = true;
+	const { SecretsSection } = await import("../src/components/Secrets");
+	await act(async () => root.render(<SecretsSection team={[{ id: "kit" }]} />));
+	expect(commands()).toContain("computer.cookies.sources");
+	expect(text()).not.toContain("Cookie Sources");
+	expect(text()).not.toContain("Looking for browsers");
 });
 
 test("an end reads as today, tomorrow or its date", async () => {

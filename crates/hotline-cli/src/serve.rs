@@ -180,6 +180,14 @@ fn serve(
             options,
         };
         let booted = boot(&root, &room, backend, Some(served)).await?;
+        // Teammates without a computer get a browser where WebKitGTK and
+        // Xvfb are installed, in a helper this binary never links.
+        if let Some(desk) = &booted.desk {
+            match hotline_core::browser::helper::install(desk, &[booted.port], &root).await {
+                Ok(found) => eprintln!("Browser: on for teammates without a computer ({found})."),
+                Err(why) => eprintln!("Browser: off ({why}). See https://hotline.dev/docs/server/install/#a-browser-for-teammates"),
+            }
+        }
         door::write(
             &root,
             &door::DoorFile {

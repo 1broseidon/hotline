@@ -4215,7 +4215,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-app"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4223,6 +4223,7 @@ dependencies = [
  "cairo-rs",
  "futures-util",
  "gtk",
+ "hotline-browser-core",
  "hotline-core",
  "javascriptcore-rs",
  "objc2",
@@ -4251,14 +4252,52 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
+ "url",
  "webkit2gtk",
  "webview2-com",
  "windows 0.61.3",
 ]
 
 [[package]]
+name = "hotline-browser"
+version = "0.48.2"
+dependencies = [
+ "async-trait",
+ "cairo-rs",
+ "getrandom 0.3.4",
+ "gtk",
+ "hotline-browser-core",
+ "hotline-contract",
+ "javascriptcore-rs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "webkit2gtk",
+]
+
+[[package]]
+name = "hotline-browser-core"
+version = "0.48.2"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "hotline-contract",
+ "hotline-store",
+ "hotline-support",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "hotline-cli"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4281,7 +4320,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-contract"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -4292,7 +4331,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-core"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -4309,6 +4348,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "hmac 0.12.1",
+ "hotline-browser-core",
  "hotline-contract",
  "hotline-core",
  "hotline-mcp",
@@ -4359,7 +4399,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-mcp"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "chrono",
  "hotline-contract",
@@ -4380,7 +4420,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-room"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4400,7 +4440,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-store"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4418,7 +4458,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-support"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "getrandom 0.3.4",
  "hex",
@@ -4436,7 +4476,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-tools"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "cap-std",
  "dunce",
@@ -4457,7 +4497,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-voice"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -4496,7 +4536,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-websearch"
-version = "0.48.1"
+version = "0.48.2"
 dependencies = [
  "async-trait",
  "axum",

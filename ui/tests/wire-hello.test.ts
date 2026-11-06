@@ -81,6 +81,27 @@ describe("the window's hello to the core", () => {
 		wire.close();
 	});
 
+	test("keeps what the hello grants this seat, and forgets it when the socket is dialled again", async () => {
+		const { wire, states, socket, hello } = dial();
+		expect(wire.can("browserDrive")).toBe(false);
+		await socket.answer({ id: hello["id"], ok: true, result: { capabilities: ["threads2", "browserDrive", "browserVisitAnyway"] } });
+		expect(wire.can("browserDrive")).toBe(true);
+		expect(wire.can("browserVisitAnyway")).toBe(true);
+		expect(wire.can("threads3")).toBe(false);
+
+		socket.close();
+		// The wire dials again after its first backoff.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const again = FakeSocket.all[1]!;
+		again.onopen?.();
+		expect(wire.can("browserDrive")).toBe(false);
+		const second = again.sent.find((frame) => frame["cmd"] === "client.hello")!;
+		await again.answer({ id: second["id"], ok: true, result: { capabilities: ["threads2"] } });
+		expect(states.at(-1)).toBe("open");
+		expect(wire.can("browserDrive")).toBe(false);
+		wire.close();
+	});
+
 	test("a socket that drops before the core answers is a dropped connection, not an old core", async () => {
 		const { wire, states, socket } = dial();
 		socket.close();

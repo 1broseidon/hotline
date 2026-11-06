@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/hotline-contract", "crates/hotline-support", "crates/hotline-store", "crates/hotline-tools", "crates/hotline-websearch", "crates/hotline-room", "crates/hotline-mcp", "crates/hotline-voice", "crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
+members = ["crates/hotline-contract", "crates/hotline-support", "crates/hotline-store", "crates/hotline-tools", "crates/hotline-websearch", "crates/hotline-room", "crates/hotline-mcp", "crates/hotline-voice", "crates/hotline-browser-core", "crates/hotline-core", "crates/hotline-app", "crates/hotline-cli", "crates/hotline-browser"]
 
 [workspace.package]
-version = "0.48.1"
+version = "0.48.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.97.1"

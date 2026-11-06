@@ -320,6 +320,45 @@ Rustls resolution with `cargo tree --locked --target all -i rustls` and run
 Record the installed version after upgrading the remote desk; merging the
 lockfile change does not update an already-running binary.
 
+## A browser for teammates
+
+A teammate with no computer gets the desk browser here too, where WebKitGTK
+4.1 and Xvfb are installed (`install --server --browser` puts them on Debian
+and Ubuntu: `libwebkit2gtk-4.1-0 xvfb fonts-wqy-microhei
+fonts-noto-color-emoji fonts-liberation2`, about 500 MB). Without them the
+desk runs as before and offers no teammate the tool. The desk says which at
+start, on a line beginning `Browser:`.
+
+`hotline` never links GTK. The browser is `hotline-browser`, installed
+beside it, which the desk asks once at start whether it can run here
+(`hotline-browser --probe`: its libraries load, Xvfb is on `PATH`, and it is
+the desk's own version), then starts at a teammate's first page and talks to
+over a socket. It is the desktop app's Linux browser, drawing on an X display
+of its own that refuses any client without its cookie, which only the account
+the desk runs as can read. Every page and frame it loads is asked of the
+desk's guard first, so the desk's own ports stay shut as on the desktop. The
+phone or a desktop linked to the desk, paired as the owner, is its screen: it
+sees the desk's pictures of a teammate's page, takes control, taps, types,
+chooses Visit anyway past a certificate the browser refused, and gives it
+back. A page's file picker never opens on a server, even for the person, so
+nothing is uploaded from this browser. If the browser dies, the teammate's
+next page starts it again; one that keeps dying is started again only after
+a wait that doubles from a second to a minute, and the teammate is told how
+long. Nothing it started is left behind, even under a desk that is a
+container's process 1. Its own messages and real errors go to the desk's log
+on lines beginning `[browser]`; GTK's and WebKit's routine warnings about a
+display with no session (no accessibility bus, no GPU, no settings portal) do
+not, and any other warning of theirs is said once, then left out for ten
+minutes while it repeats.
+Each teammate's
+storage is under the room's `desk-browser/`. The browser takes about 450 MB
+of memory with one teammate on a simple page, and a teammate browsing heavy
+sites 500 to 600 MB of its own.
+
+A server shares no cookies from browsers of its own: a teammate's sign-in ask
+offers a login or the person's own sign-in through the phone, never Use
+Cookies, and Settings has no Cookie Sources.
+
 ## Pair a device
 
 On the machine running the desk, as the service account or root:
@@ -514,6 +553,7 @@ is dropped. None of this is exactly-once. A desk killed outright
 | `serve.json` | What the server runs, `{"capabilities":[…]}`; absent means both. |
 | `secrets/` | The file store, 0700, one 0600 file per record. |
 | `pending.json` | Lines kept by the last stop for the next start; absent otherwise. |
+| `desk-browser/` | Each teammate's browser storage (cookies, sign-ins, cache), a folder each; a deleted teammate's goes with it. |
 
 ## Desktop client library
 

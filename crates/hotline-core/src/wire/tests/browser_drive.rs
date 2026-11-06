@@ -26,6 +26,10 @@ struct Browser {
     pictures: StdMutex<u32>,
     /// Bumped by whatever changes the page.
     changes: StdMutex<u32>,
+    /// The page's last load was refused for its certificate.
+    refused: StdMutex<bool>,
+    /// How many times Visit anyway reached the page.
+    visits: StdMutex<u32>,
 }
 
 impl Browser {
@@ -85,6 +89,20 @@ impl DeskBrowser for Browser {
         self.inputs.lock().unwrap().push(input.clone());
         self.changed();
         Ok(())
+    }
+    async fn visit_anyway(&self, _persona_id: &str) -> Result<(), String> {
+        if !std::mem::take(&mut *self.refused.lock().unwrap()) {
+            return Err("There is no refused certificate to visit past.".into());
+        }
+        *self.visits.lock().unwrap() += 1;
+        self.changed();
+        Ok(())
+    }
+    fn needs(&self, _persona_id: &str) -> Option<String> {
+        self.refused
+            .lock()
+            .unwrap()
+            .then(|| "Certificate expired".to_string())
     }
     fn taken(&self, _persona_id: &str, taken: bool) {
         self.taken.lock().unwrap().push(taken);
@@ -161,6 +179,7 @@ fn driving() -> Vec<(&'static str, Value)> {
             "browser.go",
             json!({"personaId": "ada", "url": "example.org"}),
         ),
+        ("browser.visit_anyway", json!({"personaId": "ada"})),
         ("browser.hand_back", json!({"personaId": "ada"})),
     ]
 }
@@ -189,6 +208,9 @@ fn only_the_owner_and_the_desk_take_a_browser_over_and_drive_it() {
             persona_id: persona_id(),
             url: "example.com".into(),
         },
+        Command::BrowserVisitAnyway {
+            persona_id: persona_id(),
+        },
     ];
     for command in &commands {
         assert!(Seat::Desk.permits(command), "{command:?}");
@@ -201,8 +223,62 @@ fn only_the_owner_and_the_desk_take_a_browser_over_and_drive_it() {
         persona_id: persona_id(),
         fresh: Some(true),
     }));
-    assert!(Seat::Owner.capabilities().contains(&"browserDrive"));
-    assert!(!Seat::Phone.capabilities().contains(&"browserDrive"));
+    for capability in ["browserDrive", "browserVisitAnyway"] {
+        assert!(Seat::Owner.capabilities().contains(&capability));
+        assert!(!Seat::Phone.capabilities().contains(&capability));
+    }
+}
+
+/// Visit anyway from away, as the pane's bar offers it: only the person,
+/// only with the browser taken over, only past a load that was refused for
+/// its certificate; once through, the PIP's mark goes and the page is
+/// pictured again.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_phone_visits_past_a_refused_certificate_only_with_control() {
+    let browser = Arc::new(Browser::default());
+    let (_root, room, desk) = browser_desk(Some(browser.clone()));
+    teammate(
+        &room,
+        json!({"action": "navigate", "url": "https://expired.example/"}),
+    )
+    .await
+    .unwrap();
+    *browser.refused.lock().unwrap() = true;
+    room.browser_person_moved("ada").await;
+    assert_eq!(
+        room.browser_view("ada").unwrap().needs.as_deref(),
+        Some("Certificate expired")
+    );
+    let visit = json!({"personaId": "ada"});
+    let as_seat = |seat: Seat| {
+        let (desk, room, visit) = (desk.clone(), room.clone(), visit.clone());
+        async move { command(&desk, &room, seat, "browser.visit_anyway", visit).await }
+    };
+
+    assert_eq!(as_seat(Seat::Phone).await["ok"], false);
+    assert_eq!(
+        refusal(&as_seat(Seat::Owner).await),
+        "Take over first: the teammate is driving."
+    );
+    assert_eq!(*browser.visits.lock().unwrap(), 0);
+
+    room.browser_take("ada", true).await.unwrap();
+    let before = room.browser_snapshot("ada").unwrap().jpeg;
+    let visited = as_seat(Seat::Owner).await;
+    assert_eq!(visited["ok"], true, "{visited}");
+    assert_eq!(visited["result"]["url"], "https://expired.example/");
+    assert_eq!(*browser.visits.lock().unwrap(), 1);
+    let view = room.browser_view("ada").unwrap();
+    assert_eq!(view.needs, None, "the PIP's mark goes");
+    assert_ne!(visited["result"]["jpeg"], json!(before), "pictured again");
+
+    // Nothing left to visit past: said, not done.
+    let again = as_seat(Seat::Owner).await;
+    assert!(
+        refusal(&again).contains("no refused certificate"),
+        "{again}"
+    );
+    assert_eq!(*browser.visits.lock().unwrap(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]

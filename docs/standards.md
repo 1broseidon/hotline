@@ -13,7 +13,17 @@ module map itself is [development.md](development.md#layout).
   never `foo/mod.rs`. The one exception is `crates/*/tests/common/mod.rs`,
   which is Cargo's idiom for helpers shared by integration tests.
 - `#[path]` is used only in integration harnesses to keep their existing
-  files and nested modules in place while sharing one test binary.
+  files and nested modules in place while sharing one test binary, and by
+  `hotline-browser`, which compiles the app's Linux desk browser files
+  (`crates/hotline-app/src/browser/native/linux.rs` and its siblings) where
+  they are, so the server's browser and the Linux app's are one code. Those
+  files read their parent's `Tab`, `Loads`, `Native`, `Step`, `WIDTH`,
+  `HEIGHT`, `VISIT_ANYWAY_ON_PAGE` and `VISIT_ANYWAY_FOR_TEAMMATE` by name,
+  and both crates' parents give them; the last two are where the person
+  chooses Visit anyway on that edition (the pane's bar, or the phone), so
+  the warning a refused certificate leaves is true on each. They name the
+  desk browser's types by `hotline_browser_core`, never `hotline_core`,
+  which the helper does not link.
 - One type's behaviour may be filed by concern across sibling files, the way
   `impl Room` is spread over `session/*`. Do not invent per-concern traits or
   types for that.
@@ -76,6 +86,21 @@ module map itself is [development.md](development.md#layout).
   back. `hotline-core` re-exports its items at `crate::mcp`, where
   `TeammateTools`, the server of a teammate's own tools, stays: it calls
   into the live room, the `mcp`↔`session` cycle below.
+- `hotline-browser-core` is a teammate's desk browser as the desk and its
+  browsers share it: the `DeskBrowser` trait and the types it carries, the
+  `Gate` that says which addresses a page may load (with the person's
+  "Always allow" answers kept in the room), where a teammate's web data is
+  kept, and the pipe the server's browser helper talks over. It stands on
+  `hotline-contract`, `hotline-support` (the ports this process listens on)
+  and `hotline-store` (the room), and never on `hotline-core`, Tauri or GTK.
+  It is a crate of its own so that `hotline-browser`, the helper, builds
+  without the core: the core links the speech engine's onnxruntime, whose
+  static initializers no linker drops, which made the helper 37 MB and
+  printed a CPU warning at every start on ARM; without it the helper is
+  4.7 MB (arm64 release, unstripped). `hotline-core` re-exports
+  it whole as `browser`, beside what only the core uses (the `browser`
+  tool's sizes, logins, passkeys, and the helper's supervisor), so
+  `crate::browser::Gate` and `hotline_core::browser::pipe` still hold.
 - `hotline-voice` owns calls and their speech and realtime engines. It stands
   on `hotline-contract`, `hotline-support`, `hotline-store`, `hotline-room`,
   `hotline-tools`, never on `hotline-core` or Tauri. Its
@@ -89,7 +114,9 @@ module map itself is [development.md](development.md#layout).
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI
-  depends on `hotline-core`. It declares the workspace `[lints]`, a license,
+  depends on `hotline-core`. `hotline-browser` (the server's browser, a
+  binary nothing depends on) stands on `hotline-browser-core` and the
+  contract alone. It declares the workspace `[lints]`, a license,
   and a crate doc saying what it owns and what it must never depend on.
 - A module is `pub` only when the app, the CLI, the harnesses, the examples
   or a crate above its own name it. Otherwise it is `pub(crate)`.

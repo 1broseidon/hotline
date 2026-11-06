@@ -542,6 +542,12 @@ pub struct CookieSource {
 pub struct CookieSources {
     pub sources: Vec<CookieSource>,
     pub blocked: Vec<String>,
+    /// This desk shares no cookies at all: a server's (`hotline serve`),
+    /// which reads no browser of the machine it runs on. Settings shows no
+    /// Cookie Sources for it. Absent where the desk shares them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub off: bool,
 }
 
 /// A teammate holding the person's cookies, and for which sites.

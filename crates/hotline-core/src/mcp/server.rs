@@ -98,6 +98,10 @@ const WEB_SEARCH: &str = "web_search";
 const ARCHIVE_THREAD: &str = "archive_thread";
 const ADD_TEAMMATE: &str = "add_teammate";
 const BROWSER: &str = "browser";
+/// What `ask_cookies` says of itself on a desk that shares the person's
+/// cookies, and on a server, which shares none (decision-45).
+const ASK_COOKIES_SAYS: &str = "Ask the person to sign your browser in to one site, when a page needs you signed in: a sign-in wall, or a private page that shows as 404 or empty because you are not. One card shows the site and your reason; the person can share their own cookies for it from one of their browsers, give you a login through secure fields (you get only its name, and your browser types it), or open your browser and sign in themselves. Returns at once; the outcome arrives later as its own message, never with a value. One ask per site while it is up. If the person closes it, do not ask for that site again until they next write to you. Never ask for passwords or cookies in chat. withdraw_request with the returned id takes it down.";
+const ASK_COOKIES_SERVED_SAYS: &str = "Ask the person to sign your browser in to one site, when a page needs you signed in: a sign-in wall, or a private page that shows as 404 or empty because you are not. One card shows the site and your reason; the person can give you a login through secure fields (you get only its name, and your browser types it), or open your browser and sign in themselves. This desk is a server and shares no cookies: the person cannot share theirs, so for a site with no login of its own ask them for a password or a shared secret instead. Returns at once; the outcome arrives later as its own message, never with a value. One ask per site while it is up. If the person closes it, do not ask for that site again until they next write to you. Never ask for passwords or cookies in chat. withdraw_request with the returned id takes it down.";
 /// The longest `computer_status` waits for a download in one call.
 const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
@@ -370,7 +374,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             ASK_COOKIES,
-            "Ask the person to sign your browser in to one site, when a page needs you signed in: a sign-in wall, or a private page that shows as 404 or empty because you are not. One card shows the site and your reason; the person can share their own cookies for it from one of their browsers, give you a login through secure fields (you get only its name, and your browser types it), or open your browser and sign in themselves. Returns at once; the outcome arrives later as its own message, never with a value. One ask per site while it is up. If the person closes it, do not ask for that site again until they next write to you. Never ask for passwords or cookies in chat. withdraw_request with the returned id takes it down.",
+            ASK_COOKIES_SAYS,
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -1427,6 +1431,11 @@ impl TeammateTools {
         self.room.upgrade().is_some_and(|room| room.images_off())
     }
 
+    /// Whether the desk shares the person's cookies; a server shares none.
+    fn shares_cookies(&self) -> bool {
+        self.room.upgrade().is_none_or(|room| room.shares_cookies())
+    }
+
     /// Whether these may offer [`ADD_TEAMMATE`]: the lead's own conversation
     /// or one of its work or call threads, where the person is the one asking.
     fn may_add_teammates(&self) -> bool {
@@ -1496,6 +1505,13 @@ impl TeammateTools {
         }
         if self.may_use_browser() {
             tools.push(browser_descriptor());
+        }
+        if !self.shares_cookies() {
+            for tool in &mut tools {
+                if tool.name == ASK_COOKIES {
+                    tool.description = Some(ASK_COOKIES_SERVED_SAYS.into());
+                }
+            }
         }
         tools
     }

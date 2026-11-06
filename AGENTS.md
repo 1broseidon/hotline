@@ -120,11 +120,14 @@ lints, dependencies) are in [docs/standards.md](docs/standards.md).
   vault's part handed in by the core; `hotline-voice` (calls, speech and
   realtime engines) on the contract,
   the support, the store, the room, the tools and MCP client, with sessions
-  and vault reads behind the call-room interface; `hotline-core` stands on
-  all eight and re-exports them under their old module names, so
+  and vault reads behind the call-room interface; `hotline-browser-core`
+  (the desk browser's trait, its `Gate` and the server helper's pipe) on
+  the contract, the support and the store, so the helper `hotline-browser`
+  builds on it without the core; `hotline-core` stands on
+  all nine and re-exports them under their old module names, so
   `crate::paths`, `crate::store::search`, `crate::room`, `crate::tools`,
-  `crate::websearch`, `crate::mcp::McpServer` and `crate::voice::Calls`
-  still hold in the core.
+  `crate::websearch`, `crate::mcp::McpServer`, `crate::voice::Calls` and
+  `crate::browser::Gate` still hold in the core.
 - **A capability change follows `docs/security.md`.** Anything that alters
   what a teammate can reach — a tool, a tool origin, a grant, a driver path —
   is enforced in the core outside the model, revocable through the session's

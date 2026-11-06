@@ -190,6 +190,25 @@ fn navigate(link: &str) -> Value {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn on_a_server_ask_cookies_says_the_person_shares_no_cookies_there() {
+    let room = room_with_two("ask-cookies-served");
+    let said = |room: &Arc<Room>| {
+        tools(room)
+            .offered()
+            .into_iter()
+            .find(|tool| tool.name == ASK_COOKIES)
+            .and_then(|tool| tool.description)
+            .unwrap()
+    };
+    assert!(said(&room).contains("share their own cookies"));
+    room.share_no_cookies();
+    let served = said(&room);
+    assert!(served.contains("shares no cookies"), "{served}");
+    assert!(!served.contains("share their own cookies"), "{served}");
+    assert!(served.contains("give you a login") && served.contains("open your browser"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_browser_is_offered_with_a_desk_browser_and_no_computer() {
     let room = room_with_two("browser-offered");
     assert!(

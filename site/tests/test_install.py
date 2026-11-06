@@ -425,12 +425,12 @@ run_unit_as agent staff /home/agent
     PACKAGING = INSTALL.parents[2] / "packaging"
 
     def server_run(self, args, sudo_user=None, unit_exists=False, hotline_exists=False, success=True, home=None, alone=False,
-                   installed_unit="hotline.service"):
+                   installed_unit="hotline.service", before=""):
         """The real server() over a real archive, with privileged commands logged instead of run."""
         directory = "hotline-server_0.26.0_linux_x86_64"
         archive = self.root / (directory + ".tar.gz")
         with tarfile.open(archive, "w:gz") as tar:
-            for name, data in (("hotline", b"binary\n"),
+            for name, data in (("hotline", b"binary\n"), ("hotline-browser", b"helper\n"),
                                ("hotline.service", (self.PACKAGING / "hotline.service").read_bytes()),
                                ("hotline-relay.service", (self.PACKAGING / "hotline-relay.service").read_bytes())):
                 entry = tarfile.TarInfo(f"{directory}/{name}")
@@ -462,6 +462,7 @@ as_root() {{
 as_desk() {{ return 0; }}
 desk_user() {{ sed -n 's/^User=//p' "$UNIT"; }}
 {f"SUDO_USER={shlex.quote(sudo_user)}" if sudo_user else "unset SUDO_USER"}
+{before}
 main --server --version 0.26.0 --yes {args}
 ''', success=success)
 
@@ -600,10 +601,53 @@ main --server --version 0.26.0 --yes {args}
         self.assertIn("leave out --user", out)
         self.assertEqual(self.actions(), [])
 
+    # -- the teammates' browser (task-385) ------------------------------------
+
+    BROWSER = ("env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
+               "libwebkit2gtk-4.1-0 xvfb fonts-wqy-microhei fonts-noto-color-emoji fonts-liberation2")
+
+    def test_the_browser_helper_goes_beside_the_binary_and_its_packages_only_when_asked(self):
+        self.server_run(self.LISTEN)
+        actions = self.actions()
+        self.assertTrue(any(a.endswith("hotline-browser /usr/local/bin/hotline-browser") for a in actions), actions)
+        self.assertFalse([a for a in actions if "apt-get" in a], actions)
+        self.log.unlink()
+        self.unit.unlink()
+        out = self.server_run(f"{self.LISTEN} --browser")
+        actions = self.actions()
+        self.assertIn("apt-get update -q", actions)
+        self.assertIn(self.BROWSER, actions)
+        # Installed before the desk starts, so its first boot finds them.
+        self.assertLess(actions.index(self.BROWSER), next(i for i, a in enumerate(actions) if "enable --now hotline" in a))
+        self.assertIn("Installing the browser's packages", out)
+
+    def test_an_installed_server_gets_the_browser_on_a_rerun_with_browser(self):
+        self.server_run("--browser", unit_exists=True, hotline_exists=True)
+        self.assertIn(self.BROWSER, self.actions())
+
+    def test_a_first_install_at_a_terminal_offers_the_browser_and_no_means_none(self):
+        for answer, installs in (("N", False), ("y", True)):
+            self.log.unlink(missing_ok=True)
+            self.unit.unlink(missing_ok=True)
+            self.server_run(self.LISTEN, before=f'has_tty() {{ return 0; }}; ask() {{ echo "PROMPT $1" >>"$LOG"; answer={answer}; }}')
+            actions = self.actions()
+            self.assertTrue(any(a.startswith("PROMPT Give teammates without a computer a web browser?") for a in actions), actions)
+            self.assertEqual(self.BROWSER in actions, installs, actions)
+        # Never asked again once installed.
+        self.log.unlink()
+        self.server_run("", unit_exists=True, hotline_exists=True, before='has_tty() { return 0; }; ask() { echo "PROMPT $1" >>"$LOG"; answer=y; }')
+        self.assertFalse([a for a in self.actions() if a.startswith("PROMPT")], self.actions())
+
+    def test_a_relay_has_no_browser(self):
+        out = self.server_run(f"--relay {self.LISTEN} --browser", success=False)
+        self.assertIn("leave out --browser", out)
+        self.assertEqual(self.actions(), [])
+
     def test_help_lists_user_and_the_desktop_install_refuses_it(self):
         self.assertIn("--user NAME", self.run_shell("main --help"))
         self.assertIn("--relay", self.run_shell("main --help"))
-        for args in ("--user agent", "--relay"):
+        self.assertIn("--browser", self.run_shell("main --help"))
+        for args in ("--user agent", "--relay", "--browser"):
             out = self.run_shell(f"main {args}", success=False)
             self.assertIn("are for --server", out)
             self.assertEqual(self.actions(), [])

@@ -79,11 +79,6 @@ export function sitesRead(items: Step[]): string[] {
 	return sites;
 }
 
-/** The distinct sites of a turn's sources, in order: the history line's favicons. */
-export function sitesOf(items: Step[]): string[] {
-	return [...new Set(sourcesOf(items).map((source) => source.site))];
-}
-
 /** Files changed by the turn's finished steps, each once, its counts summed over its edits. */
 export function filesOf(items: Step[]): FileChange[] {
 	const files = new Map<string, FileChange & { counted: boolean }>();
@@ -118,9 +113,9 @@ export function summaryOf(items: Step[]): TurnSummary {
 const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** The summary's parts, failures apart so they can stand out: "12 steps · 4 sources · 3 files", "1 failed". */
-export function summaryWords(summary: TurnSummary, { sources = true }: { sources?: boolean } = {}): { said: string; failed: string | null } {
+export function summaryWords(summary: TurnSummary): { said: string; failed: string | null } {
 	const parts = [counted(summary.steps, "step", "steps")];
-	if (sources && summary.sources > 0) parts.push(counted(summary.sources, "source", "sources"));
+	if (summary.sources > 0) parts.push(counted(summary.sources, "source", "sources"));
 	if (summary.files > 0) parts.push(counted(summary.files, "file", "files"));
 	return { said: parts.join(" · "), failed: summary.failed > 0 ? `${summary.failed} failed` : null };
 }
@@ -146,7 +141,7 @@ export function stepTook(step: ToolStep): string | null {
 }
 
 /** How long a turn's work took, from its first step to its last step's end; null when its steps carry no ends. */
-function turnTook(items: Step[]): number | null {
+export function turnTook(items: Step[]): number | null {
 	const steps = toolSteps(items);
 	const ends = steps.flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
 	if (ends.length === 0 || items[0] === undefined) return null;

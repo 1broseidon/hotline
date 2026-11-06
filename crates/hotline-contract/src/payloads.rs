@@ -433,15 +433,21 @@ pub enum UploadDestination {
     Path { path: String },
 }
 
-/// A link's card: the page's title, a second line saying where it is or
-/// what it is about, and its picture when it has one over https.
+/// A link's card: where the page lives, its title, what it says about
+/// itself, and its picture when it has a real one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct LinkPreview {
     pub url: String,
     pub title: String,
+    /// The card's first line: the site's address, then its own name when
+    /// that says something the address does not (`qdrant.tech · Docs`).
     pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The page's picture as a `data:` URL: fetched once by the desk,
+    /// shrunk and kept, so the window never asks the site for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 }

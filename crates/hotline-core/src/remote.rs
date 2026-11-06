@@ -773,7 +773,10 @@ impl Remote {
             }
         }
         let this = self.clone();
+        // Held while it serves: a teammate's desk browser never opens it.
+        let held = crate::listening::hold(port);
         *self.server.lock().await = Some(tokio::spawn(async move {
+            let _held = held;
             server::run(this, listener, tls, cancel).await;
         }));
         self.stand();

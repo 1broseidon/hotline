@@ -40,11 +40,50 @@ export function errorDetails(text: string): { title: string; summary: string; de
         } catch { /* Older notices are plain text. */ }
     }
     let details = text;
+    let reported: unknown;
     const json = text.indexOf("{");
     if (json !== -1) {
-        try { details = text.slice(0, json) + JSON.stringify(JSON.parse(text.slice(json)), null, 2); } catch { /* Keep the original diagnostic. */ }
+        try {
+            reported = JSON.parse(text.slice(json));
+            details = text.slice(0, json) + JSON.stringify(reported, null, 2);
+        } catch { /* Keep the original diagnostic. */ }
     }
-    return { title: "Turn failed", summary: "The activity could not finish. View the reported error below.", details };
+    return { ...reportedWords(json === -1 ? text : text.slice(0, json), reported), details };
+}
+
+/** A summary reads as a sentence: "the usage limit…" after a colon becomes "The usage limit…". */
+function sentence(text: string): string {
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** How long a report's head can be and still read as one: "Claude Code stopped", not a sentence cut at a colon. */
+const HEAD_MOST = 60;
+
+/**
+ * A plain report in its own words: its first line, split at a colon into
+ * what happened and why when the part before it is short enough to be a
+ * head ("Claude Code stopped: The usage limit resets at 9 PM."). A report
+ * that is only JSON says it with its first `message`.
+ */
+function reportedWords(prose: string, reported: unknown): { title: string; summary: string } {
+    const line = prose.split("\n").map((one) => one.trim()).find((one) => one !== "")?.replace(/[\s:]+$/, "") ?? "";
+    const said = line !== "" ? line : (messageIn(reported) ?? "");
+    const colon = said.indexOf(": ");
+    if (colon > 0 && colon <= HEAD_MOST) return { title: said.slice(0, colon), summary: sentence(said.slice(colon + 2)) };
+    if (said !== "" && said !== "Turn failed") return { title: "Turn failed", summary: said.length > 300 ? `${said.slice(0, 300)}…` : said };
+    return { title: "Turn failed", summary: "The whole report is under Details." };
+}
+
+/** The first `message` a reported JSON error carries, however deep. */
+function messageIn(value: unknown): string | undefined {
+    if (value === null || typeof value !== "object") return undefined;
+    const record = value as Record<string, unknown>;
+    if (typeof record["message"] === "string" && record["message"].trim() !== "") return record["message"].trim();
+    for (const inner of Object.values(record)) {
+        const found = messageIn(inner);
+        if (found !== undefined) return found;
+    }
+    return undefined;
 }
 
 function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignInAction | undefined {
@@ -75,13 +114,31 @@ export function ErrorCard({
     const error = errorDetails(text);
     const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
     const offerAgain = onRunAgain !== undefined && error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind);
+    const acts =
+        offerAgain ||
+        (error.kind === "no_provider" && onProviders !== undefined) ||
+        (error.kind === "account_gone" && error.model !== undefined && personaId !== undefined) ||
+        (error.signIn !== undefined && personaId !== undefined);
+    // Nothing to press: it is history, one line, its details a click away.
+    if (!acts)
+        return (
+            <details className="error-line" aria-label={error.title}>
+                <summary>
+                    <WarningIcon className="error-line-mark" />
+                    <span className="error-line-title selectable">{error.title}</span>
+                    <span className="error-line-said selectable">{error.summary}</span>
+                </summary>
+                {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}
+                <pre className="selectable mt-2 max-h-80 max-w-full overflow-auto whitespace-pre-wrap break-words text-xs text-ink-2" style={{ overflowWrap: "anywhere" }}>{error.details}</pre>
+            </details>
+        );
     return (
-        <section className="my-2 min-w-0 max-w-full rounded-lg border border-line bg-raised p-3" aria-label={error.title}>
-            <div className="flex items-center gap-2 text-danger">
+        <section className="error-card" aria-label={error.title}>
+            <div className="error-card-head">
                 <WarningIcon className="shrink-0" />
-                <span className="font-medium">{error.title}</span>
+                <span className="selectable">{error.title}</span>
             </div>
-            <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
+            <p className="error-card-said selectable">{error.summary}</p>
             {error.kind === "no_provider" && onProviders && (
                 <div className="mt-2">
                     <button type="button" className="control btn btn-sm" onClick={onProviders}>
@@ -111,8 +168,8 @@ export function ErrorCard({
                 </div>
             )}
             {offerAgain && typeof again === "object" && <Refusal {...again} />}
-            <details className="mt-2 min-w-0">
-                <summary className="cursor-pointer text-xs text-ink-3 focus-visible:outline focus-visible:outline-2">Error details</summary>
+            <details className="error-card-details">
+                <summary>Details</summary>
                 {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}
                 <pre className="selectable mt-2 max-h-80 max-w-full overflow-auto whitespace-pre-wrap break-words text-xs text-ink-2" style={{ overflowWrap: "anywhere" }}>{error.details}</pre>
             </details>

@@ -42,6 +42,7 @@ pub(crate) fn fixture(root: &Path, firefox: bool) -> Source {
             id: "Default".into(),
             name: "Default".into(),
         },
+        gate: Gate::default(),
     }
 }
 
@@ -97,7 +98,7 @@ fn discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_acc
     let root = tempfile::tempdir().unwrap();
     for firefox in [false, true] {
         let browser = RefusingBrowser::new(root.path(), firefox);
-        let discovery = discover(vec![browser.candidate.clone()]);
+        let discovery = discover(vec![browser.candidate.clone()], &Gate::default());
         assert!(discovery.sources.is_empty());
         assert_eq!(discovery.refused.len(), 1);
         assert_eq!(discovery.refused[0].name, browser.candidate.name);
@@ -107,9 +108,12 @@ fn discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_acc
         );
         let mut absent = browser.candidate.clone();
         absent.binaries.clear();
-        assert_eq!(discover(vec![absent]).refused, [] as [HostBrowser; 0]);
+        assert_eq!(
+            discover(vec![absent], &Gate::default()).refused,
+            [] as [HostBrowser; 0]
+        );
         browser.grant();
-        let discovery = discover(vec![browser.candidate.clone()]);
+        let discovery = discover(vec![browser.candidate.clone()], &Gate::default());
         assert_eq!(discovery.refused, [] as [HostBrowser; 0]);
         assert_eq!(discovery.sources.len(), 1);
         assert!(
@@ -121,7 +125,10 @@ fn discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_acc
     }
     let mut absent = candidate_fixture(&root.path().join("absent-profile"), false);
     absent.root = root.path().join("missing");
-    assert_eq!(discover(vec![absent]).refused, [] as [HostBrowser; 0]);
+    assert_eq!(
+        discover(vec![absent], &Gate::default()).refused,
+        [] as [HostBrowser; 0]
+    );
 }
 
 #[test]
@@ -165,20 +172,15 @@ fn detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain(
 #[test]
 fn only_the_registrable_site_and_its_subdomains_can_be_lent() {
     assert_eq!(
-        site_for_origin("https://accounts.EXAMPLE.co.uk/path"),
+        registrable("accounts.EXAMPLE.co.uk"),
         Some("example.co.uk".into())
     );
     assert_eq!(
-        site_for_origin("https://alice.github.io"),
+        registrable("alice.github.io"),
         Some("alice.github.io".into())
     );
-    for origin in [
-        "chrome://settings",
-        "https://127.0.0.1",
-        "https://co.uk",
-        "about:blank",
-    ] {
-        assert_eq!(site_for_origin(origin), None);
+    for host in ["127.0.0.1", "co.uk", "[::1]"] {
+        assert_eq!(registrable(host), None);
     }
     let cookies = [
         ".example.co.uk",

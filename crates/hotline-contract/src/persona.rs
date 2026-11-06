@@ -39,6 +39,11 @@ pub enum AvatarBy {
 // Teammates
 // ---------------------------------------------------------------------------
 
+/// The colours a teammate's bubbles may take, by name: the faces' hues
+/// (ui/src/ui/Avatar.tsx) but gold, whose tint sits beside the amber of a card
+/// waiting on you. ui/src/tokens.css draws each as `--bubble-<name>`.
+pub const BUBBLES: [&str; 6] = ["lime", "green", "teal", "blue", "violet", "pink"];
+
 /// A Hotline teammate. Four axes make up an identity:
 ///   - Identity   : `goal`, materialised as AGENTS.md inside `cwd`
 ///   - Workspace  : `cwd`, passed to session/new
@@ -67,6 +72,11 @@ pub struct Persona {
     /// an empty label is the unteamed default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// The colour of this teammate's bubbles, one of [`BUBBLES`] or `grey`
+    /// by name. Absent is the teammate's own face hue, or grey for a gold
+    /// face (decision-43); `grey` is grey by choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bubble: Option<String>,
     pub backend_id: String,
     pub cwd: String,
     /// How far Hotline Agent's tools reach. Absent means the working directory.
@@ -142,6 +152,16 @@ pub struct Persona {
     /// user-configured servers. Absent means off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
+    /// The stored secrets this teammate is granted, by name (see
+    /// [`SharedSecret`](crate::SharedSecret)): the teammate's, used by
+    /// whichever shell and browser it has. The value never leaves the vault
+    /// except on its way to that machine, which redacts it from what it
+    /// answers the agent. Absent means none: a teammate nobody granted
+    /// anything is handed nothing. A record from before secrets were the
+    /// teammate's own kept them on its computer; [`Persona::from_record`]
+    /// reads them from there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<Vec<String>>,
     /// The voice this teammate speaks in on a direct call, as picked from the
     /// desk's speaking model. It applies only while the desk still speaks
     /// with that provider and model; otherwise the desk's own voice is used.
@@ -160,6 +180,23 @@ pub struct Persona {
     pub last_session_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl Persona {
+    /// The teammate a room record holds. A record written before secrets
+    /// were the teammate's own carries them as `computer.secrets`; they were
+    /// always this teammate's grant, so they are read as its `secrets`, and
+    /// the next write puts them there. A record that already says
+    /// `secrets` keeps its own.
+    pub fn from_record(record: &serde_json::Value) -> serde_json::Result<Self> {
+        let mut persona = Self::deserialize(record)?;
+        if persona.secrets.is_none()
+            && let Some(names) = record.pointer("/computer/secrets")
+        {
+            persona.secrets = Option::<Vec<String>>::deserialize(names)?;
+        }
+        Ok(persona)
+    }
 }
 
 /// The linked desktop a teammate lives on.
@@ -344,10 +381,12 @@ impl<'de> Deserialize<'de> for WebSearchPolicy {
     }
 }
 
-/// The four providers web search has. The chain tries them Parallel, Exa,
-/// Keenable, Firecrawl before any key promotes one. A record may name one
-/// this build does not have; it is left out on read rather than taking the
-/// whole teammate with it.
+/// The providers web search has. The four hosted ones are on until the desk
+/// switches one off, and the chain tries them Parallel, Exa, Keenable,
+/// Firecrawl before any key promotes one. SearXNG is the person's own
+/// instance: off until the desk switches it on, and never searched without
+/// the instance's URL. A record may name one this build does not have; it is
+/// left out on read rather than taking the whole teammate with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -356,18 +395,29 @@ pub enum WebSearchProvider {
     Exa,
     Firecrawl,
     Keenable,
+    Searxng,
 }
 
 /// One provider as the Tools pane shows it: whether the desk has it on, and
-/// whether a key is saved for it. Never the key.
+/// whether a key is saved for it. Never the key. A provider the person runs
+/// themselves (SearXNG) also says it takes an instance URL, and the URL the
+/// desk holds, which carries no credentials.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct WebSearchProviderStatus {
     pub provider: WebSearchProvider,
     pub name: String,
     pub enabled: bool,
     pub has_key: bool,
+    /// Whether this provider is reached at a URL the person sets. Absent is
+    /// false: a hosted provider.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub takes_url: bool,
+    /// The instance URL, when one is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// What `websearch.status` answers: the providers in the order a search with

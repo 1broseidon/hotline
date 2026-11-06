@@ -7,6 +7,8 @@ import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
+import { bubbleChoices, bubbleOf, ownBubble } from "../bubbles";
+import { Swatches } from "../ui/Swatches";
 import { MAX_PINS } from "../pins";
 import { voiceLabel } from "../useFor";
 import { Avatar } from "../ui/Avatar";
@@ -17,8 +19,10 @@ import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { Schedules } from "./Schedules";
 import type { ThreadRef } from "./Transcript";
+import { LocalAddresses } from "./teammate/LocalAddresses";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
+import { SecretRows } from "./teammate/SecretRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
 import { Threads } from "./teammate/Threads";
 import { ToolLedger } from "./teammate/ToolLedger";
@@ -38,7 +42,7 @@ export { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./te
  * It runs from authority to equipment to outcome: the grants that widen
  * what it may do without you — reach, background work, who may hand it
  * work — each with an info key for the risk; then what it is given, a
- * computer and MCP servers; last, what actually attached at the last
+ * computer, the secrets it may use and MCP servers; last, what actually attached at the last
  * start, with the failures always out. A row's second line is a value or
  * nothing; anything with more to it opens in place, indented under its
  * row. Schedules and threads follow the same shape. Removing is
@@ -243,6 +247,16 @@ export function Teammate({
 						</div>
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
 						<div className="group-row">
+							<RowText title="Bubble" />
+							<Swatches
+								value={bubbleOf(persona.bubble, persona.id)}
+								choices={bubbleChoices(persona.id)}
+								label="Bubble"
+								attribute="data-bubble"
+								onChange={(bubble) => save({ bubble: bubble === ownBubble(persona.id) ? null : bubble } as unknown as Partial<Persona>)}
+							/>
+						</div>
+						<div className="group-row">
 							{/* On the lead's own sheet the row and its key say it; elsewhere it names who leads. */}
 							<RowText title="Team lead" {...(lead ? {} : { value: leader?.name ?? "none" })} />
 							<button
@@ -342,6 +356,7 @@ export function Teammate({
 								disabled={busy}
 								onChange={(allowedSenders) => save({ allowedSenders })}
 							/>
+							<LocalAddresses personaId={persona.id} disabled={busy} />
 						</div>
 					</section>
 
@@ -350,13 +365,21 @@ export function Teammate({
 						<div className="grouped">
 							<ComputerRows
 								personaId={persona.id}
-								teammate={persona.name}
 								computer={persona.computer}
 								disabled={busy}
 								onChange={(computer) => save({ computer })}
 							/>
 						</div>
 					</section>
+
+					<SecretRows
+						personaId={persona.id}
+						teammate={persona.name}
+						granted={persona.secrets ?? []}
+						computer={persona.computer?.enabled === true}
+						disabled={busy}
+						onChange={(secrets) => save({ secrets })}
+					/>
 
 					{/* What it is given to work with, and what actually attached at the last start. */}
 					<section>

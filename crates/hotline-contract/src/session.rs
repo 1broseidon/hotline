@@ -63,6 +63,70 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub plan_usage: Option<PlanUsage>,
+    /// The teammate's desk browser, once it has opened a page this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser: Option<BrowserView>,
+}
+
+/// Who is driving a teammate's desk browser.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum BrowserPhase {
+    /// The teammate, or nobody since it last did.
+    Teammate,
+    /// The person took it over; the teammate's acts wait for Hand back.
+    Person,
+}
+
+/// Where a teammate's desk browser is, for the PIP and the phone: the page,
+/// who drives it, and when it last moved. Its picture is `browser.snapshot`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct BrowserView {
+    pub phase: BrowserPhase,
+    pub url: String,
+    pub title: String,
+    /// When the teammate last loaded or acted on a page, in milliseconds.
+    pub active_at: i64,
+    /// When the snapshot `browser.snapshot` answers was taken; absent before
+    /// the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub snapshot_at: Option<i64>,
+    /// What the browser waits on the person for, in a few words
+    /// ("Certificate expired"): the PIP marks it and stays up until it
+    /// clears. Absent while nothing does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub needs: Option<String>,
+    /// The size the teammate set its page to (`viewport`), when not the
+    /// desk's own: the PIP takes its shape and names it (Phone, Tablet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub viewport: Option<Viewport>,
+}
+
+/// A page's size in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
+pub struct Viewport {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A teammate's desk browser as a picture: a JPEG of the visible page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct BrowserSnapshot {
+    /// Base64 JPEG.
+    pub jpeg: String,
+    pub at: i64,
+    pub url: String,
+    pub title: String,
 }
 
 /// An account's plan limits as its agent reported them: one line per window

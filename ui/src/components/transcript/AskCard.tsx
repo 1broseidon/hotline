@@ -1,18 +1,18 @@
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
 import { HumanAction, PasskeyAskCard, Permission } from "./Asks";
-import { CookieOfferCard } from "./CookieOfferCard";
+import { CookieAskCard } from "./CookieAskCard";
 import { CredentialAsk } from "./CredentialAsk";
 import { SecretUseAsk } from "./SecretUseAsk";
 
 /** A card waiting on the person: the kinds that hold a turn, or a teammate's computer, until answered. */
 export type Ask = Extract<
 	TranscriptEvent,
-	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_offer" }
+	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_ask" }
 >;
 
 /** A card with a time limit that has run out on this clock: it can no longer be answered. */
 function lapsed(event: TranscriptEvent, now: number): boolean {
-	return (event.kind === "credential_ask" || event.kind === "secret_use_ask") && now >= event.expiresAt;
+	return (event.kind === "credential_ask" || event.kind === "secret_use_ask" || event.kind === "cookie_ask") && now >= event.expiresAt;
 }
 
 /** Whether a card still waits on the person. */
@@ -24,7 +24,7 @@ function waits(event: TranscriptEvent, now: number): event is Ask {
 		case "human_action":
 		case "passkey_ask":
 		case "secret_use_ask":
-		case "cookie_offer":
+		case "cookie_ask":
 			return event.status === "pending";
 		case "credential_ask":
 			return event.status === "pending" && !event.armed;
@@ -46,7 +46,7 @@ export function openAsks(events: readonly TranscriptEvent[], now: number = Date.
 export function nextLapse(events: readonly TranscriptEvent[], now: number): number | undefined {
 	let next: number | undefined;
 	for (const event of events) {
-		if ((event.kind !== "credential_ask" && event.kind !== "secret_use_ask") || event.status !== "pending") continue;
+		if ((event.kind !== "credential_ask" && event.kind !== "secret_use_ask" && event.kind !== "cookie_ask") || event.status !== "pending") continue;
 		if (event.expiresAt > now && (next === undefined || event.expiresAt < next)) next = event.expiresAt;
 	}
 	return next;
@@ -65,8 +65,8 @@ export function askLine(ask: Ask): string {
 			return `Passkey for ${ask.rpName ?? ask.rpId}`;
 		case "secret_use_ask":
 			return `Use ${ask.secret} on ${ask.site}`;
-		case "cookie_offer":
-			return `Your session on ${ask.site}`;
+		case "cookie_ask":
+			return `Sign in to ${ask.site}`;
 	}
 }
 
@@ -76,26 +76,30 @@ export function AskCard({
 	personaId,
 	thread,
 	ownerName,
+	ownerHash,
 	onOpenScreen,
 }: {
 	ask: Ask;
 	personaId: string;
 	thread: ThreadId;
 	ownerName: string;
+	/** The teammate's picture, for the face on the card. */
+	ownerHash?: string | undefined;
 	onOpenScreen?: (() => void) | undefined;
 }) {
+	const who = { id: personaId, name: ownerName, hash: ownerHash };
 	switch (ask.kind) {
 		case "permission":
-			return <Permission thread={thread} event={ask} />;
+			return <Permission thread={thread} event={ask} who={who} />;
 		case "human_action":
-			return <HumanAction thread={thread} event={ask} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+			return <HumanAction thread={thread} event={ask} who={who} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
 		case "credential_ask":
 			return <CredentialAsk event={ask} teammate={ownerName} />;
 		case "passkey_ask":
-			return <PasskeyAskCard personaId={personaId} event={ask} />;
+			return <PasskeyAskCard personaId={personaId} event={ask} teammate={ownerName} />;
 		case "secret_use_ask":
 			return <SecretUseAsk event={ask} teammate={ownerName} />;
-		case "cookie_offer":
-			return <CookieOfferCard offer={ask} teammate={ownerName} />;
+		case "cookie_ask":
+			return <CookieAskCard event={ask} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />;
 	}
 }

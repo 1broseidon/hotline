@@ -18,6 +18,7 @@ fn answer(id: &str) -> CredentialAnswer {
         action_id: id.into(),
         name: Some("CHOSEN_LOGIN".into()),
         ask: false,
+        save: None,
         values: Some(CredentialValues {
             username: "capture-user-sentinel".into(),
             password: "capture-password-sentinel".into(),
@@ -112,10 +113,7 @@ async fn capture_stores_grants_and_delivers_without_values_in_any_sink() {
     assert!(outcome.contains("https://github.com"));
     assert!(outcome.contains("browser fill secret CHOSEN_LOGIN.password"));
     let persona = room.persona("ada").unwrap();
-    assert_eq!(
-        persona.computer.unwrap().secrets.unwrap(),
-        vec!["CHOSEN_LOGIN"]
-    );
+    assert_eq!(persona.secrets.unwrap(), vec!["CHOSEN_LOGIN"]);
     let sets = taken.sets();
     let login = &sets.last().unwrap()["CHOSEN_LOGIN"];
     assert_eq!(login["sites"], json!(["https://github.com"]));
@@ -189,6 +187,7 @@ async fn capture_decline_expiry_withdrawal_and_revocation_store_nothing() {
                     name: None,
                     values: None,
                     ask: false,
+                    save: None,
                 })
                 .await
                 .unwrap();
@@ -225,14 +224,7 @@ async fn capture_decline_expiry_withdrawal_and_revocation_store_nothing() {
             room.vault.as_ref().unwrap().shared_secrets().unwrap(),
             Vec::<crate::contract::SharedSecret>::new()
         );
-        assert!(
-            room.persona("ada")
-                .unwrap()
-                .computer
-                .unwrap()
-                .secrets
-                .is_none()
-        );
+        assert!(room.persona("ada").unwrap().secrets.is_none());
         assert_eq!(
             taken.sets(),
             Vec::<std::collections::BTreeMap<String, Value>>::new()
@@ -285,6 +277,7 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
         name: Some("OTHER".into()),
         values: None,
         ask: false,
+        save: None,
     };
     assert!(room.answer_credential(grant.clone()).await.is_err());
     grant.name = Some("OLD".into());
@@ -321,6 +314,7 @@ async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
         name: Some("GH_PASSKEY".into()),
         values: None,
         ask: true,
+        save: None,
     })
     .await
     .unwrap();
@@ -386,6 +380,7 @@ async fn capture_passkey_unused_arming_expires_and_call_card_stays_on_the_desk()
         name: Some("GH_PASSKEY".into()),
         values: None,
         ask: false,
+        save: None,
     })
     .await
     .unwrap();
@@ -445,6 +440,7 @@ async fn capture_passkey_refuses_another_origin_and_minting_without_operator_app
             name: Some("GH_PASSKEY".into()),
             values: None,
             ask: false,
+            save: None,
         })
         .await
         .unwrap();
@@ -467,14 +463,7 @@ async fn capture_passkey_refuses_another_origin_and_minting_without_operator_app
             room.vault.as_ref().unwrap().shared_secrets().unwrap(),
             Vec::<crate::contract::SharedSecret>::new()
         );
-        assert!(
-            room.persona("ada")
-                .unwrap()
-                .computer
-                .unwrap()
-                .secrets
-                .is_none()
-        );
+        assert!(room.persona("ada").unwrap().secrets.is_none());
         // Waking the agent may hand its computer the existing empty set.
         for set in taken.sets() {
             assert_eq!(set, std::collections::BTreeMap::new());
@@ -516,12 +505,7 @@ async fn capture_an_accepted_answer_finishes_when_its_phone_disconnects() {
         json!(["https://github.com"])
     );
     assert_eq!(
-        room.persona("ada")
-            .unwrap()
-            .computer
-            .unwrap()
-            .secrets
-            .unwrap(),
+        room.persona("ada").unwrap().secrets.unwrap(),
         vec!["CHOSEN_LOGIN"]
     );
 }
@@ -577,6 +561,7 @@ async fn capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped()
         name: Some("GH_PASSKEY".into()),
         values: None,
         ask: false,
+        save: None,
     })
     .await
     .unwrap();
@@ -596,14 +581,7 @@ async fn capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped()
         room.vault.as_ref().unwrap().shared_secrets().unwrap(),
         Vec::<crate::contract::SharedSecret>::new()
     );
-    assert!(
-        room.persona("ada")
-            .unwrap()
-            .computer
-            .unwrap()
-            .secrets
-            .is_none()
-    );
+    assert!(room.persona("ada").unwrap().secrets.is_none());
     for set in taken.sets() {
         assert_eq!(set, std::collections::BTreeMap::new());
     }

@@ -2,10 +2,16 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Window } from "happy-dom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { DesksSection } from "../src/components/DesksSection";
-import { RemoteSection } from "../src/components/RemoteSection";
-import { replaceDesks, wireFor, type Desk } from "../src/desks";
+import type { Desk } from "../src/desks";
 import { installDom } from "./dom";
+
+// React DOM decides whether there is a DOM when it first loads, for every
+// file after this one too: it loads with one in place.
+const boot = installDom();
+const { DesksSection } = await import("../src/components/DesksSection");
+const { RemoteSection } = await import("../src/components/RemoteSection");
+const { replaceDesks, wireFor } = await import("../src/desks");
+await boot.teardown();
 
 // The desktop's own core answers at its own wire's `command`; the shell answers at
 // Tauri's invoke; a paired server's bridge is a socket the test speaks for.

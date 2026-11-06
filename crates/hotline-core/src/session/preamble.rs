@@ -4,11 +4,15 @@
 use super::secrets::describe_secret;
 use super::*;
 
+/// `desk_browser` is whether this desk has a browser of its own installed
+/// at the session's start: the desktop app's window, on a platform it is
+/// built for; never `hotline serve`.
 pub(crate) fn preamble(
     persona: &Persona,
     reach: Option<Reach>,
     wake: Option<String>,
     stored: &[SharedSecret],
+    desk_browser: bool,
 ) -> String {
     let reach_sentence = format!(
         "{}{}",
@@ -28,10 +32,19 @@ pub(crate) fn preamble(
         if crate::skills::computer_entry(Path::new(&persona.cwd))
             .is_some_and(|entry| entry.invalid.is_none())
         {
-            "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. Its guide for the release it is running is your `hotline-computer` skill; read it before your first call on the computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. The person can see its screen and take it over at any time. When a page wants a login or passkey, use `request_credential` with its full origin: the secure card on the desk and phone sends values only to the vault and your computer. Never ask for credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+            "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. Its guide for the release it is running is your `hotline-computer` skill; read it before your first call on the computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. The person can see its screen and take it over at any time. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in on your screen themselves. For a passkey, use `request_credential` with its full origin. Never ask for the person's passwords or credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
         } else {
-            "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page wants a login or passkey, use `request_credential` with its full origin: the secure card on the desk and phone sends values only to the vault and your computer. Never ask for credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+            "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in on your screen themselves. For a passkey, use `request_credential` with its full origin. Never ask for the person's passwords or credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
         }
+    } else if desk_browser {
+        // With no computer, the desk's own browser is the teammate's, when
+        // this desk has one: the desktop app's window installs it (macOS 14 and
+        // later, Linux and Windows), and `hotline serve` and a Mac before 14
+        // do not. Said
+        // here, not left to the tool listing: an agent whose tools are found
+        // by search reads this first, and "open" with no browser named must
+        // land in its own.
+        "\n\nYou have a web browser of your own on the person's desk, the `browser` tool: it keeps its own sign-ins, the person can watch it and take it over, and it is where you open pages. When the person asks you to open a page or a site without saying whose browser, open it there, in yours, and say it is open in your browser; only their own words for their browser (\"in my browser\", \"in Brave\") mean `open_link`. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in in your browser themselves. Never ask for the person's passwords in chat."
     } else {
         ""
     };
@@ -39,11 +52,14 @@ pub(crate) fn preamble(
     // values it is told it will never see, and told why, because a model
     // that goes looking for one is a model that was not told the computer
     // redacts them.
-    let secrets_sentence = match persona
+    let has_computer = persona
         .computer
         .as_ref()
-        .filter(|computer| computer.enabled)
-        .and_then(|computer| computer.secrets.as_deref())
+        .is_some_and(|computer| computer.enabled);
+    let secrets_sentence = match persona
+        .secrets
+        .as_deref()
+        .filter(|_| has_computer)
         .filter(|names| !names.is_empty())
     {
         Some(names) => {
@@ -61,7 +77,18 @@ pub(crate) fn preamble(
                 described.join(", ")
             )
         }
-        None => String::new(),
+        // With no computer, the desk's own browser is where a login is used.
+        None => match persona
+            .secrets
+            .as_deref()
+            .filter(|names| !has_computer && !names.is_empty())
+        {
+            Some(names) => format!(
+                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`, on the ref of the field for that part: a username into the username or email field, a password into the password field, a code into the one-time-code field. It is typed only on that login's own sites and only into such a field, and that refusal is right. You never see a value, and none is ever read back to you: no picture of the page is taken while one shows outside a password field. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                names.join(", ")
+            ),
+            None => String::new(),
+        },
     };
     let goal = persona.goal.trim();
     let identity = if goal.is_empty() {
@@ -188,4 +215,4 @@ pub(super) fn skills_index(persona: &Persona) -> String {
 }
 
 /// What the preamble says in place of a date: the clock is on the lines.
-pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from. `desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser' means opening it here with `open_link`. `phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";
+pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from. `desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser', or in one they name, means opening it here with `open_link`; a page they ask you to open without saying whose browser, and whatever you open to read or work on yourself, goes in your own browser if you have one, never theirs. `phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";

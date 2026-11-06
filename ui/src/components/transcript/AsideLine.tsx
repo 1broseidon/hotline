@@ -109,7 +109,7 @@ export function AnswerUnderFace({ cause, text, ts, people }: { cause: Extract<De
 				<span>{cause.name}</span>
 				<span className="instrument">· {asideTime(ts)}</span>
 			</p>
-			<div className="speech said-them">
+			<div className="speech said-them" data-bubble={people?.get(cause.personaId)?.bubble}>
 				<Markdown text={text} />
 			</div>
 		</div>

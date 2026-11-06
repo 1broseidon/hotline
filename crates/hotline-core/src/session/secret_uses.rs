@@ -12,7 +12,6 @@ pub(super) struct UseWatch {
     pub(super) ready: Option<Ready>,
     pub(super) old: bool,
     cards: HashMap<String, UseCard>,
-    pub(super) cookies: super::cookie_offers::CookieWatch,
 }
 
 struct UseCard {
@@ -34,10 +33,10 @@ impl Room {
         let Ok(persona) = self.persona(persona) else {
             return Vec::new();
         };
-        let Some(computer) = persona.computer.filter(|c| c.enabled) else {
+        if !persona.computer.is_some_and(|c| c.enabled) {
             return Vec::new();
-        };
-        let granted = computer.secrets.unwrap_or_default();
+        }
+        let granted = persona.secrets.unwrap_or_default();
         self.stored_secrets()
             .into_iter()
             .filter(|s| s.r#use == SecretUse::Ask && granted.contains(&s.name))
@@ -52,8 +51,6 @@ impl Room {
     }
 
     async fn look_at_secret_uses(self: &Arc<Self>, persona: &str, watch: &mut UseWatch) {
-        self.look_at_cookie_offers(persona, &mut watch.cookies)
-            .await;
         let granted = self.ask_me_secrets(persona);
         if granted.is_empty()
             && watch
@@ -105,8 +102,7 @@ impl Room {
                 let names: Vec<_> = self
                     .persona(persona)
                     .ok()
-                    .and_then(|p| p.computer)
-                    .and_then(|c| c.secrets)
+                    .and_then(|p| p.secrets)
                     .unwrap_or_default();
                 if let Some(vault) = &self.vault
                     && let Ok((mut values, _)) = vault.shared_secret_values(&names)
@@ -310,8 +306,11 @@ pub(super) fn watch(room: Weak<Room>) {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let Some(room) = room.upgrade() else { return };
             let mut personas: HashSet<String> = lock(&room.secret_uses).keys().cloned().collect();
+            // A teammate without a computer has the desk browser, when the
+            // desk has one, and is offered cookies for the site it is on.
+            let desk_browser = room.desk_browser().is_some();
             for persona in room::roster(&room.log) {
-                if persona.computer.as_ref().is_some_and(|c| c.enabled) {
+                if desk_browser || persona.computer.as_ref().is_some_and(|c| c.enabled) {
                     personas.insert(persona.id);
                 }
             }

@@ -191,6 +191,8 @@ export function useScrollToEvent(
 		// A step lives inside its block, so the block is what is found.
 		const row =
 			root?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(focus.eventId)}"]`) ??
+			// A file message inside a run of them is found by the run's row.
+			root?.querySelector<HTMLElement>(`[data-members~="${CSS.escape(focus.eventId)}"]`) ??
 			root?.querySelector<HTMLElement>(`[data-step-id="${CSS.escape(focus.eventId)}"]`)?.closest<HTMLElement>("[data-event-id]");
 		if (!root || !row) return;
 		pinned.current = false;

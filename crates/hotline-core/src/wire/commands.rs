@@ -71,12 +71,16 @@ pub(crate) async fn run(
         Command::WebsearchSetEnabled { provider, enabled } => {
             settings::set_web_search_enabled(log, room, provider, enabled).await
         }
+        Command::WebsearchSetUrl { provider, url } => {
+            settings::set_web_search_url(log, room, provider, url.as_deref()).await
+        }
         Command::WebsearchSetKey { provider, key } => {
             room.websearch_set_key(provider, key.as_deref())?;
             web_search_status(log, room)
         }
         Command::Ping {} => Ok(Value::Null),
-        Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(&url).await)),
+        Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(log, &url).await)),
+        Command::LinkIcon { site } => Ok(json!(crate::link_preview::icon(log, &site).await)),
         Command::CapabilitiesOptions {} => room
             .capability_options()
             .await
@@ -763,6 +767,12 @@ pub(crate) async fn run(
             room.desk_looking(looking);
             Ok(Value::Null)
         }
+        Command::BrowserSnapshot { persona_id } => {
+            living(log, &persona_id)?;
+            room.browser_snapshot(&persona_id)
+                .map(|snapshot| json!(snapshot))
+                .ok_or_else(|| "That teammate's browser has no picture yet.".to_string())
+        }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;
             room.computer_status(&persona_id)
@@ -795,24 +805,55 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
-        Command::ComputerBrowsersList {} => Ok(json!(room.computer_browsers().await)),
-        Command::ComputerCookiesPreview {
-            browser_id,
-            profile_id,
-        } => room
-            .computer_cookies_preview(&browser_id, &profile_id)
-            .await
-            .map(|sites| json!(sites)),
-        Command::ComputerCookiesImport {
+        Command::ComputerCookieLends { persona_id } => {
+            living(log, &persona_id)?;
+            room.cookie_lends(&persona_id)
+                .await
+                .map(|lends| json!(lends))
+        }
+        Command::ComputerCookieLendable {} => {
+            room.cookie_lendable().await.map(|sites| json!(sites))
+        }
+        Command::ComputerCookieLend { persona_id, site } => {
+            living(log, &persona_id)?;
+            room.cookie_lend(&persona_id, &site)
+                .await
+                .map(|lend| json!(lend))
+        }
+        Command::ComputerCookieLendSet {
             persona_id,
-            browser_id,
-            profile_id,
-            domains,
+            id,
+            keep_fresh,
+            ends,
         } => {
             living(log, &persona_id)?;
-            room.computer_cookies_import(&persona_id, &browser_id, &profile_id, &domains)
+            room.cookie_lend_set(&persona_id, &id, keep_fresh, ends)
                 .await
-                .map(|sites| json!(sites))
+                .map(|lend| json!(lend))
+        }
+        Command::ComputerCookieSources {} => {
+            room.cookie_sources().await.map(|sources| json!(sources))
+        }
+        Command::ComputerCookieSourceSet {
+            browser_id,
+            profile_id,
+            on,
+        } => room
+            .cookie_source_set(&browser_id, &profile_id, on)
+            .await
+            .map(|sources| json!(sources)),
+        Command::BrowserLocalList { persona_id } => room
+            .browser_local_list(&persona_id)
+            .await
+            .map(|origins| json!(origins)),
+        Command::BrowserLocalRemove { persona_id, origin } => {
+            room.browser_local_remove(&persona_id, &origin).await?;
+            room.browser_local_list(&persona_id)
+                .await
+                .map(|origins| json!(origins))
+        }
+        Command::ComputerCookieHolders {} => {
+            room.cookie_holders().await.map(|holders| json!(holders))
         }
         Command::ComputerCookiesPush {
             persona_id,
@@ -821,21 +862,6 @@ pub(crate) async fn run(
             .computer_cookies_push(&persona_id, transfer)
             .await
             .map(|sites| json!(sites)),
-        Command::ComputerCookiesList { persona_id } => room
-            .computer_cookies_list(&persona_id)
-            .await
-            .map(|imports| json!(imports)),
-        Command::ComputerCookiesForget {
-            persona_id,
-            browser_id,
-            profile_id,
-            domain,
-        } => {
-            living(log, &persona_id)?;
-            room.computer_cookies_forget(&persona_id, &browser_id, &profile_id, domain.as_deref())
-                .await
-                .map(|imports| json!(imports))
-        }
         Command::SecretsCaptureAnswer(answer) => room
             .secrets_capture_answer(answer)
             .await
@@ -848,21 +874,16 @@ pub(crate) async fn run(
             living(log, &persona_id)?;
             Ok(json!(room.computer_cookie_offers(&persona_id).await))
         }
-        Command::ComputerCookieBlocked {} => Ok(json!(room.computer_cookie_blocked().await)),
-        Command::ComputerCookieSettings {} => Ok(json!(crate::room::cookie_offer_settings(log)?)),
         Command::ComputerCookieSites {} => {
             room.computer_cookie_sites().await.map(|sites| json!(sites))
         }
-        Command::ComputerCookieReset { persona_id, site } => room
-            .computer_cookie_reset(&persona_id, &site)
-            .await
-            .map(|()| Value::Null),
         Command::ComputerCookieAnswer {
             persona_id,
             id,
             answer,
+            source,
         } => room
-            .computer_cookie_answer(&persona_id, &id, answer)
+            .computer_cookie_answer(&persona_id, &id, answer, source)
             .await
             .map(|()| Value::Null),
         Command::ComputerCookieRemove { persona_id, id } => room

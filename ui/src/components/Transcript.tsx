@@ -1,10 +1,10 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { DeliveryCause, PlanEntry, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled } from "../scheduledRuns";
-import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
+import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent } from "../scheduledRuns";
+import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
-import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
+import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
 import { RESTING, type WorkMark, activityOf } from "../activity";
 import { pageOf, sitesRead, toolSteps } from "../turnFacts";
 import { glance } from "../glance";
@@ -32,9 +32,12 @@ import {
 } from "../transcriptFolds";
 import { useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
 import { CallTools, Steps } from "./transcript/Steps";
-import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
+import { AgentSay, NamedSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
+import type { SentItem } from "./SentFile";
+import { LinkRow } from "./transcript/LinkRow";
+import { Plan } from "./transcript/Plan";
 import { CredentialAsk } from "./transcript/CredentialAsk";
-import { CookieOfferCard } from "./transcript/CookieOfferCard";
+import { CookieAskCard } from "./transcript/CookieAskCard";
 import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
@@ -58,6 +61,14 @@ export { SaidAloud, type ReactTarget, type ReplyTarget } from "./transcript/Bubb
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
+
+/** Where a row stands in the column, the scroll aside. */
+function placeOf(el: HTMLElement, row: HTMLElement): number {
+	return row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+}
+
+/** Rows drawn for the first time per frame. */
+const WARM_ROWS = 12;
 
 /** How near the top a scroll asks for the page above. */
 const EARLIER_SLACK = 600;
@@ -205,13 +216,13 @@ export function Transcript({
 	 * change to them, not once per streamed word: a reply streams into a
 	 * chapter that can hold hundreds of rows, and only its own bubble moves. */
 	const said = useMemo(() => {
-		const lines = new Map<string, string>();
+		const lines = new Map<string, Quote>();
 		for (const event of events) {
 			const line = quotedLine(event);
-			if (line !== undefined) lines.set(event.id, line);
+			if (line !== undefined) lines.set(event.id, { who: event.kind === "agent" ? name : "You", said: line });
 		}
 		return lines;
-	}, [events]);
+	}, [events, name]);
 	const answered = useMemo(() => superseded(events), [events]);
 	/* Who the person looped in here: their answers are said whole, under their faces. */
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
@@ -241,14 +252,18 @@ export function Transcript({
 	 * column grows upward by exactly what arrived. */
 	const earlierRef = useRef<{ more: boolean; load?: ((through?: string) => Promise<void>) | undefined }>({ more });
 	earlierRef.current = { more, load: onEarlier };
-	const anchor = useRef<{ height: number; top: number; first: string | undefined } | null>(null);
+	const anchor = useRef<{ row: HTMLElement | null; at: number; first: string | undefined } | null>(null);
 	const firstShown = useRef(events[0]?.id);
 	firstShown.current = events[0]?.id;
 	const loadEarlier = useCallback((through?: string) => {
 		const { more, load } = earlierRef.current;
 		const el = scroller.current;
 		if (!more || load === undefined || !el || anchor.current !== null) return;
-		const taken = { height: el.scrollHeight, top: el.scrollTop, first: firstShown.current };
+		// The top row as it stands now: when the page lands above it, the
+		// scroll moves by however far it was pushed down, and by nothing
+		// else, so a scroll made while the page was on its way is kept.
+		const row = el.querySelector<HTMLElement>(".tape-row");
+		const taken = { row, at: row === null ? 0 : placeOf(el, row), first: firstShown.current };
 		anchor.current = taken;
 		void load(through).finally(() => {
 			// The page lands as a render that may not have committed when the
@@ -265,7 +280,12 @@ export function Transcript({
 		const was = anchor.current;
 		if (!el || was === null || events[0]?.id === was.first) return;
 		anchor.current = null;
-		if (!pinned.current) el.scrollTop = was.top + (el.scrollHeight - was.height);
+		if (pinned.current || was.row === null || !was.row.isConnected) return;
+		const pushed = placeOf(el, was.row) - was.at;
+		if (pushed !== 0) {
+			el.scrollTop += pushed;
+			pinning.current = true;
+		}
 	}, [events]);
 	// A search hit or a quoted reply above the window: load back to it, and
 	// the jump lands once it is there.
@@ -275,6 +295,60 @@ export function Transcript({
 	}, [landing, more, events, loadEarlier]);
 	const loadEarlierRef = useRef(loadEarlier);
 	loadEarlierRef.current = loadEarlier;
+
+	/* Rows skip layout off screen (index.css, .tape-row), and one never laid
+	 * out stands at a 96px guess: scrolled up to, it would grow to its own
+	 * height and shove the rows under the eye. So after a change the rows not
+	 * yet laid out are drawn a few at a time from the bottom up, and the
+	 * scroll moves by what those above the view grew, so nothing on screen
+	 * moves. It runs while the person scrolls too: waiting for them to stop
+	 * left a long fling running into rows still at the guess. Each keeps its own height from
+	 * then on. Drawing them all at once would hold up opening a long chapter. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: new rows come with new written blocks; the drawing finds them in the DOM.
+	useEffect(() => {
+		const el = scroller.current;
+		if (!el) return;
+		let timer = 0;
+		let frame = 0;
+		let inFlight: HTMLElement[] = [];
+		const warm = () => {
+			timer = 0;
+			const cold = [...el.querySelectorAll<HTMLElement>(".tape-row:not([data-laid]):not([data-warm])")].slice(-WARM_ROWS).reverse();
+			if (cold.length === 0) return;
+			const top = el.getBoundingClientRect().top;
+			const before = cold.map((row) => row.getBoundingClientRect());
+			for (const row of cold) row.dataset["warm"] = "";
+			inFlight = cold;
+			let grew = 0;
+			cold.forEach((row, index) => {
+				const was = before[index]!;
+				if (was.bottom <= top) grew += row.getBoundingClientRect().height - was.height;
+			});
+			if (grew !== 0 && !pinned.current) {
+				el.scrollTop += grew;
+				pinning.current = true;
+			}
+			// Kept drawn through a frame, so the height it is remembered at is its own.
+			frame = requestAnimationFrame(() => {
+				frame = requestAnimationFrame(() => {
+					for (const row of cold) {
+						row.dataset["laid"] = "";
+						delete row.dataset["warm"];
+					}
+					inFlight = [];
+					timer = window.setTimeout(warm, 0);
+				});
+			});
+		};
+		timer = window.setTimeout(warm, 0);
+		return () => {
+			window.clearTimeout(timer);
+			cancelAnimationFrame(frame);
+			// A batch cut off between its frames goes back to waiting, rather
+			// than staying drawn for good.
+			for (const row of inFlight) delete row.dataset["warm"];
+		};
+	}, [written]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the scroller mounts and unmounts with empty, and the listeners move with it.
 	useEffect(() => {
@@ -373,7 +447,7 @@ export function Transcript({
 	// marker. Your own answer to a card is on the card, so it draws no row.
 	// A job that fired again and again with nothing drawn between is one row,
 	// so this is decided on what is left to draw.
-	const blocks = useMemo(() => groupCalls(groupScheduled(
+	const blocks = useMemo(() => groupSent(groupCalls(groupScheduled(
 		arrived.filter(
 			(block) =>
 				!(
@@ -385,7 +459,7 @@ export function Transcript({
 						(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
 				),
 		),
-	)), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
+	))), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
 	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId, workingSides ?? []), [onOpenThreads, events, personaId, workingSides]);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
@@ -422,7 +496,7 @@ export function Transcript({
 			    easing it would reflow every row for the length of the ease.
 			    Subagents at the composer's corner keep the same room. */}
 			<div
-				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
+				className={`tape-column mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
 			>
 				{/* Scrolling up loads these on its own; the key is for a window
 				    whose loaded lines are too short to scroll. */}
@@ -440,13 +514,14 @@ export function Transcript({
 						!isChapter(block) &&
 						(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
 					const id = block.kind === "event" ? block.event.id : block.id;
+					const event = block.kind === "event" ? block.event : null;
 					const side = sides[index] ?? null;
 					const run: Run = {
 						top: side !== null && !stamp && sideBefore(index) === side,
 						bottom: side !== null && sideAfter(index) === side,
 					};
 					return (
-						<div key={id} data-event-id={id} className="tape-row">
+						<div key={id} data-event-id={id} data-members={block.kind === "sent" ? block.messages.map((message) => message.id).join(" ") : undefined} className="tape-row">
 							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
 							{block.kind === "scheduled" ? (
 								<ScheduledGroup name={block.name} runs={block.runs} />
@@ -462,22 +537,42 @@ export function Transcript({
 									shown={workShown}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>
-							)) : (
+							)) : block.kind === "sent" ? (
 								<Row
 									personaId={personaId}
 									thread={rowThread}
 									ownerName={name}
-									event={block.event}
-									working={block.event.kind === "link" && block.event.threadKind === "call" && (workingCalls?.includes(block.event.thread) ?? false)}
-									loopedIn={block.event.kind === "delivery" && block.event.cause.kind === "peer" && looped.has(block.event.cause.personaId)}
-									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
+									event={block.messages[block.messages.length - 1]!}
+									files={block.files}
+									working={false}
+									loopedIn={false}
+									quote={undefined}
 									top={run.top}
 									bottom={run.bottom}
 									speakers={speakers}
 									people={people}
-									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retries(block.event.id) } : {})}
-									{...(!speakers && thread === undefined && block.event.kind === "notice" && failedLast(events, block.event.id) ? { onRunAgain: runAgain } : {})}
-									reactions={reacted.on.get(block.event.id)}
+									reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
+									{...(onReply !== undefined ? { onReply } : {})}
+									{...(onReact !== undefined ? { onReact } : {})}
+									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+									onJump={onJump}
+								/>
+							) : event === null ? null : (
+								<Row
+									personaId={personaId}
+									thread={rowThread}
+									ownerName={name}
+									event={event}
+									working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
+									loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
+									quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
+									top={run.top}
+									bottom={run.bottom}
+									speakers={speakers}
+									people={people}
+									{...(onRetryMessage && !speakers && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
+									{...(!speakers && thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
+									reactions={reacted.on.get(event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onReact !== undefined ? { onReact } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
@@ -567,6 +662,7 @@ const Row = memo(function Row({
 	speakers,
 	people,
 	reactions,
+	files,
 	onReply,
 	onReact,
 	onRetry,
@@ -585,13 +681,15 @@ const Row = memo(function Row({
 	/** A delivery from a colleague the person looped into this thread: its one answer. */
 	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
-	quote: string | undefined;
+	quote: Quote | undefined;
 	top: boolean;
 	bottom: boolean;
 	speakers: Speakers | undefined;
 	people: ReadonlyMap<string, Person> | undefined;
-	/** Emoji the phone or this window sent as lines of their own, folded onto this one. */
+	/** Emoji the phone or this window sent as lines of their own, folded onto this one: yours. */
 	reactions: string[] | undefined;
+	/** A turn's files sent a message each, drawn as one with this, the newest, as their line. */
+	files?: SentItem[] | undefined;
 	onRetry?: (() => void) | undefined;
 	/** Runs the failed turn this notice reports again (`session.retry`). */
 	onRunAgain?: (() => Promise<unknown>) | undefined;
@@ -603,8 +701,8 @@ const Row = memo(function Row({
 	onJump(eventId: string): void;
 }) {
 	const run: Run = { top, bottom };
-	const own = event.kind === "user" || event.kind === "agent" ? event.reactions : undefined;
-	const worn = reactions === undefined ? own : [...(own ?? []), ...reactions];
+	const worn = { theirs: event.kind === "user" || event.kind === "agent" ? event.reactions : undefined, yours: reactions };
+	const who = { id: personaId, name: ownerName, hash: people?.get(personaId)?.hash };
 	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask" || event.kind === "credential_ask") && event.from?.kind === "call") {
 		const origin = event.from;
 		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
@@ -621,10 +719,10 @@ const Row = memo(function Row({
 					onClick={() => onOpenThread?.({ thread: { kind: "call", key: origin.thread }, ...(origin.title ? { title: origin.title } : {}) })}>
 					From the call{origin.title ? ` · ${origin.title}` : ""}
 				</button>
-				{event.kind === "permission" && <Permission thread={thread} event={event} />}
-				{event.kind === "human_action" && <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />}
+				{event.kind === "permission" && <Permission thread={thread} event={event} who={who} />}
+				{event.kind === "human_action" && <HumanAction thread={thread} event={event} who={who} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />}
 				{event.kind === "credential_ask" && <CredentialAsk event={event} teammate={ownerName} />}
-				{event.kind === "passkey_ask" && <PasskeyAskCard personaId={personaId} event={event} />}
+				{event.kind === "passkey_ask" && <PasskeyAskCard personaId={personaId} event={event} teammate={ownerName} />}
 			</div>
 		);
 	}
@@ -649,7 +747,7 @@ const Row = memo(function Row({
                 const heard = spoken?.trim() ? spoken : event.text;
                 return <>
                     <p className="said-name">{ownerName}</p>
-                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} run={run} reactions={worn}
+                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} files={files} run={run} reactions={worn} bubble={people?.get(personaId)?.bubble}
                         {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
                         {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
                     {heard !== event.text && <details className="my-2 text-sm text-ink-3">
@@ -669,8 +767,10 @@ const Row = memo(function Row({
                     {...(onOpenThread !== undefined ? { onOpenThread } : {})}
 					personaId={personaId}
 					event={event}
+					files={files}
 					run={run}
 					reactions={worn}
+					bubble={people?.get(personaId)?.bubble}
 					{...(onReply !== undefined ? { onReply } : {})}
 					{...(onReact !== undefined ? { onReact } : {})}
 				/>
@@ -709,33 +809,39 @@ const Row = memo(function Row({
 		 * one superseded marker, so there is no interim state to draw. */
 		case "chapter":
 			return (
-				<p className="rule-line mt-2">
-					<span className="max-w-[70%] truncate text-ink-2">
-						{event.title !== undefined && event.title !== "" ? event.title : "New chapter"}
+				<p className="chapter-rule">
+					<span className="chapter-pill">
+						<span className="line-label chapter-label">Chapter</span>
+						<b className="chapter-title">{event.title !== undefined && event.title !== "" ? event.title : "New chapter"}</b>
+						<span className="chapter-when">· {stampText(event.ts)}</span>
 					</span>
-					<span>{stampText(event.ts)}</span>
 				</p>
 			);
 
 		case "permission":
-			return <Permission thread={thread} event={event} />;
+			return <Permission thread={thread} event={event} who={who} />;
 
 		case "plan":
 			return <Plan entries={event.entries} />;
 
 		case "human_action":
-			return <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+			return <HumanAction thread={thread} event={event} who={who} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
 
 		case "credential_ask":
 			return <CredentialAsk event={event} teammate={ownerName} />;
 
+		case "cookie_ask":
+			return <CookieAskCard event={event} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />;
+
+		/* A share record: the cookies the person shared, listed and removed
+		 * in the teammate's pane. The ask that led to it is the line here. */
 		case "cookie_offer":
-			return <CookieOfferCard offer={event} teammate={ownerName} />;
+			return null;
 		case "secret_use_ask":
 			return <SecretUseAsk event={event} teammate={ownerName} />;
 
 		case "passkey_ask":
-			return <PasskeyAskCard personaId={personaId} event={event} />;
+			return <PasskeyAskCard personaId={personaId} event={event} teammate={ownerName} />;
 
 		/* The pair's exchange hit its cap: a live card while it waits on the
 		 * person, a quiet rule line once it is settled either way. */
@@ -791,21 +897,10 @@ const Row = memo(function Row({
 		}
 
 		/* A thread this conversation holds, whatever its kind: a work thread, a
-		 * subagent's run, a call. One quiet line that fills in as the thread
-		 * goes, and opens it in the right-hand pane. */
+		 * subagent's run, a call. One row that fills in as the thread goes, and
+		 * opens it in the right-hand pane. */
 		case "link":
-			return (
-				<button
-					type="button"
-					className="rule-line rule-line-plain w-full"
-					style={linkFailed(event) ? { color: "var(--warn)" } : undefined}
-					aria-label={`${linkLine(event, personaId, people, working)}. Open it`}
-					onClick={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })}
-				>
-					<span className="min-w-0 truncate">{linkLine(event, personaId, people, working)}</span>
-					<span className="shrink-0">· Open</span>
-				</button>
-			);
+			return <LinkRow link={event} owner={personaId} people={people} working={working} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
 
 		/* The markers links replaced. The window declares `threads2`, so the
 		 * desk sends it a link for each, even for one written long ago. */
@@ -925,54 +1020,8 @@ function CallGroup({
 				<span className="shrink-0">· {open ? "Hide" : "Show"}</span>
 			</button>
 			{open &&
-				calls.map((link) => (
-					<button
-						key={link.id}
-						type="button"
-						className="rule-line rule-line-plain w-full"
-						aria-label={`${linkLine(link, personaId, people)}. Open it`}
-						onClick={() => onOpen(link)}
-					>
-						<span className="min-w-0 truncate">{linkLine(link, personaId, people)}</span>
-						<span className="shrink-0">· Open</span>
-					</button>
-				))}
+				calls.map((link) => <LinkRow key={link.id} link={link} owner={personaId} people={people} onOpen={() => onOpen(link)} />)}
 		</div>
-	);
-}
-
-/** The agent's working list, one status per line. */
-function Plan({ entries }: { entries: PlanEntry[] }) {
-	if (entries.length === 0) return null;
-	return (
-		<ul className="mt-2 max-w-[78%] py-1 text-sm">
-			{entries.map((entry, index) => (
-				<li key={`${index}:${entry.content}`} className="flex items-start gap-2 py-0.5 pl-2">
-					<PlanMark status={entry.status} />
-					<span className={`min-w-0 flex-1 ${entry.status === "completed" ? "text-ink-3" : "text-ink-2"}`}>
-						{entry.content}
-					</span>
-				</li>
-			))}
-		</ul>
-	);
-}
-
-function PlanMark({ status }: { status: string }) {
-	if (status === "completed") {
-		return <CheckIcon className="mt-px shrink-0 text-accent-ink" />;
-	}
-	if (status === "in_progress") {
-		return (
-			<span className="grid h-4 w-4 shrink-0 place-items-center" aria-label="in progress">
-				<span className="beat h-1.5 w-1.5 rounded-full bg-accent" />
-			</span>
-		);
-	}
-	return (
-		<span className="grid h-4 w-4 shrink-0 place-items-center" aria-label={status}>
-			<span className="h-1.5 w-1.5 rounded-full" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
-		</span>
 	);
 }
 

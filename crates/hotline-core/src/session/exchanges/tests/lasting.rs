@@ -193,7 +193,6 @@ async fn a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_s
             memory: None,
             pids: None,
             mounts: None,
-            secrets: None,
         });
         enrol(&log, &bob);
         let gate = Arc::new(Semaphore::new(0));

@@ -80,6 +80,27 @@
 	--said-me: oklch(78.7% 0.128 163);
 	--said-me-ink: oklch(24% 0.044 165);
 	--said-them: oklch(22% 0.008 250);
+	/* A teammate's bubble when the person gave it a colour (decision-43): the
+	 * faces' hues but gold, a soft tint that keeps its words at 13:1. */
+	--bubble-lime: oklch(25% 0.035 113);
+	--bubble-green: oklch(25% 0.035 156);
+	--bubble-teal: oklch(25% 0.035 199);
+	--bubble-blue: oklch(25% 0.035 242);
+	--bubble-violet: oklch(25% 0.035 285);
+	--bubble-pink: oklch(25% 0.035 328);
+	/* An object a message carries (a table, code, a diagram) sits sunk into
+	 * its bubble as one sheet; its head, a callout and an inline code chip
+	 * take the lifted band. Alpha, so they read on grey and on every tint. */
+	--sheet: oklch(0% 0 0 / 0.24);
+	/* The sheet sunk into a bubble, a step below the bubble itself. */
+	--sheet-sunk: color-mix(in oklab, var(--sheet), oklch(0% 0 0) 18%);
+	--sheet-head: oklch(100% 0 0 / 0.025);
+	/* Code's colours on a sheet: keyword, string, number, function. A
+	 * comment is ink-3. */
+	--code-keyword: oklch(78% 0.1 300);
+	--code-string: oklch(80% 0.11 150);
+	--code-number: oklch(82% 0.1 75);
+	--code-function: oklch(80% 0.09 230);
 
 	--warn: oklch(80% 0.14 80);
 	/* Waiting on the person, as words and an outline: the same amber everywhere it asks. */
@@ -144,7 +165,7 @@
 	color-scheme: light;
 
 	--well: oklch(92.5% 0.005 250);
-	--edge: oklch(78% 0.02 252);
+	--edge: oklch(72% 0.02 252);
 	--canvas: oklch(98.5% 0.003 250);
 	--raised: oklch(96.5% 0.004 250);
 	--pop: oklch(100% 0 0);
@@ -153,34 +174,53 @@
 
 	/* The ladder is set by contrast, not by eye: ink-3 holds 4.5:1 (WCAG AA)
 	 * on the well, the darkest plane its captions sit on, and ink-4 holds
-	 * 3:1 there, as furniture may. ink-2 steps down so the four stay apart. */
+	 * 4.5:1 on the canvas, raised and pop planes, where its small timings and
+	 * hints sit. ink-2 steps down so the four stay apart. */
 	--ink: oklch(20% 0.01 250);
 	--ink-2: oklch(38% 0.01 250);
-	--ink-3: oklch(47% 0.01 250);
-	--ink-4: oklch(58% 0.008 250);
+	--ink-3: oklch(45% 0.01 250);
+	--ink-4: oklch(53% 0.008 250);
 
 	--fill-hover: oklch(20% 0.01 250 / 0.06);
 	--fill-active: oklch(20% 0.01 250 / 0.1);
 	--fill-selected: oklch(20% 0.01 250 / 0.08);
 	--fill-code: oklch(20% 0.01 250 / 0.05);
 
-	--line: oklch(20% 0.01 250 / 0.1);
-	--line-strong: oklch(20% 0.01 250 / 0.2);
+	/* Dark enough that a field, a group and the composer show their edge on
+	 * white, where 0.1 all but vanished. */
+	--line: oklch(20% 0.01 250 / 0.16);
+	--line-strong: oklch(20% 0.01 250 / 0.28);
 	--thumb: oklch(80% 0.008 250);
 	--thumb-hover: oklch(68% 0.008 250);
 	/* White on a grey track, lifted a little: a dark knob read as on. */
 	--knob: oklch(100% 0 0);
 	--knob-shadow: 0 1px 2px oklch(20% 0.01 250 / 0.3);
 
-	--accent: oklch(78.7% 0.128 163);
-	--accent-hover: oklch(74% 0.13 163);
+	/* Deeper than the dark palette's mint, same hue: at 78.7% it washed out on
+	 * white. Decision-41 lets light take its own shade. */
+	--accent: oklch(70% 0.13 163);
+	--accent-hover: oklch(66% 0.13 163);
 	--on-accent: oklch(24% 0.044 165);
-	--accent-soft: oklch(78.7% 0.128 163 / 0.2);
+	--accent-soft: oklch(70% 0.13 163 / 0.2);
 	/* Mint as a fill reads on white; as words it fades, so text goes deeper. */
 	--accent-ink: oklch(50% 0.1 165);
-	--said-me: oklch(78.7% 0.128 163);
+	--said-me: oklch(70% 0.13 163);
 	--said-me-ink: oklch(24% 0.044 165);
-	--said-them: oklch(95% 0.005 250);
+	--said-them: oklch(93.5% 0.005 250);
+	--bubble-lime: oklch(93% 0.03 113);
+	--bubble-green: oklch(93% 0.03 156);
+	--bubble-teal: oklch(93% 0.03 199);
+	--bubble-blue: oklch(93% 0.03 242);
+	--bubble-violet: oklch(93% 0.03 285);
+	--bubble-pink: oklch(93% 0.03 328);
+	/* Sunk is darker here too; the head is lifted toward white. */
+	--sheet: oklch(20% 0.01 250 / 0.05);
+	--sheet-sunk: oklch(20% 0.01 250 / 0.08);
+	--sheet-head: oklch(100% 0 0 / 0.4);
+	--code-keyword: oklch(48% 0.15 300);
+	--code-string: oklch(47% 0.11 150);
+	--code-number: oklch(50% 0.11 60);
+	--code-function: oklch(47% 0.12 245);
 
 	--warn: oklch(64% 0.15 75);
 	/* Darker as words on a light card, so small text keeps its contrast. */
@@ -202,6 +242,160 @@
 		0 0 0 var(--hairline) oklch(20% 0.01 250 / 0.1),
 		0 6px 16px -6px oklch(20% 0.01 250 / 0.2);
 	--scrim: oklch(20% 0.01 250 / 0.28);
+}
+
+/* Accent presets (decision-42). Each re-values only the accent's shades, from
+ * one hue at the lightness and chroma the mint uses in each palette, with
+ * chroma pulled in where the hue would leave sRGB. Surfaces, inks, amber, red
+ * and faces never change. theme.ts sets data-accent on <html> from the room's
+ * choice; a swatch sets it on itself, so it draws its own preset whatever the
+ * window's is. Mint's block repeats the palette's own values for that. */
+[data-accent="mint"] {
+	--accent: oklch(78.7% 0.128 163);
+	--accent-hover: oklch(83.7% 0.101 165);
+	--on-accent: oklch(24% 0.044 165);
+	--accent-soft: oklch(78.7% 0.128 163 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 163);
+	--said-me: oklch(78.7% 0.128 163);
+	--said-me-ink: oklch(24% 0.044 165);
+}
+:root[data-theme="light"] [data-accent="mint"],
+:root[data-theme="light"][data-accent="mint"] {
+	--accent: oklch(70% 0.13 163);
+	--accent-hover: oklch(66% 0.13 163);
+	--accent-soft: oklch(70% 0.13 163 / 0.2);
+	--accent-ink: oklch(50% 0.1 165);
+	--said-me: oklch(70% 0.13 163);
+	--on-accent: oklch(24% 0.044 165);
+	--said-me-ink: oklch(24% 0.044 165);
+}
+[data-accent="teal"] {
+	--accent: oklch(78.7% 0.128 195);
+	--accent-hover: oklch(83.7% 0.101 195);
+	--on-accent: oklch(24% 0.042 195);
+	--accent-soft: oklch(78.7% 0.128 195 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 195);
+	--said-me: oklch(78.7% 0.128 195);
+	--said-me-ink: oklch(24% 0.042 195);
+}
+:root[data-theme="light"] [data-accent="teal"],
+:root[data-theme="light"][data-accent="teal"] {
+	--accent: oklch(70% 0.118 195);
+	--accent-hover: oklch(66% 0.112 195);
+	--accent-soft: oklch(70% 0.118 195 / 0.2);
+	--accent-ink: oklch(50% 0.084 195);
+	--said-me: oklch(70% 0.118 195);
+	--on-accent: oklch(24% 0.042 195);
+	--said-me-ink: oklch(24% 0.042 195);
+}
+[data-accent="sky"] {
+	--accent: oklch(78.7% 0.12 240);
+	--accent-hover: oklch(83.7% 0.089 240);
+	--on-accent: oklch(24% 0.044 240);
+	--accent-soft: oklch(78.7% 0.12 240 / 0.16);
+	--accent-ink: oklch(78.7% 0.12 240);
+	--said-me: oklch(78.7% 0.12 240);
+	--said-me-ink: oklch(24% 0.044 240);
+}
+:root[data-theme="light"] [data-accent="sky"],
+:root[data-theme="light"][data-accent="sky"] {
+	--accent: oklch(70% 0.13 240);
+	--accent-hover: oklch(66% 0.13 240);
+	--accent-soft: oklch(70% 0.13 240 / 0.2);
+	--accent-ink: oklch(50% 0.1 240);
+	--said-me: oklch(70% 0.13 240);
+	--on-accent: oklch(24% 0.044 240);
+	--said-me-ink: oklch(24% 0.044 240);
+}
+[data-accent="iris"] {
+	--accent: oklch(78.7% 0.108 280);
+	--accent-hover: oklch(83.7% 0.081 280);
+	--on-accent: oklch(24% 0.044 280);
+	--accent-soft: oklch(78.7% 0.108 280 / 0.16);
+	--accent-ink: oklch(78.7% 0.108 280);
+	--said-me: oklch(78.7% 0.108 280);
+	--said-me-ink: oklch(24% 0.044 280);
+}
+:root[data-theme="light"] [data-accent="iris"],
+:root[data-theme="light"][data-accent="iris"] {
+	--accent: oklch(70% 0.13 280);
+	--accent-hover: oklch(66% 0.13 280);
+	--accent-soft: oklch(70% 0.13 280 / 0.2);
+	--accent-ink: oklch(50% 0.1 280);
+	--said-me: oklch(70% 0.13 280);
+	--on-accent: oklch(24% 0.044 280);
+	--said-me-ink: oklch(24% 0.044 280);
+}
+[data-accent="orchid"] {
+	--accent: oklch(78.7% 0.128 320);
+	--accent-hover: oklch(83.7% 0.101 320);
+	--on-accent: oklch(24% 0.044 320);
+	--accent-soft: oklch(78.7% 0.128 320 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 320);
+	--said-me: oklch(78.7% 0.128 320);
+	--said-me-ink: oklch(24% 0.044 320);
+}
+:root[data-theme="light"] [data-accent="orchid"],
+:root[data-theme="light"][data-accent="orchid"] {
+	--accent: oklch(70% 0.13 320);
+	--accent-hover: oklch(66% 0.13 320);
+	--accent-soft: oklch(70% 0.13 320 / 0.2);
+	--accent-ink: oklch(50% 0.1 320);
+	--said-me: oklch(70% 0.13 320);
+	--on-accent: oklch(24% 0.044 320);
+	--said-me-ink: oklch(24% 0.044 320);
+}
+[data-accent="rose"] {
+	--accent: oklch(78.7% 0.128 355);
+	--accent-hover: oklch(83.7% 0.101 355);
+	--on-accent: oklch(24% 0.044 355);
+	--accent-soft: oklch(78.7% 0.128 355 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 355);
+	--said-me: oklch(78.7% 0.128 355);
+	--said-me-ink: oklch(24% 0.044 355);
+}
+:root[data-theme="light"] [data-accent="rose"],
+:root[data-theme="light"][data-accent="rose"] {
+	--accent: oklch(70% 0.13 355);
+	--accent-hover: oklch(66% 0.13 355);
+	--accent-soft: oklch(70% 0.13 355 / 0.2);
+	--accent-ink: oklch(50% 0.1 355);
+	--said-me: oklch(70% 0.13 355);
+	--on-accent: oklch(24% 0.044 355);
+	--said-me-ink: oklch(24% 0.044 355);
+}
+
+/* A teammate's bubble colour by name, on its bubbles and on its swatch;
+ * grey is the bubble every teammate has until the person picks another. The
+ * tint is soft, so a swatch draws its hue as strong as a face's (--bubble-mark),
+ * and the bubble takes the tint. */
+[data-bubble="grey"] {
+	--bubble: var(--said-them);
+	--bubble-mark: oklch(var(--face-l) 0.01 250);
+}
+[data-bubble="lime"] {
+	--bubble: var(--bubble-lime);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 113);
+}
+[data-bubble="green"] {
+	--bubble: var(--bubble-green);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 156);
+}
+[data-bubble="teal"] {
+	--bubble: var(--bubble-teal);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 199);
+}
+[data-bubble="blue"] {
+	--bubble: var(--bubble-blue);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 242);
+}
+[data-bubble="violet"] {
+	--bubble: var(--bubble-violet);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 285);
+}
+[data-bubble="pink"] {
+	--bubble: var(--bubble-pink);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 328);
 }
 
 /* A hairline is one device pixel, not one CSS pixel. */

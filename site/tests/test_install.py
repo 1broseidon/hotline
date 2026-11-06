@@ -56,7 +56,7 @@ class InstallerTests(unittest.TestCase):
         self.binary.write_text("#!/bin/sh\n" + (f"echo 'hotline {version}'\n" if supports_version else "exit 2\n"))
         self.binary.chmod(0o755)
 
-    def run_shell(self, body, success=True):
+    def run_shell(self, body, success=True, path=None):
         q = shlex.quote
         prelude = f'''set -eu
 . {q(str(self.source))}
@@ -71,7 +71,7 @@ desktop_linux() {{ echo INSTALL >>"$LOG"; }}
 desktop_macos() {{ echo INSTALL >>"$LOG"; }}
 '''
         result = subprocess.run(["sh", "-c", prelude + body], text=True, capture_output=True,
-                                env={**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin"}, timeout=10)
+                                env={**os.environ, "HOME": str(self.home), "PATH": path or f"{self.bin}:/usr/bin:/bin"}, timeout=10)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -140,6 +140,61 @@ as_root() { printf '%s\\n' "$*" >>"$LOG"; }
 main --version 0.26.0 --force --yes
 ''')
         self.assertTrue(any("apt-get install --reinstall -y" in action for action in self.actions()))
+
+    # The package managers the installer looks for; a test machine has only
+    # the ones it stubs, whatever the host runs on (Ubuntu CI has apt-get in
+    # /usr/bin, a Mac none).
+    MANAGERS = ("apt-get", "apt", "dpkg", "dnf", "yum", "zypper", "rpm")
+
+    def system_without_managers(self):
+        """The host's /usr/bin and /bin, linked into one folder, without any package manager."""
+        folder = self.root / "system"
+        if not folder.exists():
+            folder.mkdir()
+            for source in (Path("/usr/bin"), Path("/bin")):
+                for tool in source.iterdir():
+                    link = folder / tool.name
+                    if tool.name not in self.MANAGERS and not link.exists():
+                        link.symlink_to(tool)
+        return folder
+
+    def desktop_on(self, machine, managers):
+        """The real desktop_linux on a stubbed machine; returns the packages it asked for and installed."""
+        self.stub("uname", f'case "$1" in -s) echo Linux;; -m) echo {machine};; esac')
+        for manager in self.MANAGERS:
+            (self.bin / manager).unlink(missing_ok=True)
+        for manager in managers:
+            self.stub(manager, "exit 0")
+        source = INSTALL.read_text()
+        desktop = source[source.index("desktop_linux() {"):source.index("# The address this host")]
+        out = self.run_shell(desktop + '''
+asset() { echo "ASSET $1" >>"$LOG"; touch "$work/$1"; }
+as_root() { printf '%s\\n' "$*" >>"$LOG"; }
+install() { echo "COPY $*" >>"$LOG"; }
+sha256() { echo fixture; }
+work=$(mktemp -d)
+version=0.48.0 force= current=
+desktop_linux
+''', success=machine != "riscv64", path=f"{self.bin}:{self.system_without_managers()}")
+        return out, self.actions()
+
+    def test_arm_linux_desktop_installs_its_own_architecture(self):
+        for managers, package in [(("apt-get", "dpkg"), "deb"), (("dnf",), "rpm"), (("zypper",), "rpm"), ((), "AppImage")]:
+            with self.subTest(package=package, managers=managers):
+                self.log.unlink(missing_ok=True)
+                _, actions = self.desktop_on("aarch64", managers)
+                self.assertIn(f"ASSET hotline_0.48.0_linux_aarch64.{package}", actions)
+                self.assertTrue(any(f"hotline_0.48.0_linux_aarch64.{package}" in a for a in actions if not a.startswith("ASSET")), actions)
+                self.assertFalse(any("x86_64" in a for a in actions), actions)
+
+    def test_x86_linux_desktop_still_installs_x86_packages(self):
+        _, actions = self.desktop_on("x86_64", ("apt-get", "dpkg"))
+        self.assertIn("ASSET hotline_0.48.0_linux_x86_64.deb", actions)
+
+    def test_unknown_linux_architecture_is_refused_before_any_download(self):
+        out, actions = self.desktop_on("riscv64", ("apt-get", "dpkg"))
+        self.assertIn("no Hotline build for riscv64", out)
+        self.assertEqual(actions, [])
 
     def test_terminal_default_no_declines(self):
         self.server_install()

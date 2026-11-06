@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Browser</title>
+		<link rel="stylesheet" href="/src/browserBar.css" />
+	</head>
+	<body>
+		<div id="bar">
+			<span class="who"><span class="dot"></span><span id="status"></span></span>
+			<button id="back" type="button" class="icon" title="Back" aria-label="Back" disabled>‹</button>
+			<button id="forward" type="button" class="icon" title="Forward" aria-label="Forward" disabled>›</button>
+			<button id="reload" type="button" class="icon" title="Reload" aria-label="Reload" disabled>↻</button>
+			<form id="where"><span id="lock" aria-hidden="true"></span><input id="url" spellcheck="false" autocomplete="off" readonly aria-label="Address" /></form>
+			<span id="error" class="error" hidden></span>
+			<span id="untrusted" hidden><span id="untrusted-label"></span><button id="visit" type="button">Visit anyway</button></span>
+			<button id="take" type="button" class="primary">Take control</button>
+		</div>
+		<script type="module" src="/src/browserBar.ts"></script>
+	</body>
+</html>

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CapabilityJob, CapabilityOptions } from "../src/generated/contract";
 import { budgetsPatch, limitText } from "../src/budgets";
 import {
+	callFront,
 	AUTOMATIC,
 	carriedEffort,
 	choicesFor,
@@ -290,5 +291,20 @@ describe("the words the desk listens for", () => {
 		expect(listenForOf({ listenFor: ["Ophelia", 7, "Groq"] })).toEqual(["Ophelia", "Groq"]);
 		expect(listenForOf({ listenFor: "Ophelia" })).toEqual([]);
 		expect(listenForOf(undefined)).toEqual([]);
+	});
+});
+
+describe("the call model as this desk runs it", () => {
+	const grok = { front: "grok", credential: "xai", name: "Grok Voice", providerName: "xAI", voices: ["ara"] } as const;
+	test("with no live voice provider and nothing chosen, calls are Turn by turn: no Grok Voice that cannot answer", () => {
+		expect(callFront(null, []).provider).toBe("turn-by-turn");
+		expect(callFront({ dispatcher: { provider: "ollama" } }, []).provider).toBe("turn-by-turn");
+	});
+	test("with Grok Voice connected and nothing chosen, Grok Voice fronts calls, as the desk does", () => {
+		expect(callFront(null, [grok as never]).provider).toBe("grok");
+	});
+	test("a model the owner chose stays chosen, connected or not", () => {
+		expect(callFront({ front: { provider: "grok" } }, []).provider).toBe("grok");
+		expect(callFront({ front: { provider: "turn-by-turn" } }, [grok as never]).provider).toBe("turn-by-turn");
 	});
 });

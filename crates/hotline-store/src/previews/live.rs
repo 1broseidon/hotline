@@ -41,7 +41,7 @@ impl State {
                 | "credential_ask"
                 | "passkey_ask"
                 | "secret_use_ask"
-                | "cookie_offer"
+                | "cookie_ask"
                 | "exchange_paused"
         ) {
             return kind == "delivery";
@@ -49,7 +49,7 @@ impl State {
         if let Some(id) = event["id"].as_str() {
             match kind {
                 "permission" => self.set_thread_card(id, event.get("decision").is_none()),
-                "human_action" | "credential_ask" => {
+                "human_action" | "credential_ask" | "cookie_ask" => {
                     self.set_thread_card(id, event["status"] == "pending");
                 }
                 _ => {}
@@ -85,11 +85,8 @@ impl State {
             TranscriptEvent::CredentialAsk { id, status, .. } => {
                 self.set_card(id, status == hotline_contract::CredentialStatus::Pending);
             }
-            TranscriptEvent::CookieOffer { offer } => {
-                self.set_card(
-                    offer.id,
-                    offer.status == hotline_contract::CookieOfferStatus::Pending,
-                );
+            TranscriptEvent::CookieAsk { id, status, .. } => {
+                self.set_card(id, status == hotline_contract::CookieAskStatus::Pending);
             }
             TranscriptEvent::SecretUseAsk { id, status, .. } => {
                 self.set_card(id, status == hotline_contract::SecretUseStatus::Pending);

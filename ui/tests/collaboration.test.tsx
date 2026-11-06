@@ -160,8 +160,11 @@ describe("Ask or hand off", () => {
 			title: "Fix the CI badge", state: "live", openerId: "mack", openerName: "Mack",
 		};
 		const html = transcript([link]);
-		expect(html).toContain("From Mack · Fix the CI badge");
-		expect(html).toContain("· Open");
+		// One row: the title, who it is from, and Open; the sentence it always read as is its name.
+		expect(html).toContain('class="link-row-title">Fix the CI badge<');
+		expect(html).toContain("· From Mack");
+		expect(html).toContain("Open ›");
+		expect(html).toContain('aria-label="From Mack · Fix the CI badge. Open it"');
 		const old = { kind: "side", id: "side:s1", ts: 1, sideId: "s1", personaId: "ada", title: "Old marker", status: "live" } as TranscriptEvent;
 		expect(transcript([old])).not.toContain("Old marker");
 	});

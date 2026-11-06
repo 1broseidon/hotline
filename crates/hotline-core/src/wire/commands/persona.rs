@@ -82,6 +82,7 @@ pub(crate) fn drafted_persona(
         goal: given(draft.goal).unwrap_or_default(),
         avatar: None,
         team: given(draft.team),
+        bubble: None,
         backend_id,
         cwd,
         // The workspace is the wall unless the draft asked for the machine,
@@ -105,6 +106,7 @@ pub(crate) fn drafted_persona(
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: draft.computer,
+        secrets: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -294,7 +296,6 @@ pub(super) async fn mobile_persona_computer(
         cpus: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     if let Some(enabled) = enabled {
         computer.enabled = enabled;
@@ -435,7 +436,7 @@ async fn apply_persona_update_locked(
     drop(held);
     if reattaches {
         room.reattach(id).await?;
-    } else if patch.get("computer").is_some() {
+    } else if patch.get("computer").is_some() || patch.get("secrets").is_some() {
         room.computer_settings_changed(id).await;
     }
     Ok(updated)
@@ -454,14 +455,34 @@ pub(super) fn update_persona(
     if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
         return Err("A picture can only be cleared here, with `avatar: null`.".into());
     }
+    if let Some(bubble) = patch.get("bubble").filter(|bubble| !bubble.is_null())
+        && !bubble
+            .as_str()
+            .is_some_and(|name| name == "grey" || hotline_contract::BUBBLES.contains(&name))
+    {
+        return Err(format!(
+            "A bubble is its face's own (null), grey or one of {}.",
+            hotline_contract::BUBBLES.join(", ")
+        ));
+    }
+    let mut changes = patch
+        .as_object()
+        .ok_or("A patch is an object of fields to change.")?
+        .clone();
+    // A client from before secrets were the teammate's own ticks them on
+    // the computer; that tick is the teammate's grant.
+    if let Some(names) = changes
+        .get_mut("computer")
+        .and_then(Value::as_object_mut)
+        .and_then(|computer| computer.remove("secrets"))
+    {
+        changes.entry("secrets").or_insert(names);
+    }
     let mut record = json!(previous);
     let fields = record
         .as_object_mut()
         .expect("a teammate serializes as an object");
-    for (key, value) in patch
-        .as_object()
-        .ok_or("A patch is an object of fields to change.")?
-    {
+    for (key, value) in &changes {
         fields.insert(key.clone(), value.clone());
     }
     fields.insert("id".into(), Value::from(id));
@@ -493,8 +514,8 @@ pub(super) fn update_persona(
 
 /// Whether this update restarts a live session. The computer's own
 /// settings do not, short of turning it on or off: its limits, mounts and
-/// image take effect when the container is next made, and its secrets are
-/// handed to it where it runs. A turn in flight is not cut short for them.
+/// image take effect when the container is next made, and the teammate's
+/// secrets are handed to it where it runs. A turn in flight is not cut short for them.
 fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Persona) -> bool {
     let enabled = |persona: &Persona| {
         persona

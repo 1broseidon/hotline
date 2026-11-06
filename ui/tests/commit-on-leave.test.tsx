@@ -37,10 +37,14 @@ async function mount(personName: string) {
 			<GeneralSection
 				personName={personName}
 				onPersonName={(name) => saved.push(name)}
+				accent="mint"
+				onAccent={() => {}}
 				idleHours={24}
 				defaultBackendId="hotline"
 				defaultModelId={null}
 				onIdleHours={() => {}}
+				linkPreviews
+				onLinkPreviews={() => {}}
 				onBackend={() => {}}
 				onDefaultModel={() => {}}
 				onProviders={undefined}

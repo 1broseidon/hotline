@@ -47,7 +47,7 @@ afterEach(async () => {
 
 async function openDesktop() {
 	await act(async () => {
-		root.render(<ComputerRows personaId="ada" teammate="Ada" computer={{ enabled: true, memory: "2048m" }} disabled={false} onChange={() => {}} />);
+		root.render(<ComputerRows personaId="ada" computer={{ enabled: true, memory: "2048m" }} disabled={false} onChange={() => {}} />);
 	});
 	const fold = [...container.querySelectorAll("button")].find((node) => node.textContent?.includes("Desktop"));
 	if (!fold) throw new Error("No Desktop fold");

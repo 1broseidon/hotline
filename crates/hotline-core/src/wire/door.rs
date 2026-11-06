@@ -19,6 +19,9 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 pub struct Door {
     listener: StdTcpListener,
     port: u16,
+    /// The port as one this process listens on, which a teammate's desk
+    /// browser never opens, for as long as the door is bound or serving.
+    held: crate::listening::Held,
     desk_token: String,
     behind: Behind,
 }
@@ -53,6 +56,7 @@ impl Door {
         Ok(Self {
             listener,
             port,
+            held: crate::listening::hold(port),
             desk_token,
             behind,
         })
@@ -67,6 +71,7 @@ impl Door {
     /// of file descriptors, an interrupted call — is waited out, because
     /// returning here kills the wire for the life of the process.
     pub async fn run(self) -> io::Result<()> {
+        let _held = self.held;
         let listener = TcpListener::from_std(self.listener)?;
         let desk_token = Arc::new(self.desk_token);
         loop {

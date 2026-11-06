@@ -116,7 +116,10 @@ pub(super) async fn start_oauth_proxy(
     let router = Router::new()
         .fallback(any(oauth_proxy_request))
         .with_state(state);
+    // Held while it serves: a teammate's desk browser never opens it.
+    let held = crate::listening::hold(port);
     let task = tokio::spawn(async move {
+        let _held = held;
         let shutdown_signal = async move {
             child_shutdown.cancelled().await;
         };

@@ -601,6 +601,7 @@ pub(crate) fn persona(id: &str) -> Persona {
         goal: "Keep the harbour running.".to_string(),
         avatar: None,
         team: None,
+        bubble: None,
         backend_id: "hotline".to_string(),
         cwd: std::env::temp_dir().to_string_lossy().to_string(),
         reach: Some(Reach::Machine),
@@ -623,6 +624,7 @@ pub(crate) fn persona(id: &str) -> Persona {
         web_search_policy: None,
         folders: None,
         computer: None,
+        secrets: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -861,7 +863,6 @@ async fn computer_room(
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     enrol(&log, &ada);
     let agents = Fake::new(Scripted::new(Vec::new()));
@@ -931,7 +932,7 @@ pub(crate) async fn secret_use_room(
         )
         .unwrap();
     let mut persona = fixture.room.persona("ada").unwrap();
-    persona.computer.as_mut().unwrap().secrets = Some(vec![
+    persona.secrets = Some(vec![
         "GH_PASSKEY".into(),
         "OTHER_KEY".into(),
         "HN_LOGIN".into(),
@@ -951,6 +952,43 @@ pub(crate) async fn cookie_offer_room(
         crate::computer::cookies::lending::tests::candidate_fixture(profiles.path(), firefox);
     let fixture = cookie_offer_room_with_candidates(name, vec![candidate]).await;
     (fixture, profiles)
+}
+
+/// A teammate with no computer and the desk's browser, its session live, a
+/// vault, and the person's Firefox signed in to porkbun.com. The browser is on no
+/// page until the test puts it on one.
+#[cfg(unix)]
+pub(crate) async fn desk_browser_cookie_room(
+    name: &str,
+    browser: Arc<dyn crate::browser::DeskBrowser>,
+) -> (Arc<Room>, tempfile::TempDir) {
+    let profiles = tempfile::tempdir().unwrap();
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    // A vault of the test's own, for a login given on the ask's Sign In.
+    let vault = Arc::new(
+        Vault::open_with_store(
+            log.root(),
+            log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    let room = Room::with_agents_computers_and_vault(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(Vec::new())),
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+        Some(vault),
+    );
+    *lock(&room.cookie_candidates) =
+        vec![crate::computer::cookies::lending::tests::candidate_fixture(
+            profiles.path(),
+            true,
+        )];
+    room.install_browser(browser, &[]);
+    room.start("ada").await.unwrap();
+    (room, profiles)
 }
 
 #[cfg(unix)]

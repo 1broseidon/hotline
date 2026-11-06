@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SecretUseAnswer, SecretUseStatus, TranscriptEvent } from "../../generated/contract";
 import { askKey, useAnswer } from "../../answering";
 import { wire } from "../../wire";
+import { SettledAsk } from "./Asks";
 
 const outcomes: Record<SecretUseStatus, string> = {
 	pending: "Needs you", approved: "Approved", allowed: "Allowed for 10 min", denied: "Denied", expired: "Expired",
@@ -20,18 +21,18 @@ export function SecretUseAsk({ event, teammate }: { event: Extract<TranscriptEve
 		if (status !== "pending" || Date.now() >= event.expiresAt) return;
 		send(() => wire.command("secrets.use.answer", { personaId: event.teammate, useId: event.useId, answer }));
 	};
-	return <div className={`card mt-3${status === "pending" ? " card-live" : ""}`}>
+	// Settled, it folds to one line, as every ask does.
+	if (status !== "pending") return <SettledAsk state={outcomes[status]} what={`Use ${event.secret} on ${event.site}${event.path}`} who={teammate} />;
+	return <div className="card card-live mt-3">
 		<p className="eyebrow mb-1">{outcomes[status]} · {event.secretKind === "passkey" ? "Passkey" : "Login"}</p>
 		<p className="selectable">Use <span className="font-mono">{event.secret}</span> on {event.site} for {teammate}?</p>
 		<p className="mt-1 text-sm text-ink-3">{event.site}{event.path}</p>
-		{status === "pending" && <>
-			<p className="mt-1.5 text-sm text-ink-3">Allow 10 min covers this key, this site and this teammate. Voice cannot answer this card.</p>
-			<div className="mt-2.5 flex flex-wrap gap-1.5">
-				<button type="button" className="control btn-primary" disabled={answering} onClick={() => answer("approve")}>Approve</button>
-				<button type="button" className="control btn" disabled={answering} onClick={() => answer("allow")}>Allow 10 min</button>
-				<button type="button" className="control btn" disabled={answering} onClick={() => answer("deny")}>Deny</button>
-			</div>
-		</>}
-		{refusal !== null && status === "pending" && <p className="mt-2 text-sm text-danger">{refusal}</p>}
+		<p className="mt-1.5 text-sm text-ink-3">Allow 10 min covers this key, this site and this teammate. Voice cannot answer this card.</p>
+		<div className="mt-2.5 flex flex-wrap gap-1.5">
+			<button type="button" className="control btn-primary" disabled={answering} onClick={() => answer("approve")}>Approve</button>
+			<button type="button" className="control btn" disabled={answering} onClick={() => answer("allow")}>Allow 10 min</button>
+			<button type="button" className="control btn" disabled={answering} onClick={() => answer("deny")}>Deny</button>
+		</div>
+		{refusal !== null && <p className="mt-2 text-sm text-danger">{refusal}</p>}
 	</div>;
 }

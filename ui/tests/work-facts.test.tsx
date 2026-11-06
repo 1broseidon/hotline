@@ -80,8 +80,6 @@ describe("a turn's work in words and counts", () => {
 		const summary = summaryOf(recorded());
 		expect(summary).toEqual({ steps: 7, sources: 4, files: 2, failed: 1 });
 		expect(summaryWords(summary)).toEqual({ said: "7 steps · 4 sources · 2 files", failed: "1 failed" });
-		// The history line has the sites' icons for its sources.
-		expect(summaryWords(summary, { sources: false }).said).toBe("7 steps · 2 files");
 	});
 
 	test("each line's fact is one the steps recorded: results, lines in and out, tests passed, a time, a timeout", async () => {
@@ -192,11 +190,10 @@ describe("the composer's row, in its five states", () => {
 	test("Reading the web: the site, and the icons of the sites read so far", async () => {
 		const button = await row({ activity: { phase: "search", word: "Reading vercel.com", sites: ["nextjs.org", "github.com", "vercel.com"] }, count: 4 });
 		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Reading vercel.com");
-		expect([...button.querySelectorAll("img.favicon")].map((icon) => icon.getAttribute("src"))).toEqual([
-			"https://nextjs.org/favicon.ico",
-			"https://github.com/favicon.ico",
-			"https://vercel.com/favicon.ico",
-		]);
+		// An icon is only what the desk fetched and keeps (tests/link-previews.test.tsx); the
+		// window never asks a site, and with no desk here it has none to draw, nor a stand-in.
+		expect(button.querySelector(".favicons")).toBeNull();
+		expect(button.querySelectorAll("img").length).toBe(0);
 	});
 
 	test("Needs you: amber, with what waits", async () => {

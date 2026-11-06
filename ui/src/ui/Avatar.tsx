@@ -70,12 +70,17 @@ function usePicture(personaId: string, hash: string | undefined, read?: AvatarRe
 	return hash !== undefined && loaded?.hash === hash ? loaded.url : undefined;
 }
 
-export function faceOf(personaId: string): string {
+/** Which of the seven face hues a teammate's id lands on, 0 to 6, from 70° in steps of 43°. */
+export function faceHue(personaId: string): number {
 	let hash = 0;
 	for (let index = 0; index < personaId.length; index++) {
 		hash = (hash * 31 + personaId.charCodeAt(index)) % 1_000_003;
 	}
-	return `oklch(var(--face-l) var(--face-c) ${70 + (hash % 7) * 43})`;
+	return hash % 7;
+}
+
+export function faceOf(personaId: string): string {
+	return `oklch(var(--face-l) var(--face-c) ${70 + faceHue(personaId) * 43})`;
 }
 
 /** The first letter that is one, so "⌘kill bill" and " Ada" both read right. */

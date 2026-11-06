@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import type { CapabilityOptions } from "../src/generated/contract";
 import { installDom } from "./dom";
 
-test("ChatGPT images require a picker selection, Automatic clears it, and a chosen live model that is not connected says so", async () => {
+test("ChatGPT images require a picker selection, Automatic clears it, calls with no live voice provider are Turn by turn, and a chosen live model that is not connected says so", async () => {
 	const { teardown } = installDom();
 	// React probes event support at module load; install the DOM before loading it.
 	const { act } = await import("react");
@@ -46,7 +46,13 @@ test("ChatGPT images require a picker selection, Automatic clears it, and a chos
 		await pick("Automatic");
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { images: null } } });
 		expect(changes).toBe(2);
-		// Calls default to Grok Voice, and nothing connected runs it.
+		// Nothing chosen and no live voice provider connected: calls run Turn
+		// by turn, as the desk runs them, with no Grok Voice that cannot answer.
+		expect(container.textContent).toContain("Turn by turn");
+		expect(container.textContent).toContain("Transcription");
+		expect(container.textContent).not.toContain("Not connected");
+		// A live model the owner chose stays shown, and says it is not connected.
+		await act(async () => { root.render(<UseFor options={options} voice={{ front: { provider: "grok" } }} onChanged={() => {}} />); });
 		expect(container.textContent).toContain("Not connected. Connect its provider above, or choose another.");
 		expect(container.textContent).not.toContain("Transcription");
 	} finally {

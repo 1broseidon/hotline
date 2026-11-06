@@ -19,7 +19,7 @@ conversation:
 | `message_teammate`, `list_teammates` | Asks a colleague a question or hands it work, and sees who is idle, working or waiting. The first contact waits for you to allow the pair, except from a Hotline Agent teammate with **Whole machine**. See [Teammates working together](/docs/use/teammates-together/). |
 | `send_file` | Sends you a file in the conversation: a report, a chart, a screenshot of its computer. Pictures up to 2000 pixels, other files up to 25 MB. |
 | `react` | Puts an emoji on your last message instead of a reply. |
-| `open_link` | Opens a link in your own browser, only while you are at the desktop app. |
+| `open_link` | Opens a link in your own browser when you ask for it — your default, or the one you name ("open it in Brave") — only while you are at the desktop app. What a teammate opens to work on goes in its own browser. |
 | `web_search` | Searches the web. See [Web search](#web-search). |
 | `generate_image`, `set_avatar` | Draws a picture, and sets its own profile picture. See [Pictures](/docs/use/images/). |
 | `search_thread`, `list_chapters`, `new_chapter`, `resume_chapter` | Searches its own history, including earlier chapters, side threads and calls, and opens or reopens a chapter. |
@@ -109,3 +109,11 @@ the result. Only the query is sent.
 stop every teammate using it. **Add key** gives a provider your own API key,
 kept in the keychain: a provider with a key counts for more and lifts its
 free rate limit.
+
+**SearXNG** is a search engine you run yourself, or one you trust. It is off
+until you set it up: **Set up** takes the instance's address, such as
+`http://localhost:8888`, and a key if your instance sits behind a gateway
+that wants one (sent as `Authorization: Bearer` and as `X-API-Key`). Then
+switch it on, and every search asks it beside the others. The instance must
+serve JSON: add `json` under `search.formats` in its `settings.yml`, or it
+answers 403 and Hotline says so.

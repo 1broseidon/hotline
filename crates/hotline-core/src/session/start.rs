@@ -209,6 +209,7 @@ impl Room {
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
             indexed: Mutex::new(None),
+            told_cookies: Mutex::new(None),
         });
         {
             let _lifecycle = lock(&self.lifecycle);
@@ -337,10 +338,12 @@ impl Room {
     }
 
     /// A deleted teammate: its own session stopped, with the collaboration
-    /// grants it held or was given, and its start gate let go, because nothing
-    /// should wait behind — or be kept for — an id that names nobody any more.
+    /// grants it held or was given, its start gate let go, and its desk
+    /// browser closed with its web storage wiped, because nothing should wait
+    /// behind — or be kept for — an id that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
+        self.browser_forget(persona_id);
         super::consent::forget(&self.log, persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
@@ -357,7 +360,6 @@ impl Room {
     /// its agent, and nothing is left to answer in them. Its jobs' agents are
     /// let go of too; the jobs go on firing.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
-        *lock(&self.stops).entry(persona_id.to_string()).or_default() += 1;
         self.stop_session(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));
@@ -483,6 +485,16 @@ impl Room {
             self.schedule_changed.notify_one();
             was_running.then(|| epoch.lease())
         };
+        // A computer turned on takes its browser's place: the desk browser
+        // closes, keeping its storage for when the computer is turned off.
+        if self
+            .persona(persona_id)
+            .is_ok_and(|persona| persona.computer.is_some_and(|computer| computer.enabled))
+        {
+            self.browser_retire(persona_id).await;
+        }
+        // The person's shared cookies follow it into the browser it has now.
+        self.cookie_lends_follow(persona_id).await;
         let Some(capability) = capability else {
             return Ok(());
         };

@@ -7,12 +7,13 @@
 //! window, a phone or another desk.
 
 pub mod boot;
+pub mod browser;
 mod capabilities;
 pub mod computer;
 pub use hotline_contract as contract;
 #[cfg(windows)]
 use hotline_support::process_windows;
-pub use hotline_support::{credentials, log_file, paths, room_lock};
+pub use hotline_support::{credentials, listening, log_file, paths, room_lock};
 use hotline_support::{fence, images, lines, thumbs};
 pub mod desk;
 pub mod driver;

@@ -1,0 +1,9 @@
+[[set]]
+identifier = "browser-bar-commands"
+description = "Hotline's bar above a teammate's desk browser reads where the page is and lets the person take it over, hand it back and, while they have it, move it or visit past a certificate the page was refused for. It administers nothing else; the page below it has no capability at all."
+permissions = [
+  "allow-browser-bar-state",
+  "allow-browser-bar-take",
+  "allow-browser-bar-go",
+  "allow-browser-bar-trust",
+]

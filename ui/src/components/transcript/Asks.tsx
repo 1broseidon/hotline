@@ -5,26 +5,52 @@ import type {
 	HumanActionStatus,
 	HumanAnswer,
 	PasskeyAskStatus,
-	PermissionOption,
 	ThreadId,
 	TranscriptEvent,
 } from "../../generated/contract";
-import { CheckIcon } from "../../icons";
+import { Avatar } from "../../ui/Avatar";
 import { answerCard } from "../../tape";
 import { wire } from "../../wire";
 import { askedFor } from "../PasskeyArm";
 
+/** The teammate a card is from, by face and name. */
+export type Asker = { id: string; name: string; hash?: string | undefined };
+
 /**
- * A permission the agent asked. The choice is history when the tape already
- * names it; otherwise the options are the answer, and they stay dead while
- * that answer is in flight so a second click cannot race the first.
+ * Any ask once it is settled, a permission, a sign-in, a question: one quiet
+ * line with how it ended in a chip, what was asked, and who asked. What is
+ * done is history, and history should not take a card's room.
+ */
+export function SettledAsk({ state, what, command = false, who }: { state: string; what: string; command?: boolean; who?: string }) {
+	return (
+		<p className="ask-settled">
+			<span className="link-row-dot" data-tone={/allow|yes|done|signed|stored|used|cookies|opened/i.test(state) ? "done" : /den|refus|fail/i.test(state) ? "failed" : undefined} />
+			{command ? <code className="ask-settled-what selectable">{what}</code> : <span className="ask-settled-what selectable">{what}</span>}
+			{who !== undefined && <span className="ask-settled-who">{who}</span>}
+			<span className="ask-chip">{state}</span>
+		</p>
+	);
+}
+
+/** A command as the well shows it: without the backticks some harnesses fence it in. */
+function commandOf(title: string): string {
+	return title.trim().replace(/^`+|`+$/g, "");
+}
+
+/**
+ * A permission the agent asked: who wants to run what, the command in a
+ * well, and the agent's own answers side by side at one weight, none of them
+ * picked for you. They stay dead while an answer is in flight so a second
+ * click cannot race the first. Answered, it folds to one line.
  */
 export function Permission({
 	thread,
 	event,
+	who,
 }: {
 	thread: ThreadId;
 	event: Extract<TranscriptEvent, { kind: "permission" }>;
+	who: Asker;
 }) {
 	const chosen = chosenOption(event);
 	const { answering, failure, answer: send } = useAnswer(askKey(event), event.decision !== undefined);
@@ -33,37 +59,35 @@ export function Permission({
 		send(() => answerCard(thread, { kind: "permission", requestId: event.requestId, optionId }));
 	};
 
+	if (chosen !== undefined) return <SettledAsk state={chosen} what={commandOf(event.title)} command who={who.name} />;
 	return (
-		<div className={`card mt-3 ${chosen === undefined ? "card-live" : ""}`}>
-			<p className="eyebrow mb-1">{chosen === undefined ? "Asking permission" : "Asked permission"}</p>
-			<p className="selectable font-mono text-md" style={{ whiteSpace: "pre-wrap" }}>{event.title}</p>
-			{chosen !== undefined ? (
-				<p className="instrument mt-1.5 flex items-center gap-1.5">
-					{event.decision !== "expired" && <CheckIcon className="text-ink-4" />}
-					{chosen}
-				</p>
-			) : (
-				<div className="card-actions">
-					{event.options.map((option) => (
-						<button
-							key={option.optionId}
-							type="button"
-							disabled={answering}
-							className={`control ${optionKindClass(option)}`}
-							onClick={() => answer(option.optionId)}
-						>
-							{option.name}
-						</button>
-					))}
-				</div>
-			)}
-			{failure !== null && chosen === undefined && <p role="alert" className="mt-2 text-sm text-danger">{failure}</p>}
+		<div className="ask-card">
+			<p className="ask-head">
+				<Avatar id={who.id} name={who.name} size={18} hash={who.hash} />
+				<span className="line-label">
+					<b>{who.name}</b> wants to run
+				</span>
+			</p>
+			<p className="ask-command">
+				<span className="ask-prompt" aria-hidden="true">
+					$
+				</span>
+				<span className="selectable">{commandOf(event.title)}</span>
+			</p>
+			<div className="card-actions">
+				{event.options.map((option) => (
+					<button key={option.optionId} type="button" disabled={answering} className="control btn" onClick={() => answer(option.optionId)}>
+						{option.name}
+					</button>
+				))}
+			</div>
+			{failure !== null && <p role="alert" className="mt-2 text-sm text-danger">{failure}</p>}
 		</div>
 	);
 }
 
 function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): string | undefined {
-	if (event.decision === "expired") return "Expired unanswered";
+	if (event.decision === "expired") return "Expired";
 	if (event.decidedOptionName !== undefined && event.decidedOptionName !== "") {
 		return event.decidedOptionName;
 	}
@@ -72,12 +96,7 @@ function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): 
 	return option?.name ?? event.decision;
 }
 
-function optionKindClass(option: PermissionOption): string {
-	return option.kind?.startsWith("allow") ? "btn-primary" : "btn";
-}
-
-const AFTERLIFE: Record<HumanActionStatus, string> = {
-	pending: "Needs you",
+const AFTERLIFE: Record<Exclude<HumanActionStatus, "pending">, string> = {
 	done: "Done",
 	dismissed: "Declined",
 	expired: "Expired",
@@ -85,18 +104,21 @@ const AFTERLIFE: Record<HumanActionStatus, string> = {
 };
 
 /**
- * The agent asked for hands it does not have. A pending card is answered
- * here; a decided one is the outcome on the tape. The note goes with
- * either answer and reaches the agent word for word, so a card that asked
- * a question is answered in the same place it was asked. Enter is Done.
+ * The agent asked for hands it does not have: the amber Needs you card, with
+ * the face and name of who is asking. A pending card is answered here; a
+ * decided one folds to its outcome on one line. The note goes with either
+ * answer and reaches the agent word for word, so a card that asked a
+ * question is answered in the same place it was asked. Enter is Done.
  */
 export function HumanAction({
 	thread,
 	event,
+	who,
 	onOpenScreen,
 }: {
 	thread: ThreadId;
 	event: Extract<TranscriptEvent, { kind: "human_action" }>;
+	who: Asker;
 	onOpenScreen?(): void;
 }) {
 	const [noting, setNoting] = useState(false);
@@ -109,20 +131,19 @@ export function HumanAction({
 	};
 
 	if (event.status !== "pending") {
-		return (
-			<div className="card mt-3">
-				<p className="eyebrow mb-1">
-					Needed you · {event.question && event.status === "done" ? "Yes" : event.question && event.status === "dismissed" ? "No" : AFTERLIFE[event.status]}
-					{event.note?.trim() ? <span className="normal-case"> · {event.note.trim()}</span> : null}
-				</p>
-				<p className="selectable text-ink-2">{event.reason}</p>
-			</div>
-		);
+		const state = event.question && event.status === "done" ? "Yes" : event.question && event.status === "dismissed" ? "No" : AFTERLIFE[event.status];
+		const note = event.note?.trim();
+		return <SettledAsk state={state} what={note ? `${event.reason} · ${note}` : event.reason} who={who.name} />;
 	}
 
 	return (
 		<div className="card card-live mt-3">
-			<p className="eyebrow mb-1.5">Needs you</p>
+			<p className="eyebrow mb-1.5 needs-you-head">
+				<Avatar id={who.id} name={who.name} size={18} hash={who.hash} />
+				<span>
+					Needs you · <b>{who.name}</b>
+				</span>
+			</p>
 			<p className="selectable text-lg font-medium">{event.reason}</p>
 			{onOpenScreen !== undefined && !event.question && (
 				<p className="mt-1.5 text-sm text-ink-3">
@@ -174,8 +195,7 @@ export function HumanAction({
 	);
 }
 
-const PASSKEY_AFTERLIFE: Record<PasskeyAskStatus, string> = {
-	pending: "Needs you",
+const PASSKEY_AFTERLIFE: Record<Exclude<PasskeyAskStatus, "pending">, string> = {
 	approved: "Approved",
 	denied: "Denied",
 	expired: "Expired",
@@ -187,9 +207,9 @@ const PASSKEY_AFTERLIFE: Record<PasskeyAskStatus, string> = {
  * browser until it is answered here, from whichever seat. Approve and the
  * browser makes it, the room stores it under the arming's name and ticks
  * it for this teammate; deny and the site hears no and the arming ends. A
- * decided card is the outcome on the tape.
+ * decided card folds to its outcome on one line.
  */
-export function PasskeyAskCard({ personaId, event }: { personaId: string; event: Extract<TranscriptEvent, { kind: "passkey_ask" }> }) {
+export function PasskeyAskCard({ personaId, event, teammate }: { personaId: string; event: Extract<TranscriptEvent, { kind: "passkey_ask" }>; teammate: string }) {
 	const { answering, failure: refusal, answer: send } = useAnswer(askKey(event), event.status !== "pending");
 	const who = askedFor(event);
 	const site = event.rpName !== undefined ? `${event.rpName} (${event.rpId})` : event.rpId;
@@ -200,17 +220,7 @@ export function PasskeyAskCard({ personaId, event }: { personaId: string; event:
 	};
 
 	if (event.status !== "pending") {
-		return (
-			<div className="card mt-3">
-				<p className="eyebrow mb-1">Passkey · {PASSKEY_AFTERLIFE[event.status]}</p>
-				<p className="selectable text-ink-2">{asks}</p>
-				{event.status === "approved" && (
-					<p className="selectable mt-1 text-ink-2">
-						Stored as <span className="font-mono">{event.name}</span> and ticked for this teammate once made.
-					</p>
-				)}
-			</div>
-		);
+		return <SettledAsk state={PASSKEY_AFTERLIFE[event.status]} what={event.status === "approved" ? `Passkey for ${site}, stored as ${event.name}` : `Passkey for ${site}`} who={teammate} />;
 	}
 
 	return (

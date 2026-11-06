@@ -1,4 +1,5 @@
 import type { Ability, LinkState, RosterEntry, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { DockState } from "./components/Dock";
 import { sideTitle } from "./links";
 
 /**
@@ -11,6 +12,15 @@ export const DOCK_MIN = 300;
 export const DOCK_MAX = 560;
 export const DOCK_STEP = 16;
 export const DOCK_KEY = "hotline.dock.size";
+/**
+ * Escape in the pane: one step back, then out. A thread goes back to the
+ * list, and the list closes.
+ */
+export function dockBack(dock: DockState): DockState | null {
+	if (dock.open !== null) return { open: null };
+	return null;
+}
+
 /** The narrowest the conversation is left when the pane stands beside it. */
 const CONVERSATION_MIN = 396;
 

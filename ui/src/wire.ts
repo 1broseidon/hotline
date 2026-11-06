@@ -1,6 +1,7 @@
 import type {
 	Aside,
 	BackendChoice,
+	BrowserSnapshot,
 	CatalogModel,
 	ChapterSummary,
 	Command,
@@ -8,12 +9,12 @@ import type {
 	ComputerReleases,
 	ComputerStatus,
 	ConfigChoice,
-	CookieImport,
+	CookieHolder,
+	CookieLend,
 	CookieOffer,
-	CookieOfferBlock,
-	CookieOfferSettings,
 	CookieOfferSites,
 	CookieSite,
+	CookieSources,
 	Credential,
 	DeskLink,
 	EffortChoices,
@@ -21,7 +22,6 @@ import type {
 	GlobalSearchHit,
 	HarnessUpdate,
 	HarnessUpdates,
-	HostBrowser,
 	CapabilityOptions,
 	ImagesStatus,
 	InboundSource,
@@ -159,7 +159,10 @@ type Results = {
 	"websearch.status": WebSearchStatus;
 	"websearch.set_enabled": WebSearchStatus;
 	"websearch.set_key": WebSearchStatus;
+	"websearch.set_url": WebSearchStatus;
 	"link.preview": LinkPreview | null;
+	/** A site's icon as a `data:` URL the desk fetched and keeps. */
+	"link.icon": string | null;
 	ping: null;
 	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
@@ -290,24 +293,30 @@ type Results = {
 	"computer.releases": ComputerReleases;
 	"computer.releases.check": ComputerReleases;
 	"computer.status": ComputerStatus;
+	"browser.snapshot": BrowserSnapshot;
 	"computer.start": null;
 	"computer.stop": null;
 	"computer.remove": null;
 	"computer.update": null;
 	"computer.restart": null;
-	"computer.browsers.list": HostBrowser[];
-	"computer.cookies.preview": CookieSite[];
-	"computer.cookies.import": CookieSite[];
+	/** The person's cookies shared with a teammate, a row a site. */
+	"computer.cookies.lends": CookieLend[];
+	/** The sites the switched-on sources are signed into; names only. */
+	"computer.cookies.lendable": CookieOfferSites;
+	"computer.cookies.lend": CookieLend;
+	"computer.cookies.lend.set": CookieLend;
+	"computer.cookies.sources": CookieSources;
+	"computer.cookies.source.set": CookieSources;
+	"computer.cookies.holders": CookieHolder[];
+	/** The local addresses a teammate's desk browser may always open, as host:port. */
+	"browser.local.list": string[];
+	/** The list once one is taken back. */
+	"browser.local.remove": string[];
 	"computer.cookies.push": CookieSite[];
-	"computer.cookies.list": CookieImport[];
 	"computer.cookies.offers": CookieOffer[];
-	"computer.cookies.blocked": CookieOfferBlock[];
-	"computer.cookies.settings": CookieOfferSettings;
 	"computer.cookies.sites": CookieOfferSites;
-	"computer.cookies.reset": null;
 	"computer.cookies.answer": null;
 	"computer.cookies.remove": null;
-	"computer.cookies.forget": CookieImport[];
 	/** Names, kinds and what each is for; never a value. */
 	"secrets.capture.answer": null;
 	"secrets.list": SharedSecret[];

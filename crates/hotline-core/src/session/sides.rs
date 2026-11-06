@@ -1433,7 +1433,12 @@ impl Room {
 
     /// Opens a link in the person's browser, only while they are at the
     /// desktop app: their last line in this thread came from it.
-    pub(crate) async fn open_link_side(&self, side_id: &str, link: &str) -> Result<String, String> {
+    pub(crate) async fn open_link_side(
+        &self,
+        side_id: &str,
+        link: &str,
+        browser: Option<&str>,
+    ) -> Result<String, String> {
         let link = url::Url::parse(link.trim())
             .ok()
             .filter(|link| matches!(link.scheme(), "http" | "https"))
@@ -1449,8 +1454,7 @@ impl Room {
         if !here {
             return Err("The person is not at this computer, so nothing was opened. Put the link in your reply instead.".into());
         }
-        super::open_in_browser(link.as_str()).await?;
-        Ok("Opened in the person's browser on this computer.".into())
+        super::open_in_browser(link.as_str(), browser).await
     }
 
     /// Archives every thread this teammate has: its authority is gone, so
@@ -1821,7 +1825,7 @@ pub(super) fn waiting_on(events: &[Value]) -> bool {
         .iter()
         .any(|event| match event.get("kind").and_then(Value::as_str) {
             Some("permission") => event.get("decision").is_none(),
-            Some("human_action" | "credential_ask") => {
+            Some("human_action" | "credential_ask" | "cookie_ask") => {
                 event.get("status").and_then(Value::as_str) == Some("pending")
             }
             _ => false,

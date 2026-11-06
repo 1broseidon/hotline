@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { DeskRoot } from "./App";
 import { platform } from "./native";
+import { startAccent } from "./accent";
 import { startTheme } from "./theme";
 import { quietTooltipsOnPress } from "./tooltips";
 import "./index.css";
@@ -10,6 +11,7 @@ document.documentElement.dataset["platform"] = platform();
 // WebKitGTK leaves a tooltip up after a click (tooltips.ts).
 if (platform() === "linux") quietTooltipsOnPress();
 startTheme();
+startAccent();
 
 // A key pressed with a pointer does not keep the focus, the way a desktop
 // button does not. Left to the web's default it would, and the next

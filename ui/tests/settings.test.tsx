@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Window } from "happy-dom";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { SettingsSection } from "../src/components/Settings";
 import { installDom } from "./dom";
 
-// Loading the window's modules reads the platform, and the theme, before any test has a DOM.
-Object.assign(globalThis, {
-	window: { matchMedia: () => ({ matches: false, addEventListener() {} }) },
-	localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-});
+// React and the window's modules read the DOM when they first load, and
+// every test file after this one shares them: loaded without one, React
+// would decide there is no DOM for the whole run, and a later file's typing
+// would never reach its inputs. So they load with a DOM in place.
+const boot = installDom();
+const { act } = await import("react");
+const { createRoot } = await import("react-dom/client");
 const { SettingsRail } = await import("../src/components/Settings");
-Reflect.deleteProperty(globalThis, "localStorage");
+await boot.teardown();
 
 let dom: Window;
 let root: Root;

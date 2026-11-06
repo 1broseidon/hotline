@@ -19,6 +19,7 @@ import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
 import { useRoomRead } from "../roomReads";
 import { wire, type RosterEntry } from "../wire";
+import { BrowserPip } from "./BrowserPip";
 import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
@@ -270,7 +271,7 @@ export function Conversation({
 						</button>
 					</div>
 				)}
-				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} onOpenScreen={openScreen} />
+				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} ownerHash={persona.avatar?.hash} onOpenScreen={openScreen} />
 			</div>
 		);
 	// Stable across renders, so the transcript's rows can skip a render while a reply streams.
@@ -330,6 +331,7 @@ export function Conversation({
 					workOpen={workOpen}
 					onProviders={onProviders}
 				/>
+				<BrowserPip personaId={personaId} name={persona.name} view={session.browser} />
 				{fresh && (
 					<div className="relative shrink-0 px-6">
 						<Starters persona={persona} onPick={(text) => setRefill({ text, attachments: [], nonce: Date.now() })} />

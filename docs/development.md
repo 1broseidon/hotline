@@ -70,7 +70,7 @@ crates/hotline-tools/src/     a teammate's workspace and shell tools; on the two
   workspace.rs               workspace tools on cap-std: the wall, granted folders, read, grep, edit
   shell.rs                   the shell command, confined: Seatbelt on macOS, bubblewrap on Linux
 crates/hotline-websearch/src/ web search for every teammate, keyless by default, ranked and cleaned; on the contract alone
-  exa.rs, parallel.rs, ...   the four providers, one file each
+  exa.rs, parallel.rs, ...   the four hosted providers and SearXNG, one file each
   clean.rs, rank.rs          error pages and chrome out, duplicates and mirrors merged
   query.rs, when.rs          what the query asked for: its language, its dates
   mock.rs                    a provider on localhost, for tests (the `test-support` feature)
@@ -112,7 +112,7 @@ crates/hotline-core/src/
   computer/                  runtime detection and one container per teammate
   voice/                     the room's CallRoom implementation and the vault's engine glue
   imagegen/                  making images over whichever connected provider the owner has
-  link_preview.rs            a link's card, read from the page's head
+  link_preview.rs            a link's card, picture and site icon, each fetched once and kept
   desk.rs                    the room, vault and log behind the wire
   boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
   wire/                      the door: seats, commands, subscriptions, the phone and relay doors
@@ -382,7 +382,7 @@ is six hours old, or on Check now; never from a teammate. A session keeps the ve
 with, so a teammate gets an update at its next start.
 
 The configured targets are macOS aarch64/x86_64 app bundles, Linux x86_64
-AppImage/deb/rpm, and a Windows x86_64 per-user NSIS installer. Explicit manifest keys include the installer suffix, so a
+and aarch64 AppImage/deb/rpm, and a Windows x86_64 per-user NSIS installer. Explicit manifest keys include the installer suffix, so a
 missing deb is an error, never an AppImage fallback. Other packages and
 architectures open the release page instead. Development builds, including
 `make dev`, neither check nor install. Headless tests use Tauri's mock runtime,

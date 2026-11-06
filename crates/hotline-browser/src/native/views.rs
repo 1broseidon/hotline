@@ -1,13 +1,16 @@
 //! What Tauri and wry do for the app's browser, done on GTK's thread with
-//! WebKit's own signals: the web views by id, each in a window that is never
-//! shown and seated offscreen as the app seats its hidden pane
-//! (`linux::seat`); a web context for each teammate on its own data
+//! WebKit's own signals: the web views by id, each in a window shown at the
+//! display's origin, the size of its page, seated as the app seats its shown
+//! pane (`linux::seat`) with no shield, so the person's pointer and keys
+//! reach it there and its pixels are streamed (`screen.rs`); a web context
+//! for each teammate on its own data
 //! directory; the gate asked before every load (`decide-policy`), loads
 //! counted (`load-changed`), a page's popup (`create`), and downloads
 //! refused. Everything else reaches a view through [`on_view`], which runs
 //! on GTK's thread, as the app's `with_webview` does.
 
 use super::{Loads, Tab, asks, guard, hands, linux, lock, shut_popup, trust};
+use crate::screen::Screens;
 use gtk::glib;
 use gtk::prelude::*;
 use hotline_browser_core::Gate;
@@ -35,6 +38,8 @@ pub(super) struct Shared {
     pub(super) link: Link,
     pub(super) runtime: tokio::runtime::Handle,
     pub(super) exceptions: Arc<trust::Exceptions>,
+    /// Each teammate's display and the viewers of its page.
+    pub(super) screens: Arc<Screens>,
     /// What the trust side is handed as the app hands it; WebKitGTK's side
     /// asks the gate nothing at load time, and the desk's own is asked
     /// over the pipe.
@@ -42,11 +47,12 @@ pub(super) struct Shared {
 }
 
 impl Shared {
-    pub(super) fn new(link: Link, runtime: tokio::runtime::Handle) -> Self {
+    pub(super) fn new(link: Link, runtime: tokio::runtime::Handle, screens: Arc<Screens>) -> Self {
         Self {
             link,
             runtime,
             exceptions: Arc::default(),
+            screens,
             gate: Arc::default(),
         }
     }
@@ -64,6 +70,41 @@ thread_local! {
     static VIEWS: RefCell<HashMap<u64, Held>> = RefCell::default();
     /// Loads waiting on the gate's word, by ask.
     static DECISIONS: RefCell<HashMap<u64, PolicyDecision>> = RefCell::default();
+}
+
+/// The X window GTK made for `window`, once it is shown.
+fn xid(window: &gtk::Window) -> Result<u32, String> {
+    unsafe extern "C" {
+        fn gdk_x11_window_get_xid(window: *mut gtk::gdk::ffi::GdkWindow) -> libc::c_ulong;
+    }
+    use gtk::glib::translate::ToGlibPtr;
+    let shown = window
+        .window()
+        .ok_or("GTK did not show the page's window")?;
+    // SAFETY: a shown window of GTK's X11 backend, the only one this runs on.
+    let id = unsafe { gdk_x11_window_get_xid(shown.to_glib_none().0) };
+    u32::try_from(id).map_err(|_| "GTK named the page's window wrongly".to_string())
+}
+
+/// Puts `text` on the display's clipboard, for a paste: GTK owns it, on its
+/// own thread, and answers what is asked for it from there.
+pub(crate) fn set_clipboard(text: String) -> Result<(), String> {
+    let (done, said) = std::sync::mpsc::channel();
+    gtk_do(move || {
+        gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).set_text(&text);
+        let _ = done.send(());
+    });
+    said.recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|_| "The browser's clipboard did not answer.".to_string())
+}
+
+/// The size a teammate's page is drawn at: the one its teammate asked for,
+/// or a laptop's.
+fn page_size(tab: &Tab) -> (u16, u16) {
+    lock(&tab.viewport).map_or(
+        (super::WIDTH as u16, super::HEIGHT as u16),
+        |(width, height)| (width as u16, height as u16),
+    )
 }
 
 /// A fresh id for a view or a decision.
@@ -146,15 +187,20 @@ fn context_on(directory: &Path) -> WebContext {
     context
 }
 
-/// Puts `view` in a window of its own, as Tauri does, then seats it
-/// offscreen, where it lays out, draws and takes input unseen.
-fn hold(id: u64, view: &WebView) {
+/// Puts `view` in a window of its own, as Tauri does, `size` big at the
+/// display's origin, and shows it there, where it lays out, draws and takes
+/// the person's input, seen by nobody but the viewers of its screen.
+/// Answers its X window.
+fn hold(id: u64, view: &WebView, size: (u16, u16)) -> Result<u32, String> {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_default_size(super::WIDTH as i32, super::HEIGHT as i32);
+    window.set_default_size(i32::from(size.0), i32::from(size.1));
+    window.move_(0, 0);
     let home = gtk::Box::new(gtk::Orientation::Vertical, 0);
     home.pack_start(view, true, true, 0);
     window.add(&home);
-    linux::seat(view.clone(), false);
+    linux::seat(view.clone(), true);
+    window.show_all();
+    let shown = xid(&window);
     VIEWS.with(|views| {
         views.borrow_mut().insert(
             id,
@@ -164,6 +210,33 @@ fn hold(id: u64, view: &WebView) {
             },
         );
     });
+    shown
+}
+
+/// The teammate's page is the size it asked for now: its windows take that
+/// size, and its viewers are sent all of it. On GTK's thread.
+pub(super) fn fit(tab: &Arc<Tab>) {
+    let size = page_size(tab);
+    for id in [Some(tab.page), *lock(&tab.popup)].into_iter().flatten() {
+        if let Some(window) =
+            VIEWS.with(|views| views.borrow().get(&id).map(|held| held.window.clone()))
+        {
+            window.resize(i32::from(size.0), i32::from(size.1));
+        }
+    }
+    for screen in [lock(&tab.screen).clone(), lock(&tab.popup_screen).clone()]
+        .into_iter()
+        .flatten()
+    {
+        screen.resize(size.0, size.1);
+    }
+}
+
+/// The teammate's page closed: its viewers are told.
+pub(super) fn release(tab: &Tab, screens: &Screens) {
+    screens.show(&tab.persona, None);
+    lock(&tab.screen).take();
+    lock(&tab.popup_screen).take();
 }
 
 /// Lets go of the view `id`: what the desk put on it, then its window.
@@ -213,7 +286,12 @@ pub(super) fn page(tab: &Arc<Tab>, shared: &Shared, store: &Path, url: Url) -> R
     settings.set_enable_webgl(true);
     settings.set_enable_webaudio(true);
     settings.set_enable_page_cache(true);
-    hold(tab.page, &view);
+    quiet_scrollbars(&view);
+    let size = page_size(tab);
+    let window = hold(tab.page, &view, size)?;
+    let screen = shared.screens.screen(window, size);
+    *lock(&tab.screen) = Some(screen.clone());
+    shared.screens.show(&tab.persona, Some(screen));
     // Nothing loads until every handler is on (`guard`).
     let started = Arc::new(AtomicBool::new(false));
     watch(&view, tab, shared, started.clone(), true);
@@ -223,6 +301,28 @@ pub(super) fn page(tab: &Arc<Tab>, shared: &Shared, store: &Path, url: Url) -> R
     }
     guard::start(view, url, started);
     Ok(())
+}
+
+/// No scrollbars of WebKit's own: once a pointer has been over the page,
+/// its overlay scrollbars repaint their strip about sixteen times a second
+/// for as long as the page is open (WebKitGTK 2.50), which is a picture each
+/// time for every viewer, and CPU with nobody watching. Overlay scrollbars
+/// take no room, so the page lays out as before; a page that styles its own
+/// keeps them, as an author's style comes before this one. A popup shares
+/// its page's.
+fn quiet_scrollbars(view: &WebView) {
+    use webkit2gtk::{
+        UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet,
+    };
+    if let Some(manager) = view.user_content_manager() {
+        manager.add_style_sheet(&UserStyleSheet::new(
+            "::-webkit-scrollbar { width: 0; height: 0; }",
+            UserContentInjectedFrames::AllFrames,
+            UserStyleLevel::User,
+            &[],
+            &[],
+        ));
+    }
 }
 
 /// A page's `window.open`, or a link it opens in a new window: a popup of
@@ -254,7 +354,11 @@ fn popup(
     if let Some(settings) = WebViewExt::settings(page) {
         popup.set_settings(&settings);
     }
-    hold(id, &popup);
+    let size = page_size(tab);
+    let window = hold(id, &popup, size).ok()?;
+    let screen = shared.screens.screen(window, size);
+    *lock(&tab.popup_screen) = Some(screen.clone());
+    shared.screens.show(&tab.persona, Some(screen));
     *lock(&tab.popup) = Some(id);
     watch(&popup, tab, shared, Arc::new(AtomicBool::new(true)), false);
     {

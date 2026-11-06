@@ -32,6 +32,10 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 gtk = "0.18"
 cairo-rs = { version = "0.18", features = ["png"] }
 javascriptcore-rs = "1.1"
+# Each page's display streamed and driven as the computer's is: X DAMAGE,
+# MIT-SHM and XTEST, and its rectangles as PNGs.
+x11rb = { version = "0.13.2", default-features = false, features = ["composite", "damage", "shm", "xtest"] }
+png = "0.18.1"
 
 # `cargo machete --with-metadata` (make check) reads only this crate's own
 # files, and these two are named only in the app's browser files it compiles

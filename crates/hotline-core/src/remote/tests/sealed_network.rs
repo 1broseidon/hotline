@@ -452,6 +452,13 @@ async fn sealed_computer_handshake_binds_purpose_and_target_before_upstream() {
         ("/v2/computer/ada/ws", b"\xff"),
         // Redirecting a viewer to the ordinary wire must fail as well.
         ("/v2", binding),
+        // Nor does a computer's binding open the teammate's browser, or a
+        // browser's its computer.
+        ("/v2/browser/ada/ws", binding),
+        (
+            "/v2/computer/ada/ws",
+            br#"{"purpose":"browser","personaId":"ada"}"#,
+        ),
     ];
     for (path, payload) in refused {
         assert!(

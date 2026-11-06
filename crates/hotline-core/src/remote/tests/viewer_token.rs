@@ -38,7 +38,7 @@ async fn viewer_tokens_are_persona_bound_single_use_and_never_owner_credentials(
         .await
         .unwrap();
     let other_bridge = bridge::Bridge::with_client(&desk, client).await.unwrap();
-    let token = bridge.viewer_token("ada");
+    let token = bridge.viewer_token("ada", Viewer::Computer);
     assert_eq!(token.len(), 64);
     assert!(token.bytes().all(|byte| byte.is_ascii_hexdigit()));
     assert_ne!(token, bridge.token);
@@ -143,7 +143,7 @@ async fn viewer_tokens_are_persona_bound_single_use_and_never_owner_credentials(
     drop(socket);
     refused(request(&bridge, "/computer/ada/ws", Some(&token))).await;
     // Reconnecting uses a fresh capability, not the already-spent one.
-    let fresh = bridge.viewer_token("ada");
+    let fresh = bridge.viewer_token("ada", Viewer::Computer);
     assert_ne!(fresh, token);
     let (socket, response) =
         tokio_tungstenite::connect_async(request(&bridge, "/computer/ada/ws", Some(&fresh)))
@@ -169,7 +169,7 @@ async fn viewer_tokens_expire_thirty_seconds_after_minting() {
         .await
         .unwrap();
     let bridge = bridge::Bridge::with_client(&desk, client).await.unwrap();
-    let token = bridge.viewer_token("ada");
+    let token = bridge.viewer_token("ada", Viewer::Computer);
     // Only the token's lifetime runs on a paused clock: the requests around it
     // read real sockets, and a paused clock would jump their timeouts.
     tokio::time::pause();

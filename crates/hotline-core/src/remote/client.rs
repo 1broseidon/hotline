@@ -270,13 +270,15 @@ impl Client {
         })
     }
 
+    /// The desk's wire, or with `screen` one teammate's computer or
+    /// browser screen, bound to that teammate inside the Noise payload.
     pub(super) async fn open(
         &self,
         desk: &PairedDesk,
-        persona: Option<&str>,
+        screen: Option<(super::bridge::Viewer, &str)>,
     ) -> Result<Connection, OpenError> {
-        let (path, payload) = match persona {
-            Some(id) => {
+        let (path, payload) = match screen {
+            Some((viewer, id)) => {
                 if id.is_empty()
                     || !id
                         .bytes()
@@ -284,9 +286,10 @@ impl Client {
                 {
                     return Err("Invalid teammate ID.".into());
                 }
+                let named = viewer.name();
                 (
-                    format!("v2/computer/{id}/ws"),
-                    json!({"purpose":"computer","personaId":id}).to_string(),
+                    format!("v2/{named}/{id}/ws"),
+                    json!({"purpose":named,"personaId":id}).to_string(),
                 )
             }
             None => ("v2".into(), String::new()),

@@ -118,7 +118,8 @@ async fn handle(
             || path == "/v2/relay"
             || path == "/v2/relay/accept"
             || path == "/v2/link"
-            || path.starts_with("/v2/computer/"))
+            || path.starts_with("/v2/computer/")
+            || path.starts_with("/v2/browser/"))
     {
         return Ok(sealed_door(remote, request, slot, &path).await);
     }
@@ -131,10 +132,15 @@ async fn handle(
     Ok(error(StatusCode::NOT_FOUND, "not_found"))
 }
 
-/// The computer suffix of `/v2/computer/{personaId}/ws`. A phone names a
-/// teammate and nothing else: no runtime, no port, no path of its own.
-fn computer_path(path: &str) -> Option<&str> {
-    let persona_id = path.strip_prefix("/computer/")?.strip_suffix("/ws")?;
+/// The teammate of `/computer/{personaId}/ws` or `/browser/{personaId}/ws`
+/// (`screen` names which), under `/v2`. A phone names a teammate and
+/// nothing else: no runtime, no port, no path of its own.
+pub(super) fn screen_path<'a>(path: &'a str, screen: &str) -> Option<&'a str> {
+    let persona_id = path
+        .strip_prefix('/')?
+        .strip_prefix(screen)?
+        .strip_prefix('/')?
+        .strip_suffix("/ws")?;
     let named = !persona_id.is_empty()
         && persona_id.len() <= 128
         && persona_id
@@ -265,6 +271,8 @@ pub(super) enum Purpose {
     Wire,
     Pair,
     Computer(String),
+    /// A teammate's desk browser as a live screen (`browser_screen`).
+    Browser(String),
     Relay,
     RelayAccept,
     /// A linked desk's channel (ADR 0003), answered by `link::answer`.
@@ -278,7 +286,14 @@ impl Purpose {
             "/v2/relay" => Self::Relay,
             "/v2/relay/accept" => Self::RelayAccept,
             "/v2/link" => Self::Link,
-            _ => Self::Computer(path.strip_prefix("/v2").and_then(computer_path)?.to_owned()),
+            _ => {
+                let rest = path.strip_prefix("/v2")?;
+                if let Some(persona) = screen_path(rest, "browser") {
+                    Self::Browser(persona.to_owned())
+                } else {
+                    Self::Computer(screen_path(rest, "computer")?.to_owned())
+                }
+            }
         };
         let runs = match purpose {
             Self::Relay | Self::RelayAccept => remote.relays(),
@@ -287,12 +302,14 @@ impl Purpose {
         runs.then_some(purpose)
     }
 
-    /// Which grant roles this door opens to (ADR 0006). The wire and the
-    /// computer are the desk's own; the relay is for whoever stands in.
+    /// Which grant roles this door opens to (ADR 0006). The wire, the
+    /// computer and the browser are the desk's own (a companion only
+    /// watches the browser: `browser_screen`); the relay is for whoever
+    /// stands in.
     /// Pairing and the link authenticate by other means and name no role.
     pub(super) fn admits(&self, role: DeviceRole) -> bool {
         match self {
-            Self::Wire | Self::Computer(_) => {
+            Self::Wire | Self::Computer(_) | Self::Browser(_) => {
                 matches!(role, DeviceRole::Owner | DeviceRole::Companion)
             }
             Self::Relay | Self::RelayAccept => {
@@ -404,9 +421,14 @@ pub(super) async fn sealed_session<S>(
                 Purpose::Wire if size != 0 => return None,
                 Purpose::Wire | Purpose::Pair => {}
                 Purpose::RelayAccept | Purpose::Link => return None,
-                Purpose::Computer(persona) => {
+                Purpose::Computer(persona) | Purpose::Browser(persona) => {
                     let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
-                    if binding.purpose != "computer"
+                    let named = if matches!(purpose, Purpose::Browser(_)) {
+                        "browser"
+                    } else {
+                        "computer"
+                    };
+                    if binding.purpose != named
                         || binding.persona_id.as_ref() != Some(persona)
                         || binding.desk_id.is_some()
                     {
@@ -501,6 +523,15 @@ pub(super) async fn sealed_session<S>(
                 biased;
                 () = revoked.cancelled() => {},
                 () = sealed_computer(remote.clone(), socket, &persona) => {},
+            }
+        }
+        Purpose::Browser(persona) => {
+            let revoked = phone.cancel.clone();
+            let owner = matches!(phone.role, DeviceRole::Owner);
+            tokio::select! {
+                biased;
+                () = revoked.cancelled() => {},
+                () = super::browser_screen::sealed_browser(remote.clone(), socket, &persona, owner) => {},
             }
         }
         Purpose::Relay => {

@@ -1,14 +1,97 @@
 # hotline.dev
 
-The landing page: one static file, `public/index.html`, carrying the launch
-film as its hero, plus `og.png`, `favicon.svg`, `_headers`, `robots.txt` and
-`sitemap.xml`. The docs are built into `public/docs/` from `../docs-site`
+The landing page: one static file, `public/index.html`, shown in still
+captures of the app, plus `og.png`, `favicon.svg`, `_headers`, `robots.txt`
+and `sitemap.xml`. The docs are built into `public/docs/` from `../docs-site`
 and are not tracked. Download links resolve against the latest GitHub
 release at load time, so a release needs no change here.
 
 ```bash
 make site-deploy   # from the repo root: builds the docs, deploys Worker `hotline-site`
 ```
+
+## Marks
+
+`public/marks/` holds the five majors' marks beside their names on the page,
+copied from the window's own (`ui/src/assets/marks/`, from thesvg, MIT).
+Each is its owner's trademark, used only to name the provider it stands for,
+at the size the window draws it.
+
+## Captures
+
+The desk on the page is captured by `showcase/capture.mjs`, at 2x on any
+display: headless Chromium draws the window at a device scale of 2, so the
+screen in front of you plays no part. Each capture is framed as the Mac draws
+the window: rounded corners, a hairline edge, and the traffic lights where the
+app seats them.
+
+```bash
+make dev                                   # serves the window on :5174; leave it running
+cargo build -p hotline-cli                 # the `hotline` the capture serves the room with
+cd site/showcase && bun install
+node capture.mjs --room ~/path/to/room     # every shot in shots.json, into public/screens/
+node capture.mjs --only desk-phone       # one shot again, by its file's name
+```
+
+`--room` defaults to `.hotline-dev`, `--hotline` to `target/debug/hotline`
+and `--ui` to `http://localhost:5174/`. Use a `hotline` and a window from the
+same tree, or the window may refuse the desk. Chromium is Playwright's own:
+`bunx playwright-core install chromium` if it has none.
+
+The room is never opened. The script copies its streams to a temporary
+directory and cuts every tape and thread at `cut` in `shots.json`, so
+whatever happened after the story the page tells stays out. In the copy each
+teammate works in the temporary directory and has no computer, because a
+teammate's container is named for the teammate and the copy's would be the
+room's own. A teammate whose agent bypasses its permission prompts is shown
+accepting edits instead. The copy's desk is stopped and the directory removed when the
+shots are done. A shot names the teammate, the window size, how far back from
+the end of the tape it scrolls (`fromEnd`, in CSS pixels), and the width it is
+written at. It may also name:
+
+- `top`, the text of a tape line to put at the top of the window, where the
+  window's width decides how far from the end a moment sits, and `above`, how
+  many CSS pixels of the tape to keep above it;
+- `rewrite`, pairs of `find` and `replace` applied to the tape's text before the
+  shot, to end one of the owner's own messages where it makes its point; a
+  teammate's words are shown as said;
+- `call`, to show the teammate on a live call, in the `phase` named (speaking,
+  listening) with `seconds` of talk on the clock: the window's own call, started
+  from the dev server's source with nothing behind it, its loudness driven so
+  the voice bars are mid-swell;
+- `open`, the text of a thread line to open beside the tape;
+- `clicks`, what to press next, in order (a menu by its key's label, an entry
+  in it by its text);
+- `clip`, an element to cut the shot to, with offsets, which leaves it a piece
+  without a window frame;
+- `hide`, keys to leave out;
+- `computer`, to show each teammate's computer switched on as the room has it,
+  where the copy turned it off;
+- `voice`, to show the voice controls (the mic, the call key beside it and the
+  call key in the rail). The copy has no voice provider, so these are a stand-in:
+  the script answers the window's `voice.status` itself and says this Mac hears
+  speech.
+
+`keys` at the top of `shots.json` names providers that get a placeholder key
+in the copy, so the window names their models from the bundled catalogue
+(Timo's chip reads "Grok 4.7 · High") where the room's real key stayed in its
+vault. Nothing runs on the placeholder: the capture starts no session.
+
+A shot of `"kind": "browser"` is a teammate's desk browser as its pane shows
+it: macOS's 28px title bar, Hotline's bar (the window's own `browser.html`,
+told the teammate, the address and that the teammate is driving) and the page
+at 1280 by 800, as the desk browser opens it. The page is a file in the room,
+named by `page`, such as a site a teammate built in its workspace.
+
+A still that is not the desk, such as a teammate's computer, is framed with a
+title bar instead:
+
+```bash
+node capture.mjs frame computer.png ../public/screens/computer-window.webp --title "Goldie's computer"
+```
+
+The computer still on the page is `public/screens/computer-run.webp` from
+commit `a0312a70`.
 
 ## Installers
 

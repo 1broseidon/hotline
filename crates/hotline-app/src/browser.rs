@@ -157,9 +157,9 @@ pub async fn browser_bar_take(
 ) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
-        let browsers = browsers(&app)?;
-        desk.take_browser(&persona_id, taken).await?;
-        browsers.shield(&persona_id, !taken)
+        // The shield follows in the core's take (`DeskBrowser::taken`).
+        browsers(&app)?;
+        desk.take_browser(&persona_id, taken).await
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
@@ -245,6 +245,7 @@ mod native {
     use hotline_core::browser::{
         Act, Acted, DeskBrowser, Field, Gate, Page, Reading, Showing, Step,
     };
+    use hotline_core::contract::BrowserInput;
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -312,6 +313,15 @@ mod native {
         "return JSON.stringify(el && el.isConnected ? { field: fieldFacts(el), next: globalThis.__hotlineNext } : { error: `${A.ref} is no longer on the page: read it again with text.` });"
     );
     const SHOWING: &str = include_str!("browser/showing.js");
+    /// The person's own input from a seat away from the desk: `A` names it.
+    const PERSON: &str = include_str!("browser/person.js");
+    /// The visible page's size in CSS pixels.
+    const PAGE_SIZE: &str =
+        "return JSON.stringify({ width: window.innerWidth, height: window.innerHeight });";
+    /// How long after the person's input from away the page is pictured:
+    /// long enough to show what a tap or a key did at once, short enough
+    /// to drive by. A load it started goes on, and the seat's polls see it.
+    const PERSON_SETTLE: Duration = Duration::from_millis(120);
     /// How long after its last move the teammate's pointer fades.
     const HANDS_IDLE: Duration = Duration::from_secs(4);
     /// Whether the last native click or hover reached the page.
@@ -1510,8 +1520,9 @@ mod native {
         let taken = desk
             .browser_now(persona_id)
             .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
-        if taken && desk.take_browser(persona_id, false).await.is_ok() {
-            let _ = app.state::<Arc<Native>>().shield(persona_id, true);
+        // The shield comes back with it (`DeskBrowser::taken`).
+        if taken {
+            let _ = desk.take_browser(persona_id, false).await;
         }
     }
 
@@ -1822,6 +1833,75 @@ mod native {
         async fn showing(&self, persona_id: &str) -> Result<Showing, String> {
             serde_json::from_str(&self.run(persona_id, SHOWING.to_string()).await?)
                 .map_err(|_| "The page's answer was unreadable.".to_string())
+        }
+
+        async fn page_size(&self, persona_id: &str) -> Option<(u32, u32)> {
+            #[derive(Deserialize)]
+            struct Size {
+                width: u32,
+                height: u32,
+            }
+            let answer = self.run_bare(persona_id, PAGE_SIZE.into()).await.ok()?;
+            let size: Size = serde_json::from_str(&answer).ok()?;
+            Some((size.width, size.height))
+        }
+
+        async fn person_input(&self, persona_id: &str, input: &BrowserInput) -> Result<(), String> {
+            #[derive(Deserialize)]
+            struct Said {
+                height: f64,
+                error: Option<String>,
+            }
+            let tab = self
+                .tab(persona_id)
+                .ok_or("That teammate's browser has no page open.")?;
+            let args = match input {
+                // A key goes as the platform's own, as the teammate's press.
+                BrowserInput::Key { key } => {
+                    self.input(persona_id, platform::Input::Key(key.clone()))?;
+                    tokio::time::sleep(PERSON_SETTLE).await;
+                    return Ok(());
+                }
+                BrowserInput::Tap { x, y } => serde_json::json!({ "kind": "tap", "x": x, "y": y }),
+                BrowserInput::Scroll { dx, dy, x, y } => {
+                    serde_json::json!({ "kind": "scroll", "dx": dx, "dy": dy, "x": x, "y": y })
+                }
+                BrowserInput::Text { text } => serde_json::json!({ "kind": "text", "text": text }),
+            };
+            let said: Said = serde_json::from_str(
+                &self
+                    .run_bare(persona_id, format!("const A = {args};\n{PERSON}"))
+                    .await?,
+            )
+            .map_err(|error| format!("The page's answer was unreadable: {error}"))?;
+            if let Some(error) = said.error {
+                return Err(error);
+            }
+            // A tap is a click at the point, as the platform's own mouse
+            // event, as the teammate's click is; one that reached nothing
+            // is made by the page's own script instead.
+            if let BrowserInput::Tap { x, y } = *input {
+                let started = tab.loads.borrow().started;
+                self.input(persona_id, platform::Input::Click(x, y, said.height))?;
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                let navigated = tab.loads.borrow().started > started;
+                if !navigated && self.run_bare(persona_id, ARRIVED.into()).await? == "false" {
+                    let args = serde_json::json!({ "kind": "click", "x": x, "y": y });
+                    self.run_bare(persona_id, format!("const A = {args};\n{PERSON}"))
+                        .await?;
+                }
+            }
+            tokio::time::sleep(PERSON_SETTLE).await;
+            Ok(())
+        }
+
+        fn taken(&self, persona_id: &str, taken: bool) {
+            // The person driving from away leaves the pane as the bar's
+            // Take over leaves it: no shield, and the page's file picker
+            // theirs.
+            if let Err(error) = self.shield(persona_id, !taken) {
+                eprintln!("[browser] the pane's shield did not follow a take-over: {error}");
+            }
         }
 
         fn current(&self, persona_id: &str) -> Option<String> {

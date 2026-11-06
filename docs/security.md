@@ -1130,9 +1130,9 @@ themselves are compiled and linted for Windows from the Mac
   event box in the page's overlay that stops the same events. Take control
   (`browser_bar_take`) sets the teammate's browser to the person and lifts
   the shield, from the page and an open popup; until Give it back, the
-  teammate may read the page but every move it asks for is refused, and
-  there is no wire command for it, so only the pane's bar can take a
-  teammate's browser. Closing the pane while the person has control hands
+  teammate may read the page but every move it asks for is refused. The
+  same take-over is on the wire for the owner alone (below). Closing the
+  pane while the person has control hands
   it back as Give it back would, so the teammate's calls do not wait on a
   pane nobody sees. The bar's own back, forward, reload and address act
   only while the person has it. An address typed there is the person's own:
@@ -1285,7 +1285,28 @@ themselves are compiled and linted for Windows from the Mac
   teammate's window from the start, is read only in a debug build.
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
   last JPEG the desk took after a teammate's move; the phone seat may read it,
-  as it reads the conversation the page came up in.
+  as it reads the conversation the page came up in. Asked `fresh` while the
+  person has the browser taken over, the desk pictures the page again, at
+  most every 250 ms; while the teammate drives, `fresh` pictures nothing.
+- **The owner's phone drives it as the pane does.** `browser.take_over`,
+  `browser.hand_back`, `browser.input`, `browser.step` and `browser.go` are
+  the owner's and the local desk's (`Seat::permits`); a companion phone is
+  refused them all, as it is the pane. Take over from the wire is the bar's
+  own change (`Room::browser_take`): the phase the teammate's calls are
+  refused by, and the pane's shield and file-picker rule with it. Input,
+  steps and addresses are refused while the teammate drives ("Take over
+  first"), so the phone never moves a page the teammate is moving. A tap is
+  the platform's own click at a point checked to lie on the page, and a key
+  is the platform's own key event for one `press` knows; text is put where
+  the focus is in the page's main frame by the desk's own script, as typing
+  would (`browser/person.js`), and a scroll, bounded, is the desk's script
+  scrolling what is under the point. An address goes as one
+  typed in the bar does: http or https only, a local one allowed for that
+  teammate with no card, the desk's own ports never, and every load still
+  asked of the gate. A desk with no browser answers that it keeps none.
+  Residual: what the person types from the phone reaches the page as
+  typed, a password included, as it would at the desk; it is never written
+  to the tape or the log, and only the page pictured after it is answered.
 ## Web search over a SearXNG instance
 
 `web_search` can also ask a SearXNG instance the person runs or chose. The
@@ -1385,6 +1406,7 @@ extend; when a change adds a boundary, it adds a row.
 | A desk browser page is never granted the microphone, the camera or any other permission it asks for, and is never left to WebKit's or WebView2's own question; its file picker opens only while the person has control, and the teammate's act that made it is refused with that said; a Mac before macOS 14 installs no desk browser and its teammates are not told of one; Linux and Windows install one | `hotline-app/src/browser/native/asks.rs` `media_and_every_other_ask_is_always_denied`, `the_file_picker_opens_only_while_the_person_has_control`; `hotline-app/src/browser/native/asks/apple.rs` `the_microphone_and_camera_are_always_denied_never_asked`; `hotline-core/src/browser.rs` `a_desk_browser_is_kept_only_on_macos_14_or_later`; `session/tests/preamble.rs` `the_preamble_says_who_where_how_far_and_when` | the delegate and signal wiring, and a page's real `getUserMedia` and file input, by hand in the Mac app; the Linux and Windows sides are not run on a Mac |
 | On Windows the desk's reads and acts run in an isolated world of its own made through the DevTools protocol, never the page's; the teammate's store is a WebView2 environment on its own directory, made with Chromium's occlusion off and wry's own arguments kept; only a certificate Edge would let past is offered to the person, and only for the page's own load; a load that failed says why and one cancelled says nothing; every key the tool names is Chromium's own; a lent cookie without TLS is never sent as `SameSite=None`; a passkey call is refused in the page and reaches no authenticator | `hotline-app/src/browser/native/edge.rs` `a_script_runs_as_an_async_functions_body`, `the_desks_world_is_made_in_the_main_frame`, `an_evaluation_answers_its_string_or_what_it_threw`, `a_devtools_answer_is_its_result_or_its_message`, `a_teammates_store_keeps_wrys_arguments_and_never_backgrounds_its_page`, `only_a_certificate_edge_would_let_past_is_offered_to_the_person`, `a_certificate_error_is_the_pages_only_for_its_own_address`, `a_pem_certificate_is_its_der_bytes`, `a_load_that_failed_says_why_and_one_cancelled_says_nothing`, `every_key_the_tool_names_has_chromiums_key`, `a_click_moves_presses_and_lets_go_where_it_was_asked`, `a_lent_cookie_without_tls_is_never_sent_as_samesite_none`, `a_passkey_call_is_refused_in_the_page_and_nothing_else_is`, `a_viewport_is_its_css_size_in_the_windows_own_pixels` | the WebView2 calls (`win.rs`, `trust/win.rs`, `asks/win.rs`, the cookies' Windows side) are compiled and linted for Windows from the Mac (`scripts/precheck windows`) and run only by hand in a Windows VM |
 | A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme; a frame loads `about:srcdoc`, `data:` and `blob:` but never a file, the shell or the desk; the desk's ports are every listener of the process and every running computer, asked at the load, on any local address or any name | `hotline-core/src/browser.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`, `a_frame_loads_what_a_browser_would_but_files_the_shell_and_the_desk`, `a_desk_port_is_refused_by_any_name_and_any_local_address_but_not_a_public_one`, `every_listener_of_the_process_and_every_running_computer_is_the_desks`; `hotline-support/src/listening.rs` `a_port_is_held_while_any_holder_of_it_is_kept`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking, the frame split and popups are checked by hand |
+| Only the owner and the local desk take a teammate's desk browser over from the wire, drive it and hand it back; a companion phone is refused every one of those commands and changes nothing; input, steps and addresses are refused while the teammate drives and on a desk with no browser; while the owner's phone has it, the teammate's moves are refused and its reads go on, as for the pane's take-over; an address from away never opens the desk's own ports or a non-web scheme, and input of the wrong shape reaches nothing; a fresh picture is taken only while the person drives | `hotline-core/src/wire/tests/browser_drive.rs` `only_the_owner_and_the_desk_take_a_browser_over_and_drive_it`, `a_companion_phone_is_refused_every_driving_command`, `the_owners_phone_takes_over_taps_types_and_hands_back`, `an_address_from_away_meets_the_gate_and_bad_input_reaches_nothing`, `a_desk_with_no_browser_or_no_page_says_so`, `a_fresh_picture_is_taken_only_while_the_person_drives` | the platform's own tap, key, typing and scroll in a real web view, by hand in the Mac app; the Linux and Windows sides are not run on a Mac |
 | A deleted teammate's desk browser is closed and its store wiped, and the room forgets its view and every answer about its local addresses, Always allow included; a computer turned on closes the desk browser and keeps its store and answers; a session is told of its desk browser only where one is installed | `hotline-core/src/mcp/server/tests/desk_browser.rs` `deleting_a_teammate_closes_and_wipes_its_browser_and_forgets_its_answers`, `a_computer_turned_on_closes_the_desk_browser_and_keeps_its_store`; `hotline-core/src/browser.rs` `a_forgotten_teammates_answers_are_gone_from_the_run_and_the_room`; `session/tests/preamble.rs` `a_session_hears_of_its_desk_browser_only_where_one_is_installed` | WebKit's store removal is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |

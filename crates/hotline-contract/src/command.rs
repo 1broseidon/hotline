@@ -827,8 +827,44 @@ pub enum Command {
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },
     /// The picture of a teammate's desk browser the PIP and the phone show.
+    /// With `fresh`, while the person has taken the browser over, the page
+    /// is pictured again first (at most a few times a second) instead of
+    /// answering the picture of its last move: what a seat driving it polls.
     #[serde(rename = "browser.snapshot")]
-    BrowserSnapshot { persona_id: String },
+    BrowserSnapshot {
+        persona_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fresh: Option<bool>,
+    },
+    /// Takes a teammate's desk browser over, as the pane's Take over does:
+    /// the teammate's moves wait until it is handed back. Answers the
+    /// `BrowserView`. Owner or local desk only.
+    #[serde(rename = "browser.take_over")]
+    BrowserTakeOver { persona_id: String },
+    /// Hands a taken browser back to the teammate, as the pane's Hand back
+    /// does. Answers the `BrowserView`. Owner or local desk only.
+    #[serde(rename = "browser.hand_back")]
+    BrowserHandBack { persona_id: String },
+    /// The person's tap, scroll, typing or key on a browser they have taken
+    /// over. Answers a fresh `BrowserSnapshot`. Owner or local desk only.
+    #[serde(rename = "browser.input")]
+    BrowserInput {
+        persona_id: String,
+        input: BrowserInput,
+    },
+    /// Back, forward or reload on a browser the person has taken over.
+    /// Answers a fresh `BrowserSnapshot`. Owner or local desk only.
+    #[serde(rename = "browser.step")]
+    BrowserStep {
+        persona_id: String,
+        step: BrowserStep,
+    },
+    /// An address the person typed, on a browser they have taken over: it
+    /// opens as one typed in the pane's bar does, a bare name as https, a
+    /// local one with no card, the desk's own ports never. Answers a fresh
+    /// `BrowserSnapshot`. Owner or local desk only.
+    #[serde(rename = "browser.go")]
+    BrowserGo { persona_id: String, url: String },
     /// Brings the computer up from the teammate's pane, with the session it
     /// serves: a teammate at rest starts, and a running one whose computer was
     /// stopped is attached to it again between turns.

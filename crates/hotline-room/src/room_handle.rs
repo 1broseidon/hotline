@@ -10,6 +10,8 @@ use tokio::sync::broadcast;
 /// A room that keeps no links answers a linked desk with this.
 const NOT_LINKED: &str = "This desk is not linked with that one.";
 const NO_COOKIES: &str = "Sharing cookies is unavailable on this room.";
+/// What a room with no desk browser answers anything asked of one.
+const NO_BROWSER: &str = "This desk keeps no browser.";
 
 /// How far a harness sign-in has got, as `agent.auth.poll` answers it: the
 /// state, the sign-in's output so far, and why it failed when it did.
@@ -558,6 +560,47 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn browser_snapshot(&self, _persona_id: &str) -> Option<hotline_contract::BrowserSnapshot> {
         None
     }
+    /// The picture a seat driving the browser polls: taken again while the
+    /// person has it, the last one otherwise.
+    async fn browser_snapshot_fresh(
+        &self,
+        persona_id: &str,
+    ) -> Option<hotline_contract::BrowserSnapshot> {
+        self.browser_snapshot(persona_id)
+    }
+    /// The person takes a teammate's desk browser over (`taken`) or hands it
+    /// back, and the browser as it is then.
+    async fn browser_take(
+        &self,
+        _persona_id: &str,
+        _taken: bool,
+    ) -> Result<Option<hotline_contract::BrowserView>, String> {
+        Err(NO_BROWSER.into())
+    }
+    /// The person's input on a desk browser they have taken over.
+    async fn browser_input(
+        &self,
+        _persona_id: &str,
+        _input: &hotline_contract::BrowserInput,
+    ) -> Result<Option<hotline_contract::BrowserSnapshot>, String> {
+        Err(NO_BROWSER.into())
+    }
+    /// Back, forward or reload on a desk browser the person has taken over.
+    async fn browser_step(
+        &self,
+        _persona_id: &str,
+        _step: hotline_contract::BrowserStep,
+    ) -> Result<Option<hotline_contract::BrowserSnapshot>, String> {
+        Err(NO_BROWSER.into())
+    }
+    /// An address the person typed, on a desk browser they have taken over.
+    async fn browser_go(
+        &self,
+        _persona_id: &str,
+        _url: &str,
+    ) -> Result<Option<hotline_contract::BrowserSnapshot>, String> {
+        Err(NO_BROWSER.into())
+    }
     /// Brings a teammate's computer up with its session. A room with no
     /// computers under it has nothing to start.
     async fn computer_start(&self, _persona_id: &str) -> Result<(), String> {
@@ -618,7 +661,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     /// Takes an "Always allow" back.
     async fn browser_local_remove(&self, _persona_id: &str, _origin: &str) -> Result<(), String> {
-        Err("This desk keeps no browser.".into())
+        Err(NO_BROWSER.into())
     }
     async fn computer_cookies_push(
         &self,

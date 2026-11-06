@@ -329,6 +329,11 @@ where
 /// on nothing.
 fn lane_of(frame: &Value) -> Option<String> {
     let cmd = frame.get("cmd")?.as_str()?;
+    // A picture of a teammate's browser is a read, and a seat driving the
+    // browser polls it while a load it asked for is still waited on.
+    if cmd == "browser.snapshot" {
+        return None;
+    }
     let params = frame.get("params")?;
     let named = |field: &str| params.get(field).and_then(Value::as_str);
     if let Some(persona_id) = named("personaId") {
@@ -470,6 +475,7 @@ fn independent(frame: &Value) -> bool {
             | Command::HarnessUpdates {}
             | Command::ComputerRuntimes {}
             | Command::ComputerCapacity {}
+            | Command::BrowserSnapshot { .. }
             | Command::ComputerReleases {}
             | Command::ComputerReleasesCheck {}
             | Command::ComputerCookieSources {}
@@ -892,7 +898,8 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `personaAccess`, sent to the owner phone only: `mobile.persona_access`,
 /// a teammate's reach or mode and its background work.
 /// `personaComputer`, also owner-only: `mobile.persona_computer`, enabling
-/// a computer and choosing resource limits. `computer.capacity` is read-only
+/// a computer and choosing resource limits. `browserDrive`, owner-only too:
+/// taking a teammate's desk browser over, driving it and handing it back. `computer.capacity` is read-only
 /// and available to every phone seat. `turnRetry`: `session.retry`, trying
 /// a failed turn again, so a phone shows Try again only where it works.
 /// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,

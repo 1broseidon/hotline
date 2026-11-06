@@ -767,11 +767,46 @@ pub(crate) async fn run(
             room.desk_looking(looking);
             Ok(Value::Null)
         }
-        Command::BrowserSnapshot { persona_id } => {
+        Command::BrowserSnapshot { persona_id, fresh } => {
             living(log, &persona_id)?;
-            room.browser_snapshot(&persona_id)
+            let snapshot = if fresh == Some(true) {
+                room.browser_snapshot_fresh(&persona_id).await
+            } else {
+                room.browser_snapshot(&persona_id)
+            };
+            snapshot
                 .map(|snapshot| json!(snapshot))
                 .ok_or_else(|| "That teammate's browser has no picture yet.".to_string())
+        }
+        Command::BrowserTakeOver { persona_id } => {
+            living(log, &persona_id)?;
+            room.browser_take(&persona_id, true)
+                .await
+                .map(|view| json!(view))
+        }
+        Command::BrowserHandBack { persona_id } => {
+            living(log, &persona_id)?;
+            room.browser_take(&persona_id, false)
+                .await
+                .map(|view| json!(view))
+        }
+        Command::BrowserInput { persona_id, input } => {
+            living(log, &persona_id)?;
+            room.browser_input(&persona_id, &input)
+                .await
+                .map(|snapshot| json!(snapshot))
+        }
+        Command::BrowserStep { persona_id, step } => {
+            living(log, &persona_id)?;
+            room.browser_step(&persona_id, step)
+                .await
+                .map(|snapshot| json!(snapshot))
+        }
+        Command::BrowserGo { persona_id, url } => {
+            living(log, &persona_id)?;
+            room.browser_go(&persona_id, &url)
+                .await
+                .map(|snapshot| json!(snapshot))
         }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;

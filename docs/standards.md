@@ -13,7 +13,12 @@ module map itself is [development.md](development.md#layout).
   never `foo/mod.rs`. The one exception is `crates/*/tests/common/mod.rs`,
   which is Cargo's idiom for helpers shared by integration tests.
 - `#[path]` is used only in integration harnesses to keep their existing
-  files and nested modules in place while sharing one test binary.
+  files and nested modules in place while sharing one test binary, and by
+  `hotline-browser`, which compiles the app's Linux desk browser files
+  (`crates/hotline-app/src/browser/native/linux.rs` and its siblings) where
+  they are, so the server's browser and the Linux app's are one code. Those
+  files read their parent's `Tab`, `Loads`, `Native`, `Step`, `WIDTH` and
+  `HEIGHT` by name, and both crates' parents give them.
 - One type's behaviour may be filed by concern across sibling files, the way
   `impl Room` is spread over `session/*`. Do not invent per-concern traits or
   types for that.
@@ -88,7 +93,8 @@ module map itself is [development.md](development.md#layout).
   inspection, without compiling it into production.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
-  direction, its edges only go down, and nothing but the app and the CLI
+  direction, its edges only go down, and nothing but the app, the CLI and
+  `hotline-browser` (the server's browser, a binary nothing depends on)
   depends on `hotline-core`. It declares the workspace `[lints]`, a license,
   and a crate doc saying what it owns and what it must never depend on.
 - A module is `pub` only when the app, the CLI, the harnesses, the examples

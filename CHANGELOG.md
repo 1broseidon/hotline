@@ -15,9 +15,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   forward or reload, or open an address, and Give it back. The teammate waits while you
   have it, as it does when you take over at the desk, and the picture keeps
   up while you drive. Only a phone paired as the owner can.
+- A server's teammates without a computer get a web browser, as on the
+  desktop, and your phone is its screen: Take control, tap, type, and Give it
+  back. It is opt-in: install with `--browser`, which adds WebKitGTK and Xvfb
+  (about 480 MB), on x86_64 and ARM. Without them the server runs as before.
 
 ### Changed
 
+- On a server, a teammate's sign-in ask offers Sign In and Open Browser, not
+  Use Cookies, and Settings has no Cookie Sources: a server shares no
+  cookies.
 - A teammate's bubble colour is a little brighter in the dark palette, closer
   to how the phone draws it.
 

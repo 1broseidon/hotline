@@ -816,10 +816,12 @@ screenshot, back, forward, reload, and the acts (click, hover, fill, select,
 check, press, scroll, wait). It is built on macOS (WKWebView), Linux
 (WebKitGTK) and Windows (WebView2), one code for all three but for a small
 seam of platform calls (`browser/native/apple.rs`, `browser/native/linux.rs`,
-`browser/native/win.rs`); a desk with no window (`hotline serve`) and a Mac
-before macOS 14 install none, and no teammate there is offered it or told
-of it in its preamble (`hotline_core::browser::kept_here`, which both the
-app's install and the preamble ask). A teammate with a computer keeps its
+`browser/native/win.rs`); a Mac before macOS 14 installs none, and no
+teammate there is offered it or told of it in its preamble
+(`hotline_core::browser::kept_here`, which both the app's install and the
+preamble ask). A desk with no window (`hotline serve`) runs the Linux one in
+a helper process of its own, only where WebKitGTK and Xvfb are installed
+(below); elsewhere it installs none, as before. A teammate with a computer keeps its
 computer's browser, and a subagent run or a voice front is not offered
 either. Where Linux or Windows differs it is said below; everything else
 holds on all three. What WebView2's answers mean (a load's end, a
@@ -1279,8 +1281,37 @@ themselves are compiled and linted for Windows from the Mac
   answers nothing.
 - **What it is told.** A teammate with no computer is told in its preamble
   that it has a browser of its own only when this desk installed one as
-  its session started (`Room::desk_browser`), so `hotline serve` and a
-  platform the app has none for never promise one.
+  its session started (`Room::desk_browser`), so a `hotline serve` without
+  the browser's packages and a platform the app has none for never promise
+  one.
+- **On a server, the browser is a process of its own.** `hotline serve`
+  never links GTK or WebKit. Beside it, `hotline-browser`
+  (`crates/hotline-browser`) runs the Linux desk browser: the app's own
+  `linux.rs`, `linux/hands.rs`, `trust.rs`, `asks.rs`, `guard.rs`,
+  `full_page.rs` and page scripts, compiled from where they are, with
+  WebKit's signals in place of Tauri's hooks. The desk installs it only when
+  `hotline-browser --probe` runs (its libraries load, Xvfb is on `PATH`)
+  and names the desk's own version, and starts it at a teammate's first
+  page, handing it one end of a socket pair; nothing else reaches it, and
+  calls, answers and the gate's asks cross as JSON lines
+  (`hotline_core::browser::pipe`). The gate stays the desk's: WebKit holds
+  every load of every frame (`decide-policy`) until the desk's `Gate`
+  answers over the pipe (`Gate::admits_frame`, as the Linux app asks it),
+  because only the desk knows its own listeners and computers. It draws on
+  an Xvfb of its own, which would let any process that connects read its
+  windows and type into them, and which listens on Linux's abstract socket
+  namespace even with `-nolisten unix`: so it starts with `-auth` and a
+  16-byte random cookie in a 0600 file under a 0700 directory of the
+  desk's account, and refuses every client without it. Its first process
+  only reaps (a child subreaper), so WebKit's processes and the display never
+  linger as zombies, even under a desk that is a container's process 1; the
+  display dies with the browser (`PR_SET_PDEATHSIG`), and the browser with
+  the reaper. If the helper dies the teammate's call says so and the next
+  page starts it again. WebKit draws without the GPU and keeps one web
+  process per teammate (no page or process cache). A server has no pane,
+  so there is no shield and no Visit anyway: a refused certificate stays
+  refused there. Each teammate's storage is `desk-browser/<hash>` under the
+  room, as on the Linux app, wiped with the teammate.
 - **A debug switch stays in debug.** `HOTLINE_BROWSER_SHOW`, which shows a
   teammate's window from the start, is read only in a debug build.
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
@@ -1407,6 +1438,7 @@ extend; when a change adds a boundary, it adds a row.
 | On Windows the desk's reads and acts run in an isolated world of its own made through the DevTools protocol, never the page's; the teammate's store is a WebView2 environment on its own directory, made with Chromium's occlusion off and wry's own arguments kept; only a certificate Edge would let past is offered to the person, and only for the page's own load; a load that failed says why and one cancelled says nothing; every key the tool names is Chromium's own; a lent cookie without TLS is never sent as `SameSite=None`; a passkey call is refused in the page and reaches no authenticator | `hotline-app/src/browser/native/edge.rs` `a_script_runs_as_an_async_functions_body`, `the_desks_world_is_made_in_the_main_frame`, `an_evaluation_answers_its_string_or_what_it_threw`, `a_devtools_answer_is_its_result_or_its_message`, `a_teammates_store_keeps_wrys_arguments_and_never_backgrounds_its_page`, `only_a_certificate_edge_would_let_past_is_offered_to_the_person`, `a_certificate_error_is_the_pages_only_for_its_own_address`, `a_pem_certificate_is_its_der_bytes`, `a_load_that_failed_says_why_and_one_cancelled_says_nothing`, `every_key_the_tool_names_has_chromiums_key`, `a_click_moves_presses_and_lets_go_where_it_was_asked`, `a_lent_cookie_without_tls_is_never_sent_as_samesite_none`, `a_passkey_call_is_refused_in_the_page_and_nothing_else_is`, `a_viewport_is_its_css_size_in_the_windows_own_pixels` | the WebView2 calls (`win.rs`, `trust/win.rs`, `asks/win.rs`, the cookies' Windows side) are compiled and linted for Windows from the Mac (`scripts/precheck windows`) and run only by hand in a Windows VM |
 | A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme; a frame loads `about:srcdoc`, `data:` and `blob:` but never a file, the shell or the desk; the desk's ports are every listener of the process and every running computer, asked at the load, on any local address or any name | `hotline-core/src/browser.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`, `a_frame_loads_what_a_browser_would_but_files_the_shell_and_the_desk`, `a_desk_port_is_refused_by_any_name_and_any_local_address_but_not_a_public_one`, `every_listener_of_the_process_and_every_running_computer_is_the_desks`; `hotline-support/src/listening.rs` `a_port_is_held_while_any_holder_of_it_is_kept`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking, the frame split and popups are checked by hand |
 | Only the owner and the local desk take a teammate's desk browser over from the wire, drive it and hand it back; a companion phone is refused every one of those commands and changes nothing; input, steps and addresses are refused while the teammate drives and on a desk with no browser; while the owner's phone has it, the teammate's moves are refused and its reads go on, as for the pane's take-over; an address from away never opens the desk's own ports or a non-web scheme, and input of the wrong shape reaches nothing; a fresh picture is taken only while the person drives | `hotline-core/src/wire/tests/browser_drive.rs` `only_the_owner_and_the_desk_take_a_browser_over_and_drive_it`, `a_companion_phone_is_refused_every_driving_command`, `the_owners_phone_takes_over_taps_types_and_hands_back`, `an_address_from_away_meets_the_gate_and_bad_input_reaches_nothing`, `a_desk_with_no_browser_or_no_page_says_so`, `a_fresh_picture_is_taken_only_while_the_person_drives` | the platform's own tap, key, typing and scroll in a real web view, by hand in the Mac app; the Linux and Windows sides are not run on a Mac |
+| On a server the browser is a helper process the desk starts over a pipe: every load it asks is judged by the desk's own gate, a helper that dies fails the call in flight and the next page starts another, only a helper of the desk's own version is used, its display refuses a client without the cookie, and what it started is reaped when it dies; the owner's phone takes it over, taps, types and hands it back through a real `hotline serve` | `hotline-core/src/browser/helper/tests.rs` `every_load_the_helper_asks_about_is_judged_by_the_desks_own_gate`, `a_helper_that_dies_fails_the_call_in_flight_and_the_next_page_starts_another`, `only_a_helper_of_this_desks_own_version_is_used`; `hotline-core/tests/server_browser.rs` `the_server_browser_loads_pictures_and_takes_the_teammates_and_the_persons_input`; `hotline-cli/tests/serve_browser.rs` `the_owners_phone_takes_a_server_teammates_browser_over_taps_types_and_gives_it_back` | Linux; the last two need WebKitGTK and Xvfb and run on the server-browser CI leg |
 | A deleted teammate's desk browser is closed and its store wiped, and the room forgets its view and every answer about its local addresses, Always allow included; a computer turned on closes the desk browser and keeps its store and answers; a session is told of its desk browser only where one is installed | `hotline-core/src/mcp/server/tests/desk_browser.rs` `deleting_a_teammate_closes_and_wipes_its_browser_and_forgets_its_answers`, `a_computer_turned_on_closes_the_desk_browser_and_keeps_its_store`; `hotline-core/src/browser.rs` `a_forgotten_teammates_answers_are_gone_from_the_run_and_the_room`; `session/tests/preamble.rs` `a_session_hears_of_its_desk_browser_only_where_one_is_installed` | WebKit's store removal is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
@@ -3361,6 +3393,7 @@ computer, raises a card or reads a host browser.
 | Wrong teammates, Link seats, unlisted browsers and a stopped session cannot answer; withdraw takes the card down; a failed copy keeps a removal handle and echoes no cookie | `wire/tests/cookie_asks.rs` `an_ask_refuses_a_wrong_teammate_or_seat_and_expires_with_its_session`, `withdraw_request_takes_an_ask_down`, `a_failed_share_keeps_a_removal_handle_and_never_echoes_a_cookie` | Unix |
 | Retired offer settings and commands are gone; old records are read on a real desk restart, and a saved ask cannot be answered there | `wire/tests/cookie_asks.rs` `the_retired_offer_settings_and_commands_are_gone_and_site_discovery_stays_explicit`; `tests/desk/cookie_asks.rs` `old_offer_records_are_read_and_a_saved_ask_is_history_after_a_real_desk_restart` | — |
 | The card shows the lock, site and reason with Use Cookies, Sign In and Open Browser; the chooser, the secure fields in the same card and the settled lines; Settings has no offers switch | `ui/tests/cookie-asks.test.tsx` | — |
+| A server desk (`hotline serve`, decision-45) shares no cookies: it reads no browser of its machine, its card has no sources and so no Use Cookies on desk, linked desktop or phone, a `use` answer is refused, Settings has no Cookie Sources and none can be switched, and `ask_cookies` says so | `wire/tests/cookie_asks/desk_browser.rs` `a_server_desk_asks_for_a_login_or_its_browser_and_never_shares_cookies`; `mcp/server/tests/desk_browser.rs` `on_a_server_ask_cookies_says_the_person_shares_no_cookies_there`; `ui/tests/cookie-lends.test.tsx` | Unix |
 
 ## Shared cookies (epic-34)
 
@@ -3391,7 +3424,10 @@ holding any in Settings › Secrets › In Use.
   before opening its store, even on a source discovered while it was on (a
   card raised earlier, a share made earlier). So a switched-off profile is
   read for nothing: not Add Cookies, not the ask card's Use Cookies, not Keep
-  fresh, not a share's move, not even its site names.
+  fresh, not a share's move, not even its site names. A server
+  (`hotline serve`) shares no cookies at all (decision-45,
+  `Room::share_no_cookies`): it lists no source, says `off`, and Settings
+  shows no Cookie Sources there.
 - **Keep fresh:** while a share is kept fresh, Hotline keeps reading that one
   site's cookies from that source for as long as the share lasts: once a
   minute it hashes that site's rows (host, name, path, expiry and the stored

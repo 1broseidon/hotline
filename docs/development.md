@@ -128,6 +128,7 @@ crates/hotline-core/models.json  the model catalogue: a filtered snapshot of mod
 crates/hotline-core/tests/   headless proofs driving the real core over the wire
 crates/hotline-app/          the Tauri 2 shell: plugins, the menu, the door
 crates/hotline-cli/          `hotline`: the desk with no window (`hotline serve`), and its operator commands
+crates/hotline-browser/      `hotline-browser`: the server's desk browser, Linux only, a helper `hotline serve` starts; it compiles the app's Linux browser files from crates/hotline-app
 ui/                          the React window, built against the generated contract; ui/src/ui is the design system
 assets/                      the mark and the app tile it sits on; `make icons` renders the icon set from them
 docs/                        what is

@@ -181,7 +181,7 @@ impl Desk {
     }
 
     /// The person takes a teammate's desk browser over from its pane, or
-    /// hands it back.
+    /// hands it back, as `browser.take_over` and `browser.hand_back` do.
     pub async fn take_browser(&self, persona_id: &str, taken: bool) -> Result<(), String> {
         self.room.browser_take(persona_id, taken).await
     }
@@ -1229,6 +1229,52 @@ impl RoomHandle for Desk {
 
     fn browser_snapshot(&self, persona_id: &str) -> Option<crate::contract::BrowserSnapshot> {
         self.room.browser_snapshot(persona_id)
+    }
+
+    async fn browser_snapshot_fresh(
+        &self,
+        persona_id: &str,
+    ) -> Option<crate::contract::BrowserSnapshot> {
+        self.room.browser_snapshot_fresh(persona_id).await
+    }
+
+    async fn browser_take(
+        &self,
+        persona_id: &str,
+        taken: bool,
+    ) -> Result<Option<crate::contract::BrowserView>, String> {
+        self.room.browser_take(persona_id, taken).await?;
+        Ok(self.room.browser_view(persona_id))
+    }
+
+    async fn browser_input(
+        &self,
+        persona_id: &str,
+        input: &crate::contract::BrowserInput,
+    ) -> Result<Option<crate::contract::BrowserSnapshot>, String> {
+        self.room.browser_person_input(persona_id, input).await
+    }
+
+    async fn browser_step(
+        &self,
+        persona_id: &str,
+        step: crate::contract::BrowserStep,
+    ) -> Result<Option<crate::contract::BrowserSnapshot>, String> {
+        use crate::browser::Step;
+        let step = match step {
+            crate::contract::BrowserStep::Back => Step::Back,
+            crate::contract::BrowserStep::Forward => Step::Forward,
+            crate::contract::BrowserStep::Reload => Step::Reload,
+        };
+        self.room.browser_person_step(persona_id, step).await
+    }
+
+    async fn browser_go(
+        &self,
+        persona_id: &str,
+        url: &str,
+    ) -> Result<Option<crate::contract::BrowserSnapshot>, String> {
+        self.room.browser_person_go(persona_id, url).await
     }
 
     async fn computer_status(

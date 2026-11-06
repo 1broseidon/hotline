@@ -18,6 +18,7 @@
 
 pub mod authenticator;
 
+use crate::contract::BrowserInput;
 use crate::log::{Log, StreamId};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -556,6 +557,22 @@ pub trait DeskBrowser: Send + Sync {
     fn size(&self, _persona_id: &str) -> Option<(u32, u32)> {
         None
     }
+    /// The visible page's size in CSS pixels, as a picture of it shows it
+    /// scaled and a point of the person's input is given in.
+    async fn page_size(&self, persona_id: &str) -> Option<(u32, u32)> {
+        self.size(persona_id)
+    }
+    /// The person's own input from a seat away from the desk, on a browser
+    /// they have taken over: a tap at a point, a scroll, text typed where
+    /// the focus is, or one key. The core has checked its shape and that
+    /// the person has the browser. A browser that cannot take it says so.
+    async fn person_input(&self, _persona_id: &str, _input: &BrowserInput) -> Result<(), String> {
+        Err("This desk browser takes no input from away from the desk.".into())
+    }
+    /// The person took the teammate's browser over (`true`) or handed it
+    /// back, from wherever they did: the pane's shield, which keeps a
+    /// watcher's clicks off the page, goes or comes back with it.
+    fn taken(&self, _persona_id: &str, _taken: bool) {}
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
     /// What the teammate's browser waits on the person for, in a few words

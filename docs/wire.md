@@ -22,7 +22,9 @@ A command that names one teammate — by `personaId`, by a `thread` (a DM is
 its teammate's), by a `sideId`, or as the `id` of a `persona.*` command —
 keeps that teammate's own lane. It waits for that teammate's earlier
 commands, not other teammates or global work. Replies are correlated by id
-and may arrive out of order across lanes.
+and may arrive out of order across lanes. `browser.snapshot` names a
+teammate but is an independent read (below), so a seat driving a desk
+browser has its picture while a `browser.go` on the lane waits on a load.
 
 Independent reads, including provider/model discovery, search, file reads,
 status and catalog queries, run concurrently with global mutations. Link
@@ -236,6 +238,12 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.cookies.holders` | `{}` | `CookieHolder[]` `{teammate, name, sites}` — every teammate holding the person's cookies |
 | `browser.local.list` | `{personaId}` | `string[]` — the local addresses (host:port) the teammate's desk browser may always open, the person's "Always allow" answers. Desk or owner only |
 | `browser.local.remove` | `{personaId, origin}` | `string[]` — the list after taking one back; the teammate's next `navigate` there asks again. Desk or owner only |
+| `browser.snapshot` | `{personaId, fresh?}` | `BrowserSnapshot` `{jpeg, at, url, title, size?: {width, height}}` — a base64 JPEG of the visible page, at most 960 wide, and the page's size in CSS pixels. Without `fresh`, the picture of the teammate's or the person's last move. With `fresh: true`, while the person has the browser taken over, the page is pictured again first, at most every 250 ms however many seats poll; an unchanged page keeps its `at`, and a changed one also moves the session's `browser.snapshotAt`. While the teammate drives, `fresh` answers the last move's picture and pictures nothing. Read on no teammate's lane, so a poll is answered while a `browser.go` waits on its load. Desk, owner and phone |
+| `browser.take_over` | `{personaId}` | `BrowserView` — the person takes the teammate's desk browser over, as the pane's Take over does: `phase: "person"`, the pane's shield lifts, and the teammate's moves are refused until Hand back (it may still read the page). Desk or owner only (`browserDrive`) |
+| `browser.hand_back` | `{personaId}` | `BrowserView` — the teammate has its browser back, as the pane's Hand back does. Desk or owner only |
+| `browser.input` | `{personaId, input}` | `BrowserSnapshot \| null` — the page pictured after the person's input, where `input` is `{kind: "tap", x, y}` (a click at that point, in the visible page's CSS pixels, as the platform's own mouse event), `{kind: "scroll", dx, dy, x?, y?}` (by CSS pixels, down and right when positive, scrolling what scrolls under `x, y` when given, else the page), `{kind: "text", text}` (typed where the focus is, at most 10,000 characters) or `{kind: "key", key}` (`Enter`, `Backspace`, `Tab`, `Shift+Tab`, `Escape`, `Delete`, `Space`, the four arrows, `Home`, `End`, `PageUp`, `PageDown`, or one character). Refused with "Take over first: the teammate is driving." while the teammate has it. Desk or owner only |
+| `browser.step` | `{personaId, step: "back"\|"forward"\|"reload"}` | `BrowserSnapshot \| null`, once the move has loaded or its wait ran out; only while the person has it. Desk or owner only |
+| `browser.go` | `{personaId, url}` | `BrowserSnapshot \| null` — an address the person typed, read as the pane's bar reads one (`example.com` and `localhost:3000` as https), opened as the bar opens it: a local address with no card, the desk's own ports and every scheme but http and https never. Only while the person has it. Desk or owner only |
 | `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
 | `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — the cookies shared with the teammate, metadata only, removable after restart; desk and phone |
 | `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery; desk and owner only |
@@ -1251,8 +1259,10 @@ whatever its role: snapshots, events, pages and roster rows cut as a
 companion's are, a subscription `window` ([Subscriptions](#subscriptions)),
 and a link taken as dead after 90 seconds in which the phone said nothing, so
 a lean phone pings; `thumbnails` is `size` on `file.read` and `avatar.read`.
-An owner's hello adds `personaAccess` (`mobile.persona_access`) and
-`personaComputer` (`mobile.persona_computer`), and, when the desk can take
+An owner's hello adds `personaAccess` (`mobile.persona_access`),
+`personaComputer` (`mobile.persona_computer`) and `browserDrive`
+(`browser.take_over`, `browser.hand_back`, `browser.input`, `browser.step`
+and `browser.go`), and, when the desk can take
 calls, the voice capabilities ([Voice calls](#voice-calls)). `client.hello`
 answers the same list for its seat. A desk from
 before one of these sends it absent, and a phone reads that as "not on this

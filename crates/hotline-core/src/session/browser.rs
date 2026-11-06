@@ -6,7 +6,9 @@ use super::*;
 use crate::browser::{
     self as desk_browser, Act, DeskBrowser, Gate, LoginPart, Page, Reading, Step,
 };
-use crate::contract::{BrowserPhase, BrowserSnapshot, BrowserView, PermissionOption};
+use crate::contract::{
+    BrowserInput, BrowserPhase, BrowserSnapshot, BrowserView, PermissionOption, Viewport,
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::sync::PoisonError;
 use tokio::sync::oneshot;
@@ -23,11 +25,74 @@ const SNAPSHOT_WIDTH: u32 = 960;
 /// browser.
 const TAKEN: &str = "The person has taken over your browser and is using it now. Wait for them to hand it back: you can still read the page with text, links and screenshot, but navigating, acting and a full-page screenshot, which scrolls, wait until then.";
 
+/// What a seat away from the desk is answered for input while the teammate
+/// drives, as the pane's bar answers it.
+const TAKE_FIRST: &str = "Take over first: the teammate is driving.";
+const NO_PAGE_OPEN: &str = "That teammate's browser has no page open.";
+const NO_BROWSER: &str = "This desk keeps no browser.";
+
+/// How often a seat driving the browser has it pictured afresh: polls
+/// closer together than this share one picture.
+const FRESH_EVERY_MS: i64 = 250;
+/// The longest text one `browser.input` types, in characters.
+const TEXT_LIMIT: usize = 10_000;
+/// The farthest one scroll goes, either way, and the farthest a point may
+/// be from the page's top left, in CSS pixels.
+const SCROLL_LIMIT: f64 = 20_000.0;
+const POINT_LIMIT: f64 = 10_000.0;
+
 /// A teammate's desk browser as the room shows it.
 #[derive(Clone)]
 pub(crate) struct Viewed {
     view: BrowserView,
     jpeg: Option<Vec<u8>>,
+    /// The visible page's size in CSS pixels, when the browser said.
+    size: Option<Viewport>,
+    /// When the page was last pictured, or a fresh picture was last
+    /// claimed, in milliseconds.
+    looked_at: i64,
+}
+
+/// The person's input as a seat sent it, checked for its shape: a point
+/// on the page, a scroll of a sane size, some text and not too much, a
+/// key `press` knows.
+fn checked_input(input: &BrowserInput) -> Result<(), String> {
+    let point = |value: f64| value.is_finite() && (0.0..=POINT_LIMIT).contains(&value);
+    match input {
+        BrowserInput::Tap { x, y } => {
+            if !(point(*x) && point(*y)) {
+                return Err("A tap needs a point on the page, in its CSS pixels.".into());
+            }
+        }
+        BrowserInput::Scroll { dx, dy, x, y } => {
+            let step = |value: f64| value.is_finite() && value.abs() <= SCROLL_LIMIT;
+            if !(step(*dx) && step(*dy)) {
+                return Err(format!(
+                    "A scroll moves at most {SCROLL_LIMIT} pixels either way."
+                ));
+            }
+            if x.is_some() != y.is_some() || !x.is_none_or(point) || !y.is_none_or(point) {
+                return Err("A scroll's point needs both x and y on the page.".into());
+            }
+        }
+        BrowserInput::Text { text } => {
+            if text.is_empty() {
+                return Err("There is no text to type.".into());
+            }
+            if text.chars().count() > TEXT_LIMIT {
+                return Err(format!("Type at most {TEXT_LIMIT} characters at once."));
+            }
+        }
+        BrowserInput::Key { key } => {
+            if !(desk_browser::KEYS.contains(&key.as_str()) || key.chars().count() == 1) {
+                return Err(format!(
+                    "A key is one character, or one of {}.",
+                    desk_browser::KEYS.join(", ")
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A PNG of the page as a JPEG at most [`SNAPSHOT_WIDTH`] wide.
@@ -1057,12 +1122,50 @@ impl Room {
             at: viewed.view.snapshot_at?,
             url: viewed.view.url.clone(),
             title: viewed.view.title.clone(),
+            size: viewed.size,
         })
+    }
+
+    /// The snapshot a seat driving the browser polls: while the person has
+    /// it, the page pictured again first, unless it was within
+    /// [`FRESH_EVERY_MS`]; otherwise, and while the teammate drives, the
+    /// picture of the last move. Nothing is pictured while nobody has the
+    /// browser taken over, so a desk nobody drives does no work for it.
+    pub async fn browser_snapshot_fresh(&self, persona_id: &str) -> Option<BrowserSnapshot> {
+        let due = {
+            let now = now_ms();
+            let mut views = lock(&self.browser_views);
+            views.get_mut(persona_id).is_some_and(|viewed| {
+                let due = viewed.view.phase == BrowserPhase::Person
+                    && now - viewed.looked_at >= FRESH_EVERY_MS;
+                // Claimed now, so polls from two seats share one picture.
+                if due {
+                    viewed.looked_at = now;
+                }
+                due
+            })
+        };
+        if due
+            && let Some(browser) = self.desk_browser()
+            && browser.current(persona_id).is_some()
+        {
+            self.browser_look(persona_id, browser.as_ref(), false).await;
+        }
+        self.browser_snapshot(persona_id)
     }
 
     /// After the teammate moved its browser: where it is now, and a fresh
     /// snapshot, told to whoever watches the teammate's session.
     async fn browser_moved(&self, persona_id: &str, browser: &dyn DeskBrowser) {
+        self.browser_look(persona_id, browser, true).await;
+    }
+
+    /// Pictures the page and keeps where it is. A move (`moved`) is told
+    /// to whoever watches the teammate's session, as active now; a look
+    /// while the person drives keeps `activeAt` and its picture's time
+    /// when the picture is the same, and is told only when something
+    /// changed, so a seat polling a still page wakes nobody.
+    async fn browser_look(&self, persona_id: &str, browser: &dyn DeskBrowser, moved: bool) {
         let png = browser.screenshot(persona_id).await.ok();
         let title = browser
             .read(persona_id, Reading::Title)
@@ -1072,38 +1175,131 @@ impl Room {
         let needs = browser.needs(persona_id);
         let viewport = browser
             .size(persona_id)
-            .map(|(width, height)| crate::contract::Viewport { width, height });
+            .map(|(width, height)| Viewport { width, height });
+        let size = browser
+            .page_size(persona_id)
+            .await
+            .map(|(width, height)| Viewport { width, height });
         let jpeg = png.as_deref().and_then(snapshot_jpeg);
         let now = now_ms();
-        {
+        let changed = {
             let mut views = lock(&self.browser_views);
-            let phase = views
-                .get(persona_id)
-                .map_or(BrowserPhase::Teammate, |viewed| viewed.view.phase);
             let old = views.remove(persona_id);
-            let (jpeg, snapshot_at) = match jpeg {
-                Some(jpeg) => (Some(jpeg), Some(now)),
-                None => old
-                    .map(|old| (old.jpeg, old.view.snapshot_at))
-                    .unwrap_or_default(),
+            let phase = old
+                .as_ref()
+                .map_or(BrowserPhase::Teammate, |old| old.view.phase);
+            let still =
+                !moved && jpeg.is_some() && old.as_ref().is_some_and(|old| old.jpeg == jpeg);
+            let (jpeg, snapshot_at) = match (jpeg, &old) {
+                (Some(jpeg), Some(old)) if still => (Some(jpeg), old.view.snapshot_at),
+                (Some(jpeg), _) => (Some(jpeg), Some(now)),
+                (None, Some(old)) => (old.jpeg.clone(), old.view.snapshot_at),
+                (None, None) => (None, None),
             };
+            let active_at = match &old {
+                Some(old) if !moved => old.view.active_at,
+                _ => now,
+            };
+            let view = BrowserView {
+                phase,
+                url,
+                title,
+                active_at,
+                snapshot_at,
+                needs,
+                viewport,
+            };
+            let changed = moved || old.as_ref().is_none_or(|old| old.view != view);
             views.insert(
                 persona_id.to_string(),
                 Viewed {
-                    view: BrowserView {
-                        phase,
-                        url,
-                        title,
-                        active_at: now,
-                        snapshot_at,
-                        needs,
-                        viewport,
-                    },
+                    view,
                     jpeg,
+                    size: size.or_else(|| old.and_then(|old| old.size)),
+                    looked_at: now,
                 },
             );
+            changed
+        };
+        if changed {
+            let _ = self.info_changes.send(self.info(persona_id));
         }
-        let _ = self.info_changes.send(self.info(persona_id));
+    }
+
+    /// The desk browser, while the person has this teammate's taken over:
+    /// where a seat's input goes. Refused while the teammate drives, as the
+    /// pane's bar refuses it, and on a desk that keeps no browser.
+    fn held_browser(&self, persona_id: &str) -> Result<Arc<dyn DeskBrowser>, String> {
+        let browser = self.desk_browser().ok_or(NO_BROWSER)?;
+        match self.browser_phase(persona_id) {
+            Some(BrowserPhase::Person) if browser.current(persona_id).is_some() => Ok(browser),
+            Some(BrowserPhase::Teammate) => Err(TAKE_FIRST.into()),
+            _ => Err(NO_PAGE_OPEN.into()),
+        }
+    }
+
+    /// The person's tap, scroll, typing or key from a seat away from the
+    /// desk, on a browser they have taken over; answers the page pictured
+    /// after it.
+    pub async fn browser_person_input(
+        &self,
+        persona_id: &str,
+        input: &BrowserInput,
+    ) -> Result<Option<BrowserSnapshot>, String> {
+        let browser = self.held_browser(persona_id)?;
+        checked_input(input)?;
+        let done = browser.person_input(persona_id, input).await;
+        self.browser_moved(persona_id, browser.as_ref()).await;
+        done?;
+        Ok(self.browser_snapshot(persona_id))
+    }
+
+    /// Back, forward or reload from a seat away from the desk, on a
+    /// browser the person has taken over; answers the page pictured after.
+    pub async fn browser_person_step(
+        &self,
+        persona_id: &str,
+        step: Step,
+    ) -> Result<Option<BrowserSnapshot>, String> {
+        let browser = self.held_browser(persona_id)?;
+        let stepped = browser.step(persona_id, step).await;
+        self.browser_moved(persona_id, browser.as_ref()).await;
+        stepped?;
+        Ok(self.browser_snapshot(persona_id))
+    }
+
+    /// An address the person typed on a seat away from the desk, on a
+    /// browser they have taken over: read as the pane's bar reads it (a
+    /// bare name is https), allowed as the bar allows it (a local one with
+    /// no card, never the desk's own ports), and every load still asked of
+    /// the gate. Answers the page pictured after.
+    pub async fn browser_person_go(
+        &self,
+        persona_id: &str,
+        typed: &str,
+    ) -> Result<Option<BrowserSnapshot>, String> {
+        let browser = self.held_browser(persona_id)?;
+        let typed = typed.trim();
+        // `localhost:3000` parses with `localhost` as its scheme: an
+        // address with no scheme of the web's is a bare name, as https.
+        let url = url::Url::parse(typed)
+            .ok()
+            .filter(|url| matches!(url.scheme(), "http" | "https"))
+            .or_else(|| {
+                (!typed.contains("://"))
+                    .then(|| url::Url::parse(&format!("https://{typed}")).ok())
+                    .flatten()
+            })
+            .filter(|url| url.host_str().is_some())
+            .ok_or("That is not a web address.")?;
+        if !self.browser_gate.admits(&url) {
+            return Err("That address is not a web page, or is one of Hotline's own ports.".into());
+        }
+        self.browser_person_opens(persona_id, &url).await?;
+        let went = browser.open(persona_id, &url).await;
+        self.browser_moved(persona_id, browser.as_ref()).await;
+        went?;
+        Ok(self.browser_snapshot(persona_id))
     }
 
     /// The person typed `url` into the teammate's browser bar with control:
@@ -1138,16 +1334,18 @@ impl Room {
         }
     }
 
-    /// The person takes the teammate's browser over, or hands it back.
+    /// The person takes the teammate's browser over, or hands it back,
+    /// from the pane's bar or a seat away from the desk: the same change
+    /// either way, and the pane's shield follows it.
     pub async fn browser_take(&self, persona_id: &str, taken: bool) -> Result<(), String> {
-        let browser = self.desk_browser().ok_or("This desk has no browser.")?;
+        let browser = self.desk_browser().ok_or(NO_BROWSER)?;
         if browser.current(persona_id).is_none() {
-            return Err("That teammate's browser has no page open.".into());
+            return Err(NO_PAGE_OPEN.into());
         }
         {
             let mut views = lock(&self.browser_views);
             let Some(viewed) = views.get_mut(persona_id) else {
-                return Err("That teammate's browser has no page open.".into());
+                return Err(NO_PAGE_OPEN.into());
             };
             viewed.view.phase = if taken {
                 BrowserPhase::Person
@@ -1155,6 +1353,7 @@ impl Room {
                 BrowserPhase::Teammate
             };
         }
+        browser.taken(persona_id, taken);
         // What the person did while they had it is the page now.
         self.browser_moved(persona_id, browser.as_ref()).await;
         Ok(())

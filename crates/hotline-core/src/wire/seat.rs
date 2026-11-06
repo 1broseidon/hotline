@@ -119,7 +119,9 @@ impl Seat {
                     | Command::ComputerCapacity { .. }
                     | Command::ComputerStatus { .. }
                     // The picture the desk's PIP shows, of a page the
-                    // teammate opened.
+                    // teammate opened. Taking the browser over and driving
+                    // it (`browser.take_over`, `browser.input` and the
+                    // rest) is the owner's, as the desk's pane is.
                     | Command::BrowserSnapshot { .. }
                     | Command::ComputerStart { .. }
                     | Command::ComputerStop { .. }
@@ -168,12 +170,14 @@ impl Seat {
     }
 
     /// What this seat's hello says it can do: the phone's list, and
-    /// `personaAccess` and `personaComputer` for the owner alone.
+    /// `personaAccess`, `personaComputer` and `browserDrive` (taking a
+    /// teammate's desk browser over and driving it) for the owner alone.
     pub(super) fn capabilities(self) -> Vec<&'static str> {
         let mut capabilities = PHONE_CAPABILITIES.to_vec();
         if self == Seat::Owner {
             capabilities.push("personaAccess");
             capabilities.push("personaComputer");
+            capabilities.push("browserDrive");
         }
         capabilities
     }

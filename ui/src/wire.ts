@@ -2,6 +2,7 @@ import type {
 	Aside,
 	BackendChoice,
 	BrowserSnapshot,
+	BrowserView,
 	CatalogModel,
 	ChapterSummary,
 	Command,
@@ -294,6 +295,13 @@ type Results = {
 	"computer.releases.check": ComputerReleases;
 	"computer.status": ComputerStatus;
 	"browser.snapshot": BrowserSnapshot;
+	/** Taking a teammate's desk browser over from away, and handing it back: the browser then. */
+	"browser.take_over": BrowserView | null;
+	"browser.hand_back": BrowserView | null;
+	/** The person's input from away, and the page pictured after it. */
+	"browser.input": BrowserSnapshot | null;
+	"browser.step": BrowserSnapshot | null;
+	"browser.go": BrowserSnapshot | null;
 	"computer.start": null;
 	"computer.stop": null;
 	"computer.remove": null;

@@ -127,6 +127,57 @@ pub struct BrowserSnapshot {
     pub at: i64,
     pub url: String,
     pub title: String,
+    /// The visible page's size in CSS pixels, which the picture shows
+    /// scaled and a `browser.input` point is given in. Absent when the
+    /// browser could not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub size: Option<Viewport>,
+}
+
+/// The person's own input to a teammate's desk browser from a seat away
+/// from the desk (`browser.input`), while they have taken it over. A point
+/// is in the visible page's CSS pixels from its top left: the snapshot's
+/// `size` maps its picture onto them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts")]
+pub enum BrowserInput {
+    /// A click where the person tapped, as the platform's own mouse event.
+    Tap { x: f64, y: f64 },
+    /// Scrolls by `dx` and `dy` CSS pixels (down and right when positive):
+    /// what scrolls under `x`, `y` when given, else the page.
+    Scroll {
+        dx: f64,
+        dy: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        x: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        y: Option<f64>,
+    },
+    /// Types `text` where the focus is, as if it were typed there.
+    Text { text: String },
+    /// One key, by name (`Enter`, `Backspace`, `Tab`, `Shift+Tab`,
+    /// `Escape`, `Delete`, `Space`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
+    /// `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`) or one character.
+    Key { key: String },
+}
+
+/// A move through a teammate's desk browser's history, or the same page
+/// again (`browser.step`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum BrowserStep {
+    Back,
+    Forward,
+    Reload,
 }
 
 /// An account's plan limits as its agent reported them: one line per window

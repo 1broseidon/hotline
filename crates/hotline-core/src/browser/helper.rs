@@ -10,7 +10,11 @@
 //! teammate's first page, not before, so a desk nobody browses on pays
 //! nothing for it. If the helper dies, every teammate's browser is gone with
 //! it: a call in flight is told so, a call that needs a page says the
-//! browser stopped, and the next page starts a new helper.
+//! browser stopped, and the next page starts a new helper. A helper that
+//! keeps stopping is not started at every page: after each stop or failed
+//! start in a row the next waits longer ([`Backoff`], 1 s doubling to a
+//! minute), a page asked for in the meantime is told how long, and a helper
+//! that ran a few minutes before it stopped starts the count again.
 //!
 //! The helper's side, and the reaping of what WebKit and its display leave,
 //! is `crates/hotline-browser`.
@@ -25,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
@@ -43,6 +47,52 @@ const READY_WAIT: Duration = Duration::from_secs(30);
 const CALL_WAIT: Duration = Duration::from_secs(180);
 /// How long the probe may take: it starts nothing.
 const PROBE_WAIT: Duration = Duration::from_secs(15);
+/// How long a helper waits to be started again after one stop or failed
+/// start, doubled for each more in a row, up to [`BACKOFF_MOST`].
+const BACKOFF_FIRST: Duration = Duration::from_secs(1);
+const BACKOFF_MOST: Duration = Duration::from_secs(60);
+/// How long a helper must have run before it stopped for its stop to count
+/// as the first in a row again: it was working, not crashing.
+const HEALTHY: Duration = Duration::from_secs(180);
+
+/// When the helper may be started again: after `failures` stops and failed
+/// starts in a row, not before `until`. A crash at every page would
+/// otherwise start a helper, an X display and WebKit at every page,
+/// each dying as it starts.
+#[derive(Debug, Default)]
+struct Backoff {
+    failures: u32,
+    until: Option<Instant>,
+}
+
+impl Backoff {
+    /// A helper stopped at `now` after running for `ran` (zero for one that
+    /// never got ready): the next start waits.
+    fn failed(&mut self, ran: Duration, now: Instant) {
+        if ran >= HEALTHY {
+            self.failures = 0;
+        }
+        self.failures = self.failures.saturating_add(1);
+        let doubled = BACKOFF_FIRST.saturating_mul(1 << (self.failures - 1).min(16));
+        self.until = Some(now + doubled.min(BACKOFF_MOST));
+    }
+
+    /// How long a start asked for at `now` still waits, if it does.
+    fn left(&self, now: Instant) -> Option<Duration> {
+        self.until
+            .map(|until| until.saturating_duration_since(now))
+            .filter(|left| !left.is_zero())
+    }
+}
+
+/// What a page asked for while the helper waits to be started again hears.
+fn backed_off(left: Duration) -> String {
+    let seconds = left.as_secs() + u64::from(left.subsec_nanos() > 0);
+    let unit = if seconds == 1 { "second" } else { "seconds" };
+    format!(
+        "Your browser stopped again soon after it started, so it waits {seconds} {unit} before it starts once more. Try again then; if it keeps stopping, the server's log says why."
+    )
+}
 
 type States = Arc<Mutex<HashMap<String, State>>>;
 type Pending = Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>;
@@ -143,13 +193,14 @@ struct Conn {
 impl Conn {
     /// Talks to a helper on `stream`: a task writes what is sent down, and
     /// another reads what comes up, answers its asks from `gate`, keeps each
-    /// teammate's state in `states`, and, when the helper is gone, fails
-    /// every call still waiting and forgets every state. The second answers
-    /// the helper's `ready`.
+    /// teammate's state in `states`, and, when a helper that was ready is
+    /// gone, counts its stop in `backoff`, fails every call still waiting
+    /// and forgets every state. The second answers the helper's `ready`.
     fn open(
         stream: UnixStream,
         gate: Arc<Gate>,
         states: States,
+        backoff: Arc<Mutex<Backoff>>,
     ) -> (Arc<Self>, oneshot::Receiver<()>) {
         let (read, mut write) = stream.into_split();
         let (down, mut queued) = mpsc::unbounded_channel::<String>();
@@ -170,7 +221,7 @@ impl Conn {
         });
         let (ready, readied) = oneshot::channel();
         let weak = Arc::downgrade(&conn);
-        tokio::spawn(read_up(read, weak, gate, states, ready));
+        tokio::spawn(read_up(read, weak, gate, states, backoff, ready));
         (conn, readied)
     }
 
@@ -218,15 +269,19 @@ impl Conn {
     }
 }
 
-/// Reads the helper's lines until it is gone.
+/// Reads the helper's lines until it is gone. Its stop is counted before
+/// the connection reads as dead, so a page that finds it dead finds the
+/// wait it left too.
 async fn read_up(
     read: tokio::net::unix::OwnedReadHalf,
     conn: Weak<Conn>,
     gate: Arc<Gate>,
     states: States,
+    backoff: Arc<Mutex<Backoff>>,
     ready: oneshot::Sender<()>,
 ) {
     let mut ready = Some(ready);
+    let mut ready_at = None;
     let mut lines = BufReader::new(read).lines();
     while let Ok(Some(text)) = lines.next_line().await {
         let Some(live) = conn.upgrade() else {
@@ -235,6 +290,7 @@ async fn read_up(
         match serde_json::from_str::<Up>(&text) {
             Ok(Up::Ready { .. }) => {
                 if let Some(ready) = ready.take() {
+                    ready_at = Some(Instant::now());
                     let _ = ready.send(());
                 }
             }
@@ -263,6 +319,10 @@ async fn read_up(
         }
     }
     if let Some(live) = conn.upgrade() {
+        // One that never got ready is counted by the start that waited on it.
+        if let Some(at) = ready_at {
+            lock(&backoff).failed(at.elapsed(), Instant::now());
+        }
         live.gone(&states);
     }
 }
@@ -280,6 +340,7 @@ pub struct Helper {
     states: States,
     /// Each teammate's name, told again to a helper started anew.
     names: Mutex<HashMap<String, String>>,
+    backoff: Arc<Mutex<Backoff>>,
 }
 
 impl Helper {
@@ -292,6 +353,7 @@ impl Helper {
             conn: Mutex::default(),
             states: Arc::default(),
             names: Mutex::default(),
+            backoff: Arc::default(),
         }
     }
 
@@ -312,13 +374,23 @@ impl Helper {
         }
     }
 
-    /// The running helper, started now if none is.
+    /// The running helper, started now if none is and it is not waiting
+    /// after stopping ([`Backoff`]).
     async fn started(&self) -> Result<Arc<Conn>, String> {
         let _starting = self.starting.lock().await;
         if let Some(conn) = self.running() {
             return Ok(conn);
         }
-        let conn = self.spawn().await?;
+        if let Some(left) = lock(&self.backoff).left(Instant::now()) {
+            return Err(backed_off(left));
+        }
+        let conn = match self.spawn().await {
+            Ok(conn) => conn,
+            Err(error) => {
+                lock(&self.backoff).failed(Duration::ZERO, Instant::now());
+                return Err(error);
+            }
+        };
         for (persona, name) in lock(&self.names).iter() {
             conn.tell(persona, Call::Name { name: name.clone() });
         }
@@ -328,7 +400,8 @@ impl Helper {
 
     /// Starts the helper on a socket pair, its end on [`PIPE_FD`], in a
     /// process group of its own, and waits for it to say it is ready. Its
-    /// standard error comes out on the desk's, a line at a time, and its
+    /// standard error comes out on the desk's, a line at a time, less what
+    /// GTK and WebKit say of a display with no session ([`stderr`]), and its
     /// exit is waited for so it never lingers as a zombie of the desk.
     async fn spawn(&self) -> Result<Arc<Conn>, String> {
         let failed = |error: std::io::Error| format!("Your browser could not start: {error}");
@@ -363,16 +436,24 @@ impl Helper {
         drop(theirs);
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(text)) = lines.next_line().await {
-                    eprintln!("[browser] {text}");
+                let mut read = BufReader::new(stderr).lines();
+                let mut lines = stderr::Lines::default();
+                while let Ok(Some(text)) = read.next_line().await {
+                    if let Some(said) = lines.take(&text, Instant::now()) {
+                        eprintln!("{said}");
+                    }
                 }
             });
         }
         let pid = child.id();
         ours.set_nonblocking(true).map_err(failed)?;
         let stream = UnixStream::from_std(ours).map_err(failed)?;
-        let (conn, readied) = Conn::open(stream, self.gate.clone(), self.states.clone());
+        let (conn, readied) = Conn::open(
+            stream,
+            self.gate.clone(),
+            self.states.clone(),
+            self.backoff.clone(),
+        );
         let ready = tokio::time::timeout(READY_WAIT, readied).await;
         if !matches!(ready, Ok(Ok(()))) {
             let _ = child.start_kill();
@@ -567,5 +648,6 @@ impl DeskBrowser for Helper {
     }
 }
 
+mod stderr;
 #[cfg(test)]
 mod tests;

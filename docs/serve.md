@@ -337,10 +337,20 @@ over a socket. It is the desktop app's Linux browser, drawing on an X display
 of its own that refuses any client without its cookie, which only the account
 the desk runs as can read. Every page and frame it loads is asked of the
 desk's guard first, so the desk's own ports stay shut as on the desktop. The
-phone, paired as the owner, is its screen: it sees the desk's pictures of a
-teammate's page, takes control, taps, types and gives it back. If the browser
-dies, the teammate's next page starts it again; nothing it started is left
-behind, even under a desk that is a container's process 1. Each teammate's
+phone or a desktop linked to the desk, paired as the owner, is its screen: it
+sees the desk's pictures of a teammate's page, takes control, taps, types,
+chooses Visit anyway past a certificate the browser refused, and gives it
+back. A page's file picker never opens on a server, even for the person, so
+nothing is uploaded from this browser. If the browser dies, the teammate's
+next page starts it again; one that keeps dying is started again only after
+a wait that doubles from a second to a minute, and the teammate is told how
+long. Nothing it started is left behind, even under a desk that is a
+container's process 1. Its own messages and real errors go to the desk's log
+on lines beginning `[browser]`; GTK's and WebKit's routine warnings about a
+display with no session (no accessibility bus, no GPU, no settings portal) do
+not, and any other warning of theirs is said once, then left out for ten
+minutes while it repeats.
+Each teammate's
 storage is under the room's `desk-browser/`. The browser takes about 450 MB
 of memory with one teammate on a simple page, and a teammate browsing heavy
 sites 500 to 600 MB of its own.

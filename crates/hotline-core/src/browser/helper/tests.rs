@@ -141,7 +141,12 @@ async fn piped(root: &Path) -> (Helper, Arc<Fake>) {
         Up::Ready { pid: 1, display: 0 },
     ));
     let helper = Helper::new(root.join("no-helper"), root.to_path_buf(), gate(root));
-    let (conn, readied) = Conn::open(ours, helper.gate.clone(), helper.states.clone());
+    let (conn, readied) = Conn::open(
+        ours,
+        helper.gate.clone(),
+        helper.states.clone(),
+        helper.backoff.clone(),
+    );
     readied.await.unwrap();
     *lock(&helper.conn) = Some(conn);
     (helper, fake)
@@ -259,16 +264,28 @@ fn starts(file: &Path) -> Vec<String> {
         .collect()
 }
 
+/// The wait the helper's last stop left has passed, as if its time went by.
+fn waited(helper: &Helper) {
+    lock(&helper.backoff).until = None;
+}
+
 #[tokio::test]
-async fn a_helper_that_cannot_start_is_said_and_the_next_page_tries_again() {
+async fn a_helper_that_cannot_start_is_said_and_tried_again_only_once_its_wait_is_over() {
     let root = tempfile::tempdir().unwrap();
     let (program, started) = script(root.path(), "exit 3");
     let helper = Helper::new(program, root.path().join("data"), gate(root.path()));
     let url = Url::parse("https://example.com/").unwrap();
-    for _ in 0..2 {
-        let error = helper.open("ada", &url).await.unwrap_err();
-        assert!(error.contains("could not start"), "{error}");
-    }
+    let error = helper.open("ada", &url).await.unwrap_err();
+    assert!(error.contains("could not start"), "{error}");
+    // At once again: told to wait, and nothing is started.
+    let early = helper.open("ada", &url).await.unwrap_err();
+    assert!(early.contains("waits 1 second "), "{early}");
+    assert_eq!(starts(&started).len(), 1);
+    waited(&helper);
+    let error = helper.open("ada", &url).await.unwrap_err();
+    assert!(error.contains("could not start"), "{error}");
+    let longer = helper.open("ada", &url).await.unwrap_err();
+    assert!(longer.contains("waits 2 seconds"), "{longer}");
     let data = root.path().join("data");
     assert_eq!(
         starts(&started),
@@ -281,7 +298,7 @@ async fn a_helper_that_cannot_start_is_said_and_the_next_page_tries_again() {
 }
 
 #[tokio::test]
-async fn a_helper_that_dies_fails_the_call_in_flight_and_the_next_page_starts_another() {
+async fn a_helper_that_dies_fails_the_call_in_flight_and_a_page_after_its_wait_starts_another() {
     let root = tempfile::tempdir().unwrap();
     // Ready on the pipe it was handed, then gone at the first call.
     let (program, started) = script(
@@ -294,8 +311,45 @@ async fn a_helper_that_dies_fails_the_call_in_flight_and_the_next_page_starts_an
     assert_eq!(helper.read("ada", Reading::Text).await, Err(STOPPED.into()));
     assert_eq!(helper.current("ada"), None);
     helper.taken("ada", true);
+    let early = helper.open("ada", &url).await.unwrap_err();
+    assert!(early.contains("waits 1 second "), "{early}");
+    assert_eq!(starts(&started).len(), 1, "no start while it waits");
+    waited(&helper);
     assert_eq!(helper.open("ada", &url).await, Err(STOPPED.into()));
     assert_eq!(starts(&started).len(), 2);
+}
+
+/// Each stop in a row doubles the wait, up to a minute; a helper that ran
+/// a while before it stopped was working, and its stop counts as the
+/// first again.
+#[test]
+fn a_helper_that_keeps_stopping_waits_longer_each_time_and_a_healthy_one_starts_over() {
+    let start = Instant::now();
+    let mut backoff = Backoff::default();
+    assert_eq!(backoff.left(start), None, "a first start waits for nothing");
+    let mut waits = Vec::new();
+    for _ in 0..9 {
+        backoff.failed(Duration::ZERO, start);
+        waits.push(backoff.left(start).unwrap().as_secs());
+    }
+    assert_eq!(waits, [1, 2, 4, 8, 16, 32, 60, 60, 60]);
+    assert_eq!(backoff.left(start + Duration::from_secs(60)), None);
+    assert_eq!(
+        backoff.left(start + Duration::from_millis(59_500)),
+        Some(Duration::from_millis(500))
+    );
+    backoff.failed(Duration::from_secs(5), start);
+    assert_eq!(backoff.left(start), Some(BACKOFF_MOST), "a short run");
+    backoff.failed(HEALTHY, start);
+    assert_eq!(backoff.left(start), Some(BACKOFF_FIRST), "a healthy run");
+}
+
+#[test]
+fn a_page_asked_for_while_it_waits_hears_how_long_in_whole_seconds() {
+    let said = backed_off(Duration::from_millis(1_200));
+    assert!(said.starts_with("Your browser stopped again"), "{said}");
+    assert!(said.contains("waits 2 seconds before"), "{said}");
+    assert!(backed_off(Duration::from_millis(300)).contains("waits 1 second before"));
 }
 
 #[tokio::test]

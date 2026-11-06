@@ -401,7 +401,11 @@ async fn the_server_browser_loads_pictures_and_takes_the_teammates_and_the_perso
     })
     .await;
 
-    // The next page starts a helper again; a wipe takes the storage.
+    // A page at once waits out the stop's backoff, and starts nothing; the
+    // next page after it starts a helper again; a wipe takes the storage.
+    let early = helper.open("ada", &url).await.unwrap_err();
+    assert!(early.contains("waits 1 second"), "{early}");
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
     helper.open("ada", &url).await.unwrap();
     assert_eq!(helper.read("ada", Reading::Title).await.unwrap(), "Form");
     let store = hotline_core::browser::store_dir(root.path(), "ada");

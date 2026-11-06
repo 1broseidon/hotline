@@ -5,7 +5,6 @@ description: What pings you, and when the phone stays quiet.
 
 With notifications on, the phone hears:
 
-<!-- TODO(screenshot, iOS simulator): a lock-screen notification for a card waiting on you, its answer buttons expanded. -->
 
 - **Each finished reply**: one notification per turn, however long the turn
   was, showing the teammate's last message.

@@ -9,7 +9,6 @@ top of the team list and choose **Add a desktop**.
 
 ## Your computer
 
-<!-- TODO(screenshot, iOS simulator): the phone's Link a desk screen, scanning the desk's pairing code. -->
 
 1. In Hotline on your computer, open **Settings → Remote** and turn on **Remote
    access**.
@@ -35,7 +34,6 @@ phone only trusts the key in the QR code.
 
 ## Several desks
 
-<!-- TODO(screenshot, iOS simulator): the team list with two desks linked, the desk switcher open. -->
 
 Link as many as you like. The desktop menu at the top of the team list
 switches between them or shows every desk's teammates together.

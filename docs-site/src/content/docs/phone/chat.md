@@ -5,7 +5,6 @@ description: The team list, a conversation, and answering what a teammate is wai
 
 ## The team list
 
-<!-- TODO(screenshot, iOS simulator): the team list, with search and + at the bottom. -->
 
 Every teammate on your linked desks, with what each is doing. A teammate
 waiting on you says **Needs you** and comes first. Search at the bottom finds
@@ -14,7 +13,6 @@ it runs on. The desk must be one that can add teammates from a phone.
 
 ## A conversation
 
-<!-- TODO(screenshot, iOS simulator): a conversation mid-reply, the + menu open (Photos, Camera, Files). -->
 
 Type and send. Replies stream in as the teammate writes them, and it keeps
 working while the phone is closed.
@@ -31,24 +29,24 @@ a block of one line wraps. A `[!WARNING]` or `[!CAUTION]` quote is a
 callout. A straight-line flow reads as its steps; any other diagram shows
 its source, named Diagram.
 
+![Mack's reply in a conversation: an amber warning callout that removing a volume can't be undone, then a Shell code block with three nimbus commands.](../../../assets/phone/phone-callout.webp)
+
 An opened table or code block, picture, document or page fills a sheet; pull
 it down to close it. Its band shows who said it and how long ago, with
 **Copy**, and over it what it is ("Table · 7 rows × 8 columns",
 "TypeScript · bills.ts · 24 lines"). A table keeps its head row and first
 column in place as it scrolls; code is numbered there.
 
+![An open table from Mack: the band with his face, name, 4 min ago and Copy, his sentence as the caption, Table · 7 rows × 5 columns, and the table with its head row and first column held.](../../../assets/phone/phone-open-table.webp) ![An open code block from Mack: TypeScript · src/billing/bills.ts · 30 lines, numbered, under the same band.](../../../assets/phone/phone-open-code.webp)
+
+![A picture open on the same sheet: Mack, 4 min ago, nightly-backups.jpg · 55 KB, and the picture below.](../../../assets/phone/phone-open-image.webp)
+
 The desk's owner sees the desk's colours: its **Accent** on your bubble,
 **Send** and the call keys, and each teammate's **Bubble** on its replies,
 from desk 0.47.
 
-<!-- TODO(phone 0.13, story 9): not in release/0.13.0 yet; the phone still fetches link cards itself. Check once previews come through the desk. -->
-
-Link cards come through the desk, so **Link previews** off on the desk
-(**Settings → General → Conversations**) turns them off on the phone too.
-
 ## Threads
 
-<!-- TODO(screenshot, iOS simulator): Noted, listing a teammate's asides; and a work thread's Loop in… choosing a colleague. -->
 
 - An aside, what a teammate's threads and colleagues told it without
   telling you, is a quiet (·) line in its conversation. Tap it to open the
@@ -60,11 +58,14 @@ Link cards come through the desk, so **Link previews** off on the desk
 - You can talk in a thread one teammate handed to another. A bar says when
   the handoff has ended.
 
+![Mack's conversation with three quiet (·) aside lines: from Mack's work thread, from Ivy's work thread as a nudge, and from Juno's work thread to you.](../../../assets/phone/phone-aside-lines.webp) ![Noted for Mack: New · 3, from Juno (to you), Ivy (nudge) and Mack (note), then Earlier, with a line saying these are what Mack's threads told it, never said to you.](../../../assets/phone/phone-noted.webp)
+
+![A work thread's menu open: Loop in…, Park and End thread.](../../../assets/phone/phone-thread-menu.webp)
+
 See [Teammates working together](/docs/use/teammates-together/).
 
 ## When a teammate is waiting on you
 
-<!-- TODO(screenshot, iOS simulator): a permission card with Allow and Deny in a conversation. -->
 
 A card in the conversation says what the teammate needs:
 
@@ -81,7 +82,6 @@ then sends the answer.
 
 ### A sign-in
 
-<!-- TODO(screenshot, iOS simulator): the sign-in card: the site, the teammate's reason, Use Cookies, Sign In, Open Browser. -->
 
 A teammate that needs to be signed in to a site asks with the site and its
 reason, and counts as **Needs you** until you answer:
@@ -96,5 +96,12 @@ reason, and counts as **Needs you** until you answer:
   yourself. It is offered only for a teammate with a computer.
 - **Not now** declines; it won't ask for that site again until you next
   write to it.
+
+![Mack's sign-in card in a conversation: Needs you · Sign-in, github.com, his reason, From Safari, then Use Cookies, Sign In, Open Browser and Not now.](../../../assets/phone/phone-cookie-card.webp) ![The same card after Sign In: Username and Password fields, Save to Secrets on, the name GITHUB, then Sign In and Back.](../../../assets/phone/phone-cookie-sign-in.webp)
+
+Once answered, the card folds to one line, such as "Cookies from Safari",
+with **Show** to open it again.
+
+![The conversation after Use Cookies: the card folded to one line, Cookies from Safari, github.com, with Show, and Mack reporting back.](../../../assets/phone/phone-cookie-settled.webp)
 
 See [Sign-ins](/docs/setup/sign-ins/) for what each answer does on the desk.

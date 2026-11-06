@@ -66,7 +66,6 @@ export default defineConfig({
 						{ label: 'Link a desk', slug: 'phone/pair' },
 						{ label: 'Use it away from home', slug: 'phone/away' },
 						{ label: 'Talk to your teammates', slug: 'phone/chat' },
-						{ label: 'Teammate settings', slug: 'phone/teammate' },
 						{ label: 'Notifications', slug: 'phone/notifications' },
 						{ label: 'Computer and browser', slug: 'phone/computer' },
 						{ label: 'Updates', slug: 'phone/updates' },

@@ -326,11 +326,11 @@ async fn the_probe_answers_what_the_helper_said_or_why_it_cannot_run() {
     );
     let (missing, _) = script(
         root.path(),
-        "echo 'hotline-browser: error while loading shared libraries: libwebkit2gtk-4.1.so.0: cannot open shared object file' >&2\nexit 127",
+        "echo 'hotline-browser: error while loading shared libraries: libgobject-2.0.so.0: cannot open shared object file: No such file or directory' >&2\nexit 127",
     );
     assert_eq!(
         probe(&missing).await,
-        Err("WebKitGTK is not installed (the libwebkit2gtk-4.1-0 package)".into())
+        Err("WebKitGTK is not installed (libgobject-2.0.so.0 is missing)".into())
     );
     let (no_xvfb, _) = script(
         root.path(),

@@ -117,8 +117,13 @@ pub async fn probe(program: &Path) -> Result<String, String> {
         return Ok(said(&ran.stdout));
     }
     let why = said(&ran.stderr);
-    Err(if why.contains("error while loading shared libraries") {
-        "WebKitGTK is not installed (the libwebkit2gtk-4.1-0 package)".into()
+    // The dynamic loader names the first library it could not find, which
+    // is any of WebKitGTK's stack (GLib, GTK, WebKit) on a server without it.
+    let missing = why
+        .split_once("error while loading shared libraries: ")
+        .map(|(_, rest)| rest.split(':').next().unwrap_or(rest).to_string());
+    Err(if let Some(library) = missing {
+        format!("WebKitGTK is not installed ({library} is missing)")
     } else if why.is_empty() {
         format!("{PROGRAM} --probe failed ({})", ran.status)
     } else {

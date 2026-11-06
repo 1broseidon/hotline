@@ -13,6 +13,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A message you send stays in view above the composer. Since 0.48.0 it
   could land behind the composer with the jump to the latest showing, and
   stay there until the teammate's next line arrived.
+- Older lines loading as you scroll up keep your place. The window and the
+  conversation both held it, so the view could be thrown far down the
+  conversation as they arrived.
 
 ## [0.48.2] - 2026-11-06
 

@@ -355,3 +355,117 @@ test("Watching, Escape closes the viewer and hands nothing back", async () => {
 	expect(sent("browser.hand_back")).toEqual([]);
 	expect(sent("browser.input")).toEqual([]);
 });
+
+/** A socket the viewer opens, with the desk's side of it in the test's hands. */
+class FakeSocket {
+	static readonly OPEN = 1;
+	static opened: FakeSocket[] = [];
+	readyState = 0;
+	binaryType = "blob";
+	sent: Record<string, unknown>[] = [];
+	onopen: (() => void) | null = null;
+	onmessage: ((event: { data: unknown }) => void) | null = null;
+	onclose: (() => void) | null = null;
+	constructor(
+		readonly url: string,
+		readonly protocols: string[],
+	) {
+		FakeSocket.opened.push(this);
+	}
+	send(text: string) {
+		this.sent.push(JSON.parse(text));
+	}
+	close() {
+		this.readyState = 3;
+		this.onclose?.();
+	}
+	open() {
+		this.readyState = 1;
+		this.onopen?.();
+	}
+	say(data: unknown) {
+		this.onmessage?.({ data });
+	}
+}
+
+/** A frame of the whole screen, `width` by `height`: its header and a PNG's first bytes. */
+function frame(width: number, height: number): ArrayBuffer {
+	const bytes = new ArrayBuffer(16);
+	const view = new DataView(bytes);
+	for (const [at, value] of [0, 0, width, height, width, height].entries()) view.setUint16(at * 2, value, true);
+	new Uint8Array(bytes, 12).set([0x89, 0x50, 0x4e, 0x47]);
+	return bytes;
+}
+
+/** The shell hands out a browser screen's token; sockets are fakes. */
+function streaming() {
+	FakeSocket.opened = [];
+	Object.assign(dom, {
+		WebSocket: FakeSocket,
+		__TAURI_INTERNALS__: {
+			invoke: async (cmd: string, args: Record<string, unknown>) => {
+				shell.push({ cmd, params: args });
+				return cmd === "desk_viewer_token" ? { origin: "http://127.0.0.1:9", token: "abc" } : null;
+			},
+		},
+	});
+	(globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeSocket;
+}
+
+const canvasOf = () => document.body.querySelector<HTMLCanvasElement>("canvas.remote-browser-page")!;
+
+test("On a desk whose browser streams, the viewer is a live screen: no pictures polled, and control goes on the screen's socket", async () => {
+	onDesk(remote);
+	granted = ["browserDrive", "browserStream"];
+	streaming();
+	await open();
+	await settle();
+	expect(shell.filter((call) => call.cmd === "desk_viewer_token").map((call) => call.params)).toEqual([
+		{ deskId: "grizzly", personaId: "quill", kind: "browser" },
+	]);
+	const socket = FakeSocket.opened[0]!;
+	expect(socket.url).toBe("ws://127.0.0.1:9/browser/quill/ws");
+	expect(socket.protocols).toEqual(["hotline-viewer.abc"]);
+	await act(async () => socket.open());
+	// The screen's first frame sizes the page.
+	await act(async () => socket.say(frame(1280, 800)));
+	expect([canvasOf().width, canvasOf().height]).toEqual([1280, 800]);
+	expect(document.body.querySelector(".remote-browser-page img")).toBeNull();
+
+	await press("Take control");
+	expect(socket.sent).toEqual([{ t: "control", take: true }]);
+	expect(sent("browser.take_over")).toEqual([]);
+	// The desk took it over for this seat: the socket says so, and the session's phase follows.
+	await act(async () => socket.say(JSON.stringify({ t: "state", holder: "you", driving: true })));
+	await render({ ...browsing, phase: "person" });
+	expect(button("Give it back")).not.toBeNull();
+	await act(async () => {
+		canvasOf().dispatchEvent(new dom.KeyboardEvent("keydown", { key: "é", bubbles: true, cancelable: true }) as unknown as Event);
+		canvasOf().dispatchEvent(new dom.KeyboardEvent("keyup", { key: "é", bubbles: true, cancelable: true }) as unknown as Event);
+	});
+	expect(socket.sent.slice(1)).toEqual([
+		{ t: "key", key: "é", down: true },
+		{ t: "key", key: "é", down: false },
+	]);
+	await press("Give it back");
+	expect(socket.sent.at(-1)).toEqual({ t: "control", take: false });
+	await wait(500);
+	// The PIP still shows the session's picture; the viewer polls none.
+	expect(sent("browser.snapshot").filter((params) => params["fresh"] === true)).toEqual([]);
+	expect(sent("browser.input")).toEqual([]);
+});
+
+test("A seat that watches a live screen sends nothing on it but what the desk lets it", async () => {
+	onDesk(remote);
+	granted = ["browserStream"];
+	streaming();
+	await open();
+	await settle();
+	const socket = FakeSocket.opened[0]!;
+	await act(async () => socket.open());
+	expect(button("Take control")).toBeNull();
+	await act(async () => {
+		canvasOf().dispatchEvent(new dom.KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }) as unknown as Event);
+	});
+	expect(socket.sent).toEqual([]);
+});

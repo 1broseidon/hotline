@@ -11,11 +11,15 @@ screen. The computer is turned on at the desk: see
 
 ## Watching
 
+<!-- TODO(screenshot, iOS simulator): a teammate's computer screen, watching, the fit button in the bar. -->
+
 The screen opens watching: nothing you do reaches the computer. Pinch to
 zoom and drag to look around. Double-tap, or the fit button, shows the whole
 screen.
 
 ## Taking control
+
+<!-- TODO(screenshot, iOS simulator): the computer screen after Take control, the keyboard and extra keys up. -->
 
 Take control to use the computer yourself. Then:
 
@@ -30,6 +34,8 @@ again. Watching stops by itself after three minutes with nothing changing on
 screen, so a forgotten viewer doesn't drain the phone.
 
 ## Desk browser
+
+<!-- TODO(screenshot, iOS simulator): the chat header with the browser icon; then the desk browser full screen with its title, address and Take over. -->
 
 <!-- TODO(phone 0.13, story 4, task-65; desk 0.48.1, hotline task-382): written from George's spec, not a build. Check the icon, when it shows, the screen's contents, and the words Take over and Hand back. -->
 

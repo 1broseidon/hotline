@@ -15,6 +15,8 @@ Hotline for iPhone is in beta on TestFlight and not yet on the App Store.
 
 ## What the phone can do
 
+<!-- TODO(screenshot, iOS simulator): the team list on a linked desk, one teammate marked Needs you. -->
+
 - Talk to every teammate, send photos and files, and reply to a message.
 - Answer what a teammate is waiting on: a permission, a **Needs you** card,
   or a passkey. It works from the notification too.

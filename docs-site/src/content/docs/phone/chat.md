@@ -5,12 +5,16 @@ description: The team list, a conversation, and answering what a teammate is wai
 
 ## The team list
 
+<!-- TODO(screenshot, iOS simulator): the team list, with search and + at the bottom. -->
+
 Every teammate on your linked desks, with what each is doing. A teammate
 waiting on you says **Needs you** and comes first. Search at the bottom finds
 a teammate. The **+** beside it adds one: a name, an optional goal, and what
 it runs on. The desk must be one that can add teammates from a phone.
 
 ## A conversation
+
+<!-- TODO(screenshot, iOS simulator): a conversation mid-reply, the + menu open (Photos, Camera, Files). -->
 
 Type and send. Replies stream in as the teammate writes them, and it keeps
 working while the phone is closed.
@@ -42,6 +46,8 @@ Link cards come through the desk, so **Link previews** off on the desk
 
 ## Threads
 
+<!-- TODO(screenshot, iOS simulator): Noted, listing a teammate's asides; and a work thread's Loop in… choosing a colleague. -->
+
 <!-- TODO(phone 0.13, story 5, task-62): written from the plan. Check where Noted and Loop in… sit on the phone, and how a handed-off thread opens. -->
 
 - **Noted** lists a teammate's asides: what its threads and colleagues told
@@ -54,6 +60,8 @@ Link cards come through the desk, so **Link previews** off on the desk
 See [Teammates working together](/docs/use/teammates-together/).
 
 ## When a teammate is waiting on you
+
+<!-- TODO(screenshot, iOS simulator): a permission card with Allow and Deny in a conversation. -->
 
 A card in the conversation says what the teammate needs:
 
@@ -70,6 +78,8 @@ first, then sends the answer.
 <!-- TODO(phone 0.13, task-67): check the sign-in card against the build: the four answers, Face ID before Use Cookies, the browser choice, what Open Browser opens on the phone, and which buttons its notification carries. -->
 
 ### A sign-in
+
+<!-- TODO(screenshot, iOS simulator): the sign-in card: the site, the teammate's reason, Use Cookies, Sign In, Open Browser. -->
 
 A teammate that needs to be signed in to a site asks with the site and its
 reason, and counts as **Needs you** until you answer:

@@ -13,15 +13,21 @@ teammate's pane on the desk: see [Sign-ins](/docs/setup/sign-ins/) and
 
 ## Secrets
 
+<!-- TODO(screenshot, iOS simulator): a teammate's Secrets page. -->
+
 The logins and passkeys the teammate is given. They belong to the teammate,
 not to its computer, so they hold whether or not it has one.
 
 ## Cookies
 
+<!-- TODO(screenshot, iOS simulator): a teammate's Cookies page, one shared site open: Keep fresh and Remove. -->
+
 Each site whose cookies you shared with the teammate is a row, saying which
 browser it came from. Open one for **Keep fresh** and **Remove**.
 
 ## Permissions
+
+<!-- TODO(screenshot, iOS simulator): a teammate's Permissions page with Local addresses open. -->
 
 What the teammate may reach, with **Local addresses**: the addresses on
 your computer or network you told its browser to always allow, each with

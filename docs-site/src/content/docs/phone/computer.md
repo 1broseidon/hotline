@@ -54,4 +54,4 @@ to switch between fitting the page and one to one.
 - **Back**, **Forward**, **Reload** and the address move the page.
 
 **Give it back** returns it to the teammate. Only the desk's owner can take
-control, and only on desk 0.48.1 or later; otherwise the phone watches.
+control, and only on a desk from 0.48.1; otherwise the phone watches.

@@ -47,6 +47,48 @@ your account, and Hotline runs the `claude` CLI you installed. Anthropic's
 plans and terms decide what that use costs and whether your plan covers
 Claude Code run from another app, so check them.
 
+## Billing
+
+Who you pay depends on how each teammate signs in. A coding tool uses its
+own login; Hotline Agent uses the connection you add here.
+
+### Coding tools
+
+| Integration | Signs in with | Billed to |
+| --- | --- | --- |
+| Claude Code | The `claude` CLI's own login, or `ANTHROPIC_API_KEY` | The Claude account `claude` is signed in to, or the key's Anthropic API account |
+| Codex | The `codex` CLI's own login, or `OPENAI_API_KEY` | The ChatGPT account `codex` is signed in to, or the key's OpenAI API account |
+| Cursor | `cursor-agent`'s login, your Cursor account | Your Cursor account |
+| Grok Build | `grok`'s login, your Grok account | Your Grok account |
+| Gemini CLI | `gemini`'s own sign-in | The account or key it signed in with |
+| opencode | The providers you set up in opencode | Each of those providers |
+| Muse Code | `muse`'s own login | Your Muse Code account |
+| Agents from the registry, such as Google Antigravity | Their own sign-in | Their own account; Antigravity names its Google plan beside the agent |
+
+Hotline holds no key or login for these and counts none of it against a
+[budget](#budgets). When a tool isn't signed in, the failed turn's card
+offers **Sign in** with the methods the tool itself offers.
+
+### Hotline Agent
+
+| Provider | Signs in with | Billed to | Chat budget |
+| --- | --- | --- | --- |
+| Anthropic | API key | Anthropic API, per token | Counted |
+| OpenAI | API key | OpenAI API, per token | Counted |
+| ChatGPT | Sign in | Your ChatGPT subscription | Not counted |
+| GitHub Copilot | Sign in | Your Copilot subscription | Not counted |
+| xAI | Sign in with SuperGrok or X Premium+ | That subscription | Not counted |
+| xAI | API key | xAI API, per token | Counted |
+| OpenRouter | Sign in, or API key | Your OpenRouter credits, per token. The sign-in makes a key on your account. | Key counted; sign-in not counted |
+| Google, Groq, DeepSeek, Mistral, Z.AI | API key | That provider's API, per token | Counted |
+| Z.AI Coding Plan | API key | Your Coding Plan | Listed at no cost |
+| Ollama Cloud | API key | Your Ollama account | Counted at listed prices |
+| Ollama Local | Server URL | Nothing: it runs on your machine | Not counted |
+| OpenAI-compatible | URL, optional key | Whoever runs the server | Counted with a key |
+
+A model with no listed price on a key is counted at a deliberately high
+guard rate, so its budget runs down faster than the bill.
+
 ## Models
 
 Open a connection to see it. The top shows how it is connected, with
@@ -79,22 +121,17 @@ effort, from the picker beside its name at the head of its conversation.
 
 ## Use for
 
-Under **Use for**, pick which connected service does each of the other jobs.
-Each starts on **Automatic**:
+**Use for → Images** picks what draws when a teammate uses
+`generate_image`, starting on **Automatic**. See
+[Pictures](/docs/use/images/).
 
-- **Images**: what draws when a teammate uses `generate_image`. See
-  [Pictures](/docs/use/images/).
-- **Voice**: what speaks on calls.
-- **Transcription**: what hears you, including the free speech models the
-  desk can download and, on a Mac, the Mac's own recognition.
-- **Call assistant**: the model that answers calls to the desk, with a
-  thinking level where the model offers one.
-
-See [Calls and dictation](/docs/use/voice/).
+**Calls**, below it, picks how calls run, what hears and speaks on them, and
+the model that answers calls to the desk. See
+[Calls and dictation](/docs/use/voice/#set-up-calls).
 
 ## Budgets
 
-**Budgets**, under Use for, shows what paid use has cost today and this
+**Budgets**, under Calls, shows what paid use has cost today and this
 month, as three budgets:
 
 | Budget | Counts |

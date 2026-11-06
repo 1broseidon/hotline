@@ -7,7 +7,8 @@ A teammate can have a computer: a Linux desktop in a container on your
 machine, with a browser and a window manager. The teammate works it
 through tools that look at the screen, type, click, and run commands. You
 can open the same screen, watch, and take the keyboard when the teammate
-asks you to.
+asks you to. A teammate without one browses with its
+[desk browser](/docs/setup/browser/).
 
 ## What you need
 
@@ -70,23 +71,11 @@ its extra [folders](/docs/setup/teammates/#folders) under
 
 ## Sign the teammate in
 
-A teammate should not need your password to use a site. There are three ways
-to give it access without showing it one:
-
-- **Browser → Bring over browser cookies** copies the cookies for the sites
-  you tick from a browser on this computer into the teammate's browser, so
-  it starts signed in. You pick the browser, the profile and the exact
-  sites. On a Mac, if macOS keeps Hotline out of a browser's data, the
-  picker says so and opens **Privacy & Security → Full Disk Access**.
-- **Settings → Secrets** keeps logins (sites, username, password and an
-  optional two-step code) and variables (a key or token that becomes an
-  environment variable). Tick which ones a teammate gets under **Secrets** in
-  its pane. The computer types a login only on that login's own sites, and
-  nothing stored is ever shown again, to you or to the teammate.
-- **Browser → passkeys** makes a passkey that belongs to the teammate. Name
-  it and the site, choose **Arm the computer**, then within ten minutes sign
-  in to the site on its screen and add a passkey there (or ask the teammate
-  to). The site's request waits for you to approve it in the conversation.
+Logins, variables, passkeys and your shared cookies are under **Secrets** in
+the teammate's pane, not under **Computer**: they belong to the teammate,
+and follow it when its computer is turned on or off. Variables become
+environment variables in the computer's shell. See
+[Sign-ins](/docs/setup/sign-ins/).
 
 ## Watch and take over
 

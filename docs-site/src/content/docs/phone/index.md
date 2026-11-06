@@ -19,7 +19,7 @@ Hotline for iPhone is in beta on TestFlight and not yet on the App Store.
 - Answer what a teammate is waiting on: a permission, a **Needs you** card,
   or a passkey. It works from the notification too.
 - Add a teammate, rename it, change its goal, or remove it.
-- Watch a teammate's computer and take control of it.
+- Watch a teammate's computer or desk browser, and take it over.
 - Link several desks, and switch between them or see them all at once.
 
 ## What stays at the desk

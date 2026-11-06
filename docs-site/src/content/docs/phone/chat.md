@@ -71,13 +71,14 @@ A card in the conversation says what the teammate needs:
 
 | Card | Your answers |
 | --- | --- |
-| Permission to use a tool | **Allow** or **Deny** |
+| Permission to use a tool | The teammate's own choices, such as **Allow once**, **Always allow** or **Not now** |
 | **Needs you**: something only you can do, like a sign-in | **Done** or **Won't do** |
 | A passkey to create | **Approve** or **Deny** |
 | A site to sign in to | **Use Cookies**, **Sign In**, **Open Browser** or **Not now** |
 
-The same buttons are on the notification, except a sign-in's, which offers
-**Use Cookies** and **Not now**. Your phone asks you to unlock it first,
+The same buttons are on the notification, except a permission's, which
+offers **Allow** and **Deny**, and a sign-in's, which offers **Use Cookies**
+and **Not now**. Your phone asks you to unlock it first,
 then sends the answer.
 
 ### A sign-in

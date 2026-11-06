@@ -343,6 +343,11 @@ host_address() {
 # them alike, on x86_64 and ARM.
 BROWSER_PACKAGES="libwebkit2gtk-4.1-0 xvfb fonts-wqy-microhei fonts-noto-color-emoji fonts-liberation2"
 
+# The desk is installed but the browser helper is not beside it.
+helper_missing() {
+    [ -x /usr/local/bin/hotline ] && [ ! -x /usr/local/bin/hotline-browser ]
+}
+
 browser_packages() {
     if command -v apt-get >/dev/null 2>&1; then
         say "Installing the browser's packages: $BROWSER_PACKAGES"
@@ -573,6 +578,12 @@ main() {
     [ -n "$version" ] || fail "could not find the latest release"
     version=${version#v}
     printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || fail "invalid version $version"
+    # Already on this release with --browser, but without the helper beside
+    # the desk (an update from before 0.48.2 replaced only `hotline`): the
+    # release is installed again, which puts the helper in.
+    if [ "$mode" = server ] && [ -n "$browser" ] && [ -z "$relay" ] && [ -z "$force" ] && helper_missing; then
+        force=1
+    fi
     if ! confirm_install; then
         # Already on this release: --browser on a server still adds the
         # browser's packages, so a server installed without it gets one

@@ -1,8 +1,9 @@
 //! A teammate's own browser on the desk, as the desk and every browser it
 //! drives share it: what the agent may ask of a browser and what it answers
 //! ([`DeskBrowser`] and its types), which addresses a page may load
-//! ([`Gate`]), where a teammate's web data is kept ([`store_dir`]), and the
-//! pipe the server's browser helper talks over ([`pipe`]).
+//! ([`Gate`]), where a teammate's web data is kept ([`store_dir`]), the
+//! pipe the server's browser helper talks over ([`pipe`]), and a browser
+//! as a live screen in the computer viewer's protocol ([`screen`]).
 //!
 //! It is its own crate so that helper (`crates/hotline-browser`) builds
 //! without the core, whose speech engine would otherwise be linked into a
@@ -26,6 +27,7 @@
 
 #[cfg(unix)]
 pub mod pipe;
+pub mod screen;
 
 use async_trait::async_trait;
 use hotline_contract::BrowserInput;
@@ -495,6 +497,19 @@ pub trait DeskBrowser: Send + Sync {
     /// back, from wherever they did: the pane's shield, which keeps a
     /// watcher's clicks off the page, goes or comes back with it.
     fn taken(&self, _persona_id: &str, _taken: bool) {}
+    /// Whether this browser is a live screen ([`DeskBrowser::screen`]): the
+    /// desk says `browserStream` in its hello when it is.
+    fn streams(&self) -> bool {
+        false
+    }
+    /// One viewer's live screen of the teammate's browser, in the computer
+    /// viewer's protocol ([`screen`]): the changed rectangles as they are
+    /// drawn, and the person's pointer and keys for its own hands, which
+    /// the browser takes only while the person has it (`taken`). A browser
+    /// that is not a screen, or a teammate with no page, says so.
+    async fn screen(&self, _persona_id: &str) -> Result<screen::Link, String> {
+        Err("This desk browser is not a live screen.".into())
+    }
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
     /// What the teammate's browser waits on the person for, in a few words

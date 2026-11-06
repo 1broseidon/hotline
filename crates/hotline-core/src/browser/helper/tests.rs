@@ -316,19 +316,45 @@ async fn a_wiped_teammate_with_no_helper_running_loses_its_storage_on_disk() {
 #[tokio::test]
 async fn the_probe_answers_what_the_helper_said_or_why_it_cannot_run() {
     let root = tempfile::tempdir().unwrap();
-    let (fine, _) = script(root.path(), "echo 'WebKitGTK 2.50.4'");
-    assert_eq!(probe(&fine).await, Ok("WebKitGTK 2.50.4".into()));
+    let (fine, _) = script(
+        root.path(),
+        "echo 'hotline-browser 1.2.3, WebKitGTK 2.50.4'",
+    );
+    assert_eq!(
+        probe(&fine).await,
+        Ok("hotline-browser 1.2.3, WebKitGTK 2.50.4".into())
+    );
     let (missing, _) = script(
         root.path(),
-        "echo 'error while loading shared libraries: libwebkit2gtk-4.1.so.0' >&2\nexit 127",
+        "echo 'hotline-browser: error while loading shared libraries: libwebkit2gtk-4.1.so.0: cannot open shared object file' >&2\nexit 127",
     );
     assert_eq!(
         probe(&missing).await,
-        Err("error while loading shared libraries: libwebkit2gtk-4.1.so.0".into())
+        Err("WebKitGTK is not installed (the libwebkit2gtk-4.1-0 package)".into())
+    );
+    let (no_xvfb, _) = script(
+        root.path(),
+        "echo 'Xvfb is not installed (the xvfb package)' >&2\nexit 1",
+    );
+    assert_eq!(
+        probe(&no_xvfb).await,
+        Err("Xvfb is not installed (the xvfb package)".into())
     );
     let absent = probe(&root.path().join("nowhere")).await.unwrap_err();
     assert!(
         absent.starts_with("hotline-browser did not run"),
         "{absent}"
     );
+}
+
+#[test]
+fn only_a_helper_of_this_desks_own_version_is_used() {
+    let version = env!("CARGO_PKG_VERSION");
+    assert_eq!(
+        ours(&format!("hotline-browser {version}, WebKitGTK 2.50.4")),
+        Ok("WebKitGTK 2.50.4".into())
+    );
+    let older = ours("hotline-browser 0.0.1, WebKitGTK 2.50.4").unwrap_err();
+    assert!(older.contains("not this desk's version"), "{older}");
+    assert!(ours("WebKitGTK 2.50.4").is_err());
 }

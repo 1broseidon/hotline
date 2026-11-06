@@ -31,3 +31,10 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 gtk = "0.18"
 cairo-rs = { version = "0.18", features = ["png"] }
 javascriptcore-rs = "1.1"
+
+# `cargo machete --with-metadata` (make check) reads only this crate's own
+# files, and these two are named only in the app's browser files it compiles
+# from `crates/hotline-app` (`linux.rs`: the page's picture and a script's
+# answer).
+[package.metadata.cargo-machete]
+ignored = ["cairo-rs", "javascriptcore-rs"]

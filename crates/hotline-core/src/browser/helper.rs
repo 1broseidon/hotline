@@ -69,10 +69,25 @@ pub async fn install(
             exe.display()
         ));
     }
-    let found = probe(&program).await?;
+    let found = ours(&probe(&program).await?)?;
     let helper = Helper::new(program, data.to_path_buf(), desk.browser_gate());
     desk.install_browser(Arc::new(helper), never_ports);
     Ok(found)
+}
+
+/// What the probe said of the helper, when it is this desk's own version:
+/// the pipe between the two is theirs alone, and changes between releases.
+/// Answers the rest of what it said (its WebKitGTK).
+fn ours(said: &str) -> Result<String, String> {
+    let version = concat!("hotline-browser ", env!("CARGO_PKG_VERSION"), ", ");
+    said.strip_prefix(version)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            format!(
+                "{PROGRAM} is not this desk's version {}: it says {said:?}",
+                env!("CARGO_PKG_VERSION")
+            )
+        })
 }
 
 /// Asks the helper whether it can run here, without starting a browser:
@@ -99,15 +114,16 @@ pub async fn probe(program: &Path) -> Result<String, String> {
             .to_string()
     };
     if ran.status.success() {
-        Ok(said(&ran.stdout))
-    } else {
-        let why = said(&ran.stderr);
-        Err(if why.is_empty() {
-            format!("{PROGRAM} --probe failed ({})", ran.status)
-        } else {
-            why
-        })
+        return Ok(said(&ran.stdout));
     }
+    let why = said(&ran.stderr);
+    Err(if why.contains("error while loading shared libraries") {
+        "WebKitGTK is not installed (the libwebkit2gtk-4.1-0 package)".into()
+    } else if why.is_empty() {
+        format!("{PROGRAM} --probe failed ({})", ran.status)
+    } else {
+        why
+    })
 }
 
 /// One running helper, as the desk talks to it: lines down to it, and the

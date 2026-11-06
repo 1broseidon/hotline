@@ -202,6 +202,9 @@ mod linux {
     use std::time::{Duration, Instant};
 
     const UNIT: &str = "hotline.service";
+    /// The server's browser helper, installed beside the binary
+    /// (`hotline_core::browser::helper`).
+    const HELPER: &str = hotline_core::browser::helper::PROGRAM;
 
     fn io<T>(result: std::io::Result<T>) -> Result<T> {
         result.map_err(|error| error.to_string())
@@ -345,6 +348,17 @@ mod linux {
         verify_checksum(&archive, &sums, &asset)?;
         let staged = work.path().join("hotline.new");
         extract_binary(&archive, &format!("{stem}/hotline"), &staged)?;
+        // The browser helper beside the binary goes first, so the desk that
+        // restarts finds a helper of its own version. A release from before
+        // there was one has none, and an installed one stays, unused.
+        let helper = format!("{stem}/{HELPER}");
+        if archive_has(&archive, &helper)? {
+            let staged_helper = work.path().join("hotline-browser.new");
+            extract_binary(&archive, &helper, &staged_helper)?;
+            prepare_binary(&staged_helper)?;
+            io(fs::rename(&staged_helper, parent.join(HELPER)))?;
+            sync_directory(parent)?;
+        }
         replace(
             target_path,
             &staged,
@@ -396,6 +410,27 @@ mod linux {
             ));
         }
         Ok(())
+    }
+
+    /// Whether the archive holds `member`, by its exact path.
+    fn archive_has(archive: &Path, member: &str) -> Result<bool> {
+        let listed = io(Command::new("tar")
+            .env_remove("TAR_OPTIONS")
+            .arg("--list")
+            .arg("--gzip")
+            .arg("--file")
+            .arg(archive)
+            .stderr(Stdio::piped())
+            .output())?;
+        if !listed.status.success() {
+            return Err(format!(
+                "cannot list the archive: {}",
+                String::from_utf8_lossy(&listed.stderr)
+            ));
+        }
+        Ok(String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .any(|line| line == member))
     }
 
     fn extract_binary(archive: &Path, member: &str, staged: &Path) -> Result<()> {
@@ -999,6 +1034,9 @@ mod linux {
             assert!(
                 extract_binary(&archive, "other/hotline", &dir.path().join("missing")).is_err()
             );
+            assert!(archive_has(&archive, &format!("{stem}/hotline")).unwrap());
+            assert!(!archive_has(&archive, &format!("{stem}/{HELPER}")).unwrap());
+            assert!(!archive_has(&archive, "hotline").unwrap());
         }
     }
 }

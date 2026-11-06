@@ -57,9 +57,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// Says what this browser is, when it can run here at all: its libraries
-/// loaded, or the loader would have refused it before `main`, and Xvfb is
-/// on `PATH`.
+/// Says what this browser is, its version first, when it can run here at
+/// all: its libraries loaded, or the loader would have refused it before
+/// `main`, and Xvfb is on `PATH`.
 #[cfg(target_os = "linux")]
 fn probe() -> ExitCode {
     if display::xvfb().is_none() {
@@ -74,6 +74,9 @@ fn probe() -> ExitCode {
             webkit2gtk::ffi::webkit_get_micro_version(),
         )
     };
-    println!("WebKitGTK {major}.{minor}.{micro}");
+    println!(
+        "hotline-browser {}, WebKitGTK {major}.{minor}.{micro}",
+        env!("CARGO_PKG_VERSION")
+    );
     ExitCode::SUCCESS
 }

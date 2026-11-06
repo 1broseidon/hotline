@@ -9,6 +9,9 @@
 # Server options, asked for when they are missing and a terminal is attached:
 #   --listen IP:PORT             one local address and a fixed port
 #   --public-url https://HOST:PORT  where phones reach the desk
+#   --browser                    a web browser for teammates without a computer:
+#                                WebKitGTK, Xvfb and fonts, about 480 MB (apt only;
+#                                offered on a first install at a terminal)
 # A server installed with --relay stays a relay, and one without it keeps its
 # agents: a re-run says how to change which it is and stops.
 # And, on a first install of a full server:
@@ -334,6 +337,25 @@ host_address() {
     ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1
 }
 
+# What hotline-browser, the teammates' browser on a server, runs on:
+# WebKitGTK, the private X display it draws on, and fonts for Chinese,
+# Japanese and Korean, emoji and the common web faces. Debian and Ubuntu name
+# them alike, on x86_64 and ARM.
+BROWSER_PACKAGES="libwebkit2gtk-4.1-0 xvfb fonts-wqy-microhei fonts-noto-color-emoji fonts-liberation2"
+
+browser_packages() {
+    if command -v apt-get >/dev/null 2>&1; then
+        say "Installing the browser's packages: $BROWSER_PACKAGES"
+        as_root apt-get update -q
+        # shellcheck disable=SC2086 # one word per package
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $BROWSER_PACKAGES
+    else
+        say "For the teammates' browser, install WebKitGTK 4.1, Xvfb and fonts with your"
+        say "package manager (Debian and Ubuntu: $BROWSER_PACKAGES),"
+        say "then: sudo systemctl restart hotline"
+    fi
+}
+
 server() {
     [ "$(uname -s)" = Linux ] || fail "the server install is for Linux with systemd; see https://hotline.dev/docs/server/"
     command -v systemctl >/dev/null 2>&1 || fail "the server install needs systemd; see https://hotline.dev/docs/server/install/"
@@ -357,6 +379,9 @@ server() {
     # A relay runs no teammates, so it has no one's CLIs to reach and runs as
     # the hotline service account.
     run_user=
+    if [ -n "$relay" ] && [ -n "$browser" ]; then
+        fail "a relay runs no teammates, so it has no browser; leave out --browser"
+    fi
     if [ -n "$relay" ] && [ -n "$run_as" ]; then
         fail "a relay runs no agents and runs as the hotline service account; leave out --user"
     elif [ -n "$fresh" ] && [ -z "$relay" ]; then
@@ -373,6 +398,13 @@ server() {
         printf '%s\n' "$run_group" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' || fail "$run_user's group $run_group is not a group name"
         say "The desk will run as $run_user${run_because:+ ($run_because)}, with their home and their installed CLIs and logins."
         say "For a separate service account instead, run again with --user hotline."
+    fi
+
+    # The browser is opt-in: asked for, or offered once, on a first full
+    # install at a terminal.
+    if [ -n "$fresh" ] && [ -z "$relay" ] && [ -z "$browser" ] && has_tty; then
+        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 480 MB (y/N)" N
+        case "$answer" in [Yy]*) browser=1 ;; esac
     fi
 
     machine=$(arch)
@@ -396,6 +428,12 @@ server() {
     fi
 
     as_root install -m 0755 "$work/$dir/hotline" /usr/local/bin/hotline
+    # The browser helper always goes beside it; without its packages it is
+    # never started, and the desk offers no browser.
+    if [ -f "$work/$dir/hotline-browser" ]; then
+        as_root install -m 0755 "$work/$dir/hotline-browser" /usr/local/bin/hotline-browser
+    fi
+    [ -z "$browser" ] || browser_packages
     if [ -n "$run_user" ]; then
         # The room stays where `hotline pair` and `status` look for it. Its
         # parent is open to enter and the room itself is the user's alone.
@@ -497,12 +535,14 @@ main() {
     public_url=
     run_as=
     relay=
+    browser=
     yes=
     force=
     while [ $# -gt 0 ]; do
         case "$1" in
             --server) mode=server ;;
             --relay) relay=1 ;;
+            --browser) browser=1 ;;
             -y | --yes) yes=1 ;;
             --force) force=1 ;;
             --version) version=${2:?--version needs a value}; shift ;;
@@ -514,7 +554,7 @@ main() {
             --user) run_as=${2:?--user needs a value}; shift ;;
             --user=*) run_as=${1#*=} ;;
             -h | --help)
-                say "usage: install [--server [--relay] [--listen IP:PORT] [--public-url https://HOST:PORT] [--user NAME]] [--version X.Y.Z] [--yes] [--force]"
+                say "usage: install [--server [--relay] [--listen IP:PORT] [--public-url https://HOST:PORT] [--user NAME] [--browser]] [--version X.Y.Z] [--yes] [--force]"
                 say "Docs: https://hotline.dev/docs/"
                 return
                 ;;
@@ -522,8 +562,8 @@ main() {
         esac
         shift
     done
-    if [ "$mode" = desktop ] && [ -n "$listen$public_url$run_as$relay" ]; then
-        fail "--relay, --listen, --public-url and --user are for --server"
+    if [ "$mode" = desktop ] && [ -n "$listen$public_url$run_as$relay$browser" ]; then
+        fail "--relay, --listen, --public-url, --user and --browser are for --server"
     fi
     need curl
     need tar

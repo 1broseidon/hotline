@@ -81,13 +81,15 @@
 	--said-me-ink: oklch(24% 0.044 165);
 	--said-them: oklch(22% 0.008 250);
 	/* A teammate's bubble when the person gave it a colour (decision-43): the
-	 * faces' hues but gold, a soft tint that keeps its words at 13:1. */
-	--bubble-lime: oklch(25% 0.035 113);
-	--bubble-green: oklch(25% 0.035 156);
-	--bubble-teal: oklch(25% 0.035 199);
-	--bubble-blue: oklch(25% 0.035 242);
-	--bubble-violet: oklch(25% 0.035 285);
-	--bubble-pink: oklch(25% 0.035 328);
+	 * faces' hues but gold, a soft tint that keeps its words at 12:1. It sits
+	 * as near the phone's lift off the canvas as a sheet's quietest words
+	 * allow (4.5:1 on it), so a coloured bubble reads alike on both. */
+	--bubble-lime: oklch(27% 0.035 113);
+	--bubble-green: oklch(27% 0.035 156);
+	--bubble-teal: oklch(27% 0.035 199);
+	--bubble-blue: oklch(27% 0.035 242);
+	--bubble-violet: oklch(27% 0.035 285);
+	--bubble-pink: oklch(27% 0.035 328);
 	/* An object a message carries (a table, code, a diagram) sits sunk into
 	 * its bubble as one sheet; its head, a callout and an inline code chip
 	 * take the lifted band. Alpha, so they read on grey and on every tint. */

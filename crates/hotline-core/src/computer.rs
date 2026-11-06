@@ -243,6 +243,16 @@ struct Live {
 }
 
 impl Computer {
+    /// The loopback ports this desk's running computers are published on,
+    /// which a teammate's desk browser never opens (`crate::browser`).
+    pub fn live_ports(&self) -> Vec<u16> {
+        self.lock()
+            .containers
+            .values()
+            .map(|live| live.mcp_port)
+            .collect()
+    }
+
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {

@@ -621,3 +621,109 @@ async fn a_subagents_task_said_after_its_start_opens_its_run() {
     assert_eq!(kinds(&stream), ["subagent", "user"]);
     assert_eq!(stream[1]["text"], "Find the edge cases.");
 }
+
+/// Claude's adapter can tell a subagent its prompt twice, under a stand-in
+/// id and then under its call's: the run shows it once. The same words told
+/// again after the subagent has done something are a new message, and show.
+#[tokio::test]
+async fn a_subagents_prompt_told_twice_in_a_row_is_written_once() {
+    use crate::contract::RunKind;
+    use crate::driver::SubagentReport;
+    let room = room("harness-told-twice", Fake::new(Scripted::new(Vec::new())));
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    let told = |text: &str| SubagentReport::Told {
+        child: "child-1".to_string(),
+        text: text.to_string(),
+    };
+    reports
+        .send(SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: RunKind::Subagent,
+            title: "Edge cases".to_string(),
+            task: String::new(),
+        })
+        .unwrap();
+    until("the run is listed", || !room.subagents("ada").is_empty()).await;
+    let run_id = room.subagents("ada")[0].run_id.clone();
+    reports.send(told("Find the edge cases.")).unwrap();
+    reports.send(told("Find the edge cases.\n")).unwrap();
+    reports
+        .send(SubagentReport::Update {
+            child: "child-1".to_string(),
+            update: Update::Message {
+                kind: MessageKind::Agent,
+                id: "child-1:a1".to_string(),
+                text: "Three edge cases.".to_string(),
+            },
+        })
+        .unwrap();
+    reports
+        .send(SubagentReport::Ended {
+            child: "child-1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the run is done", || room.subagents("ada").is_empty()).await;
+    until("its answer is written", || {
+        run_stream(&room, &run_id)
+            .iter()
+            .any(|line| line["kind"] == "agent")
+    })
+    .await;
+    let stream = run_stream(&room, &run_id);
+    assert_eq!(kinds(&stream), ["subagent", "user", "agent"], "{stream:?}");
+}
+
+/// A spawn that carries the prompt writes it, and the same prompt sent as
+/// the subagent's first message is not written again.
+#[tokio::test]
+async fn a_subagents_prompt_said_at_its_spawn_and_told_again_is_written_once() {
+    use crate::contract::RunKind;
+    use crate::driver::SubagentReport;
+    let room = room("harness-spawn-told", Fake::new(Scripted::new(Vec::new())));
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: RunKind::Subagent,
+            title: "Edge cases".to_string(),
+            task: "Find the edge cases.".to_string(),
+        })
+        .unwrap();
+    reports
+        .send(SubagentReport::Told {
+            child: "child-1".to_string(),
+            text: "Find the edge cases.".to_string(),
+        })
+        .unwrap();
+    reports
+        .send(SubagentReport::Update {
+            child: "child-1".to_string(),
+            update: Update::Message {
+                kind: MessageKind::Agent,
+                id: "child-1:a1".to_string(),
+                text: "Three edge cases.".to_string(),
+            },
+        })
+        .unwrap();
+    until("the run is listed", || !room.subagents("ada").is_empty()).await;
+    let run_id = room.subagents("ada")[0].run_id.clone();
+    reports
+        .send(SubagentReport::Ended {
+            child: "child-1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("its answer is written", || {
+        run_stream(&room, &run_id)
+            .iter()
+            .any(|line| line["kind"] == "agent")
+    })
+    .await;
+    assert_eq!(
+        kinds(&run_stream(&room, &run_id)),
+        ["subagent", "user", "agent"]
+    );
+}

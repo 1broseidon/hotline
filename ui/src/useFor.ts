@@ -363,6 +363,23 @@ export function frontOf(voice: unknown): FrontSetting {
 	return { provider: known, ...(typeof credential === "string" ? { credential } : {}), voices: named };
 }
 
+/**
+ * The call model as it runs on this desk. A model the owner chose is that
+ * model, connected or not, so the picker never hides a choice that went
+ * dark. With none chosen the desk fronts calls with Grok Voice when an xAI
+ * login or key is connected, and otherwise runs them Turn by turn (the
+ * core's `resolve_front` finds no live model), so with no live voice
+ * provider the screen shows Turn by turn's rows, not a Grok Voice that
+ * cannot answer.
+ */
+export function callFront(voice: unknown, live: CapabilityLiveModel[]): FrontSetting {
+	const front = frontOf(voice);
+	const chose =
+		voice !== null && typeof voice === "object" && !Array.isArray(voice) && (voice as Record<string, unknown>)["front"] !== undefined;
+	if (chose || live.some((one) => one.front === front.provider)) return front;
+	return { ...front, provider: TURN_BY_TURN };
+}
+
 /** What a call model's choice shows beneath it. */
 export type CallKind = "live" | "turn-by-turn" | "off";
 

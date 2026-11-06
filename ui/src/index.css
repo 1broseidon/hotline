@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "./tokens.css";
+/* 0.48 inline elements (epic-32): message objects, then transcript lines. */
+@import "./inline-objects.css";
+@import "./inline-lines.css";
 
 /* ---------------------------------------------------------------------------
  * The window: a well, and panes standing in it.
@@ -1450,6 +1453,16 @@
 		display: inline-flex;
 		flex-shrink: 0;
 	}
+	/* The ring is a square turned in steps: at a diagonal its box's corners
+	 * stand past the face, which made the list it sits in scrollable for
+	 * that step, and Windows draws a scrollbar for it. Clipped just outside
+	 * the ring, the turn takes no room; the ring itself is never cut. */
+	@supports (overflow-clip-margin: 4px) {
+		.avatar-busy {
+			overflow: clip;
+			overflow-clip-margin: 4px;
+		}
+	}
 	.avatar-ring {
 		position: absolute;
 		inset: -3px;
@@ -1527,15 +1540,10 @@
 		white-space: pre-wrap;
 	}
 	/* What rides inside your bubble takes its ink rather than the canvas's. */
-	.said-me .quote,
 	.said-me .ticks,
 	.said-me a,
 	.said-me code {
 		color: inherit;
-	}
-	.said-me .quote {
-		border-color: currentColor;
-		opacity: 0.75;
 	}
 	.said-me .ticks {
 		opacity: 0.55;
@@ -1596,25 +1604,6 @@
 	}
 	.ticks-read {
 		color: var(--accent-ink);
-	}
-	/* An emoji the other side put on this bubble, hung off its lower corner. */
-	.reactions {
-		position: absolute;
-		bottom: -10px;
-		right: 8px;
-		display: inline-flex;
-		gap: 2px;
-		padding: 1px 6px;
-		border-radius: var(--radius-chip);
-		background: var(--said-them);
-		box-shadow: 0 0 0 2px var(--canvas);
-		font-size: var(--text-xs);
-		line-height: 16px;
-	}
-	.said-them .reactions {
-		right: auto;
-		left: 8px;
-		background: var(--said-me);
 	}
 	/* What a teammate said aloud on a call, above the reply it wrote to be
 	 * read: a transcript in the annotating voice, one line until pressed.
@@ -1713,6 +1702,16 @@
 		 * (WAKE_BLINK) lands as it surfaces. */
 		animation: wake 650ms 200ms cubic-bezier(0.33, 1, 0.68, 1) both;
 	}
+	/* A thread with no composer under it, a subagent's run beside the
+	 * conversation, has the card stand where a composer would: centred on
+	 * the conversation's composer row (pb-4 under a 40px pill), not 8px
+	 * under it. */
+	.dock-page:not(:has(.composer)) .ambient-card {
+		margin-bottom: 20px;
+	}
+	.dock-page:not(:has(.composer)) .tape-column.pb-14 {
+		padding-bottom: 64px;
+	}
 	/* Settle, then sink: 300 + 480ms, SLEEP_MS in components/transcript/hooks.ts. */
 	.ambient-card[data-sleeping] {
 		pointer-events: none;
@@ -1798,25 +1797,6 @@
 		stroke-linejoin: round;
 	}
 
-	/* A reply's quote: a bar and a quieter voice above your own line. */
-	.quote {
-		display: block;
-		width: 100%;
-		margin-bottom: 6px;
-		padding: 2px 0 2px 8px;
-		border-left: 2px solid var(--accent);
-		border-radius: 2px;
-		color: var(--ink-2);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		text-align: left;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.quote:hover {
-		background: var(--fill-hover);
-	}
 
 	/* The hover-only Reply beside an agent's words. R answers it from the
 	 * keyboard, so this stays out of the tab order. */
@@ -1851,10 +1831,58 @@
 		left: auto;
 		right: calc(100% + 4px);
 	}
+	/* A bubble as wide as the column keeps a gutter on its open side, and
+	 * its actions stand in it one above another, beside the bubble as on
+	 * every other: never over its words or its table's keys, never cut. */
+	.said-group:has(> .speech .sheet) .bubble-actions {
+		top: 0;
+		flex-direction: column;
+	}
 	.said-group:hover .bubble-actions,
 	.said-group:focus-within .bubble-actions {
 		opacity: 1;
 		pointer-events: auto;
+	}
+	/* The keys a block in the bubble adds, after a hairline: its glyphs, its
+	 * words for the tooltip and a screen reader. */
+	.bubble-actions {
+		transition:
+			opacity var(--dur-press) var(--ease-out),
+			top var(--dur-press) var(--ease-out);
+	}
+	.bubble-actions-more {
+		display: inline-flex;
+		flex-direction: inherit;
+		gap: 1px;
+		margin-left: 2px;
+		padding-left: 2px;
+		border-left: var(--hairline) solid var(--line);
+	}
+	.bubble-actions-more:empty,
+	.bubble-actions-more[hidden] {
+		display: none;
+	}
+	.said-group:has(> .speech .sheet) .bubble-actions-more {
+		margin: 2px 0 0;
+		padding: 2px 0 0;
+		border-left: 0;
+		border-top: var(--hairline) solid var(--line);
+	}
+	.bubble-actions .sheet-key {
+		width: 24px;
+		height: 24px;
+		justify-content: center;
+		padding: 0;
+		border-radius: calc(var(--radius-chip) - 2px);
+		color: var(--ink-2);
+	}
+	.bubble-actions .sheet-key-word {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	.bubble-action {
 		display: inline-flex;
@@ -1875,42 +1903,6 @@
 	.bubble-emoji {
 		font-size: 15px;
 		line-height: 1;
-	}
-
-	/* The machinery between messages, folded to one quiet caption: a count
-	 * at rest, the current step while the agent is on it. It is a reading,
-	 * not speech, and the chevron only shows itself to a hand. */
-	.steps-caption {
-		display: inline-flex;
-		max-width: 100%;
-		min-height: 20px;
-		align-items: center;
-		gap: 6px;
-		margin-left: -6px;
-		padding: 0 6px;
-		border-radius: var(--radius-control);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		letter-spacing: 0.04em;
-		/* It opens the run, so it annotates (ink-3) rather than sits as furniture. */
-		color: var(--ink-3);
-		transition: color var(--dur-press) var(--ease-out), background var(--dur-press) var(--ease-out);
-	}
-	.steps-caption:hover,
-	.steps-caption[aria-expanded="true"] {
-		color: var(--ink-3);
-		background: var(--fill-hover);
-	}
-	.steps-caption > svg {
-		flex-shrink: 0;
-		opacity: 0;
-		transition: opacity var(--dur-press) var(--ease-out);
-	}
-	.steps-caption:hover > svg,
-	.steps-caption:focus-visible > svg,
-	.steps-caption[aria-expanded="true"] > svg {
-		opacity: 1;
 	}
 
 	/* A colleague's answer, a handoff, or a thread still waiting on one:
@@ -2610,6 +2602,12 @@
 		padding: 20px 0 0;
 		margin-bottom: -4px;
 	}
+	/* Over a history line rather than a bubble, the time keeps a line's
+	 * room from it, so the two read apart. */
+	.tape-row:has(> .link-row, > .ask-settled, > .error-line, > .steps-caption) > .rule-line.tape-stamp,
+	.rule-line.tape-stamp:has(+ :is(.link-row, .ask-settled, .error-line)) {
+		margin-bottom: 8px;
+	}
 	/* A plain line is one sentence in parts, so its parts are a space apart. */
 	.rule-line-plain {
 		justify-content: center;
@@ -2872,12 +2870,6 @@
 		background: oklch(97% 0.004 250);
 		object-fit: contain;
 	}
-	.favicon-letter {
-		font-weight: 600;
-		line-height: 1;
-		color: var(--ink-2);
-		background: var(--pressed);
-	}
 	.favicons {
 		display: inline-flex;
 		flex-shrink: 0;
@@ -2897,9 +2889,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: var(--ink-3);
-	}
-	.steps-caption .favicons + * {
-		margin-left: 2px;
 	}
 	/* What the turn came to, as counts: the instrument voice. */
 	.composer-work[data-done] .composer-work-word,
@@ -3649,24 +3638,9 @@
 		color: var(--ink);
 	}
 
-	/* A file a teammate sent, under the words it came with: a picture
-	 * drawn at its own shape, anything else a card that names it. */
-	.sent-file {
-		margin-top: 6px;
-	}
-	.sent-file:first-child {
-		margin-top: 0;
-	}
-	.sent-picture {
-		display: block;
-		width: auto;
-		height: auto;
-		max-width: min(24rem, 100%);
-		max-height: 24rem;
-		border-radius: var(--radius-chip);
-	}
-	/* What you sent, over your bubble: pictures as themselves at the phone's
-	 * width, and other files as cards, all on your side. */
+	/* Files a message carried (inline-lines.css draws them): their place
+	 * held while they are read, and what went wrong when one could not be. */
+	/* What you sent rides over your bubble, on your side. */
 	.own-files {
 		display: flex;
 		max-width: 78%;
@@ -3675,63 +3649,9 @@
 		gap: 4px;
 		margin-bottom: 4px;
 	}
-	.own-picture {
-		display: block;
-		width: 240px;
-		max-width: 100%;
-		padding: 0;
-		overflow: hidden;
-		border-radius: var(--radius-bubble);
-		box-shadow: 0 0 0 var(--hairline) var(--line);
-		cursor: zoom-in;
-	}
-	.own-picture img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-	.own-file .sent-card {
-		background: var(--raised);
-		border-radius: var(--radius-card);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-	}
 	.sent-placeholder {
 		width: min(24rem, 100%);
 		background: var(--fill-hover);
-	}
-	.sent-open {
-		display: block;
-		padding: 0;
-		border-radius: var(--radius-chip);
-		cursor: zoom-in;
-	}
-	.sent-caption {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.sent-card {
-		display: flex;
-		min-width: min(16rem, 100%);
-		max-width: 24rem;
-		align-items: center;
-		gap: 8px;
-		padding: 8px;
-		border-radius: var(--radius-chip);
-		background: var(--fill-hover);
-		font-size: var(--text-sm);
-	}
-	.sent-actions {
-		display: inline-flex;
-		flex-shrink: 0;
-		gap: 4px;
-		margin-left: auto;
 	}
 	.sent-missing,
 	.sent-error {
@@ -4899,7 +4819,8 @@
 
 	/* ----------------------------------------------------------- markdown
 	 * Not a document: emphasis, code, links, lists and tables survive because
-	 * a person types those into a chat. Headings arrive as bold text. */
+	 * a person types those into a chat. Lists, headings, quotes and the
+	 * objects a message carries are in inline-objects.css. */
 	.md > :first-child {
 		margin-top: 0;
 	}
@@ -4915,142 +4836,79 @@
 	.md p {
 		margin: 0.6em 0;
 	}
-	.md ul,
-	.md ol {
-		margin: 0.6em 0;
-		padding-left: 1.4em;
-	}
-	.md ul {
-		list-style: disc;
-	}
-	.md ol {
-		list-style: decimal;
-	}
-	.md li {
-		margin: 0.2em 0;
-	}
-	.md li::marker {
-		color: var(--ink-3);
-	}
-	.md code {
-		font-family: var(--font-mono);
-		font-size: 0.86em;
-		background: var(--fill-code);
-		padding: 0.1em 0.35em;
-		border-radius: var(--radius-chip);
-	}
-	.md pre {
-		margin: 0.6em 0;
-		padding: 10px 12px;
-		border-radius: var(--radius-control);
-		background: var(--fill-code);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		overflow-x: auto;
-	}
-	.md pre code {
-		background: none;
-		padding: 0;
-		font-size: inherit;
-	}
-	/* The copy key sits in the block's corner, shown to a pointer over it. */
-	.code-block {
-		position: relative;
-	}
-	.code-block pre {
-		padding-right: 36px;
-	}
-	.code-copy {
-		position: absolute;
-		top: 6px;
-		right: 6px;
-		display: grid;
-		place-items: center;
-		width: 24px;
-		height: 24px;
-		border-radius: var(--radius-control);
-		color: var(--ink-3);
-		opacity: 0;
-		transition: opacity var(--dur-press) var(--ease-out);
-	}
-	.code-block:hover .code-copy,
-	.code-copy:focus-visible {
-		opacity: 1;
-	}
-	.code-copy:hover {
-		background: var(--fill-hover);
-		color: var(--ink);
-	}
-	.code-copy svg {
-		width: 14px;
-		height: 14px;
-	}
 
-	/* A link's card, under the bubble that wrote the link: the page's picture,
-	 * its title and where it lives, the way the phone draws one. */
+	/* A link's card, under the bubble that wrote the link: where the page
+	 * lives, its title, two lines of what it is, and its picture beside them
+	 * only when it has a real one (docs/design/inline-premium.html, row 06). */
 	.link-card {
-		display: flex;
-		flex-direction: column;
-		width: 300px;
-		max-width: 78%;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 12px;
+		width: 360px;
+		max-width: 86%;
 		margin-top: 4px;
-		overflow: hidden;
-		border-radius: var(--radius-bubble);
-		background: var(--said-them);
+		padding: 11px 11px 11px 13px;
+		border-radius: var(--radius-group);
+		background: var(--raised);
+		box-shadow: inset 0 0 0 1px var(--line);
 		color: var(--ink);
 		text-decoration: none;
-		transition: background var(--dur-press) var(--ease-out);
+		transition: box-shadow var(--dur-press) var(--ease-out);
 	}
 	.link-card:hover {
-		background: var(--pop);
+		box-shadow: inset 0 0 0 1px var(--line-strong);
+	}
+	.link-card-pictured {
+		grid-template-columns: minmax(0, 1fr) 92px;
 	}
 	.link-card-mine {
 		align-self: flex-end;
 	}
-	.link-card-picture {
-		display: block;
-		width: 100%;
-		aspect-ratio: 1.91;
-		object-fit: cover;
-		background: var(--raised);
-	}
 	.link-card-words {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		padding: 8px 12px 10px;
+		min-width: 0;
+	}
+	.link-card-site {
+		overflow: hidden;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 	.link-card-title {
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		margin: 3px 0 2px;
+		font-size: var(--text-read);
+		line-height: var(--text-lg--line-height);
 		font-weight: 600;
 	}
-	.link-card-site {
+	.link-card-description {
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		color: var(--ink-3);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink-2);
 	}
-	.mermaid-block {
-		margin: 0.6em 0;
-	}
-	.mermaid-block pre {
-		margin: 0;
-	}
-	.mermaid-diagram {
+	.link-card-picture {
 		display: block;
-		max-width: 100%;
-		height: auto;
-		padding: 12px;
-		border-radius: var(--radius-control);
-		background: var(--fill-code);
+		width: 92px;
+		height: 100%;
+		min-height: 64px;
+		max-height: 92px;
+		object-fit: cover;
+		border-radius: var(--radius-card);
+		outline: 1px solid var(--line);
+		outline-offset: -1px;
 	}
 	/* Anything pressed to open in the viewer. */
 	.picture-open {
@@ -5066,38 +4924,16 @@
 		flex-direction: column;
 		background: oklch(0% 0 0 / 0.78);
 	}
-	/* A pane's band over the viewer: what it is, its actions, close. */
+	/* The open band over the viewer (ui/OpenBand.tsx), on the canvas, with
+	 * no line under it, as over a table opened in the conversation. */
 	.viewer-bar {
-		display: flex;
-		height: 40px;
 		flex-shrink: 0;
-		align-items: center;
-		gap: 6px;
-		padding: 0 8px 0 16px;
 		background: var(--canvas);
 		color: var(--ink);
-		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
 	}
 	/* Over the whole window: the traffic lights keep their corner. */
 	html[data-platform="macos"]:not([data-fullscreen]) .viewer-bar {
-		padding-left: 80px;
-	}
-	.viewer-title {
-		min-width: 0;
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-weight: 600;
-	}
-	.viewer-actions {
-		display: inline-flex;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 6px;
-	}
-	.viewer-actions .sent-actions {
-		margin-left: 0;
+		padding-left: 72px;
 	}
 	.viewer-stage {
 		flex: 1;
@@ -5127,25 +4963,6 @@
 		margin: auto;
 		cursor: zoom-out;
 	}
-	.mermaid-note {
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.mermaid-toggle {
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.mermaid-toggle:hover {
-		color: var(--ink-2);
-	}
-	.md blockquote {
-		margin: 0.6em 0;
-		padding-left: 10px;
-		border-left: 2px solid var(--line-strong);
-		color: var(--ink-2);
-	}
 	.md a {
 		color: var(--accent-ink);
 		text-decoration: underline;
@@ -5154,45 +4971,6 @@
 	}
 	.md a:hover {
 		text-decoration-color: var(--accent-ink);
-	}
-	.md table {
-		border-collapse: collapse;
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
-	}
-	/* A table in a bubble is rows on the bubble, not a grid of boxes: a rule
-	 * under the head and between rows, and no walls. */
-	.md th,
-	.md td {
-		padding: 6px 12px;
-		text-align: left;
-		vertical-align: top;
-		border-bottom: var(--hairline) solid var(--line);
-		/* A bubble breaks its text anywhere so a long word can't push it
-		 * wide, and a table reads each break as room to give up: its columns
-		 * shrank to a letter. A cell breaks between words, so a column is as
-		 * narrow as its longest word, and a table wider than its bubble
-		 * scrolls across instead. */
-		overflow-wrap: break-word;
-	}
-	.md th {
-		vertical-align: bottom;
-	}
-	/* A bubble with a table in it may take the whole column, so the table has
-	 * the room to lay its columns out before it has to scroll. */
-	.speech:has(.md-table) {
-		max-width: 100%;
-	}
-	.md th:first-child,
-	.md td:first-child {
-		padding-left: 0;
-	}
-	.md tr:last-child td {
-		border-bottom: none;
-	}
-	.md th {
-		font-weight: 600;
-		color: var(--ink-2);
 	}
 	.md strong {
 		font-weight: 600;
@@ -5240,10 +5018,6 @@
 		margin-right: 0.4em;
 		vertical-align: -1px;
 	}
-	.md-doc li:has(> input[type="checkbox"]) {
-		list-style: none;
-		margin-left: -1.2em;
-	}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5280,9 +5054,13 @@
 /* A row of the conversation that is off screen skips layout and paint until
  * it scrolls into view, keeping the size it last had. A long chapter is
  * hundreds of rows, and without this each word streamed into the last one
- * lays out and paints every one of them again. */
+ * lays out and paints every one of them again. A row never laid out stands
+ * at the 96px guess, so each is drawn once in the background while nobody
+ * scrolls (Transcript.tsx), and keeps its own height from then on. */
 .tape-row {
 	content-visibility: auto;
+	/* Remembered from its first layout on, so the size it keeps while
+	 * skipped is its own. */
 	contain-intrinsic-block-size: auto 96px;
 	/* That skipping clips paint to the row, so a ring drawn outside an edge
 	 * flush with the column (a live card's) gets 4px of row each side to
@@ -5290,10 +5068,15 @@
 	margin-inline: -4px;
 	padding-inline: 4px;
 }
+/* Drawn once, off screen, so its height is known before it is scrolled to
+ * (Transcript.tsx). */
+.tape-row[data-warm] {
+	content-visibility: visible;
+}
 /* That skipping clips paint to the row, so the emoji hung off a bubble's
- * lower edge get the room below it inside the row. */
-.said-group:has(> .speech > .reactions) {
-	padding-bottom: 10px;
+ * lower edge, or off files sent alone, get the room below it inside the row. */
+.said-group:has(> .speech > .reactions, > .said-files > .reactions) {
+	padding-bottom: 20px;
 }
 
 @layer components {

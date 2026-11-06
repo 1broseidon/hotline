@@ -8,12 +8,133 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-11-05
+
 ### Added
 
+- Cookies in a teammate's Secrets: Add Cookies lists the sites you are
+  signed into across your browsers, read only when you open it, and a press
+  shares that site's cookies with the teammate's browser, its desk browser or
+  its computer alike. Each shared site is a row (From Brave); open it for
+  Keep fresh, which copies the site again when your browser's cookies change,
+  Ends (1 day or Never), and Remove. The teammate is told which sites it holds
+  cookies for at the start of its next turn, never the cookies themselves.
+- Settings › Secrets › Cookie Sources: each browser and profile on this
+  computer with a switch. One switched off is never read, for anything. In
+  Use lists every teammate holding your cookies and opens its pane.
+- A teammate with no computer has a browser of its own on the desk (macOS
+  14 and later, Linux and Windows): it opens a page, reads it as text or links, and takes a
+  screenshot, in a hidden window, without a container or MCP server. A page on this computer
+  or the local network opens only after you allow that address and port for
+  that teammate (Allow, Always allow or Deny); Hotline's own ports never
+  open. It clicks, types, selects and presses keys as a person would, and
+  while it works a picture of the page sits in the corner of the
+  conversation: click it to watch in its own window, Take control, and Give
+  it back. A page there never gets the microphone or camera, and an upload
+  field opens a file picker only while you have control. On Windows the
+  teammate's pointer isn't drawn over the page, and its browser offers no
+  passkeys, yours in Windows Hello included.
+- A teammate asks when it needs to be signed in to a site, with its reason,
+  on one card: Use Cookies shares that site's cookies from your browser
+  (named under it, with a choice when several have it), Sign In takes a
+  username and password in the card, saved to Secrets unless you untick it,
+  and Open Browser opens its browser for you to sign in yourself. The close
+  says Not now, and it won't ask for that site again until you next write
+  to it. The same card serves the desk browser and a computer, and the
+  teammate never sees a cookie or password.
+- SearXNG in Settings › Tools › Web search: your own instance's address,
+  and a key if a gateway in front of it wants one, kept in the keychain. Off
+  until you set it up and switch it on; then every search asks it beside the
+  hosted providers.
+- Settings › General › Link previews. Off, the desk contacts no site an
+  agent linked to, and no link card, picture or site icon is drawn.
 - The desktop app for ARM Linux. Each release carries
   `hotline_<version>_linux_aarch64` AppImage, deb and rpm builds beside the
   x86_64 ones, the install script picks the one for your machine, and an
   ARM install updates itself like any other.
+
+### Changed
+
+- Shared cookies follow a teammate when its computer is turned on or off:
+  out of one browser and into the other, read again from your browser, with
+  the row unchanged. Bring over browser cookies is gone from Computer; what it
+  brought over is listed as rows under Cookies, and the Computer › Browser
+  fold is gone with it (passkeys are made under Secrets).
+- The desk no longer offers your browser cookies when a teammate's browser
+  visits a site you're signed into; the teammate asks instead. The offers
+  switch, the Sites list and Never for this site are gone from Settings.
+- What a message carries sits on one sheet in its bubble, edge to edge. A
+  table's headings are labels, a column of numbers stands right and its
+  sources are site chips, each column as wide as its widest chip. Code names
+  its language and file and colours its syntax; one long line wraps in the
+  bubble. A table or code too wide or too long for the bubble is cut, as on
+  the phone: what fits, faded where it goes on (a table's head row never
+  fades), a line saying what it is ("Table · 7 rows · 8 columns", "24
+  lines"), and a click anywhere opens it. A straight-line flow is said as one
+  line of steps; only a diagram that branches is drawn, in the desk's own
+  colours, lighting a node only where its source marks one.
+- A bubble has one toolbar: react, reply and one Copy, which takes the
+  table or code under the pointer as it stands when pressed, or the message.
+  From the keyboard a table or code block takes the focus, and ⌘C copies it.
+- An object opens in the conversation's place, grown from its bubble. Its
+  band has ← back (Escape too), the teammate's face and name and when it
+  said it, the object as a fact ("Table · 7 rows × 8 columns", "Rust ·
+  src/lease.rs · 48 lines") and Copy; the sentence that introduced it is its
+  caption. A table stands at its own width with its head row held as it
+  scrolls; code is numbered there and nowhere else; a diagram opens at its
+  own size, zooms with a pinch or ⌘-scroll and pans with a drag. A picture,
+  a capture of a computer's screen and an opened file wear the same band.
+- Headings, lists and inline code read better on every bubble colour. A
+  quote has a plain edge; a GitHub `[!WARNING]` or `[!CAUTION]` alert is an
+  amber callout, and `[!NOTE]`, `[!TIP]` and `[!IMPORTANT]` read as the
+  words around them.
+- A teammate opens what it reads or works on in its own browser, its desk
+  browser or its computer's. `open_link` is for when you ask: your default
+  browser, or the one you name ("open it in Brave"), found among the apps
+  that open web links on this Mac. The desk browser tells sites it is
+  Safari (Edge on Windows), so Gmail and the like don't call it unsupported,
+  and `viewport` shows a page as a phone, a tablet or a wide screen would
+  (or at an exact size); its picture in the corner takes that shape.
+- A teammate's pane answers three questions: Computer is the machine,
+  Secrets is what it signs in with (logins, passkeys and Cookies, whichever
+  browser it has), and Permissions is what it may reach, now with Local
+  addresses: the ones you told it "Always allow", each with Remove.
+- A link's card puts the site first, then the title and two lines of what
+  the page is, with its picture beside them only when it has a real one.
+  The desk fetches that picture, and every site icon, once over https,
+  never from a local address, and keeps it; the window no longer asks the
+  site itself. A site without an icon shows none instead of its initial.
+- The transcript's lines are drawn as the 0.48 deck has them. A turn's files
+  are one block with a count, their size and Save all, a row a file whose
+  keys show on hover or focus; one picture is capped with its name and size
+  under it, several sit in a strip with a +N tile. A plan shows how far along
+  it is in segments, the steps caption is a pill with the count, the
+  failures and the time taken, and threads, subagents and calls share one
+  row. A permission names who wants to run what, with its answers at one
+  weight; Needs you shows who asks; a sign-in asks with one secure key; and
+  any settled ask folds to one line. Reactions are chips with a count,
+  yours ringed, and a chapter is a labeled pill on its rule.
+
+### Fixed
+
+- A reply's quote names who said it and no longer shows the Markdown it was
+  written in.
+- A failed turn's card leads with what the report said happened, instead of
+  "Turn failed" with the reason hidden under Details.
+- Scrolling up a long conversation no longer jumps or sticks: rows not yet
+  drawn are laid out in the background with the view held still, and older
+  lines arriving keep a scroll made while they loaded.
+- An object open from a message closes when you switch teammate or open
+  Settings, and nothing behind it takes the keyboard while it is open.
+- A run of files keeps its pictures as more files join it.
+- A SearXNG instance's redirects are followed only within the instance, so
+  its key never goes elsewhere or down to http.
+- A Claude Code subagent's run shows the prompt it was given once. The
+  adapter can send it twice, once under a stand-in id and again under its
+  call's, and the run showed both.
+- In a subagent's run beside the conversation, the pill saying what it is
+  working on stands level with the conversation's composer instead of a
+  little below it.
 
 ## [0.47.0] - 2026-11-03
 

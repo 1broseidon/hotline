@@ -122,7 +122,8 @@ export function Rail({
 			style={width !== undefined ? { width } : undefined}
 		>
 			<DeskFilter compact={compact} onAdd={onAddDesk} />
-			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
+			{/* Down only: nothing in the list may make it scroll sideways (a busy face's turning ring did, on Windows). */}
+			<div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{pinned.length + rest.length === 0 ? (
 					compact || !loaded ? null :
 					<p className="px-2 py-3 text-sm text-ink-3">

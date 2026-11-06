@@ -25,9 +25,17 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 		return [field("username"), field("password"), field("totp")];
 	};
 	const click = async (label: string) => act(async () => { Array.from(container.querySelectorAll("button")).find(b => b.textContent === label)!.click(); });
+	// The card shows who asks, the site and why; its one key opens the fields.
+	const open = async (label = "Sign in securely") => {
+		expect(container.querySelector('[name="password"], [name="name"]')).toBeNull();
+		await click(label);
+	};
 	try {
 		await render(pending);
-		expect(container.textContent).toContain("https://github.com");
+		expect(container.querySelector(".sign-in-site")?.textContent).toBe("github.com");
+		expect(container.textContent).toContain("Pork Chop asks to sign in");
+		expect(container.textContent).toContain(pending.reason);
+		await open();
 		expect(field("ask").checked).toBe(false);
 		const saved = fill();
 		field("name").value = "CHOSEN_LOGIN";
@@ -35,12 +43,14 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 		expect(commands).toEqual([{ cmd: "secrets.capture.answer", params: { actionId: "credential:1", name: "CHOSEN_LOGIN", ask: false, values: { username: "private-user", password: "private-password", totp: "JBSWY3DPEHPK3PXP" } } }]);
 		expect(saved.map(f => f.value)).toEqual(["", "", ""]);
 		await render({ ...pending, status: "stored", storedAs: "CHOSEN_LOGIN" });
-		expect(container.textContent).toContain("Stored as CHOSEN_LOGIN");
+		expect(container.querySelector(".ask-settled .ask-chip")?.textContent).toBe("Stored");
+		expect(container.querySelector(".ask-settled")?.textContent).toContain("Sign in to github.com · CHOSEN_LOGIN");
 		expect(container.textContent).toContain("Pork Chop");
 		expect(container.textContent).not.toContain(pending.reason);
 		expect(container.querySelectorAll("input, button").length).toBe(0);
 		for (const status of ["declined", "expired", "withdrawn"] as const) {
 			await render(pending, status);
+			await open();
 			const typed = fill();
 			const before = commands.length;
 			await render({ ...pending, status }, status);
@@ -49,11 +59,13 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 			expect(container.querySelectorAll("input, button").length).toBe(0);
 		}
 		await render(pending, "decline-button");
+		await open();
 		const declined = fill();
-		await click("Decline");
+		await click("Not now");
 		expect(commands.at(-1)).toEqual({ cmd: "secrets.capture.answer", params: { actionId: "credential:1", ask: false } });
 		expect(declined.map(f => f.value)).toEqual(["", "", ""]);
 		await render(pending, "local-expiry");
+		await open();
 		const locallyExpired = fill();
 		const beforeExpiry = commands.length;
 		await render({ ...pending, expiresAt: Date.now() - 1 }, "local-expiry");
@@ -62,10 +74,12 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 		expect(commands.length).toBe(beforeExpiry);
 		expect(container.textContent).toContain("Expired");
 		await render(pending, "dismiss");
+		await open();
 		const dismissed = fill();
 		await act(async () => { root.render(null); });
 		expect(dismissed.map(f => f.value)).toEqual(["", "", ""]);
 		await render(pending, "save-at-expiry");
+		await open();
 		const tooLate = fill();
 		const beforeLateSave = commands.length;
 		const now = spyOn(Date, "now").mockReturnValue(pending.expiresAt + 1);
@@ -77,10 +91,12 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 		expect(tooLate.map(f => f.value)).toEqual(["", "", ""]);
 		expect(commands.length).toBe(beforeLateSave);
 		await render({ ...pending, existing: ["OLD_LOGIN"] }, "existing");
+		await open();
 		fill();
 		await click("Grant OLD_LOGIN instead");
 		expect(commands.at(-1)).toEqual({ cmd: "secrets.capture.answer", params: { actionId: "credential:1", name: "OLD_LOGIN", ask: false } });
 		await render({ ...pending, credentialKind: "passkey", name: "GH_PASSKEY" }, "passkey");
+		await open("Make a passkey");
 		expect(container.querySelector('[name="password"]')).toBeNull();
 		expect(container.querySelector('[name="username"]')).toBeNull();
 		field("ask").checked = true;

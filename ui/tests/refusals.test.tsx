@@ -72,6 +72,7 @@ const detail = () => container.querySelector(".refusal-detail")?.textContent ?? 
 function refuse(cmd: string, reason: string) {
 	const command = spyOn(wire, "command").mockImplementation((async (asked: string) => {
 		if (asked === cmd) throw new Error(reason);
+		if (asked === "computer.cookies.sources") return { sources: [], blocked: [] };
 		return [];
 	}) as typeof wire.command);
 	restores.push(() => command.mockRestore());

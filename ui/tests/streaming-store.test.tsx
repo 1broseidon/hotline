@@ -137,7 +137,7 @@ test("tool results and answered cards update the rendered transcript during a re
 	});
 	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("The result is here");
 	expect(container.querySelector('[data-event-id="card"] button')).toBeNull();
-	expect(container.querySelector('[data-event-id="card"]')?.textContent).toContain("Asked permission");
+	expect(container.querySelector('[data-event-id="card"] .ask-chip')?.textContent).toBe("Allow once");
 });
 
 test("words whose line was never written go when their turn ends, and are not drawn under every turn after", () => {

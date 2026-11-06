@@ -23,7 +23,7 @@ export function ComputerFrame({ eventId, dataUrl }: { eventId: string; dataUrl: 
 			>
 				<img src={url} alt="The computer's screen at capture" decoding="async" className="block w-full" />
 			</button>
-			{open && <Viewer src={url} alt="The computer's screen at capture" onClose={() => setOpen(false)} />}
+			{open && <Viewer src={url} alt="The computer's screen at capture" fact="Screen capture" onClose={() => setOpen(false)} />}
 		</>
 	);
 }

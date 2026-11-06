@@ -124,6 +124,21 @@ export const FolderIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* Save a copy: down into a tray. */
+export const SaveIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M8 2.5v8M5 7.5l3 3 3-3M3 12.5h10" />
+	</Icon>
+);
+
+/* A sign-in: what goes to the vault. */
+export const LockIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+		<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+	</Icon>
+);
+
 export const FileIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<path d="M9 2.5H4.75A1.25 1.25 0 0 0 3.5 3.75v8.5a1.25 1.25 0 0 0 1.25 1.25h6.5a1.25 1.25 0 0 0 1.25-1.25V6z" />
@@ -249,6 +264,20 @@ export const CopyIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<rect x="5.25" y="5.25" width="7.5" height="7.5" rx="1.5" />
 		<path d="M10.75 3.25H4.75a1.5 1.5 0 0 0-1.5 1.5v6" />
+	</Icon>
+);
+
+/* Expand an object a message carries over the whole window. */
+export const ExpandIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M9.5 2.75h3.75V6.5M6.5 13.25H2.75V9.5M13.25 2.75 9 7M2.75 13.25 7 9" />
+	</Icon>
+);
+
+/* The source a drawing was made from: angle brackets. */
+export const SourceIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" />
 	</Icon>
 );
 

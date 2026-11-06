@@ -47,6 +47,8 @@ export function GeneralSection({
 	defaultBackendId,
 	defaultModelId,
 	onIdleHours,
+	linkPreviews,
+	onLinkPreviews,
 	onBackend,
 	onDefaultModel,
 	onProviders,
@@ -59,6 +61,8 @@ export function GeneralSection({
 	defaultBackendId: string;
 	defaultModelId: string | null;
 	onIdleHours(hours: number): void;
+	linkPreviews: boolean;
+	onLinkPreviews(on: boolean): void;
 	onBackend(id: string): void;
 	onDefaultModel(id: string | null): void;
 	onProviders: (() => void) | undefined;
@@ -186,6 +190,13 @@ export function GeneralSection({
 							quiet hours
 						</span>
 					</div>
+					{/* Off, the desk contacts no site an agent linked to: no card, picture or icon. */}
+					<label className="group-row group-row-choice" title="Cards, pictures, icons">
+						<span className="group-row-text">
+							<span className="group-row-title">Link previews</span>
+						</span>
+						<input type="checkbox" role="switch" className="switch" aria-label="Link previews" aria-checked={linkPreviews} checked={linkPreviews} onChange={(event) => onLinkPreviews(event.target.checked)} />
+					</label>
 				</div>
 			</section>
 		</>

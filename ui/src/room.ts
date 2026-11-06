@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { CookieOfferSettings, ScheduledJob } from "./generated/contract";
+import type { ScheduledJob } from "./generated/contract";
 import { mcpServersFrom, type McpServer } from "./mcp";
 import { activeDeskId, wireFor } from "./desks";
 
@@ -50,13 +50,15 @@ type RoomState = {
 	jobs: ScheduledJob[];
 	/** Goes up whenever the room's model choices may have changed. */
 	modelsRevision: number;
+	/** Goes up whenever a teammate's shared cookies or the cookie sources change. */
+	cookiesRevision: number;
 	/** Identity of the room-wide read cache; unobserved rooms must reload. */
 	readEpoch: { ready: boolean };
 };
 
 /** One desk's room, folded. Each desk in the window has its own. */
 function roomOf(connection: ReturnType<typeof wireFor>) {
-	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0, readEpoch: { ready: false } };
+	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0, cookiesRevision: 0, readEpoch: { ready: false } };
 	const listeners = new Set<() => void>();
 	let readers = 0;
 	let unsub: (() => void) | null = null;
@@ -93,6 +95,9 @@ function roomOf(connection: ReturnType<typeof wireFor>) {
 					next.readEpoch = { ready: true };
 				}
 				if (changesModels(item)) next.modelsRevision = state.modelsRevision + 1;
+				if (item.kind === "cookie_lend" || item.kind === "cookie_sources" || item.kind === "cookie-imports") {
+					next.cookiesRevision = state.cookiesRevision + 1;
+				}
 				if (Object.keys(next).length > 0) set(next);
 			},
 		});
@@ -147,6 +152,16 @@ export function useRoomReadEpoch(): { ready: boolean } {
 }
 
 const pickModelsRevision = (state: RoomState) => state.modelsRevision;
+/**
+ * A count that moves when any teammate's shared cookies change, to read
+ * them again. Nought where no desk is open, which has no room to follow.
+ */
+export function useCookiesRevision(): number {
+	const deskId = activeDeskId();
+	const room = deskId === null ? null : roomFor(deskId);
+	const read = () => room?.snapshot().cookiesRevision ?? 0;
+	return useSyncExternalStore(room?.subscribe ?? noRoom, read, read);
+}
 
 /** The person's name from Settings, or "" while they have not given one. */
 export function usePersonName(): string {
@@ -163,11 +178,34 @@ export function useAccent(): string | undefined {
 	return ready ? accent : undefined;
 }
 
+/**
+ * Whether the desk reads the pages agents link to, for a card, its picture
+ * and the site's icon: on unless the person turned it off. Undefined until
+ * the room has answered, so a window asks for none before it knows, and
+ * keeps drawing what it has while a reconnect reads the room again. Off,
+ * the window draws none of them and asks the desk for none.
+ */
+export function useLinkPreviews(): boolean | undefined {
+	// A card or an icon can be drawn where no desk is open, which has no room to ask.
+	const deskId = activeDeskId();
+	const room = deskId === null ? null : roomFor(deskId);
+	const read = () => (room === null ? undefined : linkPreviewsOf(room.snapshot()));
+	return useSyncExternalStore(room?.subscribe ?? noRoom, read, read);
+}
+
+const noRoom = () => () => {};
+
+function linkPreviewsOf(state: RoomState): boolean | undefined {
+	const on = booleanSetting(state.settings.get("linkPreviews"), true);
+	return state.readEpoch.ready || !on ? on : undefined;
+}
+
 /** The room's settings over their defaults. */
 export function useRoomSettings(): {
 	personName: string;
 	accent: string;
 	chapterIdleHours: number;
+	linkPreviews: boolean;
 	defaultBackendId: string;
 	defaultModelId: string | null;
 	lastModelId: string | null;
@@ -175,7 +213,6 @@ export function useRoomSettings(): {
 	enabledModels: Record<string, string[]>;
 	computerRuntime: string | null;
 	computerImage: string | null;
-	cookieOffers: CookieOfferSettings;
 	skillsHome: string | null;
 } {
 	const events = useRoom(pickSettings);
@@ -186,6 +223,7 @@ export function useRoomSettings(): {
 		personName: stringSetting(events.get("personName"), ""),
 		accent: stringSetting(events.get("accent"), "mint"),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
+		linkPreviews: booleanSetting(events.get("linkPreviews"), true),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),
 		lastModelId: optionalStringSetting(events.get("lastModelId")),
@@ -193,7 +231,6 @@ export function useRoomSettings(): {
 		enabledModels,
 		computerRuntime: optionalStringSetting(events.get("computerRuntime")),
 		computerImage: optionalStringSetting(events.get("computerImage")),
-		cookieOffers: cookieOffersSetting(events.get("cookieOffers")),
 		skillsHome: optionalStringSetting(events.get("skillsHome")),
 	};
 }
@@ -314,18 +351,13 @@ function listSetting(event: RoomItem | undefined): McpServer[] {
 	return mcpServersFrom(event.value);
 }
 
-function cookieOffersSetting(event: RoomItem | undefined): CookieOfferSettings {
-	if (!event || event.deleted) return { enabled: true };
-	const value = event.value as Partial<CookieOfferSettings> | null;
-	if (!value || typeof value !== "object") return { enabled: false };
-	return {
-		enabled: value.enabled ?? true,
-		...(Array.isArray(value.sites) ? { sites: value.sites } : {}),
-	};
-}
-
 function numberSetting(event: RoomItem | undefined, fallback: number): number {
 	if (!event || event.deleted || typeof event.value !== "number") return fallback;
+	return event.value;
+}
+
+function booleanSetting(event: RoomItem | undefined, fallback: boolean): boolean {
+	if (!event || event.deleted || typeof event.value !== "boolean") return fallback;
 	return event.value;
 }
 

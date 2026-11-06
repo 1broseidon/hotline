@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Persona } from "../generated/contract";
 import { appVersion, watchUpdates } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, KeyboardIcon } from "../icons";
@@ -18,7 +19,6 @@ import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
 import { useActiveDesk, useDesks } from "../desks";
 import { ComputerSection } from "./settings/Computer";
-import { CookieSitesPage } from "./settings/CookieOfferSettings";
 import { GeneralSection } from "./settings/General";
 import { ImportSection } from "./settings/Import";
 import { InboundSection } from "./settings/Inbound";
@@ -187,18 +187,19 @@ export function Settings({
 	onBack,
 	onAddDesk,
 	team = [],
+	onOpenTeammate,
 }: {
 	section: SettingsSection;
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
 	onAddDesk?: () => void;
 	/** Who is on the team, to name whom an inbound source may aside. */
-	team?: readonly { id: string; name: string }[];
+	team?: readonly { id: string; name: string; avatar?: Persona["avatar"] }[];
+	/** Opens a teammate's pane, from a row naming it. */
+	onOpenTeammate?: (personaId: string) => void;
 }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
-	const [cookieSites, setCookieSites] = useState(false);
-	useEffect(() => { if (section !== "computer") setCookieSites(false); }, [section]);
 
 	const patch = (patch: Record<string, unknown>) => {
 		setRefusal(null);
@@ -210,8 +211,7 @@ export function Settings({
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
-	if (section === "secrets") return <SecretsSection onBack={onBack} />;
-	if (section === "computer" && cookieSites) return <CookieSitesPage settings={settings.cookieOffers} onBack={() => setCookieSites(false)} />;
+	if (section === "secrets") return <SecretsSection onBack={onBack} team={team} onOpenTeammate={onOpenTeammate} />;
 
 	return (
 		<div className="pane">
@@ -233,6 +233,8 @@ export function Settings({
 							defaultBackendId={settings.defaultBackendId}
 							defaultModelId={settings.defaultModelId}
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
+							linkPreviews={settings.linkPreviews}
+							onLinkPreviews={(on) => patch({ linkPreviews: on ? null : false })}
 							onBackend={(id) => patch({ defaultBackendId: id })}
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
 							onProviders={onSection === undefined ? undefined : () => onSection("providers")}
@@ -244,8 +246,6 @@ export function Settings({
 							image={settings.computerImage}
 							onRuntime={(id) => patch({ computerRuntime: id })}
 							onImage={(image) => patch({ computerImage: image })}
-							cookieOffers={settings.cookieOffers}
-							onSites={() => setCookieSites(true)}
 						/>
 					)}
 					{section === "updates" && <UpdatesSection />}

@@ -791,6 +791,8 @@ impl McpOAuthService {
                 return;
             }
         };
+        // Held while it listens: a teammate's desk browser never opens it.
+        let _held = hotline_support::listening::hold(callback_port);
         let deadline_at = Instant::now() + CALLBACK_DEADLINE;
         loop {
             tokio::select! {

@@ -1,8 +1,9 @@
 use super::*;
 
 /// Turning the computer on or off restarts the teammate, because it gains
-/// or loses the tools. Its limits, mounts and secrets do not: they wait for
-/// the container to be made again, and a turn in flight is not cut short.
+/// or loses the tools. Its limits and mounts do not: they wait for the
+/// container to be made again. Nor do the teammate's secrets, which are
+/// handed to the computer where it runs. A turn in flight is not cut short.
 #[tokio::test]
 async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     let quiet = Arc::new(Quiet::new());
@@ -24,13 +25,38 @@ async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     ask(
         &mut socket,
         json!({ "id": 3, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
-            "computer": { "enabled": true, "memory": "8g", "secrets": ["GITHUB_TOKEN"] },
+            "computer": { "enabled": true, "memory": "8g" },
         } } }),
     )
     .await;
     let answer = answered(&mut socket, 3).await;
     assert_eq!(answer["ok"], true, "{answer}");
     assert_eq!(answer["result"]["computer"]["memory"], "8g");
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "secrets": ["GITHUB_TOKEN"],
+        } } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 5).await;
+    assert_eq!(answer["result"]["secrets"], json!(["GITHUB_TOKEN"]));
+    assert_eq!(
+        quiet.computer_changes.lock().unwrap().last(),
+        Some(&ada_id),
+        "the teammate's secrets are handed to whichever computer it has"
+    );
+    // An older client ticks them on the computer; that is the teammate's grant.
+    ask(
+        &mut socket,
+        json!({ "id": 6, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "computer": { "enabled": true, "memory": "8g", "secrets": ["NPM_TOKEN"] },
+        } } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 6).await;
+    assert_eq!(answer["result"]["secrets"], json!(["NPM_TOKEN"]));
+    assert!(answer["result"]["computer"].get("secrets").is_none());
     assert_eq!(
         quiet.reattached(),
         vec![ada_id.clone()],
@@ -333,7 +359,11 @@ fn only_the_desk_and_owner_seats_may_touch_web_search_settings() {
         provider: WebSearchProvider::Exa,
         key: Some("exa-key-0123456789".to_string()),
     };
-    for command in [&status, &enable, &key] {
+    let url = Command::WebsearchSetUrl {
+        provider: WebSearchProvider::Searxng,
+        url: Some("http://localhost:8888".to_string()),
+    };
+    for command in [&status, &enable, &key, &url] {
         assert!(Seat::Desk.permits(command), "{command:?}");
         assert!(Seat::Owner.permits(command), "{command:?}");
         assert!(!Seat::Phone.permits(command), "{command:?}");
@@ -368,6 +398,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
             {"provider": "exa", "name": "Exa", "enabled": true, "hasKey": false},
             {"provider": "keenable", "name": "Keenable", "enabled": true, "hasKey": false},
             {"provider": "firecrawl", "name": "Firecrawl", "enabled": true, "hasKey": false},
+            {"provider": "searxng", "name": "SearXNG", "enabled": false, "hasKey": false, "takesUrl": true},
         ])
     );
 
@@ -455,4 +486,206 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
     )
     .await;
     assert_eq!(bad["ok"], false, "{bad}");
+}
+
+/// SearXNG over the wire: off until its URL is set and it is switched on;
+/// the URL is checked and kept in the room's settings, its key in the vault
+/// and never answered; clearing the URL switches it off; no other provider
+/// takes a URL.
+#[tokio::test]
+async fn searxng_needs_its_url_before_it_is_on_and_its_key_never_leaves_the_vault() {
+    use crate::credentials::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let log = &desk.log;
+    let parts = desk.parts();
+    let key = "searxng-private-key-0123456789";
+    let ask = |cmd: &str, params: Value| {
+        let frame = json!({"id": 1, "cmd": cmd, "params": params});
+        let handle = handle.clone();
+        let parts = &parts;
+        async move { remote_control_answer(Seat::Desk, &handle, log, parts, frame).await }
+    };
+    let searxng = |answer: &Value| answer["result"]["providers"][4].clone();
+
+    let early = ask(
+        "websearch.set_enabled",
+        json!({"provider": "searxng", "enabled": true}),
+    )
+    .await;
+    assert_eq!(early["ok"], false, "{early}");
+    assert!(early["error"].as_str().unwrap().contains("URL"), "{early}");
+
+    for bad in [
+        "localhost:8888",
+        "https://me:secret@search.example.org",
+        "https://search.example.org/?token=x",
+        "file:///etc/passwd",
+    ] {
+        let refused = ask(
+            "websearch.set_url",
+            json!({"provider": "searxng", "url": bad}),
+        )
+        .await;
+        assert_eq!(refused["ok"], false, "{bad}: {refused}");
+    }
+    let hosted = ask(
+        "websearch.set_url",
+        json!({"provider": "exa", "url": "https://exa.example"}),
+    )
+    .await;
+    assert_eq!(hosted["ok"], false, "{hosted}");
+    assert!(room::settings(log).get("webSearch").is_none());
+
+    let set = ask(
+        "websearch.set_url",
+        json!({"provider": "searxng", "url": " http://localhost:8888/ "}),
+    )
+    .await;
+    assert_eq!(
+        searxng(&set),
+        json!({"provider": "searxng", "name": "SearXNG", "enabled": false, "hasKey": false, "takesUrl": true, "url": "http://localhost:8888"}),
+        "{set}"
+    );
+
+    let on = ask(
+        "websearch.set_enabled",
+        json!({"provider": "searxng", "enabled": true}),
+    )
+    .await;
+    assert_eq!(searxng(&on)["enabled"], true, "{on}");
+    assert_eq!(
+        room::settings(log)["webSearch"],
+        json!({"disabled": [], "enabled": ["searxng"], "urls": {"searxng": "http://localhost:8888"}})
+    );
+    // Switching a hosted provider keeps SearXNG as it was.
+    ask(
+        "websearch.set_enabled",
+        json!({"provider": "exa", "enabled": false}),
+    )
+    .await;
+    assert_eq!(
+        room::settings(log)["webSearch"],
+        json!({"disabled": ["exa"], "enabled": ["searxng"], "urls": {"searxng": "http://localhost:8888"}})
+    );
+
+    let keyed = ask(
+        "websearch.set_key",
+        json!({"provider": "searxng", "key": key}),
+    )
+    .await;
+    assert_eq!(searxng(&keyed)["hasKey"], true, "{keyed}");
+    assert!(!keyed.to_string().contains(key));
+    assert_eq!(
+        desk.saved_web_search_key(crate::contract::WebSearchProvider::Searxng),
+        Some(key.to_string())
+    );
+    assert!(!format!("{:?}", log.load(&StreamId::Room)).contains(key));
+    let status = ask("websearch.status", json!({})).await;
+    assert!(!status.to_string().contains(key));
+
+    let cleared = ask(
+        "websearch.set_url",
+        json!({"provider": "searxng", "url": null}),
+    )
+    .await;
+    assert_eq!(searxng(&cleared)["enabled"], false, "{cleared}");
+    assert!(searxng(&cleared).get("url").is_none(), "{cleared}");
+    assert_eq!(
+        room::settings(log)["webSearch"],
+        json!({"disabled": ["exa"]})
+    );
+    // The key outlives the URL, as a key outlives its switch.
+    assert_eq!(searxng(&cleared)["hasKey"], true, "{cleared}");
+
+    // A hand-written setting is held to the same rules.
+    let planted = ask(
+        "settings.update",
+        json!({"patch": {"webSearch": {"enabled": ["searxng"], "urls": {"searxng": "https://u:p@x.example"}}}}),
+    )
+    .await;
+    assert_eq!(planted["ok"], false, "{planted}");
+}
+
+/// Link previews are a room setting, on by default. Off, the desk answers
+/// every card and icon with nothing and contacts no site for one; on again,
+/// the same asks reach the site. (In tests the desk contacts no site at
+/// all; `link_preview::contacted` is what it would have asked.)
+#[tokio::test]
+async fn with_link_previews_off_the_desk_fetches_nothing() {
+    let (_root, log, port) = door("link-previews-off");
+    let mut socket = desk(port).await;
+    let page = "https://1.2.3.4/link-previews-off";
+    let icon_at = "https://1.2.3.5/favicon.ico";
+    assert!(room::link_previews(&log), "on until turned off");
+
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "settings.update", "params": { "patch": { "linkPreviews": false } } }),
+    )
+    .await;
+    let off = answered(&mut socket, 1).await;
+    assert_eq!(off["result"]["linkPreviews"], false, "{off}");
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "link.preview", "params": { "url": page } }),
+    )
+    .await;
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "link.icon", "params": { "site": "1.2.3.5" } }),
+    )
+    .await;
+    let card = answered(&mut socket, 2).await;
+    let icon = answered(&mut socket, 3).await;
+    assert_eq!(
+        (card["ok"].clone(), card["result"].clone()),
+        (json!(true), Value::Null),
+        "{card}"
+    );
+    assert_eq!(
+        (icon["ok"].clone(), icon["result"].clone()),
+        (json!(true), Value::Null),
+        "{icon}"
+    );
+    assert!(!crate::link_preview::contacted(page));
+    assert!(!crate::link_preview::contacted(icon_at));
+
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "settings.update", "params": { "patch": { "linkPreviews": "no" } } }),
+    )
+    .await;
+    assert_eq!(
+        answered(&mut socket, 4).await["ok"],
+        false,
+        "only true or false"
+    );
+
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "settings.update", "params": { "patch": { "linkPreviews": null } } }),
+    )
+    .await;
+    assert_eq!(
+        answered(&mut socket, 5).await["result"]["linkPreviews"],
+        true
+    );
+    ask(
+        &mut socket,
+        json!({ "id": 6, "cmd": "link.preview", "params": { "url": page } }),
+    )
+    .await;
+    ask(
+        &mut socket,
+        json!({ "id": 7, "cmd": "link.icon", "params": { "site": "1.2.3.5" } }),
+    )
+    .await;
+    answered(&mut socket, 6).await;
+    answered(&mut socket, 7).await;
+    assert!(crate::link_preview::contacted(page));
+    assert!(crate::link_preview::contacted(icon_at));
 }

@@ -33,7 +33,6 @@ use hotline_contract::{
     ImageSettings, Persona, ScheduleKind, ScheduledJob, SessionCheckpoint, SpendingSettings,
 };
 use hotline_store::log::{Log, StreamId};
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 /// What a setting means before anybody has set it. `hotline` is the built-in Hotline
@@ -42,17 +41,15 @@ use serde_json::{Map, Value, json};
 /// follow you into this morning. `enabledModels` is empty: a provider nobody
 /// has filtered shows every model, because a missing filter is not an empty
 /// one. `defaultModelId` and `lastModelId` stay out of this map: a desk that
-/// has never named a model has no preference, not an empty string.
+/// has never named a model has no preference, not an empty string. Link
+/// previews are on until the person turns them off.
 fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
     settings.insert("defaultBackendId".into(), Value::from("hotline"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
+    settings.insert(LINK_PREVIEWS.into(), Value::Bool(true));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
-    settings.insert(
-        "cookieOffers".into(),
-        json!(hotline_contract::CookieOfferSettings::default()),
-    );
     settings.insert("images".into(), json!(ImageSettings::default()));
     settings.insert("spending".into(), json!(SpendingSettings::default()));
     settings
@@ -64,6 +61,19 @@ fn defaults() -> Map<String, Value> {
 pub const ACCENT: &str = "accent";
 pub const ACCENTS: [&str; 6] = ["mint", "teal", "sky", "iris", "orchid", "rose"];
 
+/// Whether the desk reads the pages agents link to for a card, and fetches
+/// their pictures and site icons. Off, the desk contacts no site for a
+/// preview at all.
+pub const LINK_PREVIEWS: &str = "linkPreviews";
+
+/// The `linkPreviews` setting: on unless the person turned it off.
+pub fn link_previews(log: &Log) -> bool {
+    settings(log)
+        .get(LINK_PREVIEWS)
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
 pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     if key == "personName" {
         let name = value.as_str().ok_or("Your name must be text.")?.trim();
@@ -74,6 +84,12 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     }
     if key == "webSearch" {
         return hotline_websearch::normalize_setting(value);
+    }
+    if key == LINK_PREVIEWS {
+        return value
+            .as_bool()
+            .map(Value::Bool)
+            .ok_or_else(|| "Link previews are on or off: true or false.".to_string());
     }
     if key == ACCENT {
         let accent = value
@@ -89,22 +105,10 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
                 )
             });
     }
-    if matches!(key, "images" | "spending" | "cookieOffers") && !value.is_object() {
+    if matches!(key, "images" | "spending") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
     }
     match key {
-        "cookieOffers" => {
-            let mut settings: hotline_contract::CookieOfferSettings =
-                serde_json::from_value(value.clone()).map_err(|_| {
-                    "Cookie offers must have an enabled switch and an optional list of sites."
-                        .to_string()
-                })?;
-            if let Some(sites) = &mut settings.sites {
-                sites.sort();
-                sites.dedup();
-            }
-            Ok(json!(settings))
-        }
         "images" => {
             let settings: ImageSettings = serde_json::from_value(value.clone()).map_err(|_| {
                 "Images settings must be an object with optional provider and model strings."
@@ -148,12 +152,6 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
         }
         _ => Ok(value.clone()),
     }
-}
-
-pub fn cookie_offer_settings(log: &Log) -> Result<hotline_contract::CookieOfferSettings, String> {
-    let value = normalize_setting("cookieOffers", &settings(log)["cookieOffers"])?;
-    serde_json::from_value(value)
-        .map_err(|_| "The room's cookie offer settings could not be read.".into())
 }
 
 /// How many teammates a desk can pin. Three faces fit a phone's header and
@@ -314,7 +312,7 @@ pub fn personas(events: &[Value]) -> Vec<Persona> {
     events
         .iter()
         .filter(|event| is_kind(event, "persona") && !is_deleted(event))
-        .filter_map(|event| Persona::deserialize(event).ok())
+        .filter_map(|event| Persona::from_record(event).ok())
         .filter(|persona| !persona.id.is_empty())
         .collect()
 }
@@ -366,6 +364,11 @@ pub fn try_settings(log: &Log) -> Result<Map<String, Value>, String> {
     Ok(settings_from_events(&events))
 }
 
+/// Settings no feature reads any more, left on old rooms' streams and
+/// skipped on read: `cookieOffers` switched the desk's own cookie offers,
+/// which are gone, since a teammate asks for a sign-in instead.
+const RETIRED: [&str; 1] = ["cookieOffers"];
+
 pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     let mut settings = defaults();
     for event in events {
@@ -375,6 +378,9 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
         let Some(key) = event.get("id").and_then(Value::as_str) else {
             continue;
         };
+        if RETIRED.contains(&key) {
+            continue;
+        }
         let value = event.get("value").cloned().unwrap_or(Value::Null);
         let value = normalize_setting(key, &value).unwrap_or(value);
         settings.insert(key.to_string(), value);
@@ -786,6 +792,7 @@ mod tests {
             web_search_policy: None,
             folders: None,
             computer: None,
+            secrets: None,
             voice: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,
@@ -804,6 +811,30 @@ mod tests {
 
     /// A teammate whose policy names a provider this build does not have
     /// still reads: the provider is dropped from its policy, not the teammate from the room.
+    /// A room written before secrets were the teammate's own granted them on
+    /// its computer. They read as the teammate's, the computer keeps the rest
+    /// of its settings, and the next write puts them on the teammate alone.
+    #[test]
+    fn secrets_granted_on_a_computer_before_read_as_the_teammates() {
+        let log = scratch("computer-secrets");
+        let mut event = persona_event(&persona("ada", "Ada"));
+        event["computer"] = json!({"enabled": true, "memory": "8g", "secrets": ["GITHUB_TOKEN"]});
+        append(&log, &event);
+        let mut ada = roster(&log).remove(0);
+        assert_eq!(ada.secrets, Some(vec!["GITHUB_TOKEN".to_string()]));
+        assert_eq!(ada.computer.as_ref().unwrap().memory.as_deref(), Some("8g"));
+        let written = json!(ada);
+        assert_eq!(written["secrets"], json!(["GITHUB_TOKEN"]));
+        assert!(written["computer"].get("secrets").is_none());
+
+        // A record that already says what the teammate has keeps its own.
+        ada.secrets = Some(vec!["NPM_TOKEN".to_string()]);
+        let mut both = persona_event(&ada);
+        both["computer"]["secrets"] = json!(["GITHUB_TOKEN"]);
+        append(&log, &both);
+        assert_eq!(roster(&log)[0].secrets, Some(vec!["NPM_TOKEN".to_string()]));
+    }
+
     #[test]
     fn a_teammate_whose_policy_names_a_provider_that_is_gone_still_loads() {
         let log = scratch("firecrawl-policy");
@@ -962,7 +993,10 @@ mod tests {
         assert_eq!(settings(&log)["defaultBackendId"], "hotline");
         assert_eq!(settings(&log)["chapterIdleHours"], 8);
         assert_eq!(settings(&log)["enabledModels"], json!({}));
+        assert!(link_previews(&log));
 
+        append(&log, &setting(LINK_PREVIEWS, Value::Bool(false)));
+        assert!(!link_previews(&log));
         append(&log, &setting("chapterIdleHours", Value::from(2)));
         append(&log, &setting("theme", Value::from("dark")));
         assert_eq!(settings(&log)["chapterIdleHours"], 2);

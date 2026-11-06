@@ -405,12 +405,15 @@ impl Room {
         };
         let stored = self.stored_secrets();
         let told_name = self.person_name();
+        // Whether this desk has a browser to offer, as the session starts.
+        let desk_browser = self.desk_browser().is_some();
         let build = |view: &Persona, transcript: Option<String>| {
             let mut preamble = preamble_of(
                 thread.kind,
                 view,
                 reach,
                 &stored,
+                desk_browser,
                 Joining {
                     opened_by,
                     context: context.clone(),
@@ -511,6 +514,7 @@ fn preamble_of(
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
+    desk_browser: bool,
     joining: Joining<'_>,
 ) -> String {
     let Joining {
@@ -520,12 +524,20 @@ fn preamble_of(
         note,
     } = joining;
     match kind {
-        ThreadKind::Run => super::runner::run_preamble(persona, reach, stored),
-        ThreadKind::Job => super::job_thread::job_preamble(persona, reach, stored),
+        ThreadKind::Run => super::runner::run_preamble(persona, reach, stored, desk_browser),
+        ThreadKind::Job => super::job_thread::job_preamble(persona, reach, stored, desk_browser),
         // The DM's: what it needs to know of the chapter it joins, and of its
         // computer, is the note.
-        ThreadKind::Dm => super::preamble(persona, reach, note, stored),
-        _ => super::sides::work_preamble(persona, reach, stored, opened_by, context, transcript),
+        ThreadKind::Dm => super::preamble(persona, reach, note, stored, desk_browser),
+        _ => super::sides::work_preamble(
+            persona,
+            reach,
+            stored,
+            desk_browser,
+            opened_by,
+            context,
+            transcript,
+        ),
     }
 }
 
@@ -595,7 +607,6 @@ mod tests {
             memory: None,
             pids: None,
             mounts: None,
-            secrets: None,
         });
         ada
     }

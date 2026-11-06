@@ -11,12 +11,11 @@ fn passkey_cards(room: &Room, persona_id: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Grants `names` to ada's computer on the room's record, the way
-/// `persona.update` would, without reattaching anything.
+/// Grants `names` to ada on the room's record, the way `persona.update`
+/// would, without reattaching anything.
 fn grant_secrets(room: &Room, names: &[&str]) {
     let mut ada = room.persona("ada").unwrap();
-    let computer = ada.computer.as_mut().unwrap();
-    computer.secrets = Some(names.iter().map(ToString::to_string).collect());
+    ada.secrets = Some(names.iter().map(ToString::to_string).collect());
     enrol(&room.log, &ada);
 }
 
@@ -268,7 +267,7 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
     // Ticked for ada, handed to the computer whole, and the arming ended.
     let ada = room.persona("ada").unwrap();
     assert_eq!(
-        ada.computer.unwrap().secrets.as_deref(),
+        ada.secrets.as_deref(),
         Some(&["GITHUB_PASSKEY".to_string()][..])
     );
     let sets = taken.sets();
@@ -385,13 +384,12 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
     assert!(!on_room.contains("correct-horse-battery"), "{on_room}");
 }
 
-/// What was brought over is listed from the room's record, and taken back
-/// by site or whole: the computer is told the exact domains and drops them,
-/// the record follows, and an entry with nothing left goes. A site that was
-/// never brought over is refused, and a release from before the door is
-/// named with the pane's Update.
+/// What the pane's old import brought over reads as shared cookies, a row
+/// a site, and Remove names that site's exact domains to the computer; a
+/// release from before the door is named with the pane's Update and the
+/// row stays.
 #[tokio::test]
-async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
+async fn an_old_import_is_a_row_a_site_and_remove_takes_its_domains_back() {
     use crate::contract::{CookieImport, CookieSite};
     let ComputerRoom { room, taken, .. } = computer_room(
         "computer-cookies-forget",
@@ -400,7 +398,14 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
         true,
     )
     .await;
-    assert_eq!(room.computer_cookies_list("ada"), [] as [CookieImport; 0]);
+    assert_eq!(
+        room.cookie_lends("ada"),
+        [] as [crate::contract::CookieLend; 0]
+    );
+    let site = |domain: &str, cookies| CookieSite {
+        domain: domain.into(),
+        cookies,
+    };
     let recorded = vec![CookieImport {
         browser_id: "chrome".to_string(),
         browser_name: "Google Chrome".to_string(),
@@ -408,67 +413,36 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
         profile_name: "Default".to_string(),
         imported_at: 1,
         sites: vec![
-            CookieSite {
-                domain: "github.com".to_string(),
-                cookies: 3,
-            },
-            CookieSite {
-                domain: "gitlab.com".to_string(),
-                cookies: 2,
-            },
+            site("api.github.com", 1),
+            site("github.com", 3),
+            site("gitlab.com", 2),
         ],
     }];
     room::record_cookie_imports(&room.log, "ada", &recorded).unwrap();
-    assert_eq!(room.computer_cookies_list("ada"), recorded);
+    let rows = room.cookie_lends("ada");
+    let sites: Vec<_> = rows.iter().map(|row| row.site.as_str()).collect();
+    assert_eq!(sites, ["github.com", "gitlab.com"]);
+    assert_eq!(rows[0].browser_name, "Google Chrome");
+    assert!(!rows[0].waiting);
 
-    let refused = room
-        .computer_cookies_forget("ada", "chrome", "Default", Some("example.com"))
-        .await
-        .unwrap_err();
-    assert!(refused.contains("not among the sites"), "{refused}");
-    assert!(
-        room.computer_cookies_forget("ada", "firefox", "default", None)
-            .await
-            .is_err()
-    );
-    assert!(
-        taken.forgotten().is_empty(),
-        "nothing asked of the computer yet"
-    );
-
-    // One site: the computer is told that domain, and the record loses it.
-    let left = room
-        .computer_cookies_forget("ada", "chrome", "Default", Some("github.com"))
-        .await
-        .unwrap();
+    room.start("ada").await.unwrap();
+    room.cookie_lend_remove("ada", &rows[0].id).await.unwrap();
     assert_eq!(
         taken.forgotten(),
         vec![(
             "import-chrome-Default".to_string(),
-            vec!["github.com".to_string()]
+            vec!["api.github.com".to_string(), "github.com".to_string()]
         )]
     );
-    assert_eq!(left.len(), 1);
-    assert_eq!(left[0].sites.len(), 1);
-    assert_eq!(left[0].sites[0].domain, "gitlab.com");
-    assert_eq!(room.computer_cookies_list("ada"), left);
+    let left: Vec<_> = room
+        .cookie_lends("ada")
+        .into_iter()
+        .map(|row| row.site)
+        .collect();
+    assert_eq!(left, ["gitlab.com"]);
+    assert!(room.cookie_lend_remove("ada", &rows[0].id).await.is_err());
 
-    // The rest: every remaining domain is named, and the entry goes.
-    let left = room
-        .computer_cookies_forget("ada", "chrome", "Default", None)
-        .await
-        .unwrap();
-    assert_eq!(left, [] as [CookieImport; 0]);
-    assert_eq!(
-        taken.forgotten()[1],
-        (
-            "import-chrome-Default".to_string(),
-            vec!["gitlab.com".to_string()]
-        )
-    );
-    assert_eq!(room.computer_cookies_list("ada"), [] as [CookieImport; 0]);
-
-    // A release from before the door: 404, said as the pane's Update.
+    // A release from before the door: refused, and the row stays.
     let ComputerRoom { room, taken, .. } = computer_room(
         "computer-cookies-forget-old",
         Some("0.8.0"),
@@ -477,17 +451,12 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
     )
     .await;
     room::record_cookie_imports(&room.log, "ada", &recorded).unwrap();
-    let refused = room
-        .computer_cookies_forget("ada", "chrome", "Default", None)
-        .await
-        .unwrap_err();
-    assert!(refused.contains("cannot take cookies back"), "{refused}");
+    room.start("ada").await.unwrap();
+    let id = room.cookie_lends("ada")[0].id.clone();
+    let refused = room.cookie_lend_remove("ada", &id).await.unwrap_err();
+    assert!(refused.contains("up to date"), "{refused}");
     assert_eq!(taken.forgotten(), [] as [(String, Vec<String>); 0]);
-    assert_eq!(
-        room.computer_cookies_list("ada"),
-        recorded,
-        "nothing dropped, nothing forgotten"
-    );
+    assert_eq!(room.cookie_lends("ada").len(), 2, "nothing dropped");
 }
 
 /// Polls the registration until it answers `state`, since the room's own
@@ -576,12 +545,7 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
     );
     // Ticked, handed whole, the arming ended, and said on the tape.
     assert_eq!(
-        room.persona("ada")
-            .unwrap()
-            .computer
-            .unwrap()
-            .secrets
-            .as_deref(),
+        room.persona("ada").unwrap().secrets.as_deref(),
         Some(&["GITHUB_PASSKEY".to_string()][..])
     );
     let sets = taken.sets();
@@ -646,8 +610,6 @@ async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_exp
     );
     assert!(
         room.persona("ada")
-            .unwrap()
-            .computer
             .unwrap()
             .secrets
             .unwrap_or_default()
@@ -729,7 +691,7 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     // machine it cannot drive.
     let mut bob = persona("bob");
     bob.cwd = cwd.to_string_lossy().into_owned();
-    let unheard = preamble(&bob, Some(Reach::Workspace), None, &[]);
+    let unheard = preamble(&bob, Some(Reach::Workspace), None, &[], false);
     assert!(!unheard.contains("hotline-computer"), "{unheard}");
     assert!(unheard.contains("\n- hotline-room: "), "{unheard}");
 
@@ -1331,10 +1293,8 @@ async fn laptop_cookies_reach_the_computer_but_never_the_room_or_tape() {
         taken.uploads.lock().unwrap()[0]["cookies"][0]["value"],
         "laptop-secret-value"
     );
-    assert_eq!(
-        room.computer_cookies_list("ada")[0].browser_name,
-        "firefox (laptop)"
-    );
+    assert_eq!(room.cookie_lends("ada")[0].browser_name, "firefox (laptop)");
+    assert!(room.cookie_lends("ada")[0].from_laptop);
     for stream in [StreamId::Room, StreamId::Tape("ada".into())] {
         assert!(
             !serde_json::to_string(&room.log.load(&stream))

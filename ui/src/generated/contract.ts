@@ -181,6 +181,11 @@ currentModelId?: string, modelLabel?: string, modes: Array<ConfigChoice>, curren
 configs: Array<SessionConfig>, };
 
 /**
+ * Who is driving a teammate's desk browser.
+ */
+export type BrowserPhase = "teammate" | "person";
+
+/**
  * One profile within a host browser. Only profiles that have a cookie store
  * on disk are listed.
  */
@@ -194,6 +199,41 @@ id: string,
  * What the browser shows the profile as, e.g. "Personal", "default".
  */
 name: string, };
+
+/**
+ * A teammate's desk browser as a picture: a JPEG of the visible page.
+ */
+export type BrowserSnapshot = { 
+/**
+ * Base64 JPEG.
+ */
+jpeg: string, at: number, url: string, title: string, };
+
+/**
+ * Where a teammate's desk browser is, for the PIP and the phone: the page,
+ * who drives it, and when it last moved. Its picture is `browser.snapshot`.
+ */
+export type BrowserView = { phase: BrowserPhase, url: string, title: string, 
+/**
+ * When the teammate last loaded or acted on a page, in milliseconds.
+ */
+activeAt: number, 
+/**
+ * When the snapshot `browser.snapshot` answers was taken; absent before
+ * the first.
+ */
+snapshotAt?: number, 
+/**
+ * What the browser waits on the person for, in a few words
+ * ("Certificate expired"): the PIP marks it and stays up until it
+ * clears. Absent while nothing does.
+ */
+needs?: string, 
+/**
+ * The size the teammate set its page to (`viewport`), when not the
+ * desk's own: the PIP takes its shape and names it (Phone, Tablet).
+ */
+viewport?: Viewport, };
 
 /**
  * What paid use is budgeted under: teammates and the call assistant are
@@ -455,7 +495,7 @@ size?: number, } } | { "cmd": "avatar.read", "params": { personaId: string, hash
  * The picture at most this many px wide, still a PNG, rather than
  * as kept: what a list row or a bubble's face needs.
  */
-size?: number, } } | { "cmd": "avatar.generate", "params": { personaId: string, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "mobile.persona_create", "params": { requestId: string, name: string, goal?: string, backendId?: string, modelId?: string, effortId?: string, } } | { "cmd": "mobile.persona_update", "params": { id: string, name?: string, goal?: string, } } | { "cmd": "mobile.persona_access", "params": { id: string, reach?: Reach, modeId?: string, backgroundWork?: boolean, } } | { "cmd": "mobile.persona_computer", "params": { id: string, enabled?: boolean, memory?: string, cpus?: number | null, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "persona.pin", "params": { id: string, slot?: number, } } | { "cmd": "persona.lead", "params": { id?: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "images.status", "params": Record<symbol, never> } | { "cmd": "websearch.status", "params": Record<symbol, never> } | { "cmd": "websearch.set_enabled", "params": { provider: WebSearchProvider, enabled: boolean, } } | { "cmd": "websearch.set_key", "params": { provider: WebSearchProvider, key?: string, } } | { "cmd": "link.preview", "params": { url: string, } } | { "cmd": "ping", "params": Record<symbol, never> } | { "cmd": "capabilities.options", "params": Record<symbol, never> } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.rename", "params": { id: string, label: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "harness.updates", "params": Record<symbol, never> } | { "cmd": "harness.updates.check", "params": Record<symbol, never> } | { "cmd": "harness.update", "params": { backendId: string, } } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "agent.auth.start", "params": { personaId: string, methodId: string, } } | { "cmd": "agent.auth.poll", "params": { personaId: string, id: string, } } | { "cmd": "agent.auth.input", "params": { personaId: string, id: string, input: string, } } | { "cmd": "agent.auth.cancel", "params": { personaId: string, id: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.retry", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, interrupt?: boolean, } } | { "cmd": "process.stop", "params": { personaId: string, id: string, } } | { "cmd": "process.output", "params": { personaId: string, id: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_backend", "params": { personaId: string, backendId: string, modelId?: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "plan.refresh", "params": { personaId: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "teammates.exchange_resume", "params": { a: string, b: string, } } | { "cmd": "teammates.exchange_stop", "params": { a: string, b: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "tape.page", "params": { personaId: string, before: string, limit?: number, through?: string, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, reminder?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "side.start", "params": { personaId: string, text: string, } } | { "cmd": "side.prompt", "params": { sideId: string, text: string, attachments?: Array<Attachment>, } } | { "cmd": "side.cancel", "params": { sideId: string, } } | { "cmd": "side.archive", "params": { sideId: string, } } | { "cmd": "side.continue", "params": { sideId: string, } } | { "cmd": "side.list", "params": { personaId: string, } } | { "cmd": "side.answer_permission", "params": { sideId: string, requestId: string, optionId: string, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.capacity", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "desk.looking", "params": { looking: boolean, } } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.start", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.restart", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.push", "params": { personaId: string, transfer: CookieTransfer, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.capture.answer", "params": CredentialAnswer } | { "cmd": "computer.cookies.offers", "params": { personaId: string, } } | { "cmd": "computer.cookies.settings", "params": Record<symbol, never> } | { "cmd": "computer.cookies.sites", "params": Record<symbol, never> } | { "cmd": "computer.cookies.answer", "params": { personaId: string, id: string, answer: CookieOfferAnswer, } } | { "cmd": "computer.cookies.remove", "params": { personaId: string, id: string, } } | { "cmd": "computer.cookies.blocked", "params": Record<symbol, never> } | { "cmd": "computer.cookies.reset", "params": { personaId: string, site: string, } } | { "cmd": "secrets.use.set", "params": { name: string, use: SecretUse, } } | { "cmd": "secrets.use.answer", "params": { personaId: string, useId: string, answer: SecretUseAnswer, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { use?: SecretUse, name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } } | { "cmd": "client.hello", "params": { capabilities: Array<string>, } } | { "cmd": "thread.list", "params": { personaId?: string, } } | { "cmd": "thread.open", "params": { personaId: string, text: string, } } | { "cmd": "thread.prompt", "params": { thread: ThreadId, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "thread.cancel", "params": { thread: ThreadId, interrupt?: boolean, } } | { "cmd": "thread.park", "params": { thread: ThreadId, } } | { "cmd": "thread.close", "params": { thread: ThreadId, } } | { "cmd": "thread.continue", "params": { thread: ThreadId, } } | { "cmd": "thread.answer", "params": { thread: ThreadId, answer: ThreadAnswer, } } | { "cmd": "thread.page", "params": { thread: ThreadId, before: string, limit?: number, through?: string, } } | { "cmd": "aside.list", "params": { personaId: string, } } | { "cmd": "aside.seen", "params": { personaId: string, } } | { "cmd": "thread.loop_in", "params": { thread: ThreadId, personaId: string, } } | { "cmd": "inbound.list", "params": Record<symbol, never> } | { "cmd": "inbound.add", "params": { draft: InboundDraft, } } | { "cmd": "inbound.update", "params": { id: string, muted?: boolean, teammates?: Array<string>, maxLevel?: AsideLevel, filesAllowed?: boolean, rate?: number, } } | { "cmd": "inbound.remove", "params": { id: string, } };
+size?: number, } } | { "cmd": "avatar.generate", "params": { personaId: string, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "mobile.persona_create", "params": { requestId: string, name: string, goal?: string, backendId?: string, modelId?: string, effortId?: string, } } | { "cmd": "mobile.persona_update", "params": { id: string, name?: string, goal?: string, } } | { "cmd": "mobile.persona_access", "params": { id: string, reach?: Reach, modeId?: string, backgroundWork?: boolean, } } | { "cmd": "mobile.persona_computer", "params": { id: string, enabled?: boolean, memory?: string, cpus?: number | null, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "persona.pin", "params": { id: string, slot?: number, } } | { "cmd": "persona.lead", "params": { id?: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "images.status", "params": Record<symbol, never> } | { "cmd": "websearch.status", "params": Record<symbol, never> } | { "cmd": "websearch.set_enabled", "params": { provider: WebSearchProvider, enabled: boolean, } } | { "cmd": "websearch.set_key", "params": { provider: WebSearchProvider, key?: string, } } | { "cmd": "websearch.set_url", "params": { provider: WebSearchProvider, url?: string, } } | { "cmd": "link.preview", "params": { url: string, } } | { "cmd": "link.icon", "params": { site: string, } } | { "cmd": "ping", "params": Record<symbol, never> } | { "cmd": "capabilities.options", "params": Record<symbol, never> } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.rename", "params": { id: string, label: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "harness.updates", "params": Record<symbol, never> } | { "cmd": "harness.updates.check", "params": Record<symbol, never> } | { "cmd": "harness.update", "params": { backendId: string, } } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "agent.auth.start", "params": { personaId: string, methodId: string, } } | { "cmd": "agent.auth.poll", "params": { personaId: string, id: string, } } | { "cmd": "agent.auth.input", "params": { personaId: string, id: string, input: string, } } | { "cmd": "agent.auth.cancel", "params": { personaId: string, id: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.retry", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, interrupt?: boolean, } } | { "cmd": "process.stop", "params": { personaId: string, id: string, } } | { "cmd": "process.output", "params": { personaId: string, id: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_backend", "params": { personaId: string, backendId: string, modelId?: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "plan.refresh", "params": { personaId: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "teammates.exchange_resume", "params": { a: string, b: string, } } | { "cmd": "teammates.exchange_stop", "params": { a: string, b: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "tape.page", "params": { personaId: string, before: string, limit?: number, through?: string, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, reminder?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "side.start", "params": { personaId: string, text: string, } } | { "cmd": "side.prompt", "params": { sideId: string, text: string, attachments?: Array<Attachment>, } } | { "cmd": "side.cancel", "params": { sideId: string, } } | { "cmd": "side.archive", "params": { sideId: string, } } | { "cmd": "side.continue", "params": { sideId: string, } } | { "cmd": "side.list", "params": { personaId: string, } } | { "cmd": "side.answer_permission", "params": { sideId: string, requestId: string, optionId: string, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.capacity", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "desk.looking", "params": { looking: boolean, } } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "browser.snapshot", "params": { personaId: string, } } | { "cmd": "computer.start", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.restart", "params": { personaId: string, } } | { "cmd": "computer.cookies.lends", "params": { personaId: string, } } | { "cmd": "computer.cookies.lendable", "params": Record<symbol, never> } | { "cmd": "computer.cookies.lend", "params": { personaId: string, site: string, } } | { "cmd": "computer.cookies.lend.set", "params": { personaId: string, id: string, keepFresh?: boolean, ends?: CookieLendEnds, } } | { "cmd": "computer.cookies.sources", "params": Record<symbol, never> } | { "cmd": "computer.cookies.source.set", "params": { browserId: string, profileId: string, on: boolean, } } | { "cmd": "browser.local.list", "params": { personaId: string, } } | { "cmd": "browser.local.remove", "params": { personaId: string, origin: string, } } | { "cmd": "computer.cookies.holders", "params": Record<symbol, never> } | { "cmd": "computer.cookies.push", "params": { personaId: string, transfer: CookieTransfer, } } | { "cmd": "secrets.capture.answer", "params": CredentialAnswer } | { "cmd": "computer.cookies.offers", "params": { personaId: string, } } | { "cmd": "computer.cookies.sites", "params": Record<symbol, never> } | { "cmd": "computer.cookies.answer", "params": { personaId: string, id: string, answer: CookieOfferAnswer, source?: CookieOfferSource, } } | { "cmd": "computer.cookies.remove", "params": { personaId: string, id: string, } } | { "cmd": "secrets.use.set", "params": { name: string, use: SecretUse, } } | { "cmd": "secrets.use.answer", "params": { personaId: string, useId: string, answer: SecretUseAnswer, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { use?: SecretUse, name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } } | { "cmd": "client.hello", "params": { capabilities: Array<string>, } } | { "cmd": "thread.list", "params": { personaId?: string, } } | { "cmd": "thread.open", "params": { personaId: string, text: string, } } | { "cmd": "thread.prompt", "params": { thread: ThreadId, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "thread.cancel", "params": { thread: ThreadId, interrupt?: boolean, } } | { "cmd": "thread.park", "params": { thread: ThreadId, } } | { "cmd": "thread.close", "params": { thread: ThreadId, } } | { "cmd": "thread.continue", "params": { thread: ThreadId, } } | { "cmd": "thread.answer", "params": { thread: ThreadId, answer: ThreadAnswer, } } | { "cmd": "thread.page", "params": { thread: ThreadId, before: string, limit?: number, through?: string, } } | { "cmd": "aside.list", "params": { personaId: string, } } | { "cmd": "aside.seen", "params": { personaId: string, } } | { "cmd": "thread.loop_in", "params": { thread: ThreadId, personaId: string, } } | { "cmd": "inbound.list", "params": Record<symbol, never> } | { "cmd": "inbound.add", "params": { draft: InboundDraft, } } | { "cmd": "inbound.update", "params": { id: string, muted?: boolean, teammates?: Array<string>, maxLevel?: AsideLevel, filesAllowed?: boolean, rate?: number, } } | { "cmd": "inbound.remove", "params": { id: string, } };
 
 /**
  * The resources available to a teammate's computer. Runtime limits take
@@ -580,6 +620,17 @@ defaultEffort?: string,
 fast?: boolean, };
 
 /**
+ * Where a teammate's cookie ask stands. Pending is the card; every other
+ * status is its one settled line.
+ */
+export type CookieAskStatus = "pending" | "cookies" | "signed_in" | "opened" | "not_now" | "expired" | "withdrawn";
+
+/**
+ * A teammate holding the person's cookies, and for which sites.
+ */
+export type CookieHolder = { teammate: string, name: string, sites: Array<string>, };
+
+/**
  * One browser profile's cookies brought over to a teammate's computer, as
  * the pane lists it afterwards: which browser and profile they came from,
  * when, and the sites, so the person can see what the computer's browser
@@ -593,23 +644,63 @@ export type CookieImport = { browserId: string, browserName: string, profileId: 
 importedAt: number, sites: Array<CookieSite>, };
 
 /**
- * A host-cookie offer carries metadata only, including after settlement.
+ * One site's cookies the person shared with a teammate, as its pane lists
+ * it: the site, where the cookies came from, and the two choices a share
+ * has. The same row whether the teammate's browser is its desk browser or
+ * its computer's; metadata only, never a value.
  */
-export type CookieOffer = { id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, };
-
-export type CookieOfferAnswer = "use" | "not_now" | "never";
-
-export type CookieOfferBlock = { teammate: string, name: string, site: string, };
+export type CookieLend = { id: string, teammate: string, 
+/**
+ * The registrable site: its cookies and its subdomains' are shared.
+ */
+site: string, browserName: string, profileName: string, 
+/**
+ * Unix milliseconds the share was made.
+ */
+lentAt: number, 
+/**
+ * Copied again whenever the site's cookies in the source change.
+ */
+keepFresh?: boolean, 
+/**
+ * Unix milliseconds the share is taken back by itself; absent, never.
+ */
+endsAt?: number, 
+/**
+ * Not in the teammate's browser yet: its computer has not started
+ * since the share moved there, or its source could not be read.
+ */
+waiting?: boolean, 
+/**
+ * Brought from a laptop's browser to a desk on a server, so this desk
+ * cannot read its source again and Keep fresh is not offered.
+ */
+fromLaptop?: boolean, };
 
 /**
- * Offers default to on for all sites, including rooms saved before this
- * setting existed. This permits discovery, never lending without Use.
+ * When a share ends: a day after it is set, or when it is removed.
  */
-export type CookieOfferSettings = { enabled: boolean, 
+export type CookieLendEnds = "day" | "never";
+
 /**
- * Absent means all sites; an empty list means none.
+ * A share record: one site's cookies copied into a teammate's browser,
+ * metadata only, kept so the share can be listed and removed.
  */
-sites?: Array<string>, };
+export type CookieOffer = { id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, 
+/**
+ * The lend is for the teammate's desk browser, its own web storage on
+ * the desk, rather than its computer; Remove takes it back from there.
+ */
+deskBrowser?: boolean, };
+
+/**
+ * The person's answer to a teammate's cookie ask, other than Sign In,
+ * which goes through `secrets.capture.answer` so its values reach only the
+ * vault. Use copies the site's cookies from one of the person's browsers;
+ * Open Browser hands the person the teammate's own browser; Not now is the
+ * card's close, which tells the teammate no until the person next writes.
+ */
+export type CookieOfferAnswer = "use" | "not_now" | "open_browser";
 
 export type CookieOfferSite = { site: string, sources: Array<CookieOfferSource>, };
 
@@ -631,6 +722,18 @@ export type CookieOfferStatus = "pending" | "unconfirmed" | "lent" | "declined" 
  * holds. A preview is domains and counts only, never a value.
  */
 export type CookieSite = { domain: string, cookies: number, };
+
+/**
+ * One browser profile on this machine as a cookie source, and whether the
+ * person lets Hotline read it. Every profile found starts switched on.
+ */
+export type CookieSource = { browserId: string, browserName: string, profileId: string, profileName: string, on: boolean, };
+
+/**
+ * The cookie sources found, and why any installed browser could not be
+ * looked into (macOS without Full Disk Access).
+ */
+export type CookieSources = { sources: Array<CookieSource>, blocked: Array<string>, };
 
 /**
  * Selected laptop cookies, transported inside the sealed owner channel.
@@ -675,7 +778,13 @@ revoked: boolean, createdAt: number, updatedAt: number, };
  * No name means decline. A name without values grants a matching existing
  * key, or starts a passkey arming. Values are accepted only for a new login.
  */
-export type CredentialAnswer = { actionId: string, name?: string, values?: CredentialValues, ask: boolean, };
+export type CredentialAnswer = { actionId: string, name?: string, values?: CredentialValues, ask: boolean, 
+/**
+ * Save to Secrets, on a cookie ask's Sign In: false keeps the login
+ * only long enough for this sign-in. Absent is true, as every other
+ * credential card stores its login.
+ */
+save?: boolean, };
 
 /**
  * How this connection was established: a pasted key, a provider sign-in,
@@ -988,10 +1097,20 @@ export type JobPost = { at: number,
 text: string, };
 
 /**
- * A link's card: the page's title, a second line saying where it is or
- * what it is about, and its picture when it has one over https.
+ * A link's card: where the page lives, its title, what it says about
+ * itself, and its picture when it has a real one.
  */
-export type LinkPreview = { url: string, title: string, site: string, image?: string, };
+export type LinkPreview = { url: string, title: string, 
+/**
+ * The card's first line: the site's address, then its own name when
+ * that says something the address does not (`qdrant.tech · Docs`).
+ */
+site: string, description?: string, 
+/**
+ * The page's picture as a `data:` URL: fetched once by the desk,
+ * shrunk and kept, so the window never asks the site for it.
+ */
+image?: string, };
 
 /**
  * Where a thread stands, in every kind's words: an agent is running it, it is
@@ -1389,6 +1508,17 @@ webSearchPolicy?: WebSearchPolicy,
  */
 computer?: PersonaComputer, 
 /**
+ * The stored secrets this teammate is granted, by name (see
+ * [`SharedSecret`](crate::SharedSecret)): the teammate's, used by
+ * whichever shell and browser it has. The value never leaves the vault
+ * except on its way to that machine, which redacts it from what it
+ * answers the agent. Absent means none: a teammate nobody granted
+ * anything is handed nothing. A record from before secrets were the
+ * teammate's own kept them on its computer; [`Persona::from_record`]
+ * reads them from there.
+ */
+secrets?: Array<string>, 
+/**
  * The voice this teammate speaks in on a direct call, as picked from the
  * desk's speaking model. It applies only while the desk still speaks
  * with that provider and model; otherwise the desk's own voice is used.
@@ -1438,16 +1568,7 @@ pids?: number,
  * Host folders bound into the desktop besides the workspace, so a
  * teammate can read a checkout it has to test without cloning it.
  */
-mounts?: Array<ComputerMount>, 
-/**
- * The stored secrets this computer's shell gets as environment
- * variables, by name (see [`SharedSecret`]). The value never leaves the
- * vault except on its way to this machine, and the computer redacts it
- * from what it answers the agent. Absent means none: a record from
- * before this field, or a teammate nobody granted anything, is handed
- * nothing.
- */
-secrets?: Array<string>, };
+mounts?: Array<ComputerMount>, };
 
 /**
  * What the new-teammate form fills in. Everything but the name has a default
@@ -1993,7 +2114,11 @@ processes?: Array<SessionProcess>,
  * it after a reply. Absent until it reports, and for an agent that never
  * does; a reading is as of `at`, not live.
  */
-planUsage?: PlanUsage, };
+planUsage?: PlanUsage, 
+/**
+ * The teammate's desk browser, once it has opened a page this run.
+ */
+browser?: BrowserView, };
 
 /**
  * One command a session holds running, as the desk's chip shows it.
@@ -2574,7 +2699,40 @@ existing: Array<string>,
 /**
  * The first answer armed a passkey; only its site's approval remains.
  */
-armed: boolean, } | { "kind": "cookie_offer", id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, } | { "kind": "secret_use_ask", id: string, ts: number, useId: string, secret: string, secretKind: CaptureKind, site: string, path: string, teammate: string, askedAt: number, expiresAt: number, status: SecretUseStatus, } | { "kind": "passkey_ask", 
+armed: boolean, } | { "kind": "cookie_ask", from?: DeliveryFrom, id: string, ts: number, 
+/**
+ * The registrable domain, as `github.com`.
+ */
+site: string, 
+/**
+ * The full origin a login given here is typed on.
+ */
+origin: string, reason: string, status: CookieAskStatus, 
+/**
+ * The person's browsers signed in to the site when the ask was
+ * raised, the last one lent from first. Empty, there is no Use
+ * Cookies.
+ */
+sources: Array<CookieOfferSource>, 
+/**
+ * The key name Sign In saves to Secrets under unless changed.
+ */
+name: string, browserName?: string, profileName?: string, storedAs?: string, 
+/**
+ * A login given without Save to Secrets leaves the vault and the
+ * teammate's grant at this time; gone once it has.
+ */
+keptUntil?: number, 
+/**
+ * The teammate's browser is the desk browser rather than its
+ * computer's: Open Browser opens its pane.
+ */
+deskBrowser?: boolean, expiresAt: number, } | { "kind": "cookie_offer", id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, 
+/**
+ * The lend is for the teammate's desk browser, its own web storage on
+ * the desk, rather than its computer; Remove takes it back from there.
+ */
+deskBrowser?: boolean, } | { "kind": "secret_use_ask", id: string, ts: number, useId: string, secret: string, secretKind: CaptureKind, site: string, path: string, teammate: string, askedAt: number, expiresAt: number, status: SecretUseStatus, } | { "kind": "passkey_ask", 
 /**
  * The call that raised this card in the home chat.
  */
@@ -2744,6 +2902,11 @@ export type UploadDestination = { name: string, } | { path: string, };
  */
 export type ViewName = "roster";
 
+/**
+ * A page's size in CSS pixels.
+ */
+export type Viewport = { width: number, height: number, };
+
 export type VoiceBudget = { 
 /**
  * The Voice budget's daily limit; absent when it has none.
@@ -2897,18 +3060,31 @@ export type VoiceTranscript = { text: string, };
 export type WebSearchPolicy = { mode: PolicyMode, providers: Array<WebSearchProvider>, };
 
 /**
- * The four providers web search has. The chain tries them Parallel, Exa,
- * Keenable, Firecrawl before any key promotes one. A record may name one
- * this build does not have; it is left out on read rather than taking the
- * whole teammate with it.
+ * The providers web search has. The four hosted ones are on until the desk
+ * switches one off, and the chain tries them Parallel, Exa, Keenable,
+ * Firecrawl before any key promotes one. SearXNG is the person's own
+ * instance: off until the desk switches it on, and never searched without
+ * the instance's URL. A record may name one this build does not have; it is
+ * left out on read rather than taking the whole teammate with it.
  */
-export type WebSearchProvider = "parallel" | "exa" | "firecrawl" | "keenable";
+export type WebSearchProvider = "parallel" | "exa" | "firecrawl" | "keenable" | "searxng";
 
 /**
  * One provider as the Tools pane shows it: whether the desk has it on, and
- * whether a key is saved for it. Never the key.
+ * whether a key is saved for it. Never the key. A provider the person runs
+ * themselves (SearXNG) also says it takes an instance URL, and the URL the
+ * desk holds, which carries no credentials.
  */
-export type WebSearchProviderStatus = { provider: WebSearchProvider, name: string, enabled: boolean, hasKey: boolean, };
+export type WebSearchProviderStatus = { provider: WebSearchProvider, name: string, enabled: boolean, hasKey: boolean, 
+/**
+ * Whether this provider is reached at a URL the person sets. Absent is
+ * false: a hosted provider.
+ */
+takesUrl?: boolean, 
+/**
+ * The instance URL, when one is set.
+ */
+url?: string, };
 
 /**
  * What `websearch.status` answers: the providers in the order a search with

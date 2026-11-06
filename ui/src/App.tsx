@@ -8,6 +8,9 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
+import { FullView } from "./components/FullView";
+import { type FullObject, OpenFull } from "./components/Sheet";
+import { Speakers } from "./ui/OpenBand";
 import { FlushChrome, Titlebar } from "./ui/Titlebar";
 import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
 import { TeamSearch } from "./components/Search";
@@ -285,6 +288,15 @@ export function App() {
 		setDock(next);
 	}, [setInspector, setDock]);
 	const closeDock = useCallback(() => setDock(null), [setDock]);
+	/* A table, a block of code or a diagram from a message opens over the whole window. */
+	const [full, setFull] = useState<FullObject | null>(null);
+	const closeFull = useCallback(() => setFull(null), []);
+	/* An object open belongs to the conversation it came from: another
+	 * teammate, or a pane in its place, puts it away. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the teammate and the pane are what end it.
+	useEffect(() => {
+		setFull(null);
+	}, [selectedId, pane]);
 	const openThread = useCallback((open: ThreadRef) => {
         if (open.thread.kind === "dm") {
             select(open.thread.key);
@@ -411,6 +423,7 @@ export function App() {
 	const calling = call !== null && callPhase !== "ended";
 	const { available: voice, directCalls } = useVoiceSupport(connection);
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
+	const personaOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona, [roster]);
 	const callTeammate = useCallback(
 		(entry: RosterEntry) =>
 			void startCall(nameOf, { personaId: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash }),
@@ -596,6 +609,9 @@ export function App() {
 				)}
 				{/* A pane with no conversation has no band of its own to hang the call from. */}
 				{!conversationShown && callBar}
+				{/* Settings stands where the pane would, so nothing in it opens there. */}
+				<Speakers.Provider value={personaOf}>
+				<OpenFull.Provider value={pane === "settings" ? null : setFull}>
 				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
@@ -604,6 +620,11 @@ export function App() {
 							onSection={setSettingsSection}
 							onAddDesk={() => togglePane("add-desk")}
 							team={roster.map((entry) => entry.persona)}
+							onOpenTeammate={(personaId) => {
+								closePane();
+								select(personaId);
+								setInspector(true);
+							}}
 						/>
 					</Suspense>
 				) : pane === "add-desk" ? (
@@ -715,7 +736,10 @@ export function App() {
 						}} />}
 					</div>
 				)}
+				{full !== null && <FullView object={full} onClose={closeFull} />}
 				</div>
+				</OpenFull.Provider>
+				</Speakers.Provider>
 			</main>
 			</div>
 			)}

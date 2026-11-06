@@ -1,0 +1,960 @@
+/* What a message carries as an object of its own (docs/design/inline-premium.html rows 1-5): the sheet, tables, code, quotes and alerts, diagrams; and the words around them, headings, lists and inline code. */
+@layer components {
+	/* ------------------------------------------------------------ the sheet
+	 * A table, a block of code and a diagram each sit on one sheet: in a
+	 * bubble, its full width edge to edge, with no border and no card, only a
+	 * quieter band; its keys wait for a hover. The planes are alpha, so the
+	 * sheet reads on grey and on every teammate's tint, light and dark. */
+	.sheet {
+		position: relative;
+		margin: 0.8em 0;
+		overflow: hidden;
+		border-radius: var(--radius-pane);
+		background: var(--sheet);
+		/* A bubble breaks its text anywhere so a long word can't push it wide,
+		 * and a table reads each break as room to give up: its columns shrank
+		 * to a letter. On a sheet words break between words, and what is wider
+		 * than the bubble scrolls across instead. */
+		overflow-wrap: break-word;
+	}
+	/* A bubble with an object in it may take the whole column, so a table has
+	 * the room to lay out its columns, and code its lines, before scrolling. */
+	.speech:has(.sheet) {
+		max-width: calc(100% - 40px);
+	}
+	/* In a bubble a sheet, and a callout, run through the bubble's padding to
+	 * its edges; at its top or its bottom one meets the bubble's corners. */
+	.speech .sheet {
+		margin-inline: -12px;
+		border-radius: 0;
+		background: var(--sheet-sunk);
+	}
+	/* Focused from the keyboard, a sheet shows it by its edge. */
+	.speech .sheet:focus-visible {
+		box-shadow: inset 0 0 0 1px var(--line-strong);
+	}
+	.speech > .md > .sheet:first-child {
+		margin-top: -8px;
+		border-top-left-radius: var(--radius-bubble);
+		border-top-right-radius: var(--radius-bubble);
+	}
+	.speech > .md > .sheet:last-child {
+		margin-bottom: -8px;
+		border-bottom-left-radius: var(--radius-bubble);
+		border-bottom-right-radius: var(--radius-bubble);
+	}
+	.said-them.said-run-top > .md > .sheet:first-child {
+		border-top-left-radius: var(--radius-chip);
+	}
+	.said-them.said-run-bottom > .md > .sheet:last-child {
+		border-bottom-left-radius: var(--radius-chip);
+	}
+	.sheet-head {
+		display: flex;
+		height: 28px;
+		align-items: center;
+		gap: 8px;
+		padding: 0 4px 0 12px;
+	}
+	/* In a bubble a sheet's keys join the bubble's one toolbar (Bubbles.tsx)
+	 * while it is pointed at; its head keeps only its name, and a table,
+	 * which names nothing, has no head. */
+	.speech .sheet {
+		overflow: visible;
+	}
+	/* Keys show when the object is pointed at or holds the focus. */
+	.sheet-keys {
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.sheet:hover .sheet-keys,
+	.sheet:focus-within .sheet-keys {
+		opacity: 1;
+	}
+	.sheet-label {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 500;
+		color: var(--ink-3);
+		user-select: none;
+	}
+	.sheet-label b {
+		font-weight: 500;
+		color: var(--ink-2);
+	}
+	.sheet-keys {
+		display: flex;
+		flex-shrink: 0;
+		gap: 2px;
+	}
+	.sheet-key {
+		display: inline-flex;
+		height: 24px;
+		align-items: center;
+		gap: 5px;
+		padding: 0 8px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.sheet-key:hover,
+	.sheet-key:focus-visible {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.sheet-key[aria-pressed="true"] {
+		background: var(--fill-active);
+		color: var(--ink);
+	}
+	.sheet-key svg {
+		width: 14px;
+		height: 14px;
+	}
+	/* On a sheet a key is its glyph; its word is the tooltip and what a
+	 * screen reader says. The full view's head has room for the word. */
+	.sheet .sheet-key {
+		width: 26px;
+		justify-content: center;
+		padding: 0;
+	}
+	.sheet .sheet-key-word {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	/* Blocks one after another in a bubble touch, a hairline between them,
+	 * rather than leave a strip of the bubble's own colour. */
+	.speech .md > .sheet:has(+ .sheet) {
+		margin-bottom: 0;
+	}
+	.speech .md > .sheet + .sheet {
+		margin-top: 0;
+		border-top: var(--hairline) solid var(--line);
+	}
+
+	/* ---------------------------------------------------------------- table
+	 * Plain rows on the sheet: a hairline under the head and between rows,
+	 * no walls and no fill on any row. The head is the instrument face; the
+	 * first column names the row; a column of numbers stands right. */
+	.md-table {
+		overflow-x: auto;
+	}
+	/* In a bubble a table wraps its cells to fit, and every column shows;
+	 * only one too narrow even then scrolls, with a fade where it goes on. */
+	.speech .md-table td,
+	.speech .md-table th {
+		min-width: 4.5em;
+		overflow-wrap: break-word;
+	}
+	/* A heading wraps to two lines at most before its column widens. */
+	.speech .md-table th {
+		min-width: 11ch;
+		text-wrap: balance;
+	}
+	.speech .md-table td:has(.site-chip) {
+		min-width: 9em;
+	}
+	/* A source's chip sets how narrow its column may go: a column of
+	 * sentences gives way instead, so no chip runs past its cell. A
+	 * percentage width here would count for nothing in the table's sums and
+	 * let the column squeeze under the chip; so it is as wide as its words,
+	 * which the column must make room for. One name too long for a chip at
+	 * all ends in an ellipsis, its whole address its tooltip. */
+	.md-table td .site-chip {
+		width: max-content;
+		max-width: 28ch;
+		margin: 1px 6px 1px 0;
+	}
+	.md a.site-chip .site-chip-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.md-table table {
+		width: 100%;
+		table-layout: auto;
+		border-collapse: collapse;
+		font-size: var(--text-md);
+		line-height: 19px;
+		font-variant-numeric: tabular-nums;
+	}
+	.md-table th,
+	.md-table td {
+		padding: 10px 12px;
+		text-align: left;
+		vertical-align: top;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.md-table th {
+		padding: 9px 12px 8px;
+		vertical-align: bottom;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 600;
+		color: var(--ink-2);
+	}
+	.md-table td {
+		color: var(--ink-2);
+	}
+	.md-table td:first-child {
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.md-table tr:last-child td {
+		border-bottom: none;
+	}
+	.md-table .num {
+		text-align: right;
+		white-space: nowrap;
+	}
+	.md-table td.num {
+		color: var(--ink);
+	}
+	.md-table td.wide {
+		min-width: 24ch;
+	}
+	/* In a bubble the column of sentences gives up room first, so short
+	 * cells (a licence, a latency) keep to one or two lines. */
+	.speech .md-table td.wide {
+		min-width: 14ch;
+	}
+	.speech .md-table td:not(.wide) {
+		min-width: 11ch;
+	}
+	/* A source in a table: the site's chip, its icon when the desk has one. */
+	.md a.site-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin: 0 4px 4px 0;
+		padding: 1px 7px;
+		border-radius: 999px;
+		background: var(--fill-active);
+		font-size: var(--text-xs);
+		line-height: 18px;
+		font-weight: 400;
+		white-space: nowrap;
+		color: var(--ink-2);
+		text-decoration: none;
+	}
+	.md a.site-chip:has(.favicon) {
+		padding-left: 3px;
+	}
+	.md a.site-chip:hover {
+		color: var(--ink);
+	}
+
+	/* ----------------------------------------------------------------- code
+	 * Outside a bubble a long line scrolls across under a fade at the right
+	 * edge; in one, code too wide or too long is cut (see the cut, below).
+	 * Numbers are the open view's alone. */
+	.code-body {
+		margin: 0;
+		padding: 10px 0 12px;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: 20px;
+		color: var(--ink);
+		mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+	}
+	/* Block code is not the inline chip. */
+	.sheet pre code {
+		display: block;
+		width: max-content;
+		min-width: 100%;
+		padding: 0;
+		background: none;
+		box-shadow: none;
+		font-size: inherit;
+	}
+	.code-line {
+		position: relative;
+		display: block;
+		min-height: 20px;
+		padding: 0 24px 0 12px;
+		white-space: pre;
+	}
+	.speech .sheet-head + .code-body {
+		padding-top: 2px;
+	}
+	/* One line of code is a command to read, not a shape to keep: it folds
+	 * in the bubble rather than run past it. */
+	.code-body[data-wrap] code {
+		width: auto;
+	}
+	.code-body[data-wrap] .code-line {
+		padding-right: 12px;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.code-body[data-wrap] {
+		mask-image: none;
+	}
+	.full-view-object .code-body[data-wrap] .code-line {
+		white-space: pre;
+		overflow-wrap: normal;
+	}
+	.code-keyword {
+		color: var(--code-keyword);
+	}
+	.code-string {
+		color: var(--code-string);
+	}
+	.code-number {
+		color: var(--code-number);
+	}
+	.code-function {
+		color: var(--code-function);
+	}
+	.code-comment {
+		color: var(--ink-3);
+	}
+
+	/* -------------------------------------------------------------- the cut
+	 * A table or code too much for its bubble shows what fits, faded at the
+	 * edge it goes on past, never scrolled; under it, what it is and how
+	 * much, and the whole sheet opens it full screen, as the phone's card. */
+	.sheet[data-cut] {
+		cursor: pointer;
+	}
+	.sheet[data-cut] > .md-table,
+	.sheet[data-cut] > .code-body {
+		overflow: hidden;
+		pointer-events: none;
+		user-select: none;
+	}
+	/* A cut table lays each column out at its own width, a row to a line,
+	 * as the phone's card, so its head and first rows show, cut at the edge. */
+	.speech .sheet[data-cut] > .md-table :is(td, th) {
+		white-space: nowrap;
+	}
+	.sheet[data-cut~="tall"] > .md-table {
+		max-height: 176px;
+	}
+	.sheet[data-cut~="tall"] > .code-body {
+		/* Eight lines and the top padding; the bottom one is under the fade. */
+		max-height: 172px;
+		padding-bottom: 0;
+	}
+	.sheet[data-cut="wide"] > .code-body {
+		mask-image: linear-gradient(to right, black calc(100% - 48px), transparent);
+	}
+	.sheet[data-cut="tall"] > .code-body {
+		mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+	}
+	.sheet[data-cut="wide tall"] > .code-body {
+		mask-image:
+			linear-gradient(to right, black calc(100% - 48px), transparent),
+			linear-gradient(to bottom, black calc(100% - 40px), transparent);
+		mask-composite: intersect;
+		-webkit-mask-composite: source-in;
+	}
+	/* A cut table's head row is what says whether to open it, so it never
+	 * fades: a layer of its own height keeps it whole, and the body under it
+	 * fades at the edge it goes on past and at the bottom. The head's height
+	 * is measured onto --cut-head (Markdown.tsx). */
+	.sheet[data-cut] > .md-table {
+		--keep-head: linear-gradient(black, black) top / 100% var(--cut-head, 0px) no-repeat;
+		--fade-right: linear-gradient(to right, black calc(100% - 48px), transparent);
+		--fade-bottom: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+	}
+	.sheet[data-cut="wide"] > .md-table {
+		mask: var(--keep-head), var(--fade-right);
+		mask-composite: add;
+		-webkit-mask-composite: source-over;
+	}
+	.sheet[data-cut="tall"] > .md-table {
+		mask-image: var(--fade-bottom);
+	}
+	.sheet[data-cut="wide tall"] > .md-table {
+		mask: var(--keep-head), var(--fade-right), var(--fade-bottom);
+		mask-composite: add, intersect;
+		-webkit-mask-composite: source-over, source-in;
+	}
+	.sheet-cut {
+		display: flex;
+		width: 100%;
+		height: 30px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 0 10px 0 12px;
+		border-top: var(--hairline) solid var(--line);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 500;
+		color: var(--ink-3);
+		transition: color var(--dur-press) var(--ease-out);
+	}
+	.sheet-cut svg {
+		width: 13px;
+		height: 13px;
+	}
+	.sheet[data-cut]:hover .sheet-cut,
+	.sheet-cut:focus-visible {
+		color: var(--ink);
+	}
+
+	/* -------------------------------------------------------------- diagram */
+	.diagram-body {
+		overflow-x: auto;
+	}
+	.diagram-body .picture-open {
+		width: 100%;
+		cursor: zoom-in;
+	}
+	.mermaid-diagram {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		margin: 0 auto;
+		padding: 14px 12px 12px;
+	}
+	.diagram-source {
+		margin: 0;
+		padding: 10px 12px 12px;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: 20px;
+		white-space: pre;
+		color: var(--ink);
+	}
+	.mermaid-note {
+		padding: 0 12px 10px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+
+	/* ------------------------------------------------------ the open view
+	 * One object as a pane in the conversation's place, the rail beside it
+	 * (docs/design/open-view.html, B, D, E): the 40px band every pane wears,
+	 * with no line under it, then the caption and the object at its own width
+	 * from the 24px inset. What scrolls fades under the band. */
+	.full-view {
+		position: absolute;
+		inset: 0;
+		z-index: 30;
+		display: flex;
+		flex-direction: column;
+		overflow: clip;
+		border-radius: var(--radius-pane);
+	}
+	/* The canvas the view stands on fades in over the conversation while the
+	 * object grows from its sheet; the band and caption come with it. */
+	.full-view-ground {
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: var(--canvas);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	.full-view-ground,
+	.full-view-band,
+	.full-view-caption {
+		transition: opacity var(--dur-open) var(--ease-out);
+	}
+	.full-view-band {
+		position: relative;
+		z-index: 2;
+	}
+	.full-view:is([data-state="opening"], [data-state="closing"]) :is(.full-view-ground, .full-view-band, .full-view-caption) {
+		opacity: 0;
+	}
+	.full-view-object {
+		width: fit-content;
+		max-width: none;
+		transform-origin: 0 0;
+		transition: transform var(--dur-move) var(--ease-out);
+	}
+	/* Nothing to grow from, or reduced motion: the view crossfades whole. */
+	.full-view[data-still] {
+		transition: opacity var(--dur-open) var(--ease-out);
+	}
+	.full-view[data-still]:is([data-state="opening"], [data-state="closing"]) {
+		opacity: 0;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.full-view {
+			transition: opacity var(--dur-open) var(--ease-out);
+		}
+		.full-view:is([data-state="opening"], [data-state="closing"]) {
+			opacity: 0;
+		}
+		.full-view-object {
+			transition: none;
+		}
+	}
+	/* The open band (ui/OpenBand.tsx): the same over a table, a picture and
+	 * a file. Who and when at its left, the fact and keys at its right, each
+	 * key a glyph with its word. */
+	.open-band-name {
+		margin-left: 4px;
+		font-size: var(--text-md);
+		line-height: 18px;
+		font-weight: 500;
+		color: var(--ink);
+		white-space: nowrap;
+	}
+	.open-band-fact {
+		min-width: 0;
+		margin-right: 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.open-band :is(.sheet-key, .line-key) {
+		width: auto;
+		height: 26px;
+		padding: 0 8px;
+		font-size: var(--text-sm);
+	}
+	.open-band :is(.sheet-key, .line-key):has(> svg:only-child) {
+		width: 26px;
+		padding: 0;
+		justify-content: center;
+	}
+	.open-band .sheet-key-word {
+		position: static;
+	}
+	.open-band .sent-error {
+		font-size: var(--text-sm);
+		color: var(--danger);
+	}
+	.full-view-scroll {
+		position: relative;
+		display: flex;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+		overflow: auto;
+		mask-image: linear-gradient(to bottom, transparent 0, black 16px, black calc(100% - 24px), transparent);
+	}
+	.full-view-body {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		flex-direction: column;
+		align-items: flex-start;
+		padding: 12px 24px 40px;
+		color: var(--ink);
+	}
+	.full-view-caption {
+		max-width: 72ch;
+		margin: 0 0 14px;
+		font-size: var(--text-md);
+		line-height: 18px;
+		color: var(--ink-2);
+	}
+	.full-view-caption-who {
+		color: var(--ink-3);
+	}
+	.full-view-object .md {
+		font-size: var(--text-read);
+		line-height: var(--text-read--line-height);
+	}
+	.full-view-object .sheet {
+		margin: 0;
+		overflow: visible;
+		border-radius: 0;
+		background: none;
+	}
+	.full-view-object .sheet-head {
+		display: none;
+	}
+
+	/* A table at its own width: headings and short cells keep to a line, a
+	 * column of sentences wraps at a reading width, the head row stays as the
+	 * rows scroll under it, and the row under the pointer lights. */
+	.full-view-object .md-table {
+		overflow: visible;
+	}
+	.full-view-object .md-table table {
+		width: auto;
+	}
+	.full-view-object .md-table th,
+	.full-view-object .md-table td {
+		padding-inline: 16px;
+		white-space: nowrap;
+	}
+	.full-view-object .md-table td.wide {
+		min-width: 24ch;
+		max-width: 44ch;
+		white-space: normal;
+	}
+	.full-view-object thead > tr > th {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: var(--canvas);
+	}
+	.full-view-object tbody > tr:hover > td {
+		background: var(--fill-hover);
+	}
+
+	/* Code at the bubble's size, numbered here and nowhere else, never
+	 * wrapped; the view scrolls across only when a line is longer than it. */
+	.full-view-object .code-body {
+		padding: 6px 0 16px;
+		overflow: visible;
+		mask-image: none;
+	}
+	.full-view-object .code-line {
+		padding-left: 46px;
+	}
+	.full-view-object .code-line::before {
+		content: attr(data-n);
+		position: absolute;
+		left: 0;
+		width: 34px;
+		text-align: right;
+		color: var(--ink-4);
+		user-select: none;
+	}
+	.full-view-object .code-line:hover {
+		background: var(--fill-hover);
+	}
+
+	/* A diagram stands on a stage that fills the view: at 1×, centred, fitted
+	 * down only when larger; it zooms and pans under the hand. */
+	.full-view[data-kind="diagram"] .full-view-scroll {
+		overflow: hidden;
+	}
+	.full-view[data-kind="diagram"] .full-view-object {
+		display: flex;
+		width: 100%;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+	}
+	.full-view[data-kind="diagram"] .full-view-body {
+		padding-bottom: 0;
+	}
+	.full-view-object .diagram-source {
+		padding: 6px 0 16px;
+	}
+	.diagram-stage {
+		position: relative;
+		display: grid;
+		min-height: 0;
+		flex: 1;
+		place-items: center;
+		margin: 0 -24px;
+		overflow: hidden;
+		cursor: grab;
+		touch-action: none;
+	}
+	.diagram-stage[data-grabbing] {
+		cursor: grabbing;
+	}
+	.diagram-stage-drawing {
+		max-width: none;
+		transform-origin: center;
+		user-select: none;
+		pointer-events: none;
+	}
+	.zoom {
+		position: absolute;
+		right: 16px;
+		bottom: 16px;
+		display: inline-flex;
+		align-items: center;
+		gap: 1px;
+		padding: 2px;
+		border-radius: var(--radius-control);
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			var(--shadow-float);
+		opacity: 0;
+		cursor: default;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.diagram-stage:hover .zoom,
+	.zoom:focus-within {
+		opacity: 1;
+	}
+	.zoom-key {
+		display: grid;
+		min-width: 24px;
+		height: 24px;
+		place-items: center;
+		padding: 0 6px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	.zoom-key:hover,
+	.zoom-key:focus-visible {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.zoom-pct {
+		min-width: 44px;
+		padding: 0 6px;
+		text-align: center;
+		color: var(--ink-2);
+	}
+
+	/* ------------------------------------------------- words around objects */
+	.md .md-heading {
+		margin: 0.8em 0 0.3em;
+		font-size: var(--text-lg);
+		line-height: 22px;
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.md ul,
+	.md ol {
+		margin: 0.6em 0;
+		padding: 0;
+		list-style: none;
+	}
+	.md ol {
+		counter-reset: md-item;
+	}
+	.md li {
+		position: relative;
+		padding-left: 22px;
+	}
+	.md li + li {
+		margin-top: 4px;
+	}
+	.md li > ul,
+	.md li > ol {
+		margin: 4px 0 0;
+	}
+	.md ul > li {
+		padding-left: 16px;
+	}
+	.md ul > li::before {
+		content: "";
+		position: absolute;
+		top: 0.61em;
+		left: 2px;
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: var(--ink-3);
+	}
+	.md ol > li {
+		counter-increment: md-item;
+	}
+	.md ol > li::before {
+		content: counter(md-item);
+		position: absolute;
+		left: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--ink-3);
+	}
+	/* A task list's box is its own mark. */
+	.md li:has(> input[type="checkbox"]) {
+		padding-left: 0;
+	}
+	.md li:has(> input[type="checkbox"])::before {
+		content: none;
+	}
+	/* Inline code is a small chip sunk into the bubble, so it reads on every tint. */
+	.md code {
+		padding: 1px 5px;
+		border-radius: var(--radius-chip);
+		background: var(--sheet);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		font-family: var(--font-mono);
+		font-size: 0.89em;
+	}
+
+	/* --------------------------------------------------- quotes and alerts
+	 * A quote is a neutral edge. GitHub's alerts are callouts with their
+	 * label; only a warning or a caution takes the amber edge and its mark. */
+	.md blockquote {
+		margin: 0.6em 0;
+		padding: 0 0 0 12px;
+		box-shadow: inset 2px 0 0 var(--line-strong);
+		color: var(--ink-2);
+	}
+	.md blockquote > p {
+		margin: 0;
+	}
+	.md blockquote > p + p {
+		margin-top: 0.6em;
+	}
+	/* A callout is a band across the bubble, as a sheet is: no edge and no
+	 * card, the label above its words; a warning or a caution takes the
+	 * amber wash and its mark. */
+	.callout {
+		display: flex;
+		gap: 10px;
+		margin: 0.6em 0;
+		padding: 8px 12px 9px;
+		border-radius: var(--radius-control);
+		background: color-mix(in oklab, var(--warn) 7%, transparent);
+		box-shadow: inset 2px 0 0 var(--warn);
+		color: var(--ink);
+	}
+	/* --------------------------------------------------------- flow chain
+	 * A diagram that is only a straight line: its steps as quiet chips with
+	 * arrows between, wrapping like words. */
+	.flow-chain {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 2px 8px;
+		margin: 0.6em 0;
+	}
+	.flow-step {
+		font-weight: 500;
+		color: var(--ink);
+	}
+	.flow-arrow {
+		color: var(--ink-3);
+	}
+	.callout-icon {
+		flex-shrink: 0;
+		margin-top: 3px;
+		color: var(--warn);
+	}
+	.callout-words {
+		min-width: 0;
+		flex: 1;
+	}
+	.md .callout-words > p {
+		margin: 0;
+	}
+	.md .callout-words > p + p {
+		margin-top: 0.6em;
+	}
+}
+
+/* A teammate's desk browser in the corner of its conversation (BrowserPip). */
+.browser-pip-dot {
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--color-ink-4, #6b6b70);
+}
+.browser-pip-dot.live {
+	background: var(--accent);
+	animation: browser-pip-pulse 1.6s ease-in-out infinite;
+}
+.browser-pip-dot.yours {
+	background: var(--ink-2);
+}
+@media (prefers-reduced-motion: reduce) {
+	.browser-pip-dot.live {
+		animation: none;
+	}
+}
+/* Waiting on the person: the Needs-you amber, as an outline and a chip. */
+/* It floats over the conversation, so it lies on the float's shadow, the
+ * one the composer and menus use. */
+.browser-pip {
+	box-shadow:
+		var(--top-light),
+		var(--shadow-float);
+}
+/* The picture takes the page's shape: the desk's own and a wide screen
+ * fill the PIP's width; a phone or a tablet stands upright, centred, on a
+ * stage of fixed height. */
+.browser-pip-page {
+	height: 100%;
+	overflow: hidden;
+}
+.browser-pip-stage.upright {
+	display: flex;
+	height: 184px;
+	justify-content: center;
+	padding: 8px 0;
+}
+.browser-pip-stage.upright .browser-pip-page {
+	border-radius: 6px;
+	box-shadow: 0 0 0 var(--hairline) var(--line);
+}
+/* The size it is set to, by name, at the stage's foot. */
+.browser-pip-size {
+	position: absolute;
+	left: 8px;
+	bottom: 8px;
+	padding: 1px 7px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--ink-2);
+	background: color-mix(in oklch, var(--raised) 88%, transparent);
+	box-shadow: 0 0 0 var(--hairline) var(--line);
+}
+/* Hide sits on the status line, where it reads on any page. */
+.browser-pip-hide {
+	position: absolute;
+	right: 6px;
+	bottom: 5px;
+	display: grid;
+	width: 22px;
+	height: 22px;
+	place-items: center;
+	border-radius: var(--radius-control);
+	color: var(--ink-3);
+}
+.browser-pip-hide:hover,
+.browser-pip-hide:focus-visible {
+	background: var(--fill-hover);
+	color: var(--ink);
+}
+.browser-pip-hide svg {
+	width: 12px;
+	height: 12px;
+}
+.browser-pip.needs {
+	border-color: var(--warn-ink);
+}
+.browser-pip-dot.needs {
+	background: var(--warn-ink);
+}
+.browser-pip-needs {
+	position: absolute;
+	left: 8px;
+	top: 8px;
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 8px 3px 6px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--warn-ink);
+	background: color-mix(in oklch, var(--color-raised, #1c1d22) 88%, transparent);
+	border: 1px solid var(--warn-ink);
+}
+.browser-pip-needs svg {
+	width: 12px;
+	height: 12px;
+}
+@keyframes browser-pip-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+@layer components {
+	/* In the pane a row lights under the pointer, so a wide one is followed
+	 * across. */
+	.full-view-body tbody > tr:hover > td {
+		background: var(--fill-hover);
+	}
+}

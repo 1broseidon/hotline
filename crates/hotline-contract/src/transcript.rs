@@ -229,8 +229,48 @@ pub enum TranscriptEvent {
         #[serde(default)]
         armed: bool,
     },
-    /// A granted login or passkey is waiting at the computer's use door.
-    /// Both seats settle the same event; no secret value enters this card.
+    /// A teammate asks to be signed in to one site, in its own words. The
+    /// card answers with the person's cookies from one of `sources`, a login
+    /// typed into the card's secure fields (`secrets.capture.answer` with
+    /// this `id`), or the teammate's browser opened for the person. Settled,
+    /// it names how: the browser the cookies came from, or the key stored.
+    CookieAsk {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
+        id: String,
+        ts: i64,
+        /// The registrable domain, as `github.com`.
+        site: String,
+        /// The full origin a login given here is typed on.
+        origin: String,
+        reason: String,
+        status: CookieAskStatus,
+        /// The person's browsers signed in to the site when the ask was
+        /// raised, the last one lent from first. Empty, there is no Use
+        /// Cookies.
+        sources: Vec<CookieOfferSource>,
+        /// The key name Sign In saves to Secrets under unless changed.
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        browser_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stored_as: Option<String>,
+        /// A login given without Save to Secrets leaves the vault and the
+        /// teammate's grant at this time; gone once it has.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kept_until: Option<i64>,
+        /// The teammate's browser is the desk browser rather than its
+        /// computer's: Open Browser opens its pane.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        desk_browser: bool,
+        expires_at: i64,
+    },
+    /// A lend record: one site's cookies copied from a host browser into a
+    /// teammate's browser, kept so the lend can be listed and removed. No
+    /// cookie value enters it.
     CookieOffer {
         #[serde(flatten)]
         offer: CookieOffer,

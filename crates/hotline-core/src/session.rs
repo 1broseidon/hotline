@@ -80,9 +80,9 @@ pub(crate) fn events_of_updates(
 }
 pub(crate) mod capture;
 pub(crate) mod consent;
+mod cookie_asks;
+mod cookie_lends;
 mod cookie_offers;
-#[cfg(all(test, unix))]
-pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
@@ -91,6 +91,8 @@ mod secrets;
 mod sides;
 mod start;
 pub(crate) use sides::preview_line;
+pub(crate) mod browser;
+mod browser_passkeys;
 mod stopping;
 mod threads;
 mod turns;
@@ -111,7 +113,7 @@ use crate::computer::Computer;
 use crate::contract::ThreadId;
 use crate::contract::{
     Attachment, ChapterClose, Client, ComputerStatus, ConfigChoice, CookieSite, DeliveryCause,
-    DeliveryFrom, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
+    DeliveryFrom, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
     PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, SessionCapabilities,
     SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger, ToolOutput,
     ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
@@ -490,6 +492,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         awaiting_subagents: false,
         processes: Vec::new(),
         plan_usage: None,
+        browser: None,
     }
 }
 
@@ -552,6 +555,9 @@ struct Session {
     /// The thread index this session's agent was last told
     /// (`session/index.rs`). A new chapter is a new session, told it whole.
     indexed: index::Seen,
+    /// The sites this session's agent was last told it holds the person's
+    /// cookies for (`session/cookie_lends.rs`).
+    told_cookies: Mutex<Option<Vec<String>>>,
 }
 
 /// Pacing keeps this ID on the first bubble, while narration needs the full reply.
@@ -789,13 +795,9 @@ pub struct Room {
     pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
     #[cfg(test)]
     pub(crate) cookie_discovery_calls: Arc<std::sync::atomic::AtomicUsize>,
-    /// A host permission failure is said once per browser for this desk run,
-    /// across teammates and session restarts.
-    cookie_access_notices: Mutex<HashSet<String>>,
-    /// How many times the person has stopped each teammate. A cookie card and
-    /// its answer last until the next stop, not through a restart the desk
-    /// makes on its own (an agent switch, a policy reload).
-    stops: Mutex<HashMap<String, u64>>,
+    /// The person's cookies shared with teammates: the sources switched
+    /// off, and what the watch over the shares keeps in memory.
+    cookie_lending: cookie_lends::Lending,
     secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
     captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
@@ -809,6 +811,22 @@ pub struct Room {
     /// How much of each harness login's plan is used, by backend id
     /// (`session/plan.rs`).
     plans: plan::Plans,
+    /// The desktop app's web views, one per teammate without a computer,
+    /// once the app installs them (`session/browser.rs`).
+    browser: std::sync::RwLock<Option<Arc<dyn crate::browser::DeskBrowser>>>,
+    /// Which local addresses each teammate's browser may load.
+    browser_gate: Arc<crate::browser::Gate>,
+    /// Guard cards waiting for the person, by request id.
+    browser_waits: Mutex<HashMap<String, browser::BrowserWait>>,
+    /// Each teammate's desk browser as the PIP shows it, and its snapshot.
+    browser_views: Mutex<HashMap<String, browser::Viewed>>,
+    /// Until when an ask-me key may fill on a site without asking again,
+    /// by teammate, key and site.
+    browser_key_allows: Mutex<HashMap<(String, String, String), i64>>,
+    /// A page's request to make a passkey in a teammate's desk browser,
+    /// waiting for the person's answer on its card, by teammate
+    /// (`session/browser_passkeys.rs`).
+    browser_passkey_asks: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
 }
 
 impl Room {
@@ -829,6 +847,31 @@ impl Room {
             acp_start: acp::StartBounds::default(),
         });
         Self::with_agents(log, keys, agents)
+    }
+
+    /// [`Room::new`] with a vault of the test's own, for secrets a teammate
+    /// uses without a computer: its desk browser.
+    #[cfg(test)]
+    pub(crate) fn new_with_vault(
+        log: Log,
+        keys: Arc<dyn ProviderKeys>,
+        vault: Arc<Vault>,
+    ) -> Arc<Self> {
+        let agents = Arc::new(DeskAgents {
+            keys: keys.clone(),
+            root: log.root().to_path_buf(),
+            log: log.clone(),
+            mcp_vault: None,
+            acp_start: acp::StartBounds::default(),
+        });
+        let nowhere = log.root().join("no-runtime");
+        Self::with_agents_computers_and_vault(
+            log,
+            keys,
+            agents,
+            Computer::with_path(nowhere.as_os_str()),
+            Some(vault),
+        )
     }
 
     /// The production room passes its protected vault to both drivers. Tests
@@ -932,22 +975,28 @@ impl Room {
             harness_updates: Arc::default(),
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
-            stops: Mutex::default(),
             secret_uses: Mutex::default(),
             #[cfg(test)]
             cookie_candidates: Mutex::default(),
             #[cfg(test)]
             cookie_discovery_calls: Arc::default(),
-            cookie_access_notices: Mutex::default(),
+            cookie_lending: cookie_lends::Lending::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
             plans,
+            browser: std::sync::RwLock::new(None),
+            browser_gate: Arc::default(),
+            browser_waits: Mutex::default(),
+            browser_views: Mutex::default(),
+            browser_key_allows: Mutex::default(),
+            browser_passkey_asks: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
         secret_uses::watch(Arc::downgrade(&room));
+        cookie_lends::start(&room);
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is
         // handed on once, now that the room is up.
@@ -1060,6 +1109,7 @@ impl Room {
         for processes in self.sides.processes(persona_id) {
             info.processes.extend(processes.listed());
         }
+        info.browser = self.browser_view(persona_id);
         info
     }
 
@@ -1572,11 +1622,40 @@ pub(crate) fn now_ms() -> i64 {
     Local::now().timestamp_millis()
 }
 
-/// The system's own opener, so the link lands in whatever browser the
-/// person made their default.
-async fn open_in_browser(link: &str) -> Result<(), String> {
+/// Opens a link in the person's browser on this computer: their default,
+/// by the system's own opener, or the one they named, found among the apps
+/// this computer has that open web links (macOS). Answers what it opened.
+async fn open_in_browser(link: &str, named: Option<&str>) -> Result<String, String> {
+    let named = named.map(str::trim).filter(|name| !name.is_empty());
+    // Asked once: the same list names the app it opened.
     #[cfg(target_os = "macos")]
-    let mut command = tokio::process::Command::new("open");
+    let mut installed = WebBrowsers::default();
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = tokio::process::Command::new("open");
+        if let Some(name) = named {
+            installed = web_browsers().await;
+            let app = pick_browser(name, &installed.all).ok_or_else(|| {
+                let names: Vec<&str> = installed.all.iter().map(|app| browser_name(app)).collect();
+                if names.is_empty() {
+                    format!("No browser called {name} was found on this computer. Open it in their default browser instead, or ask which one.")
+                } else {
+                    format!(
+                        "No browser called {name} is on this computer. It has: {}. Ask which one, or open it in their default.",
+                        names.join(", ")
+                    )
+                }
+            })?;
+            command.arg("-a").arg(app);
+        }
+        command
+    };
+    #[cfg(not(target_os = "macos"))]
+    if let Some(name) = named {
+        return Err(format!(
+            "Only the person's default browser can be chosen on this computer, not {name}. Call open_link again without `browser`, or give them the link."
+        ));
+    }
     #[cfg(target_os = "windows")]
     let mut command = {
         // Not `cmd /c start`: cmd would read a link's `&` as its own.
@@ -1597,10 +1676,119 @@ async fn open_in_browser(link: &str) -> Result<(), String> {
         .await
         .map_err(|_| "The browser did not answer in time.".to_string())?
         .map_err(|_| "This computer has no way to open a browser.".to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("This computer could not open its browser.".into())
+    if !status.success() {
+        return Err("This computer could not open its browser.".into());
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(name) = named {
+        let app = pick_browser(name, &installed.all).map_or(name, |app| browser_name(app));
+        return Ok(format!(
+            "Opened in the person's browser on this computer: {app}."
+        ));
+    }
+    Ok("Opened in the person's browser on this computer, their default.".into())
+}
+
+/// The apps this computer has that open web links, and which is the default,
+/// as Launch Services says; empty when it cannot be asked.
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct WebBrowsers {
+    all: Vec<String>,
+}
+
+#[cfg(target_os = "macos")]
+async fn web_browsers() -> WebBrowsers {
+    const ASK: &str = "ObjC.import('AppKit'); const u = $.NSURL.URLWithString('https://example.com'); const all = $.NSWorkspace.sharedWorkspace.URLsForApplicationsToOpenURL(u); const out = []; for (let i = 0; i < all.count; i++) out.push(all.objectAtIndex(i).path.js); JSON.stringify(out)";
+    let asked = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("osascript")
+            .args(["-l", "JavaScript", "-e", ASK])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output(),
+    )
+    .await;
+    let Ok(Ok(output)) = asked else {
+        return WebBrowsers::default();
+    };
+    let all: Vec<String> = serde_json::from_slice(output.stdout.trim_ascii()).unwrap_or_default();
+    WebBrowsers { all }
+}
+
+/// An app's name as the person says it: `Brave Browser` for
+/// `/Applications/Brave Browser.app`.
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only macOS names its browsers by app")
+)]
+fn browser_name(app: &str) -> &str {
+    let file = app.trim_end_matches('/').rsplit('/').next().unwrap_or(app);
+    file.strip_suffix(".app").unwrap_or(file)
+}
+
+/// The installed browser the person meant by `name`: the one whose name it
+/// is, else the shortest whose name holds it ("brave" is Brave Browser,
+/// "chrome" Google Chrome), so a Beta or Nightly beside it is never picked
+/// over the browser itself.
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only macOS names its browsers by app")
+)]
+fn pick_browser<'a>(name: &str, installed: &'a [String]) -> Option<&'a str> {
+    let plain = |words: &str| {
+        words
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase()
+    };
+    let asked = plain(name);
+    if asked.is_empty() {
+        return None;
+    }
+    let named = |app: &&String| plain(browser_name(app));
+    installed
+        .iter()
+        .find(|app| named(app) == asked)
+        .or_else(|| {
+            installed
+                .iter()
+                .filter(|app| named(app).contains(&asked))
+                .min_by_key(|app| named(app).len())
+        })
+        .map(String::as_str)
+}
+
+#[cfg(test)]
+mod browser_pick_tests {
+    use super::{browser_name, pick_browser};
+
+    fn installed() -> Vec<String> {
+        [
+            "/Applications/Safari.app",
+            "/Applications/Brave Browser.app",
+            "/Applications/Brave Browser Beta.app",
+            "/Applications/Google Chrome.app",
+            "/Applications/Firefox.app",
+            "/Applications/Microsoft Edge.app",
+        ]
+        .map(String::from)
+        .to_vec()
+    }
+
+    #[test]
+    fn a_browser_is_found_by_the_name_the_person_says() {
+        let installed = installed();
+        let picked = |name| pick_browser(name, &installed).map(browser_name);
+        assert_eq!(picked("Brave"), Some("Brave Browser"));
+        assert_eq!(picked("brave browser"), Some("Brave Browser"));
+        assert_eq!(picked("Brave Browser Beta"), Some("Brave Browser Beta"));
+        assert_eq!(picked("chrome"), Some("Google Chrome"));
+        assert_eq!(picked("Edge"), Some("Microsoft Edge"));
+        assert_eq!(picked("safari"), Some("Safari"));
+        assert_eq!(picked("Arc"), None);
+        assert_eq!(picked("  "), None);
     }
 }
 

@@ -81,6 +81,17 @@ function laidOut(): HTMLElement {
 	const scroller = container.querySelector(".scroller") as unknown as HTMLElement;
 	Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => container.querySelectorAll(".tape-row").length * ROW });
 	Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => VIEW });
+	// Each row where it stands in the window: its place in the column, less the scroll.
+	const proto = (window as unknown as { HTMLElement: typeof HTMLElement }).HTMLElement.prototype;
+	const own = proto.getBoundingClientRect;
+	proto.getBoundingClientRect = function (this: HTMLElement) {
+		if (this === scroller) return { top: 0, bottom: VIEW, height: VIEW, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+		if (this.classList.contains("tape-row")) {
+			const top = [...container.querySelectorAll(".tape-row")].indexOf(this) * ROW - scroller.scrollTop;
+			return { top, bottom: top + ROW, height: ROW, left: 0, right: 0, width: 0, x: 0, y: top, toJSON() {} } as DOMRect;
+		}
+		return own.call(this);
+	};
 	return scroller;
 }
 
@@ -126,6 +137,35 @@ describe("older lines arriving", () => {
 		expect(scroller.scrollTop).toBe(52 * ROW);
 	});
 
+	test("keep a scroll made while they were on their way: the view moves by what arrived, not back to where it was asked", async () => {
+		let events = lines(51, 100);
+		let land: () => void = () => {};
+		const draw = (more: boolean) =>
+			root.render(
+				<Transcript personaId="ada" name="Ada" events={events} streaming={[]} live={false} focus={null} more={more} onEarlier={earlier} />,
+			);
+		function earlier() {
+			return new Promise<void>((done) => {
+				land = () => {
+					events = lines(1, 100);
+					draw(false);
+					done();
+				};
+			});
+		}
+		await act(async () => draw(true));
+		const scroller = laidOut();
+		await scrolled(scroller);
+		scroller.scrollTop = 2 * ROW;
+		await scrolled(scroller);
+		// Still reading on while the page comes: up to the very top.
+		scroller.scrollTop = 0;
+		await act(async () => land());
+		expect(container.querySelectorAll(".tape-row").length).toBe(100);
+		// Line 51 is where the eye left it, fifty rows further down; not back at line 53.
+		expect(scroller.scrollTop).toBe(50 * ROW);
+	});
+
 	test("a search hit above the window pages back to it", async () => {
 		const asked: (string | undefined)[] = [];
 		await act(async () =>
@@ -153,7 +193,7 @@ describe("a diagram", () => {
 
 	test("is not drawn until it comes near the view, and is watched against its scroller", async () => {
 		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[diagram]} streaming={[]} live={false} focus={null} />));
-		const block = container.querySelector(".mermaid-block");
+		const block = container.querySelector(".diagram-body");
 		expect(block).not.toBeNull();
 		expect(observed.map((one) => one.target)).toEqual([block as Element]);
 		expect(observed[0]?.root).toBe(container.querySelector(".scroller") as Element);

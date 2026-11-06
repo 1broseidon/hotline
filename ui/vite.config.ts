@@ -10,7 +10,10 @@ export default defineConfig({
 	server: { port: 5174, strictPort: true },
 	build: {
 		target: "es2022",
-		// The window, and the viewer it opens for a computer on a desk on a server.
-		rollupOptions: { input: { main: "index.html", computer: "computer.html" } },
+		// The window, the viewer it opens for a computer on a desk on a server,
+		// and the bar above a teammate's desk browser.
+		rollupOptions: {
+			input: { main: "index.html", computer: "computer.html", browser: "browser.html" },
+		},
 	},
 });

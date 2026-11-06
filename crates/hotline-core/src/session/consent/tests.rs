@@ -32,8 +32,8 @@ fn bob() -> Persona {
             path: "/home/agent/repo".into(),
             readonly: true,
         }]),
-        secrets: Some(vec!["NPM_TOKEN".into()]),
     });
+    bob.secrets = Some(vec!["NPM_TOKEN".into()]);
     bob
 }
 
@@ -85,14 +85,7 @@ fn each_widening_of_the_recipients_access_is_named() {
         "a mount made writable"
     );
     assert_eq!(
-        after(|bob| bob
-            .computer
-            .as_mut()
-            .unwrap()
-            .secrets
-            .as_mut()
-            .unwrap()
-            .push("AWS_KEY".into())),
+        after(|bob| bob.secrets.as_mut().unwrap().push("AWS_KEY".into())),
         Some(Widening::Secret)
     );
     assert_eq!(

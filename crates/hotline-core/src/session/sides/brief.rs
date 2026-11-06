@@ -52,6 +52,7 @@ pub(in crate::session) fn work_preamble(
     persona: &Persona,
     reach: Option<crate::contract::Reach>,
     stored: &[SharedSecret],
+    desk_browser: bool,
     opened_by: OpenedBy<'_>,
     context: Option<String>,
     earlier: Option<String>,
@@ -75,5 +76,5 @@ pub(in crate::session) fn work_preamble(
             }
         );
     }
-    crate::session::preamble(persona, reach, Some(wake), stored)
+    crate::session::preamble(persona, reach, Some(wake), stored, desk_browser)
 }

@@ -815,20 +815,7 @@ async fn a_revoked_seat_drains_tcp_instead_of_resetting_it() {
 #[tokio::test]
 async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound() {
     let (h, mut phone, _) = stalled_phone().await;
-    // Bound each wait for progress; the whole drain may take longer under load.
-    use tokio::io::AsyncReadExt;
-    let tcp = phone.socket.get_mut().get_mut().0;
-    let mut bytes = [0; 65536];
-    let reset = loop {
-        match tokio::time::timeout(Duration::from_secs(5), tcp.read(&mut bytes))
-            .await
-            .expect("the stalled transport makes progress until it resets")
-        {
-            Ok(0) => panic!("the stalled seat closed without resetting TCP"),
-            Ok(_) => {}
-            Err(error) => break error,
-        }
-    };
+    let reset = reset_heard(phone.socket.get_mut().get_mut().0).await;
     assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
     drop(phone);
     h.remote.configure(false, network::ALL).await.unwrap();
@@ -840,14 +827,11 @@ async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound()
 /// the phone is then told by a reset, not a close.
 ///
 /// The ordering is checked where it happens, on the desk's side, and the
-/// reset is waited on, not timed. The phone's kernel drops a reset whose
-/// sequence lands past its window (bytes still in flight, or a zero-window
-/// probe), and is reset only when the bytes it then reads send an ACK to the
-/// closed port; so how soon the phone hears is up to two kernels, not the desk.
+/// reset is waited on, not timed: how soon the phone hears is up to two
+/// kernels, not the desk (see `reset_heard`).
 #[tokio::test]
 async fn a_stalled_seat_resets_tcp_before_releasing_admission() {
     let (h, mut phone, ends) = stalled_phone().await;
-    use tokio::io::AsyncReadExt;
     #[cfg(unix)]
     assert!(
         !desk_end_open(ends),
@@ -855,8 +839,29 @@ async fn a_stalled_seat_resets_tcp_before_releasing_admission() {
     );
     #[cfg(not(unix))]
     let _ = ends;
-    let tcp = phone.socket.get_mut().get_mut().0;
-    let reset = tokio::time::timeout(crate::test_support::PATIENCE, async {
+    let reset = reset_heard(phone.socket.get_mut().get_mut().0).await;
+    assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
+    drop(phone);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+/// What the phone reads once its stalled seat is gone: the bytes already in
+/// its buffer, then an error. A clean end of stream fails: the seat is to be
+/// reset, not closed.
+///
+/// A reset is sent once and never again, and the phone's kernel may drop it:
+/// one whose sequence lands past a full receive window is discarded without
+/// a word. After that, only a segment the phone sends to the closed port
+/// draws another. Draining sends window updates, but only while there are
+/// bytes left to drain, and their answers can be lost the same way; a phone
+/// that only reads then waits on a connection that is gone, for good. So the
+/// phone keeps TCP alive (`stalled_phone`), as a real one pings, and its
+/// kernel asks again every second the line is quiet. The wait has no bound
+/// of its own but `PATIENCE`, which only a desk that never ends the seat
+/// reaches.
+async fn reset_heard(tcp: &mut tokio::net::TcpStream) -> std::io::Error {
+    use tokio::io::AsyncReadExt;
+    tokio::time::timeout(crate::test_support::PATIENCE, async {
         let mut bytes = [0; 65536];
         loop {
             match tcp.read(&mut bytes).await {
@@ -867,10 +872,7 @@ async fn a_stalled_seat_resets_tcp_before_releasing_admission() {
         }
     })
     .await
-    .expect("the phone is told its stalled seat ended");
-    assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
-    drop(phone);
-    h.remote.configure(false, network::ALL).await.unwrap();
+    .expect("the phone is told its stalled seat ended")
 }
 
 /// Whether a descriptor in this process is still the desk's end of the
@@ -924,6 +926,18 @@ async fn stalled_phone() -> (Harness, PhoneSocket, Ends) {
     let mut phone = h.socket(&grant.private).await.unwrap();
     let tcp = phone.socket.get_ref().get_ref().0;
     let ends = (tcp.local_addr().unwrap(), tcp.peer_addr().unwrap());
+    // A probe to a desk whose end is still open is only acknowledged, so this
+    // cannot turn a close into a reset; it only asks again for a reset that
+    // was dropped (`reset_heard`). Probes outlast `PATIENCE`.
+    let seconds = crate::test_support::PATIENCE.as_secs();
+    socket2::SockRef::from(tcp)
+        .set_tcp_keepalive(
+            &socket2::TcpKeepalive::new()
+                .with_time(Duration::from_secs(1))
+                .with_interval(Duration::from_secs(1))
+                .with_retries(u32::try_from(seconds).unwrap()),
+        )
+        .unwrap();
     assert_eq!(read(&mut phone).await["protocolVersion"], 2);
     send(&mut phone, json!({"id":1,"cmd":"mobile.persona_create","params":{"requestId":Uuid::new_v4(),"name":"Ada"}})).await;
     let created = read(&mut phone).await;

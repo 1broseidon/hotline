@@ -268,6 +268,33 @@ transition and animation, and holds the mark still.
   so hover and keyboard focus are the hover fill and nothing rings, and a
   screen reader hears it as "Said on the call" before the words. It is a
   transcript, not speech: no bubble, no plane, no accent.
+- Message objects: a table, a block of code and a diagram sit on one
+  sheet sunk into the bubble (`--sheet`), never a card in a card: a head
+  naming it in the instrument face, its keys joining the bubble's one
+  toolbar, the object under it. Table rows are plain, divided by
+  hairlines, with no fill. A quote has a neutral edge; only a warning or
+  caution alert takes the amber. A diagram is drawn in the tokens and
+  lights a node in the accent only where its source marks one. What fits
+  the bubble sits whole in it; a table or code too wide or too long is
+  cut, as on the phone: what fits, faded at the edge it goes on past (a
+  table's head row never fades), and a line naming it ("Table · 7 rows ·
+  8 columns"), and a click opens it. A diagram opens from its drawing.
+- The open view (docs/design/open-view.html): an object opens as a pane
+  in the conversation's place, the rail beside it, never a float over it.
+  It wears the 40px band with no line under it: ← back (Esc too, focus
+  back on the sheet), the teammate's face and name and "· 4 min ago",
+  and at its right the object as a fact in the instrument face ("Table ·
+  7 rows × 8 columns", "Rust · src/lease.rs · 48 lines", "Flowchart"), a
+  diagram's Source, and Copy with its word; no title and no Close. The
+  sentence that introduced the object is its caption, in ink-2 at 13/18,
+  after the teammate's name. The object is drawn at its own width from
+  the 24px inset, never stretched: a table's head row stays as it
+  scrolls and the row under the pointer lights; code reads at the
+  bubble's size, numbered here and nowhere else, never wrapped; a
+  diagram is 1× and centred, fitted down only, zoomed by pinch or
+  ⌘-scroll and panned by a drag, with −/percentage/+/Fit on hover. It
+  grows from the bubble's sheet (220ms on the house curve) while the
+  conversation fades under it (130ms), and goes back the same way.
 - Needs you: the one card that is a request of the person, live until
   answered. It says what is wanted and offers the answers — Done and
   Decline — and nothing else by default; a note is a quiet affordance
@@ -326,6 +353,9 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-11-03 Message objects take one sheet (0.48, docs/design/inline-premium.html
+  rows 1-5, signed off by The Dude).
 
 - 2026-10-26 Hill climb against Grok Bot, judged by Codex: a card waiting
   on you says Needs you in the accent; a goal rests in a well; states read in

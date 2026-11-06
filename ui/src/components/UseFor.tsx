@@ -10,6 +10,7 @@ import { DeskModels } from "./DeskModels";
 import {
 	AUTOMATIC,
 	CALL_WORDS,
+	callFront,
 	callKind,
 	callModelChoices,
 	callModelId,
@@ -22,7 +23,6 @@ import {
 	currentVoiceId,
 	effortChoices,
 	effortsOf,
-	frontOf,
 	frontPatch,
 	IMAGES_OFF_CHOICE,
 	listenForOf,
@@ -139,7 +139,7 @@ function Calls({
 	onChanged(): void;
 }) {
 	const live = options.live ?? [];
-	const front = frontOf(voice);
+	const front = callFront(voice, live);
 	const kind = callKind(front);
 	const rows = callRows(kind);
 	const chosen = chosenLive(live, front);

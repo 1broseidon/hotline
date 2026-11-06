@@ -104,7 +104,6 @@ impl Seat {
                     | Command::SecretsPasskeyAnswer { .. }
                     | Command::SecretsUseAnswer { .. }
                     | Command::ComputerCookieOffers { .. }
-                    | Command::ComputerCookieSettings {}
                     | Command::ComputerCookieAnswer { .. }
                     | Command::ComputerCookieRemove { .. }
                     | Command::SecretsCaptureAnswer(..)
@@ -119,6 +118,9 @@ impl Seat {
                     | Command::ModelsEfforts { .. }
                     | Command::ComputerCapacity { .. }
                     | Command::ComputerStatus { .. }
+                    // The picture the desk's PIP shows, of a page the
+                    // teammate opened.
+                    | Command::BrowserSnapshot { .. }
                     | Command::ComputerStart { .. }
                     | Command::ComputerStop { .. }
                     // Proof the link is alive, and a card for a link already

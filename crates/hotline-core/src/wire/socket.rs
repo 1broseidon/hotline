@@ -443,6 +443,7 @@ fn independent(frame: &Value) -> bool {
     matches!(
         read_command(frame),
         Ok(Command::LinkPreview { .. }
+            | Command::LinkIcon { .. }
             | Command::DesksLink { .. }
             | Command::DesksUnlink { .. }
             | Command::FileRead { .. }
@@ -471,8 +472,9 @@ fn independent(frame: &Value) -> bool {
             | Command::ComputerCapacity {}
             | Command::ComputerReleases {}
             | Command::ComputerReleasesCheck {}
-            | Command::ComputerBrowsersList {}
-            | Command::ComputerCookieSettings {}
+            | Command::ComputerCookieSources {}
+            | Command::ComputerCookieLendable {}
+            | Command::ComputerCookieHolders {}
             | Command::ComputerCookieSites {}
             | Command::SecretsList {}
             | Command::ThreadList { persona_id: None }
@@ -584,8 +586,12 @@ async fn command(
             );
         }
         Ok(Command::LinkPreview { url }) => {
-            let card = crate::link_preview::preview(&url).await;
+            let card = crate::link_preview::preview(log, &url).await;
             reply(sender, id, Ok(json!(card)));
+        }
+        Ok(Command::LinkIcon { site }) => {
+            let icon = crate::link_preview::icon(log, &site).await;
+            reply(sender, id, Ok(json!(icon)));
         }
         Ok(command) => {
             // `teammate.tools` answers JSON null when there is no ledger,

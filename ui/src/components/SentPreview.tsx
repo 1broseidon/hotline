@@ -5,7 +5,9 @@ import type { Sent } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { wire } from "../wire";
 import { ViewerBar } from "../ui/Viewer";
+import { SourceIcon } from "../icons";
 import { MarkdownDocument } from "./Markdown";
+import { SheetKey } from "./Sheet";
 
 /** The most of a markdown file read whole to render it; past it, it reads as text a page at a time. */
 const DOCUMENT_BYTES = 2 * 1024 * 1024;
@@ -36,11 +38,9 @@ export function SentPreview({ sent, actions, onClose }: { sent: Sent; actions: R
 	}, [onClose]);
 	return createPortal(
 		<div className="viewer" role="dialog" aria-modal="true" aria-label={file.name}>
-			<ViewerBar title={file.name} onClose={onClose}>
+			<ViewerBar fact={[file.name, file.size !== undefined ? sizeText(file.size) : null].filter(Boolean).join(" · ")} onClose={onClose}>
 				{renders && !unreadable && (
-					<button type="button" className="control btn btn-sm" aria-pressed={source} onClick={() => setSource((was) => !was)}>
-						{source ? "Rendered" : "Source"}
-					</button>
+					<SheetKey icon={<SourceIcon />} label="Source" title={source ? "Show it rendered" : "Show the source"} pressed={source} onClick={() => setSource((was) => !was)} />
 				)}
 				{actions}
 			</ViewerBar>

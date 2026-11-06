@@ -127,5 +127,58 @@ export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<strin
 	}
 }
 
-/** Whether a link says something did not go well: the line takes the warning colour. */
+/** Whether a link says something did not go well: its row's dot takes the danger colour. */
 export const linkFailed = (link: LinkEvent): boolean => link.state === "closed" && link.end === "failed";
+
+/** How a linked thread stands, as its row's dot: going, done, gone wrong, or at rest. */
+type LinkTone = "live" | "done" | "failed" | "quiet";
+
+/**
+ * A link as its row draws it: which kind of thread (the glyph and the
+ * label), its title, what came of it in a few words, and the dot's tone.
+ * The same facts `linkLine` says as one sentence, which the row keeps as
+ * its accessible name.
+ */
+export type LinkRowFacts = { kind: "thread" | "subagent" | "call"; title: string; outcome: string; tone: LinkTone };
+
+const sentence = (words: string): string => words.charAt(0).toUpperCase() + words.slice(1);
+
+export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): LinkRowFacts {
+	const failed = linkFailed(link);
+	switch (link.threadKind) {
+		case "run":
+			return {
+				kind: "subagent",
+				title: link.title,
+				outcome: sentence(runState(link)),
+				tone: link.state !== "closed" ? "live" : failed ? "failed" : link.end === "cancelled" || link.end === "stopped" ? "quiet" : "done",
+			};
+		case "call": {
+			if (link.state !== "closed") {
+				const state = working ? "Running" : link.state === "parked" ? "Parked" : "Open";
+				return { kind: "call", title: link.title, outcome: state, tone: working ? "live" : "quiet" };
+			}
+			const minutes = Math.round(((link.at ?? link.ts) - link.ts) / 60_000);
+			const length = minutes < 1 ? "Under a minute" : `${minutes} min`;
+			const outcome = [length, link.outcome].filter((part) => part !== undefined && part !== "").join(" · ");
+			return { kind: "call", title: link.title, outcome, tone: failed ? "failed" : "done" };
+		}
+		case "pair":
+			return {
+				kind: "thread",
+				title: link.state === "live" ? `Talking with ${link.title}` : `Talked with ${link.title}`,
+				outcome: "",
+				tone: link.state === "live" ? "live" : "done",
+			};
+		default: {
+			const between = workWho(link, owner, people);
+			const who = between === "Side thread" ? [] : [between];
+			if (link.state === "live") return { kind: "thread", title: sideTitle(link.title), outcome: who[0] ?? "Started", tone: "live" };
+			if (link.state === "parked") return { kind: "thread", title: sideTitle(link.title), outcome: [...who, "Parked"].join(" · "), tone: "quiet" };
+			const ending = link.end === undefined ? undefined : ENDINGS[link.end];
+			const said = link.outcome !== undefined && link.outcome !== "" ? link.outcome : "Archived";
+			const parts = [...who, said, ...(ending !== undefined && said !== "Archived" ? [sentence(ending)] : [])];
+			return { kind: "thread", title: sideTitle(link.title), outcome: parts.join(" · "), tone: failed ? "failed" : ending !== undefined || said === "Archived" ? "quiet" : "done" };
+		}
+	}
+}

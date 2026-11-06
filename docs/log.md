@@ -168,8 +168,8 @@ the field a fold discriminates on and the one a reader of the raw file
 looks for first.
 
 A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
-(Hotline Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
-list.
+(Hotline Agent), `chapterIdleHours` is `8`, `linkPreviews` is `true`, and
+`mcpServers` is an empty list.
 
 ### `persona`
 
@@ -347,7 +347,10 @@ about one is ever appended to a stream, and storing or deleting one never
 rewrites another. The value is read back in exactly one place, the grant that
 hands it to a teammate's computer (`session::Room::hand_secrets`); the window
 sees names and dates. Which teammate gets which name is
-`persona.computer.secrets` on the teammate's record, which is names only.
+`persona.secrets` on the teammate's record, which is names only; a record
+written before secrets were the teammate's own carries them as
+`computer.secrets`, and the roster reads them from there as the teammate's
+(`Persona::from_record`) until the next write puts them on the teammate.
 
 ## The search index
 

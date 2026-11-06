@@ -26,6 +26,7 @@ mod lights;
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod browser;
 mod chat_window;
 mod desks;
 mod files;
@@ -460,6 +461,7 @@ fn start() -> Result<(), String> {
     let desk = booted
         .desk
         .expect("a desk that is not served always opens its room");
+    let browser_desk = desk.clone();
     let remote = booted.remote;
     let token = booted.token;
     let port = booted.port;
@@ -531,6 +533,11 @@ fn start() -> Result<(), String> {
         speech::speech_cancel,
         lights::window_title,
         chat_window::chat_window,
+        browser::browser_pane_open,
+        browser::browser_bar_state,
+        browser::browser_bar_take,
+        browser::browser_bar_go,
+        browser::browser_bar_trust,
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -563,12 +570,18 @@ fn start() -> Result<(), String> {
         speech::speech_cancel,
         lights::window_title,
         chat_window::chat_window,
+        browser::browser_pane_open,
+        browser::browser_bar_state,
+        browser::browser_bar_take,
+        browser::browser_bar_go,
+        browser::browser_bar_trust,
     ]);
     builder
         .manage(desks.clone())
         .manage(std::sync::Arc::new(transfer::Transfers::default()))
         .setup(move |app| {
             desks.attach(app.handle().clone());
+            browser::install(app.handle(), &browser_desk, port);
             #[cfg(target_os = "macos")]
             {
                 install_menu(app)?;

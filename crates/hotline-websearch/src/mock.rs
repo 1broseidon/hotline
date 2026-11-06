@@ -33,6 +33,8 @@ pub struct Reply {
     content_type: &'static str,
     body: String,
     delay: Duration,
+    /// Where a redirect sends the caller.
+    location: Option<String>,
 }
 
 impl Reply {
@@ -42,6 +44,7 @@ impl Reply {
             content_type: "application/json",
             body: body.into(),
             delay: Duration::ZERO,
+            location: None,
         }
     }
 
@@ -64,6 +67,15 @@ impl Reply {
         Self {
             status,
             ..Self::json(body)
+        }
+    }
+
+    /// A 302 to `to`.
+    pub fn redirect(to: impl Into<String>) -> Self {
+        Self {
+            status: 302,
+            location: Some(to.into()),
+            ..Self::json("")
         }
     }
 
@@ -112,9 +124,14 @@ pub async fn mock(reply: Reply) -> Mock {
                 body: bytes.to_vec(),
             });
             tokio::time::sleep(reply.delay).await;
+            let mut headers = HeaderMap::new();
+            headers.insert(header::CONTENT_TYPE, reply.content_type.parse().unwrap());
+            if let Some(to) = &reply.location {
+                headers.insert(header::LOCATION, to.parse().unwrap());
+            }
             (
                 StatusCode::from_u16(reply.status).unwrap(),
-                [(header::CONTENT_TYPE, reply.content_type)],
+                headers,
                 reply.body,
             )
         }

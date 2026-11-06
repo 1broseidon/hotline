@@ -51,7 +51,11 @@ import { LoopIn } from "./LoopIn";
  * teammate's turn of work (`work`), opened from the peek at the line pressed,
  * or its Noted page (`noted`), which a thread opened from it goes back to.
  */
-export type DockState = { open: ThreadRef | null; work?: { personaId: string; blockId: string | null; stepId?: string }; noted?: true };
+export type DockState = {
+	open: ThreadRef | null;
+	work?: { personaId: string; blockId: string | null; stepId?: string };
+	noted?: true;
+};
 
 /**
  * The right-hand pane: this teammate's threads as a list, like the team on the

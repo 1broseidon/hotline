@@ -222,7 +222,7 @@ async fn a_turn_becomes_updates_in_the_order_the_agent_sent_them() {
     let agent = scripted_agent(heard.clone(), false);
     let held = room("turn-room");
     let ada = persona(&scratch_cwd(), Vec::new());
-    let briefing = crate::session::preamble(&ada, None, None, &[]);
+    let briefing = crate::session::preamble(&ada, None, None, &[], false);
     let driver = ChildAgent::new(
         root,
         "cursor".to_string(),

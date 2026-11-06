@@ -67,7 +67,7 @@ export default defineConfig({
 						{ label: 'Use it away from home', slug: 'phone/away' },
 						{ label: 'Talk to your teammates', slug: 'phone/chat' },
 						{ label: 'Notifications', slug: 'phone/notifications' },
-						{ label: "A teammate's computer", slug: 'phone/computer' },
+						{ label: 'Computer and browser', slug: 'phone/computer' },
 						{ label: 'Updates', slug: 'phone/updates' },
 					],
 				},

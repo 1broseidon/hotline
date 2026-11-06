@@ -1,6 +1,6 @@
 ---
-title: A teammate's computer
-description: Watch a teammate's Linux desktop from the phone, and take control.
+title: Computer and browser
+description: Watch a teammate's Linux desktop or its desk browser from the phone, and take over.
 ---
 
 A teammate with a computer has a monitor icon in its conversation's header.
@@ -11,11 +11,13 @@ screen. The computer is turned on at the desk: see
 
 ## Watching
 
+
 The screen opens watching: nothing you do reaches the computer. Pinch to
 zoom and drag to look around. Double-tap, or the fit button, shows the whole
 screen.
 
 ## Taking control
+
 
 Take control to use the computer yourself. Then:
 
@@ -28,3 +30,42 @@ Take control to use the computer yourself. Then:
 Hand it back, or close the screen, and the computer is the teammate's
 again. Watching stops by itself after three minutes with nothing changing on
 screen, so a forgotten viewer doesn't drain the phone.
+
+## Desk browser
+
+
+A teammate with no computer browses in its
+[desk browser](/docs/setup/browser/). Its browser key sits in the
+conversation's header beside the computer's: lit while the browser is in
+use, amber while it waits on you, quiet otherwise. Tap it to open the
+browser full screen: the latest picture of the page in the page's shape,
+its title and address. Pinch to zoom, drag to look around, and double-tap
+to switch between fitting the page and one to one. While you watch, the
+line at the top says the teammate is browsing.
+
+![Mack's conversation header with two keys beside his face: the computer's, and the browser's, lit.](../../../assets/phone/phone-browser-key.webp)
+
+**Take control** to drive it from the phone:
+
+- tap the picture to tap the page, and drag one finger to scroll it (two
+  fingers move the picture);
+- the keyboard types where the page has its focus, with keys above it for
+  Tab, Escape and the arrows;
+- **Back**, **Forward**, **Reload** and the address move the page.
+
+While you have it, the line at the top says **You have control**. **Give it
+back** returns it to the teammate. Only the desk's owner can take control,
+and only on a desk from 0.48.1; otherwise the phone watches.
+
+![Mack's browser full screen while you watch: Mack is browsing, the page's title and address, the Volumes page, and Take control.](../../../assets/phone/phone-browser-watch.webp) ![The same screen while you hold it: You have control, Back, Forward and Reload by the address, the keyboard key, and Give it back.](../../../assets/phone/phone-browser-control.webp)
+
+## Secrets
+
+**Settings → Computer → Browser and secrets**, on the desk owner's phone,
+lists the secrets stored on the desk under **Secrets**. Tick what the
+teammate may use. They belong to the teammate, not to its computer, so its
+computer's shell and its browser both use them. See
+[Sign-ins](/docs/setup/sign-ins/).
+
+![Browser and secrets for Mack: under Secrets, GITHUB, GH_PASSKEY and NIMBUS_TOKEN ticked, GRAFANA and STATUS_WEBHOOK not; then the Desktop group.](../../../assets/phone/phone-teammate-secrets.webp)
+

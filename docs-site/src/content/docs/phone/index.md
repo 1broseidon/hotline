@@ -15,11 +15,13 @@ Hotline for iPhone is in beta on TestFlight and not yet on the App Store.
 
 ## What the phone can do
 
+
 - Talk to every teammate, send photos and files, and reply to a message.
 - Answer what a teammate is waiting on: a permission, a **Needs you** card,
-  or a passkey. It works from the notification too.
+  a passkey or a sign-in. It works from the notification too.
 - Add a teammate, rename it, change its goal, or remove it.
-- Watch a teammate's computer and take control of it.
+- Watch a teammate's computer or desk browser, and take control of it (the
+  browser on a desk from 0.48.1).
 - Link several desks, and switch between them or see them all at once.
 
 ## What stays at the desk

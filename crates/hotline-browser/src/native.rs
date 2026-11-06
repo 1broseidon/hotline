@@ -18,12 +18,14 @@
 //! A server has no pane: nobody watches the page here, so there is no
 //! shield to raise or bar to answer, and Visit anyway, which only the bar
 //! offers, is not offered. The person drives a page they have taken over
-//! from the phone or a linked desktop, by the desk's pictures of it.
+//! from the phone or a linked desktop, by the desk's pictures of it. A
+//! page's file picker is refused even then: it would open on a display
+//! nobody sees, and a phone has no way to answer it.
 //!
 //! WebKit is set to draw without the GPU, which a server lacks (it would be
 //! emulated in software at several times the memory), and to keep no cache
 //! of pages and processes past the one in use: one web process a teammate,
-//! about 420 MB for a busy one where the defaults hold a gigabyte.
+//! where the defaults keep three and twice the memory.
 
 #[path = "../../hotline-app/src/browser/native/asks.rs"]
 mod asks;
@@ -56,7 +58,7 @@ use hotline_core::contract::BrowserInput;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::{oneshot, watch};
@@ -123,8 +125,6 @@ struct Tab {
     refs_next: AtomicU64,
     popup: Mutex<Option<u64>>,
     page_shown: Mutex<String>,
-    /// The person has the page: its file picker is theirs.
-    taken: AtomicBool,
     viewport: Mutex<Option<(f64, f64)>>,
 }
 
@@ -323,7 +323,6 @@ impl Native {
             refs_next: AtomicU64::new(0),
             popup: Mutex::new(None),
             page_shown: Mutex::new(String::new()),
-            taken: AtomicBool::new(false),
             viewport: Mutex::new(None),
         });
         let made = {
@@ -572,7 +571,7 @@ impl DeskBrowser for Native {
         let receiver = tab.loads.subscribe();
         let before = receiver.borrow().finished;
         on_view(self.window(persona_id)?, move |view| {
-            linux::step(view, step)
+            linux::step(view, step);
         });
         let wait = if step == Step::Reload {
             LOAD_WAIT
@@ -813,13 +812,11 @@ impl DeskBrowser for Native {
         Ok(())
     }
 
-    /// The person took the browser over, or handed it back: the page's file
-    /// picker is theirs while they have it, and the teammate's pointer goes.
+    /// The person took the browser over: the teammate's pointer goes.
     fn taken(&self, persona_id: &str, taken: bool) {
         let Some(tab) = self.tab(persona_id) else {
             return;
         };
-        tab.taken.store(taken, Ordering::Release);
         if taken {
             for view in [Some(tab.page), *lock(&tab.popup)].into_iter().flatten() {
                 on_view(view, hands::hide);

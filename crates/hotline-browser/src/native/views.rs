@@ -315,10 +315,8 @@ fn watch(view: &WebView, tab: &Arc<Tab>, shared: &Shared, started: Arc<AtomicBoo
         shared.exceptions.clone(),
         shared.gate.clone(),
     );
-    let person = tab.clone();
-    asks::attach(view.clone(), tab.clone(), move || {
-        person.taken.load(Ordering::Acquire)
-    });
+    // No file picker, ever: nobody could see it to answer it.
+    asks::attach(view.clone(), tab.clone(), || false);
 }
 
 /// The gate's word on a load of any frame, as the Linux app asks it (every

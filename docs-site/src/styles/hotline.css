@@ -44,3 +44,14 @@ kbd {
 	padding: 0 0.35em;
 	background: var(--sl-color-gray-6);
 }
+/* Phone screenshots (src/assets/phone/phone-*.webp): at a phone's own width, two to a row where they fit. */
+.sl-markdown-content img[src*="phone-"] {
+	display: inline-block;
+	width: min(18rem, 100%);
+	height: auto;
+	margin: 0 0.75rem 0.75rem 0;
+	vertical-align: top;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 1.25rem;
+}
+

@@ -9,6 +9,7 @@ top of the team list and choose **Add a desktop**.
 
 ## Your computer
 
+
 1. In Hotline on your computer, open **Settings → Remote** and turn on **Remote
    access**.
 2. Press **Link a phone** to show the QR.
@@ -32,6 +33,7 @@ server can be anywhere the phone can reach, including the open internet: the
 phone only trusts the key in the QR code.
 
 ## Several desks
+
 
 Link as many as you like. The desktop menu at the top of the team list
 switches between them or shows every desk's teammates together.

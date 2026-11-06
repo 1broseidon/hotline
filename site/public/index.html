@@ -69,7 +69,7 @@
 
 <section class="band container" aria-label="What my teammates run on">
   <div class="grid runs">
-    <div class="col-l"><p class="runs-h">Bring your subscription, your coding tool, or both.</p><p class="runs-sub">Any cloud provider, or fully local on your own machine.</p></div>
+    <div class="col-l"><p class="runs-h">Bring your subscription, your coding tool, or both.</p><p class="runs-sub">Any cloud provider, or fully local on your own machine. <a class="dl-docs" href="/docs/setup/providers/#billing">Who bills what</a></p></div>
     <ul class="col-r majors">
       <li><strong><img class="mark" src="/marks/claude.svg" alt="" width="16" height="16">Anthropic</strong><span>Claude Code</span><span>or your API key</span></li>
       <li><strong><i class="mark mark--mono mark-openai"></i>OpenAI</strong><span>Codex</span><span>or ChatGPT</span></li>
@@ -134,6 +134,17 @@
   </div>
 </section>
 
+<section class="section container" aria-labelledby="phone-h">
+  <div class="grid">
+    <div class="col-l media-text">
+      <h2 id="phone-h" class="lines-2"><span>My team stays home.</span> <span>You don’t have to.</span></h2>
+      <p class="sec-p">My teammates run on your computer. Pair your iPhone and they come with you: answer them, approve what they ask from the notification, call them, take over a teammate’s computer or browser. At home it reaches your desk over Wi-Fi; anywhere else, through your own VPN or a Hotline server, encrypted end to end.</p>
+      <p class="sec-p"><a class="dl-docs" href="/docs/phone/">Hotline on your phone</a>, in beta on TestFlight.</p>
+    </div>
+    <div class="col-r"><figure class="shot shot--piece"><img src="/screens/phone-card.webp" width="720" height="1566" alt="Hotline on an iPhone: Mack’s conversation, his answer that both old volumes are detached and hold 3.9 GiB, and a Needs you card asking to delete them, with Allow once, Always allow and Not now." loading="lazy" decoding="async"></figure></div>
+  </div>
+</section>
+
 <section class="section container" id="download" aria-labelledby="dl-h">
   <div class="dl">
     <h2 id="dl-h"><mark><span>Run </span><span>hotline </span><span>now.</span></mark></h2>
@@ -142,7 +153,7 @@
       <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
       <a class="dl-docs" href="/docs/">or read the docs</a>
     </div>
-    <p class="fine">Free, version <span data-version>0.48.1</span>. No account: your keys stay in your keychain and your data on your disk.</p>
+    <p class="fine">Free, version <span data-version>0.48.1</span>. No account: your conversations and settings stay on your disk, your keys in your keychain. A cloud model sees what each turn sends it; a local model keeps that here too. <a href="/docs/reference/data/">What leaves</a></p>
   </div>
 </section>
 

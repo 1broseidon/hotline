@@ -2,9 +2,11 @@
 //! each teammate that has no computer, so a quick look at a page needs no
 //! container, MCP server or Playwright. The core owns what the agent may ask
 //! of it (the `browser` tool) and which addresses it may load; the app owns
-//! the web view and implements [`DeskBrowser`]. A desk with no window, such
-//! as `hotline serve`, and a Mac before macOS 14 ([`kept_here`]) install
-//! none, and no teammate there is offered the tool.
+//! the web view and implements [`DeskBrowser`]. A desk with no window
+//! (`hotline serve`) has the same browser in a helper process of its own
+//! where WebKitGTK is installed (`helper.rs`), and none where it is not; a
+//! Mac before macOS 14 ([`kept_here`]) installs none. No teammate on a desk
+//! without one is offered the tool.
 //!
 //! Local addresses are guarded where the teammate asks for them
 //! (docs/security.md, "A teammate's browser"): its `navigate` to a page on

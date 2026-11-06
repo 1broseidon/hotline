@@ -10,7 +10,7 @@
 #   --listen IP:PORT             one local address and a fixed port
 #   --public-url https://HOST:PORT  where phones reach the desk
 #   --browser                    a web browser for teammates without a computer:
-#                                WebKitGTK, Xvfb and fonts, about 480 MB (apt only;
+#                                WebKitGTK, Xvfb and fonts, about 500 MB (apt only;
 #                                offered on a first install at a terminal)
 # A server installed with --relay stays a relay, and one without it keeps its
 # agents: a re-run says how to change which it is and stops.
@@ -403,7 +403,7 @@ server() {
     # The browser is opt-in: asked for, or offered once, on a first full
     # install at a terminal.
     if [ -n "$fresh" ] && [ -z "$relay" ] && [ -z "$browser" ] && has_tty; then
-        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 480 MB (y/N)" N
+        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 500 MB (y/N)" N
         case "$answer" in [Yy]*) browser=1 ;; esac
     fi
 

@@ -732,7 +732,7 @@ impl Room {
         arguments: &Value,
     ) -> Result<BrowserAnswer, String> {
         if !self.offers_browser(persona_id) {
-            return Err("You have no desk browser: either Hotline is running without its window, or you have a computer, whose browser is your own.".into());
+            return Err("You have no desk browser: either this desk keeps none (a server without WebKitGTK, or a Mac before macOS 14), or you have a computer, whose browser is your own.".into());
         }
         let browser = self.desk_browser().ok_or("The desk browser has closed.")?;
         let action = arguments

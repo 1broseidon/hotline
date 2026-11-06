@@ -62,7 +62,7 @@ the installer. Each says so and stops before changing anything.
 A teammate without a computer can have a web browser of its own on the
 server, as it does on the desktop: it reads pages, fills forms and signs in
 with the logins you give it, and you watch and take control from your phone.
-It needs WebKitGTK, a virtual display (Xvfb) and fonts, about 480 MB on
+It needs WebKitGTK, a virtual display (Xvfb) and fonts, about 500 MB on
 Ubuntu or Debian, x86_64 or ARM, so it is opt-in. Add `--browser`:
 
 ```sh
@@ -84,9 +84,10 @@ signed in, you give it a login or take control and sign in yourself.
 
 The browser is `hotline-browser`, installed beside `hotline` and started by
 the desk at a teammate's first page. Each teammate's pages run in a process
-of their own, on a private display no other user on the server can reach,
-and a busy one uses about 400 MB. If it stops, the desk starts it again at
-the next page.
+of their own, on a private display no other user on the server can reach.
+The browser takes about 450 MB of memory with one teammate on a simple page,
+and a teammate browsing heavy sites takes 500 to 600 MB of its own. If it
+stops, the desk starts it again at the next page.
 
 ## Update a server
 

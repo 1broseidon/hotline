@@ -18,7 +18,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A server's teammates without a computer get a web browser, as on the
   desktop, and your phone is its screen: Take control, tap, type, and Give it
   back. It is opt-in: install with `--browser`, which adds WebKitGTK and Xvfb
-  (about 480 MB), on x86_64 and ARM. Without them the server runs as before.
+  (about 500 MB), on x86_64 and ARM. Without them the server runs as before.
 
 ### Changed
 

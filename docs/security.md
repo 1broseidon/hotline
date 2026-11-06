@@ -1313,7 +1313,8 @@ themselves are compiled and linted for Windows from the Mac
   page starts it again. WebKit draws without the GPU and keeps one web
   process per teammate (no page or process cache). A server has no pane,
   so there is no shield and no Visit anyway: a refused certificate stays
-  refused there. Each teammate's storage is `desk-browser/<hash>` under the
+  refused there, and a page's file picker never opens, even while the
+  person has control, since it would open where nobody can see it. Each teammate's storage is `desk-browser/<hash>` under the
   room, as on the Linux app, wiped with the teammate.
 - **A debug switch stays in debug.** `HOTLINE_BROWSER_SHOW`, which shows a
   teammate's window from the start, is read only in a debug build.

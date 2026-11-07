@@ -86,6 +86,16 @@ test("a sign-in code has a Copy that puts the code on the clipboard", async () =
 		await act(async () => copy!.click());
 		expect(copied).toEqual(["WXYZ-1234"]);
 		expect(copy!.textContent).toBe("Copied");
+		const opened: string[] = [];
+		const open = spyOn(native, "openLink").mockImplementation(async (url: string) => {
+			opened.push(url);
+		});
+		const page = [...container.querySelectorAll("button")].find((b) => b.textContent === "Open Acme sign-in");
+		await act(async () => page!.click());
+		open.mockRestore();
+		// Opening the sign-in page copies the code first, so it is pasted there.
+		expect(copied).toEqual(["WXYZ-1234", "WXYZ-1234"]);
+		expect(opened).toEqual(["https://x"]);
 	} finally {
 		await act(async () => root.unmount());
 		clipboard.mockRestore();

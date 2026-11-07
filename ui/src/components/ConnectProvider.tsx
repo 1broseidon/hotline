@@ -215,7 +215,7 @@ export function ConnectProvider({
 									</div>
 								)}
 								<div className="group-row">
-									<button type="button" className="text-sm text-ink-2 underline" onClick={() => void openLink(login.verificationUri)}>
+									<button type="button" className="text-sm text-ink-2 underline" onClick={() => void openSignIn(login)}>
 										Open {provider.name} sign-in
 									</button>
 								</div>
@@ -228,12 +228,18 @@ export function ConnectProvider({
 							</button>
 						</div>
 					</div>
-					<p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
+					<p className="group-hint">{login?.userCode ? "Opening the page copies the code. Paste it there." : "Finish signing in with your browser, then return here."}</p>
 				</section>
 			)}
 			{refusal !== null && <Refusal {...refusal} />}
 		</>
 	);
+}
+
+/** The sign-in page, with its code already on the clipboard to paste there. */
+async function openSignIn(login: { userCode: string; verificationUri: string }) {
+	if (login.userCode !== "") await writeClipboard(login.userCode).catch(() => {});
+	await openLink(login.verificationUri);
 }
 
 /** A sign-in code's Copy, so it is pasted on the sign-in page rather than

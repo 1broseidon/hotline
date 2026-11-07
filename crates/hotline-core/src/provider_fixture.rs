@@ -5,6 +5,11 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+/// What a harness registers its stub of OpenAI's auth server under, for
+/// the Sign in with ChatGPT sign-ins a desk starts; their callback then
+/// listens on a free port rather than 1455.
+pub const CHATGPT_SIGN_IN: &str = "chatgpt-sign-in";
+
 static ORIGINS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Mutex::default);
 
 pub struct Origin(String);

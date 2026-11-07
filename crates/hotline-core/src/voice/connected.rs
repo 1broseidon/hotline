@@ -95,8 +95,17 @@ fn xai_bearer<'a>(
     Box::pin(xai::bearer(tokens, rejected))
 }
 
+/// GPT-Live is placed on the Codex backend, which only a device-code
+/// ChatGPT sign-in reaches. A Sign in with ChatGPT login is for the public
+/// API, and says so rather than sending its token there.
 fn chatgpt_login(token_dir: &Path) -> BoxFuture<'_, Result<Login, String>> {
     Box::pin(async move {
+        if providers::rig_login::agent::is_agent(token_dir) {
+            return Err(
+                "GPT-Live needs a ChatGPT sign-in made with a device code. This one is for the OpenAI API; sign in again with a device code under Settings → Providers to call on GPT-Live."
+                    .to_string(),
+            );
+        }
         let record = chatgpt::refreshed_auth(token_dir).await?;
         Ok(Login {
             access_token: record.access_token,

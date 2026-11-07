@@ -129,9 +129,10 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `websearch.set_url` | `{provider, url?}` | `WebSearchStatus`; sets SearXNG's instance URL (http or https, a host, an optional path; no user, password, query or fragment), kept in the `webSearch` setting, or clears it when `url` is absent or blank, which switches SearXNG off. Any other provider is refused; owner or local desk only |
 | `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
-| `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
+| `credential.login` | `{providerId, browser?}` | `LoginPrompt` `{loginId, userCode, verificationUri, redirectUri?}` |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
 | `credential.login_cancel` | `{loginId}` | none; stops a pending sign-in, as `credential.login` below describes |
+| `credential.login_redirect` | `{loginId, redirectUrl}` | none; finishes a pending browser sign-in with the pasted address, or is refused and the sign-in waits on |
 | `credential.connect_local` | `{baseUrl}` | the `Credential`, a `local` one for an Ollama server |
 | `credential.custom_save` | `{id?, draft}` | the `Credential`, a custom connection made or edited |
 | `credential.custom_models` | `{id?, baseUrl, secret?}` | model ids, sorted, nothing saved |
@@ -721,6 +722,15 @@ base URL, and are never returned in credential metadata.
 `credential.login` starts sign-in for a provider offering `oauth`, and
 answers with a login id and browser URL. ChatGPT, Copilot and xAI also provide
 a `userCode`; OpenRouter leaves it empty and uses a loopback PKCE callback.
+ChatGPT with `browser: true` is Sign in with ChatGPT instead: no `userCode`,
+the browser URL is OpenAI's authorize page, and `redirectUri` is the
+loopback callback on `127.0.0.1:1455` the browser comes back to. A browser
+that cannot reach it (a window on another computer than a server desk)
+ends on a page that won't load; `credential.login_redirect` hands the desk
+that page's address, checked against the sign-in's state and redirect
+exactly. A port already taken fails the login with a message that says so.
+Without `browser` ChatGPT signs in with a device code, as phones and older
+windows ask.
 It is start-then-poll so a sign-in does not hold the ordered mutation worker.
 `credential.login_status` reports `pending`, `done`, or `failed`; an unknown
 id is an error, and a finished login stays queryable until process exit.

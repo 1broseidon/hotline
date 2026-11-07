@@ -440,15 +440,31 @@ pub enum Command {
         label: String,
         secret: String,
     },
-    /// Starts a device-code login. The command runs sequentially per socket,
+    /// Starts a provider login. The command runs sequentially per socket,
     /// which is why this is start-then-poll rather than one blocking call:
     /// a waiting authorize would hold every later command on that socket
     /// until the person signed in.
     #[serde(rename = "credential.login")]
-    CredentialLogin { provider_id: String },
+    CredentialLogin {
+        provider_id: String,
+        /// Sign in through the browser rather than with a device code, where
+        /// the provider offers both (ChatGPT). Absent means a device code, so
+        /// a phone or an older window keeps the flow it knows.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        browser: Option<bool>,
+    },
     /// Stops a pending login, including its callback listener or device polling.
     #[serde(rename = "credential.login_cancel")]
     CredentialLoginCancel { login_id: String },
+    /// Finishes a pending browser login with the address the browser ended
+    /// on, pasted by the person when the browser could not reach the desk.
+    /// Refused, with the login still waiting, when the address is not that
+    /// login's callback.
+    #[serde(rename = "credential.login_redirect")]
+    CredentialLoginRedirect {
+        login_id: String,
+        redirect_url: String,
+    },
     /// Connects an Ollama server and discovers the models installed there.
     #[serde(rename = "credential.connect_local")]
     CredentialConnectLocal { base_url: String },

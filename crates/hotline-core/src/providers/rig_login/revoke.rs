@@ -19,7 +19,10 @@ pub(crate) async fn delete(vault: &Vault, id: &str) -> io::Result<()> {
         )
     {
         vault.revoke(id)?;
-        if credential.provider_id == "openai-codex" {
+        // Sign in with ChatGPT has no revoke endpoint of OpenAI's: deleting
+        // it here forgets the tokens, and ChatGPT's connected apps is where
+        // the person disconnects it at OpenAI.
+        if credential.provider_id == "openai-codex" && !agent::is_agent(&dir) {
             let auth = chatgpt::auth::Authenticator::new(
                 chatgpt::auth::AuthSource::OAuth,
                 LoginDirStore::new(&dir),

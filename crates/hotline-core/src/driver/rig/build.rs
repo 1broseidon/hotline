@@ -354,6 +354,17 @@ pub(super) fn copilot_responses(
         )
 }
 
+/// Whether `provider` runs on a Sign in with ChatGPT login, whose requests
+/// go to the public API rather than the Codex backend.
+fn chatgpt_agent(keys: &HashMap<String, ProviderAuth>, provider: &str) -> bool {
+    models::wiring(provider).is_some_and(|wiring| wiring.client == Client::ChatGpt)
+        && matches!(
+            keys.get(provider),
+            Some(ProviderAuth::Login { token_dir })
+                if crate::providers::rig_login::agent::is_agent(token_dir)
+        )
+}
+
 pub(super) fn request_settings(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
@@ -363,10 +374,13 @@ pub(super) fn request_settings(
 ) -> Result<RequestSettings, String> {
     let (provider, model) = model_id.split_once('/').ok_or("Model has no provider")?;
     let wiring = models::wiring(provider).ok_or("Unknown provider")?;
+    let signed_in_as_agent = chatgpt_agent(keys, provider);
     // Anthropic requires a ceiling even for a model absent from discovery.
+    // Sign in with ChatGPT refuses one (`max_output_tokens`), as Pi found.
     let ceiling = output_limit
         .or_else(|| models::output_limit(model_id))
-        .or_else(|| (wiring.client == Client::Anthropic).then_some(4096));
+        .or_else(|| (wiring.client == Client::Anthropic).then_some(4096))
+        .filter(|_| !signed_in_as_agent);
     let params = effort.and_then(|effort| {
         let chat_route = wiring.client == Client::Copilot
             && !model.to_ascii_lowercase().contains("codex")
@@ -377,6 +391,16 @@ pub(super) fn request_settings(
             effort_params(wiring.client, effort)
         }
     });
+    // Sign in with ChatGPT keeps nothing on OpenAI's side, as the Codex
+    // backend does not: each request carries the whole conversation, its
+    // reasoning as ciphertext, and Rig replays it without stored item ids.
+    let params = if signed_in_as_agent {
+        let mut params = params.unwrap_or_else(|| serde_json::json!({}));
+        params["store"] = Value::Bool(false);
+        Some(params)
+    } else {
+        params
+    };
     let cache = (reuse == Reuse::Rounds && caches_when_asked(wiring.client, model))
         .then_some(CacheRetention::Short);
     Ok(RequestSettings {

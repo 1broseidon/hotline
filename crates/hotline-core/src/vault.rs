@@ -45,6 +45,9 @@ pub(crate) fn default_store() -> Arc<dyn SecretStore> {
     }
 }
 
+/// The file in the vault directory that holds this desk's install id.
+const AGENT_INSTALL_ID: &str = "agent-install-id";
+
 /// Everything the vault keeps for one HTTP MCP server, bound to the URL it
 /// was saved for. OAuth fills the registration and credentials; a bearer or
 /// header server fills the secret. One file per server, so forgetting a
@@ -348,18 +351,21 @@ impl Vault {
 
     /// Removes a login that did not finish, so a failed attempt leaves nothing:
     /// each record's entries in the credential store, then the directory of
-    /// references. Copilot keeps its record beside the one every other login
-    /// keeps, and its entries are deleted the same way, or nothing could name
-    /// them again.
+    /// references. Copilot and Sign in with ChatGPT keep their records beside
+    /// the one every other login keeps, and their entries are deleted the
+    /// same way, or nothing could name them again.
     pub fn abandon_login(&self, id: &str) -> io::Result<()> {
         let dir = self.login_dir(id);
         let lock = crate::providers::rig_login::login_lock(&dir);
         let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
         crate::providers::rig_login::forget(&dir);
         self.login_tokens(id).delete()?;
-        self.files
-            .file(dir.join(crate::providers::rig_login::COPILOT_RECORD))
-            .delete()?;
+        for record in [
+            crate::providers::rig_login::COPILOT_RECORD,
+            crate::providers::rig_login::agent::AGENT_RECORD,
+        ] {
+            self.files.file(dir.join(record)).delete()?;
+        }
         match fs::remove_dir_all(&dir) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -883,6 +889,30 @@ impl Vault {
     fn mcp_path(&self, server_id: &str) -> PathBuf {
         self.mcp_dir()
             .join(format!("{}.json", mcp_path_component(server_id)))
+    }
+
+    /// This desk's install id, which Sign in with ChatGPT names as the
+    /// agent's host: made the first time it is asked for, and the same id
+    /// for every sign-in after, so ChatGPT sees one Hotline per desk.
+    pub(crate) fn agent_install_id(&self) -> io::Result<String> {
+        let path = self.directory().join(AGENT_INSTALL_ID);
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        match fs::read_to_string(&path) {
+            Ok(text) => {
+                return uuid::Uuid::parse_str(text.trim())
+                    .map(|id| id.hyphenated().to_string())
+                    .map_err(|_| {
+                        io::Error::other(format!("{} is not an install id", path.display()))
+                    });
+            }
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            Err(_) => {}
+        }
+        self.check_layout()?;
+        make_private_directory(&self.directory())?;
+        let id = uuid::Uuid::new_v4().hyphenated().to_string();
+        crate::credentials::atomic_write(&path, id.as_bytes())?;
+        Ok(id)
     }
 
     pub(crate) fn login_dir(&self, id: &str) -> PathBuf {

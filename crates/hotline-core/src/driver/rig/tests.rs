@@ -757,6 +757,80 @@ async fn a_responses_only_copilot_model_takes_the_responses_route() {
     let _ = std::fs::remove_dir_all(&older);
 }
 
+/// Sign in with ChatGPT is the public API's: a turn goes to `/responses`
+/// as an OpenAI key's would, with the sign-in's token and nothing that
+/// names Codex or a ChatGPT account, keeps nothing on OpenAI's side, and
+/// sends no output ceiling, which the sign-in refuses.
+#[tokio::test]
+async fn a_chatgpt_agent_sign_in_runs_on_the_public_responses_api() {
+    use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let app = Router::new().route(
+        "/responses",
+        post(move |headers: HeaderMap, body: Bytes| {
+            let tx = tx.clone();
+            async move {
+                tx.send((headers, serde_json::from_slice::<serde_json::Value>(&body).unwrap()))
+                    .await
+                    .unwrap();
+                json!({
+                    "id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-6-sol",
+                    "output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed",
+                        "content":[{"type":"output_text","text":"on the api"}]}],
+                    "usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+                })
+                .to_string()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let dir = tempfile::tempdir().unwrap();
+    crate::providers::rig_login::agent::seed(dir.path(), "agent-access").await;
+    let _origin = crate::provider_fixture::Origin::new(dir.path().to_string_lossy(), &url);
+    let keys = HashMap::from([(
+        "openai-codex".to_string(),
+        ProviderAuth::Login {
+            token_dir: dir.path().to_path_buf(),
+        },
+    )]);
+
+    let answer = complete(
+        &keys,
+        "openai-codex/gpt-6-sol",
+        "you are Ada",
+        "hello",
+        Some(512),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer, "on the api");
+    let (headers, body) = rx.recv().await.unwrap();
+    assert_eq!(headers["authorization"], "Bearer agent-access");
+    assert!(headers.get("chatgpt-account-id").is_none());
+    assert!(headers.get("originator").is_none());
+    assert_eq!(body["model"], "gpt-6-sol");
+    assert_eq!(body["store"], false, "{body}");
+    assert!(body.get("max_output_tokens").is_none(), "{body}");
+    assert!(body.get("temperature").is_none(), "{body}");
+
+    let settings = request_settings(
+        &keys,
+        "openai-codex/gpt-6-sol",
+        Some("high"),
+        Some(512),
+        Reuse::Rounds,
+    )
+    .unwrap();
+    assert_eq!(settings.max_tokens, None);
+    assert_eq!(
+        settings.additional_params,
+        Some(json!({"reasoning": {"effort": "high"}, "store": false}))
+    );
+    server.abort();
+}
+
 fn echo_command() -> String {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_hotline_mcp_echo") {
         return path;

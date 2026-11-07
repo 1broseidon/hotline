@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Sign in with ChatGPT signs Hotline in as an app of its own: your browser
+  opens at OpenAI, you approve, and ChatGPT's connected apps lists it as
+  Hotline on your computer's name. Its turns run on OpenAI's API on your
+  ChatGPT plan, not counted against the Chat budget. When the browser
+  can't come back to Hotline, as with a desk on a server, paste the address
+  it ended on. A device code stays the other way in, and is how your phone
+  signs in; a ChatGPT sign-in you already have keeps working as it is.
+- When a ChatGPT Business workspace's usage limit stops a turn, the card
+  says to ask your workspace admin to raise it, and Hotline doesn't retry.
+
 ## [0.48.3] - 2026-11-06
 
 ### Added

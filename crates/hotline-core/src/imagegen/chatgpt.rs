@@ -1,3 +1,9 @@
+//! Pictures on a ChatGPT sign-in. A device-code sign-in draws on the Codex
+//! backend as the Codex CLI does; a Sign in with ChatGPT login draws on the
+//! public Images API with its token, as an API key would, with nothing that
+//! names Codex. Whether OpenAI lets that token draw is OpenAI's to say: a
+//! refusal says it is this sign-in, and does not ask for a new one.
+
 use super::http::{self, check, decode, malformed, sniff};
 use super::{Image, ImageError, ImageGen, ImageId, ImageRequest};
 use crate::providers::chatgpt::AuthRecord;
@@ -15,14 +21,22 @@ const REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) struct ChatGpt {
     token_dir: PathBuf,
     base_url: String,
+    /// A Sign in with ChatGPT login, on the public API.
+    agent: bool,
     http: reqwest::Client,
 }
 
 impl ChatGpt {
     pub(super) fn new(token_dir: PathBuf) -> Result<Self, String> {
+        let agent = crate::providers::rig_login::agent::is_agent(&token_dir);
         Ok(Self {
+            base_url: if agent {
+                crate::providers::rig_login::agent::RESOURCE.into()
+            } else {
+                BASE_URL.into()
+            },
             token_dir,
-            base_url: BASE_URL.into(),
+            agent,
             http: http::client()?,
         })
     }
@@ -81,13 +95,23 @@ impl ChatGpt {
                     .filter(|token| !token.trim().is_empty())
                     .ok_or(ImageError::SignInRequired)?,
             )
-            .header("originator", "codex_cli_rs")
             .json(&body);
-        if let Some(account) = auth.account_id.filter(|account| !account.is_empty()) {
-            outgoing = outgoing.header("ChatGPT-Account-Id", account);
+        if !self.agent {
+            outgoing = outgoing.header("originator", "codex_cli_rs");
+            if let Some(account) = auth.account_id.filter(|account| !account.is_empty()) {
+                outgoing = outgoing.header("ChatGPT-Account-Id", account);
+            }
         }
         before_send()?;
-        let answer = http::send(PROVIDER_ID, outgoing).await?;
+        let answer = http::send(PROVIDER_ID, outgoing)
+            .await
+            .map_err(|error| match error {
+                ImageError::Refused {
+                    status: status @ (401 | 403),
+                    ..
+                } if self.agent => ImageError::NotForThisSignIn { status },
+                error => error,
+            })?;
         let answer: Value = serde_json::from_slice(&answer).map_err(|_| malformed(PROVIDER_ID))?;
         let encoded = answer["data"][0]["b64_json"]
             .as_str()

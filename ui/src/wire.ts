@@ -171,6 +171,7 @@ type Results = {
 	"session.set_backend": SessionInfo;
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;
+	"credential.login_redirect": null;
 	"credential.connect_local": Credential;
 	"credential.custom_save": Credential;
 	"credential.custom_models": string[];

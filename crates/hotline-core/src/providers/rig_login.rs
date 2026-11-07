@@ -1,7 +1,11 @@
 //! ChatGPT and GitHub Copilot sign-ins, kept in the OS credential store
 //! behind a reference file in the credential's login directory.
 //!
-//! Rig signs in, refreshes and reads the tokens. [`LoginDirStore`] is the
+//! A ChatGPT login is one of two kinds, told apart by the record its
+//! directory holds: `auth.json`, a device-code sign-in to the Codex
+//! backend, or `agent.json`, Sign in with ChatGPT as an agent of its own
+//! on the public API ([`agent`]). Rig signs in, refreshes and reads the
+//! device-code and Copilot tokens. [`LoginDirStore`] is the
 //! store it does that through: each record is a [`CredentialFile`] of the
 //! vault that holds the directory, so a sign-in made before Rig 0.45, kept
 //! there in plain text, moves into the keychain the first time it is read
@@ -235,15 +239,21 @@ pub(crate) fn http() -> ReqwestClient {
 
 static SHARED: LazyLock<Mutex<HashMap<PathBuf, Login>>> = LazyLock::new(Mutex::default);
 
-/// The shared, revocable credential used by every caller of this login.
+/// The shared, revocable credential used by every caller of this login:
+/// the agent sign-in's when the directory holds one, the device-code one's
+/// otherwise.
 pub(crate) fn chatgpt(dir: &Path) -> Login {
     shared(dir, || {
-        Authenticator::ChatGpt(chatgpt::auth::Authenticator::new(
-            chatgpt::auth::AuthSource::OAuth,
-            LoginDirStore::new(dir),
-            DeviceCodeHandler::default(),
-            false,
-        ))
+        if agent::is_agent(dir) {
+            Authenticator::Agent(agent::Authenticator::new(dir))
+        } else {
+            Authenticator::ChatGpt(chatgpt::auth::Authenticator::new(
+                chatgpt::auth::AuthSource::OAuth,
+                LoginDirStore::new(dir),
+                DeviceCodeHandler::default(),
+                false,
+            ))
+        }
     })
 }
 
@@ -273,17 +283,22 @@ fn shared(dir: &Path, make: impl FnOnce() -> Authenticator) -> Login {
 /// Retained transports lose their authenticator as well as the registry.
 /// Rig exposes forget for ChatGPT; Copilot's cache dies with its last clone.
 pub(crate) fn forget(dir: &Path) {
-    if let Some(login) = SHARED
+    let Some(login) = SHARED
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .remove(dir)
-        && let Some(Authenticator::ChatGpt(auth)) = login
-            .auth
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
-    {
-        auth.forget();
+    else {
+        return;
+    };
+    let taken = login
+        .auth
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    match taken {
+        Some(Authenticator::ChatGpt(auth)) => auth.forget(),
+        Some(Authenticator::Agent(auth)) => auth.forget(),
+        Some(Authenticator::Copilot(_)) | None => {}
     }
 }
 
@@ -330,7 +345,7 @@ pub(crate) async fn chatgpt_sign_in(
     show: impl Fn(DeviceCodePrompt) + Send + Sync + 'static,
 ) -> Result<AuthContext, String> {
     let Authenticator::ChatGpt(auth) = chatgpt(dir).authenticator()? else {
-        unreachable!("ChatGPT sign-in uses a ChatGPT authenticator")
+        return Err("This login already holds a different ChatGPT sign-in.".into());
     };
     auth.with_device_code_handler(DeviceCodeHandler::new(show))
         .sign_in_with_device_code(&http())
@@ -360,6 +375,7 @@ pub(crate) async fn copilot_sign_in(
 #[derive(Clone)]
 enum Authenticator {
     ChatGpt(chatgpt::auth::Authenticator),
+    Agent(agent::Authenticator),
     Copilot(copilot::auth::Authenticator),
 }
 
@@ -395,6 +411,7 @@ impl Login {
             .map_err(chatgpt::auth::AuthError::Message)?;
         let context = match auth {
             Authenticator::ChatGpt(auth) => auth.auth_context(http).await,
+            Authenticator::Agent(auth) => auth.auth_context().await,
             Authenticator::Copilot(auth) => auth.auth_context(http).await,
         }?;
         live(&self.dir)?;
@@ -420,6 +437,7 @@ impl rig::client::signed_in::CredentialSource for Login {
     }
 }
 
+pub(crate) mod agent;
 pub(crate) mod revoke;
 
 #[cfg(test)]

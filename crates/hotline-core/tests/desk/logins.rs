@@ -390,3 +390,133 @@ async fn rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails() {
         server.abort();
     }
 }
+
+/// Sign in with ChatGPT over the real wire: the browser sign-in names the
+/// desk's install id and comes back to a loopback callback, a pasted
+/// address from another attempt is refused while the sign-in waits, and
+/// the right one finishes it into the vault, with the issued client and
+/// the tokens kept out of the room. The device code stays what a sign-in
+/// without `browser` gets, so phones and older windows are unchanged.
+#[tokio::test]
+async fn a_browser_chatgpt_sign_in_takes_a_pasted_redirect_into_the_vault() {
+    use axum::{Router, body::Bytes, routing::post};
+    use hotline_core::{credentials::MemoryStore, provider_fixture};
+    use std::sync::Mutex;
+    let forms = Arc::new(Mutex::new(Vec::new()));
+    let seen = forms.clone();
+    let app = Router::new().route(
+        "/api/accounts/oauth/token",
+        post(move |body: Bytes| {
+            let form: std::collections::HashMap<String, String> =
+                url::form_urlencoded::parse(&body).into_owned().collect();
+            seen.lock().unwrap().push(form);
+            async {
+                json!({
+                    "access_token": "private-agent-access",
+                    "refresh_token": "private-agent-refresh",
+                    "expires_in": 3600,
+                    "id_token": "id",
+                    "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+                })
+                .to_string()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let _fixture = provider_fixture::Origin::new(provider_fixture::CHATGPT_SIGN_IN, &origin);
+
+    let root = tempfile::tempdir().unwrap();
+    let memory = Arc::new(MemoryStore::default());
+    let desk = hotline_core::desk::Desk::open_with_store(root.path(), memory).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let running = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+
+    let started = client
+        .call(
+            "credential.login",
+            json!({"providerId": "openai-codex", "browser": true}),
+        )
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let prompt = &started["result"];
+    let login_id = prompt["loginId"].as_str().unwrap().to_string();
+    assert_eq!(prompt["userCode"], "");
+    let page = url::Url::parse(prompt["verificationUri"].as_str().unwrap()).unwrap();
+    assert!(
+        page.as_str()
+            .starts_with(&format!("{origin}/api/accounts/authorize?"))
+    );
+    let param = |name: &str| {
+        page.query_pairs()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.into_owned())
+            .unwrap()
+    };
+    assert_eq!(param("client_id"), "dynamic_agent_client");
+    assert!(param("agent_name_hint").starts_with("Hotline"));
+    let install = std::fs::read_to_string(root.path().join("vault/agent-install-id")).unwrap();
+    assert_eq!(param("ext_agent_host_id"), format!("urn:uuid:{install}"));
+    let redirect = prompt["redirectUri"].as_str().unwrap().to_string();
+    assert!(redirect.starts_with("http://127.0.0.1:") && redirect.ends_with("/auth/callback"));
+    assert_eq!(param("redirect_uri"), redirect);
+
+    let stale = client
+        .call(
+            "credential.login_redirect",
+            json!({"loginId": login_id, "redirectUrl": format!("{redirect}?code=c&state=stale&client_id=oaiapp_x")}),
+        )
+        .await;
+    assert_eq!(stale["ok"], false, "{stale}");
+    let waiting = client
+        .call("credential.login_status", json!({"loginId": login_id}))
+        .await;
+    assert_eq!(waiting["result"]["state"], "pending");
+
+    let state = param("state");
+    let pasted = client
+        .call(
+            "credential.login_redirect",
+            json!({"loginId": login_id, "redirectUrl": format!("{redirect}?code=the-code&state={state}&client_id=oaiapp_issued")}),
+        )
+        .await;
+    assert_eq!(pasted["ok"], true, "{pasted}");
+    let mut status = json!(null);
+    for _ in 0..100 {
+        status = client
+            .call("credential.login_status", json!({"loginId": login_id}))
+            .await;
+        if status["result"]["state"] != "pending" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(status["result"]["state"], "done", "{status}");
+    assert_eq!(status["result"]["credential"]["providerId"], "openai-codex");
+    assert_eq!(status["result"]["credential"]["credentialKind"], "oauth");
+    let form = forms.lock().unwrap()[0].clone();
+    assert_eq!(form["client_id"], "oaiapp_issued");
+    assert_eq!(form["code"], "the-code");
+
+    let dir = root.path().join("vault/logins").join(&login_id);
+    assert!(dir.join("agent.json").exists());
+    assert!(!dir.join("auth.json").exists());
+    let listed = client.call("credential.list", json!({})).await;
+    assert!(!listed.to_string().contains("private-agent"), "{listed}");
+    let room = std::fs::read_to_string(root.path().join("room.jsonl")).unwrap();
+    assert!(!room.contains("private-agent") && !room.contains("oaiapp_issued"));
+
+    let finished = client
+        .call(
+            "credential.login_redirect",
+            json!({"loginId": login_id, "redirectUrl": redirect}),
+        )
+        .await;
+    assert_eq!(finished["ok"], false);
+    running.abort();
+    server.abort();
+}

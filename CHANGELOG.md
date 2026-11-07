@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
+  beside it, so the code is pasted on the sign-in page instead of typed, as
+  on the phone.
+
 ## [0.48.3] - 2026-11-06
 
 ### Added

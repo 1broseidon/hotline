@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Credential, CredentialKind, Provider, ProviderJob } from "../generated/contract";
-import { ChevronRightIcon } from "../icons";
-import { openLink } from "../native";
+import { CheckIcon, ChevronRightIcon, CopyIcon } from "../icons";
+import { openLink, writeClipboard } from "../native";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { formOf, restingAfter, signInBusy, signInStep } from "../signIn";
 import { wire } from "../wire";
@@ -209,8 +209,9 @@ export function ConnectProvider({
 						) : (
 							<>
 								{login.userCode !== "" && (
-									<div className="group-row">
+									<div className="group-row justify-between">
 										<span className="selectable font-mono text-xl tracking-wide">{login.userCode}</span>
+										<CopyCode code={login.userCode} />
 									</div>
 								)}
 								<div className="group-row">
@@ -232,6 +233,23 @@ export function ConnectProvider({
 			)}
 			{refusal !== null && <Refusal {...refusal} />}
 		</>
+	);
+}
+
+/** A sign-in code's Copy, so it is pasted on the sign-in page rather than
+ * typed: it says Copied for a moment once the clipboard has it. */
+function CopyCode({ code }: { code: string }) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = window.setTimeout(() => setCopied(false), 1500);
+		return () => window.clearTimeout(timer);
+	}, [copied]);
+	return (
+		<button type="button" className="control btn btn-sm gap-1.5" title="Copy code" aria-label="Copy sign-in code" onClick={() => void writeClipboard(code).then(() => setCopied(true))}>
+			{copied ? <CheckIcon /> : <CopyIcon />}
+			{copied ? "Copied" : "Copy"}
+		</button>
 	);
 }
 

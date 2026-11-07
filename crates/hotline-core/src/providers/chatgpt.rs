@@ -459,7 +459,7 @@ mod tests {
             "/models",
             get(|| async {
                 json!({"models": [
-                    {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1-Sol", "visibility": "list", "context_window": 500000},
+                    {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1-Sol", "visibility": "list", "context_window": 500_000},
                     {"slug": "gpt-6-luna", "visibility": "list"},
                     {"slug": "codex-auto-review", "visibility": "hide"},
                 ]})

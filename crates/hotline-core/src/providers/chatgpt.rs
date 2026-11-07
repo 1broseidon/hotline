@@ -94,18 +94,35 @@ async fn list_agent_models_at(token_dir: &Path, base: &str) -> Result<Vec<Listed
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|_| discovery::failed())?;
+        .map_err(|_| {
+            "Could not reach OpenAI to list models; the previous list is unchanged.".to_string()
+        })?;
     let status = response.status();
-    if matches!(status.as_u16(), 401 | 403) {
-        return Err(format!(
-            "OpenAI would not list models for this ChatGPT sign-in (HTTP {}). The picker offers ChatGPT's usual models; the previous list is unchanged.",
-            status.as_u16()
-        ));
-    }
+    let body = response.bytes().await.map_err(|_| discovery::failed())?;
     if !status.is_success() {
-        return Err(discovery::failed());
+        let said = api_error(&body)
+            .map(|message| format!(": {message}"))
+            .unwrap_or_default();
+        return Err(if matches!(status.as_u16(), 401 | 403) {
+            format!(
+                "OpenAI would not list models for this ChatGPT sign-in (HTTP {}{said}). The picker offers ChatGPT's usual models; the previous list is unchanged.",
+                status.as_u16()
+            )
+        } else {
+            format!(
+                "OpenAI's model list failed (HTTP {}{said}); the previous list is unchanged.",
+                status.as_u16()
+            )
+        });
     }
-    let listed: ApiListing = response.json().await.map_err(|_| discovery::failed())?;
+    // The API answers a ChatGPT sign-in's token with the subscription's own
+    // catalog, the shape the Codex backend lists in, which already holds
+    // only what the subscription serves.
+    let Ok(listed) = serde_json::from_slice::<ApiListing>(&body) else {
+        return listing(&body).map_err(|_| {
+            "OpenAI's model list could not be read; the previous list is unchanged.".to_string()
+        });
+    };
     let models = listed
         .data
         .into_iter()
@@ -121,6 +138,14 @@ async fn list_agent_models_at(token_dir: &Path, base: &str) -> Result<Vec<Listed
         })
         .collect();
     discovery::finish("openai-codex", models)
+}
+
+/// OpenAI's own words for a refusal, `error.message`, bounded and on one line.
+fn api_error(body: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let message = value.pointer("/error/message")?.as_str()?;
+    let line: String = message.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!line.is_empty()).then(|| line.chars().take(200).collect())
 }
 
 /// The version a listing asks as: the installed Codex when it is newer than
@@ -187,6 +212,17 @@ pub(crate) async fn list_models_at(
     listing(&body)
 }
 
+/// The public API as a ChatGPT sign-in's token meets it: OpenAI's own
+/// endpoint and identity, but the subscription's Responses contract. With
+/// that token the API answers as the Codex backend does, an event stream
+/// that names no content type and keeps nothing (`store: false`), which
+/// OpenAI's own contract refuses as the wrong endpoint.
+const AGENT_DIALECT: rig::providers::openai::wire::Dialect = {
+    let mut dialect = rig::providers::openai::wire::OPENAI;
+    dialect.quirks.responses.contract = rig::providers::openai::wire::ResponsesContract::Codex;
+    dialect
+};
+
 /// `model` on the ChatGPT login in `token_dir`. Rig's ChatGPT dialect writes
 /// the request; the transport signs it with the login's live token and
 /// account as it goes. A Sign in with ChatGPT login is on the public API,
@@ -200,15 +236,14 @@ pub(crate) fn model(
         std::convert::identity,
     )?;
     if agent::is_agent(token_dir) {
-        return Ok(rig::providers::openai::OpenAIConfig::with_key(
-            &rig::providers::openai::wire::OPENAI,
-            "",
-        )
-        .with_base_url(api_base(token_dir))
-        .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
-        .connect(transport)
-        .completion(model)
-        .erase());
+        return Ok(
+            rig::providers::openai::OpenAIConfig::with_key(&AGENT_DIALECT, "")
+                .with_base_url(api_base(token_dir))
+                .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
+                .connect(transport)
+                .completion(model)
+                .erase(),
+        );
     }
     let config =
         rig::providers::openai::OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "");
@@ -413,5 +448,49 @@ mod tests {
         assert!(error.contains("HTTP 403"), "{error}");
         assert_eq!(api_base(dir.path()), "https://api.openai.com/v1");
         server.abort();
+    }
+
+    /// The API answers a ChatGPT sign-in's token with the subscription's
+    /// catalog, `models` by `slug`, not the `data` list a key gets; the
+    /// menu reads it as the device-code listing does.
+    #[tokio::test]
+    async fn an_agent_sign_in_reads_the_subscription_catalog_the_api_answers_with() {
+        let app = Router::new().route(
+            "/models",
+            get(|| async {
+                json!({"models": [
+                    {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1-Sol", "visibility": "list", "context_window": 500000},
+                    {"slug": "gpt-6-luna", "visibility": "list"},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]})
+                .to_string()
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = tempfile::tempdir().unwrap();
+        agent::seed(dir.path(), "agent-access").await;
+
+        let models = list_agent_models_at(dir.path(), &url).await.unwrap();
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["gpt-6-luna", "gpt-6.1-sol"]
+        );
+        assert_eq!(models[1].name.as_deref(), Some("GPT-6.1-Sol"));
+        server.abort();
+    }
+
+    /// A ChatGPT sign-in's turns take the subscription's Responses contract
+    /// on OpenAI's own endpoint: its stream names no content type.
+    #[test]
+    fn an_agent_sign_in_speaks_the_subscription_contract_on_the_public_api() {
+        use rig::providers::openai::wire::{OPENAI, ResponsesContract};
+        assert_eq!(
+            AGENT_DIALECT.quirks.responses.contract,
+            ResponsesContract::Codex
+        );
+        assert_eq!(AGENT_DIALECT.quirks.identity, OPENAI.quirks.identity);
+        assert_eq!(AGENT_DIALECT.name, OPENAI.name);
     }
 }

@@ -410,10 +410,21 @@ export function Transcript({
 		const observer = new ResizeObserver(onResize);
 		observer.observe(el);
 		if (el.firstElementChild) observer.observe(el.firstElementChild);
+		// A row swapped for another is a new layout too, even when the column
+		// ends the height it was. The line you send is a stand-in until the
+		// core writes it, then a row of its own in the same place: WebKit
+		// moves the scroll up by the row it took out, and the new row, drawn
+		// at its own height at once (above), leaves the column as tall as
+		// before, so nothing resizes. That scroll, on a layout already seen,
+		// would read as you scrolling away and leave the line under the
+		// composer.
+		const rows = new window.MutationObserver(onResize);
+		if (el.firstElementChild) rows.observe(el.firstElementChild, { childList: true });
 		pin();
 		return () => {
 			el.removeEventListener("scroll", onScroll);
 			observer.disconnect();
+			rows.disconnect();
 			cancelAnimationFrame(frame);
 		};
 		// The scroll listener above is enough while the events are the same.

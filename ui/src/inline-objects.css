@@ -995,6 +995,13 @@ html[data-platform="macos"]:not([data-fullscreen]) .remote-browser {
 .remote-browser-page.yours {
 	cursor: crosshair;
 }
+/* A live page shows the person's own pointer: the page's is not streamed. */
+canvas.remote-browser-page {
+	display: block;
+}
+.remote-browser-page.live.yours {
+	cursor: default;
+}
 .remote-browser-page img {
 	display: block;
 	width: 100%;

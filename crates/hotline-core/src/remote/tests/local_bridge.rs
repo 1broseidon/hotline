@@ -258,7 +258,10 @@ async fn bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_th
     let url = format!("{}/computer/ada/ws", bridge.origin.replace("http:", "ws:"));
     assert!(!url.contains("secret-bearer"));
     assert!(!url.contains(&bridge.token));
-    let protocol = format!("hotline-viewer.{}", bridge.viewer_token("ada"));
+    let protocol = format!(
+        "hotline-viewer.{}",
+        bridge.viewer_token("ada", Viewer::Computer)
+    );
     let mut request = url.into_client_request().unwrap();
     request.headers_mut().insert(
         http::header::SEC_WEBSOCKET_PROTOCOL,

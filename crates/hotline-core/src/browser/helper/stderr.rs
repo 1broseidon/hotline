@@ -52,9 +52,13 @@ enum Kind {
 }
 
 /// What a line is. GLib's are `(process:pid): Domain-LEVEL **: time: text`
-/// or `Domain-Message: time: text`; a CRITICAL or ERROR one is trouble.
+/// or `Domain-Message: time: text`, and one with no domain
+/// `** (process:pid): LEVEL **: time: text`; a CRITICAL or ERROR one is
+/// trouble.
 fn kind(line: &str) -> Kind {
     let rest = line
+        .strip_prefix("** ")
+        .unwrap_or(line)
         .strip_prefix('(')
         .and_then(|after| after.split_once("): ").map(|(_, rest)| rest))
         .unwrap_or(line);
@@ -168,6 +172,8 @@ mod tests {
             "MESA: error: ZINK: failed to choose pdev",
             "(WebKitWebProcess:4100): GLib-GIO-Message: 10:01:02.345: Using the 'memory' GSettings backend.  Your settings will not be saved or shared with other applications.",
             "(process:4200): libsoup-WARNING **: 10:01:02.345: Failed to execute query: table soup_hsts_policies already exists",
+            // WebKit's own, with no domain, on a display with no GLX.
+            "** (hotline-browser:74537): WARNING **: 21:18:29.496: Disabled hardware acceleration because GTK failed to initialize GL: No GL implementation is available.",
         ] {
             assert_eq!(lines.take(line, now), None, "{line}");
         }

@@ -138,7 +138,7 @@ where
         // phone paired before the relay was chosen learns of it here.
         "endpoints": phone.endpoints(),
         "mode": "team",
-        "capabilities": Seat::for_phone(role).capabilities_for(&desk.parts),
+        "capabilities": Seat::for_phone(role).capabilities_with(&desk.parts, desk.room.as_ref()),
     });
     // Which of those endpoints is public, so a phone can tell it from the
     // VPN or LAN ones without the owner-only `remote.status`.
@@ -759,7 +759,7 @@ async fn command(
                         seat.is_remote() && capabilities.iter().any(|name| name == LEAN),
                         std::sync::atomic::Ordering::Relaxed,
                     );
-                    Ok(json!({ "capabilities": seat.capabilities_for(parts) }))
+                    Ok(json!({ "capabilities": seat.capabilities_with(parts, room.as_ref()) }))
                 }
                 (Command::RemoteDevices {}, Some(phone)) => Ok(json!(phone.devices())),
                 // Seat::Phone does not permit it, so this is an owner's.
@@ -902,7 +902,11 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// taking a teammate's desk browser over, driving it and handing it back.
 /// `browserVisitAnyway`, owner-only as well: `browser.visit_anyway`, past a
 /// certificate the browser refused, on one the owner has taken over; a desk
-/// from before it has no way past one from away. `computer.capacity` is read-only
+/// from before it has no way past one from away. `browserStream`, to the
+/// owner and a companion on a desk whose browser is a live screen: a
+/// teammate's browser at `/v2/browser/<personaId>/ws`, in the computer
+/// viewer's protocol, which the owner alone may drive (task-390); a desk
+/// without it is watched and driven by `browser.snapshot` and `browser.input`. `computer.capacity` is read-only
 /// and available to every phone seat. `turnRetry`: `session.retry`, trying
 /// a failed turn again, so a phone shows Try again only where it works.
 /// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,

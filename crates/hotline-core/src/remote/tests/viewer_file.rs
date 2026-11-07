@@ -162,7 +162,10 @@ async fn viewer(bridge: &bridge::Bridge) -> ViewerSocket {
     let mut request = format!("{}/computer/ada/ws", bridge.origin.replace("http:", "ws:"))
         .into_client_request()
         .unwrap();
-    let protocol = format!("hotline-viewer.{}", bridge.viewer_token("ada"));
+    let protocol = format!(
+        "hotline-viewer.{}",
+        bridge.viewer_token("ada", Viewer::Computer)
+    );
     request.headers_mut().insert(
         http::header::SEC_WEBSOCKET_PROTOCOL,
         protocol.parse().unwrap(),

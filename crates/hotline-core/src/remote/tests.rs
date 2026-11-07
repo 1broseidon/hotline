@@ -8,6 +8,7 @@ use crate::{
     wire::{Door, Parts, RoomHandle},
 };
 use base64::Engine;
+use bridge::Viewer;
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -83,6 +84,7 @@ impl Harness {
                     starts: std::sync::atomic::AtomicUsize::new(0),
                     infos: broadcast::channel(16).0,
                     deltas: broadcast::channel(16).0,
+                    browser: FakeBrowser::default(),
                 });
                 handle = Some(room.clone());
                 Agents {
@@ -252,6 +254,32 @@ struct Computered {
     starts: std::sync::atomic::AtomicUsize,
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
+    browser: FakeBrowser,
+}
+
+/// A teammate's desk browser that is a live screen, with nothing behind it:
+/// who has it (no page while `None`), each Take control and Give it back
+/// asked of it, and every message its hands were passed.
+#[derive(Default)]
+struct FakeBrowser {
+    phase: std::sync::Mutex<Option<crate::contract::BrowserPhase>>,
+    takes: std::sync::Mutex<Vec<bool>>,
+    hands: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl FakeBrowser {
+    fn view(&self) -> Option<crate::contract::BrowserView> {
+        let phase = (*self.phase.lock().unwrap())?;
+        Some(crate::contract::BrowserView {
+            phase,
+            url: "https://example.com/".into(),
+            title: "Example".into(),
+            active_at: 1,
+            snapshot_at: None,
+            needs: None,
+            viewport: None,
+        })
+    }
 }
 
 #[derive(Default)]
@@ -460,6 +488,61 @@ impl RoomHandle for Computered {
     async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
         self.desk.computer_releases_check().await
     }
+    fn browser_view(&self, _persona_id: &str) -> Option<crate::contract::BrowserView> {
+        self.browser.view()
+    }
+    fn browser_streams(&self) -> bool {
+        true
+    }
+    /// The screen sends one 2 by 2 frame at once, then a pointer message,
+    /// and keeps what its hands are passed.
+    async fn browser_screen(
+        &self,
+        _persona_id: &str,
+    ) -> Result<hotline_room::room_handle::BrowserScreen, String> {
+        use crate::browser::screen::{Frame, Rect};
+        use hotline_room::room_handle::{BrowserScreen, ScreenShown};
+        if self.browser.view().is_none() {
+            return Err("That teammate's browser has no page open.".into());
+        }
+        let (shown_to, shown) = tokio::sync::mpsc::channel(1);
+        let (input, mut inputs) = tokio::sync::mpsc::channel::<String>(16);
+        let frame = Frame {
+            rect: Rect::new(0, 0, 2, 2),
+            screen: (2, 2),
+            png: b"\x89PNG".to_vec(),
+        };
+        let _ = shown_to.send(ScreenShown::Frame(frame.encode())).await;
+        let hands = self.browser.hands.clone();
+        tokio::spawn(async move {
+            let _ = shown_to
+                .send(ScreenShown::Text(r#"{"t":"pointer","x":1,"y":1}"#.into()))
+                .await;
+            while let Some(said) = inputs.recv().await {
+                hands.lock().unwrap().push(said);
+            }
+            drop(shown_to);
+        });
+        Ok(BrowserScreen { shown, input })
+    }
+    async fn browser_take(
+        &self,
+        _persona_id: &str,
+        taken: bool,
+    ) -> Result<Option<crate::contract::BrowserView>, String> {
+        let mut phase = self.browser.phase.lock().unwrap();
+        if phase.is_none() {
+            return Err("That teammate's browser has no page open.".into());
+        }
+        *phase = Some(if taken {
+            crate::contract::BrowserPhase::Person
+        } else {
+            crate::contract::BrowserPhase::Teammate
+        });
+        drop(phase);
+        self.browser.takes.lock().unwrap().push(taken);
+        Ok(self.browser.view())
+    }
     async fn computer_status(
         &self,
         _persona_id: &str,
@@ -540,6 +623,7 @@ async fn fake_computer() -> (u16, Arc<std::sync::Mutex<Option<String>>>) {
 
 mod addresses;
 mod admission;
+mod browser_screen;
 mod computer;
 mod identity;
 mod legacy;

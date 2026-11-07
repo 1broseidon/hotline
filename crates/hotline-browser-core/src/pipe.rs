@@ -78,8 +78,15 @@ pub enum Down {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Up {
-    /// The helper's browser process and its private X display are up.
-    Ready { pid: u32, display: u32 },
+    /// The helper's browser process and its private X display are up, and
+    /// where each teammate's live screen is opened (`screen::connect`): a
+    /// socket in a folder only this user can open.
+    Ready {
+        pid: u32,
+        display: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        screen: Option<String>,
+    },
     Reply {
         id: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]

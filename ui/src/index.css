@@ -5075,6 +5075,12 @@
 .tape-row[data-warm] {
 	content-visibility: visible;
 }
+/* The conversation keeps its own place when rows arrive or grow above the
+ * view (Transcript.tsx: a page of older lines, the background drawing), so
+ * the engine's scroll anchoring would move it a second time. */
+.scroller:has(> .tape-column) {
+	overflow-anchor: none;
+}
 /* That skipping clips paint to the row, so the emoji hung off a bubble's
  * lower edge, or off files sent alone, get the room below it inside the row. */
 .said-group:has(> .speech > .reactions, > .said-files > .reactions) {

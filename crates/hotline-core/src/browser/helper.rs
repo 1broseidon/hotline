@@ -188,6 +188,8 @@ struct Conn {
     pending: Pending,
     next: AtomicU64,
     alive: AtomicBool,
+    /// Where the helper's live screens are opened, as its `ready` said.
+    screen: Mutex<Option<PathBuf>>,
 }
 
 impl Conn {
@@ -209,6 +211,7 @@ impl Conn {
             pending: Mutex::default(),
             next: AtomicU64::new(1),
             alive: AtomicBool::new(true),
+            screen: Mutex::default(),
         });
         // When the last sender goes, so does the write half, which shuts the
         // socket for writing: the helper reads its end and exits.
@@ -288,7 +291,8 @@ async fn read_up(
             return;
         };
         match serde_json::from_str::<Up>(&text) {
-            Ok(Up::Ready { .. }) => {
+            Ok(Up::Ready { screen, .. }) => {
+                *lock(&live.screen) = screen.map(PathBuf::from);
                 if let Some(ready) = ready.take() {
                     ready_at = Some(Instant::now());
                     let _ = ready.send(());
@@ -603,6 +607,23 @@ impl DeskBrowser for Helper {
         if let Some(conn) = self.running() {
             conn.tell(persona_id, Call::Taken { taken });
         }
+    }
+
+    /// Every page in the helper is on a display of its own, streamed.
+    fn streams(&self) -> bool {
+        true
+    }
+
+    /// A viewer's socket to the helper's screens, for the teammate's page;
+    /// one that opens before the page does is sent it once it is open.
+    async fn screen(&self, persona_id: &str) -> Result<super::screen::Link, String> {
+        let conn = self.needed()?;
+        let path = lock(&conn.screen)
+            .clone()
+            .ok_or("This server's browser helper is too old to stream its pages.")?;
+        super::screen::connect(&path, persona_id)
+            .await
+            .map_err(|error| format!("Your browser's screen could not be opened: {error}"))
     }
 
     fn current(&self, persona_id: &str) -> Option<String> {

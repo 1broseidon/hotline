@@ -791,6 +791,10 @@ async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
             json!({"purpose":"computer","personaId":"scout"}).to_string(),
         ),
         (
+            "/v2/browser/scout/ws",
+            json!({"purpose":"browser","personaId":"scout"}).to_string(),
+        ),
+        (
             "/v2/link",
             json!({"purpose":"link","deskId":Uuid::new_v4()}).to_string(),
         ),
@@ -940,7 +944,12 @@ async fn a_relay_only_server_stands_a_desktop_in_and_opens_no_desk_door() {
     let (_visitor, _) = visit(&relay, &public_url, &desk_id, &mut control).await;
 
     // The desk's own doors are not there, before any Noise: not refused, absent.
-    for path in ["/v2", "/v2/link", "/v2/computer/scout/ws"] {
+    for path in [
+        "/v2",
+        "/v2/link",
+        "/v2/computer/scout/ws",
+        "/v2/browser/scout/ws",
+    ] {
         let socket = relay_refused(&relay, &public_url, path).await;
         assert_eq!(socket, 404, "{path}");
     }

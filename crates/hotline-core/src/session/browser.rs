@@ -1106,6 +1106,23 @@ impl Room {
             .map(|viewed| viewed.view.phase)
     }
 
+    /// Whether the desk's browser is a live screen (`browserStream`).
+    pub fn browser_streams(&self) -> bool {
+        self.desk_browser().is_some_and(|browser| browser.streams())
+    }
+
+    /// One viewer's live screen of the teammate's browser (task-390).
+    pub async fn browser_screen(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::browser::screen::Link, String> {
+        let browser = self.desk_browser().ok_or(NO_BROWSER)?;
+        if browser.current(persona_id).is_none() {
+            return Err(NO_PAGE_OPEN.into());
+        }
+        browser.screen(persona_id).await
+    }
+
     /// The teammate's browser as its session info carries it.
     pub fn browser_view(&self, persona_id: &str) -> Option<BrowserView> {
         lock(&self.browser_views)

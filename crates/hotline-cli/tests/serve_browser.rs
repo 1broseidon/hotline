@@ -32,7 +32,7 @@ body{margin:0;font:16px sans-serif}
 </body></html>"#;
 
 /// A binary built beside `hotline`.
-fn beside(name: &str) -> PathBuf {
+pub(crate) fn beside(name: &str) -> PathBuf {
     let path = Path::new(env!("CARGO_BIN_EXE_hotline")).with_file_name(name);
     assert!(path.is_file(), "needs {}: build it first", path.display());
     path
@@ -124,7 +124,7 @@ async fn ask(session: &mut Session, id: u64, cmd: &str, params: Value) -> Value 
 
 /// The resident and proportional memory of the helper's process group, in
 /// kB, and how many processes it holds.
-fn memory(group: i32) -> (u64, u64, usize) {
+pub(crate) fn memory(group: i32) -> (u64, u64, usize) {
     let field = |pid: &str, file: &str, key: &str| -> u64 {
         std::fs::read_to_string(format!("/proc/{pid}/{file}"))
             .ok()
@@ -159,7 +159,7 @@ fn memory(group: i32) -> (u64, u64, usize) {
 }
 
 /// The helper `hotline serve` started: its reaper, a child of the server.
-fn helper_of(server: u32) -> Option<i32> {
+pub(crate) fn helper_of(server: u32) -> Option<i32> {
     std::fs::read_dir("/proc")
         .unwrap()
         .flatten()
@@ -178,18 +178,22 @@ fn helper_of(server: u32) -> Option<i32> {
 
 /// A served desk with Ada, a teammate with no computer on the scripted
 /// agent, and the owner's phone paired over the desk's own channel.
-struct Served {
-    dir: tempfile::TempDir,
-    root: PathBuf,
-    server: std::process::Child,
-    ada: String,
-    runtime: tokio::runtime::Runtime,
-    session: Session,
-    next: u64,
+pub(crate) struct Served {
+    pub(crate) dir: tempfile::TempDir,
+    pub(crate) root: PathBuf,
+    pub(crate) server: std::process::Child,
+    pub(crate) ada: String,
+    pub(crate) runtime: tokio::runtime::Runtime,
+    pub(crate) session: Session,
+    pub(crate) next: u64,
+    /// The phone's own client and the desk it paired, for a bridge as a
+    /// linked desktop opens one.
+    pub(crate) phone: Client,
+    pub(crate) desk: hotline_core::remote::client::PairedDesk,
 }
 
 impl Served {
-    fn start() -> Self {
+    pub(crate) fn start() -> Self {
         beside("hotline-browser");
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("desk");
@@ -253,16 +257,18 @@ impl Served {
             runtime,
             session,
             next: 0,
+            phone,
+            desk,
         }
     }
 
     /// What the desk wrote to its log so far.
-    fn log(&self) -> String {
+    pub(crate) fn log(&self) -> String {
         std::fs::read_to_string(self.dir.path().join("serve.log")).unwrap_or_default()
     }
 
     /// The phone's command and the desk's whole reply.
-    fn reply(&mut self, cmd: &str, params: Value) -> Value {
+    pub(crate) fn reply(&mut self, cmd: &str, params: Value) -> Value {
         self.next += 1;
         let id = self.next;
         self.runtime
@@ -270,7 +276,7 @@ impl Served {
     }
 
     /// The phone's command, which must succeed, and its result.
-    fn call(&mut self, cmd: &str, params: Value) -> Value {
+    pub(crate) fn call(&mut self, cmd: &str, params: Value) -> Value {
         let reply = self.reply(cmd, params);
         assert_eq!(reply["ok"], true, "{cmd}: {reply}");
         reply["result"].clone()
@@ -279,7 +285,7 @@ impl Served {
     /// Ada's own `browser` call, and what the agent said of its answer:
     /// `browser ok: …` or `browser refused: …`. A local address's card, if
     /// one comes up, is allowed from the phone first.
-    fn browse(&mut self, arguments: Value) -> String {
+    pub(crate) fn browse(&mut self, arguments: Value) -> String {
         let said_before = self.browser_lines().len();
         let cards_before = self.cards().len();
         let prompt = format!("CALL browser {arguments}");
@@ -343,7 +349,7 @@ impl Served {
 
     /// Stops the desk; its browser goes with it. What the browser wrote to
     /// the desk's log is shown, for a run that needs reading.
-    fn stop(self, group: Option<i32>) {
+    pub(crate) fn stop(self, group: Option<i32>) {
         for line in self.log().lines().filter(|line| line.contains("[browser]")) {
             eprintln!("serve: {line}");
         }
@@ -418,7 +424,7 @@ struct Untrusted {
 }
 
 impl Untrusted {
-    fn start() -> Self {
+    pub(crate) fn start() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let (key, cert) = (dir.path().join("key.pem"), dir.path().join("cert.pem"));
         let made = std::process::Command::new("openssl")
@@ -565,5 +571,258 @@ fn a_server_helper_that_keeps_dying_is_started_again_only_after_its_wait() {
     let group = helper_of(served.server.id()).expect("a new helper runs");
     let log = served.log();
     assert!(log.contains("[browser] the helper"), "{log}");
+    served.stop(Some(group));
+}
+
+/// A page for the person's own hands: a box that says when the pointer is
+/// over it, a slider dragged along, a field typed into (any character,
+/// pasted text too), and a form Enter submits.
+const HANDS: &str = r#"<!doctype html><html><head><title>Hands</title><style>
+body{margin:0;font:16px sans-serif}
+#hover{position:absolute;left:100px;top:100px;width:200px;height:60px;background:#ccc}
+#drag{position:absolute;left:100px;top:200px;width:400px;height:40px;background:#eee}
+#name{position:absolute;left:100px;top:300px;width:300px;height:30px}
+</style></head><body>
+<div id="hover" onmouseover="document.title='hovered'"></div>
+<div id="drag"></div>
+<form onsubmit="event.preventDefault();document.title='submitted:'+document.getElementById('name').value">
+<input id="name" aria-label="Name" oninput="document.title='typed:'+this.value"></form>
+<script>let down=null;const d=document.getElementById('drag');
+d.onmousedown=e=>{down=e.clientX};
+document.onmouseup=e=>{if(down!==null){document.title='dragged:'+Math.round(e.clientX-down);down=null}};</script>
+</body></html>"#;
+
+/// A web server on this machine answering every request with `page`.
+fn serve_page(page: &'static str) -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut socket in listener.incoming().flatten() {
+            let mut asked: Vec<u8> = Vec::new();
+            let mut buffer = [0u8; 1024];
+            while !asked.windows(4).any(|end| end == b"\r\n\r\n") {
+                match socket.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => asked.extend(&buffer[..read]),
+                }
+            }
+            let _ = write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                page.len()
+            );
+        }
+    });
+    port
+}
+
+/// The owner's linked desktop watches a server teammate's browser live and
+/// drives it with real hands, through the bridge as its window does: the
+/// page's frames arrive changed rectangles at a time in the computer
+/// viewer's protocol, nothing reaches the page until Take control, and
+/// then the pointer hovers, drags, types any character, pastes and presses
+/// Enter, each seen by the page; Give it back hands the browser to the
+/// teammate, who reads what was done.
+#[test]
+#[ignore = "needs hotline-browser and hotline-acp-fixture built beside hotline, WebKitGTK 4.1 and Xvfb: the server-browser CI leg runs it"]
+fn the_owners_desktop_drives_a_server_teammates_browser_live_with_real_hands() {
+    use futures_util::{SinkExt, StreamExt};
+    use hotline_core::browser::screen::Frame;
+    use hotline_core::remote::bridge::{Bridge, Viewer};
+    use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
+    let mut served = Served::start();
+    let page = format!("http://127.0.0.1:{}/", serve_page(HANDS));
+    let ada = served.ada.clone();
+    let opened = served.browse(json!({"action": "navigate", "url": page}));
+    assert!(opened.starts_with("browser ok"), "{opened}");
+    let group = helper_of(served.server.id()).expect("serve started the helper");
+    let title = |served: &mut Served| {
+        served.call("browser.snapshot", json!({"personaId": ada, "fresh": true}))["title"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+    let bridge = served.runtime.block_on(async {
+        Bridge::with_client(&served.desk, served.phone.clone())
+            .await
+            .unwrap()
+    });
+    let token = bridge.viewer_token(&ada, Viewer::Browser);
+    let mut request = format!("{}/browser/{ada}/ws", bridge.origin.replace("http:", "ws:"))
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "sec-websocket-protocol",
+        format!("hotline-viewer.{token}").parse().unwrap(),
+    );
+    let (mut screen, _) = served
+        .runtime
+        .block_on(tokio_tungstenite::connect_async(request))
+        .unwrap();
+    let next = |served: &Served, screen: &mut _| {
+        served.runtime.block_on(async {
+            let screen: &mut tokio_tungstenite::WebSocketStream<_> = screen;
+            tokio::time::timeout(PATIENCE, screen.next())
+                .await
+                .expect("the screen said nothing")
+                .unwrap()
+                .unwrap()
+        })
+    };
+    // The whole page first, at its size.
+    let first = loop {
+        if let Message::Binary(frame) = next(&served, &mut screen) {
+            break frame;
+        }
+    };
+    let (rect, size) = Frame::header(&first).expect("a frame's header");
+    assert_eq!(size, (1280, 800));
+    assert_eq!((rect.width, rect.height), (1280, 800));
+    assert!(first[12..].starts_with(b"\x89PNG"));
+
+    let say =
+        |served: &Served, screen: &mut tokio_tungstenite::WebSocketStream<_>, message: Value| {
+            served
+                .runtime
+                .block_on(screen.send(Message::text(message.to_string())))
+                .unwrap();
+        };
+    // Watching, the pointer goes nowhere.
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "move", "x": 200, "y": 130}),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(title(&mut served), "Hands");
+
+    say(&served, &mut screen, json!({"t": "control", "take": true}));
+    loop {
+        if let Message::Text(text) = next(&served, &mut screen) {
+            let said: Value = serde_json::from_str(&text).unwrap();
+            if said["t"] == "state" && said["holder"] == "you" {
+                break;
+            }
+        }
+    }
+    let view = served.call("browser.snapshot", json!({"personaId": ada}));
+    assert_eq!(view["title"], "Hands", "{view}");
+    let until_title = |served: &mut Served, wanted: &str| {
+        let deadline = std::time::Instant::now() + PATIENCE;
+        loop {
+            let now = title(served);
+            if now == wanted {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{now} never became {wanted}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    };
+    // Hover.
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "move", "x": 150, "y": 210}),
+    );
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "move", "x": 200, "y": 130}),
+    );
+    until_title(&mut served, "hovered");
+    // Drag 150 pixels along the strip.
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "move", "x": 150, "y": 220}),
+    );
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "button", "b": 1, "down": true}),
+    );
+    for x in [200, 250, 300] {
+        say(&served, &mut screen, json!({"t": "move", "x": x, "y": 220}));
+    }
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "button", "b": 1, "down": false}),
+    );
+    until_title(&mut served, "dragged:150");
+    // Type into the field, a character no keyboard here has among them,
+    // then paste, then Enter.
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "move", "x": 250, "y": 315}),
+    );
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "button", "b": 1, "down": true}),
+    );
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "button", "b": 1, "down": false}),
+    );
+    for key in ["A", "d", "é"] {
+        say(
+            &served,
+            &mut screen,
+            json!({"t": "key", "key": key, "down": true}),
+        );
+        say(
+            &served,
+            &mut screen,
+            json!({"t": "key", "key": key, "down": false}),
+        );
+    }
+    until_title(&mut served, "typed:Adé");
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "paste", "text": " Lovelace"}),
+    );
+    loop {
+        if let Message::Text(text) = next(&served, &mut screen) {
+            let said: Value = serde_json::from_str(&text).unwrap();
+            assert_ne!(said["t"], "error", "{said}");
+            if said["t"] == "paste" {
+                break;
+            }
+        }
+    }
+    until_title(&mut served, "typed:Adé Lovelace");
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "key", "key": "Enter", "down": true}),
+    );
+    say(
+        &served,
+        &mut screen,
+        json!({"t": "key", "key": "Enter", "down": false}),
+    );
+    until_title(&mut served, "submitted:Adé Lovelace");
+
+    // Give it back: the teammate drives again and reads what the person did.
+    say(&served, &mut screen, json!({"t": "control", "take": false}));
+    loop {
+        if let Message::Text(text) = next(&served, &mut screen) {
+            let said: Value = serde_json::from_str(&text).unwrap();
+            if said["t"] == "state" && said["holder"] == "agent" {
+                break;
+            }
+        }
+    }
+    drop(screen);
+    drop(bridge);
+    let read = served.browse(json!({"action": "text"}));
+    assert!(read.contains("submitted:Adé Lovelace"), "{read}");
     served.stop(Some(group));
 }

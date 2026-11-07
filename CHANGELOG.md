@@ -8,6 +8,34 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.48.3] - 2026-11-06
+
+### Added
+
+- A desktop linked to a server watches and drives a server teammate's
+  browser live, as it does a teammate's computer: only what changed on the
+  page is sent, as it changes, and your pointer, wheel and keys reach the
+  page at once, hover and drag included, any character typed and text
+  pasted from your computer. On a local network a click shows in about 30 ms
+  instead of a third of a second, and a scroll runs at about 50 frames a
+  second instead of 6; an idle page sends nothing. Take control and Give it
+  back work as before, and only a desktop paired as the owner drives. The
+  phone gets it in its next release and keeps the pictures until then.
+
+### Changed
+
+- A server's browser takes about 40 MB less memory: its display runs
+  without the GL it never used.
+
+### Fixed
+
+- A message you send stays in view above the composer. Since 0.48.0 it
+  could land behind the composer with the jump to the latest showing, and
+  stay there until the teammate's next line arrived.
+- Older lines loading as you scroll up keep your place. The window and the
+  conversation both held it, so the view could be thrown far down the
+  conversation as they arrived.
+
 ## [0.48.2] - 2026-11-06
 
 ### Added

@@ -1,7 +1,10 @@
 //! The browser's X display: an Xvfb of its own, nobody's screen. GTK draws
-//! the teammates' pages there in windows that are never shown, which WebKit
-//! lays out, draws, pictures and takes input in as in the app's hidden
-//! pane (`linux.rs`).
+//! each teammate's page there in a window of its own at the display's
+//! origin, which WebKit lays out, draws, pictures and takes input in as in
+//! the app's pane (`linux.rs`), and whose changes are streamed to the
+//! person's viewer as the computer streams its screen (`screen.rs`). It runs
+//! without GLX: WebKit draws without the GPU here anyway, and Xvfb's
+//! software GL costs about 50 MB more of memory.
 //!
 //! An X server lets any process that connects watch and type into every
 //! window on it, and Xvfb listens on Linux's abstract socket namespace even
@@ -27,6 +30,9 @@ const START_WAIT: Duration = Duration::from_secs(10);
 /// The descriptor Xvfb writes its display number to.
 const DISPLAY_FD: i32 = 3;
 
+/// The display's size: the most of a page the person's pointer reaches.
+pub const SIZE: (u16, u16) = (1920, 1200);
+
 /// Xvfb on `PATH`, if it is installed.
 pub fn xvfb() -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
@@ -39,8 +45,15 @@ pub fn xvfb() -> Option<PathBuf> {
 pub struct Display {
     xvfb: Child,
     pub number: u32,
-    /// The cookie files' directory, removed with this.
-    _private: tempfile::TempDir,
+    /// The cookie files' directory, removed with this; only this user can
+    /// open it, so the screens' socket is kept there too.
+    private: tempfile::TempDir,
+}
+
+impl Display {
+    pub fn folder(&self) -> &Path {
+        self.private.path()
+    }
 }
 
 impl Drop for Display {
@@ -104,7 +117,8 @@ pub fn start() -> Result<Display, String> {
         .args(["-displayfd", &DISPLAY_FD.to_string(), "-auth"])
         .arg(&server_auth)
         .args(["-nolisten", "tcp", "-nolisten", "unix", "-noreset"])
-        .args(["-screen", "0", "1920x1200x24"])
+        .args(["-extension", "GLX"])
+        .args(["-screen", "0", &format!("{}x{}x24", SIZE.0, SIZE.1)])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -146,7 +160,7 @@ pub fn start() -> Result<Display, String> {
     Ok(Display {
         xvfb,
         number,
-        _private: private,
+        private,
     })
 }
 

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { ScreenPainter, driveFrom } from "./screenSocket";
 
 /**
  * A teammate's computer on a desk on a server (BRO-145), in a window of its
@@ -7,12 +8,13 @@ import { invoke } from "@tauri-apps/api/core";
  * speaks the same protocol through the desk's bridge instead, which carries
  * the frames sealed and keeps the container's bearer on the server.
  *
- * The protocol is the container's: binary frames are a 12-byte header of
- * little-endian u16s (x, y, width, height, screen width, screen height)
- * followed by a PNG of that rectangle; text frames are JSON (`state`,
- * `pointer`, `paste`, `error`). The page sends JSON: `control`, `move`,
- * `button`, `wheel`, `key` and `paste`. It opens watching, and nothing it
- * does reaches the desktop until the person takes the screen.
+ * The protocol is the container's (screenSocket.ts, which the window's
+ * viewer of a server teammate's browser speaks too): binary frames are a
+ * 12-byte header of little-endian u16s (x, y, width, height, screen width,
+ * screen height) followed by a PNG of that rectangle; text frames are JSON
+ * (`state`, `pointer`, `paste`, `error`). The page sends JSON: `control`,
+ * `move`, `button`, `wheel`, `key` and `paste`. It opens watching, and
+ * nothing it does reaches the desktop until the person takes the screen.
  *
  * Files go by the desk rather than the container: `{"type":"files", id, op}`
  * requests (list, download, upload_start/chunk/finish/cancel) are answered
@@ -34,7 +36,6 @@ document.title = `${params.get("name") ?? "A teammate"}'s computer`;
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = element<HTMLCanvasElement>("screen");
-const context = canvas.getContext("2d") as CanvasRenderingContext2D;
 const bar = element("bar");
 const status = element("status");
 const sub = element("sub");
@@ -50,7 +51,6 @@ const mac = /Mac|iPhone|iPad/.test(navigator.platform);
 type Machine = { holder: "none" | "agent" | "person"; running: number; completed: number; failed: number };
 
 let socket: WebSocket | null = null;
-let drawing: Promise<void> = Promise.resolve();
 let connected = false;
 let driving = false;
 let machine: Machine = { holder: "none", running: 0, completed: 0, failed: 0 };
@@ -190,46 +190,28 @@ function dial({ origin, token }: { origin: string; token: string }) {
 	};
 }
 
+const painter = new ScreenPainter(canvas, fit);
 function draw(data: ArrayBuffer) {
-	if (data.byteLength < 12) return;
-	const view = new DataView(data);
-	const [x, y, , , sw, sh] = [0, 2, 4, 6, 8, 10].map((offset) => view.getUint16(offset, true)) as [
-		number,
-		number,
-		number,
-		number,
-		number,
-		number,
-	];
-	if (canvas.width !== sw || canvas.height !== sh) {
-		canvas.width = sw;
-		canvas.height = sh;
-		fit();
-	}
-	const blob = new Blob([data.slice(12)], { type: "image/png" });
-	drawing = drawing
-		.then(() => createImageBitmap(blob))
-		.then((bitmap) => {
-			context.drawImage(bitmap, x, y);
-			bitmap.close();
-		})
-		.catch(() => {});
+	painter.draw(data);
 }
 
 function send(message: Record<string, unknown>) {
 	if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
-// Keys sent down and not yet up. Losing focus lets go of all of them, or a
-// modifier left down turns every later key into a chord.
-const held = new Set<string>();
-function letGo() {
-	for (const key of held) send({ t: "key", key, down: false });
-	held.clear();
-}
-addEventListener("blur", letGo);
-document.addEventListener("visibilitychange", () => {
-	if (document.hidden) letGo();
+// The machine has its own clipboard; text from this computer comes in on
+// Ctrl+Alt+V (⌥⌘V on a Mac), or the Paste button.
+const hostPaste = (event: KeyboardEvent) => (event.ctrlKey || event.metaKey) && event.altKey && event.code === "KeyV";
+// The pointer, the wheel and the keys, while the person drives.
+const { letGo } = driveFrom(canvas, {
+	send,
+	driving: () => driving,
+	ownKey: (event) => {
+		if (!hostPaste(event)) return false;
+		if (event.type === "keydown" && !event.repeat) pasteFromHere();
+		return true;
+	},
+	blurred: () => say("Click the screen to type"),
 });
 
 let idle: ReturnType<typeof setTimeout> | undefined;
@@ -273,96 +255,10 @@ function pasteFromHere() {
 paste.addEventListener("click", () => {
 	if (driving) pasteFromHere();
 });
-// The machine has its own clipboard; text from this computer comes in on
-// Ctrl+Alt+V (⌥⌘V on a Mac), or the Paste button.
-const hostPaste = (event: KeyboardEvent) => (event.ctrlKey || event.metaKey) && event.altKey && event.code === "KeyV";
 canvas.addEventListener("paste", (event) => {
 	if (!driving) return;
 	event.preventDefault();
 	pasteText(event.clipboardData?.getData("text/plain") ?? "");
-});
-
-function at(event: MouseEvent) {
-	const rect = canvas.getBoundingClientRect();
-	return {
-		x: Math.max(0, Math.min(canvas.width - 1, Math.round(((event.clientX - rect.left) * canvas.width) / rect.width))),
-		y: Math.max(0, Math.min(canvas.height - 1, Math.round(((event.clientY - rect.top) * canvas.height) / rect.height))),
-	};
-}
-
-// One pointer position per frame is plenty for a hand.
-let pending: { x: number; y: number } | null = null;
-canvas.addEventListener("pointermove", (event) => {
-	if (!driving) return;
-	const first = pending === null;
-	pending = at(event);
-	if (first)
-		requestAnimationFrame(() => {
-			if (pending) send({ t: "move", ...pending });
-			pending = null;
-		});
-});
-const buttons: Record<number, number> = { 0: 1, 1: 2, 2: 3 };
-canvas.addEventListener("pointerdown", (event) => {
-	if (!driving) return;
-	canvas.focus();
-	send({ t: "move", ...at(event) });
-	const button = buttons[event.button];
-	if (button !== undefined) send({ t: "button", b: button, down: true });
-});
-canvas.addEventListener("pointerup", (event) => {
-	if (!driving) return;
-	const button = buttons[event.button];
-	if (button !== undefined) send({ t: "button", b: button, down: false });
-});
-canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-
-// One wheel notch per fifty pixels' worth, from a trackpad or a mouse.
-let wheelX = 0;
-let wheelY = 0;
-canvas.addEventListener(
-	"wheel",
-	(event) => {
-		if (!driving) return;
-		event.preventDefault();
-		const unit = event.deltaMode === 1 ? 50 : 1;
-		wheelX += event.deltaX * unit;
-		wheelY += event.deltaY * unit;
-		while (Math.abs(wheelY) >= 50) {
-			send({ t: "wheel", dy: Math.sign(wheelY) });
-			wheelY -= Math.sign(wheelY) * 50;
-		}
-		while (Math.abs(wheelX) >= 50) {
-			send({ t: "wheel", dx: Math.sign(wheelX) });
-			wheelX -= Math.sign(wheelX) * 50;
-		}
-	},
-	{ passive: false },
-);
-
-// The machine repeats a held key itself, so the browser's repeats are dropped.
-canvas.addEventListener("keydown", (event) => {
-	if (!driving) return;
-	event.preventDefault();
-	if (hostPaste(event)) {
-		if (!event.repeat) pasteFromHere();
-		return;
-	}
-	if (!event.repeat) {
-		held.add(event.key);
-		send({ t: "key", key: event.key, down: true });
-	}
-});
-canvas.addEventListener("keyup", (event) => {
-	if (!driving) return;
-	event.preventDefault();
-	if (hostPaste(event)) return;
-	held.delete(event.key);
-	send({ t: "key", key: event.key, down: false });
-});
-canvas.addEventListener("blur", () => {
-	letGo();
-	if (driving) say("Click the screen to type");
 });
 
 /* Files. */

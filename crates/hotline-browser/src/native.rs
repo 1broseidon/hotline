@@ -139,6 +139,12 @@ struct Tab {
     popup: Mutex<Option<u64>>,
     page_shown: Mutex<String>,
     viewport: Mutex<Option<(f64, f64)>>,
+    /// The page's window as a live screen, and its popup's while one is
+    /// open (`screen.rs`).
+    screen: Mutex<Option<Arc<crate::screen::Screen>>>,
+    popup_screen: Mutex<Option<Arc<crate::screen::Screen>>>,
+    /// Where the teammate's viewers are told which window is in front.
+    screens: Arc<crate::screen::Screens>,
 }
 
 #[derive(Clone, Default)]
@@ -187,20 +193,40 @@ pub fn run(data: &Path) -> Result<(), String> {
     let pipe = views::take_pipe()?;
     let display = crate::display::start()?;
     gtk::init().map_err(|error| format!("GTK did not start: {error}"))?;
+    // A caret that blinks redraws its field twice a second, which is a
+    // picture each time for every viewer of the page: it stays lit.
+    if let Some(settings) = gtk::Settings::default() {
+        use gtk::prelude::GtkSettingsExt;
+        settings.set_gtk_cursor_blink(false);
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
         .map_err(|error| format!("the browser's runtime did not start: {error}"))?;
+    let screens = Arc::new(crate::screen::Screens::new(
+        display.number,
+        display.folder(),
+        views::set_clipboard,
+    )?);
+    let socket = screens.socket();
+    let listener = {
+        let _entered = runtime.enter();
+        tokio::net::UnixListener::from_std(crate::screen::listen(&socket)?)
+            .map_err(|error| format!("the browser's screens could not listen: {error}"))?
+    };
+    runtime.spawn(crate::screen::serve(listener, screens.clone()));
     let (link, outbox) = Link::new();
     let native: Arc<dyn DeskBrowser> = Arc::new(Native::new(
         link.clone(),
         runtime.handle().clone(),
         data.to_path_buf(),
+        screens.clone(),
     ));
     let ready = Up::Ready {
         pid: std::process::id(),
         display: display.number,
+        screen: Some(socket.to_string_lossy().into_owned()),
     };
     // Calls come once GTK's loop runs, so every one is run by it.
     let (looping, looped) = std::sync::mpsc::channel();
@@ -221,6 +247,7 @@ pub fn run(data: &Path) -> Result<(), String> {
     });
     gtk::main();
     let _ = answering.join();
+    drop(screens);
     drop(display);
     Ok(())
 }
@@ -234,9 +261,14 @@ pub(crate) struct Native {
 }
 
 impl Native {
-    fn new(link: Link, runtime: tokio::runtime::Handle, data: PathBuf) -> Self {
+    fn new(
+        link: Link,
+        runtime: tokio::runtime::Handle,
+        data: PathBuf,
+        screens: Arc<crate::screen::Screens>,
+    ) -> Self {
         Self {
-            shared: Shared::new(link, runtime),
+            shared: Shared::new(link, runtime, screens),
             data,
             tabs: Mutex::default(),
             names: Mutex::default(),
@@ -275,6 +307,7 @@ impl Native {
         if let Some(tab) = &tab {
             shut_popup(tab);
             views::close(tab.page);
+            views::release(tab, &self.shared.screens);
         }
         if !wipe {
             return Ok(());
@@ -337,6 +370,9 @@ impl Native {
             popup: Mutex::new(None),
             page_shown: Mutex::new(String::new()),
             viewport: Mutex::new(None),
+            screen: Mutex::new(None),
+            popup_screen: Mutex::new(None),
+            screens: self.shared.screens.clone(),
         });
         let made = {
             let (tab, shared, url) = (tab.clone(), self.shared.clone(), url.clone());
@@ -513,6 +549,9 @@ fn shut_popup(tab: &Tab) {
         return;
     };
     views::close(popup);
+    // The page is in front again, for its viewers too.
+    lock(&tab.popup_screen).take();
+    tab.screens.show(&tab.persona, lock(&tab.screen).clone());
     let page = lock(&tab.page_shown).clone();
     *lock(&tab.shown) = page;
     tab.loads.send_modify(|loads| loads.finished += 1);
@@ -732,6 +771,8 @@ impl DeskBrowser for Native {
             .ok_or("Open a page first with navigate.")?;
         *lock(&tab.viewport) = size.map(|(width, height)| (f64::from(width), f64::from(height)));
         on_view(self.window(persona_id)?, move |view| linux::fit(view, size));
+        let fitted = tab.clone();
+        gtk_do(move || views::fit(&fitted));
         // The page reflows at its new width before it is read or pictured.
         tokio::time::sleep(Duration::from_millis(250)).await;
         self.page(persona_id, true).await
@@ -825,8 +866,11 @@ impl DeskBrowser for Native {
         Ok(())
     }
 
-    /// The person took the browser over: the teammate's pointer goes.
+    /// The person took the browser over: the teammate's pointer goes, and
+    /// the person's own input reaches the page's display until they hand it
+    /// back.
     fn taken(&self, persona_id: &str, taken: bool) {
+        self.shared.screens.taken(persona_id, taken);
         let Some(tab) = self.tab(persona_id) else {
             return;
         };

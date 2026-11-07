@@ -184,6 +184,21 @@ impl Seat {
         capabilities
     }
 
+    /// The capabilities, and `browserStream` for a seat away from the desk
+    /// that may watch a teammate's browser, where `room`'s browser is a live
+    /// screen.
+    pub(super) fn capabilities_with(
+        self,
+        parts: &Parts,
+        room: &dyn super::RoomHandle,
+    ) -> Vec<&'static str> {
+        let mut capabilities = self.capabilities_for(parts);
+        if matches!(self, Seat::Owner | Seat::Phone) && room.browser_streams() {
+            capabilities.push("browserStream");
+        }
+        capabilities
+    }
+
     pub(super) fn capabilities_for(self, parts: &Parts) -> Vec<&'static str> {
         let mut capabilities = self.capabilities();
         if matches!(self, Seat::Owner | Seat::Desk)

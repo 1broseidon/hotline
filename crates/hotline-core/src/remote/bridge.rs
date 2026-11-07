@@ -28,14 +28,42 @@ use tokio_util::sync::CancellationToken;
 const VIEWER_PROTOCOL: &str = "hotline-viewer.";
 const VIEWER_TOKEN_TTL: Duration = Duration::from_secs(30);
 
+/// Which of a teammate's screens a viewer opens: its computer's
+/// (`/computer/{persona}/ws`) or its desk browser's
+/// (`/browser/{persona}/ws`, task-390), both in the computer viewer's
+/// protocol. A viewer token opens one of them, for one teammate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Viewer {
+    Computer,
+    Browser,
+}
+
+impl Viewer {
+    /// The path segment and the Noise binding's purpose.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Computer => "computer",
+            Self::Browser => "browser",
+        }
+    }
+
+    /// `computer` or `browser`, as a viewer page names the screen it asks for.
+    pub fn named(name: &str) -> Option<Self> {
+        [Self::Computer, Self::Browser]
+            .into_iter()
+            .find(|viewer| viewer.name() == name)
+    }
+}
+
 #[derive(Default)]
 struct ViewerTokens(HashMap<String, ViewerToken>);
 struct ViewerToken {
     persona: String,
+    viewer: Viewer,
     expires: Instant,
 }
 impl ViewerTokens {
-    fn mint(&mut self, persona: &str) -> String {
+    fn mint(&mut self, persona: &str, viewer: Viewer) -> String {
         let now = Instant::now();
         self.0.retain(|_, token| token.expires > now);
         let token = super::secret();
@@ -43,16 +71,18 @@ impl ViewerTokens {
             token.clone(),
             ViewerToken {
                 persona: persona.to_owned(),
+                viewer,
                 expires: now + VIEWER_TOKEN_TTL,
             },
         );
         token
     }
 
-    fn redeem(&mut self, token: &str, persona: &str) -> Result<(), ()> {
+    fn redeem(&mut self, token: &str, persona: &str, viewer: Viewer) -> Result<(), ()> {
         let now = Instant::now();
         self.0.retain(|_, token| token.expires > now);
-        if self.0.get(token).ok_or(())?.persona != persona {
+        let minted = self.0.get(token).ok_or(())?;
+        if minted.persona != persona || minted.viewer != viewer {
             return Err(());
         }
         // Validation and removal share the mutex, so simultaneous upgrades
@@ -101,11 +131,13 @@ impl Drop for Bridge {
     }
 }
 impl Bridge {
-    /// Mint a single-use, 30-second capability for one persona's viewer upgrade.
-    /// Present it as the `hotline-viewer.<token>` WebSocket subprotocol. A
-    /// reconnect needs a fresh token, even if the remote computer was unavailable.
-    pub fn viewer_token(&self, persona_id: &str) -> String {
-        lock(&self.viewer_tokens).mint(persona_id)
+    /// Mint a single-use, 30-second capability for one persona's viewer
+    /// upgrade, to one of its screens: a computer token never opens the
+    /// browser, nor a browser token the computer. Present it as the
+    /// `hotline-viewer.<token>` WebSocket subprotocol. A reconnect needs a
+    /// fresh token, even if the remote screen was unavailable.
+    pub fn viewer_token(&self, persona_id: &str, viewer: Viewer) -> String {
+        lock(&self.viewer_tokens).mint(persona_id, viewer)
     }
 
     pub async fn start(desk: &PairedDesk) -> Result<Self, String> {
@@ -163,8 +195,22 @@ impl Bridge {
 }
 
 struct Authorization {
-    persona: Option<String>,
+    screen: Option<(Viewer, String)>,
     protocol: Option<http::HeaderValue>,
+}
+
+/// The screen a viewer path names: `/computer/{id}/ws` or
+/// `/browser/{id}/ws`, the id plain.
+fn screen_of(path: &str) -> Option<(Viewer, &str)> {
+    let rest = path.strip_prefix('/')?;
+    let (name, rest) = rest.split_once('/')?;
+    let viewer = Viewer::named(name)?;
+    let id = rest.strip_suffix("/ws")?;
+    let plain = !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    plain.then_some((viewer, id))
 }
 
 fn authorize(
@@ -175,21 +221,11 @@ fn authorize(
     // Use the literal path: URL normalization must not turn a different route
     // (such as a dot-segment path) into the persona named by this capability.
     let path = request.uri().path();
-    let persona = if path == "/ws" {
+    let screen = if path == "/ws" {
         None
     } else {
-        let id = path
-            .strip_prefix("/computer/")
-            .and_then(|path| path.strip_suffix("/ws"))
-            .ok_or(())?;
-        if id.is_empty()
-            || !id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        {
-            return Err(());
-        }
-        Some(id.to_owned())
+        let (viewer, id) = screen_of(path).ok_or(())?;
+        Some((viewer, id.to_owned()))
     };
     let query_tokens: Vec<_> =
         url::form_urlencoded::parse(request.uri().query().unwrap_or("").as_bytes())
@@ -213,28 +249,28 @@ fn authorize(
         }
     }
     if let Some((protocol, token)) = viewer_protocol {
-        let id = persona.as_deref().ok_or(())?;
+        let (viewer, id) = screen.as_ref().ok_or(())?;
         // Never fall back to owner authority for a malformed or spent viewer
         // credential, or accept a viewer capability from the query string.
         if !query_tokens.is_empty() {
             return Err(());
         }
         let protocol = protocol.parse().map_err(|_| ())?;
-        lock(viewers).redeem(token, id)?;
+        lock(viewers).redeem(token, id, *viewer)?;
         return Ok(Authorization {
-            persona,
+            screen,
             protocol: Some(protocol),
         });
     }
-    // The owner credential opens only the wire, never a computer viewer.
-    if persona.is_some()
+    // The owner credential opens only the wire, never a screen.
+    if screen.is_some()
         || query_tokens.len() != 1
         || !crate::wire::same_secret(&query_tokens[0].1, owner_token)
     {
         return Err(());
     }
     Ok(Authorization {
-        persona,
+        screen,
         protocol: None,
     })
 }
@@ -255,7 +291,7 @@ async fn serve(
         move |request: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
             match authorize(request, &token, &viewers) {
                 Ok(authorization) => {
-                    *lock(&selected) = authorization.persona;
+                    *lock(&selected) = authorization.screen;
                     if let Some(protocol) = authorization.protocol {
                         response
                             .headers_mut()
@@ -280,9 +316,9 @@ async fn serve(
     else {
         return;
     };
-    let persona = lock(&target).clone();
-    if let Some(persona) = persona {
-        viewer(local, client, desk, &persona).await;
+    let screen = lock(&target).clone();
+    if let Some((screen, persona)) = screen {
+        viewer(local, client, desk, screen, &persona).await;
         return;
     }
     let mut remote = client.connect(&desk);
@@ -323,9 +359,10 @@ async fn viewer(
     mut local: WebSocketStream<TcpStream>,
     client: Client,
     desk: PairedDesk,
+    screen: Viewer,
     persona: &str,
 ) {
-    let Ok(mut remote) = client.open(&desk, Some(persona)).await else {
+    let Ok(mut remote) = client.open(&desk, Some((screen, persona))).await else {
         return;
     };
     loop {
@@ -360,11 +397,65 @@ mod discovery_tests {
     #[test]
     fn a_poisoned_token_map_still_spends_each_viewer_token_once() {
         let tokens = Mutex::new(ViewerTokens::default());
-        let token = lock(&tokens).mint("ada");
+        let token = lock(&tokens).mint("ada", Viewer::Computer);
         poison(&tokens);
-        assert!(lock(&tokens).redeem(&token, "bob").is_err());
-        assert!(lock(&tokens).redeem(&token, "ada").is_ok());
-        assert!(lock(&tokens).redeem(&token, "ada").is_err());
+        assert!(
+            lock(&tokens)
+                .redeem(&token, "bob", Viewer::Computer)
+                .is_err()
+        );
+        assert!(
+            lock(&tokens)
+                .redeem(&token, "ada", Viewer::Computer)
+                .is_ok()
+        );
+        assert!(
+            lock(&tokens)
+                .redeem(&token, "ada", Viewer::Computer)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_viewer_token_opens_the_one_screen_it_was_minted_for() {
+        let tokens = Mutex::new(ViewerTokens::default());
+        let token = lock(&tokens).mint("ada", Viewer::Browser);
+        assert!(
+            lock(&tokens)
+                .redeem(&token, "ada", Viewer::Computer)
+                .is_err(),
+            "a browser token never opens the computer"
+        );
+        assert!(lock(&tokens).redeem(&token, "ada", Viewer::Browser).is_ok());
+        let token = lock(&tokens).mint("ada", Viewer::Computer);
+        assert!(
+            lock(&tokens)
+                .redeem(&token, "ada", Viewer::Browser)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_viewer_path_names_a_screen_and_a_plain_teammate() {
+        assert_eq!(
+            screen_of("/computer/ada/ws"),
+            Some((Viewer::Computer, "ada"))
+        );
+        assert_eq!(
+            screen_of("/browser/ada-1_b/ws"),
+            Some((Viewer::Browser, "ada-1_b"))
+        );
+        for path in [
+            "/browser//ws",
+            "/browser/ada",
+            "/browser/../ws",
+            "/browser/ada/x/ws",
+            "/files/ada/ws",
+            "/browser/a%2Fb/ws",
+            "/ws",
+        ] {
+            assert_eq!(screen_of(path), None, "{path}");
+        }
     }
 
     #[test]

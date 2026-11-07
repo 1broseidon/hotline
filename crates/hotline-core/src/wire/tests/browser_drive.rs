@@ -30,6 +30,8 @@ struct Browser {
     refused: StdMutex<bool>,
     /// How many times Visit anyway reached the page.
     visits: StdMutex<u32>,
+    /// The browser is a live screen (the server's helper is).
+    streams: bool,
 }
 
 impl Browser {
@@ -106,6 +108,9 @@ impl DeskBrowser for Browser {
     }
     fn taken(&self, _persona_id: &str, taken: bool) {
         self.taken.lock().unwrap().push(taken);
+    }
+    fn streams(&self) -> bool {
+        self.streams
     }
     fn current(&self, _persona_id: &str) -> Option<String> {
         self.page.lock().unwrap().clone()
@@ -226,6 +231,38 @@ fn only_the_owner_and_the_desk_take_a_browser_over_and_drive_it() {
     for capability in ["browserDrive", "browserVisitAnyway"] {
         assert!(Seat::Owner.capabilities().contains(&capability));
         assert!(!Seat::Phone.capabilities().contains(&capability));
+    }
+}
+
+/// A desk whose browser is a live screen says `browserStream` to the seats
+/// away from it that may watch one: the owner, who may drive it too, and a
+/// companion, who only watches. One whose browser is not, or with none,
+/// says nothing of it, and those seats watch by pictures.
+#[tokio::test]
+async fn a_desk_whose_browser_streams_says_so_to_the_seats_that_watch_from_away() {
+    let streaming = Arc::new(Browser {
+        streams: true,
+        ..Browser::default()
+    });
+    let (_root, _room, desk) = browser_desk(Some(streaming));
+    let says = |seat: Seat| {
+        seat.capabilities_with(&Parts::default(), desk.as_ref())
+            .contains(&"browserStream")
+    };
+    assert!(says(Seat::Owner));
+    assert!(says(Seat::Phone));
+    assert!(!says(Seat::Desk), "the desk's own window has the pane");
+    assert!(!says(Seat::Link));
+    let (_root, _room, pictured) = browser_desk(Some(Arc::new(Browser::default())));
+    let (_root, _room, none) = browser_desk(None);
+    for desk in [pictured, none] {
+        for seat in [Seat::Owner, Seat::Phone] {
+            assert!(
+                !seat
+                    .capabilities_with(&Parts::default(), desk.as_ref())
+                    .contains(&"browserStream")
+            );
+        }
     }
 }
 

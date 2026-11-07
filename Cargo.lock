@@ -4270,12 +4270,14 @@ dependencies = [
  "hotline-contract",
  "javascriptcore-rs",
  "libc",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "url",
  "webkit2gtk",
+ "x11rb",
 ]
 
 [[package]]

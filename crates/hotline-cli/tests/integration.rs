@@ -4,6 +4,8 @@
 #[cfg(unix)]
 mod common;
 
+#[path = "browser_bench.rs"]
+mod browser_bench;
 #[path = "pair.rs"]
 mod pair;
 #[path = "relay.rs"]

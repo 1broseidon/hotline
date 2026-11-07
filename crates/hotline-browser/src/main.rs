@@ -5,8 +5,10 @@
 //! the same files compiled here (`native.rs`), in a WebKitGTK that draws on
 //! an X display of its own nobody sees (`display.rs`), so the server's own
 //! binary never links GTK and runs as before where WebKitGTK is not
-//! installed. The phone or a linked desktop is its screen, through the
-//! desk's pictures of it and the person's take-over commands.
+//! installed. The phone or a linked desktop is its screen: each teammate's
+//! page is on an X display of its own, streamed as the computer streams its
+//! screen (`screen.rs`) and driven by XTEST (`xtest.rs`), and the desk's
+//! pictures and take-over commands still work for older viewers.
 //!
 //! The process forks first: the parent only reaps (`reaper.rs`), so WebKit's
 //! own processes and the display never outlive it as zombies, even under a
@@ -26,6 +28,10 @@ mod display;
 mod native;
 #[cfg(target_os = "linux")]
 mod reaper;
+#[cfg(target_os = "linux")]
+mod screen;
+#[cfg(target_os = "linux")]
+mod xtest;
 
 use std::process::ExitCode;
 

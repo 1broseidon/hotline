@@ -1236,6 +1236,42 @@ impl RoomHandle for Desk {
         self.room.browser_snapshot(persona_id)
     }
 
+    fn browser_view(&self, persona_id: &str) -> Option<crate::contract::BrowserView> {
+        self.room.browser_view(persona_id)
+    }
+
+    fn browser_streams(&self) -> bool {
+        self.room.browser_streams()
+    }
+
+    /// The browser's own link, carried into the room's shape: a frame or a
+    /// message moves on only once the viewer took the one before, so a
+    /// slow viewer still holds the browser back.
+    async fn browser_screen(
+        &self,
+        persona_id: &str,
+    ) -> Result<hotline_room::room_handle::BrowserScreen, String> {
+        use crate::browser::screen::Shown;
+        use hotline_room::room_handle::{BrowserScreen, ScreenShown};
+        let mut link = self.room.browser_screen(persona_id).await?;
+        let (shown_to, shown) = tokio::sync::mpsc::channel(1);
+        tokio::spawn(async move {
+            while let Some(message) = link.shown.recv().await {
+                let message = match message {
+                    Shown::Frame(bytes) => ScreenShown::Frame(bytes),
+                    Shown::Text(text) => ScreenShown::Text(text),
+                };
+                if shown_to.send(message).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(BrowserScreen {
+            shown,
+            input: link.input,
+        })
+    }
+
     async fn browser_snapshot_fresh(
         &self,
         persona_id: &str,

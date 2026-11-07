@@ -3,6 +3,7 @@
 mod admission;
 mod attachments;
 pub mod bridge;
+mod browser_screen;
 mod channel;
 pub mod client;
 mod link;
@@ -211,6 +212,9 @@ pub struct Remote {
     /// The desk behind this Remote's wire, computer and link: absent on a
     /// server that runs only a relay (ADR 0006), whose room is never opened.
     agents: Option<Agents>,
+    /// How many of the person's seats drive each teammate's browser through
+    /// its live screen now (`browser_screen`).
+    browser_drivers: Mutex<std::collections::HashMap<String, usize>>,
 }
 /// Marks an operation as being sent until the call ends, however it ends.
 struct Sending<'a> {
@@ -512,6 +516,7 @@ impl Remote {
             lifecycle: AsyncMutex::new(()),
             prompts: AsyncMutex::new(()),
             sending: Mutex::default(),
+            browser_drivers: Mutex::default(),
             agents,
         }))
     }

@@ -326,18 +326,13 @@ impl Route {
             return None;
         }
         let path = format!("/{tail}");
-        let known = path == "/v2" || path == "/v2/pair" || path == "/v2/link" || {
-            let computer = path
-                .strip_prefix("/v2/computer/")
-                .and_then(|p| p.strip_suffix("/ws"));
-            computer.is_some_and(|id| {
-                !id.is_empty()
-                    && id.len() <= 128
-                    && id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-            })
-        };
+        let known = path == "/v2"
+            || path == "/v2/pair"
+            || path == "/v2/link"
+            || path.strip_prefix("/v2").is_some_and(|rest| {
+                super::server::screen_path(rest, "computer").is_some()
+                    || super::server::screen_path(rest, "browser").is_some()
+            });
         known.then(|| Self::Visit {
             desk: head.to_owned(),
             path,

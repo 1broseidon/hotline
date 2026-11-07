@@ -338,9 +338,12 @@ of its own that refuses any client without its cookie, which only the account
 the desk runs as can read. Every page and frame it loads is asked of the
 desk's guard first, so the desk's own ports stay shut as on the desktop. The
 phone or a desktop linked to the desk, paired as the owner, is its screen: it
-sees the desk's pictures of a teammate's page, takes control, taps, types,
-chooses Visit anyway past a certificate the browser refused, and gives it
-back. A page's file picker never opens on a server, even for the person, so
+watches a teammate's page live, as it watches a computer, only what changed
+sent as it changes, takes control, points, hovers, drags, scrolls, types and
+pastes as at a desk, chooses Visit anyway past a certificate the browser
+refused, and gives it back (a desk's hello says `browserStream`; a phone or
+desktop from before it sees the desk's pictures of the page instead). A
+device paired as a companion watches. A page's file picker never opens on a server, even for the person, so
 nothing is uploaded from this browser. If the browser dies, the teammate's
 next page starts it again; one that keeps dying is started again only after
 a wait that doubles from a second to a minute, and the teammate is told how
@@ -351,7 +354,7 @@ display with no session (no accessibility bus, no GPU, no settings portal) do
 not, and any other warning of theirs is said once, then left out for ten
 minutes while it repeats.
 Each teammate's
-storage is under the room's `desk-browser/`. The browser takes about 450 MB
+storage is under the room's `desk-browser/`. The browser takes about 400 MB
 of memory with one teammate on a simple page, and a teammate browsing heavy
 sites 500 to 600 MB of its own.
 
@@ -571,11 +574,13 @@ registry entry; it contains no private key or invitation secret.
 `origin` is `http://127.0.0.1:PORT` and whose `token` is independent of Remote.
 Keep the Bridge alive for the desk's lifetime; dropping it closes its sockets.
 The window connects to `/ws?token=TOKEN` and speaks the Door wire. Computer
-viewers use `/computer/PERSONA_ID/ws`, with ordinary text and binary viewer
-frames. Before each upgrade, the shell calls `bridge.viewer_token(persona_id)`
-and passes `hotline-viewer.<token>` as the WebSocket subprotocol. The bridge echoes
+viewers use `/computer/PERSONA_ID/ws`, and a teammate's live browser
+`/browser/PERSONA_ID/ws` (a desk whose hello says `browserStream`), with
+ordinary text and binary viewer frames. Before each upgrade, the shell calls
+`bridge.viewer_token(persona_id, Viewer::Computer)` or `Viewer::Browser` and
+passes `hotline-viewer.<token>` as the WebSocket subprotocol. The bridge echoes
 it in the handshake. A token is single-use, expires after 30 seconds, and works
-only for that persona on that bridge; reconnects need a fresh one. The owner
+only for that persona's one screen on that bridge; reconnects need a fresh one. The owner
 `?token=TOKEN` is accepted only on `/ws`, never on a viewer route. Viewer upgrades
 require the single-use subprotocol token; query-string tokens and mixed owner/viewer
 credentials are refused. Only the server holds the computer's bearer.

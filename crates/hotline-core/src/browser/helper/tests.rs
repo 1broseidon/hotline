@@ -138,7 +138,11 @@ async fn piped(root: &Path) -> (Helper, Arc<Fake>) {
         link,
         outbox,
         browser,
-        Up::Ready { pid: 1, display: 0 },
+        Up::Ready {
+            pid: 1,
+            display: 0,
+            screen: None,
+        },
     ));
     let helper = Helper::new(root.join("no-helper"), root.to_path_buf(), gate(root));
     let (conn, readied) = Conn::open(

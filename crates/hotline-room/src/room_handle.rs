@@ -13,6 +13,22 @@ const NO_COOKIES: &str = "Sharing cookies is unavailable on this room.";
 /// What a room with no desk browser answers anything asked of one.
 const NO_BROWSER: &str = "This desk keeps no browser.";
 
+/// One viewer's live screen of a teammate's desk browser, in the computer
+/// viewer's protocol: what it shows, a frame (the 12-byte header and a PNG)
+/// or a JSON message at a time, at most one waiting, and where the viewer's
+/// input for the browser's hands goes. Dropping it ends the viewer.
+pub struct BrowserScreen {
+    pub shown: tokio::sync::mpsc::Receiver<ScreenShown>,
+    pub input: tokio::sync::mpsc::Sender<String>,
+}
+
+/// What a teammate's browser screen shows a viewer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScreenShown {
+    Frame(Vec<u8>),
+    Text(String),
+}
+
 /// How far a harness sign-in has got, as `agent.auth.poll` answers it: the
 /// state, the sign-in's output so far, and why it failed when it did.
 #[derive(Clone, Serialize)]
@@ -567,6 +583,22 @@ pub trait RoomHandle: Send + Sync + 'static {
         persona_id: &str,
     ) -> Option<hotline_contract::BrowserSnapshot> {
         self.browser_snapshot(persona_id)
+    }
+    /// The teammate's desk browser as its session carries it: who drives,
+    /// where it is, what it waits on the person for.
+    fn browser_view(&self, _persona_id: &str) -> Option<hotline_contract::BrowserView> {
+        None
+    }
+    /// Whether this desk's browser is a live screen (`browser_screen`), which
+    /// its hello says as `browserStream`.
+    fn browser_streams(&self) -> bool {
+        false
+    }
+    /// One viewer's live screen of a teammate's desk browser. The person's
+    /// input reaches the page only while they have it taken over, as the
+    /// remote door passes it on only from the seat that took it.
+    async fn browser_screen(&self, _persona_id: &str) -> Result<BrowserScreen, String> {
+        Err(NO_BROWSER.into())
     }
     /// The person takes a teammate's desk browser over (`taken`) or hands it
     /// back, and the browser as it is then.

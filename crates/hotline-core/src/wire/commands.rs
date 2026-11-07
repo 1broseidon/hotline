@@ -294,12 +294,22 @@ pub(crate) async fn run(
             .credential_rename(&id, &label)
             .map(|credential| json!(credential)),
         Command::CredentialDelete { id } => room.credential_delete(&id).await.map(|()| Value::Null),
-        Command::CredentialLogin { provider_id } => room
-            .credential_login(&provider_id)
+        Command::CredentialLogin {
+            provider_id,
+            browser,
+        } => room
+            .credential_login(&provider_id, browser.unwrap_or(false))
             .await
             .map(|prompt| json!(prompt)),
         Command::CredentialLoginCancel { login_id } => room
             .credential_login_cancel(&login_id)
+            .map(|()| Value::Null),
+        Command::CredentialLoginRedirect {
+            login_id,
+            redirect_url,
+        } => room
+            .credential_login_redirect(&login_id, &redirect_url)
+            .await
             .map(|()| Value::Null),
         Command::CredentialConnectLocal { base_url } => room
             .credential_connect_local(&base_url)

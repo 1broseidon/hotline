@@ -28,7 +28,7 @@ use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 /// The vault's keys and the room's model settings, as one seam.
@@ -80,10 +80,15 @@ impl ProviderKeys for DeskCredentials {
     }
 }
 
-/// How far an in-flight device-code login has got. Lives only in this
+/// How far an in-flight provider login has got. Lives only in this
 /// process: a finished login stays queryable until Hotline exits.
 enum LoginOutcome {
-    Pending(CancellationToken),
+    /// Running, with what stops it, and where a pasted address goes when
+    /// the sign-in takes one.
+    Pending(
+        CancellationToken,
+        Option<mpsc::Sender<rig_login::agent::Paste>>,
+    ),
     Done(Credential),
     Failed(String),
 }
@@ -343,7 +348,7 @@ impl Desk {
 impl Drop for Desk {
     fn drop(&mut self) {
         for outcome in self.logins().values() {
-            if let LoginOutcome::Pending(cancel) = outcome {
+            if let LoginOutcome::Pending(cancel, _) = outcome {
                 cancel.cancel();
             }
         }
@@ -791,7 +796,11 @@ impl RoomHandle for Desk {
             .map_err(|error| error.to_string())
     }
 
-    async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+    async fn credential_login(
+        &self,
+        provider_id: &str,
+        browser: bool,
+    ) -> Result<LoginPrompt, String> {
         if let Some(message) = crate::models::login_refusal(provider_id) {
             return Err(message);
         }
@@ -801,6 +810,19 @@ impl RoomHandle for Desk {
             .providers
             .get(wiring.id)
             .map_or_else(|| wiring.id.to_string(), |entry| entry.name.clone());
+        // Sign in with ChatGPT through the browser names this desk's
+        // install id, made once and kept in the vault, and takes a pasted
+        // address as well as its callback.
+        let (pastes, agent) = if browser && wiring.client == Client::ChatGpt {
+            let install_id = self
+                .vault
+                .agent_install_id()
+                .map_err(|error| error.to_string())?;
+            let (pastes, pasted) = mpsc::channel(4);
+            (Some(pastes), Some((install_id, pasted)))
+        } else {
+            (None, None)
+        };
         let (id, token_dir) = self
             .vault
             .begin_login()
@@ -808,22 +830,38 @@ impl RoomHandle for Desk {
         let tokens = self.vault.login_tokens(&id);
         let cancel = CancellationToken::new();
         self.logins()
-            .insert(id.clone(), LoginOutcome::Pending(cancel.clone()));
+            .insert(id.clone(), LoginOutcome::Pending(cancel.clone(), pastes));
         let (prompt_tx, prompt_rx) = oneshot::channel();
         let prompt_tx = Arc::new(Mutex::new(Some(prompt_tx)));
         let login_id = id.clone();
-        let emit = move |user_code: String, verification_uri: String| {
+        let prompt = move |prompt: LoginPrompt| {
             let tx = prompt_tx
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .take();
             if let Some(tx) = tx {
-                let _ = tx.send(LoginPrompt {
-                    login_id: login_id.clone(),
-                    user_code,
-                    verification_uri,
+                let _ = tx.send(prompt);
+            }
+        };
+        let show_page = {
+            let prompt = prompt.clone();
+            let login_id = login_id.clone();
+            move |page: rig_login::agent::Prompt| {
+                prompt(LoginPrompt {
+                    login_id,
+                    user_code: String::new(),
+                    verification_uri: page.authorize_url,
+                    redirect_uri: Some(page.redirect_uri),
                 });
             }
+        };
+        let emit = move |user_code: String, verification_uri: String| {
+            prompt(LoginPrompt {
+                login_id: login_id.clone(),
+                user_code,
+                verification_uri,
+                redirect_uri: None,
+            });
         };
         let vault = self.vault.clone();
         let logins = self.logins.clone();
@@ -832,19 +870,36 @@ impl RoomHandle for Desk {
         let log = self.log.clone();
         let mut task = tokio::spawn(async move {
             let authorize = async {
-                match wiring.client {
-                    Client::ChatGpt => rig_login::chatgpt_sign_in(&token_dir, move |prompt| {
-                        emit(prompt.user_code, prompt.verification_uri);
-                    })
-                    .await
-                    .map(drop),
-                    Client::Copilot => rig_login::copilot_sign_in(&token_dir, move |prompt| {
-                        emit(prompt.user_code, prompt.verification_uri);
-                    })
-                    .await
-                    .map(drop),
-                    Client::OpenRouter => crate::providers::openrouter_login(&tokens, emit).await,
-                    Client::XAi => crate::providers::xai::login(&tokens, emit).await,
+                match (wiring.client, agent) {
+                    (Client::ChatGpt, Some((install_id, pasted))) => {
+                        rig_login::agent::sign_in(
+                            &token_dir,
+                            &install_id,
+                            &rig_login::agent::agent_name(),
+                            &rig_login::agent::Endpoints::for_sign_in(),
+                            show_page,
+                            pasted,
+                        )
+                        .await
+                    }
+                    (Client::ChatGpt, ..) => {
+                        rig_login::chatgpt_sign_in(&token_dir, move |prompt| {
+                            emit(prompt.user_code, prompt.verification_uri);
+                        })
+                        .await
+                        .map(drop)
+                    }
+                    (Client::Copilot, ..) => {
+                        rig_login::copilot_sign_in(&token_dir, move |prompt| {
+                            emit(prompt.user_code, prompt.verification_uri);
+                        })
+                        .await
+                        .map(drop)
+                    }
+                    (Client::OpenRouter, ..) => {
+                        crate::providers::openrouter_login(&tokens, emit).await
+                    }
+                    (Client::XAi, ..) => crate::providers::xai::login(&tokens, emit).await,
                     _ => Err(format!("{provider_id} does not support sign-in.")),
                 }
             };
@@ -873,12 +928,37 @@ impl RoomHandle for Desk {
         }
     }
 
+    async fn credential_login_redirect(
+        &self,
+        login_id: &str,
+        redirect_url: &str,
+    ) -> Result<(), String> {
+        let pastes = match self.logins().get(login_id) {
+            Some(LoginOutcome::Pending(_, Some(pastes))) => pastes.clone(),
+            Some(LoginOutcome::Pending(_, None)) => {
+                return Err("This sign-in does not take a pasted address.".into());
+            }
+            Some(_) => return Err("This sign-in has already finished.".into()),
+            None => return Err(format!("There is no login {login_id}.")),
+        };
+        let (reply, verdict) = oneshot::channel();
+        let finished = || "This sign-in has already finished.".to_string();
+        pastes
+            .send(rig_login::agent::Paste {
+                url: redirect_url.to_string(),
+                reply,
+            })
+            .await
+            .map_err(|_| finished())?;
+        verdict.await.map_err(|_| finished())?
+    }
+
     fn credential_login_cancel(&self, login_id: &str) -> Result<(), String> {
         let mut logins = self.logins();
         let outcome = logins
             .get_mut(login_id)
             .ok_or_else(|| format!("There is no login {login_id}."))?;
-        if let LoginOutcome::Pending(cancel) = outcome {
+        if let LoginOutcome::Pending(cancel, _) = outcome {
             cancel.cancel();
             *outcome = LoginOutcome::Failed("Sign-in cancelled.".into());
         }
@@ -920,7 +1000,7 @@ impl RoomHandle for Desk {
 
     fn login_status(&self, login_id: &str) -> Result<LoginStatus, String> {
         match self.logins().get(login_id) {
-            Some(LoginOutcome::Pending(_)) => Ok(LoginStatus {
+            Some(LoginOutcome::Pending(..)) => Ok(LoginStatus {
                 state: LoginState::Pending,
                 credential: None,
                 error: None,
@@ -1626,7 +1706,8 @@ fn record_login(
     result: Result<(), String>,
 ) -> bool {
     let mut logins = logins.lock().unwrap_or_else(PoisonError::into_inner);
-    if !matches!(logins.get(&id), Some(LoginOutcome::Pending(cancel)) if !cancel.is_cancelled()) {
+    if !matches!(logins.get(&id), Some(LoginOutcome::Pending(cancel, _)) if !cancel.is_cancelled())
+    {
         let _ = vault.abandon_login(&id);
         return false;
     }

@@ -132,3 +132,70 @@ async fn refresh_timeout_is_retryable_and_never_dispatches_an_image() {
     assert_eq!(checks.load(Ordering::SeqCst), 0);
     assert_eq!(server.requests.load(Ordering::SeqCst), 0);
 }
+
+/// Sign in with ChatGPT draws on the public Images API with its token and
+/// nothing that names Codex or an account; a refusal there says it is this
+/// sign-in that cannot draw, rather than asking for a new sign-in.
+#[tokio::test]
+async fn an_agent_sign_in_draws_on_the_public_api_and_says_so_when_refused() {
+    use axum::http::{HeaderMap, StatusCode, Uri};
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let refuse = Arc::new(AtomicUsize::new(0));
+    let refusing = refuse.clone();
+    let app = Router::new().fallback(move |uri: Uri, headers: HeaderMap| {
+        let tx = tx.clone();
+        let refusing = refusing.clone();
+        async move {
+            tx.send((uri.path().to_string(), headers)).await.unwrap();
+            if refusing.load(Ordering::SeqCst) > 0 {
+                return (StatusCode::FORBIDDEN, String::new());
+            }
+            (
+                StatusCode::OK,
+                json!({"data": [{"b64_json": STANDARD.encode(b"\x89PNG\r\n\x1a\npicture")}]})
+                    .to_string(),
+            )
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let tokens = tempfile::tempdir().unwrap();
+    crate::providers::rig_login::agent::seed(tokens.path(), "agent-access").await;
+    let adapter = ChatGpt::at(tokens.path().into(), url);
+    assert!(adapter.agent);
+    let request = ImageRequest {
+        prompt: "a toad".into(),
+        ..ImageRequest::default()
+    };
+    let agent_auth = || async {
+        Ok(AuthRecord {
+            access_token: Some("agent-access".into()),
+            account_id: None,
+        })
+    };
+
+    let image = adapter
+        .generate_with_auth(&request, &|| Ok(()), agent_auth(), REFRESH_TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(image.id.provider_id, PROVIDER_ID);
+    let (path, headers) = rx.recv().await.unwrap();
+    assert_eq!(path, "/images/generations");
+    assert_eq!(headers["authorization"], "Bearer agent-access");
+    assert!(headers.get("originator").is_none());
+    assert!(headers.get("chatgpt-account-id").is_none());
+
+    refuse.store(1, Ordering::SeqCst);
+    let refused = adapter
+        .generate_with_auth(&request, &|| Ok(()), agent_auth(), REFRESH_TIMEOUT)
+        .await
+        .unwrap_err();
+    assert_eq!(refused, ImageError::NotForThisSignIn { status: 403 });
+    assert!(refused.to_string().contains("device code"));
+    assert_eq!(
+        ChatGpt::new(tokens.path().into()).unwrap().base_url,
+        "https://api.openai.com/v1"
+    );
+    server.abort();
+}

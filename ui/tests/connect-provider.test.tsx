@@ -56,3 +56,98 @@ test("a status poll that fails leaves the pane with a way to sign in again, not 
 		await teardown();
 	}
 });
+
+const chatgpt: Provider = { id: "openai-codex", name: "ChatGPT", credentialKinds: ["oauth"], modelDiscovery: true };
+const REDIRECT = "http://127.0.0.1:1455/auth/callback";
+
+/** ChatGPT's pane, on a wire that answers `answer` and records every call. */
+async function chatgptPane(answer: (cmd: string, params: Record<string, unknown>) => unknown) {
+	const { teardown } = installDom();
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { ConnectProvider } = await import("../src/components/ConnectProvider");
+	const { wire } = await import("../src/wire");
+	const calls: { cmd: string; params: Record<string, unknown> }[] = [];
+	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
+		calls.push({ cmd, params });
+		return answer(cmd, params);
+	}) as typeof wire.command);
+	const opened: string[] = [];
+	const open = spyOn(window, "open").mockImplementation(((href: string) => {
+		opened.push(href);
+		return null;
+	}) as typeof window.open);
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	await act(async () => root.render(<ConnectProvider provider={chatgpt} onConnected={() => {}} onCancel={() => {}} />));
+	const click = async (label: string) => {
+		const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+		if (!button) throw new Error(`No button ${label}: ${container.textContent}`);
+		await act(async () => button.click());
+	};
+	const close = async () => {
+		await act(async () => root.unmount());
+		open.mockRestore();
+		command.mockRestore();
+		await teardown();
+	};
+	return { act, container, calls, opened, click, close };
+}
+
+test("Sign in with ChatGPT opens the browser and takes the address it ends on", async () => {
+	const pane = await chatgptPane((cmd, params) => {
+		if (cmd === "credential.login") return { loginId: "l1", userCode: "", verificationUri: "https://auth.openai.com/api/accounts/authorize?x", redirectUri: REDIRECT };
+		if (cmd === "credential.login_redirect" && String(params["redirectUrl"]).includes("stale")) throw new Error("This page belongs to another sign-in attempt.");
+		if (cmd === "credential.login_redirect") return null;
+		if (cmd === "credential.login_status") return { state: "pending" };
+		return null;
+	});
+	try {
+		const choices = [...pane.container.querySelectorAll("button")].map((b) => b.textContent);
+		expect(choices).toContain("Sign in with ChatGPT");
+		expect(choices).toContain("Use a device code");
+		await pane.click("Sign in with ChatGPT");
+		expect(pane.calls[0]).toEqual({ cmd: "credential.login", params: { providerId: "openai-codex", browser: true } });
+		expect(pane.opened).toEqual(["https://auth.openai.com/api/accounts/authorize?x"]);
+		expect(pane.container.textContent).toContain("Open ChatGPT sign-in");
+
+		const field = pane.container.querySelector("textarea");
+		if (!field) throw new Error("no paste field");
+		expect(field.placeholder).toBe(`${REDIRECT}?…`);
+		const type = async (text: string) => {
+			const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")?.set;
+			await pane.act(async () => {
+				setter?.call(field, text);
+				field.dispatchEvent(new window.Event("input", { bubbles: true }));
+			});
+		};
+		await type(`${REDIRECT}?code=c&state=stale`);
+		await pane.click("Finish sign-in");
+		expect(pane.container.textContent).toContain("That address didn't finish the sign-in.");
+
+		await type(`  ${REDIRECT}?code=c&state=s&client_id=oaiapp  `);
+		await pane.click("Finish sign-in");
+		expect(pane.calls.at(-1)).toEqual({ cmd: "credential.login_redirect", params: { loginId: "l1", redirectUrl: `${REDIRECT}?code=c&state=s&client_id=oaiapp` } });
+		expect(pane.container.textContent).not.toContain("That address didn't finish the sign-in.");
+	} finally {
+		await pane.close();
+	}
+});
+
+test("a device code stays the other way into ChatGPT, with nothing to paste", async () => {
+	const pane = await chatgptPane((cmd) => {
+		if (cmd === "credential.login") return { loginId: "l2", userCode: "ABCD-1234", verificationUri: "https://auth.openai.com/codex/device" };
+		if (cmd === "credential.login_status") return { state: "pending" };
+		return null;
+	});
+	try {
+		await pane.click("Use a device code");
+		expect(pane.calls[0]).toEqual({ cmd: "credential.login", params: { providerId: "openai-codex" } });
+		expect(pane.opened).toEqual([]);
+		expect(pane.container.textContent).toContain("ABCD-1234");
+		expect(pane.container.querySelector("textarea")).toBeNull();
+	} finally {
+		await pane.close();
+	}
+});

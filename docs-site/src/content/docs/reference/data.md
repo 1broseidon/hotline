@@ -83,13 +83,13 @@ transcripts. It is capped at 5 MB, with the previous file kept as
 
 ## Keys and secrets
 
-API keys, sign-ins to OpenRouter and xAI, MCP server credentials, web search
-keys and everything under **Settings → Secrets** are kept in the operating
-system's credential store: the macOS Keychain, Windows Credential Manager, or
-the Secret Service on Linux. The data directory holds only references to
-them. ChatGPT and GitHub Copilot sign-ins are kept in owner-only files in the
-data directory. A desk on a server, which has no keychain, keeps its secrets
-in owner-only files under its room.
+API keys, sign-ins to ChatGPT, GitHub Copilot, OpenRouter and xAI, MCP
+server credentials, web search keys and everything under **Settings →
+Secrets** are kept in the operating system's credential store: the macOS
+Keychain, Windows Credential Manager, or the Secret Service on Linux. The
+data directory holds only references to them, and `vault/agent-install-id`,
+the id Sign in with ChatGPT names this desk by. A desk on a server, which
+has no keychain, keeps its secrets in owner-only files under its room.
 
 Nothing secret is ever written into a conversation, a teammate's folder, an
 agent's instructions or a log.

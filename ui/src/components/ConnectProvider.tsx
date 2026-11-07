@@ -3,11 +3,15 @@ import type { Credential, CredentialKind, Provider, ProviderJob } from "../gener
 import { ChevronRightIcon } from "../icons";
 import { openLink } from "../native";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
+import { onServer } from "../serverFiles";
 import { formOf, restingAfter, signInBusy, signInStep } from "../signIn";
 import { wire } from "../wire";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 const SIGN_IN_FAILED = "Sign-in failed";
+
+/** ChatGPT signs in through the browser as Hotline, or with a device code as before. */
+const CHATGPT = "openai-codex";
 
 /**
  * Connecting one provider, in place: the method when it offers more than
@@ -34,7 +38,8 @@ export function ConnectProvider({
 	onConnected(made: Credential): void;
 	onCancel(): void;
 }) {
-	const initial = provider.credentialKinds.length === 1 ? (provider.credentialKinds[0] ?? null) : null;
+	// ChatGPT offers two ways in, both sign-ins, so it starts on the choice.
+	const initial = provider.credentialKinds.length === 1 && provider.id !== CHATGPT ? (provider.credentialKinds[0] ?? null) : null;
 	const [flow, step] = useReducer(signInStep, initial === null || initial === "oauth" ? { k: "choosing" } : { k: "entering", kind: initial });
 	const busy = signInBusy(flow);
 	const login = flow.k === "waiting" ? flow.login : null;
@@ -64,17 +69,19 @@ export function ConnectProvider({
 		step({ type: "reset" });
 	};
 
-	const signIn = async () => {
+	const signIn = async (browser = false) => {
 		if (busy) return;
 		step({ type: "begin" });
 		const mine = ++attempt.current;
 		try {
-			const prompt = await wire.command("credential.login", { providerId: provider.id });
+			const prompt = await wire.command("credential.login", browser ? { providerId: provider.id, browser } : { providerId: provider.id });
 			if (mine !== attempt.current) {
 				await wire.command("credential.login_cancel", { loginId: prompt.loginId });
 				return;
 			}
 			step({ type: "prompted", login: prompt });
+			// Sign in with ChatGPT opens the browser itself; the link below opens it again.
+			if (browser) void openLink(prompt.verificationUri);
 		} catch (error) {
 			if (mine !== attempt.current) return;
 			step({ type: "refused", refusal: refused(SIGN_IN_FAILED, error), back });
@@ -176,7 +183,19 @@ export function ConnectProvider({
 				<section>
 					<h3 className="group-title">Connect {provider.name}</h3>
 					<div className="grouped">
-						{provider.credentialKinds.map((kind) => (
+						{provider.id === CHATGPT && (
+							<>
+								<button type="button" className="group-row group-row-choice w-full text-left" disabled={busy} onClick={() => void signIn(true)}>
+									<span className="group-row-text">Sign in with ChatGPT</span>
+									<ChevronRightIcon />
+								</button>
+								<button type="button" className="group-row group-row-choice w-full text-left" disabled={busy} onClick={() => void signIn()}>
+									<span className="group-row-text">Use a device code</span>
+									<ChevronRightIcon />
+								</button>
+							</>
+						)}
+						{provider.id !== CHATGPT && provider.credentialKinds.map((kind) => (
 							<button
 								key={kind}
 								type="button"
@@ -228,9 +247,63 @@ export function ConnectProvider({
 						</div>
 					</div>
 					<p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
+					{login?.redirectUri !== undefined && <LoginPasteBack loginId={login.loginId} redirectUri={login.redirectUri} />}
 				</section>
 			)}
 			{refusal !== null && <Refusal {...refusal} />}
+		</>
+	);
+}
+
+/**
+ * The fallback for a browser sign-in whose browser can't reach the desk:
+ * one on another computer than a server desk, or one whose page never came
+ * back. The page it ends on won't load, and its address holds what the
+ * desk is waiting for. A wrong address is refused and the sign-in waits on;
+ * the right one finishes it, and the poll above sees it done.
+ */
+function LoginPasteBack({ loginId, redirectUri }: { loginId: string; redirectUri: string }) {
+	const [address, setAddress] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [refused, setRefused] = useState<string | null>(null);
+
+	const finish = async () => {
+		setBusy(true);
+		setRefused(null);
+		try {
+			await wire.command("credential.login_redirect", { loginId, redirectUrl: address.trim() });
+			setAddress("");
+		} catch (error) {
+			setRefused(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<>
+			<p className="group-hint">
+				{onServer()
+					? "Approve in your browser, then paste the address of the page you land on (it won't load, and that's expected)."
+					: "If your browser doesn't come back to Hotline, paste the address of the page it ends on."}
+			</p>
+			<label className="label mt-4" htmlFor="login-callback">
+				Page address
+			</label>
+			<textarea
+				id="login-callback"
+				className="field h-20 w-full font-mono text-sm"
+				placeholder={`${redirectUri}?…`}
+				value={address}
+				spellCheck={false}
+				onChange={(event) => setAddress(event.target.value)}
+			/>
+			<div className="mt-3 flex justify-end">
+				<button type="button" className="control btn-primary" disabled={busy || address.trim() === ""} onClick={() => void finish()}>
+					{busy ? "Finishing…" : "Finish sign-in"}
+				</button>
+			</div>
+			{refused !== null && <Refusal message="That address didn't finish the sign-in." detail={refused} />}
 		</>
 	);
 }

@@ -288,7 +288,34 @@ impl Failure {
             model: None,
         };
         failure.set_kind(kind);
+        failure.name_a_chatgpt_limit(&lower);
         failure
+    }
+
+    /// Sign in with ChatGPT shares the subscription's usage limit with other
+    /// apps, and on a ChatGPT Business plan the workspace admin sets one per
+    /// person as well. Either resets in hours, so it is a quota, never
+    /// retried; and only the admin can raise the workspace's, so the card
+    /// says to ask them. Pi's wording and codes.
+    fn name_a_chatgpt_limit(&mut self, lower: &str) {
+        let (title, summary) = if lower
+            .contains("subscription_sharing_workplace_individual_usage_limit_exceeded")
+        {
+            (
+                "ChatGPT workspace limit reached",
+                "You've reached your ChatGPT workspace's usage limit. Ask your workspace admin to increase it at admin.openai.com → Workspace → Usage limits.",
+            )
+        } else if lower.contains("subscription_sharing_usage_limit_exceeded") {
+            (
+                "ChatGPT usage limit reached",
+                "This ChatGPT plan's usage limit is reached. Check it at chatgpt.com/settings/usage; it resets on its own.",
+            )
+        } else {
+            return;
+        };
+        self.kind = Kind::Quota;
+        self.title = Cow::Borrowed(title);
+        self.summary = summary;
     }
 
     /// A paid request the Chat budget refused, before it was sent.
@@ -926,6 +953,38 @@ mod tests {
             .checked_against_sign_in("openai/gpt-6-sol", &keys)
             .await;
         assert_eq!(kept.kind, Kind::Transport);
+    }
+
+    /// Pi's codes for Sign in with ChatGPT's limits, sent as a 429: neither
+    /// is a rate limit to wait out, and the workspace one names the admin.
+    #[test]
+    fn a_chatgpt_workspace_limit_is_not_retried_and_names_the_admin() {
+        let workspace = Failure::classify(
+            r#"{"error":{"code":"subscription_sharing_workplace_individual_usage_limit_exceeded","message":"Usage limit exceeded"}}"#,
+            Some(429),
+            "model",
+        );
+        assert_eq!(workspace.kind, Kind::Quota);
+        assert!(workspace.retry_delay(0).is_none());
+        assert_eq!(workspace.title, "ChatGPT workspace limit reached");
+        assert!(workspace.summary.contains("workspace admin"));
+        assert!(workspace.notice().contains("admin.openai.com"));
+
+        let plan = Failure::classify(
+            r#"{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}"#,
+            Some(429),
+            "model",
+        );
+        assert_eq!(plan.kind, Kind::Quota);
+        assert!(plan.retry_delay(0).is_none());
+        assert!(plan.summary.contains("chatgpt.com/settings/usage"));
+
+        let throttled = Failure::classify(
+            r#"{"error":{"code":"rate_limit_exceeded"}}"#,
+            Some(429),
+            "model",
+        );
+        assert_eq!(throttled.kind, Kind::RateLimit);
     }
 
     #[test]

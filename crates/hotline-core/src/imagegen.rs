@@ -137,6 +137,10 @@ pub enum ImageError {
     Malformed {
         provider_id: String,
     },
+    /// A Sign in with ChatGPT login whose token the Images API turned away.
+    NotForThisSignIn {
+        status: u16,
+    },
 }
 
 impl fmt::Display for ImageError {
@@ -194,6 +198,10 @@ impl fmt::Display for ImageError {
                 provider_id,
                 status,
             } => write!(f, "{provider_id} refused the request (HTTP {status})."),
+            ImageError::NotForThisSignIn { status } => write!(
+                f,
+                "OpenAI would not draw with this ChatGPT sign-in (HTTP {status}). To draw on your ChatGPT plan, sign in with a device code under Settings → Providers, or connect an OpenAI key."
+            ),
             ImageError::Malformed { provider_id } => {
                 write!(
                     f,

@@ -421,14 +421,25 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Accounts can only be renamed on a desk with a vault.".to_string())
     }
     async fn credential_delete(&self, id: &str) -> Result<(), String>;
-    /// Starts provider sign-in. Returns the prompt as soon as the provider
-    /// issues a code; the login keeps running until the person signs in.
+    /// Starts provider sign-in, through the browser when `browser` asks
+    /// and the provider offers it. Returns the prompt as soon as the
+    /// provider issues a code or the page to open; the login keeps running
+    /// until the person signs in.
     async fn credential_login(
         &self,
         provider_id: &str,
+        browser: bool,
     ) -> Result<hotline_contract::LoginPrompt, String>;
     fn credential_login_cancel(&self, _login_id: &str) -> Result<(), String> {
         Err("Login cancellation is unavailable.".into())
+    }
+    /// Hands a pending browser login the address the browser ended on.
+    async fn credential_login_redirect(
+        &self,
+        _login_id: &str,
+        _redirect_url: &str,
+    ) -> Result<(), String> {
+        Err("This sign-in does not take a pasted address.".into())
     }
     async fn credential_connect_local(
         &self,

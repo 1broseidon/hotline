@@ -117,6 +117,13 @@ pub struct LoginPrompt {
     pub login_id: String,
     pub user_code: String,
     pub verification_uri: String,
+    /// The address the browser comes back to, when the sign-in also takes
+    /// that address pasted (`credential.login_redirect`): for a browser that
+    /// cannot reach the desk's own `127.0.0.1`, such as one on another
+    /// computer than a server desk. Absent for a sign-in that takes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub redirect_uri: Option<String>,
 }
 
 /// How far a provider login has got. A finished one stays queryable until

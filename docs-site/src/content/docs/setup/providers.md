@@ -5,10 +5,9 @@ description: The AI services Hotline Agent runs on, how each connects, what draw
 
 Hotline Agent, the built-in agent, runs on a model from an AI service you
 connect under **Settings → Providers**. The same connections draw pictures,
-hear and speak on calls. Keys, and the OpenRouter and xAI sign-ins, are kept
-in your computer's keychain (the macOS Keychain, Windows Credential Manager,
-or the Secret Service on Linux). ChatGPT and GitHub Copilot sign-ins are kept
-in files only your account can read, in Hotline's
+hear and speak on calls. Keys and sign-ins are kept in your computer's keychain (the macOS Keychain,
+Windows Credential Manager, or the Secret Service on Linux), with a
+reference to each in a folder only your account can read, in Hotline's
 [data directory](/docs/reference/data/). None of them is ever written into a
 conversation, a teammate's files or a log.
 
@@ -20,7 +19,7 @@ conversation, a teammate's files or a log.
 | --- | --- |
 | Anthropic | API key |
 | OpenAI | API key |
-| ChatGPT | Sign in with your ChatGPT subscription |
+| ChatGPT | Sign in with ChatGPT, or a device code |
 | OpenRouter | Sign in, or API key |
 | Google | API key |
 | xAI | Sign in with SuperGrok or X Premium+, or API key |
@@ -36,6 +35,30 @@ conversation, a teammate's files or a log.
 An OpenAI-compatible server on the Responses API does not have to match
 OpenAI's stream exactly. Servers with a looser stream, such as Meta's Muse
 models at `api.meta.ai`, work from Hotline 0.36.2.
+
+### ChatGPT
+
+**Sign in with ChatGPT** opens your browser at OpenAI, where you approve
+Hotline. It shows up in ChatGPT's connected apps as **Hotline on** your
+computer's name, one entry per desk, and its turns go to OpenAI's API on
+your ChatGPT plan. Once you approve, the browser comes back to Hotline on
+your computer's port 1455. If it can't, because the desk is on a server or
+another app holds that port, paste the address of the page your browser
+ended on into the field under the sign-in.
+
+**Use a device code** signs in the way Hotline did before 0.49: you enter
+a code at OpenAI, and turns go to the backend the Codex CLI uses. It is how
+your phone signs in, and a sign-in made this way keeps working as it was.
+Live voice (GPT-Live) needs a device-code sign-in.
+
+Images on Sign in with ChatGPT are drawn through OpenAI's Images API with
+the sign-in; if OpenAI won't draw with it, the picture fails and says so,
+and a device-code sign-in or an OpenAI key draws instead. A Business plan's
+workspace can set a usage limit per person: when you reach it, the turn
+stops and says to ask your workspace admin, and Hotline doesn't retry.
+
+To disconnect Hotline at OpenAI, remove it from ChatGPT's connected apps.
+Sign out in Hotline forgets the tokens on this desk.
 
 ### Claude
 
@@ -75,7 +98,7 @@ offers **Sign in** with the methods the tool itself offers.
 | --- | --- | --- | --- |
 | Anthropic | API key | Anthropic API, per token | Counted |
 | OpenAI | API key | OpenAI API, per token | Counted |
-| ChatGPT | Sign in | Your ChatGPT subscription | Not counted |
+| ChatGPT | Sign in with ChatGPT, or a device code | Your ChatGPT subscription | Not counted |
 | GitHub Copilot | Sign in | Your Copilot subscription | Not counted |
 | xAI | Sign in with SuperGrok or X Premium+ | That subscription | Not counted |
 | xAI | API key | xAI API, per token | Counted |

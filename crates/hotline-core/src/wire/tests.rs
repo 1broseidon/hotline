@@ -406,7 +406,11 @@ impl RoomHandle for CoreHandle {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
-    async fn credential_login(&self, _provider_id: &str) -> Result<LoginPrompt, String> {
+    async fn credential_login(
+        &self,
+        _provider_id: &str,
+        _browser: bool,
+    ) -> Result<LoginPrompt, String> {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
@@ -825,7 +829,11 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+    async fn credential_login(
+        &self,
+        provider_id: &str,
+        _browser: bool,
+    ) -> Result<LoginPrompt, String> {
         if let Some(pending) = &self.pending_login {
             let _dropped = pending.dropped.clone().drop_guard();
             pending.entered.cancel();

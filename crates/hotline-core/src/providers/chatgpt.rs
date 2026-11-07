@@ -2,8 +2,14 @@
 //! the login's live token for the requests Rig does not build. Rig signs in
 //! and refreshes the token, through the login's shared authenticator
 //! ([`super::rig_login`]).
+//!
+//! A Sign in with ChatGPT login ([`super::rig_login::agent`]) is the public
+//! API's instead: its turns go to OpenAI's Responses API on
+//! `api.openai.com/v1` as an API key's would, and its model list is read
+//! there.
 
 use super::discovery::{self, DiscoveryHttp, ListedModel};
+use super::rig_login::agent;
 use crate::models::Said;
 use bytes::Bytes;
 use rig::http_client::HttpClientExt;
@@ -41,8 +47,80 @@ struct Entry {
 }
 
 pub(crate) async fn list_models(token_dir: &Path) -> Result<Vec<ListedModel>, String> {
+    if agent::is_agent(token_dir) {
+        return list_agent_models_at(token_dir, &api_base(token_dir)).await;
+    }
     let version = client_version(installed_codex_version().await.as_deref());
     list_models_at(token_dir, MODELS_URL, &version).await
+}
+
+/// Where a Sign in with ChatGPT login's requests go: the public API, or a
+/// harness's stub for one fixture login.
+fn api_base(token_dir: &Path) -> String {
+    #[cfg(feature = "test-support")]
+    if let Some(origin) = crate::provider_fixture::origin(&token_dir.to_string_lossy()) {
+        return origin;
+    }
+    let _ = token_dir;
+    agent::RESOURCE.to_string()
+}
+
+#[derive(Deserialize)]
+struct ApiListing {
+    data: Vec<ApiEntry>,
+}
+
+#[derive(Deserialize)]
+struct ApiEntry {
+    id: String,
+}
+
+/// A Sign in with ChatGPT login's models: what the API lists for its token
+/// that ChatGPT's subscription also serves ([`crate::models::CHATGPT_MODELS`]).
+/// The API lists every model an API key could call; the sign-in shares
+/// the subscription's models, so the menu offers only those.
+async fn list_agent_models_at(token_dir: &Path, base: &str) -> Result<Vec<ListedModel>, String> {
+    let token = refreshed_auth(token_dir)
+        .await?
+        .access_token
+        .ok_or("ChatGPT sign-in required.")?;
+    let response = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| discovery::failed())?
+        .get(format!("{}/models", base.trim_end_matches('/')))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| discovery::failed())?;
+    let status = response.status();
+    if matches!(status.as_u16(), 401 | 403) {
+        return Err(format!(
+            "OpenAI would not list models for this ChatGPT sign-in (HTTP {}). The picker offers ChatGPT's usual models; the previous list is unchanged.",
+            status.as_u16()
+        ));
+    }
+    if !status.is_success() {
+        return Err(discovery::failed());
+    }
+    let listed: ApiListing = response.json().await.map_err(|_| discovery::failed())?;
+    let models = listed
+        .data
+        .into_iter()
+        .filter(|entry| crate::models::CHATGPT_MODELS.contains(&entry.id.as_str()))
+        .map(|entry| {
+            let model = ListedModel {
+                id: entry.id,
+                name: None,
+                context_limit: None,
+                output_limit: None,
+            };
+            (model, Said::Nothing)
+        })
+        .collect();
+    discovery::finish("openai-codex", models)
 }
 
 /// The version a listing asks as: the installed Codex when it is newer than
@@ -111,7 +189,8 @@ pub(crate) async fn list_models_at(
 
 /// `model` on the ChatGPT login in `token_dir`. Rig's ChatGPT dialect writes
 /// the request; the transport signs it with the login's live token and
-/// account as it goes.
+/// account as it goes. A Sign in with ChatGPT login is on the public API,
+/// so OpenAI's own dialect writes its requests.
 pub(crate) fn model(
     token_dir: &Path,
     model: &str,
@@ -120,6 +199,17 @@ pub(crate) fn model(
         super::rig_login::chatgpt(token_dir),
         std::convert::identity,
     )?;
+    if agent::is_agent(token_dir) {
+        return Ok(rig::providers::openai::OpenAIConfig::with_key(
+            &rig::providers::openai::wire::OPENAI,
+            "",
+        )
+        .with_base_url(api_base(token_dir))
+        .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
+        .connect(transport)
+        .completion(model)
+        .erase());
+    }
     let config =
         rig::providers::openai::OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "");
     #[cfg(feature = "test-support")]
@@ -274,5 +364,54 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["gpt-6-luna"]
         );
+    }
+
+    /// Sign in with ChatGPT lists on the public API with its own token, and
+    /// the menu keeps only what the subscription serves: the API lists every
+    /// model a key could call.
+    #[tokio::test]
+    async fn an_agent_sign_in_lists_the_subscriptions_models_from_the_api() {
+        use axum::http::StatusCode;
+        let refused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let refusing = refused.clone();
+        let app = Router::new().route(
+            "/models",
+            get(move |headers: http::HeaderMap| {
+                let refusing = refusing.clone();
+                async move {
+                    assert_eq!(headers["authorization"], "Bearer agent-access");
+                    assert!(headers.get("chatgpt-account-id").is_none());
+                    if refusing.load(std::sync::atomic::Ordering::SeqCst) {
+                        return (StatusCode::FORBIDDEN, String::new());
+                    }
+                    (
+                        StatusCode::OK,
+                        json!({"object": "list", "data": [
+                            {"id": "gpt-6-sol", "object": "model"},
+                            {"id": "gpt-5.6-luna", "object": "model"},
+                            {"id": "gpt-4o-mini", "object": "model"},
+                            {"id": "dall-e-3", "object": "model"},
+                        ]})
+                        .to_string(),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = tempfile::tempdir().unwrap();
+        agent::seed(dir.path(), "agent-access").await;
+
+        let models = list_agent_models_at(dir.path(), &url).await.unwrap();
+        assert_eq!(
+            models.into_iter().map(|m| m.id).collect::<Vec<_>>(),
+            ["gpt-5.6-luna", "gpt-6-sol"]
+        );
+        refused.store(true, std::sync::atomic::Ordering::SeqCst);
+        let error = list_agent_models_at(dir.path(), &url).await.unwrap_err();
+        assert!(error.contains("HTTP 403"), "{error}");
+        assert_eq!(api_base(dir.path()), "https://api.openai.com/v1");
+        server.abort();
     }
 }

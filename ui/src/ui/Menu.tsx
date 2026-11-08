@@ -307,6 +307,7 @@ export function MenuButton({
 	className,
 	label,
 	title,
+	pressed,
 	children,
 }: {
 	entries: MenuEntry[];
@@ -314,6 +315,8 @@ export function MenuButton({
 	className: string;
 	label: string;
 	title?: string;
+	/** The key is standing for one of its entries now, as a pressed chip does. */
+	pressed?: boolean;
 	children: ReactNode;
 }) {
 	const button = useRef<HTMLButtonElement>(null);
@@ -328,6 +331,7 @@ export function MenuButton({
 				title={open ? undefined : (title ?? label)}
 				aria-haspopup="menu"
 				aria-expanded={open}
+				aria-pressed={pressed}
 				onClick={() => setOpen((was) => !was)}
 			>
 				{children}

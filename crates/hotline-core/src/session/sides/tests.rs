@@ -32,6 +32,27 @@ fn a_list_previews_the_teammates_last_words_else_what_was_asked() {
     );
 }
 
+#[test]
+fn a_pair_previews_its_newest_line_whichever_teammate_said_it() {
+    let said = serde_json::json!({"kind": "agent", "text": "Which button goes first?"});
+    let answered = serde_json::json!({"kind": "user", "text": "Open Browser."});
+    assert_eq!(newest_line(&[]), None);
+    let long = serde_json::json!({"kind": "agent", "text": "On it.\n\nAll four changes are in.\n"});
+    assert_eq!(
+        newest_line(std::slice::from_ref(&long)).as_deref(),
+        Some("All four changes are in.")
+    );
+    assert_eq!(
+        newest_line(&[said.clone(), answered.clone()]).as_deref(),
+        Some("Open Browser.")
+    );
+    assert_eq!(
+        preview_line(&[said, answered]).as_deref(),
+        Some("Which button goes first?"),
+        "a teammate's own thread still previews its last words"
+    );
+}
+
 fn turn() -> Update {
     Update::Turn {
         stop_reason: "end_turn".to_string(),

@@ -373,7 +373,11 @@ fn summarize(
         let events = StreamId::of_thread(&thread.id)
             .map(|stream| log.load(&stream))
             .unwrap_or_default();
-        let preview = crate::session::preview_line(&events);
+        let preview = if thread.kind() == ThreadKind::Pair {
+            crate::session::newest_line(&events)
+        } else {
+            crate::session::preview_line(&events)
+        };
         let started = events.iter().filter_map(ts_of).min().unwrap_or_default();
         (events, started, preview)
     };

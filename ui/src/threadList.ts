@@ -36,6 +36,8 @@ export type ListItem = {
 	routine: boolean;
 	/** For a note: the person has read it. */
 	read: boolean;
+	/** For a note: the thread it came from has a row here, which counts it. */
+	counted: boolean;
 	/** For a note: its level, "person" being the one to the person. */
 	level?: AsideLevel;
 	/** For a thread: how many notes it left the teammate. */
@@ -132,6 +134,7 @@ function threadItem(row: ThreadSummary, { runs, listedFor, nameOf }: Input, note
 		ended,
 		routine: ended && kind === "command",
 		read: false,
+		counted: false,
 		notes,
 		words: wordsOf(title, line, row.preview, row.outcome),
 		open: { thread: row.thread, title },
@@ -169,7 +172,7 @@ function stateLine(kind: ListKind, row: ThreadSummary, run: RunningSubagent | un
 		return step !== undefined && step !== "" ? step : kind === "command" ? (run?.command ?? "Running") : "Starting";
 	}
 	if (live) return and("Working", said);
-	if (row.state === "parked") return and("Parked", said);
+	// A thread at rest says what was last said in it: nothing is wrong, so no state word.
 	return said === "" ? "Open" : said;
 }
 
@@ -192,6 +195,7 @@ function jobItem(job: ScheduleEntry, row: ThreadSummary | undefined, { now }: In
 		// Its latest run posted nothing to the chat: a run that found nothing to say.
 		routine: !live && row?.posted === false,
 		read: false,
+		counted: false,
 		notes,
 		words: wordsOf(job.name, line, job.prompt, job.lastPost?.text, row?.preview, row?.outcome),
 		open: { thread, title: job.name },
@@ -219,6 +223,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 		ended: false,
 		routine: false,
 		read: aside.seen !== undefined,
+		counted: title !== undefined,
 		level: aside.level,
 		notes: 0,
 		words: wordsOf(aside.text, line),
@@ -228,7 +233,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 
 /**
  * What the list can be narrowed to. Active, the default, is what wants a
- * look now: what waits on the person, what runs, and what happened today,
+ * look now: what waits on the person, what runs, and what happened lately,
  * with the rest folded into one row. A kind's chip is every one of that
  * kind, live and ended; Threads are the ones worked in: work threads,
  * handoffs and commands.
@@ -252,6 +257,9 @@ export type Span = "all" | "live" | "ended";
 /** Whether a filter is a kind of thread's, which has the Live / Ended switch. */
 export const spans = (filter: ListFilter): boolean => filter !== "teammates" && KINDS[filter] !== undefined;
 
+/** Without an aside already read that its thread's row counts: the row says it, and search still finds it. */
+export const uncounted = (items: ListItem[]): ListItem[] => items.filter((item) => !(item.read && item.counted));
+
 export function filtered(items: ListItem[], filter: ListFilter, span: Span = "all"): ListItem[] {
 	const kinds = KINDS[filter];
 	if (kinds !== undefined) return items.filter((item) => kinds.includes(item.kind) && (span === "all" || (span === "ended") === item.ended));
@@ -272,21 +280,22 @@ export function searched(items: ListItem[], query: string): ListItem[] {
 }
 
 /** The list's groups, in their order, each newest first. */
-export type Groups = { needs: ListItem[]; live: ListItem[]; today: ListItem[]; earlier: ListItem[] };
+export type Groups = { needs: ListItem[]; live: ListItem[]; recent: ListItem[]; earlier: ListItem[] };
+
+/** How far back Recent reaches: a rolling day, so an evening's work is still there after midnight. */
+const RECENT_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Rows into Needs you, Live, Today and Earlier. Under Active, Earlier is
- * "Earlier and routine": what is older than today, and with it what is
- * routine and a note already read, today's or not.
+ * Rows into Needs you, Live, Recent (the last 24 hours) and Earlier. Under
+ * Active, Earlier is "Earlier and routine": what is older, and with it what
+ * is routine and a note already read, however recent.
  */
 export function grouped(items: ListItem[], now: number, active: boolean): Groups {
-	const midnight = new Date(now);
-	midnight.setHours(0, 0, 0, 0);
-	const groups: Groups = { needs: [], live: [], today: [], earlier: [] };
+	const groups: Groups = { needs: [], live: [], recent: [], earlier: [] };
 	for (const item of items) {
 		if (item.waiting) groups.needs.push(item);
 		else if (item.live) groups.live.push(item);
-		else if (item.at >= midnight.getTime() && !(active && (item.routine || item.read))) groups.today.push(item);
+		else if (item.at >= now - RECENT_MS && !(active && (item.routine || item.read))) groups.recent.push(item);
 		else groups.earlier.push(item);
 	}
 	return groups;

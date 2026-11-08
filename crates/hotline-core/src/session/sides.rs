@@ -1813,6 +1813,21 @@ pub(crate) fn preview_line(events: &[Value]) -> Option<String> {
     })
 }
 
+/// The newest line said between two teammates, whichever of them said it,
+/// the end of its message rather than its "On it.":
+/// a pair's stream holds one as `user`, the other as `agent`, and a colleague's
+/// delivery, so the last `agent` line can be far from the latest.
+pub(crate) fn newest_line(events: &[Value]) -> Option<String> {
+    events
+        .iter()
+        .rev()
+        .filter(|event| matches!(event["kind"].as_str(), Some("user" | "agent" | "delivery")))
+        .find_map(|event| event.get("text").and_then(Value::as_str))
+        .and_then(|text| text.lines().rfind(|line| !line.trim().is_empty()))
+        .map(|line| cut(line, RESULT_CHARS))
+        .filter(|line| !line.is_empty())
+}
+
 /// The one line a closing note says about how it came out.
 pub(super) fn outcome_line(note: &str) -> Option<String> {
     note.lines()

@@ -278,8 +278,8 @@ describe("the notes in the Threads list", () => {
 		expect(rows.map((row) => row.querySelector(".list-title-text")?.textContent)).toEqual([
 			"The share button still has two names. Which one?",
 			"Build 46 is up.",
-			"All 297 tests passed.",
 		]);
+		// Already read, it is its thread's count, not a row of its own.
 		expect(rows[0]!.querySelector(".list-line")?.textContent).toBe("from Huck · release 0.11.1 · to you ›");
 		expect(rows[0]!.getAttribute("data-level")).toBe("person");
 		expect(rows[1]!.querySelector(".list-line")?.textContent).toBe("from Goldie · release 0.11.1 ›");

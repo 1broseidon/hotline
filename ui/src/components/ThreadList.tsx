@@ -2,19 +2,24 @@ import { type RefObject, useEffect, useMemo, useRef, useState, useSyncExternalSt
 import type { RunningSubagent, ScheduleEntry, ThreadSummary } from "../generated/contract";
 import { asideTime, useAsides } from "../asides";
 import { usePersonName } from "../room";
-import { type ListFilter, type ListItem, type Span, filterOf, filtered, grouped, listItems, markOf, rememberFilter, searched, spans, watchFilters } from "../threadList";
-import { onTablistKey } from "../ui/Menu";
+import { ChevronDownIcon } from "../icons";
+import { type ListFilter, type ListItem, type Span, filterOf, filtered, grouped, listItems, markOf, rememberFilter, searched, spans, uncounted, watchFilters } from "../threadList";
+import { MenuButton, onTablistKey } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
 import { NeedsYouRow } from "./NeedsYouRow";
 import type { ThreadRef } from "./Transcript";
 
-/** The chips over the list, in their order. */
+/** What is always one press away over the list, in their order. */
 const CHIPS: { filter: ListFilter; word: string }[] = [
 	{ filter: "active", word: "Active" },
 	{ filter: "all", word: "All" },
 	{ filter: "needs", word: "Needs you" },
 	{ filter: "live", word: "Live" },
+];
+
+/** The kinds, under one key so the chips stay one row at the pane's width. */
+const KINDS: { filter: ListFilter; word: string }[] = [
 	{ filter: "threads", word: "Threads" },
 	{ filter: "subagents", word: "Subagents" },
 	{ filter: "jobs", word: "Jobs" },
@@ -32,9 +37,9 @@ const SPANS: { span: Span; word: string }[] = [
 /**
  * The teammate's Threads list (docs/design/threads-list.html, idea A): its
  * threads, jobs and notes as rows of one shape, narrowed by the chips over
- * it, in the groups Needs you, Live, Today and Earlier. It opens on the
- * chip last pressed for the teammate, Active at first, where what is earlier
- * than today, routine, or a note already read folds into one row that opens
+ * it, in the groups Needs you, Live, Recent and Earlier. It opens on the
+ * chip last pressed for the teammate, Active at first, where what is older
+ * than a day, routine, or a note already read folds into one row that opens
  * in place. A kind's chip has a Live / Ended switch. Search reads every row,
  * the folded ones too. A row opens its thread in the pane; a note opens the
  * thread it came from. Shown with notes in it, the list marks the teammate's notes read for
@@ -100,7 +105,7 @@ export function ThreadList({
 	// Searching from Active reads everything, the folded rows too; a narrower chip, what it shows.
 	const searching = query.trim() !== "";
 	const active = filter === "active" && !searching;
-	const shown = searched(filtered(items, filter === "active" ? "all" : filter, span), query);
+	const shown = searched(filtered(searching ? items : uncounted(items), filter === "active" ? "all" : filter, span), query);
 	const groups = grouped(shown, now, active);
 	const counts = { needs: filtered(items, "needs").length, live: filtered(items, "live").length };
 
@@ -166,6 +171,17 @@ export function ThreadList({
 						</button>
 					);
 				})}
+				<MenuButton
+					className="control btn-quiet btn-sm"
+					label="Filter by kind"
+					title="Filter by kind"
+					align="start"
+					pressed={KINDS.some((kind) => kind.filter === filter)}
+					entries={KINDS.map((kind) => ({ kind: "item", id: kind.filter, text: kind.word, checked: filter === kind.filter, onSelect: () => rememberFilter(entry.persona.id, kind.filter) }))}
+				>
+					{KINDS.find((kind) => kind.filter === filter)?.word ?? "Kind"}
+					<ChevronDownIcon />
+				</MenuButton>
 			</fieldset>
 			{spans(filter) && (
 				<div className="list-span">
@@ -190,8 +206,8 @@ export function ThreadList({
 							{groups.needs.map(row)}
 							<Group title="Live" count={groups.live.length} />
 							{groups.live.map(row)}
-							<Group title="Today" items={groups.today} />
-							{groups.today.map(row)}
+							<Group title="Recent" items={groups.recent} />
+							{groups.recent.map(row)}
 							{active && groups.earlier.length > 0 ? (
 								<>
 									<button type="button" className="list-fold" aria-expanded={unfolded} onClick={() => setUnfolded((was) => !was)}>

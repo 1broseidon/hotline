@@ -205,6 +205,12 @@ function aDay(personaId = "pork") {
 	const sides = [{ sideId: "w1", title: "Check the 0.49 site copy", startedAt: 1, working: false }];
 	return [entry(persona(personaId, "Ada"), { subagents: [audit], workingJobs: ["watch"], sides }), entry(lou)];
 }
+/** Presses a kind in the Kind menu over the list. */
+const pickKind = async (word: string) => {
+	await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Filter by kind"]')!.click());
+	const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith(word))!;
+	await act(async () => item.click());
+};
 const headings = () => [...container.querySelectorAll(".list-group, .list-fold")].map((one) => [...one.children].map((part) => part.textContent));
 /** The rows under each heading, in order. */
 const sections = () => {
@@ -322,17 +328,17 @@ describe("task-400 one row shape", () => {
 });
 
 describe("task-401 the Active default", () => {
-	test("Default filter Active groups Needs you, Live, Today, in that order", async () => {
+	test("Default filter Active groups Needs you, Live, Recent (the last 24 hours), in that order", async () => {
 		// A teammate whose list has never been narrowed opens on Active.
 		await dock(aDay("ada"));
 		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
-		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "Today", "Earlier and routine · 5"]);
+		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "Recent", "Earlier and routine · 4"]);
 		expect(sections()).toEqual({
 			"Needs you": ["side:w1"],
 			Live: ["run:r-audit", "job:watch"],
-			Today: ["note:unread", "pair:lou~ada", "run:r-map"],
+			Recent: ["note:unread", "pair:lou~ada", "run:r-map"],
 			// Folded: the rest wait under one row.
-			"Earlier and routine · 5": [],
+			"Earlier and routine · 4": [],
 		});
 	});
 
@@ -341,36 +347,57 @@ describe("task-401 the Active default", () => {
 		await act(async () => rememberFilter("pork", "active"));
 		const fold = container.querySelector<HTMLButtonElement>(".list-fold")!;
 		expect(fold.getAttribute("aria-expanded")).toBe("false");
-		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 5", "Show"]);
-		for (const folded of ["run:r-pre", "job:sweep", "note:read", "side:old", "note:friday"]) expect(row(folded)).toBeNull();
+		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 4", "Show"]);
+		for (const folded of ["run:r-pre", "job:sweep", "side:old", "note:friday"]) expect(row(folded)).toBeNull();
 		await act(async () => fold.click());
 		expect(fold.getAttribute("aria-expanded")).toBe("true");
 		expect(fold.lastElementChild?.textContent).toBe("Hide");
 		// In place: under the fold, newest first, and nothing above it moved.
-		expect(sections()["Earlier and routine · 5"]).toEqual(["note:read", "run:r-pre", "job:sweep", "side:old", "note:friday"]);
+		expect(sections()["Earlier and routine · 4"]).toEqual(["run:r-pre", "job:sweep", "side:old", "note:friday"]);
 		expect(parts("run:r-pre").mark).toBe("$");
 		expect(parts("run:r-pre").line).toStartWith("Done · All 8 legs pass · ");
-		expect(sections()["Today"]).toEqual(["note:unread", "pair:lou~pork", "run:r-map"]);
-		// Under All nothing is folded: routine and read today are Today's, the rest Earlier.
+		expect(sections()["Recent"]).toEqual(["note:unread", "pair:lou~pork", "run:r-map"]);
+		// Under All nothing is folded: routine and read lately are Recent's, the rest Earlier.
 		await act(async () => chip("All")!.click());
 		expect(container.querySelector(".list-fold")).toBeNull();
 		expect(sections()["Earlier"]).toEqual(["side:old", "note:friday"]);
-		expect(sections()["Today"]).toContain("run:r-pre");
+		expect(sections()["Recent"]).toContain("run:r-pre");
 	});
 
-	test("An ended subagent in Today shows its result line", async () => {
+	test("An ended subagent in Recent shows its result line", async () => {
 		await dock(aDay());
 		await act(async () => rememberFilter("pork", "active"));
-		expect(sections()["Today"]).toContain("run:r-map");
+		expect(sections()["Recent"]).toContain("run:r-map");
 		expect(parts("run:r-map")).toMatchObject({ mark: "◆", line: "Reported · Input to picture is about 26 ms. · 3:00", beats: false });
+	});
+
+	test("Recent is the last 24 hours, so an evening's work is still there after midnight", async () => {
+		const roster = aDay();
+		listed = [summary({ thread: { kind: "side", key: "evening" }, title: "Last night's work", updatedAt: Date.now() - 23 * 60 * 60 * 1000 }), summary({ thread: { kind: "side", key: "older" }, title: "Two days ago", updatedAt: Date.now() - 25 * 60 * 60 * 1000 })];
+		jobs = [];
+		asides = [];
+		await dock(roster);
+		await act(async () => rememberFilter("pork", "active"));
+		expect(sections()["Recent"]).toEqual(["side:evening"]);
+		expect(headings().at(-1)?.[0]).toBe("Earlier and routine · 1");
+	});
+
+	test("A thread at rest says what was last said in it, with no state word", async () => {
+		const roster = aDay();
+		listed = [summary({ thread: { kind: "side", key: "rest" }, title: "At rest", state: "parked", preview: "The list is ready." })];
+		jobs = [];
+		asides = [];
+		await dock(roster);
+		await act(async () => rememberFilter("pork", "active"));
+		expect(parts("side:rest").line).toBe("The list is ready.");
 	});
 
 	test("Counts show only on Needs you and Live", async () => {
 		await dock(aDay());
 		await act(async () => rememberFilter("pork", "active"));
-		expect(headings().slice(0, 3)).toEqual([["Needs you", "1"], ["Live", "2"], ["Today"]]);
+		expect(headings().slice(0, 3)).toEqual([["Needs you", "1"], ["Live", "2"], ["Recent"]]);
 		await act(async () => chip("All")!.click());
-		expect(headings()).toEqual([["Needs you", "1"], ["Live", "2"], ["Today"], ["Earlier"]]);
+		expect(headings()).toEqual([["Needs you", "1"], ["Live", "2"], ["Recent"], ["Earlier"]]);
 	});
 });
 
@@ -384,10 +411,10 @@ describe("task-402 filters and search", () => {
 	}
 	const span = (word: string) => [...container.querySelectorAll<HTMLButtonElement>('.list-span [role="tab"]')].find((one) => one.textContent === word);
 
-	test("Chips: Active, All, Needs you, Live, Threads, Subagents, Jobs, Calls, Pairs, Notes. A kind chip shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
+	test("Chips: Active, All, Needs you, Live, and a Kind menu of Threads, Subagents, Jobs, Calls, Pairs, From teammates. A kind shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
 		await dock(aDay());
 		const words = [...container.querySelectorAll(".list-chips button")].map((one) => one.firstChild?.textContent);
-		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Threads", "Subagents", "Jobs", "Calls", "Pairs", "From teammates"]);
+		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Kind"]);
 		// Only Needs you and Live are counted.
 		expect(chip("Needs you")?.querySelector(".list-count")?.textContent).toBe("1");
 		expect(chip("Live")?.querySelector(".list-count")?.textContent).toBe("2");
@@ -395,7 +422,7 @@ describe("task-402 filters and search", () => {
 
 		// No switch outside a kind's chip.
 		expect(container.querySelector(".list-span")).toBeNull();
-		await act(async () => chip("Subagents")!.click());
+		await pickKind("Subagents");
 		expect(rowIds()).toEqual(["run:r-audit", "run:r-map"]);
 		expect(span("All")?.getAttribute("aria-selected")).toBe("true");
 		await act(async () => span("Live")!.click());
@@ -404,25 +431,26 @@ describe("task-402 filters and search", () => {
 		expect(rowIds()).toEqual(["run:r-map"]);
 
 		// Threads are what is worked in: work threads, handoffs, commands.
-		await act(async () => chip("Threads")!.click());
+		await pickKind("Threads");
 		expect(span("All")?.getAttribute("aria-selected")).toBe("true");
 		expect(rowIds()).toEqual(["side:w1", "run:r-pre", "side:old"]);
-		await act(async () => chip("Jobs")!.click());
+		await pickKind("Jobs");
 		expect(rowIds()).toEqual(["job:watch", "job:sweep"]);
 		await act(async () => span("Ended")!.click());
 		expect(container.textContent).toContain("Nothing here.");
-		await act(async () => chip("Pairs")!.click());
+		await pickKind("Pairs");
 		expect(rowIds()).toEqual([`pair:lou~pork`]);
-		await act(async () => chip("Calls")!.click());
+		await pickKind("Calls");
 		expect(rowIds()).toEqual([]);
 		await act(async () => chip("Needs you")!.click());
 		expect(rowIds()).toEqual(["side:w1"]);
 		await act(async () => chip("Live")!.click());
 		expect(rowIds()).toEqual(["run:r-audit", "job:watch"]);
 		// Notes are not threads: no switch.
-		await act(async () => chip("From teammates")!.click());
+		await pickKind("From teammates");
 		expect(container.querySelector(".list-span")).toBeNull();
-		expect(rowIds()).toEqual(["note:unread", "note:read", "note:friday"]);
+		// An aside already read is counted on its thread's row, so it is not a row of its own.
+		expect(rowIds()).toEqual(["note:unread", "note:friday"]);
 	});
 
 	test("Search matches titles, latest steps, results and note words across everything, earlier items included", async () => {
@@ -439,6 +467,9 @@ describe("task-402 filters and search", () => {
 		// A result.
 		await type("26 ms");
 		expect(rowIds()).toEqual(["run:r-map"]);
+		// An aside already read, which is only its thread's count until it is searched for.
+		await type("site copy is drafted");
+		expect(rowIds()).toEqual(["note:read"]);
 		// A note's words, from four days ago.
 		await type("610 GB");
 		expect(rowIds()).toEqual(["note:friday"]);
@@ -449,7 +480,7 @@ describe("task-402 filters and search", () => {
 		expect(search().value).toBe("");
 		expect(container.querySelector(".list-fold")).not.toBeNull();
 		// Under a kind's chip, it searches that kind.
-		await act(async () => chip("Jobs")!.click());
+		await pickKind("Jobs");
 		await type("inbox");
 		expect(rowIds()).toEqual(["job:sweep"]);
 		await type("installer");
@@ -459,7 +490,7 @@ describe("task-402 filters and search", () => {
 	test("The filter last used is kept per teammate across opening and closing the pane and restarts", async () => {
 		const roster = aDay();
 		await dock(roster);
-		await act(async () => chip("Jobs")!.click());
+		await pickKind("Jobs");
 		// Closed and opened again.
 		await act(async () => root.render(<div />));
 		await dock(roster);

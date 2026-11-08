@@ -55,11 +55,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   subagent, command, pair, call and job, and every aside the teammate was
   left, as rows of one shape, the kind's mark, the title, one line of state,
   latest step or result, and the time. An aside opens the thread it came from,
-  and that thread's row counts its asides. It opens on Active: Needs you,
-  Live and Today, with what is earlier, routine runs and read asides folded
-  into one row that opens in place. Chips narrow it to Needs you, Live,
-  Threads, Subagents, Jobs, Calls, Pairs or From teammates (handoffs and
-  asides), a kind's with a Live /
+  and once read it is counted on that thread's row. It opens on Active: Needs you,
+  Live and Recent (the last 24 hours), with what is earlier and routine runs
+  folded into one row that opens in place. Chips narrow it to Needs you, Live,
+  Needs you, Live or a kind from the Kind menu: Threads, Subagents, Jobs,
+  Calls, Pairs or From teammates (handoffs and asides), a kind's with a Live /
   Ended switch, search reads every row and aside, and the chip last used is
   kept for each teammate. A thread waiting on you shows the card's question
   on its row with the card's own answers, Yes and No or Approve and Deny,

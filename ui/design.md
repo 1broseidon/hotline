@@ -157,8 +157,8 @@ plane, Needs you in amber while something waits, and only Needs you and Live
 counted. A kind's chip shows all of that kind, live and ended, with an All ·
 Live · Ended switch under the chips. The chip last pressed is kept for each
 teammate, across the pane closing and the app restarting. The rows stand in groups, each headed in the instrument
-face: Needs you, Live, Today and Earlier, and only Needs you and Live are
-counted. The list opens on Active, where what is earlier than today, what is
+face: Needs you, Live, Recent (the last 24 hours) and Earlier, and only Needs you and Live are
+counted. The list opens on Active, where what is older than a day, what is
 routine (a finished command, a job run that posted nothing) and a note already
 read fold into one row, "Earlier and routine · N", that opens in place. Every row is one shape: the kind's mark in the instrument face
 (≡ work thread, ⇄ handoff, ◆ subagent, $ command, ◎ pair, ☏ call, ↻ job, ✎

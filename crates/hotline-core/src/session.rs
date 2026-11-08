@@ -90,7 +90,7 @@ mod secret_uses;
 mod secrets;
 mod sides;
 mod start;
-pub(crate) use sides::preview_line;
+pub(crate) use sides::{newest_line, preview_line};
 pub(crate) mod browser;
 mod browser_passkeys;
 mod stopping;

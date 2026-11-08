@@ -9,7 +9,7 @@ import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
 import { Markdown } from "../Markdown";
 import { ExchangePaused } from "../transcript/Asks";
-import { LiveStream, PaneHead } from "./Pane";
+import { BandKind, LiveStream, PaneHead } from "./Pane";
 
 type Teammate = { id: string; name: string; hash?: string | undefined };
 
@@ -90,10 +90,7 @@ export function PairPane({
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink">
-					{talking && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-					<span className="truncate">{state}</span>
-				</h2>
+				<BandKind kind={threadFamily("pair")} live={talking} state={state.toLowerCase()} tone="quiet" />
 				<span className="instrument shrink-0 pr-1">{said === 1 ? "1 line" : `${said} lines`}</span>
 				{talking && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop the exchange" onClick={stop}>
@@ -104,6 +101,7 @@ export function PairPane({
 			</Band>
 			<PaneHead
 				kind={threadFamily("pair")}
+				kindInBand
 				title={`${self.name} ↔ ${other.name}`}
 				meta={[handoff !== undefined && `handed off by ${handoff.name}`, row !== undefined && startedWords(row.startedAt)]}
 			/>

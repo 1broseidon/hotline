@@ -17,7 +17,7 @@ import { Markdown } from "../Markdown";
 import { SentFiles } from "../SentFile";
 import type { ThreadRef } from "../Transcript";
 import { TrailSteps, useHot } from "../transcript/Trail";
-import { LiveStream, PaneHead } from "./Pane";
+import { BandKind, LiveStream, PaneHead } from "./Pane";
 import { ThreadComposer } from "./ThreadComposer";
 
 /*
@@ -205,10 +205,7 @@ export function CallPage({
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 text-lg font-semibold">
-					<span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? "beat bg-accent" : "bg-ink-4"}`} />
-					<span className="truncate">{live ? "Live" : "Ended"}</span>
-				</h2>
+				<BandKind kind={threadFamily("call")} live={live} state={live ? "live" : "ended"} tone="quiet" />
 				{(length !== undefined || model !== undefined) && <span className="instrument shrink-0 text-ink-3">{[length, model].filter(Boolean).join(" · ")}</span>}
 				{onCall !== undefined && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Take this call here" onClick={onCall}>
@@ -222,7 +219,7 @@ export function CallPage({
 				)}
 				<PaneClose onClose={onClose} />
 			</Band>
-			<PaneHead kind={threadFamily("call")} title={title} meta={[from, name, startedAt !== undefined && startedWords(startedAt)]} />
+			<PaneHead kind={threadFamily("call")} kindInBand title={title} meta={[from, name, startedAt !== undefined && startedWords(startedAt)]} />
 			<LiveStream following={`${thread.kind}:${thread.key}`} count={blocks.length} content={blocks} live={working}>
 				{more && onEarlier !== undefined && (
 					<button type="button" className="control btn btn-sm mb-3 self-center" onClick={() => void onEarlier()}>

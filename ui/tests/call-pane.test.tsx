@@ -78,10 +78,10 @@ const button = (words: string) => [...container.querySelectorAll<HTMLButtonEleme
 describe("a call's pane", () => {
 	test("says ☏ Call with no family line, and the band says Live with how long and the voice model, and End call while live", async () => {
 		await draw();
-		expect(container.querySelector(".pane-kind")?.textContent).toBe("☏Call");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("☏ Call");
 		expect(container.querySelector(".pane-family")).toBeNull();
 		expect(container.querySelector(".pane-title")?.textContent).toBe("Live call on device-code login test");
-		expect(container.querySelector(".band h2")?.textContent).toBe("Live");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, live");
 		expect(container.querySelector(".band .instrument")?.textContent).toBe("12:48 · GPT-Live");
 		await act(async () => button("End call")?.click());
 		expect(ended).toBe(1);
@@ -89,7 +89,7 @@ describe("a call's pane", () => {
 
 	test("ended, the band says Ended and how long it ran, with no End call and no composer", async () => {
 		await draw({ live: false, endedAt: NOW - 60_000, model: undefined, composer: <textarea aria-label="Message" /> });
-		expect(container.querySelector(".band h2")?.textContent).toBe("Ended");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, ended");
 		expect(container.querySelector(".band .instrument")?.textContent).toBe("11:48");
 		expect(button("End call")).toBeUndefined();
 		expect(container.querySelector('[aria-label="Message"]')).toBeNull();
@@ -97,7 +97,7 @@ describe("a call's pane", () => {
 
 	test("hung up with its thread still open, the band says Ended and the composer stays, as today", async () => {
 		await draw({ live: false, open: true, endedAt: NOW - 60_000, model: undefined });
-		expect(container.querySelector(".band h2")?.textContent).toBe("Ended");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, ended");
 		expect(button("End call")).toBeUndefined();
 		expect(container.querySelector('[aria-label="Message"]')).not.toBeNull();
 	});

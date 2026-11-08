@@ -11,7 +11,7 @@ import { powersOf, withoutWords } from "../../dock";
 import { Markdown } from "../Markdown";
 import type { ThreadRef } from "../Transcript";
 import { TrailSteps, useHot } from "../transcript/Trail";
-import { PaneHead } from "./Pane";
+import { BandKind, PaneHead } from "./Pane";
 import { ThreadComposer } from "./ThreadComposer";
 
 /*
@@ -124,10 +124,7 @@ export function JobPage({
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 text-lg font-semibold">
-					<span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${working ? "beat bg-accent" : "bg-ink-4"}`} />
-					<span className="truncate">{ended ? "Ended" : working ? "Running" : "Scheduled"}</span>
-				</h2>
+				<BandKind kind={threadFamily("job")} live={working} state={ended ? "ended" : working ? "running" : "scheduled"} tone={ended ? "quiet" : "done"} />
 				{schedule !== undefined && <span className="instrument shrink-0 text-ink-3">{schedule}</span>}
 				{working && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this run" onClick={onStop}>
@@ -143,6 +140,7 @@ export function JobPage({
 			</Band>
 			<PaneHead
 				kind={threadFamily("job")}
+				kindInBand
 				family={job === undefined ? undefined : job.kind === "loop" ? "Loop" : "Once"}
 				title={title}
 				meta={[name, schedule, job !== undefined && postingWords(job)]}

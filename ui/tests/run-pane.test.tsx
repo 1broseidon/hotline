@@ -143,7 +143,8 @@ async function show(run: RunningSubagent | undefined) {
 	await settle();
 }
 
-const band = () => container.querySelector(".run-pane h2")?.textContent;
+// The band says the kind; the state is the dot and the heading's name.
+const band = () => container.querySelector(".run-pane h2")?.getAttribute("aria-label");
 const counted = () => container.querySelector(".run-pane .instrument")?.textContent;
 
 describe("the band", () => {
@@ -151,7 +152,8 @@ describe("the band", () => {
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx")];
 		await show(running());
-		expect(band()).toBe("Working");
+		expect(band()).toBe("Subagent, Working");
+		expect(container.querySelector(".run-pane h2")?.textContent).toBe("◆ Subagent");
 		expect(container.querySelector(".run-pane h2 .run-dot")?.className).toContain("beat");
 		expect(counted()).toMatch(/^1 step · \d+:\d\d/);
 		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop this subagent"]');
@@ -167,7 +169,7 @@ describe("the band", () => {
 		next();
 		first = [link("closed", "done", 214_000), task, read("t1", "c1", "Read Dock.tsx"), read("t2", "c2", "Read LinkRow.tsx"), said("a1", "Done.")];
 		await show(undefined);
-		expect(band()).toBe("Done");
+		expect(band()).toBe("Subagent, Done");
 		expect(container.querySelector(".run-pane h2 .run-dot")?.className).not.toContain("beat");
 		expect(counted()).toBe("2 steps · 3:34");
 		expect(container.querySelector('button[title="Stop this subagent"]')).toBeNull();
@@ -175,7 +177,7 @@ describe("the band", () => {
 		next();
 		first = [link("closed", "cancelled", 9_000), task];
 		await show(undefined);
-		expect(band()).toBe("Stopped");
+		expect(band()).toBe("Subagent, Stopped");
 		expect(runStateOf(false, "failed")).toBe("Failed");
 		expect(stopwatch(3_723_000)).toBe("1:02:03");
 	});
@@ -187,8 +189,9 @@ describe("the head", () => {
 		first = [link("live"), task];
 		await show(running());
 		const head = container.querySelector(".run-pane .pane-head");
-		expect(head?.querySelector(".pane-kind")?.textContent).toBe("◆Subagent");
-		expect(head?.querySelector(".pane-family")?.textContent).toBe("Read only");
+		// The kind is the band's heading, and its foot says it is read only.
+		expect(head?.querySelector(".pane-kind")).toBeNull();
+		expect(head?.querySelector(".pane-family")).toBeNull();
 		expect(head?.querySelector(".pane-title")?.textContent).toBe("Audit side-pane thread rows");
 		expect(head?.querySelector(".pane-meta")?.textContent).toMatch(/^sent by Pork Chop · Sonnet 5\.5 · started 1:57\s?PM$/);
 	});

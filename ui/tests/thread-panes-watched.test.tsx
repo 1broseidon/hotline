@@ -137,8 +137,8 @@ describe("task-395 a pair's pane", () => {
 
 	test('says "◎ Pair" and "Read only", titled "<A> ↔ <B>" with a linked-desk teammate by its desk name', async () => {
 		await render(pane("live"));
-		expect(text(".pane-kind")).toBe("◎Pair");
-		expect(text(".pane-family")).toBe("Read only");
+		expect(text(".band-kind")).toBe("◎ Pair");
+		expect(text(".pane-meta")).toStartWith("Read only · ");
 		expect(text(".pane-title")).toBe("Poe ↔ Lou on grizzly");
 	});
 
@@ -158,14 +158,14 @@ describe("task-395 a pair's pane", () => {
 
 	test("is live while talking, with Stop exchange in the band while the handoff stands, and none after", async () => {
 		await render(pane("live"));
-		expect(text(".band h2")).toBe("Talking");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, talking");
 		expect(container.querySelector(".band h2 .beat")).not.toBeNull();
 		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop the exchange"]');
 		expect(stop?.textContent).toBe("Stop exchange");
 		await act(async () => stop!.click());
 		expect(sent).toContainEqual({ cmd: "thread.cancel", params: { thread: { kind: "pair", key } } });
 		await render(pane("closed"));
-		expect(text(".band h2")).toBe("Ended");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, ended");
 		expect(container.querySelector('button[title="Stop the exchange"]')).toBeNull();
 	});
 
@@ -197,10 +197,9 @@ describe("task-396 a command left running", () => {
 	test('opens as "$ Command" started by the teammate, titled by the command, "in <dir> · started <time>"', async () => {
 		output = { command: "make precheck", tail: "" };
 		await render(pane(run, [link("live")]));
-		expect(text(".pane-kind")).toBe("$Command");
-		expect(text(".pane-family")).toBe("Started by Poe");
+		expect(text(".band-kind")).toBe("$ Command");
 		expect(text(".pane-title")).toBe("make precheck");
-		expect(text(".pane-meta")).toMatch(/^in hotline-wt-049 · started \d/);
+		expect(text(".pane-meta")).toMatch(/^Started by Poe · in hotline-wt-049 · started \d/);
 	});
 
 	test("shows the command line, then its output tail live in a terminal block", async () => {
@@ -209,7 +208,7 @@ describe("task-396 a command left running", () => {
 		expect(text(".pane-command")).toBe("$make precheck");
 		expect(text(".pane-terminal")).toBe("==> secrets\nsecrets     pass  0s\n");
 		expect(sent).toContainEqual({ cmd: "process.output", params: { personaId: "poe", id: runId } });
-		expect(text(".band h2")).toBe("Running");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Command, running");
 		expect(text(".band .instrument")).toMatch(/^1:0\d$/);
 	});
 
@@ -217,7 +216,7 @@ describe("task-396 a command left running", () => {
 		output = { command: "make precheck", tail: "ui          pass  27s\n" };
 		await render(pane(run, [link("live")]));
 		await render(pane(undefined, [link("closed")]));
-		expect(text(".band h2")).toBe("Done");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Command, done");
 		expect(text(".band .instrument")).toBe("1:35");
 		expect(text(".pane-terminal")).toBe("ui          pass  27s\n");
 		await act(async () => root.unmount());

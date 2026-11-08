@@ -11,6 +11,25 @@ import { Markdown } from "../Markdown";
  * kind's pane is these parts in its own order; none of them knows the kind.
  */
 
+/**
+ * The band's heading on a pane of its own: the kind, glyph and word, in the
+ * place the state used to stand, with the dot saying the state (beating while
+ * it runs, quiet once it rests, red when it failed). The band's instrument
+ * already says how long and how much, so the word is the kind, and the state
+ * is kept for a reader in the heading's name.
+ */
+export function BandKind({ kind, live, tone, state }: { kind: PaneKind; live: boolean; tone?: "done" | "quiet" | "failed" | undefined; state: string }) {
+	return (
+		<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink" aria-label={`${kind.word}, ${state}`}>
+			<span aria-hidden="true" className={`run-dot ${live ? "beat" : ""}`} data-tone={live ? "live" : (tone ?? "done")} />
+			<span className="band-kind truncate">
+				{kind.glyph !== "" && <span aria-hidden="true">{kind.glyph} </span>}
+				{kind.word}
+			</span>
+		</h2>
+	);
+}
+
 /** Who handed a thread its task, as its card names them. */
 export type From = { personaId: string; name: string; hash?: string | undefined };
 
@@ -25,24 +44,28 @@ export function PaneHead({
 	family,
 	title,
 	meta = [],
+	kindInBand = false,
 }: {
 	kind: PaneKind;
+	/** The band already says the kind ([`BandKind`]): the head leaves its label out, and its fact leads the meta line. */
+	kindInBand?: boolean;
 	/** Said in place of the kind's own family line: a job's "Loop", a command's "Started by Poe". */
 	family?: string | undefined;
 	/** None where the band already carries it. */
 	title?: string | undefined;
 	meta?: ReadonlyArray<string | false | null | undefined>;
 }) {
-	const facts = meta.filter((part): part is string => typeof part === "string" && part !== "");
+	const fact = family ?? kind.family;
+	const facts = [kindInBand && fact, ...meta].filter((part): part is string => typeof part === "string" && part !== "");
 	return (
 		<header className="pane-head">
-			<p className="pane-head-kind">
+			{!kindInBand && <p className="pane-head-kind">
 				<span className="pane-kind" data-watching={kind.watching || undefined}>
 					{kind.glyph !== "" && <span aria-hidden="true">{kind.glyph}</span>}
 					{kind.word}
 				</span>
-				{(family ?? kind.family) !== "" && <span className="pane-family">{family ?? kind.family}</span>}
-			</p>
+				{fact !== "" && <span className="pane-family">{fact}</span>}
+			</p>}
 			{title !== undefined && title !== "" && <h3 className="pane-title selectable">{title}</h3>}
 			{facts.length > 0 && <p className="pane-meta selectable">{facts.join(" · ")}</p>}
 		</header>

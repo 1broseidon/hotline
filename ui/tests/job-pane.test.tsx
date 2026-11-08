@@ -92,14 +92,12 @@ const button = (words: string) => [...container.querySelectorAll<HTMLButtonEleme
 describe("a job's pane", () => {
 	test("says ↻ Job and Loop or Once, its title, and its teammate, schedule and posting rule", async () => {
 		await draw();
-		expect(container.querySelector(".pane-kind")?.textContent).toBe("↻Job");
-		expect(container.querySelector(".pane-family")?.textContent).toBe("Loop");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("↻ Job");
 		expect(container.querySelector(".pane-title")?.textContent).toBe("Watch CI on release/0.49.0");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop · every 5 min · posts each run");
+		expect(container.querySelector(".pane-meta")?.textContent).toBe("Loop · Pork Chop · every 5 min · posts each run");
 		const { every: _every, ...once } = watch;
 		await draw({ job: { ...once, kind: "schedule", when: at(21, 0), quiet: true } });
-		expect(container.querySelector(".pane-family")?.textContent).toBe("Once");
-		expect(container.querySelector(".pane-meta")?.textContent).toMatch(/^Pork Chop · once at 9:00\s?PM · posts only what is worth posting$/);
+		expect(container.querySelector(".pane-meta")?.textContent).toMatch(/^Once · Pork Chop · once at 9:00\s?PM · posts only what is worth posting$/);
 	});
 
 	test("says when it runs next, counting down, and what it last posted", async () => {
@@ -144,7 +142,7 @@ describe("a job's pane", () => {
 
 	test("the band has End job while the job lives and Stop while a run runs, and no Run now, which the desk cannot do", async () => {
 		await draw();
-		expect(container.querySelector(".band h2")?.textContent).toBe("Running");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Job, running");
 		expect(container.querySelector(".band .instrument")?.textContent).toBe("every 5 min");
 		expect(button("Run now")).toBeUndefined();
 		await act(async () => button("Stop")?.click());
@@ -159,7 +157,7 @@ describe("a job's pane", () => {
 		await draw();
 		expect(container.querySelector('[aria-label="Message"]')).not.toBeNull();
 		await draw({ ended: true, working: false });
-		expect(container.querySelector(".band h2")?.textContent).toBe("Ended");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Job, ended");
 		expect(container.querySelector('[aria-label="Message"]')).toBeNull();
 		expect(button("End job")).toBeUndefined();
 		expect(text(".job-facts dd")[0]).toBe("None");

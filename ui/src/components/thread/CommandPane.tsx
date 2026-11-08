@@ -5,7 +5,7 @@ import { startedWords, threadFamily } from "../../threadKinds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
 import { useProcessOutput } from "../Work";
-import { LiveStream, PaneHead } from "./Pane";
+import { BandKind, LiveStream, PaneHead } from "./Pane";
 
 type Link = Extract<TranscriptEvent, { kind: "link" }>;
 
@@ -94,15 +94,13 @@ export function CommandPane({
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink">
-					{running && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-					<span className="truncate">{state}</span>
-				</h2>
+				<BandKind kind={threadFamily("run", owner, "shell")} live={running} state={state.toLowerCase()} tone="quiet" />
 				{took !== undefined && <span className="instrument shrink-0 pr-1">{clockOf(took)}</span>}
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
 				kind={threadFamily("run", owner, "shell")}
+				kindInBand
 				title={command}
 				meta={[dir !== undefined && `in ${dir}`, startedAt !== undefined && startedWords(startedAt)]}
 			/>

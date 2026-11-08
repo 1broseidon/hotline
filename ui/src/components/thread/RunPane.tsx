@@ -9,7 +9,7 @@ import { toBlocks, withStreaming } from "../../transcriptFolds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
 import type { ThreadRef } from "../Transcript";
-import { PaneHead, ResultCard, TaskCard } from "./Pane";
+import { BandKind, PaneHead, ResultCard, TaskCard } from "./Pane";
 import { WorkStream } from "./WorkStream";
 
 /*
@@ -140,10 +140,7 @@ export function RunPane({
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink">
-					<span aria-hidden="true" className={`run-dot ${live ? "beat" : ""}`} data-state={state} />
-					<span className="truncate">{state}</span>
-				</h2>
+				<BandKind kind={threadFamily("run", teammate.name)} live={live} state={state} tone={state === "Failed" ? "failed" : state === "Stopped" ? "quiet" : "done"} />
 				<span className="instrument shrink-0 pr-1">{counted}</span>
 				{live && run?.stoppable === true && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this subagent" disabled={stopping} onClick={stop}>
@@ -154,6 +151,9 @@ export function RunPane({
 			</Band>
 			<PaneHead
 				kind={threadFamily("run", teammate.name)}
+				kindInBand
+				// Its foot says it is read only.
+				family=""
 				title={title}
 				meta={[`sent by ${teammate.name}`, run?.model, startedAt !== undefined && startedWords(startedAt)]}
 			/>

@@ -4380,6 +4380,9 @@
 	}
 	.pair-line-said {
 		min-width: 0;
+		/* The column's cross axis: without it a long line is as wide as its
+		 * longest and, on the right, runs out of the pane's left edge. */
+		max-width: 100%;
 		padding: 8px 12px;
 		border-radius: var(--radius-bubble);
 		background: var(--said-them);

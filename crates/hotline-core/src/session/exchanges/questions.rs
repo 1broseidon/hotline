@@ -65,7 +65,7 @@ impl Room {
             Route::Dm(persona_id) => self.ask_in_main(key, request, &persona_id, work).await,
             Route::Work(thread) => self.ask_in_thread(key, request, &thread).await,
             Route::Job(job_id) => {
-                self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
+                self.exchange_thread_line(key, &request.from, &request.id, &request.message, None)?;
                 let cause = self.question(key, request, work)?;
                 let from = self.delivery_source(&request.to, &cause);
                 self.deliver_into_job(
@@ -107,7 +107,13 @@ impl Room {
             )
             .await?;
         if answered_here {
-            return self.exchange_thread_line(key, &request.from, &request.id, &request.message);
+            return self.exchange_thread_line(
+                key,
+                &request.from,
+                &request.id,
+                &request.message,
+                None,
+            );
         }
         self.ask_in_own_thread(key, request, persona_id, cause)
             .await
@@ -135,7 +141,13 @@ impl Room {
                 false,
             )
             .await?;
-            return self.exchange_thread_line(key, &request.from, &request.id, &request.message);
+            return self.exchange_thread_line(
+                key,
+                &request.from,
+                &request.id,
+                &request.message,
+                None,
+            );
         }
         let side_id = new_id();
         {
@@ -150,7 +162,7 @@ impl Room {
             r.own_thread = true;
             self.save_pair(&pair)?;
         }
-        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
+        self.exchange_thread_line(key, &request.from, &request.id, &request.message, None)?;
         let (_, launch) = self.bring_up(
             persona_id,
             Start {
@@ -165,6 +177,7 @@ impl Room {
                     request: request.id.clone(),
                 }),
                 asked: Some(key.to_string()),
+                opened_with: Some(crate::thread::request_words(&request.message)),
             },
         )?;
         let from = self.delivery_source(persona_id, &cause);
@@ -199,7 +212,7 @@ impl Room {
             .serving(thread)
             .map(|handoff| peers::about(&handoff.message));
         let cause = self.question(key, request, work)?;
-        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
+        self.exchange_thread_line(key, &request.from, &request.id, &request.message, None)?;
         self.set_request_thread(key, &request.id, thread)?;
         let (_, launch) = self
             .wake_side(

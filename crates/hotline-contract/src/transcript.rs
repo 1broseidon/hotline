@@ -25,6 +25,12 @@ pub enum TranscriptEvent {
         id: String,
         ts: i64,
         text: String,
+        /// On a pair's line that is a handoff or its result: the key of the
+        /// work thread the handoff runs in, so the pair says so and opens it.
+        /// Absent on every other line, and on one written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        handoff_thread: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         attachments: Option<Vec<Attachment>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,6 +58,12 @@ pub enum TranscriptEvent {
         ts: i64,
         /// With a file, the caption, which may be empty.
         text: String,
+        /// On a pair's line that is a handoff or its result: the key of the
+        /// work thread the handoff runs in, so the pair says so and opens it.
+        /// Absent on every other line, and on one written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        handoff_thread: Option<String>,
         /// A file the teammate sent the person with `send_file`: one per
         /// message, read back with `file.read`.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -516,6 +528,13 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         asked_in: Option<String>,
+        /// The words a colleague's handoff or question opened this work
+        /// thread with, as sent, cut to 4,000 characters, for a client to
+        /// say what was asked without opening the thread.
+        /// Absent for any other thread, and on a link written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        request: Option<String>,
         /// What a run runs: `shell` for a command a harness left running.
         /// Absent for a subagent and every other kind.
         #[serde(default, skip_serializing_if = "Option::is_none")]

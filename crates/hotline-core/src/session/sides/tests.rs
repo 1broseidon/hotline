@@ -110,6 +110,7 @@ async fn a_handed_over_thread_takes_the_persons_words_and_their_end_and_continue
                 saved: None,
                 handoff: None,
                 asked: None,
+                opened_with: None,
             },
         )
         .unwrap();

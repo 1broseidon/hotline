@@ -601,6 +601,7 @@ mod tests {
                     saved: None,
                     handoff: None,
                     asked: None,
+                    opened_with: None,
                 },
             )
             .unwrap();

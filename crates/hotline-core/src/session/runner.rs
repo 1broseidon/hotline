@@ -293,6 +293,7 @@ impl Room {
             &ThreadId::run(&spec.run_id),
             &spec.persona_id,
             &TranscriptEvent::User {
+                handoff_thread: None,
                 id: new_id(),
                 ts: running.started,
                 text: spec.brief.task.clone(),
@@ -473,6 +474,7 @@ impl Room {
                         &ThreadId::run(&running.run_id),
                         persona_id,
                         &TranscriptEvent::User {
+                            handoff_thread: None,
                             id: new_id(),
                             ts: running.started,
                             text: task.clone(),
@@ -512,6 +514,7 @@ impl Room {
                     &ThreadId::run(&run.running.run_id),
                     persona_id,
                     &TranscriptEvent::User {
+                        handoff_thread: None,
                         id: new_id(),
                         ts: now_ms(),
                         text,
@@ -720,6 +723,7 @@ impl Running {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
             run_kind: (self.kind == RunKind::Shell).then_some(RunKind::Shell),
         });
         room.list_subagent(

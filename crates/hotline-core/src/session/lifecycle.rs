@@ -631,6 +631,7 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
             run_kind: None,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
@@ -819,6 +820,7 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
             run_kind: None,
         };
         let tape = StreamId::Tape("ada".into());
@@ -885,6 +887,7 @@ mod tests {
             }),
             handoff_ended: false,
             asked_in: None,
+            request: None,
             run_kind: None,
         };
         let mut copy = live.event();

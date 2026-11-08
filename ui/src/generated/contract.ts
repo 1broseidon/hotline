@@ -2646,7 +2646,13 @@ export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
  * at startup. Note this is Hotline's own record: replaying it is not the same as
  * the agent remembering the conversation.
  */
-export type TranscriptEvent = { "kind": "user", id: string, ts: number, text: string, attachments?: Array<Attachment>, reactions?: Array<string>, replyTo?: string, 
+export type TranscriptEvent = { "kind": "user", id: string, ts: number, text: string, 
+/**
+ * On a pair's line that is a handoff or its result: the key of the
+ * work thread the handoff runs in, so the pair says so and opens it.
+ * Absent on every other line, and on one written before it.
+ */
+handoffThread?: string, attachments?: Array<Attachment>, reactions?: Array<string>, replyTo?: string, 
 /**
  * Nobody typed this: a schedule fired. The text stays the prompt in
  * full; this is what lets the transcript draw one line and keep the
@@ -2667,6 +2673,12 @@ client?: Client, } | { "kind": "agent", id: string, ts: number,
  * With a file, the caption, which may be empty.
  */
 text: string, 
+/**
+ * On a pair's line that is a handoff or its result: the key of the
+ * work thread the handoff runs in, so the pair says so and opens it.
+ * Absent on every other line, and on one written before it.
+ */
+handoffThread?: string, 
 /**
  * A file the teammate sent the person with `send_file`: one per
  * message, read back with `file.read`.
@@ -2946,6 +2958,13 @@ handoffEnded?: boolean,
  * for it. Its link is on that pair's thread too.
  */
 askedIn?: string, 
+/**
+ * The words a colleague's handoff or question opened this work
+ * thread with, as sent, cut to 4,000 characters, for a client to
+ * say what was asked without opening the thread.
+ * Absent for any other thread, and on a link written before it.
+ */
+request?: string, 
 /**
  * What a run runs: `shell` for a command a harness left running.
  * Absent for a subagent and every other kind.

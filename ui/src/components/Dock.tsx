@@ -45,6 +45,8 @@ import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
 import { NotedPage } from "./Noted";
 import { LoopIn } from "./LoopIn";
+import { PaneHead } from "./thread/Pane";
+import { startedWords, threadFamily } from "../threadKinds";
 
 /**
  * What the right-hand pane shows: the list, one thread open in it, a
@@ -415,8 +417,10 @@ export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["hando
 }
 
 /**
- * A thread, open in the pane, whatever its kind: the same conversation view the
- * main chat is, and below it a composer only where it can be spoken in. A work
+ * A thread, open in the pane, whatever its kind: under its band a head that
+ * says what kind of thread it is and what the person is to it, then the same
+ * conversation view the main chat is, and below it a composer only where it
+ * can be spoken in. A work
  * thread is the same teammate in a second conversation, answerable, and a
  * parked one says so: saying something in it brings its agent back. Loop in…
  * brings a colleague in for one answer, and End thread ends it, and the
@@ -477,6 +481,10 @@ function ThreadView({
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
 	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
 	const from = row === undefined ? "" : openerWords(row, teammate.id, nameOf);
+	// What the thread is, under the band: a run is a command when its roster row says so, and the teammate left it running.
+	const runKind = id.kind === "run" ? roster.find((one) => one.persona.id === self.id)?.subagents?.find((run) => run.runId === id.key)?.kind : undefined;
+	const kind = threadFamily(id.kind, id.kind === "run" ? self.name : opener?.name, runKind);
+	const family = job === undefined ? undefined : job.kind === "loop" ? "Loop" : "Once";
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
 	const [refused, setRefused] = useState<string | null>(null);
@@ -581,7 +589,7 @@ function ThreadView({
 				)}
 				<PaneClose onClose={onClose} />
 			</Band>
-			{from !== "" && opener === undefined && <p className="dock-note selectable">{from}</p>}
+			<PaneHead kind={kind} family={family} meta={[from === "" ? self.name : from, row !== undefined && startedWords(row.startedAt)]} />
 			{withoutWords(job?.without) !== "" && <p className="dock-note selectable">{withoutWords(job?.without)}</p>}
 			{open.handoff !== undefined && <HandoffNote handoff={open.handoff} />}
 			<div className="relative flex min-h-0 flex-1 flex-col">

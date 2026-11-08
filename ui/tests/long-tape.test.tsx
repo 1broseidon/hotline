@@ -158,12 +158,17 @@ describe("older lines arriving", () => {
 		await scrolled(scroller);
 		scroller.scrollTop = 2 * ROW;
 		await scrolled(scroller);
+		// While the page is on its way the transcript keeps the place itself,
+		// so the engine's own anchoring is off and cannot move it twice.
+		expect(scroller.dataset["landing"]).toBe("");
 		// Still reading on while the page comes: up to the very top.
 		scroller.scrollTop = 0;
 		await act(async () => land());
 		expect(container.querySelectorAll(".tape-row").length).toBe(100);
 		// Line 51 is where the eye left it, fifty rows further down; not back at line 53.
 		expect(scroller.scrollTop).toBe(50 * ROW);
+		// Landed, the engine anchors again.
+		expect(scroller.dataset["landing"]).toBeUndefined();
 	});
 
 	test("a search hit above the window pages back to it", async () => {
@@ -213,6 +218,43 @@ describe("the line you sent, landing", () => {
 		// It was not yours, so the conversation still follows, down to the line.
 		expect(container.querySelector(".jump-latest")).toBeNull();
 		expect(scroller.scrollTop).toBeGreaterThanOrEqual(bottom);
+	});
+});
+
+describe("a flick up from the bottom", () => {
+	/** At the bottom of sixty lines, with the column's height under the test's hand. */
+	async function atBottom() {
+		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={lines(1, 60)} streaming={[]} live={false} focus={null} />));
+		const scroller = laidOut();
+		let grown = 0;
+		Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => container.querySelectorAll(".tape-row").length * ROW + grown });
+		await scrolled(scroller);
+		return { scroller, grow: (by: number) => (grown += by) };
+	}
+
+	test("lets go of the bottom though rows drawn above grew in its frame", async () => {
+		const { scroller, grow } = await atBottom();
+		const bottom = scroller.scrollHeight - VIEW;
+		expect(scroller.scrollTop).toBeGreaterThanOrEqual(bottom);
+		// Your wheel, and on the same frame a row drawn in the background
+		// above the view grows: a new layout, as after opening a chapter.
+		scroller.dispatchEvent(new window.Event("wheel") as unknown as Event);
+		scroller.scrollTop = bottom - 3 * ROW;
+		grow(30);
+		await scrolled(scroller);
+		// The scroll was yours: it stays where you took it.
+		expect(scroller.scrollTop).toBe(bottom - 3 * ROW);
+		expect(container.querySelector(".jump-latest")).not.toBeNull();
+	});
+
+	test("a scroll that is nobody's on a new layout still follows the bottom", async () => {
+		const { scroller, grow } = await atBottom();
+		const bottom = scroller.scrollHeight - VIEW;
+		scroller.scrollTop = bottom - 3 * ROW;
+		grow(30);
+		await scrolled(scroller);
+		expect(scroller.scrollTop).toBeGreaterThanOrEqual(bottom + 30);
+		expect(container.querySelector(".jump-latest")).toBeNull();
 	});
 });
 

@@ -14,6 +14,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.
 
+### Fixed
+
+- Scrolling up a conversation is smooth again. Since 0.48.0 a flick up just
+  after opening one could be pulled back to the bottom, and the view
+  stuttered as older lines were drawn in above it.
+
 ## [0.48.3] - 2026-11-06
 
 ### Added

@@ -62,6 +62,15 @@ export { SaidAloud, type ReactTarget, type ReplyTarget } from "./transcript/Bubb
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
 
+/** The first row in view: what the eye is on while rows change above it. */
+function onScreen(el: HTMLElement): HTMLElement | null {
+	const top = el.getBoundingClientRect().top;
+	for (const row of el.querySelectorAll<HTMLElement>(".tape-row")) {
+		if (row.getBoundingClientRect().bottom > top) return row;
+	}
+	return null;
+}
+
 /** Where a row stands in the column, the scroll aside. */
 function placeOf(el: HTMLElement, row: HTMLElement): number {
 	return row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
@@ -69,6 +78,11 @@ function placeOf(el: HTMLElement, row: HTMLElement): number {
 
 /** Rows drawn for the first time per frame. */
 const WARM_ROWS = 12;
+
+/** How long after the person's wheel, touch, key or scrollbar a scroll is still theirs. */
+const REACH_MS = 250;
+/** Keys that scroll the conversation when it has focus. */
+const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 
 /** How near the top a scroll asks for the page above. */
 const EARLIER_SLACK = 600;
@@ -265,6 +279,7 @@ export function Transcript({
 		const row = el.querySelector<HTMLElement>(".tape-row");
 		const taken = { row, at: row === null ? 0 : placeOf(el, row), first: firstShown.current };
 		anchor.current = taken;
+		el.dataset["landing"] = "";
 		void load(through).finally(() => {
 			// The page lands as a render that may not have committed when the
 			// load settles; a frame later it has, and the layout effect below
@@ -272,6 +287,7 @@ export function Transcript({
 			// let the next scroll ask again.
 			requestAnimationFrame(() => {
 				if (anchor.current === taken) anchor.current = null;
+				if (anchor.current === null) delete el.dataset["landing"];
 			});
 		});
 	}, []);
@@ -280,12 +296,17 @@ export function Transcript({
 		const was = anchor.current;
 		if (!el || was === null || events[0]?.id === was.first) return;
 		anchor.current = null;
-		if (pinned.current || was.row === null || !was.row.isConnected) return;
+		if (pinned.current || was.row === null || !was.row.isConnected) {
+			delete el.dataset["landing"];
+			return;
+		}
 		const pushed = placeOf(el, was.row) - was.at;
 		if (pushed !== 0) {
 			el.scrollTop += pushed;
 			pinning.current = true;
 		}
+		// The page in place, the engine anchors the view again.
+		delete el.dataset["landing"];
 	}, [events]);
 	// A search hit or a quoted reply above the window: load back to it, and
 	// the jump lands once it is there.
@@ -298,10 +319,11 @@ export function Transcript({
 
 	/* Rows skip layout off screen (index.css, .tape-row), and one never laid
 	 * out stands at a 96px guess: scrolled up to, it would grow to its own
-	 * height and shove the rows under the eye. So after a change the rows not
-	 * yet laid out are drawn a few at a time from the bottom up, and the
-	 * scroll moves by what those above the view grew, so nothing on screen
-	 * moves. It runs while the person scrolls too: waiting for them to stop
+	 * height and shove the rows under the eye; the engine's anchoring does
+	 * not cover a row skipped that way. So after a change the rows not yet
+	 * laid out are drawn a few at a time from the bottom up, and what that
+	 * moves on screen, which is nothing where the engine anchors, is moved
+	 * back. It runs while the person scrolls too: waiting for them to stop
 	 * left a long fling running into rows still at the guess. Each keeps its own height from
 	 * then on. Drawing them all at once would hold up opening a long chapter. */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: new rows come with new written blocks; the drawing finds them in the DOM.
@@ -315,17 +337,17 @@ export function Transcript({
 			timer = 0;
 			const cold = [...el.querySelectorAll<HTMLElement>(".tape-row:not([data-laid]):not([data-warm])")].slice(-WARM_ROWS).reverse();
 			if (cold.length === 0) return;
-			const top = el.getBoundingClientRect().top;
-			const before = cold.map((row) => row.getBoundingClientRect());
+			// A row in view, to tell whether the drawing moved what you see.
+			const seen = onScreen(el);
+			const was = seen?.getBoundingClientRect().top;
 			for (const row of cold) row.dataset["warm"] = "";
 			inFlight = cold;
-			let grew = 0;
-			cold.forEach((row, index) => {
-				const was = before[index]!;
-				if (was.bottom <= top) grew += row.getBoundingClientRect().height - was.height;
-			});
-			if (grew !== 0 && !pinned.current) {
-				el.scrollTop += grew;
+			// The engine anchors the view, so this moves nothing and nothing
+			// writes the scroll under a flick; where it does not anchor (an
+			// engine without it, a page landing) the script holds the view.
+			const moved = seen === null || was === undefined ? 0 : seen.getBoundingClientRect().top - was;
+			if (moved !== 0 && !pinned.current) {
+				el.scrollTop += moved;
 				pinning.current = true;
 			}
 			// Kept drawn through a frame, so the height it is remembered at is its own.
@@ -360,10 +382,25 @@ export function Transcript({
 		// to a column hundreds of pixels taller or shorter than the one it
 		// pinned, and read as distance it looks like you scrolling away. So a
 		// scroll that comes with a new layout never lets go of the bottom; only
-		// one on the layout already seen can.
+		// one on the layout already seen can, or one the person made: after a
+		// chapter opens, the rows drawn in the background change the column's
+		// height nearly every frame, and a flick up read as the pin's own
+		// scroll was thrown back to the bottom.
 		let seen = { height: el.scrollHeight, view: el.clientHeight };
+		let reached = Number.NEGATIVE_INFINITY;
+		const reach = () => {
+			reached = performance.now();
+		};
+		const onPointer = (event: PointerEvent) => {
+			// On the scroller itself, not a row in it: its scrollbar.
+			if (event.target === el) reach();
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (SCROLL_KEYS.has(event.key)) reach();
+		};
 		const measure = () => {
-			if (pinned.current && (el.scrollHeight !== seen.height || el.clientHeight !== seen.view)) {
+			const changed = el.scrollHeight !== seen.height || el.clientHeight !== seen.view;
+			if (pinned.current && changed && performance.now() - reached > REACH_MS) {
 				pin();
 				return;
 			}
@@ -375,6 +412,10 @@ export function Transcript({
 		const pin = () => {
 			seen = { height: el.scrollHeight, view: el.clientHeight };
 			if (!pinned.current) return;
+			// Never under the person's own scroll: a write there, even one to
+			// where it already is, cuts their flick short. Their scroll is read
+			// on its frame and either lets go of the bottom or pins again.
+			if (performance.now() - reached <= REACH_MS) return;
 			const was = el.scrollTop;
 			el.scrollTop = el.scrollHeight;
 			// Only a scroll that really moves fires an event to be told apart.
@@ -388,6 +429,12 @@ export function Transcript({
 		let resized = false;
 		const settle = () => {
 			frame = 0;
+			// A scroll the person made is read before a reflow pins, since it
+			// may have let go of the bottom.
+			if (scrolled && performance.now() - reached <= REACH_MS) {
+				scrolled = false;
+				measure();
+			}
 			if (resized) pin();
 			if (scrolled) measure();
 			scrolled = false;
@@ -405,6 +452,10 @@ export function Transcript({
 			ask();
 		};
 		el.addEventListener("scroll", onScroll, { passive: true });
+		el.addEventListener("wheel", reach, { passive: true });
+		el.addEventListener("touchmove", reach, { passive: true });
+		el.addEventListener("pointerdown", onPointer, { passive: true });
+		el.addEventListener("keydown", onKey);
 		// Markdown lays out after the event lands, so the column's height
 		// changes without a scroll event; this is what notices.
 		const observer = new ResizeObserver(onResize);
@@ -423,6 +474,10 @@ export function Transcript({
 		pin();
 		return () => {
 			el.removeEventListener("scroll", onScroll);
+			el.removeEventListener("wheel", reach);
+			el.removeEventListener("touchmove", reach);
+			el.removeEventListener("pointerdown", onPointer);
+			el.removeEventListener("keydown", onKey);
 			observer.disconnect();
 			rows.disconnect();
 			cancelAnimationFrame(frame);

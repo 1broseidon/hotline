@@ -5075,10 +5075,12 @@
 .tape-row[data-warm] {
 	content-visibility: visible;
 }
-/* The conversation keeps its own place when rows arrive or grow above the
- * view (Transcript.tsx: a page of older lines, the background drawing), so
- * the engine's scroll anchoring would move it a second time. */
-.scroller:has(> .tape-column) {
+/* While a page of older lines lands the conversation keeps its own place
+ * (Transcript.tsx), so the engine's scroll anchoring would move it a second
+ * time. The rest of the time the engine anchors: a row growing above the
+ * view moves nothing on screen, and no script writes the scroll under a
+ * flick, which would cut its momentum short. */
+.scroller[data-landing]:has(> .tape-column) {
 	overflow-anchor: none;
 }
 /* That skipping clips paint to the row, so the emoji hung off a bubble's

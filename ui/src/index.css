@@ -4368,8 +4368,18 @@
 	.pair-line[data-right] {
 		flex-direction: row-reverse;
 	}
-	.pair-line-said {
+	.pair-line-body {
+		display: flex;
+		min-width: 0;
 		max-width: 80%;
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.pair-line[data-right] .pair-line-body {
+		align-items: flex-end;
+	}
+	.pair-line-said {
+		min-width: 0;
 		padding: 8px 12px;
 		border-radius: var(--radius-bubble);
 		background: var(--said-them);
@@ -4381,9 +4391,34 @@
 		background: var(--raised);
 		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
 	}
-	.pair-line-said .said-name {
+	.pair-line-name {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 		margin-bottom: 2px;
 		font-family: var(--font-mono);
+	}
+	/* What a line of the pair is, when it is more than a line: Handoff, Aside. */
+	.pair-chip {
+		padding: 0 5px;
+		border-radius: var(--radius-chip);
+		background: var(--fill-active);
+		font-family: var(--font-sans);
+		color: var(--ink-2);
+	}
+	/* A handoff's work, under its request, in the pair's own window. */
+	.pair-work {
+		margin-top: 6px;
+		padding-left: 30px;
+	}
+	.pair-work:empty {
+		display: none;
+	}
+	.pair-work-cut {
+		margin-top: 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
 	}
 	/* A command left running: the command as typed, then its output in a
 	 * terminal sunk below the canvas, the one surface that is a terminal. */

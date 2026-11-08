@@ -624,6 +624,121 @@ async fn a_follow_up_handoff_lands_in_the_thread_the_first_ran_in() {
     );
 }
 
+/// A handoff's words are on its link in both conversations it hangs off. Ada
+/// hands Bob a two-line request; the link on Bob's DM, the receiver's, says
+/// who it came from and carries the request as she sent it, line break and
+/// all, and so does the copy on Ada's DM, so either conversation says what
+/// was asked without opening the thread.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_handoffs_link_carries_its_request_into_the_receivers_dm() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let message = "SAY Checked the winch.\nThe cable snapped at the drum.";
+    let handoff = json!({"to": "Bob", "intent": "handoff", "message": message});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {handoff}")}),
+    )
+    .await;
+    let card = || {
+        desk.log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|event| event["kind"] == "permission" && event.get("decision").is_none())
+            .and_then(|event| event["requestId"].as_str().map(str::to_string))
+    };
+    until("the handoff asks the person", || card().is_some()).await;
+    let card = card().unwrap();
+    desk.ok(
+        "session.answer_permission",
+        json!({"personaId": ada, "requestId": card, "optionId": "allow_always"}),
+    )
+    .await;
+    let link_on = |persona_id: &str| {
+        desk.log
+            .load(&StreamId::Tape(persona_id.to_string()))
+            .into_iter()
+            .rfind(|event| event["kind"] == "link" && event["openerId"] == ada.as_str())
+    };
+    until("the handoff's link is on Bob's DM", || {
+        link_on(&bob).is_some()
+    })
+    .await;
+
+    let received = link_on(&bob).unwrap();
+    assert_eq!(received["threadKind"], "side");
+    assert_eq!(received["personaId"], bob.as_str());
+    assert_eq!(received["openerName"], "Ada");
+    assert_eq!(received["request"], message, "the request as it was sent");
+    let sent = link_on(&ada).expect("the sender's DM has the link too");
+    assert_eq!(sent["thread"], received["thread"]);
+    assert_eq!(sent["request"], message);
+}
+
+/// A handoff's lines on the pair's own stream name the work thread it runs in,
+/// the request and the result alike, and reading them leaves that so: it is
+/// what lets the pair's pane read the work where the two teammates talk.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_handoff_and_its_result_name_their_work_thread_on_the_pair() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let handoff = json!({"to": "Bob", "intent": "handoff", "message": "SAY Winch checked."});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {handoff}")}),
+    )
+    .await;
+    let card = || {
+        desk.log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|event| event["kind"] == "permission" && event.get("decision").is_none())
+            .and_then(|event| event["requestId"].as_str().map(str::to_string))
+    };
+    until("the handoff asks the person", || card().is_some()).await;
+    let card = card().unwrap();
+    desk.ok(
+        "session.answer_permission",
+        json!({"personaId": ada, "requestId": card, "optionId": "allow_always"}),
+    )
+    .await;
+    let key = hotline_core::paths::thread_key(&ada, &bob).unwrap();
+    let log = desk.log.clone();
+    let pair = || log.load(&StreamId::Pair(key.clone()));
+    until("the result is on the pair", || {
+        pair().iter().any(|line| {
+            line["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("result:"))
+        })
+    })
+    .await;
+
+    let request = requests(&desk.log)[0].clone();
+    let thread = request["thread"].as_str().unwrap().to_owned();
+    let id = request["id"].as_str().unwrap().to_owned();
+    let result_id = format!("result:{id}");
+    let line = |id: &str| pair().into_iter().rfind(|line| line["id"] == id).unwrap();
+    assert_eq!(line(&id)["text"], "SAY Winch checked.");
+    assert_eq!(line(&id)["handoffThread"], thread.as_str());
+    assert_eq!(line(&result_id)["handoffThread"], thread.as_str());
+
+    desk.ok(
+        "peers.mark_read",
+        json!({"key": key, "eventIds": [id.clone(), result_id.clone()]}),
+    )
+    .await;
+    assert_eq!(line(&id)["receipt"], "read");
+    assert_eq!(
+        line(&id)["handoffThread"],
+        thread.as_str(),
+        "a read receipt keeps it"
+    );
+    assert_eq!(line(&result_id)["handoffThread"], thread.as_str());
+}
+
 /// The main conversation's Interrupt, by either command the window sends it
 /// as, reaches the room as the person redirecting the turn: the colleague
 /// whose question that turn was answering is told the person interrupted the

@@ -69,7 +69,7 @@ impl Room {
             return Ok(());
         }
         self.drop_held(&request.id);
-        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
+        self.exchange_thread_line(key, &request.from, &request.id, &request.message, None)?;
         let _guard = lock(&self.exchange_lock);
         let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
         let Some(r) = pair

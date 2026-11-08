@@ -1858,6 +1858,10 @@ impl Room {
                 &request.to,
                 &format!("result:{}", request.id),
                 &request.reply,
+                request
+                    .thread
+                    .as_deref()
+                    .filter(|_| request.intent == Intent::Handoff),
             )?;
         }
         self.nudge_handoff_result(key, request);
@@ -1923,6 +1927,7 @@ impl Room {
         from: &str,
         id: &str,
         text: &str,
+        handoff_thread: Option<&str>,
     ) -> Result<(), String> {
         thread::ensure(self.log.root(), key).map_err(|e| e.to_string())?;
         let kind = if thread_participants(key).is_some_and(|(a, _)| a == from) {
@@ -1934,12 +1939,12 @@ impl Room {
         if self.log.load(&stream).iter().any(|v| v["id"] == id) {
             return Ok(());
         }
+        let mut line = json!({"kind":kind,"id":id,"ts":now_ms(),"text":text,"receipt":"sent"});
+        if let Some(thread) = handoff_thread {
+            line["handoffThread"] = thread.into();
+        }
         // Through the shared write path, so both teammates' searches find it.
-        self.threads().write(
-            &ThreadId::pair(key),
-            from,
-            &json!({"kind":kind,"id":id,"ts":now_ms(),"text":text,"receipt":"sent"}),
-        );
+        self.threads().write(&ThreadId::pair(key), from, &line);
         Ok(())
     }
 }

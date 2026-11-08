@@ -759,6 +759,7 @@ mod receipts {
 
     fn user(id: &str, text: &str) -> TranscriptEvent {
         TranscriptEvent::User {
+            handoff_thread: None,
             id: id.to_string(),
             ts: 1,
             text: text.to_string(),
@@ -774,6 +775,7 @@ mod receipts {
 
     fn agent(id: &str, text: &str) -> TranscriptEvent {
         TranscriptEvent::Agent {
+            handoff_thread: None,
             id: id.to_string(),
             ts: 2,
             text: text.to_string(),

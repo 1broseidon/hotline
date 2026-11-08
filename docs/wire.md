@@ -971,14 +971,23 @@ needs a newer core.
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
 backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?,
-runKind?}`; `end`
+request?, runKind?}`; `end`
 is how a closed thread ended (`person`, `agent`, `idle`, `stopped`, `done`,
 `failed`, `cancelled`). `handoffEnded` is `true` on a thread a teammate handed
 over once the handoff it serves no longer stands (Stop exchange, a revocation
 or an unlink ended it; see [sessions.md](sessions.md)), and absent while it
 stands. `askedIn` is the pair key of the question that opened a work thread
 while its teammate's main conversation was busy; such a link is on the pair's
-stream too, under its id with `@pair` added. `runKind` is `shell` on a run
+stream too, under its id with `@pair` added. `request` is the words a
+colleague's handoff or question opened a work thread with, as sent, trimmed and
+cut to 4,000 characters (an ellipsis ending one that was cut), for a client
+to say what was asked without opening the thread; it is set when such a thread
+is opened, kept as the thread goes, and absent on every other thread and on a
+link written before it was kept, where `title` is what there is. A `user` or
+`agent` line on a pair's stream that is a handoff, or that handoff's result
+(id `result:<request>`), carries `handoffThread`, the key of the work thread it
+runs in; every other line, an ask's and its answer's among them, has none.
+`runKind` is `shell` on a run
 that is a command a harness left running, and absent for a subagent.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never

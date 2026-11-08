@@ -254,6 +254,7 @@ impl Room {
         let elsewhere = from.kind != ThreadKind::Dm;
         let job = post.scheduled.as_ref().map(|run| run.job_id.clone());
         let event = TranscriptEvent::Agent {
+            handoff_thread: None,
             id: post.id,
             ts: now_ms(),
             text: post.text,

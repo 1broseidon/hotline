@@ -463,6 +463,16 @@ Where this differs from the design above:
   its answer there, indexed under both teammates, tagged `pair:<key>`, and a
   rebuild finds them from the pair files that name the teammate. A pair has no
   agent, so it raises no card and has nothing to sweep.
+- **The pair's pane is the two teammates' one conversation.** A handoff's
+  request and result are lines of the pair too, stamped `handoffThread`, and
+  `PairPane` reads that work thread's stream under the request
+  (`WorkBlocks`), every page of it, each handoff from its own delivery to the
+  next. Once the result is on the pair the words it was made of are left out
+  of the work. A handoff that failed or was stopped says so from the thread's
+  link. The asides between the two come from `aside.list` for each, except the
+  ones Hotline leaves about a result or a stop, which would repeat what is
+  already there. A handoff from a teammate on a linked desk has its thread on
+  that desk, so its line here is plain.
 
 Where this differs from the design above:
 

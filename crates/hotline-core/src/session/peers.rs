@@ -618,6 +618,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             id,
             ts,
             text,
+            handoff_thread,
             attachments,
             reactions,
             reply_to,
@@ -626,6 +627,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             receipt,
             client,
         } => TranscriptEvent::User {
+            handoff_thread,
             id,
             ts,
             text,
@@ -641,6 +643,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             id,
             ts,
             text,
+            handoff_thread,
             attachments,
             reactions,
             ring,
@@ -650,6 +653,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             from,
             scheduled,
         } => TranscriptEvent::Agent {
+            handoff_thread,
             id,
             ts,
             text,

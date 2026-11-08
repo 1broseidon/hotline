@@ -940,6 +940,7 @@ impl Room {
         live.say(
             self,
             &TranscriptEvent::User {
+                handoff_thread: None,
                 id: new_id(),
                 ts: now,
                 text: job.prompt.clone(),
@@ -1069,6 +1070,7 @@ impl Room {
         live.say(
             self,
             &TranscriptEvent::User {
+                handoff_thread: None,
                 id: new_id(),
                 ts,
                 text: text.to_string(),
@@ -1450,6 +1452,7 @@ impl Room {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
             run_kind: None,
         });
     }

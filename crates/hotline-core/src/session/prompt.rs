@@ -316,6 +316,7 @@ impl Room {
         self.append(
             session,
             TranscriptEvent::User {
+                handoff_thread: None,
                 id: id.clone(),
                 ts,
                 text: sending.shown,
@@ -374,6 +375,7 @@ impl Room {
             .find(|event| event["kind"] == "user" && event.get("scheduled").is_none())
             .ok_or_else(|| "There is no message from the person to react to.".to_string())?;
         let TranscriptEvent::User {
+            handoff_thread,
             id,
             ts,
             text,
@@ -397,6 +399,7 @@ impl Room {
         self.write(
             &session.persona_id,
             &TranscriptEvent::User {
+                handoff_thread,
                 id,
                 ts,
                 text,
@@ -704,6 +707,7 @@ pub(super) fn event_of(
                         .into_iter()
                         .enumerate()
                         .map(|(i, text)| TranscriptEvent::Agent {
+                            handoff_thread: None,
                             id: if i == 0 {
                                 id.clone()
                             } else {

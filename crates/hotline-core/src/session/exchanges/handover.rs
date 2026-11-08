@@ -91,12 +91,18 @@ impl Room {
         thread: Option<String>,
     ) -> Result<(), String> {
         let caller = self.participant(&request.from)?;
-        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
+        let side_id = thread.unwrap_or_else(new_id);
+        self.exchange_thread_line(
+            key,
+            &request.from,
+            &request.id,
+            &request.message,
+            Some(&side_id),
+        )?;
         let handoff = HandoffStart {
             key: key.to_string(),
             request: request.id.clone(),
         };
-        let side_id = thread.unwrap_or_else(new_id);
         self.set_request_thread(key, &request.id, &side_id)?;
         // A handoff stands again in a thread whose earlier one was released.
         self.mark_handoffs(std::slice::from_ref(&side_id));
@@ -122,6 +128,7 @@ impl Room {
                     saved: None,
                     handoff: Some(handoff),
                     asked: None,
+                    opened_with: Some(crate::thread::request_words(&request.message)),
                 },
             )
             .map(|(side, launch)| (side, Some(launch)))

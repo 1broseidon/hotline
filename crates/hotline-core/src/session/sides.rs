@@ -107,6 +107,9 @@ pub(super) struct LiveSide {
     /// The pair whose question opened this thread, for one opened to answer
     /// it while the teammate's main conversation was busy.
     asked_in: Option<String>,
+    /// The words a colleague's handoff or question opened this thread with,
+    /// as its link keeps them ([`crate::thread::request_words`]).
+    opened_with: Option<String>,
     /// The request the turn in flight is answering, a handoff or a question,
     /// until what came of it is saved.
     request: Mutex<Option<String>>,
@@ -786,6 +789,8 @@ pub(super) struct Start {
     pub handoff: Option<HandoffStart>,
     /// The pair whose question this thread was opened to answer.
     pub asked: Option<String>,
+    /// The words of the handoff or question that opened it, for its link.
+    pub opened_with: Option<String>,
 }
 
 /// The exchange request a work thread was opened, or brought back, to answer.
@@ -876,6 +881,7 @@ impl Room {
                 saved: None,
                 handoff: None,
                 asked: None,
+                opened_with: None,
             },
         )?;
         if !text.is_empty() {
@@ -973,6 +979,7 @@ impl Room {
             started: start.started,
             opener: start.opener,
             asked_in: start.asked,
+            opened_with: start.opened_with,
             request: Mutex::new(None),
             cut: Mutex::new(None),
             steer: Mutex::new(Steer::None),
@@ -1220,6 +1227,7 @@ impl Room {
                 saved: link.binding,
                 handoff,
                 asked: link.asked_in,
+                opened_with: link.request,
             },
         )?;
         Ok((side, Some(launch)))
@@ -1393,6 +1401,7 @@ impl Room {
             .find(|event| event["kind"] == "user")
             .ok_or_else(|| "There is no message from the person to react to.".to_string())?;
         let TranscriptEvent::User {
+            handoff_thread,
             id,
             ts,
             text,
@@ -1416,6 +1425,7 @@ impl Room {
         side.say(
             self,
             &TranscriptEvent::User {
+                handoff_thread,
                 id,
                 ts,
                 text,
@@ -1518,6 +1528,7 @@ impl Room {
         side.say(
             self,
             &TranscriptEvent::User {
+                handoff_thread: None,
                 id: said_id.clone(),
                 ts,
                 text: text.to_string(),

@@ -178,7 +178,7 @@ conversation, opens the thread in the pane under a band of its own with a back
 arrow. Every kind is the same page, the conversation's own transcript and
 cards, and only what can be done in it differs: a work thread has the composer,
 Archive in the band and Continue in its place once closed, and a parked one says
-it is parked and that saying something wakes it; a pair, a run and a call are
+it is parked and that saying something wakes it; a pair reads whole from the one press that opened it: an ask and its answer as plain lines under each speaker's face and name, a handoff as its request with a small Handoff chip by the name, the work thread's steps and words as they happen under it, and its result as that teammate's line with the same chip, with one plain line only if it failed or was stopped, and an aside between the two as a line with an Aside chip; a pair, a run and a call are
 read-only, with no composer. Like the rail, its edge is the gutter beside it,
 dragged between 300 and 560px, remembered, put back to 360px by a double-click,
 and stepped by the arrows. One of it and the inspector stands there at a time,

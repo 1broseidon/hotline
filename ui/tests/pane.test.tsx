@@ -38,20 +38,20 @@ async function render(node: React.ReactNode) {
 
 describe("a thread's kind and family", () => {
 	test("a work thread the person is in is a conversation, and one handed over is a handoff they can step in to", () => {
-		expect(threadFamily("side")).toEqual({ glyph: "", word: "Work thread", family: "You're in it", watching: false });
-		expect(threadFamily("side", "Elvis")).toEqual({ glyph: "⇄", word: "Handoff", family: "You can step in", watching: true });
+		expect(threadFamily("side")).toEqual({ glyph: "", word: "Work thread", family: "", watching: false });
+		expect(threadFamily("side", "Elvis")).toEqual({ glyph: "⇄", word: "Handoff", family: "", watching: true });
 	});
 
 	test("a run is a subagent, read only, unless it is a command a teammate left running", () => {
 		expect(threadFamily("run", "Pork Chop")).toEqual({ glyph: "◆", word: "Subagent", family: "Read only", watching: true });
-		expect(threadFamily("run", "Pork Chop", "shell")).toEqual({ glyph: "$", word: "Command", family: "Left running by Pork Chop", watching: true });
-		expect(threadFamily("run", undefined, "shell").family).toBe("Left running");
+		expect(threadFamily("run", "Pork Chop", "shell")).toEqual({ glyph: "$", word: "Command", family: "Started by Pork Chop", watching: true });
+		expect(threadFamily("run", undefined, "shell").family).toBe("");
 	});
 
 	test("a pair and a job are watched, a call is one the person is in", () => {
 		expect(threadFamily("pair")).toMatchObject({ glyph: "◎", word: "Pair", family: "Read only", watching: true });
 		expect(threadFamily("job")).toMatchObject({ glyph: "↻", word: "Job", watching: true });
-		expect(threadFamily("call")).toMatchObject({ glyph: "☏", word: "Call", family: "You're in it", watching: false });
+		expect(threadFamily("call")).toMatchObject({ glyph: "☏", word: "Call", family: "", watching: false });
 	});
 
 	test("a start today is its time, and an earlier one has its date", () => {
@@ -75,7 +75,8 @@ describe("a pane's head", () => {
 		await render(<PaneHead kind={threadFamily("side")} meta={["Pork Chop"]} />);
 		expect(container.querySelector(".pane-kind")?.textContent).toBe("Work thread");
 		expect(container.querySelector(".pane-kind")?.hasAttribute("data-watching")).toBe(false);
-		expect(container.querySelector(".pane-family")?.textContent).toBe("You're in it");
+		// A thread the person speaks in needs no line saying so: its composer does.
+		expect(container.querySelector(".pane-family")).toBeNull();
 		expect(container.querySelector(".pane-title")).toBeNull();
 	});
 

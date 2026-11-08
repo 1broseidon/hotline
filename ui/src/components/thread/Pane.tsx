@@ -15,8 +15,8 @@ import { Markdown } from "../Markdown";
 export type From = { personaId: string; name: string; hash?: string | undefined };
 
 /**
- * Under the band: the kind's label and its family line ("Read only", "You
- * can step in", "You're in it"), the title, and one meta line of facts
+ * Under the band: the kind's label and a plain fact beside it where one is
+ * needed ("Read only", "Started by Poe"), the title, and one meta line of facts
  * joined by " · ", empty ones left out. The band keeps the state and the
  * keys; this says what the thread is.
  */
@@ -27,7 +27,7 @@ export function PaneHead({
 	meta = [],
 }: {
 	kind: PaneKind;
-	/** Said in place of the kind's own family line: a job's "Loop", a command's "Left running by Poe". */
+	/** Said in place of the kind's own family line: a job's "Loop", a command's "Started by Poe". */
 	family?: string | undefined;
 	/** None where the band already carries it. */
 	title?: string | undefined;
@@ -41,7 +41,7 @@ export function PaneHead({
 					{kind.glyph !== "" && <span aria-hidden="true">{kind.glyph}</span>}
 					{kind.word}
 				</span>
-				<span className="pane-family">{family ?? kind.family}</span>
+				{(family ?? kind.family) !== "" && <span className="pane-family">{family ?? kind.family}</span>}
 			</p>
 			{title !== undefined && title !== "" && <h3 className="pane-title selectable">{title}</h3>}
 			{facts.length > 0 && <p className="pane-meta selectable">{facts.join(" · ")}</p>}

@@ -2,7 +2,8 @@ import type { RunKind, ThreadKind } from "./generated/contract";
 
 /**
  * What a thread is, as its pane's head says it: a glyph and a word for the
- * kind, and the family line that says what the person is to it. Threads the
+ * kind, and a plain fact beside it where one is needed (Read only, who
+ * started a command); empty where the composer already says it. Threads the
  * person is in (a work thread, a call) stay a conversation; threads they
  * watch (a subagent, a handoff, a pair, a command, a job) show their work as
  * it happens, and `watching` is which family it is.
@@ -15,7 +16,6 @@ export type PaneKind = {
 	watching: boolean;
 };
 
-const IN_IT = "You're in it";
 const READ_ONLY = "Read only";
 
 /**
@@ -29,20 +29,20 @@ export function threadFamily(kind: ThreadKind, opener?: string, run: RunKind = "
 	switch (kind) {
 		case "side":
 			return opener === undefined
-				? { glyph: "", word: "Work thread", family: IN_IT, watching: false }
-				: { glyph: "⇄", word: "Handoff", family: "You can step in", watching: true };
+				? { glyph: "", word: "Work thread", family: "", watching: false }
+				: { glyph: "⇄", word: "Handoff", family: "", watching: true };
 		case "run":
 			return run === "shell"
-				? { glyph: "$", word: "Command", family: opener === undefined ? "Left running" : `Left running by ${opener}`, watching: true }
+				? { glyph: "$", word: "Command", family: opener === undefined ? "" : `Started by ${opener}`, watching: true }
 				: { glyph: "◆", word: "Subagent", family: READ_ONLY, watching: true };
 		case "pair":
 			return { glyph: "◎", word: "Pair", family: READ_ONLY, watching: true };
 		case "call":
-			return { glyph: "☏", word: "Call", family: IN_IT, watching: false };
+			return { glyph: "☏", word: "Call", family: "", watching: false };
 		case "job":
-			return { glyph: "↻", word: "Job", family: "On a schedule", watching: true };
+			return { glyph: "↻", word: "Job", family: "", watching: true };
 		case "dm":
-			return { glyph: "", word: "Conversation", family: IN_IT, watching: false };
+			return { glyph: "", word: "Conversation", family: "", watching: false };
 	}
 }
 

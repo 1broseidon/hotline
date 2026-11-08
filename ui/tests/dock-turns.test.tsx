@@ -292,12 +292,12 @@ describe("the bar of a handed-over thread", () => {
 
 describe("the head of a handed-over thread", () => {
 	for (const [pane, words] of [[exec, "from Lead"], [lead, "to Exec"]] as const) {
-		test(`says it is a handoff the person can step in to, and whose hands it passed through, in ${pane.name}'s pane`, async () => {
+		test(`says it is a handoff, and whose hands it passed through, in ${pane.name}'s pane`, async () => {
 			desk = { key: `work-head-${pane.id}`, state: "live", working: false };
 			await show(pane, false);
 			const head = container.querySelector(".pane-head");
 			expect(head?.querySelector(".pane-kind")?.textContent).toBe("⇄Handoff");
-			expect(head?.querySelector(".pane-family")?.textContent).toBe("You can step in");
+			expect(head?.querySelector(".pane-family")).toBeNull();
 			expect(head?.querySelector(".pane-meta")?.textContent).toStartWith(`${words} · started `);
 			// The band keeps the title; the head does not say it twice.
 			expect(head?.querySelector(".pane-title")).toBeNull();

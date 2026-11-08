@@ -1107,11 +1107,26 @@ fn background_agent(
                         "content": { "type": "text", "text": "The crawl is running." },
                     }))?;
                     let answered = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    // The crawl writes as it runs, a piece and then its whole
+                    // output, and its last piece comes with its end.
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "c1",
+                        "_meta": { "terminal_output_delta": { "terminal_id": "c1", "data": "site 1\n" } },
+                    }))?;
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "c1",
+                        "_meta": { "terminal_output": { "terminal_id": "c1", "data": "site 1\nsite 2\n" } },
+                    }))?;
                     // The crawl ends after the turn: its terminal closes.
                     say("parent", serde_json::json!({
                         "sessionUpdate": "tool_call_update",
                         "toolCallId": "c1",
-                        "_meta": { "terminal_exit": { "terminal_id": "c1", "exit_code": null, "signal": null } },
+                        "_meta": {
+                            "terminal_output_delta": { "terminal_id": "c1", "data": "done\n" },
+                            "terminal_exit": { "terminal_id": "c1", "exit_code": null, "signal": null },
+                        },
                     }))?;
                     answered
                 },
@@ -1128,7 +1143,8 @@ fn background_agent(
 /// Hotline asks only what a standard client asks: the subagents RFD and the
 /// terminal extension, never an editor's own extension. From those, a
 /// command left running past its result is a background run that ends when
-/// its terminal closes, after the turn; a foreground command's output still
+/// its terminal closes, after the turn, its output reported to its run as it
+/// writes it; a foreground command's output still
 /// reaches the turn; and an RFD subagent is a run with its prompt and words.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_standard_clients_signals_show_background_commands_and_rfd_subagents() {
@@ -1240,6 +1256,21 @@ async fn a_standard_clients_signals_show_background_commands_and_rfd_subagents()
             SubagentReport::Ended {
                 child: "child-1".to_string(),
                 status: SubagentStatus::Done,
+            },
+            SubagentReport::Output {
+                child: "c1".to_string(),
+                text: "site 1\n".to_string(),
+                replaces: false,
+            },
+            SubagentReport::Output {
+                child: "c1".to_string(),
+                text: "site 1\nsite 2\n".to_string(),
+                replaces: true,
+            },
+            SubagentReport::Output {
+                child: "c1".to_string(),
+                text: "done\n".to_string(),
+                replaces: false,
             },
             SubagentReport::Ended {
                 child: "c1".to_string(),

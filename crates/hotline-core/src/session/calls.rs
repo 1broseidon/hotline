@@ -90,6 +90,7 @@ impl Room {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            run_kind: None,
         });
     }
 

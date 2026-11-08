@@ -173,6 +173,13 @@ pub enum SubagentReport {
     Told { child: String, text: String },
     /// Something the subagent did, in the vocabulary of a turn.
     Update { child: String, update: Update },
+    /// What a command run in the background has written since it was sent
+    /// there: the whole of it so far when `replaces`, else the next piece.
+    Output {
+        child: String,
+        text: String,
+        replaces: bool,
+    },
     Ended {
         child: String,
         status: SubagentStatus,

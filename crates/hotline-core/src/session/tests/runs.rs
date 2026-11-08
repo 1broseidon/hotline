@@ -581,6 +581,88 @@ async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
     assert_eq!(stream[2]["text"], "12 sites crawled");
 }
 
+/// A command the harness left running is read as it runs: `process.output`
+/// answers its run's id with the command and the latest of what it wrote,
+/// each piece added and a whole output replacing what came before; its end
+/// keeps the last of it in the run as its one step, and its line says it is
+/// a command, on the tape and at the head of the run.
+#[tokio::test]
+async fn a_background_commands_output_is_read_while_it_runs_and_kept_when_it_ends() {
+    use crate::contract::RunKind;
+    use crate::driver::SubagentReport;
+    let room = room("harness-output", Fake::new(Scripted::new(Vec::new())));
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(SubagentReport::Started {
+            child: "c1".to_string(),
+            kind: RunKind::Shell,
+            title: "make precheck".to_string(),
+            task: "`make precheck`".to_string(),
+        })
+        .unwrap();
+    until("the command is listed", || {
+        !room.subagents("ada").is_empty()
+    })
+    .await;
+    let run_id = room.subagents("ada")[0].run_id.clone();
+    let output = |text: &str, replaces: bool| {
+        reports
+            .send(SubagentReport::Output {
+                child: "c1".to_string(),
+                text: text.to_string(),
+                replaces,
+            })
+            .unwrap();
+    };
+    output("==> secrets\n", false);
+    output("secrets pass\n", false);
+    until("the output is read", || {
+        room.process_output("ada", &run_id)
+            .is_ok_and(|read| read.tail == "==> secrets\nsecrets pass\n")
+    })
+    .await;
+    assert_eq!(
+        room.process_output("ada", &run_id).unwrap().command,
+        "make precheck"
+    );
+    output("all 8 legs pass\n", true);
+    until("a whole output replaces it", || {
+        room.process_output("ada", &run_id)
+            .is_ok_and(|read| read.tail == "all 8 legs pass\n")
+    })
+    .await;
+
+    reports
+        .send(SubagentReport::Ended {
+            child: "c1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the command is off the roster", || {
+        room.subagents("ada").is_empty()
+    })
+    .await;
+    assert!(
+        room.process_output("ada", &run_id).is_err(),
+        "an ended command is read from its run"
+    );
+    let stream = run_stream(&room, &run_id);
+    assert_eq!(kinds(&stream), ["subagent", "user", "tool"]);
+    assert_eq!(stream[2]["status"], "completed");
+    assert_eq!(stream[2]["output"][0]["text"], "all 8 legs pass\n");
+    let raw = room.log.load(&StreamId::Run(run_id.clone()));
+    assert_eq!(raw[0]["kind"], "link");
+    assert_eq!(raw[0]["runKind"], "shell", "its line says it is a command");
+    let tape_line = room
+        .log
+        .load(&StreamId::Tape("ada".to_string()))
+        .into_iter()
+        .find(|line| line["thread"] == run_id.as_str())
+        .unwrap();
+    assert_eq!(tape_line["runKind"], "shell");
+}
+
 /// A run's roster row says what it did last, its latest step or the first
 /// clause of its latest words, and counts each step once however often it is
 /// written; each change tells the roster, so nothing has to ask.

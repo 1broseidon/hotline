@@ -394,6 +394,21 @@ impl Live {
         }
     }
 
+    /// Output a command sent to the background wrote: reported to its run,
+    /// so the person can read it as it runs. Whether `call_id` was one, so
+    /// its update is not taken for the call's own.
+    pub(super) fn background_output(&self, call_id: &str, text: String, replaces: bool) -> bool {
+        if !lock(&self.tasks).contains(call_id) {
+            return false;
+        }
+        self.report(SubagentReport::Output {
+            child: call_id.to_string(),
+            text,
+            replaces,
+        });
+        true
+    }
+
     /// The terminal of a command sent to the background closed: the command
     /// ended, failed if it said a failing exit code. Whether `call_id` was
     /// one, so its update is not taken for the call starting again.

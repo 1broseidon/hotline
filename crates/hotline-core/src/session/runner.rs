@@ -42,8 +42,8 @@ use super::turns::{Line, Seat};
 use super::{Brief, Report, Room, Trigger, lock, narration, new_id, now_ms, timed};
 use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
-    NoticeLevel, Persona, Reach, RunKind, RunningSubagent, SharedSecret, SubagentStatus,
-    ToolStatus, TranscriptEvent,
+    NoticeLevel, Persona, ProcessOutput, Reach, RunKind, RunningSubagent, SharedSecret,
+    SubagentStatus, ToolStatus, TranscriptEvent,
 };
 use crate::driver::{CapabilityLease, Driver, MessageKind, SubagentReport, Update};
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
@@ -536,11 +536,48 @@ impl Room {
                     }
                 }
             }
+            SubagentReport::Output {
+                child,
+                text,
+                replaces,
+            } => {
+                if let Some(run) = runs.get(&child) {
+                    self.run_output(persona_id, &run.running.run_id, &text, replaces);
+                }
+            }
             SubagentReport::Ended { child, status } => {
                 let Some(mut run) = runs.remove(&child) else {
                     return;
                 };
                 let run_id = run.running.run_id.clone();
+                // A command's last output stays with its run once it ends,
+                // as the one step the run made.
+                if let Some(ended) = self.shell_output(persona_id, &run_id)
+                    && !ended.tail.trim().is_empty()
+                {
+                    let ran = [
+                        Update::ToolCall {
+                            call_id: child.clone(),
+                            title: ended.command,
+                            kind: "execute".to_string(),
+                        },
+                        Update::ToolResult {
+                            call_id: child.clone(),
+                            ok: status != SubagentStatus::Failed,
+                            output: ended.tail,
+                            images: Vec::new(),
+                        },
+                    ];
+                    let mut flight = HashMap::new();
+                    let last = ran
+                        .into_iter()
+                        .flat_map(|update| event_of(update, &mut flight, false, false))
+                        .last();
+                    if let Some(event) = last {
+                        self.threads()
+                            .write(&ThreadId::run(&run_id), persona_id, &event);
+                    }
+                }
                 for update in run.voice.finish() {
                     for event in event_of(update, &mut run.in_flight, false, false) {
                         self.threads()
@@ -674,6 +711,7 @@ impl Running {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            run_kind: (self.kind == RunKind::Shell).then_some(RunKind::Shell),
         });
         room.list_subagent(
             &self.persona_id,
@@ -722,6 +760,10 @@ impl Drop for Running {
 pub(crate) struct Listed {
     pub(super) row: RunningSubagent,
     calls: HashSet<String>,
+    /// The latest of what a shell run's command has written, kept only
+    /// while it runs: the person reads it through `process.output`, and its
+    /// end writes the last of it to the run's stream.
+    output: String,
 }
 
 impl Listed {
@@ -803,6 +845,7 @@ impl Room {
                 runs.push(Listed {
                     row: run,
                     calls: HashSet::new(),
+                    output: String::new(),
                 });
             }
             if runs.is_empty() {
@@ -825,7 +868,52 @@ impl Room {
             let _ = self.info_changes.send(self.info(persona_id));
         }
     }
+
+    /// Takes in what a shell run's command wrote, keeping its latest
+    /// `OUTPUT_TAIL_CHARS`. Nothing is told: the person's pane asks.
+    fn run_output(&self, persona_id: &str, run_id: &str, text: &str, replaces: bool) {
+        let mut all = lock(&self.subagents);
+        let Some(listed) = all
+            .get_mut(persona_id)
+            .and_then(|runs| runs.iter_mut().find(|listed| listed.row.run_id == run_id))
+        else {
+            return;
+        };
+        if replaces {
+            listed.output.clear();
+        }
+        listed.output.push_str(text);
+        let extra = listed
+            .output
+            .chars()
+            .count()
+            .saturating_sub(OUTPUT_TAIL_CHARS);
+        if extra > 0 {
+            listed.output = listed.output.chars().skip(extra).collect();
+        }
+    }
+
+    /// A running shell run's command and the latest of its output, by its
+    /// run id: what `process.output` answers for a command the teammate's
+    /// harness left running, as it does for one Hotline Agent left.
+    pub(super) fn shell_output(&self, persona_id: &str, run_id: &str) -> Option<ProcessOutput> {
+        lock(&self.subagents)
+            .get(persona_id)?
+            .iter()
+            .find(|listed| listed.row.run_id == run_id && listed.row.kind == RunKind::Shell)
+            .map(|listed| ProcessOutput {
+                command: listed
+                    .row
+                    .command
+                    .clone()
+                    .unwrap_or_else(|| listed.row.title.clone()),
+                tail: listed.output.clone(),
+            })
+    }
 }
+
+/// The most of a shell run's output kept while it runs, from its end.
+const OUTPUT_TAIL_CHARS: usize = 16_000;
 
 /// A subagent a harness is running, as its run is being written.
 struct HarnessRun {

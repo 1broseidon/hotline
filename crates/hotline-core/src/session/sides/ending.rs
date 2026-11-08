@@ -235,6 +235,7 @@ impl Room {
             opener: side.opener.clone(),
             handoff_ended: side.opener.is_some() && self.handoff_ended(&side.id),
             asked_in: side.asked_in.clone(),
+            run_kind: None,
         });
     }
 

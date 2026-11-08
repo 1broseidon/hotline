@@ -25,8 +25,8 @@
 //! changes, so it is replaced in place and never doubled.
 
 use hotline_contract::{
-    CallStatus, End, SideEnd, SideOpener, SideStatus, SubagentStatus, ThreadId, ThreadKind,
-    TranscriptEvent,
+    CallStatus, End, RunKind, SideEnd, SideOpener, SideStatus, SubagentStatus, ThreadId,
+    ThreadKind, TranscriptEvent,
 };
 use serde_json::{Value, json};
 
@@ -89,6 +89,10 @@ pub struct Link {
     /// teammate's main conversation was busy, so the thread answered for it,
     /// and its link is on the pair's thread too. Absent otherwise.
     pub asked_in: Option<String>,
+    /// What a run runs, when it is a command a harness left running rather
+    /// than a subagent, so its line says Command after it has ended too.
+    /// Absent for a subagent and every other kind.
+    pub run_kind: Option<RunKind>,
 }
 
 /// A teammate that opened a thread on another, and what it is called.
@@ -188,6 +192,11 @@ impl Link {
             self.handoff_ended.then_some(Value::Bool(true)),
         );
         put("askedIn", self.asked_in.clone().map(Value::from));
+        put(
+            "runKind",
+            self.run_kind
+                .and_then(|kind| serde_json::to_value(kind).ok()),
+        );
         line
     }
 
@@ -234,6 +243,9 @@ impl Link {
                 .map(|(persona_id, name)| Opener { persona_id, name }),
             handoff_ended: event.get("handoffEnded").and_then(Value::as_bool) == Some(true),
             asked_in: text("askedIn"),
+            run_kind: event
+                .get("runKind")
+                .and_then(|kind| serde_json::from_value(kind.clone()).ok()),
         })
     }
 
@@ -279,6 +291,7 @@ impl Link {
                 opener: opened_by.map(Opener::from),
                 handoff_ended: false,
                 asked_in: None,
+                run_kind: None,
             }),
             TranscriptEvent::Subagent {
                 id,
@@ -307,6 +320,7 @@ impl Link {
                 opener: None,
                 handoff_ended: false,
                 asked_in: None,
+                run_kind: None,
             }),
             _ => None,
         }
@@ -424,6 +438,7 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            run_kind: None,
         }
     }
 
@@ -446,6 +461,7 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            run_kind: None,
         };
         assert_eq!(Link::read(&run.event()), Some(run));
         let ended = Link {
@@ -461,6 +477,7 @@ mod tests {
         assert!(closed_side().event().get("handoffEnded").is_none());
         let asked = Link {
             asked_in: Some("ada~mack".into()),
+            run_kind: None,
             ..closed_side()
         };
         assert_eq!(asked.event()["askedIn"], "ada~mack");
@@ -518,6 +535,21 @@ mod tests {
         assert_eq!(old["end"], "cancelled");
         let said = json!({"kind": "agent", "id": "a", "ts": 1, "text": "hi"});
         assert_eq!(Link::threads2(said.clone()), said);
+    }
+
+    #[test]
+    fn a_command_run_says_its_kind_and_a_subagent_says_none() {
+        let mut run = closed_side();
+        run.thread = ThreadId::run("r1");
+        run.run_kind = Some(RunKind::Shell);
+        let line = run.event();
+        assert_eq!(line["runKind"], "shell");
+        assert_eq!(Link::read(&line), Some(run.clone()));
+        run.run_kind = None;
+        assert!(
+            run.event().get("runKind").is_none(),
+            "a tape without commands reads as before"
+        );
     }
 
     #[test]

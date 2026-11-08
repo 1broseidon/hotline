@@ -2919,7 +2919,12 @@ handoffEnded?: boolean,
  * teammate's main conversation was busy, so the thread answered
  * for it. Its link is on that pair's thread too.
  */
-askedIn?: string, } | { "kind": "aside" } & Aside | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+askedIn?: string, 
+/**
+ * What a run runs: `shell` for a command a harness left running.
+ * Absent for a subagent and every other kind.
+ */
+runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

@@ -5,7 +5,6 @@ import type { TranscriptEvent } from "../src/generated/contract";
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Transcript, deliveryLine, deliveryMissed, peerLine, superseded, turnCauseLine, stepRuns } = await import("../src/components/Transcript");
-const { HandoffNote } = await import("../src/components/Dock");
 
 const handoff = {
 	kind: "handoff",
@@ -65,16 +64,6 @@ describe("Ask or hand off", () => {
 
 	test("a quoted line reads as words, not markdown", () => {
 		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" })?.said).toBe("handed you: GET /receipts is live");
-	});
-
-	test("the pane retains sender, request and originating reply route", () => {
-		const html = renderToStaticMarkup(<HandoffNote handoff={handoff} />);
-		expect(html).toContain("Handed off from Mack");
-		expect(html).toContain("Mack · mack");
-		expect(html).toContain("request-123");
-		expect(html).toContain("Reply goes to");
-		expect(html).toContain("even if they have moved on");
-		expect(html).toContain("ada~mack");
 	});
 
 	test("the pending pair pause offers Keep going and Stop exchange", () => {
@@ -167,32 +156,6 @@ describe("Ask or hand off", () => {
 		expect(html).toContain('aria-label="From Mack · Fix the CI badge. Open it"');
 		const old = { kind: "side", id: "side:s1", ts: 1, sideId: "s1", personaId: "ada", title: "Old marker", status: "live" } as TranscriptEvent;
 		expect(transcript([old])).not.toContain("Old marker");
-	});
-});
-
-describe("a thread a teammate handed over", () => {
-	const said: TranscriptEvent = { kind: "user", id: "said", ts: 3, text: "Use the staging key." };
-	const lines: TranscriptEvent[] = [delivery, { kind: "agent", id: "reply", ts: 2, text: "On it." }, said];
-	const drawn = (thread: { kind: "side" | "pair"; key: string }, speakers: { me: string; them: string; mine: "user" | "agent" }) =>
-		renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={thread} speakers={speakers} events={lines} streaming={[]} live={false} focus={null} />);
-
-	test("draws the person's own line as theirs and the opener's brief whole under the opener's name", () => {
-		// As the pane gives them: the person's chair, and the thread's teammate across from them.
-		const html = drawn({ kind: "side", key: "s1" }, { me: "You", them: "Ada", mine: "user" });
-		expect(html).toContain("Implement the fix and report back.");
-		expect(html.match(/>Mack</g)?.length).toBe(1);
-		expect(html.indexOf(">Mack<")).toBeLessThan(html.indexOf("Implement the fix"));
-		expect(html).toContain(">You<");
-		expect(html.indexOf(">You<")).toBeLessThan(html.indexOf("Use the staging key."));
-		// The thread's teammate is not the person: its words are on the left, under its name.
-		expect(html.indexOf(">Ada<")).toBeLessThan(html.indexOf("On it."));
-		expect(html.match(/said-me/g)?.length).toBe(1);
-	});
-
-	test("leaves a pair's user lines to the teammate who sent them", () => {
-		const html = drawn({ kind: "pair", key: "ada~mack" }, { me: "Ada", them: "Mack", mine: "user" });
-		expect(html).not.toContain(">You<");
-		expect(html.indexOf(">Ada<")).toBeLessThan(html.indexOf("Use the staging key."));
 	});
 });
 

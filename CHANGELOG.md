@@ -13,6 +13,22 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.
+- A handoff open in the right pane shows the request it was handed on a card,
+  then the receiver's steps and words as they happen, each reply marked as
+  going back to the one who sent it. You can still say something in it, stop
+  a turn and end it as before.
+- A pair open in the right pane shows its two teammates' lines on two sides,
+  each under its face and name, as they talk, with Stop exchange while the
+  exchange stands.
+- A command a teammate's harness left running opens in the right pane as a
+  terminal: the command, and its output as it writes it. Once it ends, the
+  last of its output stays.
+
+### Changed
+
+- A pair's line in the conversation says Pair, and a command left running
+  says Command on its line and its chip, instead of Thread, Subagent and
+  Background.
 
 ### Fixed
 

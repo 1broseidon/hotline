@@ -167,7 +167,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `agent.auth.poll` | `{personaId, id}` | `{state: "running"\|"succeeded"\|"failed", output, error?}`, what the sign-in has printed so far |
 | `agent.auth.input` | `{personaId, id, input}` | none; a line typed into the sign-in |
 | `agent.auth.cancel` | `{personaId, id}` | none |
-| `process.output` | `{personaId, id}` | `ProcessOutput` `{command, tail}`: a command the teammate left running, whole, and the latest of its output ([sessions.md](sessions.md#running-processes)) |
+| `process.output` | `{personaId, id}` | `ProcessOutput` `{command, tail}`: a command the teammate left running, whole, and the latest of its output; `id` is a running process's job id or a running `shell` run's id ([sessions.md](sessions.md#running-processes)) |
 | `process.stop` | `{personaId, id}` | none; stops that command, without waking the teammate on its end |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
@@ -970,14 +970,16 @@ needs a newer core.
 
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
-backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?}`; `end`
+backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?,
+runKind?}`; `end`
 is how a closed thread ended (`person`, `agent`, `idle`, `stopped`, `done`,
 `failed`, `cancelled`). `handoffEnded` is `true` on a thread a teammate handed
 over once the handoff it serves no longer stands (Stop exchange, a revocation
 or an unlink ended it; see [sessions.md](sessions.md)), and absent while it
 stands. `askedIn` is the pair key of the question that opened a work thread
 while its teammate's main conversation was busy; such a link is on the pair's
-stream too, under its id with `@pair` added.
+stream too, under its id with `@pair` added. `runKind` is `shell` on a run
+that is a command a harness left running, and absent for a subagent.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
 written down. The room broadcasts only that; the older four are what the door

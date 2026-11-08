@@ -46,6 +46,9 @@ import { WorkPage } from "./Work";
 import { NotedPage } from "./Noted";
 import { LoopIn } from "./LoopIn";
 import { PaneHead } from "./thread/Pane";
+import { HandoffPane } from "./thread/HandoffPane";
+import { PairPane } from "./thread/PairPane";
+import { CommandPane, runLink } from "./thread/CommandPane";
 import { startedWords, threadFamily } from "../threadKinds";
 
 /**
@@ -398,24 +401,6 @@ function ThreadList({
 
 /* ------------------------------------------------------------ one thread */
 
-/** Where a handed-off exchange came from and where its reply goes, for the one who opened it from the line that says so. */
-export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["handoff"]> }) {
-	return (
-		<details open className="mx-4 mb-3 text-sm text-ink-3">
-			<summary className="cursor-pointer">Handed off from {handoff.name}</summary>
-			<dl className="selectable mt-2 space-y-2 break-words">
-				<div><dt className="eyebrow">Sender</dt><dd>{handoff.name} · {handoff.personaId}</dd></div>
-				<div><dt className="eyebrow">Request</dt><dd>{handoff.requestId}</dd></div>
-				<div>
-					<dt className="eyebrow">Reply goes to</dt>
-					<dd>{handoff.name} in this originating exchange, even if they have moved on.</dd>
-					<dd className="mt-1 font-mono text-xs">{handoff.threadKey}</dd>
-				</div>
-			</dl>
-		</details>
-	);
-}
-
 /**
  * A thread, open in the pane, whatever its kind: under its band a head that
  * says what kind of thread it is and what the person is to it, then the same
@@ -481,8 +466,10 @@ function ThreadView({
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
 	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
 	const from = row === undefined ? "" : openerWords(row, teammate.id, nameOf);
-	// What the thread is, under the band: a run is a command when its roster row says so, and the teammate left it running.
-	const runKind = id.kind === "run" ? roster.find((one) => one.persona.id === self.id)?.subagents?.find((run) => run.runId === id.key)?.kind : undefined;
+	// What the thread is, under the band: a run is a command when its roster row says so, or once it has ended its own line, and the teammate left it running.
+	const ownerEntry = roster.find((one) => one.persona.id === self.id);
+	const listedRun = id.kind === "run" ? ownerEntry?.subagents?.find((run) => run.runId === id.key) : undefined;
+	const runKind = id.kind === "run" ? (listedRun?.kind ?? runLink(events)?.runKind) : undefined;
 	const kind = threadFamily(id.kind, id.kind === "run" ? self.name : opener?.name, runKind);
 	const family = job === undefined ? undefined : job.kind === "loop" ? "Loop" : "Once";
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
@@ -535,16 +522,29 @@ function ThreadView({
 		setRefused(null);
 		void resume().then(onChanged, refuse);
 	};
-	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. A handoff is
-	// the person's to talk in: their lines are on the right, and this teammate's, like the opener's, on the left under its name.
-	const speakers =
-		id.kind === "pair"
-			? { me: self.name, them: withName, mine: (id.key.split("~")[0] === self.id ? "user" : "agent") as "user" | "agent" }
-			: opener !== undefined
-				? { me: "You", them: self.name, mine: "user" as const }
-				: undefined;
 	// What a handoff asks the person, the oldest first: the one thing they say in it.
 	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");
+
+	// A pair and a command are watched, not spoken in: each is its own pane.
+	if (id.kind === "pair") {
+		const them = other ?? "";
+		return (
+			<PairPane
+				threadKey={id.key}
+				self={{ id: self.id, name: self.name, hash: self.avatarHash }}
+				other={{ id: them, name: row?.withName ?? withName, hash: people.get(them)?.hash }}
+				row={row}
+				events={lines}
+				people={people}
+				handoff={open.handoff}
+				onBack={onBack}
+				onClose={onClose}
+			/>
+		);
+	}
+	if (id.kind === "run" && runKind === "shell") {
+		return <CommandPane personaId={self.id} runId={id.key} owner={self.name} cwd={ownerEntry?.persona.cwd} run={listedRun} events={events} onBack={onBack} onClose={onClose} />;
+	}
 
 	return (
 		<section ref={root} className="dock-page" aria-label={`Thread with ${self.name}: ${title}`}>
@@ -589,26 +589,36 @@ function ThreadView({
 				)}
 				<PaneClose onClose={onClose} />
 			</Band>
-			<PaneHead kind={kind} family={family} meta={[from === "" ? self.name : from, row !== undefined && startedWords(row.startedAt)]} />
+			<PaneHead
+				kind={kind}
+				family={family}
+				meta={
+					opener !== undefined
+						? [`from ${opener.name}`, `to ${self.name}`, row?.handoffEnded === true ? "the handoff has ended" : `answers go back to ${opener.name}`]
+						: [from === "" ? self.name : from, row !== undefined && startedWords(row.startedAt)]
+				}
+			/>
 			{withoutWords(job?.without) !== "" && <p className="dock-note selectable">{withoutWords(job?.without)}</p>}
-			{open.handoff !== undefined && <HandoffNote handoff={open.handoff} />}
 			<div className="relative flex min-h-0 flex-1 flex-col">
-				<Transcript
-					key={`${id.kind}:${id.key}`}
-					personaId={self.id}
-					thread={id}
-					name={self.name}
-					avatarHash={self.avatarHash}
-					people={people}
-					events={lines}
-					streaming={streaming}
-					live={turning}
-					focus={null}
-					more={more}
-					onEarlier={earlier}
-					onOpenThread={onOpen}
-					{...(speakers !== undefined ? { speakers } : {})}
-				/>
+				{opener !== undefined ? (
+					<HandoffPane thread={id} events={lines} streaming={streaming} live={turning} receiver={{ id: self.id, name: self.name, hash: self.avatarHash }} sender={opener} people={people} />
+				) : (
+					<Transcript
+						key={`${id.kind}:${id.key}`}
+						personaId={self.id}
+						thread={id}
+						name={self.name}
+						avatarHash={self.avatarHash}
+						people={people}
+						events={lines}
+						streaming={streaming}
+						live={turning}
+						focus={null}
+						more={more}
+						onEarlier={earlier}
+						onOpenThread={onOpen}
+					/>
+				)}
 			</div>
 			{(refused ?? threadSends.notice) !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused ?? threadSends.notice}</p>}
 			{opener !== undefined && asked === undefined && (

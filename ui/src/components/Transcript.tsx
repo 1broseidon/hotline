@@ -90,9 +90,6 @@ const EARLIER_SLACK = 600;
 /** Slack under the latest line that still counts as following the conversation. */
 const PIN_SLACK = 80;
 
-/** Whose chair we are in, for a peer thread: this teammate is `mine`. */
-export type Speakers = { me: string; them: string; mine: "user" | "agent" };
-
 /**
  * The conversation, and only the conversation.
  *
@@ -123,7 +120,6 @@ export function Transcript({
 	workingCalls,
 	workingSides,
 	focus,
-	speakers,
 	onReply,
 	onReact,
 	onRetryMessage,
@@ -165,8 +161,6 @@ export function Transcript({
 	workingSides?: readonly string[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
-	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
-	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
 	/** An emoji on a teammate's line, sent the way the phone sends one. */
 	onReact?(target: ReactTarget, emoji: string): void;
@@ -615,7 +609,6 @@ export function Transcript({
 									quote={undefined}
 									top={run.top}
 									bottom={run.bottom}
-									speakers={speakers}
 									people={people}
 									reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
 									{...(onReply !== undefined ? { onReply } : {})}
@@ -634,10 +627,9 @@ export function Transcript({
 									quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
 									top={run.top}
 									bottom={run.bottom}
-									speakers={speakers}
 									people={people}
-									{...(onRetryMessage && !speakers && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
-									{...(!speakers && thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
+									{...(onRetryMessage && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
+									{...(thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
 									reactions={reacted.on.get(event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onReact !== undefined ? { onReact } : {})}
@@ -725,7 +717,6 @@ const Row = memo(function Row({
 	quote,
 	top,
 	bottom,
-	speakers,
 	people,
 	reactions,
 	files,
@@ -750,7 +741,6 @@ const Row = memo(function Row({
 	quote: Quote | undefined;
 	top: boolean;
 	bottom: boolean;
-	speakers: Speakers | undefined;
 	people: ReadonlyMap<string, Person> | undefined;
 	/** Emoji the phone or this window sent as lines of their own, folded onto this one: yours. */
 	reactions: string[] | undefined;
@@ -794,15 +784,13 @@ const Row = memo(function Row({
 	}
 	switch (event.kind) {
 		case "user":
-			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
-			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
+			// A call is spoken in by the person among its teammate's lines: theirs say so.
+			if (thread.kind === "call") return <>
                 <p className="said-name text-right">You</p>
                 <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
             </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
-			) : speakers !== undefined ? (
-				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
 				<UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
@@ -822,13 +810,7 @@ const Row = memo(function Row({
                     </details>}
                 </>;
             }
-			return speakers !== undefined ? (
-				<NamedSay
-					name={speakers.mine === "agent" ? speakers.me : speakers.them}
-					mine={speakers.mine === "agent"}
-					text={event.text}
-				/>
-			) : (
+			return (
 				<AgentSay
                     {...(onOpenThread !== undefined ? { onOpenThread } : {})}
 					personaId={personaId}
@@ -854,7 +836,7 @@ const Row = memo(function Row({
 				return (
 					<ErrorCard
 						text={event.text}
-						{...(!speakers ? { personaId } : {})}
+						personaId={personaId}
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}
 						{...(onProviders ? { onProviders } : {})}
@@ -936,8 +918,6 @@ const Row = memo(function Row({
 			const cause = event.cause;
 			const line = deliveryLine(event);
 			if (cause.kind === "answer" || line === null) return null;
-			// Where both sides are named, a colleague's words are the conversation: said whole, in their voice.
-			if (speakers !== undefined) return <NamedSay name={cause.name} mine={false} text={event.text} />;
 			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (
 				<button

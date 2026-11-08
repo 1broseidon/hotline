@@ -337,13 +337,23 @@ the terminal left open (`terminal_info` and no `terminal_exit`), and a
 after the turn. `Live::backgrounded` reports the first as a run's start and
 `Live::background_ended` the second as its end, failed on a nonzero exit
 code. The roster entry carries the kind, so the key at the composer's
-corner says `Background` rather than `Subagent`, and stays after the turn
-that started the command ends. Hotline never names itself an editor's
+corner says `Command` rather than `Subagent`, and stays after the turn
+that started the command ends; the run's link carries it too
+(`runKind: "shell"`), so its line says Command once it has ended. What the
+command writes after it went to the background comes as
+`tool_call_update`s with no status carrying `_meta.terminal_output` (its
+whole output so far) or `_meta.terminal_output_delta` (the next piece);
+`Live::background_output` reports each to the run, the room keeps the
+latest 16,000 characters on the run's roster entry while it runs, and
+`process.output` answers the run's id with them, as it does a running
+process's job id. When the command ends, the last of it is written to the
+run as its one step, so an ended command still shows it. Stopping one is
+not offered: the adapter stops a background command only through ACP v2's
+`terminal/cancel`, and Hotline speaks v1. Hotline never names itself an editor's
 client (`_meta.jetbrains.air`): the adapter would then change the shape of
 much of what it sends. So the adapter's own task lifecycle
 (`async_task_*`), its workflows and monitors, and the summary and output
-file of a finished background command are not seen; a background command's
-output is what its result showed.
+file of a finished background command are not seen.
 
 ### Running processes
 

@@ -26,6 +26,33 @@ export function sameWork(a: OpenWork, b: OpenWork): boolean {
 const OUTPUT_EVERY_MS = 1000;
 
 /**
+ * A command left running, read while it runs: its whole command and the
+ * latest of what it has written, read again each second, and the last read
+ * kept once it ends. `id` is a job Hotline Agent left running, or the run of
+ * a command a harness sent to the background.
+ */
+export function useProcessOutput(personaId: string, id: string, running: boolean): ProcessOutput | null {
+	const [read, setRead] = useState<ProcessOutput | null>(null);
+	useEffect(() => {
+		if (!running) return;
+		let cancelled = false;
+		const readOutput = () => {
+			void wire
+				.command("process.output", { personaId, id })
+				.then((next) => !cancelled && setRead(next))
+				.catch(() => {});
+		};
+		readOutput();
+		const tick = window.setInterval(readOutput, OUTPUT_EVERY_MS);
+		return () => {
+			cancelled = true;
+			window.clearInterval(tick);
+		};
+	}, [personaId, id, running]);
+	return read;
+}
+
+/**
  * A command the teammate left running, in the work card's place: the whole
  * command, the latest of what it has written, and Stop. Stop is the person's,
  * so the teammate is not woken by the end; the card says it ended when the
@@ -45,25 +72,8 @@ export function ProcessWork({
 	docked?: boolean;
 	onClose(): void;
 }) {
-	const [read, setRead] = useState<ProcessOutput | null>(null);
 	const [refused, setRefused] = useState<string | null>(null);
-	const running = process !== undefined;
-	useEffect(() => {
-		if (!running) return;
-		let cancelled = false;
-		const readOutput = () => {
-			void wire
-				.command("process.output", { personaId, id: processId })
-				.then((next) => !cancelled && setRead(next))
-				.catch(() => {});
-		};
-		readOutput();
-		const tick = window.setInterval(readOutput, OUTPUT_EVERY_MS);
-		return () => {
-			cancelled = true;
-			window.clearInterval(tick);
-		};
-	}, [personaId, processId, running]);
+	const read = useProcessOutput(personaId, processId, process !== undefined);
 	const stop = () => {
 		setRefused(null);
 		void wire.command("process.stop", { personaId, id: processId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));

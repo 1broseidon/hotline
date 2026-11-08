@@ -97,6 +97,9 @@
 	/* The sheet sunk into a bubble, a step below the bubble itself. */
 	--sheet-sunk: color-mix(in oklab, var(--sheet), oklch(0% 0 0) 18%);
 	--sheet-head: oklch(100% 0 0 / 0.025);
+	/* A command's output: a terminal, sunk below the well. Its words are
+	 * the explaining ink. */
+	--terminal: oklch(9% 0.004 250);
 	/* Code's colours on a sheet: keyword, string, number, function. A
 	 * comment is ink-3. */
 	--code-keyword: oklch(78% 0.1 300);
@@ -219,6 +222,7 @@
 	--sheet: oklch(20% 0.01 250 / 0.05);
 	--sheet-sunk: oklch(20% 0.01 250 / 0.08);
 	--sheet-head: oklch(100% 0 0 / 0.4);
+	--terminal: oklch(95% 0.004 250);
 	--code-keyword: oklch(48% 0.15 300);
 	--code-string: oklch(47% 0.11 150);
 	--code-number: oklch(50% 0.11 60);

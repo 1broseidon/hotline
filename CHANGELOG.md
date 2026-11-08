@@ -60,8 +60,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   on its row with the card's own answers, Yes and No or Approve and Deny,
   and Open where the answer is a sign-in or written words. The Subagents
   working, Ended subagents, Jobs and Closed groups and the Noted page are
-  gone; Asides in the teammate's menu opens the list on what came from
-  teammates, and an
+  gone; Threads in the teammate's menu counts the new asides, and an
   ended job's Remove is in its pane's band.
 - A pair's line in the conversation says Pair, and a command left running
   says Command on its line and its chip, instead of Thread, Subagent and

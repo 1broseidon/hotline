@@ -8,7 +8,6 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
-import { rememberFilter } from "./threadList";
 import { FullView } from "./components/FullView";
 import { RemoteBrowser } from "./components/RemoteBrowser";
 import { type FullObject, OpenFull } from "./components/Sheet";
@@ -313,11 +312,6 @@ export function App() {
 		openDock({ open: { thread: { kind: "run", key: run.runId }, title: run.title } });
 	}, [openDock, select]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
-	/* The teammate menu's Notes: the list, narrowed to the notes the teammate was left. */
-	const openNotes = useCallback(() => {
-		if (selectedId !== null) rememberFilter(selectedId, "teammates");
-		openDock({ open: null });
-	}, [openDock, selectedId]);
 
 	/* A turn's work is read in one place, the right-hand pane: its caption
 	 * or the composer's activity row opens it there, and pressed again with
@@ -678,7 +672,6 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
-							onOpenNotes={openNotes}
 							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
 							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}

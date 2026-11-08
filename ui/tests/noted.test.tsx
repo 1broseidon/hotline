@@ -198,7 +198,7 @@ describe("an aside in a conversation", () => {
 	});
 });
 
-describe("Notes in the teammate's menu", () => {
+describe("Threads in the teammate's menu", () => {
 	test("stands between Threads and Remove with how many are new", async () => {
 		const { teammateActions } = await import("../src/components/Conversation");
 		const { ModelPicker } = await import("../src/components/ModelPicker");
@@ -210,8 +210,7 @@ describe("Notes in the teammate's menu", () => {
 				unseen,
 				onToggleInspector: () => {},
 				onStartChapter: () => {},
-				onOpenThreadList: () => {},
-				onOpenNotes: () => done.push("notes"),
+				onOpenThreadList: () => done.push("threads"),
 				onDelete: () => {},
 			});
 		const render = (unseen: number) =>
@@ -231,13 +230,15 @@ describe("Notes in the teammate's menu", () => {
 		await render(3);
 		await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
 		const items = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] .menu-item .menu-item-text')].map((one) => one.textContent);
-		expect(items().slice(-5)).toEqual(["Settings", "New chapter", "Threads", "Asides3 new", "Remove"]);
-		const notes = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith("Asides"))!;
-		await act(async () => notes.click());
-		expect(done).toEqual(["notes"]);
+		// Asides are rows of the Threads list: its menu item counts the new ones, and there is no second item.
+		expect(items().slice(-4)).toEqual(["Settings", "New chapter", "Threads3 new", "Remove"]);
+		const threads = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith("Threads"))!;
+		await act(async () => threads.click());
+		expect(done).toEqual(["threads"]);
 		await render(0);
 		await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
-		expect(items()).toContain("Asides");
+		expect(items()).toContain("Threads");
+		expect(items()).not.toContain("Asides");
 	});
 });
 

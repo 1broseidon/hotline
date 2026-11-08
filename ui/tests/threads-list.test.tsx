@@ -281,7 +281,7 @@ describe("task-400 one row shape", () => {
 		expect(row("side:s1")?.querySelector(".list-notes")).toBeNull();
 	});
 
-	test("The old groups (Subagents working, Threads, Ended subagents, Jobs, Closed) and the separate Noted page are gone; whatever opened Noted opens Threads filtered to what came from teammates", async () => {
+	test("The old groups (Subagents working, Threads, Ended subagents, Jobs, Closed) and the separate Noted page are gone; asides are reached through Threads, filtered to what came from teammates", async () => {
 		const roster = everyKind();
 		listed.push(
 			summary({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", outcome: "Input to picture is about 26 ms." }),
@@ -296,17 +296,14 @@ describe("task-400 one row shape", () => {
 		expect(row("run:r-map")).not.toBeNull();
 		expect(row("side:s2")).not.toBeNull();
 
-		// The teammate menu's Notes: the same list, narrowed to the notes.
+		// The teammate menu has one way in, Threads, counting the new asides; no Noted or Asides item.
 		const { teammateActions } = await import("../src/components/Conversation");
-		const done: string[] = [];
 		const actions = teammateActions({
 			inspectorOpen: false, chapterBusy: false, unseen: 3,
-			onToggleInspector: () => {}, onStartChapter: () => {}, onOpenThreadList: () => {},
-			onOpenNotes: () => done.push("notes"), onDelete: () => {},
+			onToggleInspector: () => {}, onStartChapter: () => {}, onOpenThreadList: () => {}, onDelete: () => {},
 		});
-		const notes = actions.find((one) => one.kind === "item" && one.id === "notes");
-		expect(notes).toMatchObject({ text: "Asides", detail: "3 new" });
-		expect(actions.some((one) => one.kind === "item" && one.text === "Noted")).toBe(false);
+		expect(actions.find((one) => one.kind === "item" && one.id === "side-list")).toMatchObject({ text: "Threads", detail: "3 new" });
+		expect(actions.some((one) => one.kind === "item" && (one.text === "Noted" || one.text === "Asides"))).toBe(false);
 		await act(async () => rememberFilter("pork", "teammates"));
 		expect(chip("From teammates")?.getAttribute("aria-pressed")).toBe("true");
 		// What other teammates sent: the asides they left and the work they handed over.

@@ -28,7 +28,6 @@ import {
 	threadOwnerId,
 	turnRunning,
 	withLinks,
-	withoutWords,
 	withTurns,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
@@ -46,6 +45,8 @@ import { WorkPage } from "./Work";
 import { NotedPage } from "./Noted";
 import { LoopIn } from "./LoopIn";
 import { PaneHead } from "./thread/Pane";
+import { CallPane } from "./thread/CallPane";
+import { JobPane } from "./thread/JobPane";
 import { startedWords, threadFamily } from "../threadKinds";
 
 /**
@@ -153,12 +154,16 @@ export function Dock({
 						onOpen={(open) => onState({ open })}
 					/>
 				) : (
-					teammate !== null && (
+					teammate !== null &&
+					(at.thread.kind === "call" ? (
+						<CallPane key={`call:${at.thread.key}`} open={at} row={row} teammate={teammate} working={turnRunning(owner, at.thread, row)} onChanged={reload} onOpen={(open) => onState({ open })} onBack={() => onState(back)} onClose={onClose} />
+					) : at.thread.kind === "job" ? (
+						<JobPane key={`job:${at.thread.key}`} open={at} row={row} job={jobs.find((one) => one.id === at.thread.key)} teammate={teammate} working={turnRunning(owner, at.thread, row)} onChanged={reload} onBack={() => onState(back)} onClose={onClose} />
+					) : (
 						<ThreadView
 							key={`${at.thread.kind}:${at.thread.key}`}
 							open={at}
 							row={row}
-							job={at.thread.kind === "job" ? jobs.find((one) => one.id === at.thread.key) : undefined}
 							teammate={teammate}
 							nameOf={nameOf}
 							people={people}
@@ -170,7 +175,7 @@ export function Dock({
 							onClose={onClose}
 							onOpenTeammate={onOpenTeammate}
 						/>
-					)
+					))
 				)}
 			</aside>
 		</div>
@@ -426,14 +431,13 @@ export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["hando
  * brings a colleague in for one answer, and End thread ends it, and the
  * handoff into it when a teammate handed it over; once closed the page is the
  * thread, read-only, with a Continue where
- * the composer was. A pair, a subagent's run and a call are read, not spoken
- * in: a run is told its task once and reports once. A job's thread is spoken
- * in until the job ends, and its header can stop a turn or end the job.
+ * the composer was. A pair and a subagent's run are read, not spoken
+ * in: a run is told its task once and reports once. A call and a job have
+ * panes of their own (thread/CallPane, thread/JobPane).
  */
 function ThreadView({
 	open,
 	row,
-	job,
 	teammate,
 	nameOf,
 	people,
@@ -450,8 +454,6 @@ function ThreadView({
 	roster: RosterEntry[];
 	/** What the list knows of it: its state and its title. */
 	row: ThreadSummary | undefined;
-	/** The job this thread is, as the schedules view says, when it is one's. */
-	job: ScheduleEntry | undefined;
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
 	nameOf(personaId: string): string | undefined;
 	people: ReadonlyMap<string, Person>;
@@ -466,8 +468,7 @@ function ThreadView({
 }) {
 	const id = open.thread;
 	const { events, streaming, more, earlier, prompt, cancel, interrupt, close, resume } = useThread(id);
-	// A job ends on the schedules view before the list is read again.
-	const state = job?.endedAt !== undefined ? "closed" : (row?.state ?? "live");
+	const state = row?.state ?? "live";
 	// A teammate's handoff is the two teammates' work: the person speaks in it, and only its result ends it.
 	const opener = openerOf(row);
 	// Opened from the pane of whoever handed it over, a handoff is still the receiver's: its lines and its bar name them.
@@ -484,7 +485,6 @@ function ThreadView({
 	// What the thread is, under the band: a run is a command when its roster row says so, and the teammate left it running.
 	const runKind = id.kind === "run" ? roster.find((one) => one.persona.id === self.id)?.subagents?.find((run) => run.runId === id.key)?.kind : undefined;
 	const kind = threadFamily(id.kind, id.kind === "run" ? self.name : opener?.name, runKind);
-	const family = job === undefined ? undefined : job.kind === "loop" ? "Loop" : "Once";
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
 	const [refused, setRefused] = useState<string | null>(null);
@@ -556,7 +556,7 @@ function ThreadView({
 					{turning && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					<span className="truncate">{title}</span>
 				</h2>
-                {(id.kind === "side" || id.kind === "call") && !closed && opener === undefined && (
+                {id.kind === "side" && !closed && opener === undefined && (
                     <button type="button" className="control btn-quiet px-2 text-sm" title="Call this thread" onClick={() => void startCall(undefined, { personaId: self.id, name: self.name, thread: id }).catch(refuse)}>Call</button>
                 )}
 				{powers.resume && (
@@ -577,20 +577,9 @@ function ThreadView({
 						Stop
 					</button>
 				)}
-				{job !== undefined && !closed && (
-					<JobActions
-						job={job}
-						running={turning}
-						onSaid={(said) => {
-							setRefused(said);
-							if (said === null) onChanged();
-						}}
-					/>
-				)}
 				<PaneClose onClose={onClose} />
 			</Band>
-			<PaneHead kind={kind} family={family} meta={[from === "" ? self.name : from, row !== undefined && startedWords(row.startedAt)]} />
-			{withoutWords(job?.without) !== "" && <p className="dock-note selectable">{withoutWords(job?.without)}</p>}
+			<PaneHead kind={kind} meta={[from === "" ? self.name : from, row !== undefined && startedWords(row.startedAt)]} />
 			{open.handoff !== undefined && <HandoffNote handoff={open.handoff} />}
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript

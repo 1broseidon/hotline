@@ -39,3 +39,24 @@ export function LinkRow({
 		</button>
 	);
 }
+
+/**
+ * A job's post, headed by the job's line in the same shape: the job's name,
+ * "Job · posted", and Open on a hover, into the job's thread. The words
+ * posted are the bubble under it; this is the way to the run that wrote them.
+ */
+export function JobPostRow({ title, onOpen }: { title: string; onOpen(): void }) {
+	return (
+		<button type="button" className="link-row" data-kind="job" aria-label={`Job · ${title} · posted. Open it`} onClick={onOpen}>
+			<span className="link-row-dot" data-tone="done" />
+			<span className="link-row-words">
+				<span className="link-row-title">{title}</span>
+				<span className="link-row-sub">
+					<span className="link-row-kind">Job</span>
+					<span className="link-row-outcome">· posted</span>
+				</span>
+			</span>
+			<span className="link-row-open">Open ›</span>
+		</button>
+	);
+}

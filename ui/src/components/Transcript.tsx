@@ -31,7 +31,7 @@ import {
 	withStreaming,
 } from "../transcriptFolds";
 import { useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
-import { CallTools, Steps } from "./transcript/Steps";
+import { Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
 import type { SentItem } from "./SentFile";
 import { LinkRow } from "./transcript/LinkRow";
@@ -241,7 +241,7 @@ export function Transcript({
 	/* Who the person looped in here: their answers are said whole, under their faces. */
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call"), thread?.kind === "call"), [events, thread?.kind]);
+	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -593,9 +593,7 @@ export function Transcript({
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (
 								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
-							) : block.kind === "steps" ? (thread?.kind === "call" ? (
-								<CallTools items={block.items} />
-							) : (
+							) : block.kind === "steps" ? (
 								<Steps
 									id={block.id}
 									items={block.items}
@@ -603,7 +601,7 @@ export function Transcript({
 									shown={workShown}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>
-							)) : block.kind === "sent" ? (
+							) : block.kind === "sent" ? (
 								<Row
 									personaId={personaId}
 									thread={rowThread}
@@ -771,14 +769,6 @@ const Row = memo(function Row({
 	const who = { id: personaId, name: ownerName, hash: people?.get(personaId)?.hash };
 	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask" || event.kind === "credential_ask") && event.from?.kind === "call") {
 		const origin = event.from;
-		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
-		const label = event.kind === "permission" ? event.title : event.kind === "human_action" ? event.reason : event.name;
-		if (thread.kind === "call") return (
-			<button type="button" className="rule-line rule-line-plain"
-				onClick={() => onOpenThread?.({ thread: { kind: "dm", key: personaId }, eventId: event.id })}>
-				{settled ? "Settled" : "Needs you"}: {label} · Open card in home chat
-			</button>
-		);
 		return (
 			<div>
 				<button type="button" className="said-name"
@@ -794,8 +784,8 @@ const Row = memo(function Row({
 	}
 	switch (event.kind) {
 		case "user":
-			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
-			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
+			// Only a pair's user lines are a teammate's; a thread a teammate handed over is spoken in by the person.
+			if (thread.kind === "side" && speakers !== undefined) return <>
                 <p className="said-name text-right">You</p>
                 <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
             </>;
@@ -808,20 +798,6 @@ const Row = memo(function Row({
 			);
 
 		case "agent":
-            if (thread.kind === "call") {
-                const { spoken, ...written } = event;
-                const heard = spoken?.trim() ? spoken : event.text;
-                return <>
-                    <p className="said-name">{ownerName}</p>
-                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} files={files} run={run} reactions={worn} bubble={people?.get(personaId)?.bubble}
-                        {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
-                        {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
-                    {heard !== event.text && <details className="my-2 text-sm text-ink-3">
-                        <summary>Written reply</summary>
-                        <NamedSay name={ownerName} mine={false} text={event.text} />
-                    </details>}
-                </>;
-            }
 			return speakers !== undefined ? (
 				<NamedSay
 					name={speakers.mine === "agent" ? speakers.me : speakers.them}

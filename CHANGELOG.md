@@ -13,6 +13,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.
+- A call opened in the right-hand pane reads as a transcript: each line
+  under who said it, You or the teammate, and the work the teammate went
+  off to do folded where it fell, saying what it checked and how many
+  steps, opening to them. The band says Live or Ended, how long the call
+  has run, and the voice model, with End call while it is live.
+- A job opened in the right-hand pane says Loop or Once, whose it is, how
+  often it runs and what it posts, counts down to its next run beside what
+  it last posted, and lists each run newest first as a section of its own
+  with how it went, what it found and its steps, the one running open as
+  it works. End job and Stop are in its band.
+- A job's post in the chat is headed by the job's line, Job · its name ·
+  posted, which opens the job.
 
 ### Fixed
 

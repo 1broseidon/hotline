@@ -145,14 +145,18 @@ aside until you return. The inspector is a pane beside the conversation.
 
 The **right-hand pane** holds the open teammate's threads, beside the
 conversation: a work thread (a side thread or a handoff), a conversation with
-another teammate, a subagent's run, a call. Its band is the title, Threads, and
-the way out; the list is rows of a status dot (breathing accent running,
-warning waiting on you, a ring parked, dim closed), the title over the last
-line, and a relative time. Work threads come first, live before parked, then
-conversations between teammates, runs and calls, each kind newest first with
-what waits on you at its head; the closed ones are folded under a disclosure.
-A handoff's row opens its line with "from Mack", and a run or call says what it
-is where its title would not. A row, or Open on a thread's line in the
+another teammate, a subagent's run, a command, a call, a job, and the notes
+(asides) the teammate was left (docs/design/threads-list.html, idea A). Its
+band is the title, Threads, and the way out; under it, chips narrow the list
+(All, Notes). Every row is one shape: the kind's mark in the instrument face
+(≡ work thread, ⇄ handoff, ◆ subagent, $ command, ◎ pair, ☏ call, ↻ job, ✎
+note; accent while it runs, amber while it waits on the person), the title
+over one line (its state, its latest step, or what came of it), and the time,
+the clock today and the day or date before, with the beat beside it while it
+runs. A live row's line is its latest step in the instrument face. A handoff's
+line opens with "from Mack". A note's row is its words, two lines at most,
+over "from" who and which thread, and opens that thread; the thread's own row
+carries a ✎ count of the notes it left. Nothing is folded away by kind. A row, or Open on a thread's line in the
 conversation, opens the thread in the pane under a band of its own with a back
 arrow. Every kind is the same page, the conversation's own transcript and
 cards, and only what can be done in it differs: a work thread has the composer,

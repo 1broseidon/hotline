@@ -752,13 +752,15 @@ conversation, where the window draws it from `aside.list` at its time, the
 `(·)` mark, "from Goldie · work thread · 9:41 PM" in the instrument face and
 the words, opening the thread it came from (a result's nudge, `result:<request>`,
 is not drawn where the delivery it wakes the teammate for is, since that
-delivery says the result already; Noted still lists it); on the thread that left it, "to
-Quill · nudge · …", and for the person's Loop in… "Quill was looped in". The
-teammate's menu has Noted between Threads and Remove, with how many the person
-has not seen (`asidesNew`); it opens the pane's Noted page (`NotedPage`,
-`DockState.noted`), New then Earlier, each newest first, with the face and the
-kind of thread, the level ("to you" in amber), the time and the words, and
-opening it marks them seen (`aside.seen`). A work thread's header has Loop in…
+delivery says the result already; the Threads list still lists it); on the thread that left it, "to
+Quill · nudge · …", and for the person's Loop in… "Quill was looped in". Each
+aside is also a note row in the pane's Threads list (`ThreadList`,
+`threadList.ts`, epic-38): ✎, its words, "from" who and which thread, "to
+you" for a `person` aside, and its time, opening the thread it came from,
+whose own row counts the notes it left. The teammate's menu has Notes between
+Threads and Remove, with how many the person has not seen (`asidesNew`); it
+opens the list on its Notes chip. The list shown with notes in it marks them
+seen (`aside.seen`); what was unread when it opened reads so until it closes. A work thread's header has Loop in…
 (`LoopIn`: the colleagues on this desk, "Idle · a nudge wakes it" or "Working
 · a thread answers", which sends `thread.loop_in`), and End thread where
 Archive was; the looped-in colleague's one answer is drawn whole under its
@@ -767,10 +769,10 @@ face. How the core does both is in
 
 Where this differs from the design above:
 
-- **The desk's Noted has no Search beside it**, since the teammate's menu has
-  none: it stands between Threads and Remove.
+- **The desk's notes are rows of the Threads list**, not a page of their own
+  (epic-38): its search covers their words with the threads'.
 - **The menu counts what is new to the person**, not what the teammate has not
-  heard: opening Noted clears it, as the phone frame's "3 new" reads.
+  heard: showing the notes clears it, as the phone frame's "3 new" reads.
 - **A looped-in colleague answers as a question.** Its one answer is an ask
   from the thread's teammate that the person's act grants, answered where the
   colleague's memory is (its main conversation when idle, a work thread of its

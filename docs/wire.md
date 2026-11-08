@@ -212,7 +212,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
 | `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what the teammate's colleagues and threads left it without telling the person ([Asides](#asides)). The desk, owner and phone seats |
-| `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Noted page opened): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
+| `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Threads list shown with its notes): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
 | `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: the colleague is left a `nudge` aside from the thread with `loopedIn`, and the thread asks it once, as a question from the thread's teammate that the person's act grants, with the thread's last lines; its answer comes back into the thread as a delivery under the colleague's name. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
 | `inbound.list` | `{}` | `InboundSource[]`, oldest first: the desk's inbound sources ([Inbound sources](#inbound-sources)). The desk, owner and phone seats |
 | `inbound.add` | `{draft}` | the new `InboundSource`; `draft` is an `InboundDraft` (`{type, name, teammates, maxLevel?, filesAllowed?, rate?, secret?}`). Refused for a teammate not on this desk, no teammates, a rate outside 1–120, or a `secret` that names no stored secret. The desk and owner seats |
@@ -1055,8 +1055,8 @@ the teammate whose words it is, absent for an inbound source.
 `about` is the recipient's thread it is heard in, absent for its main
 conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
 or `person` (a card was raised for the person too). `heard` is when a turn
-took it in, absent until then; `seen` is when the person last opened the
-teammate's Noted page with it there (`aside.seen`), absent until then.
+took it in, absent until then; `seen` is when the person last read the
+teammate's notes with it there (`aside.seen`), absent until then.
 `loopedIn: true` marks the nudge the person's Loop in… left (`by` is then the
 thread's teammate, and the words are Hotline's). The thread it was said in
 carries the same object as a quiet `{kind: "aside", …}` event, which a client
@@ -1131,8 +1131,8 @@ threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
 can be stopped; each is absent when there are none. `asides` is how many
 asides the teammate has been left that no turn of its has heard yet, absent
-when none, and `asidesNew` how many of them the person has not seen on its
-Noted page; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row
+when none, and `asidesNew` how many of them the person has not seen among its
+notes; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports

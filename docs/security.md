@@ -1731,8 +1731,8 @@ the start of its next turn, never a message in the person's chat
   recipient hears an aside in its next turn's context and may act on it with
   every permission it already has, as with an ask's answer. The person sees
   them as the window draws them: quiet lines in the recipient's main
-  conversation, read from `aside.list` and never written there, and its Noted
-  page. `aside.seen` only marks the person's reading, on the desk, owner and
+  conversation, read from `aside.list` and never written there, and note
+  rows in its Threads list (a phone's Noted page). `aside.seen` only marks the person's reading, on the desk, owner and
   phone seats, and changes nothing a turn hears.
 
 ## Loop in… and End thread (epic-28, task-323)

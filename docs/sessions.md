@@ -1375,8 +1375,8 @@ colleague whose words it is, `about` the recipient's thread it is heard in. It i
 thread it came from, and written as an `aside` event on the thread it was said
 in, so the sender's record shows it. It is never on the recipient's tape, and
 never a message in the person's chat: the window draws the recipient's asides
-into its main conversation from `aside.list`, as quiet lines, and lists them on
-its Noted page. Opening Noted marks them `seen` (`aside.seen`,
+into its main conversation from `aside.list`, as quiet lines, and lists them as
+note rows in its Threads list. Showing them there marks them `seen` (`aside.seen`,
 `Room::mark_asides_seen`, under the lock hearing takes), which is the person's
 reading and leaves `heard` alone; the roster row counts the unseen.
 
@@ -1476,7 +1476,7 @@ threads of three. The colleague is left a `nudge` aside from the thread with
 name, else "The person"), which the thread draws as "Quill was looped in". It
 is the person's act, so it is from them: the colleague hears it under the
 person's name (else "The person"), and the window says "from Ada" (else "from
-you") and lists it on Noted under the person's name and the `(·)` mark, never
+you") and lists it as a note from the person's name, never
 the thread's teammate's. The
 thread then asks the colleague once: an ask from the thread's teammate, sent
 from the thread, carrying the thread's title and its last eight lines, and
@@ -1520,7 +1520,7 @@ hotline repo (outside Hotline): …", and found by `search_thread` under the
 source's name. A nudge that wakes its teammate counts one on the source's
 brake (`wakes`), which mutes it at a pair's twelve until the person unmutes
 it; a `person` aside's card says the source is outside Hotline. The window
-lists them on Noted under the source's name, marked "outside", and Settings →
+lists them as notes from the source's name, with no thread to open, and Settings →
 Inbound lists the sources with a switch (off is muted) and Remove.
 
 ## Files between teammates

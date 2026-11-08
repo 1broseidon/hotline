@@ -1,4 +1,4 @@
-import type { Ability, LinkState, RosterEntry, RunningSubagent, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, RosterEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import type { DockState } from "./components/Dock";
 import { sideTitle } from "./links";
 
@@ -65,64 +65,9 @@ export const draggedDock = (began: number, startX: number, x: number): number =>
  */
 export const dockOverlays = (mainWidth: number, dockWidth: number): boolean => mainWidth < dockWidth + 8 + CONVERSATION_MIN;
 
-/** What a thread is doing, as the list's dot says it. */
-export type ThreadDot = "running" | "waiting" | "parked" | "closed" | "idle";
-
-export function threadDot(row: Pick<ThreadSummary, "state" | "working" | "waiting">): ThreadDot {
-	if (row.state === "closed") return "closed";
-	if (row.waiting) return "waiting";
-	if (row.state === "parked") return "parked";
-	return row.working ? "running" : "idle";
-}
-
-/** Where a kind sits in the list: work first, then the rest in the order a person reaches for them. */
-const KIND_RANK: Record<ThreadKind, number> = { side: 0, pair: 1, run: 2, call: 3, dm: 4, job: 5 };
-
-/** Within a kind, what wants you first: a card waiting, a turn running, a thread open, then one parked. */
-const DOT_RANK: Record<ThreadDot, number> = { waiting: 0, running: 1, idle: 2, parked: 3, closed: 4 };
-
-/**
- * The list: threads still open grouped by kind (work threads, then pairs,
- * runs and calls), each kind newest first with what wants you at its head, and
- * the closed ones folded apart, newest first. A teammate's own conversation is
- * the window beside the list, so it is not a row, and a job's thread is a row of
- * the Jobs group, which the schedules view feeds.
- */
-export function groupThreads(list: ThreadSummary[]): { open: ThreadSummary[]; closed: ThreadSummary[] } {
-	const rows = list.filter((row) => row.thread.kind !== "dm" && row.thread.kind !== "job");
-	const newest = (a: ThreadSummary, b: ThreadSummary) => b.updatedAt - a.updatedAt;
-	return {
-		open: rows
-			.filter((row) => row.state !== "closed")
-			.sort((a, b) => KIND_RANK[a.thread.kind] - KIND_RANK[b.thread.kind] || DOT_RANK[threadDot(a)] - DOT_RANK[threadDot(b)] || newest(a, b)),
-		closed: rows.filter((row) => row.state === "closed").sort(newest),
-	};
-}
-
-/**
- * The list's groups once subagents are drawn apart (docs/design/thread-panes.html,
- * Thread list): the subagents at work first, each with its roster row when
- * it has one; then the other threads still open; then the subagents that
- * have ended, with the rest of the closed threads left to their fold. A
- * command a harness left running is not a subagent, and stays a thread.
- */
-export function subagentGroups(
-	{ open, closed }: { open: ThreadSummary[]; closed: ThreadSummary[] },
-	runs: readonly RunningSubagent[],
-): { working: { row: ThreadSummary; run: RunningSubagent | undefined }[]; threads: ThreadSummary[]; ended: ThreadSummary[]; closed: ThreadSummary[] } {
-	const runOf = (row: ThreadSummary) => runs.find((run) => run.runId === row.thread.key);
-	const subagent = (row: ThreadSummary) => row.thread.kind === "run" && (runOf(row)?.kind ?? "subagent") === "subagent";
-	return {
-		working: open.filter(subagent).map((row) => ({ row, run: runOf(row) })),
-		threads: open.filter((row) => !subagent(row)),
-		ended: closed.filter((row) => row.thread.kind === "run"),
-		closed: closed.filter((row) => row.thread.kind !== "run"),
-	};
-}
-
-/** What came of an ended subagent, in a line: how it ended, what it reported, and how long it took. */
-export function endedWords(row: ThreadSummary): string {
-	const how = row.end === "failed" ? "Failed" : row.end === "cancelled" || row.end === "stopped" ? "Stopped" : "Reported";
+/** What came of an ended run, in a line: how it ended, what it reported (a command, what it printed), and how long it took. */
+export function endedWords(row: ThreadSummary, command = false): string {
+	const how = row.end === "failed" ? "Failed" : row.end === "cancelled" || row.end === "stopped" ? "Stopped" : command ? "Done" : "Reported";
 	const said = row.outcome ?? row.preview ?? "";
 	return [how, said, stopwatch(row.updatedAt - row.startedAt)].filter((part) => part !== "").join(" · ");
 }
@@ -194,9 +139,6 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 	return [...rows.values()];
 }
 
-/** The kinds a row names, when its title would not: a pair has none, and a run or call is not work. */
-const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call", job: "Job" };
-
 /**
  * Whose hands a thread came from, when a teammate other than its own opened
  * it: "from Mack". In the pane of the teammate who handed it over, it says
@@ -208,11 +150,6 @@ export function openerWords(row: ThreadSummary, listedFor: string, nameOf: (pers
 	return `from ${row.opener.name}`;
 }
 
-/** The line a row opens with: whose hands it passed through, and what kind it is when that is not obvious. */
-export function rowOpener(row: ThreadSummary, listedFor: string, nameOf: (personaId: string) => string | undefined): string {
-	return [KIND_WORDS[row.thread.kind], openerWords(row, listedFor, nameOf)].filter((part) => part !== "").join(" · ");
-}
-
 /** The other teammate in a pair: its key is the two ids, joined. */
 export const pairWith = (key: string, selfId: string): string | undefined => key.split("~").find((id) => id !== selfId);
 
@@ -222,19 +159,6 @@ export function rowTitle(row: ThreadSummary, selfId: string, nameOf: (personaId:
 	if (row.thread.kind === "side") return sideTitle(row.title);
 	const other = row.thread.kind === "pair" ? pairWith(row.thread.key, selfId) : undefined;
 	return other !== undefined ? `With ${nameOf(other) ?? "a teammate"}` : "Conversation";
-}
-
-/** A time the way a list says it: now, 5m, 3h, 2d, then the date. */
-export function relativeTime(at: number, now: number = Date.now()): string {
-	const seconds = Math.max(0, Math.round((now - at) / 1000));
-	if (seconds < 45) return "now";
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return `${minutes}m`;
-	const hours = Math.round(minutes / 60);
-	if (hours < 24) return `${hours}h`;
-	const days = Math.round(hours / 24);
-	if (days < 7) return `${days}d`;
-	return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /**
@@ -303,18 +227,6 @@ export function withTurns(rows: ThreadSummary[], roster: RosterEntry[], listedFo
 export function openerOf(row: ThreadSummary | undefined): { personaId: string; name: string } | undefined {
 	if (row === undefined || row.thread.kind !== "side" || row.opener === undefined) return undefined;
 	return row.opener.personaId !== row.personaId ? row.opener : undefined;
-}
-
-/**
- * The Jobs group: every job that has a thread (a plain reminder posts to the
- * conversation and has none), the ones still running soonest first, then the
- * ended ones, most recently ended first.
- */
-export function jobRows(entries: ScheduleEntry[]): ScheduleEntry[] {
-	const jobs = entries.filter((entry) => entry.reminder !== true);
-	const running = jobs.filter((entry) => entry.endedAt === undefined).sort((a, b) => a.nextAt - b.nextAt);
-	const ended = jobs.filter((entry) => entry.endedAt !== undefined).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
-	return [...running, ...ended];
 }
 
 const LEFT_OUT: Record<Ability, string> = {

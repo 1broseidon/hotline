@@ -20,9 +20,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   Hotline Agent's has Stop.
 - A teammate's working subagents sit under it in the rail, each with its
   latest step, until they report. The subagent's line in the conversation,
-  the chip over the composer and the thread list say its latest step too,
-  and the thread list groups subagents working, other threads, and ended
-  subagents with what each reported.
+  the chip over the composer and the thread list say its latest step too.
 - A call opened in the right-hand pane reads as a transcript: each line
   under who said it, You or the teammate, and the work the teammate went
   off to do folded where it fell, saying what it checked and how many
@@ -48,6 +46,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- The right-hand pane is one list, Threads: every work thread, handoff,
+  subagent, command, pair, call and job, and every note the teammate was
+  left, as rows of one shape, the kind's mark, the title, one line of state,
+  latest step or result, and the time. A note opens the thread it came from,
+  and that thread's row counts its notes. The Subagents working, Ended
+  subagents, Jobs and Closed groups and the Noted page are gone; Notes in
+  the teammate's menu opens the list on its notes.
 - A pair's line in the conversation says Pair, and a command left running
   says Command on its line and its chip, instead of Thread, Subagent and
   Background.

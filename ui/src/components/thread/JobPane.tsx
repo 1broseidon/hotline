@@ -4,6 +4,7 @@ import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon } from "../../icons";
 import { type JobRun, countdown, jobRuns, postingWords, scheduleWords, timeOfDay } from "../../jobRuns";
 import { firstLine } from "../../room";
 import { useThread } from "../../tape";
+import { wire } from "../../wire";
 import { threadFamily } from "../../threadKinds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
@@ -21,7 +22,7 @@ import { ThreadComposer } from "./ThreadComposer";
  * and what it last posted; then each run, newest first, as a section of its
  * own that opens to what it found and its steps, the one running open and
  * live. The band has Stop while a run is running and End job while the job
- * lives. There is no Run now: the desk has no command that fires a job
+ * lives, and Remove once it has ended, which takes it off the list. There is no Run now: the desk has no command that fires a job
  * early, and a key that does nothing is not drawn.
  */
 
@@ -68,6 +69,7 @@ export function JobPane({
 			onEarlier={earlier}
 			onStop={() => act(cancel)}
 			onEnd={() => act(close)}
+			onRemove={() => act(() => wire.command("schedule.cancel", { id: id.key }).then(onBack))}
 			onBack={onBack}
 			onClose={onClose}
 			refused={refused}
@@ -88,6 +90,7 @@ export function JobPage({
 	onEarlier,
 	onStop,
 	onEnd,
+	onRemove,
 	onBack,
 	onClose,
 	refused = null,
@@ -106,6 +109,8 @@ export function JobPage({
 	onEarlier?(): Promise<void>;
 	onStop(): void;
 	onEnd(): void;
+	/** Takes an ended job off the list; its thread goes with it. */
+	onRemove?(): void;
 	onBack(): void;
 	onClose(): void;
 	refused?: string | null;
@@ -134,6 +139,11 @@ export function JobPage({
 				{!ended && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="End this job" onClick={onEnd}>
 						End job
+					</button>
+				)}
+				{ended && job !== undefined && onRemove !== undefined && (
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Take it off the list" onClick={onRemove}>
+						Remove
 					</button>
 				)}
 				<PaneClose onClose={onClose} />

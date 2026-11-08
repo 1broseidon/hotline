@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { RosterEntry, ScheduleEntry, ThreadSummary } from "../src/generated/contract";
+import type { RosterEntry, ThreadSummary } from "../src/generated/contract";
 import {
 	clampDock,
 	DOCK_KEY,
@@ -8,20 +8,15 @@ import {
 	DOCK_WIDTH,
 	dockOverlays,
 	draggedDock,
-	groupThreads,
-	jobRows,
 	type LinkEvent,
 	loadDockWidth,
 	openerWords,
 	pairWith,
 	openerOf,
 	powersOf,
-	relativeTime,
 	rowOfLink,
-	rowOpener,
 	rowTitle,
 	saveDockWidth,
-	threadDot,
 	threadOwnerId,
 	turnRunning,
 	withLinks,
@@ -94,49 +89,7 @@ describe("the right-hand pane's width", () => {
 	});
 });
 
-describe("the list of threads", () => {
-	const keys = (rows: ThreadSummary[]) => rows.map((row) => `${row.thread.kind}:${row.thread.key}`);
-
-	test("is work threads first, then pairs, runs and calls, with the closed ones folded apart", () => {
-		const { open, closed } = groupThreads([
-			thread("c1", "call", { updatedAt: 90 }),
-			thread("r1", "run", { updatedAt: 80 }),
-			thread("a~b", "pair", { updatedAt: 70 }),
-			thread("old", "side", { state: "parked", updatedAt: 10 }),
-			thread("done-early", "side", { state: "closed", updatedAt: 20 }),
-			thread("new", "side", { updatedAt: 50 }),
-			thread("done-late", "run", { state: "closed", updatedAt: 40 }),
-		]);
-		expect(keys(open)).toEqual(["side:new", "side:old", "pair:a~b", "run:r1", "call:c1"]);
-		expect(keys(closed)).toEqual(["run:done-late", "side:done-early"]);
-	});
-
-	test("puts what wants you at the head of its kind, however old, and parked last", () => {
-		const { open } = groupThreads([
-			thread("parked", "side", { state: "parked", updatedAt: 99 }),
-			thread("idle", "side", { updatedAt: 90 }),
-			thread("running", "side", { working: true, updatedAt: 10 }),
-			thread("asks", "side", { waiting: true, updatedAt: 1 }),
-		]);
-		expect(keys(open)).toEqual(["side:asks", "side:running", "side:idle", "side:parked"]);
-	});
-
-	test("leaves out the teammate's own conversation, which is the window beside it", () => {
-		expect(groupThreads([thread("p", "dm")])).toEqual({ open: [], closed: [] });
-	});
-
-	test("is two empty groups for no threads", () => {
-		expect(groupThreads([])).toEqual({ open: [], closed: [] });
-	});
-
-	test("says what each is doing: running, waiting on you, parked, closed", () => {
-		expect(threadDot(thread("a", "side", { working: true }))).toBe("running");
-		expect(threadDot(thread("a"))).toBe("idle");
-		expect(threadDot(thread("a", "side", { state: "parked" }))).toBe("parked");
-		expect(threadDot(thread("a", "side", { state: "parked", waiting: true }))).toBe("waiting");
-		expect(threadDot(thread("a", "side", { state: "closed", working: true }))).toBe("closed");
-	});
-
+describe("a row of the list", () => {
 	test("names a row by its title, else by the teammate on the other side of a pair", () => {
 		const names = (id: string) => ({ ada: "Ada", mack: "Mack" })[id];
 		expect(rowTitle(thread("x", "side", { title: "Fix CI" }), "ada", names)).toBe("Fix CI");
@@ -147,22 +100,19 @@ describe("the list of threads", () => {
 		expect(pairWith("ada~mack", "mack")).toBe("ada");
 	});
 
-	test("says whose hands a handoff came from, and the kind of what is not work", () => {
+	test("says whose hands a handoff came from", () => {
 		const names = (id: string) => ({ p: "Poe", mack: "Mack" })[id];
 		const handed = thread("h", "side", { opener: { personaId: "mack", name: "Mack" } });
 		expect(openerWords(handed, "p", names)).toBe("from Mack");
-		expect(rowOpener(handed, "p", names)).toBe("from Mack");
 		expect(openerWords(thread("m", "side", { opener: { personaId: "p", name: "Ada" } }), "p", names)).toBe("");
-		expect(rowOpener(thread("r", "run"), "p", names)).toBe("Subagent");
-		expect(rowOpener(thread("c", "call"), "p", names)).toBe("Call");
-		expect(rowOpener(thread("s"), "p", names)).toBe("");
+		expect(openerWords(thread("s"), "p", names)).toBe("");
 	});
 
 	test("says whose hands a handoff went to, in the pane of the teammate who handed it over", () => {
 		const names = (id: string) => ({ p: "Poe", mack: "Mack" })[id];
 		const handed = thread("h", "side", { opener: { personaId: "mack", name: "Mack" } });
 		expect(openerWords(handed, "mack", names)).toBe("to Poe");
-		expect(rowOpener(handed, "mack", () => undefined)).toBe("to a teammate");
+		expect(openerWords(handed, "mack", () => undefined)).toBe("to a teammate");
 	});
 });
 
@@ -285,35 +235,7 @@ describe("what a person can do in a thread", () => {
 	});
 });
 
-describe("relative times", () => {
-	test("says how long ago in the shortest word", () => {
-		const now = 10_000_000_000;
-		expect(relativeTime(now - 5_000, now)).toBe("now");
-		expect(relativeTime(now - 5 * 60_000, now)).toBe("5m");
-		expect(relativeTime(now - 3 * 3_600_000, now)).toBe("3h");
-		expect(relativeTime(now - 2 * 86_400_000, now)).toBe("2d");
-		expect(relativeTime(now + 5_000, now)).toBe("now");
-	});
-});
-
-describe("the Jobs group", () => {
-	const entry = (id: string, rest: Partial<ScheduleEntry>) => ({ id, personaId: "ada", name: id, kind: "loop", prompt: "", nextAt: 0, ...rest }) as ScheduleEntry;
-
-	test("lists running jobs soonest first, then ended ones newest first, and leaves reminders out", () => {
-		const listed = jobRows([
-			entry("old", { endedAt: 5 }),
-			entry("later", { nextAt: 90 }),
-			entry("remind", { nextAt: 1, reminder: true }),
-			entry("new", { endedAt: 9 }),
-			entry("soon", { nextAt: 10 }),
-		]);
-		expect(listed.map((one) => one.id)).toEqual(["soon", "later", "new", "old"]);
-	});
-
-	test("is not in the thread list's own groups", () => {
-		expect(groupThreads([thread("j", "job")])).toEqual({ open: [], closed: [] });
-	});
-
+describe("a job", () => {
 	test("says what a narrowed job runs without, and nothing for a whole clone", () => {
 		expect(withoutWords(undefined)).toBe("");
 		expect(withoutWords([])).toBe("");

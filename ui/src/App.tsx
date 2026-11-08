@@ -1,4 +1,3 @@
-import { noteRuns } from "./runTicker";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
 import { chordKeys } from "./chords";
@@ -9,6 +8,7 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
+import { rememberFilter } from "./threadList";
 import { FullView } from "./components/FullView";
 import { RemoteBrowser } from "./components/RemoteBrowser";
 import { type FullObject, OpenFull } from "./components/Sheet";
@@ -182,12 +182,10 @@ export function App() {
 			{ view: "roster" },
 			{
 				snapshot: (entries) => {
-					for (const entry of entries) noteRuns(entry.subagents);
 					setRoster(entries);
 					setRosterLoaded(true);
 				},
 				event: (entry) => {
-					noteRuns(entry.subagents);
 					setRoster((known) => {
 						const at = known.findIndex((one) => one.persona.id === entry.persona.id);
 						if (at === -1) return [...known, entry];
@@ -315,7 +313,11 @@ export function App() {
 		openDock({ open: { thread: { kind: "run", key: run.runId }, title: run.title } });
 	}, [openDock, select]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
-	const openNoted = useCallback(() => openDock({ open: null, noted: true }), [openDock]);
+	/* The teammate menu's Notes: the list, narrowed to the notes the teammate was left. */
+	const openNotes = useCallback(() => {
+		if (selectedId !== null) rememberFilter(selectedId, "notes");
+		openDock({ open: null });
+	}, [openDock, selectedId]);
 
 	/* A turn's work is read in one place, the right-hand pane: its caption
 	 * or the composer's activity row opens it there, and pressed again with
@@ -676,7 +678,7 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
-							onOpenNoted={openNoted}
+							onOpenNotes={openNotes}
 							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
 							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}

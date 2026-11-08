@@ -6,7 +6,7 @@ import { wire } from "./wire";
  * Asides: the short lines one of a teammate's threads, or a colleague, left
  * in its peripheral context (`docs/design/thread-awareness.md`, decision 2).
  * The person sees them twice: as a quiet `(·)` line in a conversation, never a
- * bubble, and listed on the teammate's Noted page. Neither is the chat: the
+ * bubble, and as note rows in the teammate's Threads list. Neither is the chat: the
  * receiver's lines are drawn from `aside.list` into its main conversation and
  * are never written there.
  */
@@ -81,7 +81,7 @@ export function asideTime(at: number, now: number = Date.now()): string {
  * first one loaded are drawn, so none hangs above a gap. A result's nudge
  * (`result:<request>`) is there to wake the teammate, and the delivery beside
  * it already says the result: where that delivery is drawn, the nudge is
- * not drawn again. Noted still lists it.
+ * not drawn again. The Threads list still lists it.
  */
 export function withAsides(events: TranscriptEvent[], asides: Aside[], more: boolean): TranscriptEvent[] {
 	if (asides.length === 0) return events;
@@ -96,31 +96,22 @@ export function withAsides(events: TranscriptEvent[], asides: Aside[], more: boo
 }
 
 /**
- * The Noted page's two groups, each newest first: what the person had not
- * seen (`seen` unset, or among `opened`, what was new when the page opened),
- * and the rest.
- */
-export function groupNoted(asides: Aside[], opened: ReadonlySet<string> = new Set()): { fresh: Aside[]; earlier: Aside[] } {
-	const newest = [...asides].sort((a, b) => b.ts - a.ts);
-	const isNew = (aside: Aside) => aside.seen === undefined || opened.has(aside.id);
-	return { fresh: newest.filter(isNew), earlier: newest.filter((aside) => !isNew(aside)) };
-}
-
-/**
  * A teammate's asides, newest first, read again whenever its roster row's
  * counts move: a new one raises them, and hearing or seeing one lowers them.
- * Undefined until the first read answers.
+ * Undefined until the first read answers; none when it fails.
  */
-export function useAsides(personaId: string, counts: { asides?: number | undefined; asidesNew?: number | undefined }): Aside[] | undefined {
+export function useAsides(personaId: string | undefined, counts: { asides?: number | undefined; asidesNew?: number | undefined } | null): Aside[] | undefined {
 	const [asides, setAsides] = useState<Aside[] | undefined>(undefined);
-	const signature = `${counts.asides ?? 0}:${counts.asidesNew ?? 0}`;
+	const signature = `${counts?.asides ?? 0}:${counts?.asidesNew ?? 0}`;
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the counts are what say the list moved.
 	useEffect(() => {
+		if (personaId === undefined) return;
 		let cancelled = false;
 		void wire
 			.command("aside.list", { personaId })
 			.then((list) => !cancelled && setAsides(list))
-			.catch(() => undefined);
+			// Unread is read as none, so the list beside them still shows.
+			.catch(() => !cancelled && setAsides((was) => was ?? []));
 		return () => {
 			cancelled = true;
 		};

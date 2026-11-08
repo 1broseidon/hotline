@@ -56,7 +56,7 @@ export function Conversation({
 	onDelete,
 	onOpenThread,
 	onOpenThreadList,
-	onOpenNoted,
+	onOpenNotes,
 	onOpenWork,
 	workOpen,
 	onOpenProcess,
@@ -98,8 +98,8 @@ export function Conversation({
 	onOpenThread(thread: ThreadRef): void;
 	/** Opens the right-hand pane on this teammate's list of threads. */
 	onOpenThreadList(): void;
-	/** Opens the right-hand pane on what this teammate's threads told it: its Noted page. */
-	onOpenNoted(): void;
+	/** Opens the right-hand pane's list on what this teammate's threads told it: its notes. */
+	onOpenNotes(): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
@@ -292,7 +292,7 @@ export function Conversation({
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNoted, threadOpen, paneOpen, callBar,
+				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNotes, threadOpen, paneOpen, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
@@ -401,10 +401,10 @@ export function Conversation({
 /** The header follows room state and controls, independently of streamed body changes. */
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNoted, threadOpen, paneOpen, callBar,
+	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNotes, threadOpen, paneOpen, callBar,
 	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
-	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList" | "onOpenNoted"
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList" | "onOpenNotes"
 	| "threadOpen" | "paneOpen" | "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
@@ -463,7 +463,7 @@ const ConversationBand = memo(function ConversationBand({
 			onToggleInspector,
 			onStartChapter: startChapter,
 			onOpenThreadList,
-			onOpenNoted,
+			onOpenNotes,
 			onDelete,
 		}),
 	];
@@ -580,7 +580,7 @@ const ConversationBand = memo(function ConversationBand({
 					{/* One pill in the corner: the model, its effort and the teammate's
 					 * face, which beats while it works. Its menu is who the teammate
 					 * is, what it runs on, and its actions: Settings, New chapter,
-					 * Threads, Noted, Remove. */}
+					 * Threads, Notes, Remove. */}
 					<SessionPickers
 						key={persona.id}
 						entry={entry}
@@ -598,7 +598,7 @@ const ConversationBand = memo(function ConversationBand({
 
 /**
  * The teammate's own actions, under who it is and what it runs on in the
- * pill's menu: Settings, New chapter, Threads, Noted with how many asides the
+ * pill's menu: Settings, New chapter, Threads, Notes with how many asides the
  * person has not seen, and Remove under a rule. Four words, as the board's
  * label rule asks (decision ui.tooltip-length): the rest lives where it is
  * used, not in this menu.
@@ -610,7 +610,7 @@ export function teammateActions({
 	onToggleInspector,
 	onStartChapter,
 	onOpenThreadList,
-	onOpenNoted,
+	onOpenNotes,
 	onDelete,
 }: {
 	inspectorOpen: boolean;
@@ -619,14 +619,14 @@ export function teammateActions({
 	onToggleInspector(): void;
 	onStartChapter(): void;
 	onOpenThreadList(): void;
-	onOpenNoted(): void;
+	onOpenNotes(): void;
 	onDelete(): void;
 }): MenuEntry[] {
 	return [
 		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: onStartChapter },
 		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
-		{ kind: "item", id: "noted", text: "Noted", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenNoted },
+		{ kind: "item", id: "notes", text: "Notes", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenNotes },
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];

@@ -14,8 +14,7 @@ const { Rail } = await import("../src/components/Rail");
 const { SubagentChips } = await import("../src/components/Conversation");
 const { Transcript } = await import("../src/components/Transcript");
 const { replaceDesks, wireFor } = await import("../src/desks");
-const { noteRuns } = await import("../src/runTicker");
-const { endedWords, subagentGroups } = await import("../src/dock");
+const { endedWords } = await import("../src/dock");
 
 const persona = (id: string, name: string): Persona => ({
 	id, name, goal: "", backendId: "hotline", cwd: `/work/${id}`,
@@ -221,66 +220,34 @@ describe("a subagent's line and chip", () => {
 });
 
 describe("the thread list", () => {
-	test("The thread list groups Subagents working (each with a 3-line live ticker), Threads, Ended subagents (with their result)", async () => {
-		// The roster rows as they arrived: each brought the run's newest step.
-		for (const step of ["Read openai-chatgpt.ts", "“The token reaches /v1/models”", "Fetch /v1/models · 200", "Fetch /v1/models · 200"]) {
-			noteRuns([{ ...models, lastStep: step }]);
-		}
-		noteRuns([{ ...audit, lastStep: "Read ui/src/components/Dock.tsx" }]);
+	test("The thread list shows a working subagent's latest step with the beat, and an ended one's result", async () => {
 		listed = [
 			summary({ thread: { kind: "run", key: "r-models" }, title: "Check ChatGPT model list", working: true }),
 			summary({ thread: { kind: "side", key: "s1" }, title: "Release notes for 0.49", preview: "Yes, and keep it short." }),
 			summary({ thread: { kind: "run", key: "r-audit" }, title: "Audit side-pane thread rows", working: true }),
 			summary({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", startedAt: 0, updatedAt: 221_000, preview: "Input to picture is about 26 ms." }),
-			summary({ thread: { kind: "side", key: "s2" }, title: "Server installer rerun", state: "closed", end: "agent", outcome: "Both fixes are live." }),
 		];
 		await dock(null, [entry(pork, [audit, models])]);
-		const groups = [...container.querySelectorAll(".dock section")].map((group) => [
-			group.querySelector(".dock-group")?.textContent,
-			[...group.querySelectorAll(".dock-row")].map((row) => row.getAttribute("data-thread")),
-		]);
-		expect(groups).toEqual([
-			["Subagents working", ["run:r-models", "run:r-audit"]],
-			["Threads", ["side:s1"]],
-			["Ended subagents", ["run:r-map"]],
-		]);
+		const line = (id: string) => container.querySelector(`[data-thread="${id}"] .list-line`)?.textContent;
+		const beats = (id: string) => container.querySelector(`[data-thread="${id}"] .dock-dot.beat`) !== null;
 
-		// A working one: its kind, and its last three steps, the newest last.
-		const working = container.querySelector('[data-thread="run:r-models"]');
-		expect(working?.querySelector(".dock-kind")?.textContent).toBe("Subagent");
-		expect([...(working?.querySelectorAll(".dock-ticker > span") ?? [])].map((line) => line.textContent)).toEqual([
-			"Read openai-chatgpt.ts",
-			"“The token reaches /v1/models”",
-			"Fetch /v1/models · 200",
-		]);
-		expect([...container.querySelectorAll('[data-thread="run:r-audit"] .dock-ticker > span')].map((line) => line.textContent)).toEqual([
-			"Read ui/src/components/Dock.tsx",
-			"Read Dock.tsx",
-		]);
+		// A working one: its kind, and its latest step, beating.
+		expect(container.querySelector('[data-thread="run:r-models"] .list-mark')?.getAttribute("title")).toBe("Subagent");
+		expect(line("run:r-models")).toBe("Fetch /v1/models · 200");
+		expect(line("run:r-audit")).toBe("Read Dock.tsx");
+		expect(beats("run:r-models")).toBe(true);
 
 		// An ended one: what it reported, and how long it took.
-		const ended = container.querySelector('[data-thread="run:r-map"]');
-		expect(ended?.querySelector(".dock-kind")?.hasAttribute("data-ended")).toBe(true);
-		expect(ended?.querySelector(".dock-ticker")).toBeNull();
-		expect(ended?.textContent).toContain("Reported · Input to picture is about 26 ms. · 3:41");
-
-		// Other closed threads keep their fold.
-		expect(container.querySelector('[data-thread="side:s2"]')).toBeNull();
-		expect(container.textContent).toContain("Closed1");
+		expect(line("run:r-map")).toBe("Reported · Input to picture is about 26 ms. · 3:41");
+		expect(beats("run:r-map")).toBe(false);
 	});
 
-	test("with no subagents, the list is as it was: no group headings", async () => {
-		listed = [summary({ thread: { kind: "side", key: "s1" }, title: "Release notes for 0.49" })];
-		await dock(null, [entry(lou)]);
-		expect(container.querySelector(".dock-group")).toBeNull();
-		expect(container.querySelector('[data-thread="side:s1"]')).not.toBeNull();
-	});
-
-	test("a command left running is a thread, not a subagent; a stopped subagent says so", () => {
-		const shell = summary({ thread: { kind: "run", key: "r-crawl" } });
-		const groups = subagentGroups({ open: [shell], closed: [] }, [crawl]);
-		expect(groups.working).toEqual([]);
-		expect(groups.threads).toEqual([shell]);
+	test("a command left running is a command, not a subagent; a stopped subagent says so, and a finished command says Done", async () => {
+		listed = [summary({ thread: { kind: "run", key: "r-crawl" }, title: "Crawl 12 sites", working: true })];
+		await dock(null, [entry(pork, [crawl])]);
+		expect(container.querySelector('[data-thread="run:r-crawl"] .list-mark')?.getAttribute("title")).toBe("Command");
+		expect(container.querySelector('[data-thread="run:r-crawl"] .list-line')?.textContent).toBe("python3 crawl.py");
 		expect(endedWords(summary({ thread: { kind: "run", key: "x" }, state: "closed", end: "cancelled", updatedAt: 7_000, startedAt: 1_000 }))).toBe("Stopped · 0:06");
+		expect(endedWords(summary({ thread: { kind: "run", key: "x" }, state: "closed", end: "done", updatedAt: 7_000, startedAt: 1_000 }), true)).toBe("Done · 0:06");
 	});
 });

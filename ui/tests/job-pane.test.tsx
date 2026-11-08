@@ -77,6 +77,7 @@ async function draw(props: Props = {}) {
 				now={NOW}
 				onStop={() => pressed.push("stop")}
 				onEnd={() => pressed.push("end")}
+				onRemove={() => pressed.push("remove")}
 				onBack={() => {}}
 				onClose={() => {}}
 				composer={<textarea aria-label="Message" />}
@@ -161,6 +162,14 @@ describe("a job's pane", () => {
 		expect(container.querySelector('[aria-label="Message"]')).toBeNull();
 		expect(button("End job")).toBeUndefined();
 		expect(text(".job-facts dd")[0]).toBe("None");
+	});
+
+	test("an ended job has Remove, which takes it off the list, and a live one has none", async () => {
+		await draw();
+		expect(button("Remove")).toBeUndefined();
+		await draw({ ended: true, working: false });
+		await act(async () => button("Remove")?.click());
+		expect(pressed).toEqual(["remove"]);
 	});
 
 	test("with older lines on the desk its runs go unnumbered, and Earlier runs loads them", async () => {

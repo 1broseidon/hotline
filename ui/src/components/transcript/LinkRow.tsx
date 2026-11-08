@@ -2,12 +2,12 @@ import type { Person } from "../../avatars";
 import type { LinkEvent } from "../../dock";
 import { linkLine, linkRow } from "../../links";
 
-const KIND = { thread: "Thread", subagent: "Subagent", call: "Call" } as const;
+const KIND = { thread: "Thread", subagent: "Subagent", command: "Command", pair: "Pair", call: "Call" } as const;
 
 /**
  * Every way out of the conversation into a thread it holds, a work thread, a
- * subagent's run or a call, as one quiet line: a dot for how it stands, the
- * title, the kind, what came of it, and Open on a hover. No glyph: the chip
+ * subagent's run, a command left running, a pair or a call, as one quiet
+ * line: a dot for how it stands, the title, the kind, what came of it, and Open on a hover. No glyph: the chip
  * above the conversation already shows it. The one-sentence
  * `linkLine` is its accessible name, so a reader hears it as it always read.
  */

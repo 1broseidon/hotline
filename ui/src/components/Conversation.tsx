@@ -631,10 +631,10 @@ export function teammateActions({
 	];
 }
 
-/** What the chip calls a run of each kind: a subagent works with a model of its own; a shell run is a command the harness sent to the background. */
+/** What the chip calls a run of each kind: a subagent works with a model of its own; a shell run is a command the harness left running, its own kind, never a subagent. */
 const RUN_KIND: Record<NonNullable<RunningSubagent["kind"]>, { word: string; running: string }> = {
 	subagent: { word: "Subagent", running: "Subagent working" },
-	shell: { word: "Background", running: "Running in the background" },
+	shell: { word: "Command", running: "Command running" },
 };
 
 function runKind(run: RunningSubagent) {
@@ -668,7 +668,7 @@ export function SubagentChips({
 			<button
 				type="button"
 				className="control btn btn-sm min-w-0 shrink gap-1.5"
-				title={subagent ? "Open the subagent's run" : "Open its run"}
+				title={subagent ? "Open the subagent's run" : "Open the command"}
 				aria-label={`${kind.running}: ${run.title}`}
 				aria-pressed={opened(run.runId)}
 				onClick={() => open(run)}

@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- The pane for two teammates reads as their one conversation. A handoff
+  between them is its request in full with a Handoff chip by the name, the
+  work it became, step by step as it happens, and its result as that
+  teammate's line. Asides between them stand among the lines with an Aside
+  chip. Nothing there needs a second press to be read.
 - A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.

@@ -25,6 +25,7 @@ import {
 	withTurns,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
+import { useAsides } from "../asides";
 import { sideTitle } from "../links";
 import { answerCard, dmOf, sameThread, useThread } from "../tape";
 import { Avatar } from "../ui/Avatar";
@@ -341,6 +342,12 @@ function ThreadView({
 	const kind = threadFamily(id.kind, id.kind === "run" ? self.name : opener?.name, runKind);
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
+	// A pair draws the asides its two teammates left each other: each teammate's are read from what it was left.
+	const leftSelf = useAsides(id.kind === "pair" ? self.id : undefined, ownerEntry ?? null);
+	const leftOther = useAsides(id.kind === "pair" ? other : undefined, roster.find((one) => one.persona.id === other) ?? null);
+	const pairAsides = useMemo(() => [...(leftSelf ?? []), ...(leftOther ?? [])], [leftSelf, leftOther]);
+	const workingIds = id.kind === "pair" ? roster.flatMap((one) => (one.sides ?? []).filter((side) => side.working).map((side) => side.sideId)).join(" ") : "";
+	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
 	const [refused, setRefused] = useState<string | null>(null);
 	const root = useRef<HTMLElement>(null);
 	// The composer is where this page is for; a closed one has Continue.
@@ -402,6 +409,8 @@ function ThreadView({
 				other={{ id: them, name: row?.withName ?? withName, hash: people.get(them)?.hash }}
 				row={row}
 				events={lines}
+				asides={pairAsides}
+				workingSides={workingSides}
 				people={people}
 				handoff={open.handoff}
 				onBack={onBack}

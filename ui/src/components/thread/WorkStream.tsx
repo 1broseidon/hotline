@@ -14,25 +14,9 @@ import { LiveStream } from "./Pane";
 export type Worker = { id: string; name: string; hash?: string | undefined };
 
 /** A line said in the thread: the person's, the worker's, or a colleague's delivered into it. */
-export type Said = Extract<TranscriptEvent, { kind: "user" | "agent" | "delivery" }>;
+type Said = Extract<TranscriptEvent, { kind: "user" | "agent" | "delivery" }>;
 
-/**
- * A watched thread's work as it happens (docs/design/thread-panes.html), the
- * one stream a subagent's pane and a handoff's share: each run of steps
- * where it fell between the words, a step opening to its output, the words
- * under whose they are, and a card the worker raises answered here as
- * anywhere. It follows the newest until the person scrolls up, and says the
- * worker is thinking between its steps and its words while it runs. What
- * closes it, a subagent's result, comes after (`children`).
- */
-export function WorkStream({
-	thread,
-	blocks,
-	live,
-	worker,
-	said,
-	children,
-}: {
+type WorkProps = {
 	thread: ThreadId;
 	/** The thread's lines as blocks, steps where they fell (`toBlocks(…, true)`), with what streams after them. */
 	blocks: Block[];
@@ -41,14 +25,22 @@ export function WorkStream({
 	worker: Worker;
 	/** Who said a line, and whether it is the person's own: null leaves it out of the stream. */
 	said(event: Said): { name: string; mine: boolean } | null;
-	children?: ReactNode;
-}) {
+};
+
+/**
+ * A thread's work where it is drawn: each run of steps where it fell between
+ * the words, a step opening to its output, the words under whose they are, and
+ * a card the worker raises answered here as anywhere. It says the worker is
+ * thinking between its steps and its words while it runs. A pair's pane reads
+ * a handoff's work through this, in its own scrolling window.
+ */
+export function WorkBlocks({ thread, blocks, live, worker, said }: WorkProps) {
 	const hot = useHot();
 	const last = blocks.at(-1);
 	// Between its steps and its words a running turn is still the worker's work.
 	const thinking = live && !(last?.kind === "steps" && last.open === true) && !(last?.kind === "event" && last.live === true);
 	return (
-		<LiveStream following={`${thread.kind}:${thread.key}`} count={blocks.length} content={blocks} live={live}>
+		<>
 			{blocks.map((block) => (
 				<StreamBlock key={block.kind === "event" ? block.event.id : block.id} block={block} thread={thread} worker={worker} said={said} hot={hot} />
 			))}
@@ -58,6 +50,21 @@ export function WorkStream({
 					Thinking
 				</p>
 			)}
+		</>
+	);
+}
+
+/**
+ * A watched thread's work as it happens (docs/design/thread-panes.html), the
+ * one stream a subagent's pane and a handoff's share: [`WorkBlocks`] in a
+ * window that follows the newest until the person scrolls up. What closes it,
+ * a subagent's result, comes after (`children`).
+ */
+export function WorkStream({ children, ...work }: WorkProps & { children?: ReactNode }) {
+	const { thread, blocks, live } = work;
+	return (
+		<LiveStream following={`${thread.kind}:${thread.key}`} count={blocks.length} content={blocks} live={live}>
+			<WorkBlocks {...work} />
 			{children}
 		</LiveStream>
 	);

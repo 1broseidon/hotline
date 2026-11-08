@@ -626,7 +626,7 @@ export function teammateActions({
 		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: onStartChapter },
 		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
-		{ kind: "item", id: "notes", text: "Notes", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenNotes },
+		{ kind: "item", id: "notes", text: "Asides", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenNotes },
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];

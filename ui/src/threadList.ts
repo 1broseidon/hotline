@@ -55,7 +55,7 @@ export function markOf(kind: ListKind): { glyph: string; word: string } {
 		case "work":
 			return { glyph: "≡", word: threadFamily("side").word };
 		case "note":
-			return { glyph: "✎", word: "Note" };
+			return { glyph: "✎", word: "Aside" };
 		case "handoff":
 			return threadFamily("side", "");
 		case "subagent":
@@ -233,7 +233,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
  * kind, live and ended; Threads are the ones worked in: work threads,
  * handoffs and commands.
  */
-const FILTERS = ["active", "all", "needs", "live", "threads", "subagents", "jobs", "calls", "pairs", "notes"] as const;
+const FILTERS = ["active", "all", "needs", "live", "threads", "subagents", "jobs", "calls", "pairs", "teammates"] as const;
 export type ListFilter = (typeof FILTERS)[number];
 
 const KINDS: Partial<Record<ListFilter, readonly ListKind[]>> = {
@@ -242,14 +242,15 @@ const KINDS: Partial<Record<ListFilter, readonly ListKind[]>> = {
 	jobs: ["job"],
 	calls: ["call"],
 	pairs: ["pair"],
-	notes: ["note"],
+	// What other teammates sent this one: the work they handed over and the asides they left.
+	teammates: ["handoff", "note"],
 };
 
 /** Within a kind's chip: every one, the ones still live, or the ones ended. */
 export type Span = "all" | "live" | "ended";
 
 /** Whether a filter is a kind of thread's, which has the Live / Ended switch. */
-export const spans = (filter: ListFilter): boolean => filter !== "notes" && KINDS[filter] !== undefined;
+export const spans = (filter: ListFilter): boolean => filter !== "teammates" && KINDS[filter] !== undefined;
 
 export function filtered(items: ListItem[], filter: ListFilter, span: Span = "all"): ListItem[] {
 	const kinds = KINDS[filter];
@@ -293,7 +294,7 @@ export function grouped(items: ListItem[], now: number, active: boolean): Groups
 
 /*
  * The filter last used, per teammate: what the list opens on, across the
- * pane closing and the app restarting, and what the teammate menu's Notes
+ * pane closing and the app restarting, and what the teammate menu's Asides
  * sets. Kept in this window's storage, read where it is asked for.
  */
 const FILTER_KEY = "hotline.threads.filter";

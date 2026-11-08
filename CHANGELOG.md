@@ -47,19 +47,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Changed
 
 - The right-hand pane is one list, Threads: every work thread, handoff,
-  subagent, command, pair, call and job, and every note the teammate was
+  subagent, command, pair, call and job, and every aside the teammate was
   left, as rows of one shape, the kind's mark, the title, one line of state,
-  latest step or result, and the time. A note opens the thread it came from,
-  and that thread's row counts its notes. It opens on Active: Needs you,
-  Live and Today, with what is earlier, routine runs and read notes folded
+  latest step or result, and the time. An aside opens the thread it came from,
+  and that thread's row counts its asides. It opens on Active: Needs you,
+  Live and Today, with what is earlier, routine runs and read asides folded
   into one row that opens in place. Chips narrow it to Needs you, Live,
-  Threads, Subagents, Jobs, Calls, Pairs or Notes, a kind's with a Live /
-  Ended switch, search reads every row and note, and the chip last used is
+  Threads, Subagents, Jobs, Calls, Pairs or From teammates (handoffs and
+  asides), a kind's with a Live /
+  Ended switch, search reads every row and aside, and the chip last used is
   kept for each teammate. A thread waiting on you shows the card's question
   on its row with the card's own answers, Yes and No or Approve and Deny,
   and Open where the answer is a sign-in or written words. The Subagents
   working, Ended subagents, Jobs and Closed groups and the Noted page are
-  gone; Notes in the teammate's menu opens the list on its notes, and an
+  gone; Asides in the teammate's menu opens the list on what came from
+  teammates, and an
   ended job's Remove is in its pane's band.
 - A pair's line in the conversation says Pair, and a command left running
   says Command on its line and its chip, instead of Thread, Subagent and

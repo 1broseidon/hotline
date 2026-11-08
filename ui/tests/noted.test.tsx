@@ -231,19 +231,19 @@ describe("Notes in the teammate's menu", () => {
 		await render(3);
 		await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
 		const items = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] .menu-item .menu-item-text')].map((one) => one.textContent);
-		expect(items().slice(-5)).toEqual(["Settings", "New chapter", "Threads", "Notes3 new", "Remove"]);
-		const notes = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith("Notes"))!;
+		expect(items().slice(-5)).toEqual(["Settings", "New chapter", "Threads", "Asides3 new", "Remove"]);
+		const notes = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith("Asides"))!;
 		await act(async () => notes.click());
 		expect(done).toEqual(["notes"]);
 		await render(0);
 		await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
-		expect(items()).toContain("Notes");
+		expect(items()).toContain("Asides");
 	});
 });
 
 describe("the notes in the Threads list", () => {
 	async function showNotes(roster: RosterEntry[], states: unknown[] = []) {
-		rememberFilter(roster[1]!.persona.id, "notes");
+		rememberFilter(roster[1]!.persona.id, "teammates");
 		await act(async () => {
 			root.render(
 				<Dock

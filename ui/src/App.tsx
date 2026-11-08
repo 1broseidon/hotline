@@ -315,7 +315,7 @@ export function App() {
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 	/* The teammate menu's Notes: the list, narrowed to the notes the teammate was left. */
 	const openNotes = useCallback(() => {
-		if (selectedId !== null) rememberFilter(selectedId, "notes");
+		if (selectedId !== null) rememberFilter(selectedId, "teammates");
 		openDock({ open: null });
 	}, [openDock, selectedId]);
 

@@ -20,7 +20,7 @@ const CHIPS: { filter: ListFilter; word: string }[] = [
 	{ filter: "jobs", word: "Jobs" },
 	{ filter: "calls", word: "Calls" },
 	{ filter: "pairs", word: "Pairs" },
-	{ filter: "notes", word: "Notes" },
+	{ filter: "teammates", word: "From teammates" },
 ];
 
 const SPANS: { span: Span; word: string }[] = [
@@ -73,7 +73,7 @@ export function ThreadList({
 	/* What was unread when the list opened, so marking it read does not move it. */
 	const fresh = useRef(new Set<string>());
 	for (const aside of asides ?? []) if (aside.seen === undefined) fresh.current.add(aside.id);
-	const showsNotes = filter === "active" || filter === "all" || filter === "notes";
+	const showsNotes = filter === "active" || filter === "all" || filter === "teammates";
 	const anyUnseen = (asides ?? []).some((aside) => aside.seen === undefined);
 	useEffect(() => {
 		if (personaId !== undefined && showsNotes && anyUnseen) void wire.command("aside.seen", { personaId }).catch(() => undefined);
@@ -138,8 +138,8 @@ export function ThreadList({
 				<input
 					type="search"
 					className="field"
-					placeholder="Search threads and notes"
-					aria-label="Search threads and notes"
+					placeholder="Search threads and asides"
+					aria-label="Search threads and asides"
 					autoComplete="off"
 					spellCheck={false}
 					value={query}
@@ -253,7 +253,7 @@ function Row({
 				<span className="list-title">
 					<span className="list-title-text">{item.title}</span>
 					{item.notes > 0 && (
-						<span className="list-notes" title={`${item.notes} ${item.notes === 1 ? "note" : "notes"}`}>
+						<span className="list-notes" title={`${item.notes} ${item.notes === 1 ? "aside" : "asides"}`}>
 							✎ {item.notes}
 						</span>
 					)}

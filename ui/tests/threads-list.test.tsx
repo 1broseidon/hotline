@@ -237,7 +237,7 @@ describe("task-400 one row shape", () => {
 			"pair:lou~pork": "◎ Pair",
 			"call:c1": "☏ Call",
 			"job:watch": "↻ Job",
-			"note:n1": "✎ Note",
+			"note:n1": "✎ Aside",
 		});
 		// Every row is the same four parts.
 		for (const one of container.querySelectorAll(".list-row")) {
@@ -281,7 +281,7 @@ describe("task-400 one row shape", () => {
 		expect(row("side:s1")?.querySelector(".list-notes")).toBeNull();
 	});
 
-	test("The old groups (Subagents working, Threads, Ended subagents, Jobs, Closed) and the separate Noted page are gone; whatever opened Noted opens Threads filtered to Notes", async () => {
+	test("The old groups (Subagents working, Threads, Ended subagents, Jobs, Closed) and the separate Noted page are gone; whatever opened Noted opens Threads filtered to what came from teammates", async () => {
 		const roster = everyKind();
 		listed.push(
 			summary({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", outcome: "Input to picture is about 26 ms." }),
@@ -305,11 +305,13 @@ describe("task-400 one row shape", () => {
 			onOpenNotes: () => done.push("notes"), onDelete: () => {},
 		});
 		const notes = actions.find((one) => one.kind === "item" && one.id === "notes");
-		expect(notes).toMatchObject({ text: "Notes", detail: "3 new" });
+		expect(notes).toMatchObject({ text: "Asides", detail: "3 new" });
 		expect(actions.some((one) => one.kind === "item" && one.text === "Noted")).toBe(false);
-		await act(async () => rememberFilter("pork", "notes"));
-		expect(chip("Notes")?.getAttribute("aria-pressed")).toBe("true");
-		expect(rowIds()).toEqual(["note:n1"]);
+		await act(async () => rememberFilter("pork", "teammates"));
+		expect(chip("From teammates")?.getAttribute("aria-pressed")).toBe("true");
+		// What other teammates sent: the asides they left and the work they handed over.
+		expect(rowIds()).toEqual(expect.arrayContaining(["note:n1", "side:h1"]));
+		expect(rowIds().every((id) => id?.startsWith("note:") || id === "side:h1")).toBe(true);
 		await act(async () => chip("All")!.click());
 		expect(rowIds().length).toBeGreaterThan(1);
 	});
@@ -376,7 +378,7 @@ describe("task-401 the Active default", () => {
 });
 
 describe("task-402 filters and search", () => {
-	const search = () => container.querySelector<HTMLInputElement>('input[aria-label="Search threads and notes"]')!;
+	const search = () => container.querySelector<HTMLInputElement>('input[aria-label="Search threads and asides"]')!;
 	async function type(text: string) {
 		await act(async () => {
 			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(search(), text);
@@ -388,7 +390,7 @@ describe("task-402 filters and search", () => {
 	test("Chips: Active, All, Needs you, Live, Threads, Subagents, Jobs, Calls, Pairs, Notes. A kind chip shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
 		await dock(aDay());
 		const words = [...container.querySelectorAll(".list-chips button")].map((one) => one.firstChild?.textContent);
-		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Threads", "Subagents", "Jobs", "Calls", "Pairs", "Notes"]);
+		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Threads", "Subagents", "Jobs", "Calls", "Pairs", "From teammates"]);
 		// Only Needs you and Live are counted.
 		expect(chip("Needs you")?.querySelector(".list-count")?.textContent).toBe("1");
 		expect(chip("Live")?.querySelector(".list-count")?.textContent).toBe("2");
@@ -421,7 +423,7 @@ describe("task-402 filters and search", () => {
 		await act(async () => chip("Live")!.click());
 		expect(rowIds()).toEqual(["run:r-audit", "job:watch"]);
 		// Notes are not threads: no switch.
-		await act(async () => chip("Notes")!.click());
+		await act(async () => chip("From teammates")!.click());
 		expect(container.querySelector(".list-span")).toBeNull();
 		expect(rowIds()).toEqual(["note:unread", "note:read", "note:friday"]);
 	});
@@ -472,7 +474,7 @@ describe("task-402 filters and search", () => {
 		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
 		// A restart: nothing but what the window stored, read afresh.
 		expect(JSON.parse(localStorage.getItem("hotline.threads.filter") ?? "{}")).toEqual({ pork: "jobs" });
-		localStorage.setItem("hotline.threads.filter", JSON.stringify({ pork: "calls", lou: "notes" }));
+		localStorage.setItem("hotline.threads.filter", JSON.stringify({ pork: "calls", lou: "teammates" }));
 		await act(async () => root.render(<div />));
 		await dock(roster);
 		expect(chip("Calls")?.getAttribute("aria-pressed")).toBe("true");

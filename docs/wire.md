@@ -1116,7 +1116,13 @@ changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `awaitingSubagents: true` says it is open only for subagents it started and
 reads as done: the reply is in the conversation and the composer is as it is
 between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
-`subagents` lists the runs still going, oldest first, and `sides` the work
+`subagents` lists the runs still going, oldest first, `{runId, title,
+startedAt, kind?, lastStep?, steps?, command?}`: `kind` is `shell` for a
+command a harness left running (with its `command`) and absent for a
+subagent; `lastStep` is what the run did last, its latest step as a glance
+says it ("Read Dock.tsx") or the first clause of its latest words in quotes,
+and `steps` how many steps it has taken, each absent until there is one. The
+row is sent again as each of them changes, so a client never asks. `sides` lists the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
 can be stopped; each is absent when there are none. `asides` is how many

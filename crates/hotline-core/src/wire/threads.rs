@@ -91,7 +91,7 @@ pub(super) fn cancel(
             let (a, b) = pair_of(thread)?;
             room.stop_exchange(a, b)?;
         }
-        ThreadKind::Run => return Err(not_here(thread, "Cancelling")),
+        ThreadKind::Run => room.run_cancel(&thread.key)?,
     }
     Ok(Value::Null)
 }

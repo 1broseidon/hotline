@@ -565,8 +565,11 @@ mod tests {
                 last_step: None,
                 steps: 0,
                 command: None,
+                model: None,
+                stoppable: false,
             },
             true,
+            None,
         );
 
         let mut looked_again = HashMap::new();

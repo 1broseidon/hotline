@@ -365,6 +365,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Jobs are unavailable on this room.".to_string())
     }
 
+    /// The person's Stop on a subagent's run: it ends cancelled and says so
+    /// to its teammate.
+    fn run_cancel(&self, _run_id: &str) -> Result<(), String> {
+        Err("Subagents are unavailable on this room.".to_string())
+    }
+
     /// Answers a permission card raised inside a job's thread.
     async fn job_answer_permission(
         &self,

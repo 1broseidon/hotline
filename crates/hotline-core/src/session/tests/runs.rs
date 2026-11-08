@@ -228,6 +228,55 @@ async fn a_cancelled_run_stops_its_agent_and_its_line_says_so() {
     assert_eq!(tape(&room, "ada")[0]["status"], "cancelled");
 }
 
+/// The person's Stop in a run's pane ends it cancelled, as its teammate's
+/// cancel does; its roster row says it can be stopped and which model it is
+/// on. A harness's subagent, which nothing here can stop, is refused.
+#[tokio::test]
+async fn a_run_the_person_stops_ends_cancelled_and_a_harness_subagent_is_refused() {
+    let (driver, gate) = held();
+    let agents = Fake::new(driver);
+    let room = room("run-stop", agents.clone());
+    let running = tokio::spawn({
+        let room = room.clone();
+        async move {
+            room.run(spec(&room, "r9", "Wait."), CancellationToken::new())
+                .await
+        }
+    });
+    gate.add_permits(2);
+    until("the run is listed", || !room.subagents("ada").is_empty()).await;
+    let row = room.subagents("ada")[0].clone();
+    assert!(row.stoppable, "a run of Hotline's own can be stopped");
+    assert_eq!(row.model, room.info("ada").model_label);
+
+    room.stop_run("r9").unwrap();
+    let outcome = running.await.unwrap();
+    assert_eq!(outcome.end, RunEnd::Cancelled);
+    assert!(outcome.report.contains("stopped"), "{}", outcome.report);
+    assert_eq!(run_stream(&room, "r9")[0]["status"], "cancelled");
+    let gone = room.stop_run("r9").unwrap_err();
+    assert!(gone.ends_with('.'), "{gone}");
+
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(crate::driver::SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: crate::contract::RunKind::Subagent,
+            title: "Edge cases".to_string(),
+            task: "Find the edge cases.".to_string(),
+        })
+        .unwrap();
+    until("the harness's run is listed", || {
+        !room.subagents("ada").is_empty()
+    })
+    .await;
+    let harness = room.subagents("ada")[0].clone();
+    assert!(!harness.stoppable);
+    let refused = room.stop_run(&harness.run_id).unwrap_err();
+    assert!(refused.contains("harness"), "{refused}");
+}
+
 #[tokio::test]
 async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session() {
     let (driver, _gate) = held();
@@ -682,8 +731,15 @@ fn a_subagents_roster_row_carries_no_kind() {
         last_step: None,
         steps: 0,
         command: None,
+        model: None,
+        stoppable: false,
     };
-    assert!(serde_json::to_value(&row).unwrap().get("kind").is_none());
+    let said = serde_json::to_value(&row).unwrap();
+    assert!(said.get("kind").is_none());
+    assert!(
+        said.get("stoppable").is_none(),
+        "a run nothing can stop says nothing of it"
+    );
 }
 
 /// A subagent told its task apart from its announcement, as the RFD tells

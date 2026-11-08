@@ -282,6 +282,8 @@ impl Room {
             title: spec.title.clone(),
             command: None,
             started: now_ms(),
+            model: self.info(&spec.persona_id).model_label,
+            stop: Some(cancel.clone()),
             driver: None,
             lease: None,
             settled: false,
@@ -459,6 +461,8 @@ impl Room {
                     title,
                     command,
                     started: now_ms(),
+                    model: None,
+                    stop: None,
                     driver: None,
                     lease: None,
                     settled: false,
@@ -645,6 +649,11 @@ struct Running {
     /// What a shell run runs. None for a subagent.
     command: Option<String>,
     started: i64,
+    /// The model it works on, when the desk knows it.
+    model: Option<String>,
+    /// What stops it when the person presses Stop: a run of Hotline's own
+    /// has one; a harness's subagent has none.
+    stop: Option<CancellationToken>,
     driver: Option<Arc<dyn Driver>>,
     lease: Option<CapabilityLease>,
     settled: bool,
@@ -685,8 +694,11 @@ impl Running {
                 last_step: None,
                 steps: 0,
                 command: self.command.clone(),
+                model: self.model.clone(),
+                stoppable: self.stop.is_some(),
             },
             state == ThreadState::Live,
+            self.stop.clone(),
         );
     }
 
@@ -722,6 +734,8 @@ impl Drop for Running {
 pub(crate) struct Listed {
     pub(super) row: RunningSubagent,
     calls: HashSet<String>,
+    /// What stops the run, when the person can.
+    stop: Option<CancellationToken>,
 }
 
 impl Listed {
@@ -794,7 +808,13 @@ impl Room {
 
     /// Lists a run on its teammate's roster row while it is running, and
     /// takes it off once it is not, telling the roster either way.
-    pub(crate) fn list_subagent(&self, persona_id: &str, run: RunningSubagent, running: bool) {
+    pub(crate) fn list_subagent(
+        &self,
+        persona_id: &str,
+        run: RunningSubagent,
+        running: bool,
+        stop: Option<CancellationToken>,
+    ) {
         {
             let mut all = lock(&self.subagents);
             let runs = all.entry(persona_id.to_string()).or_default();
@@ -803,6 +823,7 @@ impl Room {
                 runs.push(Listed {
                     row: run,
                     calls: HashSet::new(),
+                    stop,
                 });
             }
             if runs.is_empty() {
@@ -810,6 +831,24 @@ impl Room {
             }
         }
         let _ = self.info_changes.send(self.info(persona_id));
+    }
+
+    /// The person's Stop on a run: its agent is told to stop, and the run
+    /// ends cancelled and reports that to its teammate, as a run its
+    /// teammate cancelled does. Refused, in a sentence, for a run that is
+    /// not going and for a harness's subagent, which nothing here can stop.
+    pub fn stop_run(&self, run_id: &str) -> Result<(), String> {
+        let stop = lock(&self.subagents)
+            .values()
+            .flatten()
+            .find(|listed| listed.row.run_id == run_id)
+            .map(|listed| listed.stop.clone())
+            .ok_or_else(|| "That subagent is not running.".to_string())?;
+        let stop = stop.ok_or_else(|| {
+            "That subagent is its harness's, which has no way to stop one run.".to_string()
+        })?;
+        stop.cancel();
+        Ok(())
     }
 
     /// Keeps a running run's roster row saying what it did last, as each

@@ -1936,7 +1936,20 @@ steps?: number,
  * The command a shell run runs, as its harness titled it. Absent for a
  * subagent.
  */
-command?: string, };
+command?: string, 
+/**
+ * The model the run works on, as its teammate's picker names it, when
+ * the desk knows it: a run of Hotline's own is on the model its
+ * teammate was on when it started. Absent for a harness's subagent,
+ * whose harness does not say.
+ */
+model?: string, 
+/**
+ * The person can stop the run (`thread.cancel` on it). A run of
+ * Hotline's own can be; a harness's subagent cannot, since its harness
+ * has no way to stop one run. Absent when it cannot.
+ */
+stoppable?: boolean, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

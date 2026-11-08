@@ -205,7 +205,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
-| `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs). Without `interrupt`, as the phone and an older window send it, it is the person's Stop: on a work thread it drops what waited behind the turn and ends for good a colleague's handoff it reaches (the cut turn's, a dropped line's, or one an Interrupt left the thread carrying), whose sender is left one `note` aside and never woken; the thread closes as `stopped` when the handoff's own turn was cut. `interrupt` is the window's Interrupt and Esc: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the turn the person's next line there starts; on the main conversation it is `session.cancel`'s; elsewhere it changes nothing ([Stop and Interrupt](sessions.md#stop-and-interrupt)) |
+| `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a subagent's run it is the person's Stop, which ends the run cancelled and reports that to its teammate (refused for a harness's subagent, which has no way to stop one run); on a job, the firing or line running, and the job keeps its schedule (refused when none runs). Without `interrupt`, as the phone and an older window send it, it is the person's Stop: on a work thread it drops what waited behind the turn and ends for good a colleague's handoff it reaches (the cut turn's, a dropped line's, or one an Interrupt left the thread carrying), whose sender is left one `note` aside and never woken; the thread closes as `stopped` when the handoff's own turn was cut. `interrupt` is the window's Interrupt and Esc: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the turn the person's next line there starts; on the main conversation it is `session.cancel`'s; elsewhere it changes nothing ([Stop and Interrupt](sessions.md#stop-and-interrupt)) |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none; one mid-turn is refused, since parking would cut the turn |
 | `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`: on one a teammate handed over, the person's End thread, which ends the handoff too), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
@@ -1117,11 +1117,13 @@ changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 reads as done: the reply is in the conversation and the composer is as it is
 between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
 `subagents` lists the runs still going, oldest first, `{runId, title,
-startedAt, kind?, lastStep?, steps?, command?}`: `kind` is `shell` for a
+startedAt, kind?, lastStep?, steps?, command?, model?, stoppable?}`: `kind` is `shell` for a
 command a harness left running (with its `command`) and absent for a
 subagent; `lastStep` is what the run did last, its latest step as a glance
 says it ("Read Dock.tsx") or the first clause of its latest words in quotes,
-and `steps` how many steps it has taken, each absent until there is one. The
+and `steps` how many steps it has taken, each absent until there is one;
+`model` is the model a run of Hotline's own works on, and `stoppable` says
+`thread.cancel` can stop it, both absent for a harness's subagent. The
 row is sent again as each of them changes, so a client never asks. `sides` lists the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job

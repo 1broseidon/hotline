@@ -281,6 +281,19 @@ pub struct RunningSubagent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub command: Option<String>,
+    /// The model the run works on, as its teammate's picker names it, when
+    /// the desk knows it: a run of Hotline's own is on the model its
+    /// teammate was on when it started. Absent for a harness's subagent,
+    /// whose harness does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model: Option<String>,
+    /// The person can stop the run (`thread.cancel` on it). A run of
+    /// Hotline's own can be; a harness's subagent cannot, since its harness
+    /// has no way to stop one run. Absent when it cannot.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub stoppable: bool,
 }
 
 /// What a run is. A subagent works the task with a model of its own; a

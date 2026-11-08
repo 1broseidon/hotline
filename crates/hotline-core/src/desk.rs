@@ -708,6 +708,10 @@ impl RoomHandle for Desk {
         self.room.cancel_job_turn(job_id)
     }
 
+    fn run_cancel(&self, run_id: &str) -> Result<(), String> {
+        self.room.stop_run(run_id)
+    }
+
     async fn job_answer_permission(
         &self,
         job_id: &str,

@@ -626,7 +626,9 @@ main --server --version 0.26.0 --yes {args}
         self.assertIn(self.BROWSER, self.actions())
 
     def test_an_up_to_date_server_gets_the_browser_on_a_rerun_with_browser_without_force(self):
-        before = 'installed_version() { installed=1; current=0.26.0; }; helper_missing() { return 1; }; uname() { echo Linux; }; command() { [ "$2" = apt-get ] && return 0; builtin command "$@"; }'
+        # The harness already puts uname and apt-get on PATH; a `command`
+        # stub that calls `builtin` is bash-only and fails under dash.
+        before = 'installed_version() { installed=1; current=0.26.0; }; helper_missing() { return 1; }'
         out = self.server_run("--browser", unit_exists=True, hotline_exists=True, before=before)
         actions = self.actions()
         self.assertIn(self.BROWSER, actions)

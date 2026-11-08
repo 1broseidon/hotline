@@ -101,7 +101,7 @@ These come over as ideas and, where the code was already Rust, as code.
   `schedule.create` on the wire takes no `without`: a job the person makes
   runs as their teammate, with the reach they already granted it, so the
   person narrows a teammate by changing its grants, or asks it to make the
-  job narrower, and the Jobs group shows "Runs without …" either way. A
+  job narrower, and the job's pane shows "Runs without …" either way. A
   wire field with no window or phone to send it would be a second door to
   the same rule with nothing behind it. What came back to a job (a card's
   answer, a colleague's reply) is written on its thread before it is

@@ -120,11 +120,12 @@ function threadItem(row: ThreadSummary, { runs, listedFor, nameOf }: Input, note
 	const live = !ended && (row.working || run !== undefined);
 	const from = openerWords(row, listedFor, nameOf);
 	const said = stateLine(kind, row, run, live);
+	const line = from === "" ? said : `${from} · ${said}`;
 	return {
 		id: keyOf(row.thread),
 		kind,
 		title,
-		line: from === "" ? said : `${from} · ${said}`,
+		line,
 		at: row.updatedAt,
 		live,
 		waiting: !ended && row.waiting,
@@ -132,7 +133,7 @@ function threadItem(row: ThreadSummary, { runs, listedFor, nameOf }: Input, note
 		routine: ended && kind === "command",
 		read: false,
 		notes,
-		words: wordsOf(title, from === "" ? said : `${from} · ${said}`, row.preview, row.outcome),
+		words: wordsOf(title, line, row.preview, row.outcome),
 		open: { thread: row.thread, title },
 		thread: row.thread,
 		owner: row.thread.kind === "pair" ? listedFor : row.personaId,

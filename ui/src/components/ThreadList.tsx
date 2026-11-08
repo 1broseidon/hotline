@@ -145,10 +145,7 @@ export function ThreadList({
 					value={query}
 					onChange={(change) => setQuery(change.target.value)}
 					onKeyDown={(key) => {
-						// Escape clears a search before it closes the pane.
-						if (key.key !== "Escape" || query === "") return;
-						key.stopPropagation();
-						setQuery("");
+						if (key.key === "Escape") setQuery("");
 					}}
 				/>
 			</div>

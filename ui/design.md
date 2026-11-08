@@ -149,8 +149,8 @@ another teammate, a subagent's run, a command, a call, a job, and the notes
 (asides) the teammate was left (docs/design/threads-list.html, idea A). Its
 band is the title, Threads, and the way out; under it a search field (Search
 threads and notes) reads every row, the folded ones too, by its title, its
-line, what was said in it or came of it, and a note's words, and Escape
-clears it before it closes the pane. Under the search, chips narrow the list:
+line, what was said in it or came of it, and a note's words; Escape in it
+clears it. Under the search, chips narrow the list:
 Active, All, Needs you, Live, Threads (work threads, handoffs and commands),
 Subagents, Jobs, Calls, Pairs and Notes, the chip pressed on the pressed
 plane, Needs you in amber while something waits, and only Needs you and Live

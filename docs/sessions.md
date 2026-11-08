@@ -2527,9 +2527,9 @@ stops its turn in flight, a firing's or the person's, and drops what waited
 behind it: that turn posts no report, the thread gets a notice that it was
 stopped, and the job keeps its schedule. `thread.close` cancels the job. The
 roster row's `workingJobs` says which jobs have a turn running, so the
-window offers Stop only then; the Jobs group's row and the job's thread
-header both offer Stop and Cancel, and the header says what a narrowed job
-runs without (`without` on the schedules view). A companion phone may do
+window offers Stop only then; the job's pane offers Stop and End job in its
+band, and Remove once the job has ended, and says what a narrowed job runs
+without (`without` on the schedules view). A companion phone may do
 neither, as it may not `schedule.cancel`. A card the job raises pushes with
 the job's thread as `data.thread`, so a tap can open it.
 

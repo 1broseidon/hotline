@@ -856,8 +856,9 @@ fn file_of(title: &str) -> Option<String> {
     if words.next().is_some() {
         return None;
     }
+    // A Windows path names its file after a backslash.
     path.trim_matches(['`', '"', '\''])
-        .rsplit('/')
+        .rsplit(['/', '\\'])
         .find(|part| !part.is_empty())
         .map(str::to_string)
 }
@@ -961,6 +962,18 @@ mod tests {
 
     fn one(title: &str, kind: &str) -> String {
         step_said(title, kind, None).one
+    }
+
+    #[test]
+    fn a_file_is_named_by_its_name_on_a_windows_path_as_on_a_unix_one() {
+        assert_eq!(
+            file_of("Read C:\\Users\\ada\\harbour\\notes.txt").as_deref(),
+            Some("notes.txt")
+        );
+        assert_eq!(
+            file_of("Read /home/ada/harbour/notes.txt").as_deref(),
+            Some("notes.txt")
+        );
     }
 
     #[test]

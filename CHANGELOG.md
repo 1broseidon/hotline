@@ -54,6 +54,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- On Windows a step that read or edited a file is named by the file, as on
+  the Mac, not by its whole path.
 - Scrolling up a conversation is smooth again. Since 0.48.0 a flick up just
   after opening one could be pulled back to the bottom, and the view
   stuttered as older lines were drawn in above it.

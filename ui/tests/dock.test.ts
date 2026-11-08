@@ -95,8 +95,8 @@ describe("a row of the list", () => {
 		expect(rowTitle(thread("x", "side", { title: "Fix CI" }), "ada", names)).toBe("Fix CI");
 		const pair = thread("ada~mack", "pair", { personaId: "ada", withPersonaId: "mack" });
 		const { title: _gone, ...untitled } = pair;
-		expect(rowTitle(untitled, "ada", names)).toBe("With Mack");
-		expect(rowTitle(untitled, "mack", names)).toBe("With Ada");
+		expect(rowTitle(untitled, "ada", names)).toBe("Ada ↔ Mack");
+		expect(rowTitle(untitled, "mack", names)).toBe("Mack ↔ Ada");
 		expect(pairWith("ada~mack", "mack")).toBe("ada");
 	});
 

@@ -79,7 +79,6 @@ describe("a call's pane", () => {
 	test("says ☏ Call with no family line, and the band says Live with how long and the voice model, and End call while live", async () => {
 		await draw();
 		expect(container.querySelector(".band-kind")?.textContent).toBe("☏ Call");
-		expect(container.querySelector(".pane-family")).toBeNull();
 		expect(container.querySelector(".pane-title")?.textContent).toBe("Live call on device-code login test");
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, live");
 		expect(container.querySelector(".band .instrument")?.textContent).toBe("12:48 · GPT-Live");

@@ -37,7 +37,7 @@ import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
 import { ThreadList } from "./ThreadList";
 import { LoopIn } from "./LoopIn";
-import { PaneHead } from "./thread/Pane";
+import { BandKind, PaneHead } from "./thread/Pane";
 import { RunPane } from "./thread/RunPane";
 import { HandoffPane } from "./thread/HandoffPane";
 import { PairPane } from "./thread/PairPane";
@@ -431,10 +431,7 @@ function ThreadView({
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 text-lg font-semibold">
-					{turning && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-					<span className="truncate">{title}</span>
-				</h2>
+				<BandKind kind={kind} live={turning} state={turning ? "working" : state} tone={row?.end === "failed" ? "failed" : "quiet"} />
                 {id.kind === "side" && !closed && opener === undefined && (
                     <button type="button" className="control btn-quiet px-2 text-sm" title="Call this thread" onClick={() => void startCall(undefined, { personaId: self.id, name: self.name, thread: id }).catch(refuse)}>Call</button>
                 )}
@@ -460,6 +457,7 @@ function ThreadView({
 			</Band>
 			<PaneHead
 				kind={kind}
+				title={title}
 				meta={
 					opener !== undefined
 						? [`from ${opener.name}`, `to ${self.name}`, row?.handoffEnded === true ? "the handoff has ended" : `answers go back to ${opener.name}`]

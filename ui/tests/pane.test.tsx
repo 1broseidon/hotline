@@ -38,7 +38,7 @@ async function render(node: React.ReactNode) {
 
 describe("a thread's kind and family", () => {
 	test("a work thread the person is in is a conversation, and one handed over is a handoff they can step in to", () => {
-		expect(threadFamily("side")).toEqual({ glyph: "", word: "Work thread", family: "", watching: false });
+		expect(threadFamily("side")).toEqual({ glyph: "≡", word: "Work thread", family: "", watching: false });
 		expect(threadFamily("side", "Elvis")).toEqual({ glyph: "⇄", word: "Handoff", family: "", watching: true });
 	});
 
@@ -62,28 +62,21 @@ describe("a thread's kind and family", () => {
 });
 
 describe("a pane's head", () => {
-	test("labels the kind with its glyph, says the family, the title, and the meta joined by dots without empty parts", async () => {
+	test("says the title, then the kind's fact and the meta joined by dots without empty parts", async () => {
 		await render(<PaneHead kind={threadFamily("run", "Pork Chop")} title="Audit side-pane thread rows" meta={["sent by Pork Chop", "", undefined, false, "Sonnet 5.5", "started 1:57 PM"]} />);
-		expect(container.querySelector(".pane-kind")?.textContent).toBe("◆Subagent");
-		expect(container.querySelector(".pane-kind")?.getAttribute("data-watching")).toBe("true");
-		expect(container.querySelector(".pane-family")?.textContent).toBe("Read only");
 		expect(container.querySelector(".pane-title")?.textContent).toBe("Audit side-pane thread rows");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("sent by Pork Chop · Sonnet 5.5 · started 1:57 PM");
+		expect(container.querySelector(".pane-meta")?.textContent).toBe("Read only · sent by Pork Chop · Sonnet 5.5 · started 1:57 PM");
 	});
 
-	test("a work thread is in the annotating ink with no glyph, and leaves its title to the band", async () => {
-		await render(<PaneHead kind={threadFamily("side")} meta={["Pork Chop"]} />);
-		expect(container.querySelector(".pane-kind")?.textContent).toBe("Work thread");
-		expect(container.querySelector(".pane-kind")?.hasAttribute("data-watching")).toBe(false);
-		// A thread the person speaks in needs no line saying so: its composer does.
-		expect(container.querySelector(".pane-family")).toBeNull();
-		expect(container.querySelector(".pane-title")).toBeNull();
+	test("a thread the person speaks in has no fact leading its meta: its composer says it", async () => {
+		await render(<PaneHead kind={threadFamily("side")} title="Release notes" meta={["Pork Chop"]} />);
+		expect(container.querySelector(".pane-title")?.textContent).toBe("Release notes");
+		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop");
 	});
 
 	test("a family said in its place wins over the kind's own", async () => {
-		await render(<PaneHead kind={threadFamily("job")} family="Loop" />);
-		expect(container.querySelector(".pane-family")?.textContent).toBe("Loop");
-		expect(container.querySelector(".pane-meta")).toBeNull();
+		await render(<PaneHead kind={threadFamily("job")} family="Loop" title="Watch CI" />);
+		expect(container.querySelector(".pane-meta")?.textContent).toBe("Loop");
 	});
 });
 

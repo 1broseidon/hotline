@@ -190,8 +190,6 @@ describe("the head", () => {
 		await show(running());
 		const head = container.querySelector(".run-pane .pane-head");
 		// The kind is the band's heading, and its foot says it is read only.
-		expect(head?.querySelector(".pane-kind")).toBeNull();
-		expect(head?.querySelector(".pane-family")).toBeNull();
 		expect(head?.querySelector(".pane-title")?.textContent).toBe("Audit side-pane thread rows");
 		expect(head?.querySelector(".pane-meta")?.textContent).toMatch(/^sent by Pork Chop · Sonnet 5\.5 · started 1:57\s?PM$/);
 	});

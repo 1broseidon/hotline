@@ -34,39 +34,27 @@ export function BandKind({ kind, live, tone, state }: { kind: PaneKind; live: bo
 export type From = { personaId: string; name: string; hash?: string | undefined };
 
 /**
- * Under the band: the kind's label and a plain fact beside it where one is
- * needed ("Read only", "Started by Poe"), the title, and one meta line of facts
- * joined by " · ", empty ones left out. The band keeps the state and the
- * keys; this says what the thread is.
+ * Under the band, on every thread's pane: the title, then one line of facts
+ * joined by " · ", empty ones left out, led by the kind's own fact where it
+ * has one ("Read only", "Started by Poe"). The band says the kind
+ * ([`BandKind`]) and keeps the state and the keys.
  */
 export function PaneHead({
 	kind,
 	family,
 	title,
 	meta = [],
-	kindInBand = false,
 }: {
 	kind: PaneKind;
-	/** The band already says the kind ([`BandKind`]): the head leaves its label out, and its fact leads the meta line. */
-	kindInBand?: boolean;
-	/** Said in place of the kind's own family line: a job's "Loop", a command's "Started by Poe". */
+	/** Said in place of the kind's own fact: a job's "Loop", a run's nothing. */
 	family?: string | undefined;
-	/** None where the band already carries it. */
-	title?: string | undefined;
+	title: string;
 	meta?: ReadonlyArray<string | false | null | undefined>;
 }) {
-	const fact = family ?? kind.family;
-	const facts = [kindInBand && fact, ...meta].filter((part): part is string => typeof part === "string" && part !== "");
+	const facts = [family ?? kind.family, ...meta].filter((part): part is string => typeof part === "string" && part !== "");
 	return (
 		<header className="pane-head">
-			{!kindInBand && <p className="pane-head-kind">
-				<span className="pane-kind" data-watching={kind.watching || undefined}>
-					{kind.glyph !== "" && <span aria-hidden="true">{kind.glyph}</span>}
-					{kind.word}
-				</span>
-				{fact !== "" && <span className="pane-family">{fact}</span>}
-			</p>}
-			{title !== undefined && title !== "" && <h3 className="pane-title selectable">{title}</h3>}
+			<h3 className="pane-title selectable">{title}</h3>
 			{facts.length > 0 && <p className="pane-meta selectable">{facts.join(" · ")}</p>}
 		</header>
 	);

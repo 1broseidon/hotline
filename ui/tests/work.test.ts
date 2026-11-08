@@ -16,8 +16,8 @@ describe("pressing what opened a card", () => {
 
 describe("an untitled side thread", () => {
 	test("is called a new side thread until its first line names it", () => {
-		expect(sideTitle("")).toBe("New side thread");
-		expect(sideTitle(undefined)).toBe("New side thread");
+		expect(sideTitle("")).toBe("New thread");
+		expect(sideTitle(undefined)).toBe("New thread");
 		expect(sideTitle("Fix the CI badge")).toBe("Fix the CI badge");
 	});
 });

@@ -151,7 +151,6 @@ export function RunPane({
 			</Band>
 			<PaneHead
 				kind={threadFamily("run", teammate.name)}
-				kindInBand
 				// Its foot says it is read only.
 				family=""
 				title={title}

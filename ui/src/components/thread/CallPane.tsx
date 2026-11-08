@@ -219,7 +219,7 @@ export function CallPage({
 				)}
 				<PaneClose onClose={onClose} />
 			</Band>
-			<PaneHead kind={threadFamily("call")} kindInBand title={title} meta={[from, name, startedAt !== undefined && startedWords(startedAt)]} />
+			<PaneHead kind={threadFamily("call")} title={title} meta={[from, name, startedAt !== undefined && startedWords(startedAt)]} />
 			<LiveStream following={`${thread.kind}:${thread.key}`} count={blocks.length} content={blocks} live={working}>
 				{more && onEarlier !== undefined && (
 					<button type="button" className="control btn btn-sm mb-3 self-center" onClick={() => void onEarlier()}>

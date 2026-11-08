@@ -298,11 +298,10 @@ describe("the head of a handed-over thread", () => {
 			desk = { key: `work-head-${pane.id}`, state: "live", working: false };
 			await show(pane, false);
 			const head = container.querySelector(".pane-head");
-			expect(head?.querySelector(".pane-kind")?.textContent).toBe("⇄Handoff");
-			expect(head?.querySelector(".pane-family")).toBeNull();
+			expect(container.querySelector(".band-kind")?.textContent).toBe("⇄ Handoff");
 			expect(head?.querySelector(".pane-meta")?.textContent).toBe("from Lead · to Exec · answers go back to Lead");
-			// The band keeps the title; the head does not say it twice.
-			expect(head?.querySelector(".pane-title")).toBeNull();
+			// The band says the kind and the head the title, as on every thread's pane.
+			expect(head?.querySelector(".pane-title")?.textContent).not.toBe("");
 		});
 	}
 });

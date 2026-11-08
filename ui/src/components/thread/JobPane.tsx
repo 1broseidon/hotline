@@ -150,7 +150,6 @@ export function JobPage({
 			</Band>
 			<PaneHead
 				kind={threadFamily("job")}
-				kindInBand
 				family={job === undefined ? undefined : job.kind === "loop" ? "Loop" : "Once"}
 				title={title}
 				meta={[name, schedule, job !== undefined && postingWords(job)]}

@@ -49,11 +49,11 @@ export type ListItem = {
 	owner?: string;
 };
 
-/** Each kind's mark and word, as the thread panes say them; a work thread, which has no glyph there, is ≡ here. */
+/** Each kind's mark and word, as the thread panes say them. */
 export function markOf(kind: ListKind): { glyph: string; word: string } {
 	switch (kind) {
 		case "work":
-			return { glyph: "≡", word: threadFamily("side").word };
+			return threadFamily("side");
 		case "note":
 			return { glyph: "✎", word: "Aside" };
 		case "handoff":

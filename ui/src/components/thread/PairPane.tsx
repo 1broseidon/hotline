@@ -222,7 +222,6 @@ export function PairPane({
 			</Band>
 			<PaneHead
 				kind={threadFamily("pair")}
-				kindInBand
 				title={`${self.name} ↔ ${other.name}`}
 				meta={[handoff !== undefined && `handed off by ${handoff.name}`, row !== undefined && startedWords(row.startedAt)]}
 			/>

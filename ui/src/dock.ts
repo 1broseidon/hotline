@@ -159,7 +159,7 @@ export function rowTitle(row: ThreadSummary, selfId: string, nameOf: (personaId:
 	if (row.title !== undefined && row.title !== "") return row.title;
 	if (row.thread.kind === "side") return sideTitle(row.title);
 	const other = row.thread.kind === "pair" ? pairWith(row.thread.key, selfId) : undefined;
-	return other !== undefined ? `With ${nameOf(other) ?? "a teammate"}` : "Conversation";
+	return other !== undefined ? `${nameOf(selfId) ?? "A teammate"} ↔ ${nameOf(other) ?? "a teammate"}` : "Conversation";
 }
 
 /**

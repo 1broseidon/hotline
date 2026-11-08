@@ -48,7 +48,7 @@ function callWords(link: LinkEvent, working: boolean): string {
 const ENDINGS: Partial<Record<ThreadEnd, string>> = { stopped: "stopped", idle: "archived, idle" };
 
 /** A side thread opened without a task is untitled until its first line names it. */
-export const sideTitle = (title: string | undefined): string => (title === undefined || title === "" ? "New side thread" : title);
+export const sideTitle = (title: string | undefined): string => (title === undefined || title === "" ? "New thread" : title);
 
 /**
  * Who a work thread is between, from the tape that holds it: handed to a

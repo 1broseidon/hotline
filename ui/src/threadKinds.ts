@@ -29,7 +29,7 @@ export function threadFamily(kind: ThreadKind, opener?: string, run: RunKind = "
 	switch (kind) {
 		case "side":
 			return opener === undefined
-				? { glyph: "", word: "Work thread", family: "", watching: false }
+				? { glyph: "≡", word: "Work thread", family: "", watching: false }
 				: { glyph: "⇄", word: "Handoff", family: "", watching: true };
 		case "run":
 			return run === "shell"

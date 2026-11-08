@@ -100,7 +100,6 @@ export function CommandPane({
 			</Band>
 			<PaneHead
 				kind={threadFamily("run", owner, "shell")}
-				kindInBand
 				title={command}
 				meta={[dir !== undefined && `in ${dir}`, startedAt !== undefined && startedWords(startedAt)]}
 			/>

@@ -121,12 +121,9 @@ describe("a work thread's pane", () => {
 	test("A work thread's pane shows \"Work thread\"; nothing else about it changes", async () => {
 		listed = [summary({ thread: { kind: "side", key: "s1" }, title: "Release notes for 0.49" })];
 		await dock({ thread: { kind: "side", key: "s1" }, title: "Release notes for 0.49" }, [entry(pork)]);
-		const head = container.querySelector(".pane-head");
-		expect(head?.querySelector(".pane-kind")?.textContent).toBe("Work thread");
-		expect(head?.querySelector(".pane-kind")?.hasAttribute("data-watching")).toBe(false);
-		// Plain: no family line beside the label, and the band keeps the title.
-		expect(head?.querySelector(".pane-family")).toBeNull();
-		expect(head?.querySelector(".pane-title")).toBeNull();
+		// The band says the kind and the head the title, as on every thread's pane.
+		expect(container.querySelector(".band-kind")?.textContent).toBe("≡ Work thread");
+		expect(container.querySelector(".pane-head .pane-title")?.textContent).toBe("Release notes for 0.49");
 		// Still the conversation it was: its composer, End thread, and not a run's pane.
 		expect(container.querySelector("textarea")).not.toBeNull();
 		expect(container.querySelector('button[title="End this thread"]')).not.toBeNull();

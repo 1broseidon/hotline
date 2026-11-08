@@ -742,7 +742,7 @@ pub struct Room {
     job_threads: Mutex<HashMap<String, Arc<job_thread::LiveJob>>>,
     /// Subagents running now, by teammate, for the roster row. Like a
     /// drawing, nothing about a run survives a restart.
-    subagents: Mutex<HashMap<String, Vec<crate::contract::RunningSubagent>>>,
+    subagents: Mutex<HashMap<String, Vec<runner::Listed>>>,
     deltas: broadcast::Sender<StreamDelta>,
     /// Wakes the scheduler when a job is written, so a create does not wait
     /// for the nearest existing nextAt.
@@ -1143,36 +1143,6 @@ impl Room {
     /// Whether this teammate's picture is being drawn.
     pub fn drawing(&self, persona_id: &str) -> bool {
         lock(&self.drawing).contains(persona_id)
-    }
-
-    /// The subagents this teammate has running, oldest first.
-    pub fn subagents(&self, persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
-        lock(&self.subagents)
-            .get(persona_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Lists a run on its teammate's roster row while it is running, and
-    /// takes it off once it is not, telling the roster either way.
-    pub(crate) fn list_subagent(
-        &self,
-        persona_id: &str,
-        run: crate::contract::RunningSubagent,
-        running: bool,
-    ) {
-        {
-            let mut all = lock(&self.subagents);
-            let runs = all.entry(persona_id.to_string()).or_default();
-            runs.retain(|one| one.run_id != run.run_id);
-            if running {
-                runs.push(run);
-            }
-            if runs.is_empty() {
-                all.remove(persona_id);
-            }
-        }
-        let _ = self.info_changes.send(self.info(persona_id));
     }
 
     /// Marks a picture as being drawn until the guard drops, telling the

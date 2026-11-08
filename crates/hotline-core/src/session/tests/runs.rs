@@ -538,6 +538,11 @@ async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
     let listed = room.subagents("ada");
     assert_eq!(listed[0].kind, RunKind::Shell);
     assert_eq!(listed[0].title, "Crawl 12 sites");
+    assert_eq!(
+        listed[0].command.as_deref(),
+        Some("python3 crawl.py sites2 300"),
+        "the roster says what it runs"
+    );
     let run_id = listed[0].run_id.clone();
     assert_eq!(
         serde_json::to_value(&listed[0]).unwrap()["kind"],
@@ -576,6 +581,96 @@ async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
     assert_eq!(stream[2]["text"], "12 sites crawled");
 }
 
+/// A run's roster row says what it did last, its latest step or the first
+/// clause of its latest words, and counts each step once however often it is
+/// written; each change tells the roster, so nothing has to ask.
+#[tokio::test]
+async fn a_runs_roster_row_follows_its_latest_step_and_words() {
+    use crate::driver::SubagentReport;
+    let room = room("harness-steps", Fake::new(Scripted::new(Vec::new())));
+    let mut told = room.subscribe_info();
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    let send = |update: Update| {
+        reports
+            .send(SubagentReport::Update {
+                child: "child-1".to_string(),
+                update,
+            })
+            .unwrap();
+    };
+    let row = || room.subagents("ada").first().cloned();
+    reports
+        .send(SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: crate::contract::RunKind::Subagent,
+            title: "Audit the rows".to_string(),
+            task: "Read the dock.".to_string(),
+        })
+        .unwrap();
+    until("the run is listed", || row().is_some()).await;
+    let listed = row().unwrap();
+    assert_eq!(
+        (listed.last_step, listed.steps),
+        (None, 0),
+        "nothing done yet"
+    );
+    assert!(listed.command.is_none());
+
+    while told.try_recv().is_ok() {}
+    send(Update::Message {
+        kind: MessageKind::Agent,
+        id: "m1".to_string(),
+        text: "Starting with the right pane, then the conversation.".to_string(),
+    });
+    until("its words are its latest", || {
+        row().and_then(|run| run.last_step).as_deref()
+            == Some("\u{201c}Starting with the right pane\u{201d}")
+    })
+    .await;
+    assert!(told.try_recv().is_ok(), "the roster was told");
+
+    send(Update::ToolCall {
+        call_id: "c1".to_string(),
+        title: "Read ui/src/components/Dock.tsx".to_string(),
+        kind: "read".to_string(),
+    });
+    until("its step is its latest", || {
+        row().is_some_and(|run| run.last_step.as_deref() == Some("Read Dock.tsx") && run.steps == 1)
+    })
+    .await;
+
+    send(Update::ToolResult {
+        call_id: "c1".to_string(),
+        ok: true,
+        output: "export function Dock".to_string(),
+        images: Vec::new(),
+    });
+    send(Update::Message {
+        kind: MessageKind::Thought,
+        id: "t1".to_string(),
+        text: "Nothing carries a last step yet, so every row says working.".to_string(),
+    });
+    until("its thinking is its latest", || {
+        row().and_then(|run| run.last_step).as_deref()
+            == Some("\u{201c}Nothing carries a last step yet\u{201d}")
+    })
+    .await;
+    assert_eq!(
+        row().unwrap().steps,
+        1,
+        "a step that ends is not a second step"
+    );
+
+    reports
+        .send(SubagentReport::Ended {
+            child: "child-1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the run is off the roster", || row().is_none()).await;
+}
+
 /// A subagent's row on the roster is as it always was: no kind.
 #[test]
 fn a_subagents_roster_row_carries_no_kind() {
@@ -584,6 +679,9 @@ fn a_subagents_roster_row_carries_no_kind() {
         title: "Explorer".into(),
         started_at: 1,
         kind: crate::contract::RunKind::Subagent,
+        last_step: None,
+        steps: 0,
+        command: None,
     };
     assert!(serde_json::to_value(&row).unwrap().get("kind").is_none());
 }

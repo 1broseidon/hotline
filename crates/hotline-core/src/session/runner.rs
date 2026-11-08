@@ -39,7 +39,7 @@
 use super::agent::{Opening, clone_of, lease_of};
 use super::prompt::{PendingTool, event_of};
 use super::turns::{Line, Seat};
-use super::{Brief, Report, Room, Trigger, narration, new_id, now_ms, timed};
+use super::{Brief, Report, Room, Trigger, lock, narration, new_id, now_ms, timed};
 use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
     NoticeLevel, Persona, Reach, RunKind, RunningSubagent, SharedSecret, SubagentStatus,
@@ -50,7 +50,8 @@ use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
 use crate::thread::{Link, ThreadState};
 use crate::voice::spoken::Shown;
 use futures_util::future::BoxFuture;
-use std::collections::HashMap;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -279,6 +280,7 @@ impl Room {
             run_id: spec.run_id.clone(),
             kind: RunKind::Subagent,
             title: spec.title.clone(),
+            command: None,
             started: now_ms(),
             driver: None,
             lease: None,
@@ -444,12 +446,18 @@ impl Room {
                 if runs.contains_key(&child) {
                     return;
                 }
+                // A harness titles a command it sent to the background with
+                // the command itself, in code ticks.
+                let command = (kind == RunKind::Shell)
+                    .then(|| task.replace('`', "").trim().to_string())
+                    .filter(|command| !command.is_empty());
                 let running = Running {
                     room: Arc::downgrade(self),
                     persona_id: persona_id.to_string(),
                     run_id: new_id(),
                     kind,
                     title,
+                    command,
                     started: now_ms(),
                     driver: None,
                     lease: None,
@@ -634,6 +642,8 @@ struct Running {
     /// A subagent, or a harness's background task.
     kind: RunKind,
     title: String,
+    /// What a shell run runs. None for a subagent.
+    command: Option<String>,
     started: i64,
     driver: Option<Arc<dyn Driver>>,
     lease: Option<CapabilityLease>,
@@ -672,6 +682,9 @@ impl Running {
                 title: self.title.clone(),
                 started_at: self.started,
                 kind: self.kind,
+                last_step: None,
+                steps: 0,
+                command: self.command.clone(),
             },
             state == ThreadState::Live,
         );
@@ -701,6 +714,116 @@ impl Running {
 impl Drop for Running {
     fn drop(&mut self) {
         self.settle(RunEnd::Cancelled);
+    }
+}
+
+/// A run on its teammate's roster row, and the calls it has made: a step is
+/// written again as it runs and as it ends, and is counted once.
+pub(crate) struct Listed {
+    pub(super) row: RunningSubagent,
+    calls: HashSet<String>,
+}
+
+impl Listed {
+    /// Takes in one event of the run's stream, and whether the row changed.
+    fn wrote(&mut self, event: &Value) -> bool {
+        let line = match event["kind"].as_str() {
+            Some("tool") => {
+                if let Some(call_id) = event["toolCallId"].as_str() {
+                    self.calls.insert(call_id.to_string());
+                }
+                event["said"]["one"]
+                    .as_str()
+                    .or_else(|| event["title"].as_str())
+                    .map(|line| line.trim().to_string())
+            }
+            // Narration between steps is written as a thought (see
+            // `narration`), and it is most of what a run says while it works.
+            Some("agent" | "thought") => event["text"].as_str().and_then(first_clause),
+            _ => None,
+        };
+        let steps = u32::try_from(self.calls.len()).unwrap_or(u32::MAX);
+        let line = line.filter(|line| !line.is_empty());
+        let changed = self.row.steps != steps || (line.is_some() && line != self.row.last_step);
+        self.row.steps = steps;
+        if line.is_some() {
+            self.row.last_step = line;
+        }
+        changed
+    }
+}
+
+/// The longest a run's latest words are on its roster row, quotes aside.
+const CLAUSE_CHARS: usize = 60;
+
+/// The first clause of what a run said, in quotes, as one short line: up to
+/// the first line break, or the first stop or comma that ends a word, so a
+/// file name or a number keeps its dot or comma.
+fn first_clause(text: &str) -> Option<String> {
+    let text = text.trim_start_matches(|c: char| {
+        c.is_whitespace() || matches!(c, '#' | '*' | '_' | '>' | '-' | '`')
+    });
+    let mut end = text.len();
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        let ends_word = chars.peek().is_none_or(|(_, next)| next.is_whitespace());
+        if c == '\n' || (matches!(c, '.' | ',' | ';' | ':' | '!' | '?') && ends_word) {
+            end = at;
+            break;
+        }
+    }
+    let clause = text[..end].trim().trim_end_matches(['*', '_', '`']);
+    if !clause.chars().any(char::is_alphanumeric) {
+        return None;
+    }
+    if clause.chars().count() <= CLAUSE_CHARS {
+        return Some(format!("\u{201c}{clause}\u{201d}"));
+    }
+    let cut: String = clause.chars().take(CLAUSE_CHARS - 1).collect();
+    Some(format!("\u{201c}{}\u{2026}\u{201d}", cut.trim_end()))
+}
+
+impl Room {
+    /// The subagents this teammate has running, oldest first.
+    pub fn subagents(&self, persona_id: &str) -> Vec<RunningSubagent> {
+        lock(&self.subagents)
+            .get(persona_id)
+            .map(|runs| runs.iter().map(|listed| listed.row.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Lists a run on its teammate's roster row while it is running, and
+    /// takes it off once it is not, telling the roster either way.
+    pub(crate) fn list_subagent(&self, persona_id: &str, run: RunningSubagent, running: bool) {
+        {
+            let mut all = lock(&self.subagents);
+            let runs = all.entry(persona_id.to_string()).or_default();
+            runs.retain(|listed| listed.row.run_id != run.run_id);
+            if running {
+                runs.push(Listed {
+                    row: run,
+                    calls: HashSet::new(),
+                });
+            }
+            if runs.is_empty() {
+                all.remove(persona_id);
+            }
+        }
+        let _ = self.info_changes.send(self.info(persona_id));
+    }
+
+    /// Keeps a running run's roster row saying what it did last, as each
+    /// event lands on its stream (`Threads::write` calls this for every one),
+    /// so the row moves with the run and nothing polls. The roster is told
+    /// only when the row changed: a step rewritten as it ends costs nothing.
+    pub(super) fn run_wrote(&self, persona_id: &str, run_id: &str, event: &Value) {
+        let changed = lock(&self.subagents)
+            .get_mut(persona_id)
+            .and_then(|runs| runs.iter_mut().find(|listed| listed.row.run_id == run_id))
+            .is_some_and(|listed| listed.wrote(event));
+        if changed {
+            let _ = self.info_changes.send(self.info(persona_id));
+        }
     }
 }
 
@@ -773,6 +896,35 @@ mod tests {
             last_words: last_words.iter().map(ToString::to_string).collect(),
             ..Driven::default()
         }
+    }
+
+    #[test]
+    fn a_runs_words_are_said_by_their_first_clause() {
+        let said = |text: &str| first_clause(text);
+        assert_eq!(
+            said("The right pane opens a run through ThreadView, the same view.").as_deref(),
+            Some("\u{201c}The right pane opens a run through ThreadView\u{201d}")
+        );
+        assert_eq!(
+            said("Dock.tsx has 1,000 lines. Next.").as_deref(),
+            Some("\u{201c}Dock.tsx has 1,000 lines\u{201d}"),
+            "a dot or comma inside a word is not a break"
+        );
+        assert_eq!(
+            said("**Plan**\nRead the dock first.").as_deref(),
+            Some("\u{201c}Plan\u{201d}"),
+            "a heading's marks are not words"
+        );
+        let long = "word ".repeat(30);
+        let cut = said(&long).unwrap();
+        assert_eq!(
+            cut.chars().count(),
+            CLAUSE_CHARS + 2,
+            "the quotes aside: {cut}"
+        );
+        assert!(cut.ends_with("\u{2026}\u{201d}"), "{cut}");
+        assert_eq!(said("  \n  "), None);
+        assert_eq!(said("..."), None);
     }
 
     #[test]

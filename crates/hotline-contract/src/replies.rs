@@ -263,6 +263,24 @@ pub struct RunningSubagent {
     #[serde(default, skip_serializing_if = "RunKind::is_subagent")]
     #[ts(as = "Option<RunKind>", optional)]
     pub kind: RunKind,
+    /// What the run did last, in one short line: its latest step as a
+    /// glance says it ("Read Dock.tsx"), or the first clause of its latest
+    /// words in quotes. Kept as the run's stream is written, so every
+    /// surface that lists the run can say what it is doing without opening
+    /// it. Absent until it has done or said anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_step: Option<String>,
+    /// How many steps (tool calls) the run has taken so far. Absent before
+    /// its first, so a row from a desk that predates it reads as none.
+    #[serde(default, skip_serializing_if = "crate::inbound::is_zero")]
+    #[ts(as = "Option<u32>", optional)]
+    pub steps: u32,
+    /// The command a shell run runs, as its harness titled it. Absent for a
+    /// subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<String>,
 }
 
 /// What a run is. A subagent works the task with a model of its own; a

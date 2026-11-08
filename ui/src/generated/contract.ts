@@ -1918,7 +1918,25 @@ title: string, startedAt: number,
  * background. Absent for a subagent, so a client that predates it reads
  * the row as it did.
  */
-kind?: RunKind, };
+kind?: RunKind, 
+/**
+ * What the run did last, in one short line: its latest step as a
+ * glance says it ("Read Dock.tsx"), or the first clause of its latest
+ * words in quotes. Kept as the run's stream is written, so every
+ * surface that lists the run can say what it is doing without opening
+ * it. Absent until it has done or said anything.
+ */
+lastStep?: string, 
+/**
+ * How many steps (tool calls) the run has taken so far. Absent before
+ * its first, so a row from a desk that predates it reads as none.
+ */
+steps?: number, 
+/**
+ * The command a shell run runs, as its harness titled it. Absent for a
+ * subagent.
+ */
+command?: string, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

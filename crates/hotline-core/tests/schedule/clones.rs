@@ -241,6 +241,80 @@ async fn a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked() {
     );
 }
 
+/// A subagent's row on the roster says what it did last and how many steps
+/// it has taken, moved on by each step landing on its stream rather than by
+/// a poll: the row is read off the roster view while the run waits between
+/// its steps, and the run leaves the row once it has reported.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_subagents_roster_row_says_its_latest_step_as_it_takes_each() {
+    let granted = Granted::new();
+    let mut desk = home(&granted).await;
+    let roster = desk.client.subscribe(json!({"view": "roster"})).await;
+    let task = format!(
+        "PACE\n{}",
+        script(&[
+            ("read", json!({"path": granted.notes()})),
+            (
+                "grep",
+                json!({"pattern": "crane", "path": granted.folder.to_string_lossy()})
+            ),
+        ])
+    );
+    // Not `say`: the DM's turn stays open until the run reports.
+    let said = desk
+        .client
+        .call(
+            "session.prompt",
+            json!({
+                "personaId": desk.persona_id,
+                "text": script(&[("subagent", json!({"task": task, "title": "Paced"}))]),
+            }),
+        )
+        .await;
+    assert_eq!(said["ok"], true, "{said}");
+    let persona_id = desk.persona_id.clone();
+    let run_at = |steps: u64| {
+        let persona_id = persona_id.clone();
+        move |frame: &Value| {
+            frame["sub"] == roster
+                && frame["event"]["persona"]["id"] == persona_id.as_str()
+                && frame["event"]["subagents"][0]["steps"] == steps
+        }
+    };
+
+    let first = desk.client.next_where(PATIENCE, run_at(1)).await;
+    let run = &first["event"]["subagents"][0];
+    assert_eq!(run["title"], "Paced", "{first}");
+    assert_eq!(run["lastStep"], "Read notes.txt", "{first}");
+    assert!(
+        run["startedAt"].as_i64().is_some_and(|at| at > 0),
+        "{first}"
+    );
+    assert!(
+        run.get("command").is_none(),
+        "a subagent runs no command: {first}"
+    );
+
+    let second = desk.client.next_where(PATIENCE, run_at(2)).await;
+    assert_eq!(
+        second["event"]["subagents"][0]["lastStep"], "Searched the files",
+        "{second}"
+    );
+
+    // Only rows sent after this one can say the run has gone.
+    desk.client.inbox.retain(|frame| frame["sub"] != roster);
+    let persona_id = desk.persona_id.clone();
+    desk.client
+        .next_where(PATIENCE, move |frame: &Value| {
+            frame["sub"] == roster
+                && frame["event"]["persona"]["id"] == persona_id.as_str()
+                && frame["event"].get("subagents").is_none()
+        })
+        .await;
+    let reported = said_on(&desk.log, StreamId::Run(desk.run("Paced").unwrap())).await;
+    assert!(result(&reported, "read").contains(CANARY), "{reported:#?}");
+}
+
 /// A job is a clone on a thread of its own: the home thread's tools but the
 /// DM's chapter moves, the granted folder, and its own card, raised on its
 /// thread and answered back into it. A job the teammate made without

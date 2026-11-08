@@ -210,7 +210,9 @@ fn after<'a>(said: &'a str, word: &str) -> Option<&'a str> {
 /// The model: what its line spells out. Each `CALL <tool> <json>` is one call
 /// to one of Hotline's tools, made in order; then it says what follows `SAY`,
 /// or `RESULTS` with what each call came back with, or "No change." A line
-/// with `STALL` holds its first answer back for [`STALL`]. A line of Hotline's
+/// with `STALL` holds its first answer back for [`STALL`], and one with `PACE`
+/// holds back each answer after a call's result as long, so a test can read
+/// the turn between its steps. A line of Hotline's
 /// own execution data (a subagent's report coming back) is not a script, so
 /// a report that quotes one is never run again. Every line it is handed is
 /// kept in `heard`.
@@ -236,6 +238,8 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
         if asked.contains("STALL") {
             tokio::time::sleep(STALL).await;
         }
+    } else if asked.contains("PACE") {
+        tokio::time::sleep(STALL).await;
     }
     if asked.contains("Hotline execution data") {
         return streamed(vec![chunk(

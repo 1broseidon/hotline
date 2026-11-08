@@ -4401,6 +4401,133 @@
 		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
+	/* A thread's head under its band (thread/Pane.tsx): what kind of thread
+	 * it is and what the person is to it, its title, and a line of facts.
+	 * A thread being watched marks its kind in the accent ink; one the person
+	 * is in, in the annotating ink, because it is a conversation like any. */
+	.pane-head {
+		flex-shrink: 0;
+		padding: 2px 24px 12px;
+	}
+	.pane-head-kind {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.pane-kind {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 1px 6px;
+		border-radius: var(--radius-chip);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.pane-kind[data-watching] {
+		color: var(--accent-ink);
+		box-shadow: inset 0 0 0 var(--hairline) color-mix(in oklab, var(--accent) 45%, transparent);
+	}
+	.pane-family {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.pane-title {
+		margin-top: 8px;
+		font-size: var(--text-lg);
+		line-height: var(--text-lg--line-height);
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.pane-meta {
+		margin-top: 2px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		overflow-wrap: anywhere;
+	}
+	/* What the thread was handed: three lines of it until Show all. */
+	.pane-task {
+		flex-shrink: 0;
+		margin: 0 16px 8px;
+		padding: 10px 12px 8px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	}
+	.pane-task-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
+	.pane-task-from {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	.pane-task-body {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		overflow: hidden;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.pane-task-body[data-open] {
+		display: block;
+		-webkit-line-clamp: unset;
+	}
+	.pane-task-more {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--accent-ink);
+	}
+	.pane-task-more:hover {
+		color: var(--accent-hover);
+	}
+	/* The work as it happens, on the pane's own canvas. */
+	.pane-stream {
+		min-height: 0;
+		flex: 1;
+		overflow-y: auto;
+		padding: 8px 16px 16px;
+	}
+	/* What came of it: the one card in the stream edged in the accent. */
+	.pane-result {
+		margin: 12px 0 4px;
+		padding: 10px 12px;
+		border-radius: var(--radius-card);
+		background: color-mix(in oklab, var(--accent) 6%, var(--raised));
+		box-shadow: inset 0 0 0 var(--hairline) color-mix(in oklab, var(--accent) 40%, transparent);
+	}
+	.pane-result-head {
+		display: flex;
+		justify-content: space-between;
+		gap: 8px;
+		color: var(--accent-ink);
+	}
+	.pane-result-body {
+		margin-top: 6px;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
 	.dock-row {
 		align-items: flex-start;
 	}

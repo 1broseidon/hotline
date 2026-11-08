@@ -1,8 +1,9 @@
-import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, memo, useMemo, useEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
 import { PaneClose } from "../ui/PaneClose";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
-import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon, } from "../icons";
+import { ChevronLeftIcon, ChevronRightIcon } from "../icons";
+import { FollowWindow } from "./FollowWindow";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
@@ -103,9 +104,6 @@ export function ProcessWork({
 
 /** The turn just begun, as a place to step to before it has a run of its own. */
 const NOW = { id: "" };
-
-/** Slack under the newest step that still counts as following it. */
-const FOLLOW_SLACK = 48;
 
 /** A turn's work: the run a caption names, or the latest, and how it stands. */
 function useTurnWork(personaId: string, blockId: string | null, name: string, live: boolean) {
@@ -268,71 +266,3 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 		</Band>
 	);
 });
-
-/**
- * The window a card reads through: it follows the newest line until you
- * scroll back, and offers a way down again.
- */
-function FollowWindow({
-	following: followKey,
-	count,
-	content,
-	follow = true,
-	children,
-}: {
-	/** What the window is following: a new one starts at its newest. */
-	following: string | undefined;
-	count: number;
-	/** Changes when the visible body changes, including a growing thought or tool output. */
-	content: unknown;
-	/** Whether it starts at the newest; a page opened at a line it was asked for starts there instead. */
-	follow?: boolean;
-	children: ReactNode;
-}) {
-	const frame = useRef<HTMLDivElement>(null);
-	const [following, setFollowing] = useState(follow);
-	// Follow actual body changes, including text growing within one step.
-	// Unrelated parent renders need no layout read.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: content and followKey identify the body whose layout changed.
-	useLayoutEffect(() => {
-		const el = frame.current;
-		if (el && following) el.scrollTop = el.scrollHeight;
-	}, [content, followKey, following]);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new followKey is new work to follow.
-	useEffect(() => setFollowing(follow), [followKey]);
-	// Opened at a line, with the whole run in view: there is nothing newer to go down to.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: measured once the body has laid out.
-	useEffect(() => {
-		const el = frame.current;
-		if (el && !following && el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK) setFollowing(true);
-	}, [content, followKey]);
-
-	return (
-		<div className="relative flex min-h-0 flex-1 flex-col">
-			<div
-				ref={frame}
-				className="work-window"
-				onScroll={(scroll) => {
-					const el = scroll.currentTarget;
-					const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
-					if (atEnd !== following) setFollowing(atEnd);
-				}}
-			>
-				{children}
-			</div>
-			{!following && count > 0 && (
-				<button
-					type="button"
-					className="control btn btn-sm work-newest gap-1"
-					onClick={() => {
-						setFollowing(true);
-						frame.current?.scrollTo({ top: frame.current.scrollHeight, behavior: "smooth" });
-					}}
-				>
-					<ArrowDownIcon />
-					Newest
-				</button>
-			)}
-		</div>
-	);
-}

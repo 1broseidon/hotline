@@ -4937,6 +4937,20 @@
 		font-size: var(--text-xs);
 		color: var(--ink-4);
 	}
+	/* A row in Needs you: the card's own answers under its line, or Open. */
+	.list-keys {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		padding: 0 8px 8px 32px;
+	}
+	.list-refused {
+		width: 100%;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--danger);
+	}
 	.list-when {
 		display: flex;
 		flex-shrink: 0;

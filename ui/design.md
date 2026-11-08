@@ -168,7 +168,12 @@ the clock today and the day or date before, with the beat beside it while it
 runs. A live row's line is its latest step in the instrument face. A handoff's
 line opens with "from Mack". A note's row is its words, two lines at most,
 over "from" who and which thread, and opens that thread; the thread's own row
-carries a ✎ count of the notes it left. Nothing is folded away by kind. A row, or Open on a thread's line in the
+carries a ✎ count of the notes it left. A row in Needs you takes the waiting
+card's question for its line and the card's own answers as keys under it (Yes
+and No, Done and Decline, an option of a permission, Approve and Deny), at one
+weight with no primary, answering exactly as the card in the thread does and
+waiting with it; a card whose answer is more than a key, a sign-in, a
+credential or a handoff's written answer, has Open there instead. Nothing is folded away by kind. A row, or Open on a thread's line in the
 conversation, opens the thread in the pane under a band of its own with a back
 arrow. Every kind is the same page, the conversation's own transcript and
 cards, and only what can be done in it differs: a work thread has the composer,

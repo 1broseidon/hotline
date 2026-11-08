@@ -507,3 +507,89 @@ describe("task-402 filters and search", () => {
 		expect(notes.map((item) => [item.id, item.read])).toEqual([["note:a", true], ["note:b", false]]);
 	});
 });
+
+describe("task-403 needs-you actions", () => {
+	const question: TranscriptEvent = { kind: "human_action", id: "q", ts: 1, actionId: "q", reason: "Ship the three lines as drafted?", question: true, status: "pending" };
+	const permission: TranscriptEvent = {
+		kind: "permission", id: "perm", ts: 1, requestId: "req", title: "docker image prune -a",
+		options: [
+			{ optionId: "once", name: "Allow once", kind: "allow_once" },
+			{ optionId: "no", name: "Deny", kind: "reject_once" },
+		],
+	};
+	const passkey: TranscriptEvent = { kind: "passkey_ask", id: "pk", ts: 1, askId: "pk", name: "GITHUB", rpId: "github.com", origin: "https://github.com", rpName: "GitHub", status: "pending" };
+	const credential: TranscriptEvent = { kind: "credential_ask", id: "cred", ts: 1, actionId: "cred", site: "https://porkbun.com/", reason: "To list your domains.", credentialKind: "login", name: "PORKBUN", status: "pending", expiresAt: Date.now() + 600_000, existing: [], armed: false };
+	const handoffAsk: TranscriptEvent = { kind: "human_action", id: "h", ts: 1, actionId: "h", reason: "Which of the three lines goes first?", status: "pending" };
+
+	/** Five threads waiting, each on one kind of card. */
+	function waiting() {
+		const waits = (key: string, kind: "side" | "run", title: string, extra: Partial<ThreadSummary> = {}) =>
+			summary({ thread: { kind, key }, title, waiting: true, ...extra });
+		listed = [
+			waits("w-q", "side", "Release notes for 0.49", { updatedAt: today(0, 5) }),
+			waits("r-perm", "run", "Prune the images", { updatedAt: today(0, 4) }),
+			waits("w-pk", "side", "Make a GitHub passkey", { updatedAt: today(0, 3) }),
+			waits("w-cred", "side", "List the domains", { updatedAt: today(0, 2) }),
+			waits("w-hand", "side", "Check the 0.49 site copy", { updatedAt: today(0, 1), opener: { personaId: "elvis", name: "Elvis" } }),
+		];
+		threadLines = { "w-q": [question], "r-perm": [permission], "w-pk": [passkey], "w-cred": [credential], "w-hand": [handoffAsk] };
+		const sides = ["w-q", "w-pk", "w-cred", "w-hand"].map((sideId) => ({ sideId, title: sideId, startedAt: 1, working: false }));
+		return [entry(pork, { sides, subagents: [{ runId: "r-perm", title: "Prune the images", startedAt: 1 }] }), entry(elvis)];
+	}
+	const keys = (id: string) => [...(row(id)?.closest(".list-needs")?.querySelectorAll<HTMLButtonElement>(".list-keys button") ?? [])];
+	const words = (id: string) => keys(id).map((one) => one.textContent);
+	const press = async (id: string, word: string) => {
+		const key = keys(id).find((one) => one.textContent === word);
+		if (key === undefined) throw new Error(`No ${word} on ${id}: ${words(id)}`);
+		await act(async () => key.click());
+	};
+
+	test("A row in Needs you shows the waiting card's question in its line and its primary answer keys (the card's own: Yes / No, Approve, Answer…) on the row; pressing one answers the card exactly as the card in the thread would", async () => {
+		await dock(waiting());
+		await settle();
+		expect(sections()["Needs you"]).toEqual(["side:w-q", "run:r-perm", "side:w-pk", "side:w-cred", "side:w-hand"]);
+		// The question is the line; the card's own answers are the keys.
+		expect(parts("side:w-q").line).toBe("Ship the three lines as drafted?");
+		expect(words("side:w-q")).toEqual(["Yes", "No"]);
+		expect(parts("run:r-perm").line).toBe("docker image prune -a");
+		expect(words("run:r-perm")).toEqual(["Allow once", "Deny"]);
+		expect(parts("side:w-pk").line).toBe("Passkey for GitHub");
+		expect(words("side:w-pk")).toEqual(["Approve", "Deny"]);
+
+		// Each answers as its card does: the same command, the same words.
+		await press("side:w-q", "Yes");
+		await press("run:r-perm", "Allow once");
+		await press("side:w-pk", "Approve");
+		const answered = sent.filter((one) => one.cmd === "thread.answer" || one.cmd === "secrets.passkey.answer");
+		expect(answered).toEqual([
+			{ cmd: "thread.answer", params: { thread: { kind: "side", key: "w-q" }, answer: { kind: "human", actionId: "q", status: "done" } } },
+			{ cmd: "thread.answer", params: { thread: { kind: "run", key: "r-perm" }, answer: { kind: "permission", requestId: "req", optionId: "once" } } },
+			{ cmd: "secrets.passkey.answer", params: { personaId: "pork", askId: "pk", approved: true } },
+		]);
+		// One answer: the row's keys wait for it, and so does the card in the thread, which is the same card.
+		expect(keys("side:w-q").every((one) => one.disabled)).toBe(true);
+		const { HumanAction } = await import("../src/components/transcript/Asks");
+		const card = document.createElement("div");
+		document.body.append(card);
+		const { createRoot } = await import("react-dom/client");
+		const cardRoot = createRoot(card);
+		await act(async () => cardRoot.render(<HumanAction thread={{ kind: "side", key: "w-q" }} event={question as Extract<TranscriptEvent, { kind: "human_action" }>} who={{ id: "pork", name: "Pork Chop" }} />));
+		const yes = [...card.querySelectorAll<HTMLButtonElement>("button")].find((one) => one.textContent === "Yes");
+		expect(yes?.disabled).toBe(true);
+		await act(async () => cardRoot.unmount());
+	});
+
+	test("Where the card's answer needs more than a key (text, a credential), the row shows Open instead of a fake key", async () => {
+		const states: DockState[] = [];
+		await dock(waiting(), states);
+		await settle();
+		// A sign-in takes a credential; a handoff's question takes written words.
+		expect(parts("side:w-cred").line).toBe("Sign in to https://porkbun.com/");
+		expect(words("side:w-cred")).toEqual(["Open"]);
+		expect(parts("side:w-hand").line).toBe("Which of the three lines goes first?");
+		expect(words("side:w-hand")).toEqual(["Open"]);
+		await press("side:w-cred", "Open");
+		expect(states).toEqual([{ open: { thread: { kind: "side", key: "w-cred" }, title: "List the domains" } }]);
+		expect(sent.some((one) => one.cmd === "thread.answer")).toBe(false);
+	});
+});

@@ -6,6 +6,7 @@ import { type ListFilter, type ListItem, type Span, filterOf, filtered, grouped,
 import { onTablistKey } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
+import { NeedsYouRow } from "./NeedsYouRow";
 import type { ThreadRef } from "./Transcript";
 
 /** The chips over the list, in their order. */
@@ -115,7 +116,20 @@ export function ThreadList({
 		(dock?.querySelector<HTMLElement>("[data-restore]") ?? dock?.querySelector<HTMLElement>(".list-chips [aria-pressed=true]"))?.focus();
 	}, [ready, groups.earlier, opened]);
 
-	const row = (item: ListItem) => <Row key={item.id} item={item} now={now} opened={opened} onOpen={onOpen} />;
+	const row = (item: ListItem) =>
+		item.waiting && item.thread !== undefined ? (
+			<NeedsYouRow
+				key={item.id}
+				item={item}
+				row={(line) => <Row item={item} line={line} now={now} opened={opened} onOpen={onOpen} />}
+				onOpen={(open) => {
+					opened.current = item.id;
+					onOpen(open);
+				}}
+			/>
+		) : (
+			<Row key={item.id} item={item} now={now} opened={opened} onOpen={onOpen} />
+		);
 
 	if (entry === null) return <p className="px-4 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>;
 	return (
@@ -218,7 +232,20 @@ function Group({ title, count, items }: { title: string; count?: number; items?:
 }
 
 /** A row: the kind's mark, the title over its one line, and the time, with the beat while it runs. */
-function Row({ item, now, opened, onOpen }: { item: ListItem; now: number; opened: RefObject<string | null>; onOpen(open: ThreadRef): void }) {
+function Row({
+	item,
+	line = item.line,
+	now,
+	opened,
+	onOpen,
+}: {
+	item: ListItem;
+	/** The line in place of the item's own: a waiting card's question. */
+	line?: string | undefined;
+	now: number;
+	opened: RefObject<string | null>;
+	onOpen(open: ThreadRef): void;
+}) {
 	const mark = markOf(item.kind);
 	const body = (
 		<>
@@ -235,7 +262,7 @@ function Row({ item, now, opened, onOpen }: { item: ListItem; now: number; opene
 					)}
 				</span>
 				<span className="list-line">
-					{item.line}
+					{line}
 					{item.kind === "note" && item.open !== undefined && " ›"}
 				</span>
 			</span>
@@ -245,7 +272,7 @@ function Row({ item, now, opened, onOpen }: { item: ListItem; now: number; opene
 			</span>
 		</>
 	);
-	const label = `${mark.word}: ${item.title}, ${item.line}`;
+	const label = `${mark.word}: ${item.title}, ${line}`;
 	const state = item.waiting ? "waiting" : item.live ? "live" : item.ended ? "ended" : undefined;
 	const open = item.open;
 	if (open === undefined) {

@@ -232,7 +232,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
  * kind, live and ended; Threads are the ones worked in: work threads,
  * handoffs and commands.
  */
-export const FILTERS = ["active", "all", "needs", "live", "threads", "subagents", "jobs", "calls", "pairs", "notes"] as const;
+const FILTERS = ["active", "all", "needs", "live", "threads", "subagents", "jobs", "calls", "pairs", "notes"] as const;
 export type ListFilter = (typeof FILTERS)[number];
 
 const KINDS: Partial<Record<ListFilter, readonly ListKind[]>> = {

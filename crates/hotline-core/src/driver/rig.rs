@@ -22,7 +22,8 @@ use images::Input;
 #[cfg(test)]
 use images::user_message;
 pub(crate) use tool_output::publish_ledger;
-use tool_output::{describe_tool, mcp_dynamic, result_of, rig_output};
+pub(crate) use tool_output::rig_output;
+use tool_output::{describe_tool, mcp_dynamic, result_of};
 pub(crate) use turn::process_ended;
 
 use super::{CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip};

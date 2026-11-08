@@ -1,6 +1,6 @@
 import { startCall } from "../voice/call";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
+import type { Attachment, RunningSubagent, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
 import { PaneClose } from "../ui/PaneClose";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
@@ -21,8 +21,10 @@ import {
 	pairWith,
 	powersOf,
 	relativeTime,
+	endedWords,
 	rowOpener,
 	rowTitle,
+	subagentGroups,
 	type ThreadDot,
 	threadDot,
 	threadOwnerId,
@@ -46,6 +48,8 @@ import { WorkPage } from "./Work";
 import { NotedPage } from "./Noted";
 import { LoopIn } from "./LoopIn";
 import { PaneHead } from "./thread/Pane";
+import { RunPane } from "./thread/RunPane";
+import { tickerOf } from "../runTicker";
 import { startedWords, threadFamily } from "../threadKinds";
 
 /**
@@ -147,10 +151,21 @@ export function Dock({
 						rows={rows}
 						jobs={jobs}
 						workingJobs={entry?.workingJobs ?? []}
+						runs={entry?.subagents ?? NO_RUNS}
 						loaded={list !== undefined}
 						nameOf={nameOf}
 						opened={opened}
 						onOpen={(open) => onState({ open })}
+					/>
+				) : teammate !== null && at.thread.kind === "run" && ownRun(owner, at.thread.key)?.kind !== "shell" ? (
+					<RunPane
+						key={`run:${at.thread.key}`}
+						open={at}
+						row={row}
+						run={ownRun(owner, at.thread.key)}
+						teammate={owner === undefined ? teammate : { id: owner.persona.id, name: owner.persona.name, avatarHash: owner.persona.avatar?.hash }}
+						onBack={() => onState(back)}
+						onClose={onClose}
 					/>
 				) : (
 					teammate !== null && (
@@ -176,6 +191,11 @@ export function Dock({
 		</div>
 	);
 }
+
+const NO_RUNS: RunningSubagent[] = [];
+
+/** A run on its teammate's roster row, while it runs. */
+const ownRun = (owner: RosterEntry | undefined, runId: string) => owner?.subagents?.find((run) => run.runId === runId);
 
 /** How soon after a line in a running thread its list is read again, and how often while it runs. */
 const LIST_AFTER_LINE_MS = 1500;
@@ -285,6 +305,7 @@ function ThreadList({
 	rows,
 	jobs,
 	workingJobs,
+	runs,
 	loaded,
 	nameOf,
 	opened,
@@ -295,6 +316,8 @@ function ThreadList({
 	jobs: ScheduleEntry[];
 	/** The jobs with a turn running, as the roster says. */
 	workingJobs: string[];
+	/** The teammate's runs going now, as the roster says: what each did last. */
+	runs: readonly RunningSubagent[];
 	loaded: boolean;
 	nameOf(personaId: string): string | undefined;
 	/** The row a thread was last opened from. */
@@ -303,8 +326,10 @@ function ThreadList({
 }) {
 	const root = useRef<HTMLDivElement>(null);
 	const idOf = (row: ThreadSummary) => `${row.thread.kind}:${row.thread.key}`;
-	const { open, closed } = groupThreads(rows);
+	const { working, threads: open, ended, closed } = subagentGroups(groupThreads(rows), runs);
 	const jobList = jobRows(jobs);
+	// Threads are named as a group of their own only when subagents are listed apart from them.
+	const apart = working.length + ended.length > 0;
 	const [refused, setRefused] = useState<string | null>(null);
 	const [folded, setFolded] = useState(() => !closed.some((row) => idOf(row) === opened.current));
 	// Relative times age while the list is open.
@@ -346,18 +371,78 @@ function ThreadList({
 		);
 	};
 
+	/* A subagent at work: its kind, its title, and its latest steps rolling up; one that has ended, what it reported. */
+	const runRow = (one: ThreadSummary, run: RunningSubagent | undefined) => {
+		const title = rowTitle(one, teammate?.id ?? "", nameOf);
+		const live = one.state !== "closed";
+		const lines = run === undefined ? [] : tickerOf(run);
+		const said = live ? (lines.at(-1) ?? "working") : endedWords(one);
+		return (
+			<button
+				key={idOf(one)}
+				type="button"
+				className="rail-row dock-row"
+				data-thread={idOf(one)}
+				data-restore={opened.current === idOf(one) || undefined}
+				aria-label={`Subagent: ${title}, ${said}`}
+				onClick={() => {
+					opened.current = idOf(one);
+					onOpen({ thread: one.thread, title });
+				}}
+			>
+				<span aria-hidden="true" className={`dock-dot ${live ? "beat" : ""}`} data-state={live ? "running" : "closed"} />
+				<span className="min-w-0 flex-1">
+					<span className="flex h-[18px] items-center gap-2">
+						<span className="dock-kind" data-ended={live ? undefined : true}>Subagent</span>
+						<span className="min-w-0 flex-1 truncate font-medium text-ink">{title}</span>
+					</span>
+					{live ? (
+						<span className="dock-ticker" aria-hidden="true">
+							{(lines.length > 0 ? lines : ["Starting"]).map((line, at) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: a line's place is what it is; the same words can come twice.
+								<span key={at}>{line}</span>
+							))}
+						</span>
+					) : (
+						<span className="block h-4 truncate text-sm text-ink-3">{said}</span>
+					)}
+				</span>
+				<span className="shrink-0 self-start pt-0.5 text-xs text-ink-3">{relativeTime(live ? one.startedAt : one.updatedAt, now)}</span>
+			</button>
+		);
+	};
+
 	return (
 		<Scroll>
 			<div ref={root} className="px-2 pb-3">
 				{teammate === null ? (
 					<p className="px-2 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>
-				) : !loaded ? null : open.length + closed.length + jobList.length === 0 ? (
+				) : !loaded ? null : working.length + open.length + ended.length + closed.length + jobList.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-ink-3">
 						No threads with {teammate.name} yet. Start a side thread from the conversation's More menu.
 					</p>
 				) : (
 					<>
-						{open.map(row)}
+						{working.length > 0 && (
+							<section aria-label="Subagents working">
+								<h3 className="dock-group">Subagents working</h3>
+								{working.map(({ row: one, run }) => runRow(one, run))}
+							</section>
+						)}
+						{apart && open.length > 0 ? (
+							<section aria-label="Threads">
+								<h3 className="dock-group">Threads</h3>
+								{open.map(row)}
+							</section>
+						) : (
+							open.map(row)
+						)}
+						{ended.length > 0 && (
+							<section aria-label="Ended subagents">
+								<h3 className="dock-group">Ended subagents</h3>
+								{ended.map((one) => runRow(one, undefined))}
+							</section>
+						)}
 						{jobList.length > 0 && (
 							<div className={open.length > 0 ? "mt-2" : ""}>
 								<h3 className="px-2 py-1 text-sm text-ink-3">Jobs</h3>

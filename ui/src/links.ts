@@ -15,9 +15,12 @@ function runWords(ms: number): string {
 	return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
 }
 
-/** How a subagent's run has got to, in the words its line ends with. */
-export function runState(link: Pick<LinkEvent, "state" | "end" | "elapsedMs">): string {
-	if (link.state !== "closed") return "working";
+/**
+ * How a subagent's run has got to, in the words its line ends with: while it
+ * works, what it did last when the roster says (`step`), else that it works.
+ */
+export function runState(link: Pick<LinkEvent, "state" | "end" | "elapsedMs">, step?: string): string {
+	if (link.state !== "closed") return step !== undefined && step !== "" ? step : "working";
 	const took = link.elapsedMs === undefined ? "" : ` after ${runWords(link.elapsedMs)}`;
 	switch (link.end) {
 		case "failed":
@@ -114,10 +117,10 @@ function workWords(link: LinkEvent, owner: string, people?: ReadonlyMap<string, 
  * colleagues a handoff is between. `working` is the roster's live turn state,
  * separate from the link's saved lifetime.
  */
-export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): string {
+export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false, step?: string): string {
 	switch (link.threadKind) {
 		case "run":
-			return `Subagent · ${link.title} · ${runState(link)}`;
+			return `Subagent · ${link.title} · ${runState(link, step)}`;
 		case "call":
 			return callWords(link, working);
 		case "pair":
@@ -143,14 +146,14 @@ export type LinkRowFacts = { kind: "thread" | "subagent" | "call"; title: string
 
 const sentence = (words: string): string => words.charAt(0).toUpperCase() + words.slice(1);
 
-export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): LinkRowFacts {
+export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false, step?: string): LinkRowFacts {
 	const failed = linkFailed(link);
 	switch (link.threadKind) {
 		case "run":
 			return {
 				kind: "subagent",
 				title: link.title,
-				outcome: sentence(runState(link)),
+				outcome: sentence(runState(link, step)),
 				tone: link.state !== "closed" ? "live" : failed ? "failed" : link.end === "cancelled" || link.end === "stopped" ? "quiet" : "done",
 			};
 		case "call": {

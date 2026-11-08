@@ -13,6 +13,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.
+- A subagent opened in the right-hand pane shows its work as it happens:
+  the task it was given, its steps and words in the order they came, each
+  step opening to its output, and the result it sent back. The band says
+  Working, Done or Stopped with its step count and time, and a subagent of
+  Hotline Agent's has Stop.
+- A teammate's working subagents sit under it in the rail, each with its
+  latest step, until they report. The subagent's line in the conversation,
+  the chip over the composer and the thread list say its latest step too,
+  and the thread list groups subagents working, other threads, and ended
+  subagents with what each reported.
 
 ### Fixed
 

@@ -317,6 +317,7 @@ export function Conversation({
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}
+					subagents={entry.subagents}
 					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}
@@ -669,12 +670,12 @@ export function SubagentChips({
 				type="button"
 				className="control btn btn-sm min-w-0 shrink gap-1.5"
 				title={subagent ? "Open the subagent's run" : "Open its run"}
-				aria-label={`${kind.running}: ${run.title}`}
+				aria-label={`${kind.running}: ${run.title}${run.lastStep === undefined ? "" : `, ${run.lastStep}`}`}
 				aria-pressed={opened(run.runId)}
 				onClick={() => open(run)}
 			>
 				<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-				<span className="truncate">{`${kind.word} · ${run.title}`}</span>
+				<span className="truncate">{`${kind.word} · ${run.lastStep ?? run.title}`}</span>
 			</button>
 		);
 	}
@@ -688,6 +689,7 @@ export function SubagentChips({
 				kind: "item",
 				id: run.runId,
 				text: allSubagents ? run.title : `${runKind(run).word} · ${run.title}`,
+				...(run.lastStep !== undefined ? { detail: run.lastStep } : {}),
 				checked: opened(run.runId),
 				onSelect: () => open(run),
 			}))}

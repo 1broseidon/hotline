@@ -1,4 +1,4 @@
-import type { Ability, LinkState, RosterEntry, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, RosterEntry, RunningSubagent, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import type { DockState } from "./components/Dock";
 import { sideTitle } from "./links";
 
@@ -97,6 +97,43 @@ export function groupThreads(list: ThreadSummary[]): { open: ThreadSummary[]; cl
 			.sort((a, b) => KIND_RANK[a.thread.kind] - KIND_RANK[b.thread.kind] || DOT_RANK[threadDot(a)] - DOT_RANK[threadDot(b)] || newest(a, b)),
 		closed: rows.filter((row) => row.state === "closed").sort(newest),
 	};
+}
+
+/**
+ * The list's groups once subagents are drawn apart (docs/design/thread-panes.html,
+ * Thread list): the subagents at work first, each with its roster row when
+ * it has one; then the other threads still open; then the subagents that
+ * have ended, with the rest of the closed threads left to their fold. A
+ * command a harness left running is not a subagent, and stays a thread.
+ */
+export function subagentGroups(
+	{ open, closed }: { open: ThreadSummary[]; closed: ThreadSummary[] },
+	runs: readonly RunningSubagent[],
+): { working: { row: ThreadSummary; run: RunningSubagent | undefined }[]; threads: ThreadSummary[]; ended: ThreadSummary[]; closed: ThreadSummary[] } {
+	const runOf = (row: ThreadSummary) => runs.find((run) => run.runId === row.thread.key);
+	const subagent = (row: ThreadSummary) => row.thread.kind === "run" && (runOf(row)?.kind ?? "subagent") === "subagent";
+	return {
+		working: open.filter(subagent).map((row) => ({ row, run: runOf(row) })),
+		threads: open.filter((row) => !subagent(row)),
+		ended: closed.filter((row) => row.thread.kind === "run"),
+		closed: closed.filter((row) => row.thread.kind !== "run"),
+	};
+}
+
+/** What came of an ended subagent, in a line: how it ended, what it reported, and how long it took. */
+export function endedWords(row: ThreadSummary): string {
+	const how = row.end === "failed" ? "Failed" : row.end === "cancelled" || row.end === "stopped" ? "Stopped" : "Reported";
+	const said = row.outcome ?? row.preview ?? "";
+	return [how, said, stopwatch(row.updatedAt - row.startedAt)].filter((part) => part !== "").join(" · ");
+}
+
+/** A run's length the way a stopwatch shows it: 0:07, 3:41, 1:02:09. */
+export function stopwatch(ms: number): string {
+	const total = Math.max(0, Math.floor(ms / 1000));
+	const hours = Math.floor(total / 3600);
+	const minutes = Math.floor((total % 3600) / 60);
+	const seconds = String(total % 60).padStart(2, "0");
+	return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
 
 /** A thread's link on its parent's stream, the way the window reads it. */

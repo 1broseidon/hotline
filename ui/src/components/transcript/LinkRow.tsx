@@ -16,17 +16,20 @@ export function LinkRow({
 	owner,
 	people,
 	working = false,
+	step,
 	onOpen,
 }: {
 	link: LinkEvent;
 	owner: string;
 	people: ReadonlyMap<string, Person> | undefined;
 	working?: boolean;
+	/** A subagent at work: what it did last, as its roster row says, in place of "Working". */
+	step?: string | undefined;
 	onOpen(): void;
 }) {
-	const facts = linkRow(link, owner, people, working);
+	const facts = linkRow(link, owner, people, working, step);
 	return (
-		<button type="button" className="link-row" data-kind={facts.kind} aria-label={`${linkLine(link, owner, people, working)}. Open it`} onClick={onOpen}>
+		<button type="button" className="link-row" data-kind={facts.kind} aria-label={`${linkLine(link, owner, people, working, step)}. Open it`} onClick={onOpen}>
 			<span className={`link-row-dot ${facts.tone === "live" ? "beat" : ""}`} data-tone={facts.tone} />
 			<span className="link-row-words">
 				<span className="link-row-title">{facts.title}</span>

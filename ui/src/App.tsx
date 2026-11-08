@@ -1,8 +1,9 @@
+import { noteRuns } from "./runTicker";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
 import { chordKeys } from "./chords";
 import { SettingsIcon } from "./icons";
-import type { ConfigChoice } from "./generated/contract";
+import type { ConfigChoice, RunningSubagent } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
@@ -181,17 +182,20 @@ export function App() {
 			{ view: "roster" },
 			{
 				snapshot: (entries) => {
+					for (const entry of entries) noteRuns(entry.subagents);
 					setRoster(entries);
 					setRosterLoaded(true);
 				},
-				event: (entry) =>
+				event: (entry) => {
+					noteRuns(entry.subagents);
 					setRoster((known) => {
 						const at = known.findIndex((one) => one.persona.id === entry.persona.id);
 						if (at === -1) return [...known, entry];
 						const next = known.slice();
 						next[at] = entry;
 						return next;
-					}),
+					});
+				},
 				removed: (personaId) =>
 					setRoster((known) => known.filter((one) => one.persona.id !== personaId)),
 			},
@@ -305,6 +309,11 @@ export function App() {
             if (open.eventId !== undefined) setFocus({ eventId: open.eventId, at: Date.now() });
         } else openDock({ open });
     }, [openDock, select, setDock]);
+	/* A subagent's line in the rail opens its teammate, and its run beside it. */
+	const openRun = useCallback((personaId: string, run: RunningSubagent) => {
+		select(personaId);
+		openDock({ open: { thread: { kind: "run", key: run.runId }, title: run.title } });
+	}, [openDock, select]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 	const openNoted = useCallback(() => openDock({ open: null, noted: true }), [openDock]);
 
@@ -598,6 +607,8 @@ export function App() {
 				search={teamSearch(faces ? "beside" : "above")}
 				deskKey={deskCallKey()}
 				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
+				onOpenRun={openRun}
+				openRun={dock?.open?.thread.kind === "run" ? dock.open.thread.key : undefined}
 			/>
 			)}
 			</div>

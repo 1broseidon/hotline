@@ -1,6 +1,6 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
+import type { DeliveryCause, RunningSubagent, ThreadId, TranscriptEvent } from "../generated/contract";
 import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent } from "../scheduledRuns";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
@@ -122,6 +122,7 @@ export function Transcript({
 	cornered = false,
 	workingCalls,
 	workingSides,
+	subagents,
 	focus,
 	speakers,
 	onReply,
@@ -163,6 +164,8 @@ export function Transcript({
 	workingCalls?: readonly string[] | undefined;
 	/** Work thread IDs running a turn or with a line waiting for one, from the roster. */
 	workingSides?: readonly string[] | undefined;
+	/** The teammate's subagents at work, from the roster: each one's line says what it did last. */
+	subagents?: readonly RunningSubagent[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
@@ -630,6 +633,7 @@ export function Transcript({
 									ownerName={name}
 									event={event}
 									working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
+									step={event.kind === "link" && event.threadKind === "run" ? subagents?.find((run) => run.runId === event.thread)?.lastStep : undefined}
 									loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
 									quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
 									top={run.top}
@@ -721,6 +725,7 @@ const Row = memo(function Row({
 	ownerName,
 	event,
 	working,
+	step,
 	loopedIn,
 	quote,
 	top,
@@ -744,6 +749,8 @@ const Row = memo(function Row({
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
 	working: boolean;
+	/** A subagent's line while it works: what it did last. */
+	step?: string | undefined;
 	/** A delivery from a colleague the person looped into this thread: its one answer. */
 	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
@@ -966,7 +973,7 @@ const Row = memo(function Row({
 		 * subagent's run, a call. One row that fills in as the thread goes, and
 		 * opens it in the right-hand pane. */
 		case "link":
-			return <LinkRow link={event} owner={personaId} people={people} working={working} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
+			return <LinkRow link={event} owner={personaId} people={people} working={working} step={step} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
 
 		/* The markers links replaced. The window declares `threads2`, so the
 		 * desk sends it a link for each, even for one written long ago. */

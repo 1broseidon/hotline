@@ -182,13 +182,20 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
         SessionUpdate::ToolCallUpdate(update) => {
             let call_id = update.tool_call_id.0.to_string();
             let terminal = Terminal::of(update.meta.as_ref());
+            // Output a command in the background wrote is its run's, not the
+            // call's, whose result came when it was sent there; it is taken
+            // first, so the last of it reaches the run before the end does.
+            let backgrounded = update.fields.status.is_none()
+                && terminal.written.clone().is_some_and(|(text, replaces)| {
+                    live.background_output(&call_id, text, replaces)
+                });
             // The terminal of a command sent to the background closed: the
             // command ended, which is the run's end, not the call starting
             // again.
-            if let Some(exit_code) = terminal.exit
-                && update.fields.status.is_none()
-                && live.background_ended(&call_id, exit_code)
-            {
+            let ended = terminal.exit.is_some_and(|exit_code| {
+                update.fields.status.is_none() && live.background_ended(&call_id, exit_code)
+            });
+            if backgrounded || ended {
                 return;
             }
             let fields = update.fields;
@@ -513,6 +520,9 @@ pub(super) fn finished(
 #[derive(Default)]
 struct Terminal {
     output: Option<String>,
+    /// What this update wrote to the terminal: the whole of it so far
+    /// (`terminal_output`, `true`) or the next piece (`terminal_output_delta`).
+    written: Option<(String, bool)>,
     open: bool,
     exit: Option<Option<i64>>,
 }
@@ -526,12 +536,17 @@ impl Terminal {
             .get("terminal_exit")
             .filter(|exit| exit.is_object())
             .map(|exit| exit.get("exit_code").and_then(Value::as_i64));
-        Self {
-            output: meta
-                .get("terminal_output")
+        let written = |key: &str| {
+            meta.get(key)
                 .and_then(|output| output.get("data"))
                 .and_then(Value::as_str)
-                .map(str::to_string),
+                .map(str::to_string)
+        };
+        Self {
+            output: written("terminal_output"),
+            written: written("terminal_output")
+                .map(|text| (text, true))
+                .or_else(|| written("terminal_output_delta").map(|text| (text, false))),
             open: meta.get("terminal_info").is_some_and(Value::is_object) && exit.is_none(),
             exit,
         }

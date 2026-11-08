@@ -120,7 +120,7 @@ function workWords(link: LinkEvent, owner: string, people?: ReadonlyMap<string, 
 export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false, step?: string): string {
 	switch (link.threadKind) {
 		case "run":
-			return `Subagent · ${link.title} · ${runState(link, step)}`;
+			return `${link.runKind === "shell" ? "Command" : "Subagent"} · ${link.title} · ${runState(link, step)}`;
 		case "call":
 			return callWords(link, working);
 		case "pair":
@@ -138,11 +138,12 @@ type LinkTone = "live" | "done" | "failed" | "quiet";
 
 /**
  * A link as its row draws it: which kind of thread (the glyph and the
- * label), its title, what came of it in a few words, and the dot's tone.
+ * label: a run is a Command when it is one a harness left running, and a
+ * pair is a Pair), its title, what came of it in a few words, and the dot's tone.
  * The same facts `linkLine` says as one sentence, which the row keeps as
  * its accessible name.
  */
-export type LinkRowFacts = { kind: "thread" | "subagent" | "call"; title: string; outcome: string; tone: LinkTone };
+export type LinkRowFacts = { kind: "thread" | "subagent" | "command" | "pair" | "call"; title: string; outcome: string; tone: LinkTone };
 
 const sentence = (words: string): string => words.charAt(0).toUpperCase() + words.slice(1);
 
@@ -151,7 +152,7 @@ export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string
 	switch (link.threadKind) {
 		case "run":
 			return {
-				kind: "subagent",
+				kind: link.runKind === "shell" ? "command" : "subagent",
 				title: link.title,
 				outcome: sentence(runState(link, step)),
 				tone: link.state !== "closed" ? "live" : failed ? "failed" : link.end === "cancelled" || link.end === "stopped" ? "quiet" : "done",
@@ -168,7 +169,7 @@ export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string
 		}
 		case "pair":
 			return {
-				kind: "thread",
+				kind: "pair",
 				title: link.state === "live" ? `Talking with ${link.title}` : `Talked with ${link.title}`,
 				outcome: "",
 				tone: link.state === "live" ? "live" : "done",

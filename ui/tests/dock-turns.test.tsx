@@ -205,7 +205,7 @@ describe("a handed-over thread continued in the pane", () => {
 
 describe("a handed-over thread's lines", () => {
 	for (const pane of [exec, lead]) {
-		test(`are the person's on the right, and the thread's teammate's and the opener's on the left under their names, in ${pane.name}'s pane`, async () => {
+		test(`are the request on its card, the person's on the right, and the receiver's on the left labelled as going back to the sender, in ${pane.name}'s pane`, async () => {
 			desk = { key: `work-sides-${pane.id}`, state: "live", working: false };
 			await show(pane, false);
 			await act(async () => {
@@ -220,10 +220,12 @@ describe("a handed-over thread's lines", () => {
 			const nameAbove = (text: string) => bubble(text)?.parentElement?.querySelector(".said-name")?.textContent;
 			for (const theirs of ["Three tests pass.", "raises on zero"]) {
 				expect(bubble(theirs)?.classList.contains("said-them")).toBe(true);
-				expect(nameAbove(theirs)).toBe("Exec");
+				expect(nameAbove(theirs)).toBe("Exec → Lead");
 			}
-			expect(bubble("Add mul to calc.py.")?.classList.contains("said-them")).toBe(true);
-			expect(nameAbove("Add mul to calc.py.")).toBe("Lead");
+			// The request is the handoff's task card, not a line of the stream.
+			expect(container.querySelector(".pane-task-body")?.textContent).toBe("Add mul to calc.py.");
+			expect(container.querySelector(".pane-task-from")?.textContent).toEndWith("from Lead");
+			expect(bubble("Add mul to calc.py.")).toBeUndefined();
 			expect(bubble("Add div too.")?.classList.contains("said-me")).toBe(true);
 			expect([...container.querySelectorAll(".said-name")].map((one) => one.textContent)).toContain("You");
 			expect([...container.querySelectorAll(".said-me")].every((one) => one.textContent?.includes("Add div too."))).toBe(true);
@@ -291,18 +293,30 @@ describe("the bar of a handed-over thread", () => {
 });
 
 describe("the head of a handed-over thread", () => {
-	for (const [pane, words] of [[exec, "from Lead"], [lead, "to Exec"]] as const) {
-		test(`says it is a handoff, and whose hands it passed through, in ${pane.name}'s pane`, async () => {
+	for (const pane of [exec, lead]) {
+		test(`says it is a handoff, who it is from and to, and where answers go, in ${pane.name}'s pane`, async () => {
 			desk = { key: `work-head-${pane.id}`, state: "live", working: false };
 			await show(pane, false);
 			const head = container.querySelector(".pane-head");
 			expect(head?.querySelector(".pane-kind")?.textContent).toBe("⇄Handoff");
 			expect(head?.querySelector(".pane-family")).toBeNull();
-			expect(head?.querySelector(".pane-meta")?.textContent).toStartWith(`${words} · started `);
+			expect(head?.querySelector(".pane-meta")?.textContent).toBe("from Lead · to Exec · answers go back to Lead");
 			// The band keeps the title; the head does not say it twice.
 			expect(head?.querySelector(".pane-title")).toBeNull();
 		});
 	}
+});
+
+describe("task-394 a handoff's pane in the dock", () => {
+	test("keeps its composer (Message), Stop and End thread as today, and has no Handed off from block", async () => {
+		desk = { key: "work-keeps", state: "live", working: true };
+		await show(exec, true);
+		expect(container.querySelector("textarea")?.getAttribute("placeholder")).toBe("Message");
+		expect(container.querySelector('button[title="End this thread"]')).not.toBeNull();
+		expect(container.querySelector('button[title="Stop this turn"]')).not.toBeNull();
+		expect(container.querySelector("details")).toBeNull();
+		expect(container.textContent).not.toContain("Handed off from");
+	});
 });
 
 describe("opening a closed work thread from the transcript", () => {

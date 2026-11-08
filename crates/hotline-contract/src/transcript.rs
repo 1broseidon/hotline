@@ -516,6 +516,11 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         asked_in: Option<String>,
+        /// What a run runs: `shell` for a command a harness left running.
+        /// Absent for a subagent and every other kind.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        run_kind: Option<RunKind>,
     },
     /// An aside this thread's teammate left a colleague: written on the
     /// thread it was said from, so the thread's record shows what it said.

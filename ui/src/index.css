@@ -4387,6 +4387,78 @@
 	.handoff-answer .field {
 		border-color: color-mix(in oklch, var(--warn) 60%, transparent);
 	}
+	/* A handoff's stream while the receiver works between its steps and words. */
+	.pane-thinking {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 12px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* A pair's line: the speaker's face beside their bubble, the one the pair
+	 * is with on the right, in the raised plane the other side's words take. */
+	.pair-line {
+		display: flex;
+		align-items: flex-end;
+		gap: 8px;
+		margin-top: 10px;
+	}
+	.pair-line[data-right] {
+		flex-direction: row-reverse;
+	}
+	.pair-line-said {
+		max-width: 80%;
+		padding: 8px 12px;
+		border-radius: var(--radius-bubble);
+		background: var(--said-them);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		overflow-wrap: anywhere;
+	}
+	.pair-line[data-right] .pair-line-said {
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	}
+	.pair-line-said .said-name {
+		margin-bottom: 2px;
+		font-family: var(--font-mono);
+	}
+	/* A command left running: the command as typed, then its output in a
+	 * terminal sunk below the canvas, the one surface that is a terminal. */
+	.pane-command {
+		flex-shrink: 0;
+		margin: 0 16px 8px;
+		padding: 8px 10px;
+		border-radius: var(--radius-control);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.pane-command-prompt {
+		margin-right: 8px;
+		color: var(--accent-ink);
+	}
+	.pane-terminal {
+		min-height: 200px;
+		margin: 0;
+		padding: 10px 12px;
+		border-radius: var(--radius-pane);
+		background: var(--terminal);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: 1.6;
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
 	.link-quiet {
 		color: var(--accent-ink);
 		font-weight: 600;
@@ -4528,10 +4600,168 @@
 		font-size: var(--text-md);
 		line-height: var(--text-md--line-height);
 	}
-	/* A subagent's run (thread/RunPane.tsx): its state's dot in the band,
-	 * its words between its steps on the plane speech sits on, and one line
-	 * of fact at its foot. Its steps are the work page's lines, without a
-	 * heading over each run of them. */
+	/* A call's transcript (thread/CallPane.tsx): who said each line in a
+	 * narrow column of its own, the words beside it, so the speakers read
+	 * down one edge. Yours are labelled in your words' mint and said in ink;
+	 * the teammate's in the annotating ink and said in ink-2. */
+	.call-transcript {
+		display: flex;
+		flex-direction: column;
+	}
+	.call-line {
+		display: grid;
+		grid-template-columns: 72px minmax(0, 1fr);
+		gap: 8px;
+		margin: 8px 0;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	.call-who {
+		padding-top: 2px;
+		overflow: hidden;
+		text-align: right;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.call-line[data-mine] .call-who {
+		color: var(--said-me);
+	}
+	.call-words {
+		min-width: 0;
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.call-line[data-mine] .call-words {
+		color: var(--ink);
+	}
+	.call-written {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		white-space: normal;
+	}
+	/* The work between two lines, folded where it fell, set under the words' column. */
+	.call-work {
+		margin: 4px 0 8px 80px;
+		padding: 4px 8px;
+		border-radius: var(--radius-card);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.call-work-head {
+		display: flex;
+		width: 100%;
+		min-width: 0;
+		align-items: center;
+		gap: 8px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+		text-align: left;
+	}
+	.call-work-head:hover {
+		color: var(--ink);
+	}
+	.call-work-dot,
+	.job-run-dot {
+		width: 7px;
+		height: 7px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--ink-4);
+	}
+	.call-work-dot[data-live],
+	.job-run-dot[data-state="working"],
+	.job-run-dot[data-state="posted"] {
+		background: var(--accent);
+	}
+	.job-run-dot[data-state="failed"] {
+		background: var(--danger);
+	}
+	/* A job's next run and last post, side by side over its runs (thread/JobPane.tsx). */
+	.job-facts {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.job-facts > div {
+		min-width: 0;
+		padding: 8px 10px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	}
+	.job-facts dt {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.job-facts dd {
+		margin-top: 2px;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	/* Each run a section of its own, newest first, opening to what it found and its steps. */
+	.job-runs {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.job-run {
+		border-radius: var(--radius-card);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		overflow: hidden;
+	}
+	.job-run-head {
+		display: flex;
+		width: 100%;
+		min-width: 0;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+		text-align: left;
+	}
+	.job-run-head:not(:disabled):hover {
+		background: var(--fill-hover);
+	}
+	.job-run-when {
+		margin-left: auto;
+		flex-shrink: 0;
+		color: var(--ink-4);
+	}
+	.job-run[data-open] .job-run-head {
+		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+	}
+	.job-run-body {
+		padding: 8px 10px;
+	}
+	.job-run-found {
+		margin-bottom: 6px;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	.job-run-notice {
+		margin-bottom: 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* A subagent's run (thread/RunPane.tsx): its state's dot in the band
+	 * and one line of fact at its foot. */
 	.run-dot {
 		flex-shrink: 0;
 		width: 6px;
@@ -4545,36 +4775,13 @@
 	.run-dot[data-state="Failed"] {
 		background: var(--danger);
 	}
-	.run-pane .pane-stream .work-sections {
+	/* A watched thread's steps (thread/WorkStream.tsx) are the work page's
+	 * lines where they fell between the words, without a heading over each run. */
+	.pane-stream .work-sections {
 		padding: 0;
 	}
-	.run-pane .pane-stream .steps-heading {
+	.pane-stream .steps-heading {
 		display: none;
-	}
-	.run-say {
-		max-width: 94%;
-		margin: 10px 0;
-		padding: 8px 12px;
-		border-radius: var(--radius-bubble);
-		background: var(--said-them);
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
-	}
-	.run-told,
-	.run-notice {
-		margin: 8px 0;
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-	}
-	.run-notice[data-level="error"] {
-		color: var(--danger);
-	}
-	.run-notice[data-level="warn"] {
-		color: var(--warn);
 	}
 	.run-foot {
 		flex-shrink: 0;

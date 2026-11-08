@@ -1539,12 +1539,17 @@ impl Room {
             .map_err(|_| "That process is not running.".to_string())
     }
 
-    /// One running command in full, and the latest of its output.
+    /// One running command in full, and the latest of its output: one
+    /// Hotline Agent left running, by its job id, or one a harness sent to
+    /// the background, by its run's id.
     pub fn process_output(
         &self,
         persona_id: &str,
         id: &str,
     ) -> Result<crate::contract::ProcessOutput, String> {
+        if let Some(output) = self.shell_output(persona_id, id) {
+            return Ok(output);
+        }
         let (command, tail) = self
             .processes_of(persona_id, id)?
             .output(id)

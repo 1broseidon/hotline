@@ -221,8 +221,10 @@ describe("the stream", () => {
 		await show(running());
 		const stream = container.querySelector<HTMLDivElement>(".pane-stream")!;
 		// In the order they came: a step, then the words.
-		const parts = [...stream.querySelectorAll(".trail-step, .run-say")].map((part) => part.className.includes("run-say") ? "words" : "step");
+		const parts = [...stream.querySelectorAll(".trail-step, .speech")].map((part) => part.className.includes("speech") ? "words" : "step");
 		expect(parts).toEqual(["step", "words"]);
+		// The words are the subagent's, as the handoff's are its receiver's: the stream both panes share.
+		expect(stream.querySelector(".said-name")?.textContent).toBe("Subagent");
 
 		// A step opens to what it did.
 		const step = stream.querySelector<HTMLButtonElement>(".trail-head")!;
@@ -265,7 +267,7 @@ describe("the result", () => {
 		expect(result?.querySelector(".pane-result-body")?.textContent).toContain("A run is shown on 6 surfaces.");
 		// The result closes the stream: the last thing in it, said once.
 		expect(container.querySelector(".pane-stream > :last-child")?.className).toContain("pane-result");
-		expect([...container.querySelectorAll(".run-say")].map((one) => one.textContent)).toEqual(["Looking at the rows."]);
+		expect([...container.querySelectorAll(".pane-stream .speech")].map((one) => one.textContent)).toEqual(["Looking at the rows."]);
 		expect(container.querySelector(".run-foot")?.textContent).toMatch(/^Reported to Pork Chop at 2:00\s?PM\.$/);
 
 		// A run stopped before it reported has no result: it says it stopped.

@@ -31,8 +31,8 @@ import {
 	withStreaming,
 } from "../transcriptFolds";
 import { useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
-import { CallTools, Steps } from "./transcript/Steps";
-import { AgentSay, NamedSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
+import { Steps } from "./transcript/Steps";
+import { AgentSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
 import type { SentItem } from "./SentFile";
 import { LinkRow } from "./transcript/LinkRow";
 import { Plan } from "./transcript/Plan";
@@ -90,9 +90,6 @@ const EARLIER_SLACK = 600;
 /** Slack under the latest line that still counts as following the conversation. */
 const PIN_SLACK = 80;
 
-/** Whose chair we are in, for a peer thread: this teammate is `mine`. */
-export type Speakers = { me: string; them: string; mine: "user" | "agent" };
-
 /**
  * The conversation, and only the conversation.
  *
@@ -124,7 +121,6 @@ export function Transcript({
 	workingSides,
 	subagents,
 	focus,
-	speakers,
 	onReply,
 	onReact,
 	onRetryMessage,
@@ -168,8 +164,6 @@ export function Transcript({
 	subagents?: readonly RunningSubagent[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
-	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
-	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
 	/** An emoji on a teammate's line, sent the way the phone sends one. */
 	onReact?(target: ReactTarget, emoji: string): void;
@@ -244,7 +238,7 @@ export function Transcript({
 	/* Who the person looped in here: their answers are said whole, under their faces. */
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call"), thread?.kind === "call"), [events, thread?.kind]);
+	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -596,9 +590,7 @@ export function Transcript({
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (
 								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
-							) : block.kind === "steps" ? (thread?.kind === "call" ? (
-								<CallTools items={block.items} />
-							) : (
+							) : block.kind === "steps" ? (
 								<Steps
 									id={block.id}
 									items={block.items}
@@ -606,7 +598,7 @@ export function Transcript({
 									shown={workShown}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>
-							)) : block.kind === "sent" ? (
+							) : block.kind === "sent" ? (
 								<Row
 									personaId={personaId}
 									thread={rowThread}
@@ -618,7 +610,6 @@ export function Transcript({
 									quote={undefined}
 									top={run.top}
 									bottom={run.bottom}
-									speakers={speakers}
 									people={people}
 									reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
 									{...(onReply !== undefined ? { onReply } : {})}
@@ -638,10 +629,9 @@ export function Transcript({
 									quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
 									top={run.top}
 									bottom={run.bottom}
-									speakers={speakers}
 									people={people}
-									{...(onRetryMessage && !speakers && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
-									{...(!speakers && thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
+									{...(onRetryMessage && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
+									{...(thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
 									reactions={reacted.on.get(event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onReact !== undefined ? { onReact } : {})}
@@ -730,7 +720,6 @@ const Row = memo(function Row({
 	quote,
 	top,
 	bottom,
-	speakers,
 	people,
 	reactions,
 	files,
@@ -757,7 +746,6 @@ const Row = memo(function Row({
 	quote: Quote | undefined;
 	top: boolean;
 	bottom: boolean;
-	speakers: Speakers | undefined;
 	people: ReadonlyMap<string, Person> | undefined;
 	/** Emoji the phone or this window sent as lines of their own, folded onto this one: yours. */
 	reactions: string[] | undefined;
@@ -778,14 +766,6 @@ const Row = memo(function Row({
 	const who = { id: personaId, name: ownerName, hash: people?.get(personaId)?.hash };
 	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask" || event.kind === "credential_ask") && event.from?.kind === "call") {
 		const origin = event.from;
-		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
-		const label = event.kind === "permission" ? event.title : event.kind === "human_action" ? event.reason : event.name;
-		if (thread.kind === "call") return (
-			<button type="button" className="rule-line rule-line-plain"
-				onClick={() => onOpenThread?.({ thread: { kind: "dm", key: personaId }, eventId: event.id })}>
-				{settled ? "Settled" : "Needs you"}: {label} · Open card in home chat
-			</button>
-		);
 		return (
 			<div>
 				<button type="button" className="said-name"
@@ -801,41 +781,14 @@ const Row = memo(function Row({
 	}
 	switch (event.kind) {
 		case "user":
-			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
-			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
-                <p className="said-name text-right">You</p>
-                <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
-            </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
-			) : speakers !== undefined ? (
-				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
 				<UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		case "agent":
-            if (thread.kind === "call") {
-                const { spoken, ...written } = event;
-                const heard = spoken?.trim() ? spoken : event.text;
-                return <>
-                    <p className="said-name">{ownerName}</p>
-                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} files={files} run={run} reactions={worn} bubble={people?.get(personaId)?.bubble}
-                        {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
-                        {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
-                    {heard !== event.text && <details className="my-2 text-sm text-ink-3">
-                        <summary>Written reply</summary>
-                        <NamedSay name={ownerName} mine={false} text={event.text} />
-                    </details>}
-                </>;
-            }
-			return speakers !== undefined ? (
-				<NamedSay
-					name={speakers.mine === "agent" ? speakers.me : speakers.them}
-					mine={speakers.mine === "agent"}
-					text={event.text}
-				/>
-			) : (
+			return (
 				<AgentSay
                     {...(onOpenThread !== undefined ? { onOpenThread } : {})}
 					personaId={personaId}
@@ -861,7 +814,7 @@ const Row = memo(function Row({
 				return (
 					<ErrorCard
 						text={event.text}
-						{...(!speakers ? { personaId } : {})}
+						personaId={personaId}
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}
 						{...(onProviders ? { onProviders } : {})}
@@ -943,8 +896,6 @@ const Row = memo(function Row({
 			const cause = event.cause;
 			const line = deliveryLine(event);
 			if (cause.kind === "answer" || line === null) return null;
-			// Where both sides are named, a colleague's words are the conversation: said whole, in their voice.
-			if (speakers !== undefined) return <NamedSay name={cause.name} mine={false} text={event.text} />;
 			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (
 				<button

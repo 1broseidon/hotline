@@ -118,7 +118,7 @@ test("whole bubbles retain their stamp, thoughts grow, and queued words settle a
 test("tool results and answered cards update the rendered transcript during a reply", async () => {
 	function Reader() {
 		const state = useSyncExternalStore(store.subscribe, store.snapshot);
-		return <Transcript personaId="streaming-test" name="Test" thread={{ kind: "call", key: "call" }} events={state.events} streaming={state.streaming} live focus={null} />;
+		return <Transcript personaId="streaming-test" name="Test" thread={{ kind: "side", key: "side" }} events={state.events} streaming={state.streaming} live={false} focus={null} />;
 	}
 	await act(async () => root.render(<Reader />));
 	const tool = { kind: "tool" as const, id: "tool", toolCallId: "call", ts: 2, title: "Read file", status: "pending" as const };
@@ -129,12 +129,15 @@ test("tool results and answered cards update the rendered transcript during a re
 		handlers.event(tool);
 		handlers.event(card);
 	});
-	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("pending");
+	await act(async () => container.querySelector<HTMLButtonElement>(".steps-caption")?.click());
+	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("Read file");
+	expect(container.querySelector('[data-step-id="tool"] button')?.hasAttribute("disabled")).toBe(true);
 	expect(container.querySelector('[data-event-id="card"] button')?.textContent).toBe("Allow once");
 	await act(async () => {
 		handlers.event({ ...tool, status: "completed", output: [{ type: "text", text: "The result is here" }] });
 		handlers.event({ ...card, decision: "yes" });
 	});
+	await act(async () => container.querySelector<HTMLButtonElement>('[data-step-id="tool"] button')?.click());
 	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("The result is here");
 	expect(container.querySelector('[data-event-id="card"] button')).toBeNull();
 	expect(container.querySelector('[data-event-id="card"] .ask-chip')?.textContent).toBe("Allow once");

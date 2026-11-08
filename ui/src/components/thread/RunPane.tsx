@@ -3,15 +3,14 @@ import type { RunningSubagent, ThreadEnd, ThreadSummary, TranscriptEvent } from 
 import { stopwatch } from "../../dock";
 import { ArrowLeftIcon } from "../../icons";
 import type { Block } from "../../scheduledRuns";
-import { useThread } from "../../tape";
+import type { Streaming } from "../../tape";
 import { startedWords, threadFamily } from "../../threadKinds";
 import { toBlocks, withStreaming } from "../../transcriptFolds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
-import { Markdown } from "../Markdown";
 import type { ThreadRef } from "../Transcript";
-import { TrailSteps, useHot } from "../transcript/Trail";
-import { LiveStream, PaneHead, ResultCard, TaskCard } from "./Pane";
+import { PaneHead, ResultCard, TaskCard } from "./Pane";
+import { WorkStream } from "./WorkStream";
 
 /*
  * A subagent's run, open in the right-hand pane (docs/design/thread-panes.html,
@@ -87,6 +86,9 @@ export function RunPane({
 	row,
 	run,
 	teammate,
+	events,
+	streaming,
+	onStop,
 	onBack,
 	onClose,
 }: {
@@ -97,18 +99,21 @@ export function RunPane({
 	run: RunningSubagent | undefined;
 	/** The teammate whose run it is, and whom it reports to. */
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
+	/** The run's stream, its own link at its head. */
+	events: TranscriptEvent[];
+	streaming: Streaming[];
+	/** The person's Stop (`thread.cancel`). */
+	onStop(): Promise<unknown>;
 	onBack(): void;
 	onClose(): void;
 }) {
 	const id = open.thread;
-	const { events, streaming, cancel } = useThread(id);
 	const link = useMemo(() => events.findLast((event): event is Link => event.kind === "link"), [events]);
 	const saved = link?.state ?? row?.state;
 	const live = saved === undefined ? run !== undefined : saved !== "closed";
 	const state = runStateOf(live, link?.end ?? row?.end);
 	const blocks = useMemo(() => withStreaming(toBlocks(events, true), streaming), [events, streaming]);
-	const read = useMemo(() => runStream(blocks, state === "Done"), [blocks, state]);
-	const { task, blocks: shown, result } = read;
+	const { task, blocks: shown, result } = useMemo(() => runStream(blocks, state === "Done"), [blocks, state]);
 	const steps = stepCount(events);
 	const startedAt = run?.startedAt ?? row?.startedAt ?? link?.ts;
 	const now = useSecond(live);
@@ -117,11 +122,10 @@ export function RunPane({
 	const title = run?.title ?? row?.title ?? link?.title ?? open.title ?? "Subagent";
 	const [refused, setRefused] = useState<string | null>(null);
 	const [stopping, setStopping] = useState(false);
-	const hot = useHot();
 	const stop = () => {
 		setRefused(null);
 		setStopping(true);
-		void cancel().catch((error: unknown) => {
+		void onStop().catch((error: unknown) => {
 			setStopping(false);
 			setRefused(error instanceof Error ? error.message : String(error));
 		});
@@ -154,37 +158,19 @@ export function RunPane({
 				meta={[`sent by ${teammate.name}`, run?.model, startedAt !== undefined && startedWords(startedAt)]}
 			/>
 			{task !== undefined && <TaskCard eyebrow="Task" from={{ personaId: teammate.id, name: teammate.name, hash: teammate.avatarHash }} text={task} />}
-			<LiveStream following={id.key} count={shown.length} content={read} live={live}>
-				{shown.map((block) => (
-					<StreamBlock key={block.kind === "event" ? block.event.id : block.id} block={block} live={live} hot={hot} />
-				))}
+			<WorkStream
+				thread={id}
+				blocks={shown}
+				live={live}
+				worker={{ id: teammate.id, name: teammate.name, hash: teammate.avatarHash }}
+				// Its teammate may tell it more after the task; nothing else speaks in a run.
+				said={(event) => (event.kind === "agent" ? { name: "Subagent", mine: false } : event.kind === "user" ? { name: teammate.name, mine: false } : null)}
+			>
 				{result !== undefined && <ResultCard eyebrow={`Result · sent to ${teammate.name}`} aside={took === undefined ? undefined : stopwatch(took)} text={result} />}
-				{shown.length === 0 && result === undefined && <p className="work-empty">{live ? "Starting." : "Nothing was written."}</p>}
-			</LiveStream>
+				{shown.length === 0 && result === undefined && !live && <p className="work-empty">Nothing was written.</p>}
+			</WorkStream>
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 			<p className="run-foot">{foot}</p>
 		</section>
 	);
-}
-
-/** One part of the stream: a run of steps, each opening to what it did, or the run's words. */
-function StreamBlock({ block, live, hot }: { block: Block; live: boolean; hot: ReturnType<typeof useHot> }) {
-	if (block.kind === "steps") return <TrailSteps items={block.items} settled={!live || block.open !== true} hot={hot} />;
-	if (block.kind !== "event") return null;
-	const event = block.event;
-	switch (event.kind) {
-		case "agent":
-			return (
-				<div className="run-say selectable">
-					<Markdown text={event.text} />
-				</div>
-			);
-		case "user":
-			// Its teammate told it more after the task.
-			return <p className="run-told selectable">{event.text}</p>;
-		case "notice":
-			return <p className="run-notice selectable" data-level={event.level}>{event.text}</p>;
-		default:
-			return null;
-	}
 }

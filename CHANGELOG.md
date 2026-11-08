@@ -23,6 +23,34 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the chip over the composer and the thread list say its latest step too,
   and the thread list groups subagents working, other threads, and ended
   subagents with what each reported.
+- A call opened in the right-hand pane reads as a transcript: each line
+  under who said it, You or the teammate, and the work the teammate went
+  off to do folded where it fell, saying what it checked and how many
+  steps, opening to them. The band says Live or Ended, how long the call
+  has run, and the voice model, with End call while it is live.
+- A job opened in the right-hand pane says Loop or Once, whose it is, how
+  often it runs and what it posts, counts down to its next run beside what
+  it last posted, and lists each run newest first as a section of its own
+  with how it went, what it found and its steps, the one running open as
+  it works. End job and Stop are in its band.
+- A job's post in the chat is headed by the job's line, Job · its name ·
+  posted, which opens the job.
+- A handoff open in the right pane shows the request it was handed on a card,
+  then the receiver's steps and words as they happen, each reply marked as
+  going back to the one who sent it. You can still say something in it, stop
+  a turn and end it as before.
+- A pair open in the right pane shows its two teammates' lines on two sides,
+  each under its face and name, as they talk, with Stop exchange while the
+  exchange stands.
+- A command a teammate's harness left running opens in the right pane as a
+  terminal: the command, and its output as it writes it. Once it ends, the
+  last of its output stays.
+
+### Changed
+
+- A pair's line in the conversation says Pair, and a command left running
+  says Command on its line and its chip, instead of Thread, Subagent and
+  Background.
 
 ### Fixed
 

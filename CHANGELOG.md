@@ -52,7 +52,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   latest step or result, and the time. A note opens the thread it came from,
   and that thread's row counts its notes. It opens on Active: Needs you,
   Live and Today, with what is earlier, routine runs and read notes folded
-  into one row that opens in place. The Subagents working, Ended
+  into one row that opens in place. Chips narrow it to Needs you, Live,
+  Threads, Subagents, Jobs, Calls, Pairs or Notes, a kind's with a Live /
+  Ended switch, search reads every row and note, and the chip last used is
+  kept for each teammate. The Subagents working, Ended
   subagents, Jobs and Closed groups and the Noted page are gone; Notes in
   the teammate's menu opens the list on its notes.
 - A pair's line in the conversation says Pair, and a command left running

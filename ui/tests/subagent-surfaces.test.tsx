@@ -15,6 +15,7 @@ const { SubagentChips } = await import("../src/components/Conversation");
 const { Transcript } = await import("../src/components/Transcript");
 const { replaceDesks, wireFor } = await import("../src/desks");
 const { endedWords } = await import("../src/dock");
+const { rememberFilter } = await import("../src/threadList");
 
 const persona = (id: string, name: string): Persona => ({
 	id, name, goal: "", backendId: "hotline", cwd: `/work/${id}`,
@@ -227,6 +228,8 @@ describe("the thread list", () => {
 			summary({ thread: { kind: "run", key: "r-audit" }, title: "Audit side-pane thread rows", working: true }),
 			summary({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", startedAt: 0, updatedAt: 221_000, preview: "Input to picture is about 26 ms." }),
 		];
+		// All: the ended one is long ago, which Active folds away.
+		rememberFilter("pork", "all");
 		await dock(null, [entry(pork, [audit, models])]);
 		const line = (id: string) => container.querySelector(`[data-thread="${id}"] .list-line`)?.textContent;
 		const beats = (id: string) => container.querySelector(`[data-thread="${id}"] .dock-dot.beat`) !== null;

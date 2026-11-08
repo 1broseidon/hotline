@@ -4799,11 +4799,30 @@
 	 * heading in the instrument face with its count at the right, the fold
 	 * of what is earlier and routine, and rows of one shape: the kind's mark,
 	 * the title over one line, and the time. */
+	.list-search {
+		padding: 0 12px 8px;
+	}
 	.list-chips {
-		padding: 4px 12px 8px;
+		padding: 0 12px 8px;
+	}
+	.list-chips .btn-sm {
+		gap: 6px;
 	}
 	.list-chips .btn-sm[aria-pressed="false"] {
 		color: var(--ink-3);
+	}
+	/* Needs you, while something waits: its word in the amber that asks, and its count. */
+	.list-chips .btn-sm[data-tone="warn"][aria-pressed="false"] {
+		color: var(--warn-ink);
+	}
+	.list-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-4);
+	}
+	.list-span {
+		padding: 0 12px 8px;
 	}
 	.list-group,
 	.list-fold {

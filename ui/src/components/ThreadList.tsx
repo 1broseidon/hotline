@@ -2,7 +2,8 @@ import { type RefObject, useEffect, useMemo, useRef, useState, useSyncExternalSt
 import type { RunningSubagent, ScheduleEntry, ThreadSummary } from "../generated/contract";
 import { asideTime, useAsides } from "../asides";
 import { usePersonName } from "../room";
-import { type ListFilter, type ListItem, filterOf, filtered, grouped, listItems, markOf, rememberFilter, watchFilters } from "../threadList";
+import { type ListFilter, type ListItem, type Span, filterOf, filtered, grouped, listItems, markOf, rememberFilter, searched, spans, watchFilters } from "../threadList";
+import { onTablistKey } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
 import type { ThreadRef } from "./Transcript";
@@ -11,16 +12,31 @@ import type { ThreadRef } from "./Transcript";
 const CHIPS: { filter: ListFilter; word: string }[] = [
 	{ filter: "active", word: "Active" },
 	{ filter: "all", word: "All" },
+	{ filter: "needs", word: "Needs you" },
+	{ filter: "live", word: "Live" },
+	{ filter: "threads", word: "Threads" },
+	{ filter: "subagents", word: "Subagents" },
+	{ filter: "jobs", word: "Jobs" },
+	{ filter: "calls", word: "Calls" },
+	{ filter: "pairs", word: "Pairs" },
 	{ filter: "notes", word: "Notes" },
+];
+
+const SPANS: { span: Span; word: string }[] = [
+	{ span: "all", word: "All" },
+	{ span: "live", word: "Live" },
+	{ span: "ended", word: "Ended" },
 ];
 
 /**
  * The teammate's Threads list (docs/design/threads-list.html, idea A): its
  * threads, jobs and notes as rows of one shape, narrowed by the chips over
- * it, in the groups Needs you, Live, Today and Earlier. It opens on Active,
- * where what is earlier than today, routine, or a note already read folds
- * into one row that opens in place. A row opens its thread in the pane; a
- * note opens the thread it came from. Shown with notes in it, the list marks the teammate's notes read for
+ * it, in the groups Needs you, Live, Today and Earlier. It opens on the
+ * chip last pressed for the teammate, Active at first, where what is earlier
+ * than today, routine, or a note already read folds into one row that opens
+ * in place. A kind's chip has a Live / Ended switch. Search reads every row,
+ * the folded ones too. A row opens its thread in the pane; a note opens the
+ * thread it came from. Shown with notes in it, the list marks the teammate's notes read for
  * the person (`aside.seen`), which is not the teammate hearing them; what was
  * unread when it opened reads as unread until it closes.
  */
@@ -56,7 +72,7 @@ export function ThreadList({
 	/* What was unread when the list opened, so marking it read does not move it. */
 	const fresh = useRef(new Set<string>());
 	for (const aside of asides ?? []) if (aside.seen === undefined) fresh.current.add(aside.id);
-	const showsNotes = filter === "all" || filter === "notes";
+	const showsNotes = filter === "active" || filter === "all" || filter === "notes";
 	const anyUnseen = (asides ?? []).some((aside) => aside.seen === undefined);
 	useEffect(() => {
 		if (personaId !== undefined && showsNotes && anyUnseen) void wire.command("aside.seen", { personaId }).catch(() => undefined);
@@ -70,16 +86,22 @@ export function ThreadList({
 		});
 		return listItems({ rows, runs, jobs, asides: read, listedFor: personaId ?? "", nameOf, personName, now });
 	}, [rows, runs, jobs, asides, personaId, nameOf, personName, now]);
-	const shown = filtered(items, filter);
-	const active = filter === "active";
-	const groups = grouped(shown, now, active);
-	/* Earlier and routine, opened in place; a chip pressed folds it again. */
+	const [query, setQuery] = useState("");
+	const [span, setSpan] = useState<Span>("all");
+	/* Earlier and routine, opened in place; a chip pressed folds it again, and its switch starts at All. */
 	const [unfolded, setUnfolded] = useState(false);
-	const [foldedFor, setFoldedFor] = useState(filter);
-	if (foldedFor !== filter) {
-		setFoldedFor(filter);
+	const [shownFor, setShownFor] = useState(filter);
+	if (shownFor !== filter) {
+		setShownFor(filter);
 		setUnfolded(false);
+		setSpan("all");
 	}
+	// Searching from Active reads everything, the folded rows too; a narrower chip, what it shows.
+	const searching = query.trim() !== "";
+	const active = filter === "active" && !searching;
+	const shown = searched(filtered(items, filter === "active" ? "all" : filter, span), query);
+	const groups = grouped(shown, now, active);
+	const counts = { needs: filtered(items, "needs").length, live: filtered(items, "live").length };
 
 	// Opening the list puts focus in it: back from a thread, on the row it was opened from, else on the chip pressed.
 	const ready = loaded && asides !== undefined;
@@ -98,25 +120,59 @@ export function ThreadList({
 	if (entry === null) return <p className="px-4 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>;
 	return (
 		<>
+			<div className="list-search">
+				<input
+					type="search"
+					className="field"
+					placeholder="Search threads and notes"
+					aria-label="Search threads and notes"
+					autoComplete="off"
+					spellCheck={false}
+					value={query}
+					onChange={(change) => setQuery(change.target.value)}
+					onKeyDown={(key) => {
+						// Escape clears a search before it closes the pane.
+						if (key.key !== "Escape" || query === "") return;
+						key.stopPropagation();
+						setQuery("");
+					}}
+				/>
+			</div>
 			<fieldset className="list-chips chips" aria-label="Show">
-				{CHIPS.map((chip) => (
-					<button
-						key={chip.filter}
-						type="button"
-						className="control btn-quiet btn-sm"
-						aria-pressed={filter === chip.filter}
-						onClick={() => rememberFilter(entry.persona.id, chip.filter)}
-					>
-						{chip.word}
-					</button>
-				))}
+				{CHIPS.map((chip) => {
+					const count = chip.filter === "needs" ? counts.needs : chip.filter === "live" ? counts.live : undefined;
+					return (
+						<button
+							key={chip.filter}
+							type="button"
+							className="control btn-quiet btn-sm"
+							aria-pressed={filter === chip.filter}
+							data-tone={chip.filter === "needs" && counts.needs > 0 ? "warn" : undefined}
+							onClick={() => rememberFilter(entry.persona.id, chip.filter)}
+						>
+							{chip.word}
+							{count !== undefined && <span className="list-count">{count}</span>}
+						</button>
+					);
+				})}
 			</fieldset>
+			{spans(filter) && (
+				<div className="list-span">
+					<div className="segmented" role="tablist" aria-label="Live or ended" onKeyDown={onTablistKey}>
+						{SPANS.map((one) => (
+							<button key={one.span} type="button" role="tab" className="segment" aria-selected={span === one.span} onClick={() => setSpan(one.span)}>
+								{one.word}
+							</button>
+						))}
+					</div>
+				</div>
+			)}
 			<Scroll>
 				<div ref={root} className="px-2 pb-3">
 					{!ready ? null : items.length === 0 ? (
 						<p className="px-2 py-3 text-sm text-ink-3">No threads with {entry.persona.name} yet.</p>
 					) : shown.length === 0 ? (
-						<p className="px-2 py-3 text-sm text-ink-3">Nothing here.</p>
+						<p className="px-2 py-3 text-sm text-ink-3">{searching ? "No matches." : "Nothing here."}</p>
 					) : (
 						<>
 							<Group title="Needs you" count={groups.needs.length} />

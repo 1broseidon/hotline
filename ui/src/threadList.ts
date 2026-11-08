@@ -40,6 +40,8 @@ export type ListItem = {
 	level?: AsideLevel;
 	/** For a thread: how many notes it left the teammate. */
 	notes: number;
+	/** What search reads, in lower case: the title, the line, what was last said or came of it, a note's words. */
+	words: string;
 	/** What a press opens; nothing for a note from outside or another desk. */
 	open?: ThreadRef;
 	/** The thread itself, and whose agent it is, for a row that answers a card. */
@@ -84,6 +86,9 @@ type Input = {
 
 const keyOf = (thread: ThreadId) => `${thread.kind}:${thread.key}`;
 
+/** What search reads of a row. */
+const wordsOf = (...parts: (string | undefined)[]): string => parts.filter((part) => part !== undefined).join("\n").toLowerCase();
+
 /** Every row of the list, newest first. */
 export function listItems(input: Input): ListItem[] {
 	const { rows, asides, listedFor, nameOf } = input;
@@ -127,6 +132,7 @@ function threadItem(row: ThreadSummary, { runs, listedFor, nameOf }: Input, note
 		routine: ended && kind === "command",
 		read: false,
 		notes,
+		words: wordsOf(title, from === "" ? said : `${from} · ${said}`, row.preview, row.outcome),
 		open: { thread: row.thread, title },
 		thread: row.thread,
 		owner: row.thread.kind === "pair" ? listedFor : row.personaId,
@@ -172,11 +178,12 @@ function jobItem(job: ScheduleEntry, row: ThreadSummary | undefined, { now }: In
 	const post = job.lastPost === undefined ? "" : firstLine(job.lastPost.text);
 	const state = ended ? "Ended" : live ? "Running" : `Next ${nextText(job.nextAt, now)}`;
 	const thread = { kind: "job" as const, key: job.id };
+	const line = post === "" ? state : `${state} · ${post}`;
 	return {
 		id: `job:${job.id}`,
 		kind: "job",
 		title: job.name,
-		line: post === "" ? state : `${state} · ${post}`,
+		line,
 		at: row?.updatedAt ?? job.endedAt ?? job.lastPost?.at ?? job.nextAt,
 		live,
 		waiting: !ended && row?.waiting === true,
@@ -185,6 +192,7 @@ function jobItem(job: ScheduleEntry, row: ThreadSummary | undefined, { now }: In
 		routine: !live && row?.posted === false,
 		read: false,
 		notes,
+		words: wordsOf(job.name, line, job.prompt, job.lastPost?.text, row?.preview, row?.outcome),
 		open: { thread, title: job.name },
 		thread,
 		owner: job.personaId,
@@ -198,11 +206,12 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 	const who = fromThePerson(aside) ? personName || "you" : aside.by === undefined ? sourceName(aside) : aside.by === listedFor ? "" : (nameOf(aside.by) ?? "a teammate");
 	const where = "thread" in aside.from ? (title ?? sourceWords(aside)) : "";
 	const source = [who, where].filter((part) => part !== "").join(" · ");
+	const line = `from ${source}${aside.level === "person" ? " · to you" : ""}`;
 	return {
 		id: `note:${aside.id}`,
 		kind: "note",
 		title: aside.text,
-		line: `from ${source}${aside.level === "person" ? " · to you" : ""}`,
+		line,
 		at: aside.ts,
 		live: false,
 		waiting: false,
@@ -211,6 +220,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 		read: aside.seen !== undefined,
 		level: aside.level,
 		notes: 0,
+		words: wordsOf(aside.text, line),
 		...(from !== undefined ? { open: title === undefined ? { thread: from } : { thread: from, title } } : {}),
 	};
 }
@@ -218,12 +228,45 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 /**
  * What the list can be narrowed to. Active, the default, is what wants a
  * look now: what waits on the person, what runs, and what happened today,
- * with the rest folded into one row.
+ * with the rest folded into one row. A kind's chip is every one of that
+ * kind, live and ended; Threads are the ones worked in: work threads,
+ * handoffs and commands.
  */
-export type ListFilter = "active" | "all" | "notes";
+export const FILTERS = ["active", "all", "needs", "live", "threads", "subagents", "jobs", "calls", "pairs", "notes"] as const;
+export type ListFilter = (typeof FILTERS)[number];
 
-export function filtered(items: ListItem[], filter: ListFilter): ListItem[] {
-	return filter === "notes" ? items.filter((item) => item.kind === "note") : items;
+const KINDS: Partial<Record<ListFilter, readonly ListKind[]>> = {
+	threads: ["work", "handoff", "command"],
+	subagents: ["subagent"],
+	jobs: ["job"],
+	calls: ["call"],
+	pairs: ["pair"],
+	notes: ["note"],
+};
+
+/** Within a kind's chip: every one, the ones still live, or the ones ended. */
+export type Span = "all" | "live" | "ended";
+
+/** Whether a filter is a kind of thread's, which has the Live / Ended switch. */
+export const spans = (filter: ListFilter): boolean => filter !== "notes" && KINDS[filter] !== undefined;
+
+export function filtered(items: ListItem[], filter: ListFilter, span: Span = "all"): ListItem[] {
+	const kinds = KINDS[filter];
+	if (kinds !== undefined) return items.filter((item) => kinds.includes(item.kind) && (span === "all" || (span === "ended") === item.ended));
+	if (filter === "needs") return items.filter((item) => item.waiting);
+	if (filter === "live") return items.filter((item) => item.live && !item.waiting);
+	return items;
+}
+
+/**
+ * The rows whose title, line (state, latest step or result), what was last
+ * said in them or what they came to, or a note's words, hold every word of
+ * the query, whatever the case.
+ */
+export function searched(items: ListItem[], query: string): ListItem[] {
+	const words = query.toLowerCase().split(/\s+/).filter((word) => word !== "");
+	if (words.length === 0) return items;
+	return items.filter((item) => words.every((word) => item.words.includes(word)));
 }
 
 /** The list's groups, in their order, each newest first. */
@@ -248,18 +291,41 @@ export function grouped(items: ListItem[], now: number, active: boolean): Groups
 }
 
 /*
- * The filter last used, per teammate, for as long as the window is open:
- * what the list opens on, and what the teammate menu's Notes sets.
+ * The filter last used, per teammate: what the list opens on, across the
+ * pane closing and the app restarting, and what the teammate menu's Notes
+ * sets. Kept in this window's storage, read where it is asked for.
  */
-const filters = new Map<string, ListFilter>();
+const FILTER_KEY = "hotline.threads.filter";
 const watchers = new Set<() => void>();
 
+function storage(): Storage | undefined {
+	try {
+		return typeof localStorage === "undefined" ? undefined : localStorage;
+	} catch {
+		return undefined;
+	}
+}
+
+function storedFilters(): Record<string, unknown> {
+	try {
+		const parsed: unknown = JSON.parse(storage()?.getItem(FILTER_KEY) ?? "{}");
+		return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+	} catch {
+		return {};
+	}
+}
+
 export function filterOf(personaId: string): ListFilter {
-	return filters.get(personaId) ?? "active";
+	const stored = storedFilters()[personaId];
+	return FILTERS.find((one) => one === stored) ?? "active";
 }
 
 export function rememberFilter(personaId: string, filter: ListFilter): void {
-	filters.set(personaId, filter);
+	try {
+		storage()?.setItem(FILTER_KEY, JSON.stringify({ ...storedFilters(), [personaId]: filter }));
+	} catch {
+		// Quota, private mode: the list opens on Active next time.
+	}
 	for (const watcher of watchers) watcher();
 }
 

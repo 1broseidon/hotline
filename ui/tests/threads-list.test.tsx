@@ -61,6 +61,7 @@ let listed: ThreadSummary[];
 let jobs: ScheduleEntry[];
 let asides: Aside[];
 let threadLines: Record<string, TranscriptEvent[]>;
+let dom: import("happy-dom").Window;
 let sent: { cmd: string; params: unknown }[];
 let act: typeof import("react").act;
 let root: Root;
@@ -72,6 +73,7 @@ beforeEach(async () => {
 	restores = [];
 	const installed = installDom({ ResizeObserver: NoResize, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 	teardown = installed.teardown;
+	dom = installed.dom;
 	Object.assign(globalThis, { HTMLElement: installed.dom.HTMLElement });
 	restores.push(() => Reflect.deleteProperty(globalThis, "HTMLElement"));
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
@@ -180,6 +182,43 @@ function everyKind() {
 	return [entry(pork, { subagents: [audit, precheck], workingJobs: ["watch"], sides }), entry(elvis), entry(lou)];
 }
 
+const DAY = 86_400_000;
+/** A day's worth: one waiting, two running, today's, and what is earlier or routine. */
+function aDay(personaId = "pork") {
+	const owned = (row: Partial<ThreadSummary> & Pick<ThreadSummary, "thread">) => summary({ personaId, ...row });
+	listed = [
+		owned({ thread: { kind: "side", key: "w1" }, title: "Check the 0.49 site copy", waiting: true, updatedAt: today(0, 58) }),
+		owned({ thread: { kind: "run", key: "r-audit" }, title: "Audit side-pane thread rows", working: true, updatedAt: today(0, 50) }),
+		owned({ thread: { kind: "job", key: "watch" }, title: "Watch CI", working: true }),
+		owned({ thread: { kind: "pair", key: `lou~${personaId}` }, title: "With Lou", state: "closed", end: "done", outcome: "Agreed the button order", updatedAt: today(0, 12) }),
+		owned({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", outcome: "Input to picture is about 26 ms.", startedAt: today(0, 4) - 180_000, updatedAt: today(0, 4) }),
+		owned({ thread: { kind: "run", key: "r-pre" }, title: "make precheck", state: "closed", end: "done", outcome: "All 8 legs pass", updatedAt: today(0, 20), runKind: "shell" }),
+		owned({ thread: { kind: "job", key: "sweep" }, title: "Sweep the inbox", state: "parked", updatedAt: today(0, 15), posted: false }),
+		owned({ thread: { kind: "side", key: "old" }, title: "Server installer rerun", state: "closed", end: "agent", outcome: "Both fixes are live.", updatedAt: Date.now() - 3 * DAY }),
+	];
+	jobs = [job("watch", { personaId, name: "Watch CI on release/0.49.0" }), job("sweep", { personaId, name: "Sweep the inbox" })];
+	asides = [
+		aside("unread", today(0, 30), { to: personaId, text: "Linux and Windows are green." }),
+		aside("read", today(0, 25), { to: personaId, text: "Site copy is drafted.", seen: today(0, 26) }),
+		aside("friday", Date.now() - 4 * DAY, { to: personaId, text: "Disk is at 610 GB free." }),
+	];
+	const sides = [{ sideId: "w1", title: "Check the 0.49 site copy", startedAt: 1, working: false }];
+	return [entry(persona(personaId, "Ada"), { subagents: [audit], workingJobs: ["watch"], sides }), entry(lou)];
+}
+const headings = () => [...container.querySelectorAll(".list-group, .list-fold")].map((one) => [...one.children].map((part) => part.textContent));
+/** The rows under each heading, in order. */
+const sections = () => {
+	const out: Record<string, (string | null)[]> = {};
+	let at = "";
+	for (const one of container.querySelectorAll(".list-group, .list-fold, .list-row")) {
+		if (!one.classList.contains("list-row")) {
+			at = one.firstElementChild?.textContent ?? "";
+			out[at] = [];
+		} else out[at]?.push(one.getAttribute("data-thread"));
+	}
+	return out;
+};
+
 describe("task-400 one row shape", () => {
 	test("The pane titled Threads lists work threads, handoffs, subagents, commands, pairs, calls, jobs and notes (asides) as rows of one shape: kind mark, title, one line (state, latest step, or result), time; a live row shows its latest step and a beating dot", async () => {
 		await dock(everyKind());
@@ -249,9 +288,10 @@ describe("task-400 one row shape", () => {
 			summary({ thread: { kind: "side", key: "s2" }, title: "Server installer rerun", state: "closed", end: "agent", outcome: "Both fixes are live." }),
 		);
 		await dock(roster);
-		const text = container.textContent ?? "";
-		for (const gone of ["Subagents working", "Ended subagents", "Jobs", "Closed1", "Noted"]) expect(text).not.toContain(gone);
-		expect(container.querySelectorAll(".dock section")).toHaveLength(0);
+		const headings = [...container.querySelectorAll(".list-group, .list-fold, h3")].map((one) => one.firstElementChild?.textContent ?? one.textContent);
+		for (const gone of ["Subagents working", "Threads", "Ended subagents", "Jobs", "Closed"]) expect(headings).not.toContain(gone);
+		expect(container.textContent).not.toContain("Noted");
+		expect(container.querySelectorAll(".dock section, .noted-row")).toHaveLength(0);
 		// Ended ones are rows like any other, never folded away under Closed.
 		expect(row("run:r-map")).not.toBeNull();
 		expect(row("side:s2")).not.toBeNull();
@@ -283,43 +323,6 @@ describe("task-400 one row shape", () => {
 });
 
 describe("task-401 the Active default", () => {
-	const DAY = 86_400_000;
-	/** A day's worth: one waiting, two running, today's, and what is earlier or routine. */
-	function aDay(personaId = "pork") {
-		const owned = (row: Partial<ThreadSummary> & Pick<ThreadSummary, "thread">) => summary({ personaId, ...row });
-		listed = [
-			owned({ thread: { kind: "side", key: "w1" }, title: "Check the 0.49 site copy", waiting: true, updatedAt: today(0, 58) }),
-			owned({ thread: { kind: "run", key: "r-audit" }, title: "Audit side-pane thread rows", working: true, updatedAt: today(0, 50) }),
-			owned({ thread: { kind: "job", key: "watch" }, title: "Watch CI", working: true }),
-			owned({ thread: { kind: "pair", key: `lou~${personaId}` }, title: "With Lou", state: "closed", end: "done", outcome: "Agreed the button order", updatedAt: today(0, 12) }),
-			owned({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", outcome: "Input to picture is about 26 ms.", startedAt: today(0, 4) - 180_000, updatedAt: today(0, 4) }),
-			owned({ thread: { kind: "run", key: "r-pre" }, title: "make precheck", state: "closed", end: "done", outcome: "All 8 legs pass", updatedAt: today(0, 20), runKind: "shell" }),
-			owned({ thread: { kind: "job", key: "sweep" }, title: "Sweep the inbox", state: "parked", updatedAt: today(0, 15), posted: false }),
-			owned({ thread: { kind: "side", key: "old" }, title: "Server installer rerun", state: "closed", end: "agent", outcome: "Both fixes are live.", updatedAt: Date.now() - 3 * DAY }),
-		];
-		jobs = [job("watch", { personaId, name: "Watch CI on release/0.49.0" }), job("sweep", { personaId, name: "Sweep the inbox" })];
-		asides = [
-			aside("unread", today(0, 30), { to: personaId, text: "Linux and Windows are green." }),
-			aside("read", today(0, 25), { to: personaId, text: "Site copy is drafted.", seen: today(0, 26) }),
-			aside("friday", Date.now() - 4 * DAY, { to: personaId, text: "Disk is at 610 GB free." }),
-		];
-		const sides = [{ sideId: "w1", title: "Check the 0.49 site copy", startedAt: 1, working: false }];
-		return [entry(persona(personaId, "Ada"), { subagents: [audit], workingJobs: ["watch"], sides }), entry(lou)];
-	}
-	const headings = () => [...container.querySelectorAll(".list-group, .list-fold")].map((one) => [...one.children].map((part) => part.textContent));
-	/** The rows under each heading, in order. */
-	const sections = () => {
-		const out: Record<string, (string | null)[]> = {};
-		let at = "";
-		for (const one of container.querySelectorAll(".list-group, .list-fold, .list-row")) {
-			if (!one.classList.contains("list-row")) {
-				at = one.firstElementChild?.textContent ?? "";
-				out[at] = [];
-			} else out[at]?.push(one.getAttribute("data-thread"));
-		}
-		return out;
-	};
-
 	test("Default filter Active groups Needs you, Live, Today, in that order", async () => {
 		// A teammate whose list has never been narrowed opens on Active.
 		await dock(aDay("ada"));
@@ -369,5 +372,138 @@ describe("task-401 the Active default", () => {
 		expect(headings().slice(0, 3)).toEqual([["Needs you", "1"], ["Live", "2"], ["Today"]]);
 		await act(async () => chip("All")!.click());
 		expect(headings()).toEqual([["Needs you", "1"], ["Live", "2"], ["Today"], ["Earlier"]]);
+	});
+});
+
+describe("task-402 filters and search", () => {
+	const search = () => container.querySelector<HTMLInputElement>('input[aria-label="Search threads and notes"]')!;
+	async function type(text: string) {
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(search(), text);
+			search().dispatchEvent(new dom.Event("input", { bubbles: true }) as unknown as Event);
+		});
+	}
+	const span = (word: string) => [...container.querySelectorAll<HTMLButtonElement>('.list-span [role="tab"]')].find((one) => one.textContent === word);
+
+	test("Chips: Active, All, Needs you, Live, Threads, Subagents, Jobs, Calls, Pairs, Notes. A kind chip shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
+		await dock(aDay());
+		const words = [...container.querySelectorAll(".list-chips button")].map((one) => one.firstChild?.textContent);
+		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Threads", "Subagents", "Jobs", "Calls", "Pairs", "Notes"]);
+		// Only Needs you and Live are counted.
+		expect(chip("Needs you")?.querySelector(".list-count")?.textContent).toBe("1");
+		expect(chip("Live")?.querySelector(".list-count")?.textContent).toBe("2");
+		expect(container.querySelectorAll(".list-count")).toHaveLength(2);
+
+		// No switch outside a kind's chip.
+		expect(container.querySelector(".list-span")).toBeNull();
+		await act(async () => chip("Subagents")!.click());
+		expect(rowIds()).toEqual(["run:r-audit", "run:r-map"]);
+		expect(span("All")?.getAttribute("aria-selected")).toBe("true");
+		await act(async () => span("Live")!.click());
+		expect(rowIds()).toEqual(["run:r-audit"]);
+		await act(async () => span("Ended")!.click());
+		expect(rowIds()).toEqual(["run:r-map"]);
+
+		// Threads are what is worked in: work threads, handoffs, commands.
+		await act(async () => chip("Threads")!.click());
+		expect(span("All")?.getAttribute("aria-selected")).toBe("true");
+		expect(rowIds()).toEqual(["side:w1", "run:r-pre", "side:old"]);
+		await act(async () => chip("Jobs")!.click());
+		expect(rowIds()).toEqual(["job:watch", "job:sweep"]);
+		await act(async () => span("Ended")!.click());
+		expect(container.textContent).toContain("Nothing here.");
+		await act(async () => chip("Pairs")!.click());
+		expect(rowIds()).toEqual([`pair:lou~pork`]);
+		await act(async () => chip("Calls")!.click());
+		expect(rowIds()).toEqual([]);
+		await act(async () => chip("Needs you")!.click());
+		expect(rowIds()).toEqual(["side:w1"]);
+		await act(async () => chip("Live")!.click());
+		expect(rowIds()).toEqual(["run:r-audit", "job:watch"]);
+		// Notes are not threads: no switch.
+		await act(async () => chip("Notes")!.click());
+		expect(container.querySelector(".list-span")).toBeNull();
+		expect(rowIds()).toEqual(["note:unread", "note:read", "note:friday"]);
+	});
+
+	test("Search matches titles, latest steps, results and note words across everything, earlier items included", async () => {
+		await dock(aDay());
+		await act(async () => rememberFilter("pork", "active"));
+		expect(row("side:old")).toBeNull();
+		// A title, earlier than today and folded away under Active.
+		await type("installer");
+		expect(rowIds()).toEqual(["side:old"]);
+		expect(container.querySelector(".list-fold")).toBeNull();
+		// A latest step.
+		await type("read dock");
+		expect(rowIds()).toEqual(["run:r-audit"]);
+		// A result.
+		await type("26 ms");
+		expect(rowIds()).toEqual(["run:r-map"]);
+		// A note's words, from four days ago.
+		await type("610 GB");
+		expect(rowIds()).toEqual(["note:friday"]);
+		await type("nothing like this");
+		expect(container.textContent).toContain("No matches.");
+		// Escape clears the search, and the list is Active's again.
+		await act(async () => search().dispatchEvent(new dom.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event));
+		expect(search().value).toBe("");
+		expect(container.querySelector(".list-fold")).not.toBeNull();
+		// Under a kind's chip, it searches that kind.
+		await act(async () => chip("Jobs")!.click());
+		await type("inbox");
+		expect(rowIds()).toEqual(["job:sweep"]);
+		await type("installer");
+		expect(rowIds()).toEqual([]);
+	});
+
+	test("The filter last used is kept per teammate across opening and closing the pane and restarts", async () => {
+		const roster = aDay();
+		await dock(roster);
+		await act(async () => chip("Jobs")!.click());
+		// Closed and opened again.
+		await act(async () => root.render(<div />));
+		await dock(roster);
+		expect(chip("Jobs")?.getAttribute("aria-pressed")).toBe("true");
+		// Another teammate keeps its own: Lou has never been narrowed.
+		localStorage.removeItem("hotline.threads.filter");
+		await act(async () => rememberFilter("pork", "jobs"));
+		await dock([entry(lou), ...roster]);
+		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
+		// A restart: nothing but what the window stored, read afresh.
+		expect(JSON.parse(localStorage.getItem("hotline.threads.filter") ?? "{}")).toEqual({ pork: "jobs" });
+		localStorage.setItem("hotline.threads.filter", JSON.stringify({ pork: "calls", lou: "notes" }));
+		await act(async () => root.render(<div />));
+		await dock(roster);
+		expect(chip("Calls")?.getAttribute("aria-pressed")).toBe("true");
+		// Something unreadable there opens on Active.
+		localStorage.setItem("hotline.threads.filter", "{not json");
+		await act(async () => root.render(<div />));
+		await dock(roster);
+		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
+	});
+
+	test("Whatever data a row needs and the list lacks (a finished run's kind, whether a job run posted, a note's read state) is added where it belongs", async () => {
+		const { listItems } = await import("../src/threadList");
+		const { rowOfLink } = await import("../src/dock");
+		const base = { runs: [], jobs: [], asides: [], listedFor: "pork", nameOf: () => undefined, personName: "", now: Date.now() };
+		// A finished run the roster has let go of: its kind is the list's word (`runKind`), or its link's before the list is read again.
+		const ended = summary({ thread: { kind: "run", key: "cmd" }, title: "make precheck", state: "closed", end: "done", runKind: "shell" });
+		const linked = rowOfLink({ kind: "link", id: "link:run:cmd2", ts: 1, thread: "cmd2", threadKind: "run", title: "cargo build", state: "closed", end: "done", runKind: "shell" }, "pork");
+		const kinds = listItems({ ...base, rows: [ended, linked, summary({ thread: { kind: "run", key: "sub" }, state: "closed", end: "done" })] }).map((item) => [item.id, item.kind, item.routine]);
+		expect(kinds).toEqual([
+			["run:cmd", "command", true],
+			["run:sub", "subagent", false],
+			["run:cmd2", "command", true],
+		]);
+		// A job whose latest run posted nothing is routine; one that posted, or is running, is not.
+		const jobRows = (posted: boolean, working = false) =>
+			listItems({ ...base, jobs: [job("j")], rows: [summary({ thread: { kind: "job", key: "j" }, posted, working })] })[0]!;
+		expect(jobRows(false).routine).toBe(true);
+		expect(jobRows(true).routine).toBe(false);
+		expect(jobRows(false, true).routine).toBe(false);
+		// A note is read once the person has seen it (`aside.seen`).
+		const notes = listItems({ ...base, rows: [], asides: [aside("a", 2, { seen: 3 }), aside("b", 1)] });
+		expect(notes.map((item) => [item.id, item.read])).toEqual([["note:a", true], ["note:b", false]]);
 	});
 });

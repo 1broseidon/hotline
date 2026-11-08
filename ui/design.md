@@ -147,8 +147,16 @@ The **right-hand pane** holds the open teammate's threads, beside the
 conversation: a work thread (a side thread or a handoff), a conversation with
 another teammate, a subagent's run, a command, a call, a job, and the notes
 (asides) the teammate was left (docs/design/threads-list.html, idea A). Its
-band is the title, Threads, and the way out; under it, chips narrow the list
-(Active, All, Notes). The rows stand in groups, each headed in the instrument
+band is the title, Threads, and the way out; under it a search field (Search
+threads and notes) reads every row, the folded ones too, by its title, its
+line, what was said in it or came of it, and a note's words, and Escape
+clears it before it closes the pane. Under the search, chips narrow the list:
+Active, All, Needs you, Live, Threads (work threads, handoffs and commands),
+Subagents, Jobs, Calls, Pairs and Notes, the chip pressed on the pressed
+plane, Needs you in amber while something waits, and only Needs you and Live
+counted. A kind's chip shows all of that kind, live and ended, with an All ·
+Live · Ended switch under the chips. The chip last pressed is kept for each
+teammate, across the pane closing and the app restarting. The rows stand in groups, each headed in the instrument
 face: Needs you, Live, Today and Earlier, and only Needs you and Live are
 counted. The list opens on Active, where what is earlier than today, what is
 routine (a finished command, a job run that posted nothing) and a note already

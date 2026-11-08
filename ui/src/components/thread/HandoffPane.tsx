@@ -17,7 +17,7 @@ type Teammate = { id: string; name: string; hash?: string | undefined };
 type Delivery = Extract<TranscriptEvent, { kind: "delivery" }>;
 
 /** The delivery that handed the thread over: the request its card shows. */
-export function handoffRequest(events: readonly TranscriptEvent[]): Delivery | undefined {
+function handoffRequest(events: readonly TranscriptEvent[]): Delivery | undefined {
 	return events.find((event): event is Delivery => event.kind === "delivery" && event.cause.kind === "handoff");
 }
 

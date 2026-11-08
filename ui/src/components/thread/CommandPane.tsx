@@ -15,7 +15,7 @@ export function runLink(events: readonly TranscriptEvent[]): Link | undefined {
 }
 
 /** The output a command's run kept when it ended: its one step's, the newest written. */
-export function keptOutput(events: readonly TranscriptEvent[]): string {
+function keptOutput(events: readonly TranscriptEvent[]): string {
 	for (const event of [...events].reverse()) {
 		if (event.kind !== "tool") continue;
 		const text = event.output?.flatMap((one) => (one.type === "text" ? [one.text] : [])).join("\n") ?? "";

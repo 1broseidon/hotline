@@ -148,7 +148,11 @@ conversation: a work thread (a side thread or a handoff), a conversation with
 another teammate, a subagent's run, a command, a call, a job, and the notes
 (asides) the teammate was left (docs/design/threads-list.html, idea A). Its
 band is the title, Threads, and the way out; under it, chips narrow the list
-(All, Notes). Every row is one shape: the kind's mark in the instrument face
+(Active, All, Notes). The rows stand in groups, each headed in the instrument
+face: Needs you, Live, Today and Earlier, and only Needs you and Live are
+counted. The list opens on Active, where what is earlier than today, what is
+routine (a finished command, a job run that posted nothing) and a note already
+read fold into one row, "Earlier and routine · N", that opens in place. Every row is one shape: the kind's mark in the instrument face
 (≡ work thread, ⇄ handoff, ◆ subagent, $ command, ◎ pair, ☏ call, ↻ job, ✎
 note; accent while it runs, amber while it waits on the person), the title
 over one line (its state, its latest step, or what came of it), and the time,

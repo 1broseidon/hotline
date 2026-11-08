@@ -27,11 +27,15 @@ const elvis = persona("elvis", "Elvis");
 const lou = persona("lou", "Lou");
 const entry = (one: Persona, extra: Partial<RosterEntry> = {}): RosterEntry => ({ persona: one, waiting: false, drawing: false, session: session(one.id), ...extra });
 
-/** Today at a clock time, so a row's time reads as that clock. */
+/**
+ * A moment today, in order: `today(0, 30)` is thirty seconds after
+ * `today(0, 0)`, both a moment past midnight, so a run just after midnight
+ * still has them all today and in the order given.
+ */
 const today = (hours: number, minutes = 0) => {
-	const at = new Date();
-	at.setHours(hours, minutes, 0, 0);
-	return Math.min(at.getTime(), Date.now() - 60_000);
+	const midnight = new Date();
+	midnight.setHours(0, 0, 0, 0);
+	return Math.min(midnight.getTime() + (hours * 60 + minutes) * 1_000, Date.now() - 1);
 };
 
 const summary = (row: Partial<ThreadSummary> & Pick<ThreadSummary, "thread">): ThreadSummary => ({
@@ -275,5 +279,95 @@ describe("task-400 one row shape", () => {
 		asides = [aside("n1", today(0, 40)), aside("n0", today(0, 20), { seen: today(0, 25) })];
 		await dock(roster);
 		expect(sent.filter((one) => one.cmd === "aside.seen").map((one) => one.params)).toEqual([{ personaId: "pork" }]);
+	});
+});
+
+describe("task-401 the Active default", () => {
+	const DAY = 86_400_000;
+	/** A day's worth: one waiting, two running, today's, and what is earlier or routine. */
+	function aDay(personaId = "pork") {
+		const owned = (row: Partial<ThreadSummary> & Pick<ThreadSummary, "thread">) => summary({ personaId, ...row });
+		listed = [
+			owned({ thread: { kind: "side", key: "w1" }, title: "Check the 0.49 site copy", waiting: true, updatedAt: today(0, 58) }),
+			owned({ thread: { kind: "run", key: "r-audit" }, title: "Audit side-pane thread rows", working: true, updatedAt: today(0, 50) }),
+			owned({ thread: { kind: "job", key: "watch" }, title: "Watch CI", working: true }),
+			owned({ thread: { kind: "pair", key: `lou~${personaId}` }, title: "With Lou", state: "closed", end: "done", outcome: "Agreed the button order", updatedAt: today(0, 12) }),
+			owned({ thread: { kind: "run", key: "r-map" }, title: "Map browser stream latency", state: "closed", end: "done", outcome: "Input to picture is about 26 ms.", startedAt: today(0, 4) - 180_000, updatedAt: today(0, 4) }),
+			owned({ thread: { kind: "run", key: "r-pre" }, title: "make precheck", state: "closed", end: "done", outcome: "All 8 legs pass", updatedAt: today(0, 20), runKind: "shell" }),
+			owned({ thread: { kind: "job", key: "sweep" }, title: "Sweep the inbox", state: "parked", updatedAt: today(0, 15), posted: false }),
+			owned({ thread: { kind: "side", key: "old" }, title: "Server installer rerun", state: "closed", end: "agent", outcome: "Both fixes are live.", updatedAt: Date.now() - 3 * DAY }),
+		];
+		jobs = [job("watch", { personaId, name: "Watch CI on release/0.49.0" }), job("sweep", { personaId, name: "Sweep the inbox" })];
+		asides = [
+			aside("unread", today(0, 30), { to: personaId, text: "Linux and Windows are green." }),
+			aside("read", today(0, 25), { to: personaId, text: "Site copy is drafted.", seen: today(0, 26) }),
+			aside("friday", Date.now() - 4 * DAY, { to: personaId, text: "Disk is at 610 GB free." }),
+		];
+		const sides = [{ sideId: "w1", title: "Check the 0.49 site copy", startedAt: 1, working: false }];
+		return [entry(persona(personaId, "Ada"), { subagents: [audit], workingJobs: ["watch"], sides }), entry(lou)];
+	}
+	const headings = () => [...container.querySelectorAll(".list-group, .list-fold")].map((one) => [...one.children].map((part) => part.textContent));
+	/** The rows under each heading, in order. */
+	const sections = () => {
+		const out: Record<string, (string | null)[]> = {};
+		let at = "";
+		for (const one of container.querySelectorAll(".list-group, .list-fold, .list-row")) {
+			if (!one.classList.contains("list-row")) {
+				at = one.firstElementChild?.textContent ?? "";
+				out[at] = [];
+			} else out[at]?.push(one.getAttribute("data-thread"));
+		}
+		return out;
+	};
+
+	test("Default filter Active groups Needs you, Live, Today, in that order", async () => {
+		// A teammate whose list has never been narrowed opens on Active.
+		await dock(aDay("ada"));
+		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
+		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "Today", "Earlier and routine · 5"]);
+		expect(sections()).toEqual({
+			"Needs you": ["side:w1"],
+			Live: ["run:r-audit", "job:watch"],
+			Today: ["note:unread", "pair:lou~ada", "run:r-map"],
+			// Folded: the rest wait under one row.
+			"Earlier and routine · 5": [],
+		});
+	});
+
+	test("Earlier than today, routine items (a finished command, a job run that posted nothing) and read notes fold into one \"Earlier and routine · N\" row that expands in place", async () => {
+		await dock(aDay());
+		await act(async () => rememberFilter("pork", "active"));
+		const fold = container.querySelector<HTMLButtonElement>(".list-fold")!;
+		expect(fold.getAttribute("aria-expanded")).toBe("false");
+		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 5", "Show"]);
+		for (const folded of ["run:r-pre", "job:sweep", "note:read", "side:old", "note:friday"]) expect(row(folded)).toBeNull();
+		await act(async () => fold.click());
+		expect(fold.getAttribute("aria-expanded")).toBe("true");
+		expect(fold.lastElementChild?.textContent).toBe("Hide");
+		// In place: under the fold, newest first, and nothing above it moved.
+		expect(sections()["Earlier and routine · 5"]).toEqual(["note:read", "run:r-pre", "job:sweep", "side:old", "note:friday"]);
+		expect(parts("run:r-pre").mark).toBe("$");
+		expect(parts("run:r-pre").line).toStartWith("Done · All 8 legs pass · ");
+		expect(sections()["Today"]).toEqual(["note:unread", "pair:lou~pork", "run:r-map"]);
+		// Under All nothing is folded: routine and read today are Today's, the rest Earlier.
+		await act(async () => chip("All")!.click());
+		expect(container.querySelector(".list-fold")).toBeNull();
+		expect(sections()["Earlier"]).toEqual(["side:old", "note:friday"]);
+		expect(sections()["Today"]).toContain("run:r-pre");
+	});
+
+	test("An ended subagent in Today shows its result line", async () => {
+		await dock(aDay());
+		await act(async () => rememberFilter("pork", "active"));
+		expect(sections()["Today"]).toContain("run:r-map");
+		expect(parts("run:r-map")).toMatchObject({ mark: "◆", line: "Reported · Input to picture is about 26 ms. · 3:00", beats: false });
+	});
+
+	test("Counts show only on Needs you and Live", async () => {
+		await dock(aDay());
+		await act(async () => rememberFilter("pork", "active"));
+		expect(headings().slice(0, 3)).toEqual([["Needs you", "1"], ["Live", "2"], ["Today"]]);
+		await act(async () => chip("All")!.click());
+		expect(headings()).toEqual([["Needs you", "1"], ["Live", "2"], ["Today"], ["Earlier"]]);
 	});
 });

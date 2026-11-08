@@ -32,6 +32,8 @@ export type ListItem = {
 	waiting: boolean;
 	/** It has ended: a closed thread, an ended job. A note is never ended. */
 	ended: boolean;
+	/** Routine: done, with nothing in it to read: a finished command, a job whose latest run posted nothing. Active folds it with what is earlier. */
+	routine: boolean;
 	/** For a note: the person has read it. */
 	read: boolean;
 	/** For a note: its level, "person" being the one to the person. */
@@ -122,6 +124,7 @@ function threadItem(row: ThreadSummary, { runs, listedFor, nameOf }: Input, note
 		live,
 		waiting: !ended && row.waiting,
 		ended,
+		routine: ended && kind === "command",
 		read: false,
 		notes,
 		open: { thread: row.thread, title },
@@ -135,7 +138,7 @@ function kindOf(row: ThreadSummary, run: RunningSubagent | undefined): ListKind 
 		case "side":
 			return openerOf(row) === undefined ? "work" : "handoff";
 		case "run":
-			return (run?.kind ?? "subagent") === "shell" ? "command" : "subagent";
+			return (run?.kind ?? row.runKind ?? "subagent") === "shell" ? "command" : "subagent";
 		case "pair":
 			return "pair";
 		case "call":
@@ -178,6 +181,8 @@ function jobItem(job: ScheduleEntry, row: ThreadSummary | undefined, { now }: In
 		live,
 		waiting: !ended && row?.waiting === true,
 		ended,
+		// Its latest run posted nothing to the chat: a run that found nothing to say.
+		routine: !live && row?.posted === false,
 		read: false,
 		notes,
 		open: { thread, title: job.name },
@@ -202,6 +207,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 		live: false,
 		waiting: false,
 		ended: false,
+		routine: false,
 		read: aside.seen !== undefined,
 		level: aside.level,
 		notes: 0,
@@ -209,11 +215,36 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 	};
 }
 
-/** What the list can be narrowed to. */
-export type ListFilter = "all" | "notes";
+/**
+ * What the list can be narrowed to. Active, the default, is what wants a
+ * look now: what waits on the person, what runs, and what happened today,
+ * with the rest folded into one row.
+ */
+export type ListFilter = "active" | "all" | "notes";
 
 export function filtered(items: ListItem[], filter: ListFilter): ListItem[] {
 	return filter === "notes" ? items.filter((item) => item.kind === "note") : items;
+}
+
+/** The list's groups, in their order, each newest first. */
+export type Groups = { needs: ListItem[]; live: ListItem[]; today: ListItem[]; earlier: ListItem[] };
+
+/**
+ * Rows into Needs you, Live, Today and Earlier. Under Active, Earlier is
+ * "Earlier and routine": what is older than today, and with it what is
+ * routine and a note already read, today's or not.
+ */
+export function grouped(items: ListItem[], now: number, active: boolean): Groups {
+	const midnight = new Date(now);
+	midnight.setHours(0, 0, 0, 0);
+	const groups: Groups = { needs: [], live: [], today: [], earlier: [] };
+	for (const item of items) {
+		if (item.waiting) groups.needs.push(item);
+		else if (item.live) groups.live.push(item);
+		else if (item.at >= midnight.getTime() && !(active && (item.routine || item.read))) groups.today.push(item);
+		else groups.earlier.push(item);
+	}
+	return groups;
 }
 
 /*
@@ -224,7 +255,7 @@ const filters = new Map<string, ListFilter>();
 const watchers = new Set<() => void>();
 
 export function filterOf(personaId: string): ListFilter {
-	return filters.get(personaId) ?? "all";
+	return filters.get(personaId) ?? "active";
 }
 
 export function rememberFilter(personaId: string, filter: ListFilter): void {

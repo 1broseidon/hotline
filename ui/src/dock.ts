@@ -99,6 +99,7 @@ export function rowOfLink(link: LinkEvent, personaId: string): ThreadSummary {
 		working: false,
 		waiting: false,
 		...(link.outcome !== undefined ? { outcome: link.outcome } : {}),
+		...(link.runKind !== undefined ? { runKind: link.runKind } : {}),
 	};
 }
 

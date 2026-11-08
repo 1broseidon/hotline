@@ -50,7 +50,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   subagent, command, pair, call and job, and every note the teammate was
   left, as rows of one shape, the kind's mark, the title, one line of state,
   latest step or result, and the time. A note opens the thread it came from,
-  and that thread's row counts its notes. The Subagents working, Ended
+  and that thread's row counts its notes. It opens on Active: Needs you,
+  Live and Today, with what is earlier, routine runs and read notes folded
+  into one row that opens in place. The Subagents working, Ended
   subagents, Jobs and Closed groups and the Noted page are gone; Notes in
   the teammate's menu opens the list on its notes.
 - A pair's line in the conversation says Pair, and a command left running

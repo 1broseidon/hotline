@@ -49,7 +49,7 @@ about?: ThreadId, level: AsideLevel,
  */
 heard?: number, 
 /**
- * When the person last opened the teammate's Noted page with it there
+ * When the person last read the teammate's notes with it there
  * (`aside.seen`): the person's reading, apart from the teammate's
  * hearing. Absent until then.
  */
@@ -1883,7 +1883,7 @@ workingCalls?: Array<string>,
  */
 asides?: number, 
 /**
- * How many of them the person has not seen on its Noted page yet
+ * How many of them the person has not read among its notes yet
  * (`aside.seen` marks them). Absent when there are none.
  */
 asidesNew?: number, session: SessionInfo, };
@@ -2561,7 +2561,20 @@ preview?: string,
 /**
  * What a closed thread came to, in a line.
  */
-outcome?: string, };
+outcome?: string, 
+/**
+ * What a run runs, when it is a command a harness left running rather
+ * than a subagent, as its link records: so a list says Command after
+ * the roster has let it go. Absent for a subagent and every other kind.
+ */
+runKind?: RunKind, 
+/**
+ * For a job's thread that has fired: whether its latest firing posted
+ * to the chat. A quiet job's firing that found nothing says nothing
+ * there, and a list takes it for routine. Absent for every other
+ * thread, and for a job that has not fired.
+ */
+posted?: boolean, };
 
 /**
  * What one turn's requests cost in tokens. On Hotline Agent the input counts

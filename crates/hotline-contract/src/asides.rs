@@ -79,7 +79,7 @@ pub struct Aside {
     /// When a turn of the teammate's took it in. Absent until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heard: Option<i64>,
-    /// When the person last opened the teammate's Noted page with it there
+    /// When the person last read the teammate's notes with it there
     /// (`aside.seen`): the person's reading, apart from the teammate's
     /// hearing. Absent until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]

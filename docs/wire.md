@@ -987,8 +987,13 @@ turns it into for a socket that did not declare.
 
 **`ThreadSummary`**, one shape for every kind: `{thread, personaId,
 withPersonaId?, withName?, title?, state, end?, opener?, handoffEnded?,
-startedAt, updatedAt, working, waiting, preview?, outcome?}`; `handoffEnded` is
-what the thread's link records. `personaId` is the teammate whose thread it is
+startedAt, updatedAt, working, waiting, preview?, outcome?, runKind?, posted?}`;
+`handoffEnded` is what the thread's link records, and so is `runKind`,
+`shell` for a run that is a command a harness left running, so a list still
+says Command once the roster has let it go. `posted` is a job's thread's
+alone, once it has fired: whether its latest firing posted to the chat (its
+`lastPost` came at or after the firing's line), so a list can fold a run
+that found nothing away as routine. `personaId` is the teammate whose thread it is
 (a pair is listed with the first of its two, and `withPersonaId` is the other;
 `withName` is what to call the other when it is on a linked desk, in no roster
 here, [Linked desks](#linked-desks));

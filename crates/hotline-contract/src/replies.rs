@@ -78,6 +78,17 @@ pub struct ThreadSummary {
     /// What a closed thread came to, in a line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
+    /// What a run runs, when it is a command a harness left running rather
+    /// than a subagent, as its link records: so a list says Command after
+    /// the roster has let it go. Absent for a subagent and every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_kind: Option<RunKind>,
+    /// For a job's thread that has fired: whether its latest firing posted
+    /// to the chat. A quiet job's firing that found nothing says nothing
+    /// there, and a list takes it for routine. Absent for every other
+    /// thread, and for a job that has not fired.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub posted: Option<bool>,
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core
@@ -240,7 +251,7 @@ pub struct RosterEntry {
     /// heard yet (`aside.list` lists them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asides: Option<u32>,
-    /// How many of them the person has not seen on its Noted page yet
+    /// How many of them the person has not read among its notes yet
     /// (`aside.seen` marks them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asides_new: Option<u32>,

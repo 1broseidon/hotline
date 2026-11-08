@@ -61,7 +61,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
+	:where(.control, .rail-row, .list-row, .list-fold, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -4795,13 +4795,38 @@
 		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
 	}
-	/* The Threads list (ThreadList.tsx): the chips that narrow it, and rows
-	 * of one shape: the kind's mark, the title over one line, and the time. */
+	/* The Threads list (ThreadList.tsx): the chips that narrow it, a group's
+	 * heading in the instrument face with its count at the right, the fold
+	 * of what is earlier and routine, and rows of one shape: the kind's mark,
+	 * the title over one line, and the time. */
 	.list-chips {
 		padding: 4px 12px 8px;
 	}
 	.list-chips .btn-sm[aria-pressed="false"] {
 		color: var(--ink-3);
+	}
+	.list-group,
+	.list-fold {
+		display: flex;
+		width: 100%;
+		justify-content: space-between;
+		padding: 12px 8px 4px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.list-fold {
+		margin-top: 4px;
+		padding-bottom: 8px;
+		border-radius: var(--radius-control);
+		color: var(--ink-2);
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.list-fold:hover {
+		background: var(--fill-hover);
 	}
 	.list-row {
 		display: flex;

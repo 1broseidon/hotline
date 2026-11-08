@@ -409,6 +409,10 @@ fn summarize(
         ThreadKind::Call => room.thread_working(&thread.id),
     };
 
+    let posted = (thread.kind() == ThreadKind::Job)
+        .then(|| job_posted(room_events, &thread.id.key, &events))
+        .flatten();
+
     ThreadSummary {
         thread: thread.id.clone(),
         persona_id,
@@ -427,8 +431,27 @@ fn summarize(
         working,
         waiting: super::waiting_on(&events),
         preview,
+        run_kind: link.as_ref().and_then(|link| link.run_kind),
+        posted,
         outcome: link.and_then(|link| link.outcome),
     }
+}
+
+/// Whether a job's latest firing posted to the chat: its last post came at
+/// or after the firing's line on the job's thread. None before it has fired.
+fn job_posted(room_events: &[Value], job_id: &str, events: &[Value]) -> Option<bool> {
+    let fired = events
+        .iter()
+        .filter(|event| event["kind"] == "user" && event.get("scheduled").is_some())
+        .filter_map(ts_of)
+        .max()?;
+    let job = crate::room::jobs(room_events)
+        .into_iter()
+        .find(|job| job.id == job_id);
+    Some(
+        job.and_then(|job| job.last_post)
+            .is_some_and(|post| post.at >= fired),
+    )
 }
 
 fn ts_of(event: &Value) -> Option<i64> {

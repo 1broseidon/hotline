@@ -57,6 +57,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - Scrolling up a conversation is smooth again. Since 0.48.0 a flick up just
   after opening one could be pulled back to the bottom, and the view
   stuttered as older lines were drawn in above it.
+- A Hotline Agent teammate on a model that reads images sees the
+  screenshots it takes in its desk browser, as a Claude Code teammate does.
+  Until now its `screenshot` was refused, with a note to read the page as
+  text instead.
 
 ## [0.48.3] - 2026-11-06
 

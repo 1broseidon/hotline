@@ -32,6 +32,7 @@ use crate::contract::{
 };
 use crate::contract::{ChapterClose, ScheduledJob, SessionInfo, SessionState, ToolSourceKind};
 use crate::driver::CapabilityLease;
+use crate::mcp::{CallContent, CallImage};
 use crate::session::browser::BrowserAnswer;
 use crate::session::files::Source;
 use crate::session::jobs::Delegate;
@@ -853,9 +854,18 @@ impl TeammateTools {
         self.capability.clone()
     }
 
-    /// Runs one of them. The name and arguments are the MCP call's, so
-    /// the in-process agent and the child reach exactly the same code.
+    /// The words of [`Self::answer`], for a caller that cannot hand a
+    /// picture on: the voice front, which is never offered the browser.
     pub async fn call(&self, name: &str, arguments: &Value) -> Result<String, String> {
+        self.answer(name, arguments)
+            .await
+            .map(|content| content.text)
+    }
+
+    /// Runs one of them. The name and arguments are the MCP call's, so
+    /// the in-process agent and the child reach exactly the same code, and
+    /// a screenshot answers both with the same pictures.
+    pub async fn answer(&self, name: &str, arguments: &Value) -> Result<CallContent, String> {
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
@@ -898,7 +908,13 @@ impl TeammateTools {
             .room
             .upgrade()
             .ok_or_else(|| "This room has closed.".to_string())?;
-        match name {
+        if name == BROWSER {
+            return room
+                .browser_call(&self.persona_id, arguments)
+                .await
+                .map(browser_content);
+        }
+        let words = match name {
             ADD_TEAMMATE => {
                 let text = |key: &str| {
                     arguments
@@ -1397,7 +1413,10 @@ impl TeammateTools {
                 // report is its last word to the person.
                 if self.job.as_deref() == Some(id) {
                     room.schedule_done(id, report.unwrap_or_default())?;
-                    return Ok(json!({ "ended": true, "note": "The job has ended and your report is posted. Finish this turn; it is the job's last." }).to_string());
+                    return Ok(CallContent {
+                        text: json!({ "ended": true, "note": "The job has ended and your report is posted. Finish this turn; it is the job's last." }).to_string(),
+                        images: Vec::new(),
+                    });
                 }
                 // Anywhere else a `report` is not the job's to give, but it
                 // is no reason to refuse: the tool's one schema offers it to
@@ -1414,15 +1433,12 @@ impl TeammateTools {
                 Ok(json!({ "cancelled": true }).to_string())
             }
             WEB_SEARCH => room.web_search(&self.persona_id, arguments).await,
-            BROWSER => match room.browser_call(&self.persona_id, arguments).await? {
-                BrowserAnswer::Text(text) => Ok(text),
-                BrowserAnswer::Pictures { .. } => Err(
-                    "This agent cannot be handed a picture as a tool result: read the page with action `text`, and to show the person the page, call send_file with source `browser`."
-                        .into(),
-                ),
-            },
             other => Err(format!("This room has no tool called '{other}'.")),
-        }
+        };
+        words.map(|text| CallContent {
+            text,
+            images: Vec::new(),
+        })
     }
 
     /// Whether the owner has image generation off, which takes
@@ -1533,15 +1549,48 @@ impl TeammateTools {
                         let name = name.clone();
                         Box::pin(async move {
                             tools
-                                .call(&name, &arguments)
+                                .answer(&name, &arguments)
                                 .await
-                                .map(rig::tool::ToolOutput::text)
                                 .map_err(rig::tool::ToolExecutionError::other)
+                                .and_then(crate::driver::rig::rig_output)
                         })
                     },
                 )
             })
             .collect()
+    }
+}
+
+/// A browser answer as a tool result. A screenshot's pictures carry a note
+/// after them, because the model would otherwise take a picture it was
+/// shown for one the person saw.
+fn browser_content(answer: BrowserAnswer) -> CallContent {
+    let (pngs, more) = match answer {
+        BrowserAnswer::Text(text) => {
+            return CallContent {
+                text,
+                images: Vec::new(),
+            };
+        }
+        BrowserAnswer::Pictures { pngs, more } => (pngs, more),
+    };
+    let mut note = String::from(if pngs.len() > 1 {
+        "These pictures are yours to look at; the person does not see them. To show them the page, call send_file with source `browser`."
+    } else {
+        "This picture is yours to look at; the person does not see it. To show them the page, call send_file with source `browser`."
+    });
+    if more {
+        note.push_str(" The page goes on below; scroll and look again.");
+    }
+    CallContent {
+        text: note,
+        images: pngs
+            .into_iter()
+            .map(|data| CallImage {
+                data,
+                mime_type: "image/png".into(),
+            })
+            .collect(),
     }
 }
 
@@ -1861,44 +1910,16 @@ impl ServerHandler for TeammateTools {
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let arguments = request.arguments.map_or(Value::Null, Value::Object);
-        // A screenshot is the one answer that is a picture, so it is the one
-        // call answered here rather than as `call`'s text.
-        if request.name == BROWSER
-            && arguments.get("action").and_then(Value::as_str) == Some("screenshot")
-            && self.may_use_browser()
-            && let Some(room) = self.room.upgrade()
-        {
-            if let Some(capability) = &self.capability
-                && let Err(error) = capability.check()
-            {
-                return Ok(CallToolResult::error(vec![ContentBlock::text(error)]).into());
+        let answered = match self.answer(&request.name, &arguments).await {
+            Ok(content) => {
+                let mut blocks: Vec<ContentBlock> = content
+                    .images
+                    .into_iter()
+                    .map(|image| ContentBlock::image(image.data, image.mime_type))
+                    .collect();
+                blocks.push(ContentBlock::text(content.text));
+                CallToolResult::success(blocks)
             }
-            let answered = match room.browser_call(&self.persona_id, &arguments).await {
-                Ok(BrowserAnswer::Pictures { pngs, more }) => {
-                    let mut note = String::from(if pngs.len() > 1 {
-                        "These pictures are yours to look at; the person does not see them. To show them the page, call send_file with source `browser`."
-                    } else {
-                        "This picture is yours to look at; the person does not see it. To show them the page, call send_file with source `browser`."
-                    });
-                    if more {
-                        note.push_str(" The page goes on below; scroll and look again.");
-                    }
-                    let mut blocks: Vec<ContentBlock> = pngs
-                        .into_iter()
-                        .map(|png| ContentBlock::image(png, "image/png"))
-                        .collect();
-                    blocks.push(ContentBlock::text(note));
-                    CallToolResult::success(blocks)
-                }
-                Ok(BrowserAnswer::Text(text)) => {
-                    CallToolResult::success(vec![ContentBlock::text(text)])
-                }
-                Err(error) => CallToolResult::error(vec![ContentBlock::text(error)]),
-            };
-            return Ok(answered.into());
-        }
-        let answered = match self.call(&request.name, &arguments).await {
-            Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
             // A tool that refused is the agent's problem to read and work
             // around, not a protocol failure that ends its turn.
             Err(error) => CallToolResult::error(vec![ContentBlock::text(error)]),

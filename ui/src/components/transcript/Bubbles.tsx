@@ -10,6 +10,7 @@ import { Markdown } from "../Markdown";
 import { type BlockCopy, BubbleToolbar } from "../Sheet";
 import { SaidBy } from "../../ui/OpenBand";
 import { SentFiles, type SentItem } from "../SentFile";
+import { JobPostRow } from "./LinkRow";
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
 export type ReplyTarget = { eventId: string; text: string };
@@ -119,7 +120,9 @@ export function AgentSay({
 		<SaidBy.Provider value={said}>
 		{/* biome-ignore lint/a11y/noStaticElementInteractions: the pointer leaving the message puts its toolbar back; a keyboard reaches each block's keys by focusing it. */}
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`} onMouseLeave={() => setBlock(null)}>
-			{origin !== null && (event.from !== undefined && onOpenThread !== undefined ? <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: event.from!.kind, key: event.from!.thread }, ...(event.from!.title !== undefined ? { title: event.from!.title } : {}) })}>{origin}</button> : <p className="said-name">{origin}</p>)}
+			{event.from?.kind === "job" && onOpenThread !== undefined ? (
+				<JobPostRow title={event.scheduled?.name ?? event.from.title ?? "Job"} onOpen={() => onOpenThread({ thread: { kind: "job", key: event.from!.thread }, ...(event.scheduled !== undefined ? { title: event.scheduled.name } : {}) })} />
+			) : origin !== null && (event.from !== undefined && onOpenThread !== undefined ? <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: event.from!.kind, key: event.from!.thread }, ...(event.from!.title !== undefined ? { title: event.from!.title } : {}) })}>{origin}</button> : <p className="said-name">{origin}</p>)}
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
 			{!wordless && (
 				// biome-ignore lint/a11y/noStaticElementInteractions: the pointer back on the words puts the toolbar's own keys back; nothing is done by it.

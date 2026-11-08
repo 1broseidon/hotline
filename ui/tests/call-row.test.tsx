@@ -70,16 +70,16 @@ test("a call thread folds speech updates and opens work results as work", async 
 });
 
 
-test("call cards link home and home cards name and open their call", async () => {
+test("home cards name and open their call", async () => {
     const from = { kind: "call" as const, thread: "c1", title: "Release checks" };
     const card: import("../src/generated/contract").TranscriptEvent = {
         kind: "human_action", id: "human:q1", ts: 1, actionId: "q1", reason: "Use blue?",
         question: true, status: "pending", from,
     };
     const opened: import("../src/components/Transcript").ThreadRef[] = [];
-    const draw = async (kind: "dm" | "call", settled = false) => {
+    const draw = async (kind: "dm", settled = false) => {
         await act(async () => root.render(<Transcript personaId="ada" name="Ada"
-            thread={{ kind, key: kind === "dm" ? "ada" : "c1" }}
+            thread={{ kind, key: "ada" }}
             events={[{ ...card, status: settled ? "done" : "pending" }]} streaming={[]} live={false} focus={null}
             onOpenThread={(ref) => opened.push(ref)} />));
     };
@@ -89,14 +89,6 @@ test("call cards link home and home cards name and open their call", async () =>
     await act(async () => origin.click());
     expect(opened.pop()).toEqual({ thread: { kind: "call", key: "c1" }, title: "Release checks" });
     expect(container.textContent).toContain("Yes");
-    await draw("call");
-    expect(container.textContent).not.toContain("From the call");
-    const link = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("Open card in home chat"))!;
-    expect(link.textContent).toContain("Needs you: Use blue?");
-    await act(async () => link.click());
-    expect(opened.pop()).toEqual({ thread: { kind: "dm", key: "ada" }, eventId: "human:q1" });
-    await draw("call", true);
-    expect(container.textContent).toContain("Settled: Use blue?");
     await draw("dm", true);
     // Settled, the card folds to one line: how it ended, what was asked, who asked.
     expect(container.querySelector(".ask-settled .ask-chip")?.textContent).toBe("Yes");

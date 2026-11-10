@@ -1,5 +1,13 @@
 //! Signed updates use the same Tauri plugin and GitHub manifest as Prism.
 //! The desktop owns installation; the room only provides an idle restart lease.
+//!
+//! A desk is on one of two tracks. Stable reads the manifest of the newest
+//! final release and is offered final releases only. Beta reads a second
+//! manifest, which holds the newest release of either kind, and is offered
+//! betas too. Both addresses are fixed in the build; the desk stores only
+//! which of the two it reads. Neither track is ever offered a version that
+//! is not newer than the one running, so leaving Beta keeps the build the
+//! desk has until a final release passes it.
 
 use hotline_core::desk::Desk;
 use serde::{Deserialize, Serialize};
@@ -20,7 +28,59 @@ const FIRST_CHECK: u64 = 20;
 const MAX_NOTES: usize = 16_000;
 const MAX_CACHE: u64 = 32_000;
 const CHECK_FAILED: &str = "Update check failed";
+/// The Beta track's manifest: one file on a branch that holds nothing else,
+/// replaced by `scripts/beta_pointer.py` after each release is published.
+/// The Stable track's address is the plugin's own, in `tauri.conf.json`.
+const BETA_MANIFEST: &str =
+    "https://raw.githubusercontent.com/1Broseidon/hotline/update-tracks/beta.json";
+const TRACK_FILE: &str = "update-track.json";
+const MAX_TRACK_FILE: u64 = 1_000;
+
+/// Which releases this desk is offered.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Track {
+    /// Final releases only.
+    #[default]
+    Stable,
+    /// Final releases, and the betas cut from a release branch before them.
+    Beta,
+}
+
+/// The desk's choice of track, in its data directory beside the shell's
+/// other files. It names a track and nothing else: no address, no key.
+#[derive(Serialize, Deserialize)]
+struct TrackFile {
+    track: Track,
+}
+
+/// A file that is missing, too long, or names anything but a track is Stable.
+fn read_track(path: &Path) -> Track {
+    let Ok(file) = fs::File::open(path) else {
+        return Track::Stable;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_TRACK_FILE + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_TRACK_FILE
+    {
+        return Track::Stable;
+    }
+    serde_json::from_slice::<TrackFile>(&bytes).map_or(Track::Stable, |file| file.track)
+}
+
+/// Replaces `path` whole, staged beside it, so a reader never sees half.
+fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut temp = tempfile::NamedTempFile::new_in(path.parent().expect("file has a parent"))?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
 const INSTALL_FAILED: &str = "Installation failed";
+const TRACK_NOT_SAVED: &str = "Couldn't save the track";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +103,7 @@ enum Phase {
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     current: String,
+    track: Track,
     available: Option<Available>,
     checked_at: Option<u64>,
     phase: Phase,
@@ -91,6 +152,9 @@ impl From<&str> for Problem {
 #[serde(rename_all = "camelCase")]
 struct Cache {
     current: String,
+    /// The track the offer was found on. A cache from before tracks is Stable's.
+    #[serde(default)]
+    track: Track,
     checked_at: u64,
     available: Option<Available>,
 }
@@ -104,6 +168,8 @@ pub struct Updates {
     inner: Mutex<Inner>,
     operation: tokio::sync::Mutex<()>,
     cache: PathBuf,
+    track_file: PathBuf,
+    beta_manifest: String,
     target: Option<String>,
 }
 
@@ -114,12 +180,27 @@ fn now() -> u64 {
         .as_secs()
 }
 
-fn newer(current: &str, candidate: &str) -> bool {
+/// `beta.N`, the one pre-release the release workflow publishes.
+fn is_beta(pre: &semver::Prerelease) -> bool {
+    pre.as_str()
+        .strip_prefix("beta.")
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Whether a desk on `track` running `current` is offered `candidate`. It
+/// must be newer by semver on either track, which is what keeps a desk that
+/// leaves Beta on its build: `0.49.0-beta.2` is newer than every `0.48`, and
+/// older than `0.49.0`. Stable takes final releases only; Beta also takes
+/// `beta.N`, and no other pre-release.
+fn newer(current: &str, candidate: &str, track: Track) -> bool {
     match (
         semver::Version::parse(current),
         semver::Version::parse(candidate),
     ) {
-        (Ok(current), Ok(candidate)) => candidate.pre.is_empty() && candidate > current,
+        (Ok(current), Ok(candidate)) => {
+            candidate > current
+                && (candidate.pre.is_empty() || (track == Track::Beta && is_beta(&candidate.pre)))
+        }
         _ => false,
     }
 }
@@ -159,7 +240,7 @@ fn next_check(checked: Option<u64>, at: u64) -> Duration {
     })
 }
 
-fn read_cache(path: &Path, current: &str, at: u64) -> Option<Cache> {
+fn read_cache(path: &Path, current: &str, track: Track, at: u64) -> Option<Cache> {
     let file = fs::File::open(path).ok()?;
     if file.metadata().ok()?.len() > MAX_CACHE {
         return None;
@@ -170,11 +251,11 @@ fn read_cache(path: &Path, current: &str, at: u64) -> Option<Cache> {
         return None;
     }
     let cache: Cache = serde_json::from_slice(&bytes).ok()?;
-    if cache.current != current || cache.checked_at > at {
+    if cache.current != current || cache.track != track || cache.checked_at > at {
         return None;
     }
     if let Some(info) = &cache.available
-        && (!newer(current, &info.version) || info.notes.len() > MAX_NOTES)
+        && (!newer(current, &info.version, track) || info.notes.len() > MAX_NOTES)
     {
         return None;
     }
@@ -196,8 +277,10 @@ impl Updates {
             None
         };
         let cache = root.join("updater.json");
+        let track_file = root.join(TRACK_FILE);
+        let track = read_track(&track_file);
         let saved = if disabled_reason.is_none() {
-            read_cache(&cache, &current, now())
+            read_cache(&cache, &current, track, now())
         } else {
             None
         };
@@ -205,6 +288,7 @@ impl Updates {
             inner: Mutex::new(Inner {
                 status: Status {
                     current,
+                    track,
                     checked_at: saved.as_ref().map(|saved| saved.checked_at),
                     available: saved.and_then(|saved| saved.available),
                     phase: Phase::Idle,
@@ -217,8 +301,42 @@ impl Updates {
             }),
             operation: tokio::sync::Mutex::new(()),
             cache,
+            track_file,
+            beta_manifest: BETA_MANIFEST.into(),
             target,
         }
+    }
+
+    /// The one address a desk on Beta reads, or none for Stable, which
+    /// reads the address the plugin was configured with.
+    fn manifest(&self, track: Track) -> Result<Option<tauri::Url>, Problem> {
+        match track {
+            Track::Stable => Ok(None),
+            Track::Beta => self
+                .beta_manifest
+                .parse()
+                .map(Some)
+                .map_err(|error| Problem::failed(CHECK_FAILED, error)),
+        }
+    }
+
+    /// Stores the choice, then forgets the offer and the check made on the
+    /// other track: neither says anything about this one.
+    fn set_track<R: Runtime>(&self, app: &AppHandle<R>, track: Track) -> Result<(), Problem> {
+        if self.status().track == track {
+            return Ok(());
+        }
+        let bytes = serde_json::to_vec(&TrackFile { track })
+            .map_err(|error| Problem::failed(TRACK_NOT_SAVED, error))?;
+        write_whole(&self.track_file, &bytes)
+            .map_err(|error| Problem::failed(TRACK_NOT_SAVED, error))?;
+        self.change(app, |status| {
+            status.track = track;
+            status.available = None;
+            status.checked_at = None;
+            status.error = None;
+        });
+        Ok(())
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -251,19 +369,15 @@ impl Updates {
         };
         let cache = Cache {
             current: status.current,
+            track: status.track,
             checked_at,
             available: status.available,
         };
         // A failed cache write must not turn a successful check into a failed update.
         // It only means the next launch will check again.
-        let result = (|| -> std::io::Result<()> {
-            let mut temp =
-                tempfile::NamedTempFile::new_in(self.cache.parent().expect("cache has a parent"))?;
-            temp.write_all(&serde_json::to_vec(&cache)?)?;
-            temp.as_file().sync_all()?;
-            temp.persist(&self.cache).map_err(|error| error.error)?;
-            Ok(())
-        })();
+        let result = serde_json::to_vec(&cache)
+            .map_err(std::io::Error::from)
+            .and_then(|bytes| write_whole(&self.cache, &bytes));
         if let Err(error) = result {
             eprintln!("[updater] could not remember check: {error}");
         }
@@ -297,13 +411,20 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
     });
     let result: Result<Option<Update>, Problem> = async {
         let target = state.target.as_deref().ok_or("Unsupported installation.")?;
-        let updater = app
+        let track = state.status().track;
+        let mut builder = app
             .updater_builder()
             .target(target)
             .timeout(Duration::from_secs(30))
-            .version_comparator(|current, release| {
-                newer(&current.to_string(), &release.version.to_string())
-            })
+            .version_comparator(move |current, release| {
+                newer(&current.to_string(), &release.version.to_string(), track)
+            });
+        if let Some(manifest) = state.manifest(track)? {
+            builder = builder
+                .endpoints(vec![manifest])
+                .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
+        }
+        let updater = builder
             .build()
             .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
         let mut found = updater
@@ -378,6 +499,27 @@ pub async fn check_update(window: tauri::WebviewWindow, app: AppHandle) -> Resul
         .try_lock()
         .map_err(|_| "An update operation is already running.")?;
     check(&app, &state).await?;
+    Ok(state.status())
+}
+
+/// Moves the desk to a track and checks it at once, so the row shows what
+/// that track offers. A check that fails leaves the choice stored and says
+/// why, as any failed check does.
+#[tauri::command]
+pub async fn set_update_track(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    track: Track,
+) -> Result<Status, Problem> {
+    main_window(&window)?;
+    let state = app.state::<Updates>();
+    let _operation = state
+        .operation
+        .try_lock()
+        .map_err(|_| "An update operation is already running.")?;
+    state.enabled()?;
+    state.set_track(&app, track)?;
+    let _ = check(&app, &state).await;
     Ok(state.status())
 }
 
@@ -550,7 +692,13 @@ mod tests {
     }
 
     fn app(endpoint: &str) -> tauri::App<tauri::test::MockRuntime> {
+        app_at(endpoint, "0.1.0")
+    }
+
+    /// A build of `version` whose Stable manifest is `endpoint`.
+    fn app_at(endpoint: &str, version: &str) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = mock_context(noop_assets());
+        context.package_info_mut().version = version.parse().unwrap();
         context.config_mut().plugins.0.insert(
             "updater".into(),
             json!({
@@ -564,7 +712,11 @@ mod tests {
     }
 
     fn state(root: &Path) -> Updates {
-        let state = Updates::new(root, "0.1.0".into(), false);
+        state_at(root, "0.1.0")
+    }
+
+    fn state_at(root: &Path, current: &str) -> Updates {
+        let state = Updates::new(root, current.into(), false);
         // Mock runtime has no installed package. Only fixture checks/downloads are enabled.
         state.lock().status.disabled_reason = None;
         Updates {
@@ -606,15 +758,15 @@ mod tests {
             notes: "new".into(),
         });
         state.persist();
-        let read = read_cache(&state.cache, "0.1.0", 160).unwrap();
+        let read = read_cache(&state.cache, "0.1.0", Track::Stable, 160).unwrap();
         assert_eq!(read.checked_at, 100);
         assert_eq!(read.available.unwrap().version, "0.2.0");
-        assert!(read_cache(&state.cache, "0.2.0", 160).is_none());
-        assert!(read_cache(&state.cache, "0.1.0", 90).is_none());
+        assert!(read_cache(&state.cache, "0.2.0", Track::Stable, 160).is_none());
+        assert!(read_cache(&state.cache, "0.1.0", Track::Stable, 90).is_none());
         fs::write(&state.cache, b"broken json").unwrap();
-        assert!(read_cache(&state.cache, "0.1.0", 160).is_none());
+        assert!(read_cache(&state.cache, "0.1.0", Track::Stable, 160).is_none());
         fs::write(&state.cache, vec![b' '; MAX_CACHE as usize + 1]).unwrap();
-        assert!(read_cache(&state.cache, "0.1.0", 160).is_none());
+        assert!(read_cache(&state.cache, "0.1.0", Track::Stable, 160).is_none());
     }
 
     #[test]
@@ -744,6 +896,183 @@ mod tests {
             assert_eq!(state.status().phase, Phase::Idle);
             assert!(state.status().checked_at.is_some());
         }
+    }
+
+    #[test]
+    fn a_track_is_offered_only_its_releases_and_never_an_older_one() {
+        for (current, candidate, stable, beta) in [
+            // A final release reaches both tracks.
+            ("0.48.3", "0.49.0", true, true),
+            ("0.49.0-beta.1", "0.49.0", true, true),
+            // A beta reaches Beta alone, the first and each one after it.
+            ("0.48.3", "0.49.0-beta.1", false, true),
+            ("0.49.0-beta.1", "0.49.0-beta.2", false, true),
+            ("0.49.0-beta.9", "0.49.0-beta.10", false, true),
+            ("0.49.0", "0.50.0-beta.1", false, true),
+            // Nothing older or the same is offered, whatever the track.
+            ("0.49.0-beta.2", "0.48.4", false, false),
+            ("0.49.0-beta.2", "0.49.0-beta.1", false, false),
+            ("0.49.0-beta.2", "0.49.0-beta.2", false, false),
+            ("0.49.0", "0.49.0-beta.3", false, false),
+            ("0.49.0", "0.49.0", false, false),
+            // Beta takes `beta.N` and no other pre-release.
+            ("0.48.3", "0.49.0-nightly.1", false, false),
+            ("0.48.3", "0.49.0-beta", false, false),
+            ("0.48.3", "0.49.0-beta.x", false, false),
+            ("0.48.3", "0.49.0-rc.1", false, false),
+            ("0.48.3", "not a version", false, false),
+        ] {
+            assert_eq!(
+                newer(current, candidate, Track::Stable),
+                stable,
+                "Stable on {current} offered {candidate}"
+            );
+            assert_eq!(
+                newer(current, candidate, Track::Beta),
+                beta,
+                "Beta on {current} offered {candidate}"
+            );
+        }
+    }
+
+    #[test]
+    fn stable_reads_the_latest_final_release_and_beta_one_fixed_address() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            config["plugins"]["updater"]["endpoints"],
+            json!(["https://github.com/1Broseidon/hotline/releases/latest/download/latest.json"])
+        );
+        let root = tempfile::tempdir().unwrap();
+        let state = Updates::new(root.path(), "0.1.0".into(), false);
+        assert_eq!(state.status().track, Track::Stable);
+        assert!(state.manifest(Track::Stable).unwrap().is_none());
+        assert_eq!(
+            state.manifest(Track::Beta).unwrap().unwrap().as_str(),
+            "https://raw.githubusercontent.com/1Broseidon/hotline/update-tracks/beta.json"
+        );
+    }
+
+    #[tokio::test]
+    async fn each_track_checks_its_own_manifest() {
+        for (track, offered) in [(Track::Stable, "0.2.0"), (Track::Beta, "0.3.0-beta.1")] {
+            let root = tempfile::tempdir().unwrap();
+            let app = app(&serve(release("0.2.0", "linux-x86_64-deb"), 200));
+            let state = Updates {
+                beta_manifest: serve(release("0.3.0-beta.1", "linux-x86_64-deb"), 200),
+                ..state(root.path())
+            };
+            state.set_track(app.handle(), track).unwrap();
+            let found = check(app.handle(), &state).await.unwrap().unwrap();
+            assert_eq!(found.version, offered, "{track:?}");
+            assert_eq!(state.status().available.unwrap().version, offered);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_beta_is_offered_its_final_and_later_betas() {
+        for (manifest, offered) in [
+            ("0.2.0-beta.2", true),
+            ("0.2.0", true),
+            ("0.3.0-beta.1", true),
+            ("0.2.0-beta.1", false),
+            ("0.1.9", false),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let app = app_at("http://127.0.0.1:1/stable-is-not-read", "0.2.0-beta.1");
+            let state = Updates {
+                beta_manifest: serve(release(manifest, "linux-x86_64-deb"), 200),
+                ..state_at(root.path(), "0.2.0-beta.1")
+            };
+            state.set_track(app.handle(), Track::Beta).unwrap();
+            let found = check(app.handle(), &state).await.unwrap();
+            assert_eq!(found.is_some(), offered, "{manifest}");
+            assert_eq!(state.status().available.is_some(), offered, "{manifest}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_desk_back_on_stable_keeps_its_beta_until_a_final_release_passes_it() {
+        for (manifest, offered) in [
+            ("0.1.9", false),
+            ("0.2.0-beta.2", false),
+            ("0.3.0-beta.1", false),
+            ("0.2.0", true),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let app = app_at(
+                &serve(release(manifest, "linux-x86_64-deb"), 200),
+                "0.2.0-beta.1",
+            );
+            let state = Updates {
+                beta_manifest: "http://127.0.0.1:1/beta-is-not-read".into(),
+                ..state_at(root.path(), "0.2.0-beta.1")
+            };
+            state.set_track(app.handle(), Track::Beta).unwrap();
+            state.set_track(app.handle(), Track::Stable).unwrap();
+            let found = check(app.handle(), &state).await.unwrap();
+            assert_eq!(found.is_some(), offered, "{manifest}");
+            assert_eq!(state.status().current, "0.2.0-beta.1");
+        }
+    }
+
+    #[test]
+    fn the_track_is_stored_with_the_desk_and_anything_unreadable_is_stable() {
+        let root = tempfile::tempdir().unwrap();
+        let app = app("http://127.0.0.1:1/not-contacted");
+        let state = state(root.path());
+        assert_eq!(state.status().track, Track::Stable);
+        assert!(!state.track_file.exists());
+        state.set_track(app.handle(), Track::Beta).unwrap();
+        assert_eq!(
+            fs::read_to_string(&state.track_file).unwrap(),
+            r#"{"track":"beta"}"#
+        );
+        // The next launch of this desk is on Beta; a desk elsewhere is not.
+        let again = Updates::new(root.path(), "0.1.0".into(), false);
+        assert_eq!(again.status().track, Track::Beta);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = Updates::new(elsewhere.path(), "0.1.0".into(), false);
+        assert_eq!(other.status().track, Track::Stable);
+        for unreadable in [
+            r#"{"track":"nightly"}"#.to_string(),
+            r#"{"track":"https://example.com/latest.json"}"#.to_string(),
+            "beta".to_string(),
+            String::new(),
+            format!(
+                r#"{{"track":"beta"{}}}"#,
+                " ".repeat(MAX_TRACK_FILE as usize)
+            ),
+        ] {
+            fs::write(&state.track_file, &unreadable).unwrap();
+            let read = Updates::new(root.path(), "0.1.0".into(), false);
+            assert_eq!(read.status().track, Track::Stable, "{unreadable:.40}");
+        }
+    }
+
+    #[test]
+    fn changing_track_forgets_the_other_tracks_offer() {
+        let root = tempfile::tempdir().unwrap();
+        let app = app("http://127.0.0.1:1/not-contacted");
+        let state = state(root.path());
+        state.set_track(app.handle(), Track::Beta).unwrap();
+        state.lock().status.checked_at = Some(100);
+        state.lock().status.available = Some(Available {
+            version: "0.2.0-beta.1".into(),
+            notes: "a beta".into(),
+        });
+        state.persist();
+        assert!(read_cache(&state.cache, "0.1.0", Track::Beta, 160).is_some());
+        // The same choice again keeps what is known.
+        state.set_track(app.handle(), Track::Beta).unwrap();
+        assert!(state.status().available.is_some());
+        state.set_track(app.handle(), Track::Stable).unwrap();
+        assert_eq!(state.status().available, None);
+        assert_eq!(state.status().checked_at, None);
+        // The offer kept on disk was Beta's, so a launch on Stable shows none.
+        assert!(read_cache(&state.cache, "0.1.0", Track::Stable, 160).is_none());
+        let relaunched = Updates::new(root.path(), "0.1.0".into(), false);
+        assert_eq!(relaunched.status().track, Track::Stable);
     }
 
     #[tokio::test]

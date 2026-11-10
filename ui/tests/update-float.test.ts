@@ -4,6 +4,7 @@ import type { UpdateStatus } from "../src/native";
 
 const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
 	current: "0.35.0",
+	track: "stable",
 	available: { version: "0.35.1", notes: "" },
 	checkedAt: 1,
 	phase: "idle",

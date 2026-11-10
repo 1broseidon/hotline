@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Settings › Updates has a Track. Stable, the default, gets final releases.
+  Beta also gets the betas that come before one. A desk that goes back to
+  Stable keeps its beta until a newer final release is out, and the row says
+  so. A beta shows its whole version, such as 0.49.0-beta.1, wherever the
+  version is shown.
 - The pane for two teammates reads as their one conversation. A handoff
   between them is its request in full with a Handoff chip by the name, the
   work it became, step by step as it happens, and its result as that

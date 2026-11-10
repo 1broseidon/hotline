@@ -25,6 +25,7 @@ permissions = [
   "allow-check-update",
   "allow-install-update",
   "allow-cancel-update",
+  "allow-set-update-track",
   "allow-speech-capability",
   "allow-speech-permit",
   "allow-speech-start",

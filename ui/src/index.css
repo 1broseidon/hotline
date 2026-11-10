@@ -6540,6 +6540,16 @@
 		font-size: 12px;
 		font-variant-numeric: tabular-nums;
 	}
+	/* A beta's version is longer than a third of the dock. The middle key is
+	 * never narrower than its version, and the keys either side give way.
+	 * The same inset on all three keeps them equal thirds for a final one. */
+	.settings-dock > button {
+		padding: 0 6px;
+	}
+	.settings-dock > .settings-dock-version {
+		min-width: max-content;
+		white-space: nowrap;
+	}
 	.settings-dock-shortcuts {
 		border-radius: 4px 15px 15px 4px;
 	}

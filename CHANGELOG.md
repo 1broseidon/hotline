@@ -56,14 +56,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- A long conversation keeps in the page only the lines near the view, a
+  gap of their measured height standing in for the rest, so it costs what
+  the screen shows of it. With a 2,000-line thread loaded the window uses
+  about half the memory it did, and scrolling, coming back to a teammate and
+  a reply landing no longer stutter. Text selected across lines, a jump to a
+  quoted line, search hits and chapter marks bring their lines into the page.
+- A diagram is drawn ahead of the view while the window is at rest, never
+  under a scroll or a keystroke, so scrolling up past one no longer stalls,
+  and a line being read stays where it is when one above it draws. A thread
+  with a diagram in it loads the diagram library when it opens.
 - The right-hand pane is one list, Threads: every work thread, handoff,
   subagent, command, pair, call and job, and every aside the teammate was
   left, as rows of one shape, the kind's mark, the title, one line of state,
   latest step or result, and the time. An aside opens the thread it came from,
   and once read it is counted on that thread's row. It opens on Active: Needs you,
   Live and Recent (the last 24 hours), with what is earlier and routine runs
-  folded into one row that opens in place. Chips narrow it to Needs you, Live,
-  Needs you, Live or a kind from the Kind menu: Threads, Subagents, Jobs,
+  folded into one row that opens in place. Chips narrow it to Needs you, Live
+  or a kind from the Kind menu: Threads, Subagents, Jobs,
   Calls, Pairs or From teammates (handoffs and asides), a kind's with a Live /
   Ended switch, search reads every row and aside, and the chip last used is
   kept for each teammate. A thread waiting on you shows the card's question
@@ -78,6 +88,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A long reply no longer stops the conversation updating as it ends. While a
+  reply streams only its own bubble is drawn again, not every line above it.
+- A permission card nobody answers in ten minutes says Expired and has no
+  buttons, and its teammate stops waiting on you. An answer sent after that
+  is refused in words, not applied.
+- An idle window no longer wakes several times a second for the browser
+  picture's timer, and a conversation you have left lets go of the older
+  lines it had loaded.
+- On the Mac a screenshot's thumbnail is drawn from a small copy, so it is
+  there at once when it scrolls back into view instead of growing in.
 - On Windows a step that read or edited a file is named by the file, as on
   the Mac, not by its whole path.
 - Scrolling up a conversation is smooth again. Since 0.48.0 a flick up just

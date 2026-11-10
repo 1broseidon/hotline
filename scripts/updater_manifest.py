@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Publish one complete updater manifest, after every supported build has landed."""
+"""Publish one complete updater manifest, after every supported build has landed.
+
+Every release gets its manifest under its own version, `updater-<version>.json`.
+Only a final release also gets `latest.json`, the name the Stable track reads
+from the release GitHub marks latest: a beta writes none, so nothing a beta
+uploads can answer at that address. The Beta track's manifest is a copy of a
+published release's own (scripts/beta_pointer.py)."""
 import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 from urllib.parse import quote
+
+from release_version import parse
 
 # These are deliberately installer-specific, matching updater::target_for.
 PACKAGES = {
@@ -34,8 +42,7 @@ def shortened(notes: str) -> str:
 
 
 def manifest(directory: Path, version: str, repository: str, notes: str) -> dict:
-    if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
-        raise ValueError("Updater releases must use a stable major.minor.patch version")
+    parse(version)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("Expected a GitHub owner/repository")
     platforms = {}
@@ -59,18 +66,25 @@ def manifest(directory: Path, version: str, repository: str, notes: str) -> dict
             "platforms": platforms}
 
 
+def write(directory: Path, value: dict) -> list[str]:
+    """Writes the manifest under its version, and as latest.json for a final release alone."""
+    encoded = json.dumps(value, indent=2) + "\n"
+    names = [f"updater-{value['version']}.json"]
+    if parse(value["version"]).beta is None:
+        names.append("latest.json")
+    for name in names:
+        (directory / name).write_text(encoded)
+    return names
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--notes", type=Path, required=True)
     args = parser.parse_args()
-    value = manifest(args.directory, args.version, args.repository, args.notes.read_text())
-    # The same manifest is kept at its version and at latest for future hosting portability.
-    encoded = json.dumps(value, indent=2) + "\n"
-    (args.directory / f"updater-{args.version}.json").write_text(encoded)
-    (args.directory / "latest.json").write_text(encoded)
+    write(args.directory, manifest(args.directory, args.version, args.repository, args.notes.read_text()))
 
 
 if __name__ == "__main__":

@@ -415,9 +415,15 @@
 		width: 100%;
 		cursor: zoom-in;
 	}
+	/* The drawing at its own size, shrunk to the bubble when it is wider.
+	 * Its width and shape are set on it (Mermaid.tsx) and its box is counted
+	 * without the padding, so the box is the drawing's size before the
+	 * picture has loaded, and an empty one of the same size stands in for
+	 * a picture being made again. */
 	.mermaid-diagram {
 		display: block;
-		max-width: 100%;
+		box-sizing: content-box;
+		max-width: calc(100% - 24px);
 		height: auto;
 		margin: 0 auto;
 		padding: 14px 12px 12px;

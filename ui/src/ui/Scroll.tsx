@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { stir } from "../rest";
 
 /** A thumb shorter than this is a target nobody can catch. */
 const MIN_THUMB = 32;
@@ -62,6 +63,7 @@ export function Scroll({
 				programmatic.current = false;
 				return;
 			}
+			stir();
 			setMoving(true);
 			window.clearTimeout(linger.current);
 			linger.current = window.setTimeout(() => setMoving(false), LINGER_MS);

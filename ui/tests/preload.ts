@@ -12,3 +12,12 @@ import { afterEach, mock } from "bun:test";
 afterEach(() => {
 	mock.restore();
 });
+
+/**
+ * Mermaid's script is never run under test: it is 5 MB written for a
+ * browser, and bun fails half-way through evaluating it. Its URL, which is
+ * all the window imports (Mermaid.tsx), is this stand-in in every file, so
+ * a test sees the script asked for as a tag in its document's head, and
+ * gives the tag a mermaid of its own when it wants a diagram drawn.
+ */
+mock.module("mermaid/dist/mermaid.min.js?url", () => ({ default: "/assets/mermaid.min.js" }));

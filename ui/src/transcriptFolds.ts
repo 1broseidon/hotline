@@ -140,6 +140,47 @@ export function withStreaming(written: Block[], streaming: Streaming[]): Block[]
 	return blocks;
 }
 
+/** What a block is drawn under: its line's id, or the id its group goes by. */
+export function blockId(block: Block): string {
+	return block.kind === "event" ? block.event.id : block.id;
+}
+
+/**
+ * `next`, with each block that holds what the block of its id held in `was`
+ * handed back as it was. The blocks are worked out anew for every line that
+ * lands and every bubble that streams in: a streamed bubble is made again
+ * each time, and so is every run of steps, files, calls and scheduled runs.
+ * A row is drawn again when it is handed something it was not handed
+ * before, so without this a reply that streams as forty bubbles draws all
+ * forty for each new one.
+ */
+export function keepBlocks(was: Block[], next: Block[]): Block[] {
+	const before = new Map(was.map((block) => [blockId(block), block]));
+	return next.map((block) => {
+		const kept = before.get(blockId(block));
+		return kept !== undefined && sameBlock(kept, block) ? kept : block;
+	});
+}
+
+function sameBlock(was: Block, now: Block): boolean {
+	const sameMembers = <T,>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((one, index) => one === b[index]);
+	switch (was.kind) {
+		case "event":
+			if (now.kind !== "event" || was.live !== now.live) return false;
+			if (was.event === now.event) return true;
+			// A streamed bubble is a new line each time it is worked out: the same while it says the same.
+			return was.live === true && was.event.kind === "agent" && now.event.kind === "agent" && was.event.text === now.event.text && was.event.ts === now.event.ts;
+		case "steps":
+			return now.kind === "steps" && was.open === now.open && was.ts === now.ts && sameMembers(was.items, now.items);
+		case "scheduled":
+			return now.kind === "scheduled" && sameMembers(was.runs, now.runs);
+		case "calls":
+			return now.kind === "calls" && sameMembers(was.calls, now.calls);
+		case "sent":
+			return now.kind === "sent" && sameMembers(was.messages, now.messages);
+	}
+}
+
 /**
  * The turns' steps in a tape, in order, each under the id its caption opens
  * it by, `open` while its turn has not ended. What is streaming joins the

@@ -237,13 +237,12 @@ pub(super) fn reported_window(meta: Option<&Map<String, Value>>) -> Option<PlanW
         .and_then(Value::as_str)
         .unwrap_or("five_hour")
         .to_string();
-    // The service reports utilization as a fraction; read a figure over 1 as
-    // a percentage already.
+    // A fraction of the window, as the SDK says, and over 1 when use has run
+    // past the limit (1.05 is 105%, not 1%).
     let used_percent = info
         .get("utilization")
         .and_then(Value::as_f64)
-        .map(|used| if used <= 1.0 { used * 100.0 } else { used })
-        .map(|used| used.clamp(0.0, 100.0));
+        .map(|used| (used * 100.0).clamp(0.0, 100.0));
     // Unix seconds, as the SDK sends it.
     let resets_at = info
         .get("resetsAt")
@@ -287,15 +286,21 @@ pub(super) fn with_window(was: Option<PlanUsage>, window: PlanWindow, at: i64) -
 /// the later, and a window only one of them has is kept either way. A later
 /// reading of the same window in the same period never relaxes its status,
 /// because use only grows until the window resets: a reading worked out from
-/// a percentage does not undo a warning the agent itself gave. What a window
-/// or the plan says only in one reading (its length, its label, the plan's
-/// name, banked resets) is kept from whichever said it, the later first.
+/// a percentage does not undo a warning the agent itself gave. A refusal is
+/// the exception: a later figure under the warning line means the limit
+/// itself moved (Claude Code refused Fable at 05:43 on 2026-11-10 and read
+/// it at 31% that afternoon, in the same week), so the figure stands. What a
+/// window or the plan says only in one reading (its length, its label, the
+/// plan's name, banked resets) is kept from whichever said it, the later
+/// first. Claude Code's report of a model's own allowance is filed under
+/// that model's window ([`OVERAGE_INCLUDED`]).
 pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
     let Some(was) = was else {
         return reading;
     };
     let newer = reading.at >= was.at;
     let at = was.at.max(reading.at);
+    let model_window = model_window(&reading).or_else(|| model_window(was));
     let mut plan = was.clone();
     let (name, banked, banked_expires_at) =
         (reading.plan, reading.banked, reading.banked_expires_at);
@@ -313,10 +318,18 @@ pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
         }
     }
     for mut window in reading.windows {
+        if let Some(kind) = &model_window
+            && window.kind == OVERAGE_INCLUDED
+        {
+            window.kind.clone_from(kind);
+        }
         match plan.windows.iter().find(|one| one.kind == window.kind) {
             Some(_) if !newer => continue,
             Some(kept) => {
-                if same_period(kept, &window) && severity(kept.status) > severity(window.status) {
+                if same_period(kept, &window)
+                    && severity(kept.status) > severity(window.status)
+                    && !limit_moved(kept, &window)
+                {
                     window.status = kept.status;
                 }
                 window.window_minutes = window.window_minutes.or(kept.window_minutes);
@@ -326,8 +339,34 @@ pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
         }
         plan = with_window(Some(plan), window, at);
     }
+    if model_window.is_some() {
+        plan.windows.retain(|one| one.kind != OVERAGE_INCLUDED);
+    }
     plan.at = at;
     plan
+}
+
+/// The kind Claude Code reports a model's own weekly allowance under after
+/// a reply: the allowance the plan includes of a model that otherwise takes
+/// usage credits. Claude Code's own messages call it the "Fable limit"; the
+/// read out of band lists the same window by its model (`seven_day_fable`,
+/// "Weekly · Fable"), so while a plan has one such window the report is a
+/// reading of it, not a window of its own.
+const OVERAGE_INCLUDED: &str = "seven_day_overage_included";
+
+/// The plan's one window named by its model, the only windows the read out
+/// of band labels; `None` when it has none, or several and the report could
+/// be any of them.
+fn model_window(plan: &PlanUsage) -> Option<String> {
+    let mut named = plan.windows.iter().filter(|one| one.label.is_some());
+    let one = named.next()?;
+    named.next().is_none().then(|| one.kind.clone())
+}
+
+/// Whether a refused window read again under the warning line has had its
+/// limit moved rather than its use undone.
+fn limit_moved(kept: &PlanWindow, later: &PlanWindow) -> bool {
+    kept.status == PlanStatus::Limited && later.used_percent.is_some_and(|used| used < 80.0)
 }
 
 /// Whether two readings of a window are of the same period: they reset
@@ -361,7 +400,9 @@ pub(crate) fn status_of(used_percent: f64) -> PlanStatus {
 }
 
 /// The 5-hour window first, then the weekly one, the monthly one, then a
-/// model's own.
+/// model's own (Opus, Sonnet, then any other weekly one by its model), then
+/// any window the desk does not know, and extra usage last: it is money
+/// spent past the plan, not a window of it.
 pub(crate) fn order(kind: &str) -> u8 {
     match kind {
         "five_hour" => 0,
@@ -369,7 +410,9 @@ pub(crate) fn order(kind: &str) -> u8 {
         "monthly" => 2,
         "seven_day_opus" => 3,
         "seven_day_sonnet" => 4,
-        _ => 5,
+        kind if kind.starts_with("seven_day_") => 5,
+        "overage" => 7,
+        _ => 6,
     }
 }
 
@@ -551,6 +594,158 @@ mod tests {
         // A week on, a new period.
         let plan = merged(Some(&warned), read(1_794_379_740_000));
         assert_eq!(plan.windows[0].status, PlanStatus::Allowed);
+    }
+
+    #[test]
+    fn a_reported_window_past_its_limit_reads_its_fraction_as_over_100_percent_and_full() {
+        let past = reported_window(Some(&meta(json!({
+            "status": "allowed_warning",
+            "rateLimitType": "five_hour",
+            "utilization": 1.05
+        }))))
+        .unwrap();
+        assert_eq!(past.used_percent, Some(100.0));
+    }
+
+    /// Claude Code 2.1.322 on a Max login, 2026-11-10: the reply's report
+    /// after Fable was refused, and the read out of band that afternoon.
+    fn fable_refused_then_read() -> (PlanWindow, PlanUsage) {
+        let refused = reported_window(Some(&meta(json!({
+            "status": "rejected",
+            "rateLimitType": "seven_day_overage_included",
+            "resetsAt": 1_794_859_200
+        }))))
+        .unwrap();
+        let read = claude_cli::reading(
+            &Value::Null,
+            &json!({
+                "subscription_type": "max",
+                "rate_limits_available": true,
+                "rate_limits": {
+                    "five_hour": null,
+                    "seven_day": {"utilization": 17, "resets_at": "2026-11-16T20:00:00.492522+00:00"},
+                    "seven_day_opus": null,
+                    "seven_day_sonnet": null,
+                    "extra_usage": {"is_enabled": false, "monthly_limit": null, "used_credits": null, "utilization": null},
+                    "model_scoped": [{"display_name": "Fable", "utilization": 31, "resets_at": "2026-11-16T20:00:00.492641+00:00"}]
+                }
+            }),
+            20,
+        )
+        .unwrap();
+        (refused, read)
+    }
+
+    fn kinds(plan: &PlanUsage) -> Vec<(&str, PlanStatus, Option<f64>)> {
+        plan.windows
+            .iter()
+            .map(|one| (one.kind.as_str(), one.status, one.used_percent))
+            .collect()
+    }
+
+    #[test]
+    fn claude_codes_report_of_a_models_own_allowance_is_a_reading_of_that_models_window() {
+        let (refused, read) = fable_refused_then_read();
+        assert_eq!(refused.kind, OVERAGE_INCLUDED);
+        assert_eq!(refused.window_minutes, Some(WEEK_MINUTES));
+        // Reported after the read: filed under Fable, its name kept.
+        let plan = merged(Some(&read), usage(vec![refused.clone()], 30));
+        assert_eq!(
+            kinds(&plan),
+            [
+                ("seven_day", PlanStatus::Allowed, Some(17.0)),
+                ("seven_day_fable", PlanStatus::Limited, None),
+            ]
+        );
+        assert_eq!(plan.windows[1].label.as_deref(), Some("Weekly · Fable"));
+        // Reported before any read: a window of its own until the read
+        // names it, which takes its place.
+        let alone = merged(None, usage(vec![refused.clone()], 10));
+        assert_eq!(alone.windows[0].kind, OVERAGE_INCLUDED);
+        let plan = merged(Some(&alone), read.clone());
+        assert_eq!(
+            plan.windows
+                .iter()
+                .map(|one| one.kind.as_str())
+                .collect::<Vec<_>>(),
+            ["seven_day", "seven_day_fable"]
+        );
+        // With two models' own windows the report could be either, so it
+        // stays its own.
+        let mut two = read;
+        let mut opus = two.windows[1].clone();
+        opus.kind = "seven_day_opus_5".into();
+        opus.label = Some("Weekly · Opus 5".into());
+        two.windows.push(opus);
+        let plan = merged(Some(&two), usage(vec![refused], 30));
+        assert!(plan.windows.iter().any(|one| one.kind == OVERAGE_INCLUDED));
+    }
+
+    #[test]
+    fn a_refusal_gives_way_to_a_later_figure_under_the_warning_line_and_a_warning_does_not() {
+        let (refused, read) = fable_refused_then_read();
+        let mut kept = read.clone();
+        kept.at = 10;
+        let kept = merged(Some(&kept), usage(vec![refused], 15));
+        assert_eq!(kept.windows[1].status, PlanStatus::Limited);
+        // The afternoon's read, the same week: 31% stands.
+        let plan = merged(Some(&kept), read.clone());
+        assert_eq!(
+            kinds(&plan)[1],
+            ("seven_day_fable", PlanStatus::Allowed, Some(31.0))
+        );
+        // A figure near the limit keeps the refusal.
+        let mut near = read.clone();
+        near.at = 40;
+        near.windows[1].used_percent = Some(97.0);
+        near.windows[1].status = status_of(97.0);
+        let plan = merged(Some(&kept), near);
+        assert_eq!(plan.windows[1].status, PlanStatus::Limited);
+        // A warning the agent gave stands over a figure under the line.
+        let mut warned = read.clone();
+        warned.windows[0].status = PlanStatus::Warning;
+        warned.at = 10;
+        let plan = merged(Some(&warned), read);
+        assert_eq!(plan.windows[0].status, PlanStatus::Warning);
+    }
+
+    #[test]
+    fn windows_read_five_hours_weekly_monthly_then_each_models_then_unknown_and_extra_last() {
+        let mut plan = None;
+        for (at, kind) in [
+            "overage",
+            "period",
+            "seven_day_fable",
+            OVERAGE_INCLUDED,
+            "seven_day_sonnet",
+            "seven_day_opus",
+            "monthly",
+            "seven_day",
+            "five_hour",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            plan = Some(with_window(plan, window(kind, 1.0), at as i64));
+        }
+        assert_eq!(
+            plan.unwrap()
+                .windows
+                .iter()
+                .map(|one| one.kind.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "five_hour",
+                "seven_day",
+                "monthly",
+                "seven_day_opus",
+                "seven_day_sonnet",
+                "seven_day_fable",
+                OVERAGE_INCLUDED,
+                "period",
+                "overage"
+            ]
+        );
     }
 
     #[test]

@@ -213,7 +213,10 @@ pub struct PlanUsage {
 pub struct PlanWindow {
     /// The agent's name for the window: `five_hour`, `seven_day`,
     /// `seven_day_opus`, `seven_day_sonnet`, a model's own
-    /// `seven_day_<model>`, `monthly`.
+    /// `seven_day_<model>`, `monthly`; Claude Code's
+    /// `seven_day_overage_included` (a model's own allowance, kept under that
+    /// model's window once the plan has one) and `overage` (extra usage);
+    /// or a kind the desk does not know yet.
     pub kind: String,
     /// How much of it is used, 0 to 100, when the agent said.
     #[serde(skip_serializing_if = "Option::is_none")]

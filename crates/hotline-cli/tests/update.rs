@@ -20,17 +20,24 @@ fn the_binary_reports_its_version_without_opening_a_room() {
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
 
+/// The final release of this build's version: a server only ever installs a
+/// final, and a beta build (`X.Y.Z-beta.N`) asks for its own `X.Y.Z`.
+#[cfg(target_os = "linux")]
+fn this_final() -> &'static str {
+    env!("CARGO_PKG_VERSION").split('-').next().unwrap()
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn checking_an_explicit_version_is_read_only_and_needs_no_service() {
     let root = tempfile::tempdir().unwrap();
     let output = Command::new(HOTLINE)
-        .args(["update", "--check", "--version", env!("CARGO_PKG_VERSION")])
+        .args(["update", "--check", "--version", this_final()])
         .env("HOTLINE_DATA_DIR", root.path().join("must-not-exist"))
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).contains(env!("CARGO_PKG_VERSION")));
+    assert!(String::from_utf8_lossy(&output.stdout).contains(this_final()));
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
 

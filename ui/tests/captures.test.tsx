@@ -67,9 +67,9 @@ beforeEach(async () => {
 		requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
 		cancelAnimationFrame: () => {},
 		Image: Loaded,
-		// The engine's decoder: a capture as it is, to learn its size, or scaled as it is decoded.
-		createImageBitmap: async (blob: Blob, scaled?: ImageBitmapOptions) => {
-			if (scaled === undefined) decoded.push(blob);
+		// The engine's decoder: a capture as it is, and that picture scaled.
+		createImageBitmap: async (from: Blob | ImageBitmap, scaled?: ImageBitmapOptions) => {
+			if (scaled === undefined) decoded.push(from as Blob);
 			if (screen === null) throw new Error("The source image could not be decoded.");
 			if (scaled === undefined) return { ...screen, close() {} };
 			drawn.push({ width: scaled.resizeWidth!, height: scaled.resizeHeight!, quality: scaled.resizeQuality! });
@@ -196,7 +196,7 @@ describe("a thumbnail's decoded size is bounded by its drawn size", () => {
 		// The box is still the capture's shape: 110 by 61.875, not the copy's 110 by 62.
 		expect(img.style.aspectRatio).toBe("1568 / 882");
 		expect(img.getAttribute("decoding")).toBe("sync");
-		// The capture was decoded as it is once, to learn its size, and nothing holds it now.
+		// The capture was decoded once, and nothing holds it now.
 		expect(decoded.length).toBe(1);
 		expect(revoked).toEqual([first!]);
 	});

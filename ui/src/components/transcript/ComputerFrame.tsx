@@ -201,20 +201,23 @@ function keep(eventId: string, small: Small): void {
 /**
  * A capture made `pixels` wide, by the engine's best filter: the picture the
  * engine itself draws in the thumbnail once it has decoded the whole
- * capture, as it has for any capture opened in the viewer. Scaled as it is
- * decoded, and decoded twice, once to learn its size: WebKit scales an
- * `ImageBitmap` drawn to a canvas with no filter whatever is asked for,
- * and an image element decoded for this keeps its megabytes long after.
- * Null for a capture no wider than its thumbnail, which is drawn as it is.
+ * capture, as it has for any capture opened in the viewer. The capture is
+ * decoded once, scaled as a bitmap and let go at once. (Not scaled on a
+ * canvas: WebKit draws an `ImageBitmap` there with no filter whatever is
+ * asked for. Not from an image element: one decoded for this keeps its
+ * megabytes long after.) Null for a capture no wider than its thumbnail,
+ * which is drawn as it is.
  */
 async function shrink(dataUrl: string, pixels: number): Promise<Small | null> {
 	const blob = blobOf(dataUrl);
 	if (blob === null) return null;
 	const whole = await createImageBitmap(blob);
 	const { width, height } = whole;
-	whole.close();
-	if (width <= pixels) return null;
-	const copy = await createImageBitmap(blob, { resizeWidth: pixels, resizeHeight: Math.round((pixels * height) / width), resizeQuality: "high" });
+	if (width <= pixels) {
+		whole.close();
+		return null;
+	}
+	const copy = await createImageBitmap(whole, { resizeWidth: pixels, resizeHeight: Math.round((pixels * height) / width), resizeQuality: "high" }).finally(() => whole.close());
 	const canvas = document.createElement("canvas");
 	canvas.width = copy.width;
 	canvas.height = copy.height;

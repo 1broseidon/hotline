@@ -323,6 +323,19 @@ export function App() {
 		},
 		[dock, closeDock, openDock],
 	);
+	/* These two are handed down to the rows of the conversation, and a row
+	 * is drawn again when it is handed something new: made here once, not in
+	 * the markup on every render, or each roster update draws every row. */
+	const toggleSelectedWork = useCallback(
+		(blockId: string | null) => {
+			if (selectedId !== null) toggleWorkPane(selectedId, blockId);
+		},
+		[selectedId, toggleWorkPane],
+	);
+	const openProviders = useCallback(() => {
+		setSettingsSection("providers");
+		setPane("settings");
+	}, [setSettingsSection, setPane]);
 	/* A command left running opens in the card over the composer's foot;
 	 * pressed again with it open, the card closes. */
 	const openWork = useCallback(
@@ -643,10 +656,7 @@ export function App() {
 							onCreated={select}
 							onClose={closePane}
 							onDesk={(deskId) => openOnDesk(deskId, { pane: "new-teammate" })}
-							onProviders={() => {
-								setSettingsSection("providers");
-								setPane("settings");
-							}}
+							onProviders={openProviders}
 						/>
 				) : selected ? (
 					<>
@@ -658,10 +668,7 @@ export function App() {
 							onCall={directCalls ? () => callTeammate(selected) : undefined}
 							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
 							callBar={callBar}
-							onProviders={() => {
-								setSettingsSection("providers");
-								setPane("settings");
-							}}
+							onProviders={openProviders}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -672,7 +679,7 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
-							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
+							onOpenWork={toggleSelectedWork}
 							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
 							processOpen={workOf?.processId}

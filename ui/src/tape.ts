@@ -123,6 +123,9 @@ export function reduceThread(held: Held, fold: Fold): Held {
  */
 const WINDOWED = 200;
 
+/** How long the lines behind one that landed wait to land together: a frame of the screen. */
+export const BURST_MS = 16;
+
 /** How long a thread nobody is showing stays subscribed, so coming back to it draws at once. */
 const LINGER_MS = 60_000;
 /** Threads kept in memory once unsubscribed, newest first, so a return draws the last known state. */
@@ -147,6 +150,13 @@ export const dmOf = (personaId: string): ThreadId => ({ kind: "dm", key: persona
  * screen draws. They are queued and folded once per animation frame, so a
  * reply publishes at most once per frame, and only when whole bubbles or
  * visible thoughts change. The first reply delta also signals writing.
+ *
+ * A written line is folded as it lands, with the words queued before it.
+ * When a turn ends, though, its reply is written down a line a bubble, a
+ * hundred in one burst for a long one, and each publish is a render of
+ * every pane that reads the thread, done before the socket hears its next
+ * frame. So the lines that come within BURST_MS of one that landed wait
+ * that long and land together.
  */
 export class ThreadStore {
 	private held: Held = NOTHING_YET;
@@ -156,8 +166,11 @@ export class ThreadStore {
 	private readers = 0;
 	private unsub: (() => void) | null = null;
 	private linger: ReturnType<typeof setTimeout> | null = null;
-	private queued: ThreadDelta[] = [];
+	/** Words waiting for the frame and lines waiting out a burst, in the order they came. */
+	private queued: Fold[] = [];
 	private frame: number | null = null;
+	/** Set while a line has just landed: the lines behind it wait for this. */
+	private burst: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(
 		private readonly wire: Wire,
@@ -196,7 +209,10 @@ export class ThreadStore {
 	}
 
 	private apply(fold: Fold) {
-		const next = reduceThread(this.held, fold);
+		this.publish(reduceThread(this.held, fold));
+	}
+
+	private publish(next: Held) {
 		if (next === this.held) return;
 		this.held = next;
 		const visible = visibleThread(this.state, next);
@@ -212,9 +228,15 @@ export class ThreadStore {
 				this.apply({ type: "snapshot", items });
 			},
 			event: (item) => {
-				// Deltas queued before this line belong before it.
-				this.drain();
-				this.apply({ type: "event", item });
+				this.queued.push({ type: "event", item });
+				if (this.burst !== null) return;
+				this.flush();
+				// A timer, not a frame: a hidden window draws no frames, and
+				// its lines would wait for as long as it stayed hidden.
+				this.burst = setTimeout(() => {
+					this.burst = null;
+					this.flush();
+				}, BURST_MS);
 			},
 			ephemeral: (delta) => {
 				// A download is drawn on the computer's button, not in the talk.
@@ -224,7 +246,7 @@ export class ThreadStore {
 				}
 				// The window declared `threads2`: this is the only delta it is sent.
 				if (delta.type !== "thread_delta" || !sameThread(delta.thread, this.id)) return;
-				this.queued.push(delta);
+				this.queued.push({ type: "words", deltas: [delta] });
 				this.frame ??= requestAnimationFrame(this.flush);
 			},
 		});
@@ -253,29 +275,29 @@ export class ThreadStore {
 	private close() {
 		this.unsub?.();
 		this.unsub = null;
+		// The lines still waiting are kept for the next visit.
+		this.flush();
 		this.drop();
 		this.apply({ type: "left" });
 	}
 
-	private drain() {
-		if (this.frame !== null) cancelAnimationFrame(this.frame);
-		this.frame = null;
-		this.held = reduceThread(this.held, { type: "words", deltas: this.queued });
-		this.queued = [];
-	}
-
+	/** Folds what is queued, in the order it came, and publishes once. */
 	private flush = () => {
 		if (this.frame !== null) cancelAnimationFrame(this.frame);
 		this.frame = null;
 		if (this.queued.length === 0) return;
-		const deltas = this.queued;
+		const queued = this.queued;
 		this.queued = [];
-		this.apply({ type: "words", deltas });
+		let next = this.held;
+		for (const fold of queued) next = reduceThread(next, fold);
+		this.publish(next);
 	};
 
 	private drop() {
 		if (this.frame !== null) cancelAnimationFrame(this.frame);
 		this.frame = null;
+		if (this.burst !== null) clearTimeout(this.burst);
+		this.burst = null;
 		this.queued = [];
 	}
 }

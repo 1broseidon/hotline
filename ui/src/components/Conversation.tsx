@@ -164,11 +164,15 @@ export function Conversation({
 	/* A teammate that is not running is started on the way, and the words
 	 * wait for it: a start that is refused is the reason shown, where a send
 	 * racing it could only say the teammate is not running. Sends that ask
-	 * while a start is out share it. */
+	 * while a start is out share it. It is made again when the teammate goes
+	 * down or comes up, not for every state between: every row is handed
+	 * `react`, which is made of this, and a turn starting or ending would
+	 * draw them all again. */
+	const down = isDown(session.state);
 	const startThen = useCallback(
 		<T,>(then: () => Promise<T>): Promise<T> =>
-			(isDown(session.state) ? sends.once(`start:${personaId}`, () => wire.command("session.start", { personaId })) : Promise.resolve()).then(then),
-		[personaId, session.state],
+			(down ? sends.once(`start:${personaId}`, () => wire.command("session.start", { personaId })) : Promise.resolve()).then(then),
+		[personaId, down],
 	);
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {

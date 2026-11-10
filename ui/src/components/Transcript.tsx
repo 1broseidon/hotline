@@ -15,10 +15,12 @@ import { Scroll } from "../ui/Scroll";
 import { failedLast } from "../retryTurn";
 import { wire } from "../wire";
 import {
+	blockId,
 	deliveryLine,
 	deliveryMissed,
 	foldReactions,
 	heardOnce,
+	keepBlocks,
 	peerLine,
 	quotedLine,
 	retryForNotice,
@@ -464,27 +466,42 @@ export function Transcript({
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 	const steps = latestRun === undefined ? 0 : toolSteps(latestRun.items).length;
 	const done = useDone(personaId, activity, latestRun?.items);
+	const mark: WorkMark | null = activity !== null ? { activity, sleeping, count: steps } : done !== null ? { activity: RESTING, sleeping: false, done } : null;
+	/* The mark is handed up when what it says changes, not each time it is
+	 * worked out, which is for every line and every streamed bubble: each
+	 * handing up is a second render, of the conversation around this one,
+	 * asked for from inside the first, and a long reply's worth of those in
+	 * a row trips React's guard against an update that never ends. */
+	const markSaid = JSON.stringify(mark);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `markSaid` is the mark, by what it says.
 	useEffect(() => {
-		onMark?.(activity !== null ? { activity, sleeping, count: steps } : done !== null ? { activity: RESTING, sleeping: false, done } : null);
-	}, [onMark, activity, sleeping, steps, done]);
+		onMark?.(mark);
+	}, [onMark, markSaid]);
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
 	// A job that fired again and again with nothing drawn between is one row,
 	// so this is decided on what is left to draw.
-	const blocks = useMemo(() => groupSent(groupCalls(groupScheduled(
-		arrived.filter(
-			(block) =>
-				!(
-					block.kind === "event" &&
-					(hidden.has(block.event.id) ||
-						answered.has(block.event.id) ||
-						reacted.lines.has(block.event.id) ||
-						(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
-						(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
-				),
-		),
-	))), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
+	// A block that holds what it held is the block it was (keepBlocks), so
+	// its row is handed what it was handed before and is not drawn again.
+	const drawnBefore = useRef<Block[]>([]);
+	const blocks = useMemo(() => {
+		const drawn = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(
+			arrived.filter(
+				(block) =>
+					!(
+						block.kind === "event" &&
+						(hidden.has(block.event.id) ||
+							answered.has(block.event.id) ||
+							reacted.lines.has(block.event.id) ||
+							(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
+							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
+					),
+			),
+		))));
+		drawnBefore.current = drawn;
+		return drawn;
+	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
 	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId, workingSides ?? []), [onOpenThreads, events, personaId, workingSides]);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
@@ -504,7 +521,7 @@ export function Transcript({
 	const rows = useMemo(
 		() =>
 			blocks.flatMap((block, index) =>
-				block.kind === "steps" && block.open === true && live && onOpenWork !== undefined ? [] : [{ block, index, id: block.kind === "event" ? block.event.id : block.id }],
+				block.kind === "steps" && block.open === true && live && onOpenWork !== undefined ? [] : [{ block, index, id: blockId(block) }],
 			),
 		[blocks, live, onOpenWork],
 	);
@@ -575,7 +592,8 @@ export function Transcript({
 						top={run.top}
 						bottom={run.bottom}
 						people={people}
-						reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
+						// None, as a line with no reactions has none: an empty list made here would be a new one each render, and the row drawn again for it.
+						reactions={block.messages.some((message) => reacted.on.has(message.id)) ? block.messages.flatMap((message) => reacted.on.get(message.id) ?? []) : undefined}
 						{...(onReply !== undefined ? { onReply } : {})}
 						{...(onReact !== undefined ? { onReact } : {})}
 						{...(onOpenThread !== undefined ? { onOpenThread } : {})}

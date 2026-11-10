@@ -8,6 +8,7 @@ import { installDom } from "./dom";
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Dock } = await import("../src/components/Dock");
 const { replaceDesks, wireFor } = await import("../src/desks");
+const { BURST_MS } = await import("../src/tape");
 
 const persona = (id: string, name: string): Persona => ({
 	id, name, goal: "", backendId: "hotline", cwd: `/work/${id}`,
@@ -215,6 +216,8 @@ describe("a handed-over thread's lines", () => {
 				});
 				threadHandlers?.event({ kind: "user", id: "u1", ts: 4, text: "Add div too." });
 				threadHandlers?.event({ kind: "agent", id: "a2", ts: 5, text: "Added div:\n\n- `div` raises on zero\n- two tests" });
+				// The lines behind the first land together, when the burst's wait is over.
+				await new Promise((resolve) => setTimeout(resolve, BURST_MS));
 			});
 			const bubble = (text: string) => [...container.querySelectorAll(".speech")].find((one) => one.textContent?.includes(text));
 			const nameAbove = (text: string) => bubble(text)?.parentElement?.querySelector(".said-name")?.textContent;

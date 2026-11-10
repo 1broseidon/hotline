@@ -125,8 +125,8 @@ export function useRowWindow({
 		(index >= from && index <= to) || id === jump || kept.has(id) || (chosenFrom !== undefined && chosenTo !== undefined && index >= chosenFrom && index <= chosenTo);
 
 	/* The last render's rows and window, for the scroll to read. */
-	const laid = useRef({ ids, at, from, to, toEnd, drawn });
-	laid.current = { ids, at, from, to, toEnd, drawn };
+	const laid = useRef({ ids, at, from, to, toEnd, drawn, probed });
+	laid.current = { ids, at, from, to, toEnd, drawn, probed };
 	/* A row on screen, where it stood and where the scroll was, before the rows around it changed. */
 	const held = useRef<Seen | null>(null);
 	/* The same, as of the last time the window was placed: what a row that grows by itself is held against. */
@@ -337,11 +337,17 @@ export function useRowWindow({
 	useEffect(() => {
 		let frame = 0;
 		const pass = () => {
-			const { ids, from, to } = laid.current;
+			const { ids, from, to, probed } = laid.current;
 			const next: string[] = [];
 			for (let index = from - 1; index >= 0 && next.length < PROBED; index--) if (!heights.known.has(ids[index]!)) next.push(ids[index]!);
 			for (let index = to + 1; index < ids.length && next.length < PROBED; index++) if (!heights.known.has(ids[index]!)) next.push(ids[index]!);
-			setProbed((was) => (was.length === 0 && next.length === 0 ? was : next));
+			// Nothing being measured and nothing to measure: no state is set.
+			// This runs after every line that lands, and a state set here,
+			// even to what it already is, asks for a second render from
+			// inside the first; a burst of lines doing that trips React's
+			// guard against an update that never ends.
+			if (next.length === 0 && probed.length === 0) return;
+			setProbed(next);
 			if (next.length === 0) return;
 			frame = requestAnimationFrame(() => {
 				frame = requestAnimationFrame(pass);

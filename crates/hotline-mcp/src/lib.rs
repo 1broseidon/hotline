@@ -39,6 +39,8 @@
 mod oauth;
 mod tool;
 
+#[cfg(feature = "test-support")]
+pub use oauth::test_support as oauth_test_support;
 pub use oauth::{
     McpOAuthRegistration, McpOAuthService, OAuthVault, connect_oauth, manager_for_server,
 };

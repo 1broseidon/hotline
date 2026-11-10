@@ -1454,6 +1454,90 @@ credential by construction.
 | JSON off, an unreachable instance and an answer that is not JSON each say what to fix, without the address or the key | `hotline-websearch/src/tests.rs` `searxng_with_json_off_says_how_to_turn_it_on`, `searxng_unreachable_or_not_json_says_so_without_its_address`; `mcp/server.rs` `a_searxng_instance_with_json_off_or_out_of_reach_says_what_to_fix` |
 | The Tools pane's switch waits for a URL, saves the URL and key, and never draws the key back | `ui/tests/web-search-settings.test.tsx` |
 
+## Where an MCP server's sign-in may connect
+
+An HTTP MCP server that signs in with an account publishes metadata naming
+the hosts its sign-in is done at, and the desk sends them requests:
+discovery, client registration, the token exchange and each refresh. Left
+alone, a server on the internet could aim those at this computer or the
+network it is on (RUSTSEC-2026-0457). A server the person runs on that
+network has to reach its neighbours. No teammate capability changes: a
+teammate cannot add a server or start a sign-in, and what a granted server
+may do is unchanged. What is decided is where the desk itself connects on a
+server's word (`hotline-mcp` `oauth/reach.rs`):
+
+- **The server's own address decides, per server.** The URL the person
+  typed is placed once for each sign-in client. *On the internet*: a public
+  IP address, a name that answers any public address, or a name that
+  answers nothing. *On this computer or network*: a loopback or private IP
+  address (RFC 1918, a tailnet's `100.64.0.0/10`, unique-local IPv6), or a
+  name that answers no public address and at least one of those. IPv6 that
+  carries IPv4 (mapped, compatible, NAT64, 6to4) is judged as the IPv4
+  address it reaches, so `::ffff:10.0.0.9` is `10.0.0.9`.
+- **On the internet: public addresses only.** Discovery, registration, the
+  token endpoint and every redirect of theirs. A name that answers both
+  kinds is on the internet, and only its public addresses are connected to.
+- **On this computer or network: private addresses too**, and loopback
+  ones when the server is itself on loopback. Its metadata may name an
+  authorization server beside it or one on the internet.
+- **Never link-local or reserved.** `169.254.0.0/16` (where a cloud keeps
+  instance metadata), `fe80::/10`, the unspecified, broadcast and multicast
+  addresses and the reserved ranges are connected to for no server, bar a
+  server's own address when its URL is that IP address.
+- **Judged where the connection is made.** Every sign-in request goes
+  through one HTTP client whose name lookups hand the connector only the
+  addresses the rule admits, so the address judged is the address
+  connected to; a URL whose host is an IP address, which needs no lookup,
+  is judged before each request and at each redirect. A name that answers
+  the internet when the server is placed and a private address when the
+  connection is made (DNS rebinding) is therefore refused at the
+  connection. The other way round, a name placed on a private network is
+  held to the addresses it answered then and is never asked for again by
+  that client, so what the internet later serves under the name is never
+  read with the network in reach. Such a client connects directly, past any
+  configured proxy, which would look the name up for itself.
+- **Refused in words.** A server on the internet that is refused reads
+  "MCP OAuth sign-in refused: this server is on the internet but points to
+  a private network address." Where its token or registration endpoint
+  would connect is asked when discovery ends, so that is said before a
+  client is registered or a browser opens, not after the person has signed
+  in.
+
+The classes of address are rmcp's own, repeated because its type is private
+and tested against the table rmcp tests its own by, so the two agree on
+what an address is. rmcp's check of a URL's spelling still runs before any
+request, and what it refuses there stays refused.
+
+Residual. The rule covers sign-in's requests, not the MCP connection: that
+goes to the URL the person typed, wherever it resolves, as it always has,
+and carries the sign-in's token there. Outside loopback that URL is https,
+so a host must hold a certificate for the name before anything it answers
+is read; whoever owns a name can still point it at a private address and
+have the desk open a connection there. rmcp refuses, by spelling alone, a
+metadata document or authorization server named by a loopback or private
+IP address unless it and the server are both on loopback, and only its own
+client can relax that: such an authorization server is given a host name. A
+server at a link-local IP address reaches itself and the internet and no
+neighbour. A sign-in on the internet goes through a configured proxy as the
+desk's other requests do, and the proxy looks names up itself, so there
+only an IP address in a URL, and the endpoints asked about when discovery
+ends, are judged here, as with rmcp's own client. The proxy's own host is
+left unjudged only when the environment names it (`HTTPS_PROXY` and its
+kin): one the system's settings name by host name, at a private address,
+is refused like any private address, in the same words, and sign-in to a
+server on the internet fails there. The token exchange and a refresh are
+refused like the rest but rmcp keeps no cause for them, so a name that
+turned inward after discovery reads as a failed exchange.
+
+| Boundary | Proof |
+| --- | --- |
+| An address is classed as rmcp classes it, IPv6 that carries IPv4 by the IPv4 address; a server at an IP address is placed by it, one by name by what the name answers, a name of both kinds on the internet | `hotline-mcp/src/oauth/reach.rs` `an_address_is_classed_as_rmcp_classes_it`, `a_server_at_an_ip_address_is_placed_by_that_address`, `a_server_by_name_is_placed_by_what_its_name_answers` |
+| A server on the internet that points discovery, registration or the token exchange at a loopback, private, tailnet or link-local address, by IP address or by name, is refused in the person's words with no connection made to it | `mcp/tests.rs` `a_server_on_the_internet_that_points_sign_in_at_a_private_address_is_refused_unconnected`; `hotline-mcp/src/oauth/reach.rs` `a_server_on_the_internet_connects_to_public_addresses_only`, `where_a_request_would_connect_can_be_asked_before_it_is_made`; `hotline-mcp/src/oauth.rs` `an_authorization_server_at_a_private_ip_address_reads_as_refused_from_the_internet` |
+| A name that changes its answer between the check and the connection gains nothing, either way round | `mcp/tests.rs` `a_name_that_moves_inward_after_it_was_checked_is_never_connected_to`; `hotline-mcp/src/oauth/reach.rs` `a_name_that_changes_its_answer_gains_nothing`; `hotline-mcp/src/oauth.rs` `a_server_on_the_internet_whose_name_moves_inward_is_refused_in_plain_words` |
+| A server set up by name on a private network signs in (discovery, registration, the token exchange, a refresh) at the address it was checked at; one on loopback signs in end to end; its authorization server may be private or on the internet, never loopback for a server that is not, never link-local | `mcp/tests.rs` `a_server_named_on_a_private_network_signs_in_at_the_address_it_was_checked_at`, `oauth_discovery_dcr_native_callback_refresh_restart_and_mcp_call`; `hotline-mcp/src/oauth/reach.rs` `a_server_on_a_private_network_reaches_private_and_public_but_not_loopback` |
+| A redirect is held to the same addresses as the request it answers | `mcp/tests.rs` `a_redirect_to_an_address_sign_in_may_not_use_is_not_followed` |
+| A proxy named in the environment is connected to wherever it is, and nothing else is for that | `hotline-mcp/src/oauth/reach.rs` `a_proxy_in_the_environment_is_connected_to_wherever_it_is`, `a_proxy_is_named_by_its_host` |
+
 ## The regression matrix
 
 Each row is one thing that must stay true, and the test that proves it

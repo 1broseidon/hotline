@@ -582,7 +582,12 @@ private vault, bound to the server URL and issuer. Hotline Agent uses rmcp's
 refreshing client; ACP receives a capability checked loopback proxy so its
 child process never sees OAuth tokens. The page the browser lands on after
 sign-in is one escaped card under a Content-Security-Policy that loads
-nothing but its inline style, with no script. Operator sign-in does not alter a
+nothing but its inline style, with no script. Where sign-in connects is
+decided by the server's own address: one on the internet reaches public
+addresses only, one the person runs on this computer or their network
+reaches private ones too
+([security.md](security.md#where-an-mcp-servers-sign-in-may-connect)).
+Operator sign-in does not alter a
 teammate's MCP grant, and sign-out invalidates live sessions before clearing
 the vault record.
 

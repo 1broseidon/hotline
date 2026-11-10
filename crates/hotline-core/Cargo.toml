@@ -152,6 +152,8 @@ ts-rs.workspace = true
 hotline-websearch = { path = "../hotline-websearch", features = ["test-support"] }
 # The core's call tests charge the voice budget without a reservation.
 hotline-room = { path = "../hotline-room", features = ["test-support"] }
+# The OAuth harness answers a sign-in's name lookups from a table.
+hotline-mcp = { path = "../hotline-mcp", features = ["test-support"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

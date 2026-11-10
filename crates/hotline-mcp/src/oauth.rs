@@ -4,11 +4,15 @@
 //! authorization-server discovery, DCR, PKCE, token exchange and refresh.
 //! This module supplies Hotline's policy around that state machine. In particular,
 //! it refuses rmcp's legacy endpoint fallback, requires advertised S256 PKCE,
-//! binds registrations and credentials to the configured URL and issuer, and
+//! binds registrations and credentials to the configured URL and issuer,
 //! never lets a missing token turn a configured connection into an anonymous
-//! one.
+//! one, and makes every sign-in request through a client that connects only
+//! to the addresses the server's own may reach (`reach`).
+
+mod reach;
 
 use crate::{HttpAuth, McpServer, McpTransport, NO_VAULT, Vaulted};
+use reach::{DISCOVERY_FAILED, NameLookup, REFUSED_FROM_THE_INTERNET, SignInClient};
 use rmcp::ServiceExt;
 use rmcp::service::RunningService;
 use rmcp::transport::auth::{
@@ -239,20 +243,79 @@ pub async fn manager_for_server<S: CredentialStore + Clone + 'static>(
     vault: &OAuthVault<S>,
     redirect_uri: Option<&str>,
 ) -> Result<AuthorizationManager, String> {
+    let (manager, _) =
+        discovered_manager(server, vault, redirect_uri, reach::system_lookup()).await?;
+    Ok(manager)
+}
+
+/// rmcp's manager for a server's URL, before anything is asked of the
+/// server, with every request it will make going through `client`.
+async fn sign_in_manager(
+    url: &str,
+    client: Arc<SignInClient>,
+) -> Result<AuthorizationManager, String> {
+    AuthorizationManager::new_with_oauth_http_client(url, client)
+        .await
+        .map_err(auth_error_message)
+}
+
+/// What the core's OAuth harness needs to drive a sign-in with DNS answered
+/// from a table, and so with no network: rmcp's manager for a server's URL
+/// exactly as a sign-in makes it, before anything is asked of the server,
+/// and the words the person reads for one of its errors.
+#[cfg(feature = "test-support")]
+pub mod test_support {
+    pub use super::reach::NameLookup;
+    use super::{Arc, AuthError, AuthorizationManager, SignInClient, Url};
+
+    pub async fn sign_in_manager(
+        url: &str,
+        lookup: NameLookup,
+    ) -> Result<AuthorizationManager, String> {
+        let server = Url::parse(url).map_err(|error| error.to_string())?;
+        let client = Arc::new(SignInClient::for_server(&server, lookup).await?);
+        super::sign_in_manager(url, client).await
+    }
+
+    pub fn error_message(error: AuthError) -> String {
+        super::auth_error_message(error)
+    }
+}
+
+/// The manager for a configured server and the metadata it discovered. The
+/// server's address is placed once here, by `lookup`, and the one client
+/// made for it carries every request of this sign-in.
+async fn discovered_manager<S: CredentialStore + Clone + 'static>(
+    server: &McpServer,
+    vault: &OAuthVault<S>,
+    redirect_uri: Option<&str>,
+    lookup: NameLookup,
+) -> Result<(AuthorizationManager, AuthorizationMetadata), String> {
     let McpTransport::Http { url, auth } = &server.transport else {
         return Err("OAuth authentication is only available for HTTP MCP servers".to_string());
     };
-    validate_server_url(url, "MCP server URL")?;
+    let server_url = validate_server_url(url, "MCP server URL")?;
+    let client = Arc::new(SignInClient::for_server(&server_url, lookup).await?);
 
     let store = vault.store.clone();
-    let mut manager = AuthorizationManager::new(url)
-        .await
-        .map_err(auth_error_message)?;
+    let mut manager = sign_in_manager(url, client.clone()).await?;
     manager.set_credential_store(store.clone());
 
-    let resolution = resolve_metadata_with_challenge(&manager, url).await?;
+    let resolution = resolve_metadata_with_challenge(&manager, &client, &server_url).await?;
     validate_resolution(url, &resolution)?;
     let metadata = resolution.metadata.clone();
+    // The token and registration endpoints are asked nothing until a client
+    // is registered or the person has signed in in their browser, and rmcp
+    // keeps no cause for a request that fails there. So where each would
+    // connect is asked now, and a sign-in that would be refused then is
+    // refused first, with the reason. The connection still asks for itself.
+    let endpoints = [
+        Some(&metadata.token_endpoint),
+        metadata.registration_endpoint.as_ref(),
+    ];
+    if let Some(refused) = client.first_refused(endpoints.into_iter().flatten()).await {
+        return Err(refused.message().to_string());
+    }
     manager.set_metadata(metadata.clone());
 
     let configured = oauth_config(auth);
@@ -309,9 +372,9 @@ pub async fn manager_for_server<S: CredentialStore + Clone + 'static>(
         .is_some_and(|resource| resource != url)
     {
         let resource = manager_resource.expect("resource was checked above");
-        let mut rebased = AuthorizationManager::new(&resource)
-            .await
-            .map_err(auth_error_message)?;
+        // The resource is of the server's own origin, so its reach is the
+        // server's.
+        let mut rebased = sign_in_manager(&resource, client).await?;
         rebased.set_credential_store(store);
         rebased.set_metadata(metadata.clone());
         manager = rebased;
@@ -380,7 +443,7 @@ pub async fn manager_for_server<S: CredentialStore + Clone + 'static>(
             .configure_client(config)
             .map_err(auth_error_message)?;
     }
-    Ok(manager)
+    Ok((manager, metadata))
 }
 
 /// Start a browser authorization flow. The returned session owns rmcp's
@@ -393,11 +456,11 @@ async fn authorization_session<S: CredentialStore + Clone + 'static>(
     redirect_uri: &str,
     save_registration: impl FnOnce(McpOAuthRegistration) -> io::Result<()>,
 ) -> Result<AuthorizationSession, String> {
-    let mut manager = manager_for_server(server, vault, Some(redirect_uri)).await?;
+    let (mut manager, metadata) =
+        discovered_manager(server, vault, Some(redirect_uri), reach::system_lookup()).await?;
     let McpTransport::Http { url, auth } = &server.transport else {
         return Err("OAuth authentication is only available for HTTP MCP servers".to_string());
     };
-    let metadata = discover_metadata(server).await?;
     let registration = vault.registration.clone()?;
     let configured = oauth_config(auth);
     let mut request = AuthorizationRequest::new(redirect_uri)
@@ -931,26 +994,15 @@ impl PendingLogin {
     }
 }
 
-async fn discover_metadata(server: &McpServer) -> Result<AuthorizationMetadata, String> {
-    let McpTransport::Http { url, .. } = &server.transport else {
-        return Err("OAuth authentication is only available for HTTP MCP servers".to_string());
-    };
-    let manager = AuthorizationManager::new(url)
-        .await
-        .map_err(auth_error_message)?;
-    let resolution = resolve_metadata_with_challenge(&manager, url).await?;
-    validate_resolution(url, &resolution)?;
-    Ok(resolution.metadata)
-}
-
 async fn resolve_metadata_with_challenge(
     manager: &AuthorizationManager,
-    server_url: &str,
+    client: &SignInClient,
+    server_url: &Url,
 ) -> Result<AuthorizationMetadataResolution, String> {
-    let resolution = manager
-        .resolve_metadata()
-        .await
-        .map_err(auth_error_message)?;
+    let resolution = match manager.resolve_metadata().await {
+        Ok(resolution) => resolution,
+        Err(error) => return Err(discovery_error_message(client, error).await),
+    };
     if resolution.source.is_discovered() {
         return Ok(resolution);
     }
@@ -958,16 +1010,16 @@ async fn resolve_metadata_with_challenge(
     // Some compliant resource servers publish only the protected-resource
     // pointer in a WWW-Authenticate challenge. This request is discovery
     // traffic with no credentials; a configured MCP connection never takes
-    // this path as an anonymous fallback.
-    let response = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| "MCP OAuth discovery request could not be created".to_string())?
-        .get(server_url)
-        .send()
-        .await
-        .map_err(|_| "MCP OAuth challenge discovery request failed".to_string())?;
+    // this path as an anonymous fallback. It goes through the sign-in's
+    // client, as what it answers is followed like any other metadata.
+    let response =
+        client
+            .get(server_url)
+            .await
+            .map_err(|error| match reach::refusal(error.as_ref()) {
+                Some(refused) => refused.message().to_string(),
+                None => "MCP OAuth challenge discovery request failed".to_string(),
+            })?;
     let Some(challenge) = response
         .headers()
         .get("www-authenticate")
@@ -978,16 +1030,35 @@ async fn resolve_metadata_with_challenge(
                 .to_string(),
         );
     };
-    let discovered = manager
+    let discovered = match manager
         .resolve_metadata_from_challenge(Some(challenge))
         .await
-        .map_err(auth_error_message)?;
+    {
+        Ok(discovered) => discovered,
+        Err(error) => return Err(discovery_error_message(client, error).await),
+    };
     if !discovered.source.is_discovered() {
         return Err(
             "this MCP server's OAuth challenge did not point to discoverable metadata".to_string(),
         );
     }
     Ok(discovered)
+}
+
+/// What the person reads when discovery fails. rmcp drops an authorization
+/// server named by a loopback or private IP address before any request, by
+/// its spelling, and says only that none it was given was usable; that is a
+/// refusal for its address too, and reads as one.
+async fn discovery_error_message(client: &SignInClient, error: AuthError) -> String {
+    if let AuthError::AuthorizationServersUnavailable {
+        authorization_servers,
+        ..
+    } = &error
+        && let Some(refused) = client.first_refused(authorization_servers).await
+    {
+        return refused.message().to_string();
+    }
+    auth_error_message(error)
 }
 
 fn callback_path(server_id: &str) -> String {
@@ -1331,6 +1402,18 @@ fn token_needs_refresh(credentials: &rmcp::transport::auth::StoredCredentials) -
 }
 
 fn auth_error_message(error: AuthError) -> String {
+    // A request refused for its address says so: the refusal is the cause
+    // of a discovery error, and the text rmcp keeps of a registration's.
+    let refused = match &error {
+        AuthError::DiscoveryRequestFailed { source, .. } => {
+            reach::refusal(source.as_ref()).is_some_and(|refused| refused.from_the_internet)
+        }
+        AuthError::RegistrationFailed(text) => text.contains(REFUSED_FROM_THE_INTERNET),
+        _ => false,
+    };
+    if refused {
+        return REFUSED_FROM_THE_INTERNET.to_string();
+    }
     match error {
         AuthError::AuthorizationRequired => {
             "MCP OAuth sign-in is required in Settings → Tools.".to_string()
@@ -1353,16 +1436,13 @@ fn auth_error_message(error: AuthError) -> String {
         AuthError::RegistrationFailed(_) => {
             "MCP OAuth client registration failed; check that this server supports DCR.".to_string()
         }
-        // Discovery's ways of failing: a request that got no answer (or was
-        // refused for the address it resolved to), a protected-resource
-        // document that is not this server's, and authorization servers
-        // that publish nothing usable.
+        // Discovery's ways of failing: a request that got no answer, a
+        // protected-resource document that is not this server's, and
+        // authorization servers that publish nothing usable.
         AuthError::MetadataError(_)
         | AuthError::DiscoveryRequestFailed { .. }
         | AuthError::ProtectedResourceMetadataInvalid { .. }
-        | AuthError::AuthorizationServersUnavailable { .. } => {
-            "MCP OAuth metadata discovery failed.".to_string()
-        }
+        | AuthError::AuthorizationServersUnavailable { .. } => DISCOVERY_FAILED.to_string(),
         AuthError::HttpError(_) | AuthError::OAuthError(_) => {
             "MCP OAuth authorization request failed.".to_string()
         }
@@ -1453,15 +1533,7 @@ mod tests {
         let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = closed.local_addr().unwrap().port();
         drop(closed);
-        let server = McpServer {
-            id: "unreachable".to_string(),
-            name: "Unreachable".to_string(),
-            transport: McpTransport::Http {
-                url: format!("http://127.0.0.1:{port}/mcp"),
-                auth: HttpAuth::Oauth,
-            },
-            refuse: None,
-        };
+        let server = oauth_server(format!("http://127.0.0.1:{port}/mcp"));
         let vault = OAuthVault {
             store: rmcp::transport::auth::InMemoryCredentialStore::new(),
             token_lock: Arc::new(AsyncMutex::new(())),
@@ -1472,6 +1544,86 @@ mod tests {
             .err()
             .expect("nothing listens on the port");
         assert_eq!(error, "MCP OAuth metadata discovery failed.");
+    }
+
+    fn oauth_server(url: String) -> McpServer {
+        McpServer {
+            id: "placed".to_string(),
+            name: "Placed".to_string(),
+            transport: McpTransport::Http {
+                url,
+                auth: HttpAuth::Oauth,
+            },
+            refuse: None,
+        }
+    }
+
+    /// A server on the internet whose name answers this computer by the
+    /// time sign-in connects (DNS rebinding) is refused in the person's
+    /// words, and what listens there is never connected to.
+    #[tokio::test]
+    async fn a_server_on_the_internet_whose_name_moves_inward_is_refused_in_plain_words() {
+        let inward = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        inward.set_nonblocking(true).unwrap();
+        let port = inward.local_addr().unwrap().port();
+        let server = oauth_server(format!("https://mcp.public.test:{port}/mcp"));
+        let vault = OAuthVault {
+            store: rmcp::transport::auth::InMemoryCredentialStore::new(),
+            token_lock: Arc::new(AsyncMutex::new(())),
+            registration: Ok(None),
+        };
+        let lookup =
+            reach::tests::table(&[("mcp.public.test", &[&["203.0.113.10"], &["127.0.0.1"]])]);
+
+        let error = discovered_manager(&server, &vault, None, lookup)
+            .await
+            .err()
+            .expect("the name answers loopback when it is connected to");
+        assert_eq!(error, REFUSED_FROM_THE_INTERNET);
+        let unconnected = inward.accept().expect_err("a connection was made");
+        assert_eq!(unconnected.kind(), io::ErrorKind::WouldBlock);
+    }
+
+    /// rmcp drops an authorization server named by a private IP address
+    /// without a request and without saying why. From a server on the
+    /// internet that reads as the refusal it is.
+    #[tokio::test]
+    async fn an_authorization_server_at_a_private_ip_address_reads_as_refused_from_the_internet() {
+        let lookup = || {
+            reach::tests::table(&[
+                ("mcp.public.test", &[&["203.0.113.10"]]),
+                ("auth.public.test", &[&["203.0.113.11"]]),
+                ("box.tailnet.test", &[&["100.101.102.103"]]),
+            ])
+        };
+        let client = |server: &'static str| async move {
+            SignInClient::for_server(&Url::parse(server).unwrap(), lookup())
+                .await
+                .unwrap()
+        };
+        let none_usable = |named: &[&str]| AuthError::AuthorizationServersUnavailable {
+            resource_metadata_url: Url::parse(
+                "https://mcp.public.test/.well-known/oauth-protected-resource",
+            )
+            .unwrap(),
+            authorization_servers: named.iter().map(ToString::to_string).collect(),
+        };
+        let inward = ["https://auth.public.test", "https://10.0.0.9/as"];
+
+        let internet = client("https://mcp.public.test/mcp").await;
+        assert_eq!(
+            discovery_error_message(&internet, none_usable(&inward)).await,
+            REFUSED_FROM_THE_INTERNET
+        );
+        assert_eq!(
+            discovery_error_message(&internet, none_usable(&["https://auth.public.test"])).await,
+            DISCOVERY_FAILED
+        );
+        let private = client("https://box.tailnet.test/mcp").await;
+        assert_eq!(
+            discovery_error_message(&private, none_usable(&inward)).await,
+            DISCOVERY_FAILED
+        );
     }
 
     #[test]

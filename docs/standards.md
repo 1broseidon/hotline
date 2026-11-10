@@ -85,7 +85,9 @@ module map itself is [development.md](development.md#layout).
   vault implements, and saving a client registration is the one call
   back. `hotline-core` re-exports its items at `crate::mcp`, where
   `TeammateTools`, the server of a teammate's own tools, stays: it calls
-  into the live room, the `mcp`↔`session` cycle below.
+  into the live room, the `mcp`↔`session` cycle below. A sign-in's manager
+  with the name lookup handed in is public only under its `test-support`
+  feature, which the core turns on for its tests alone.
 - `hotline-browser-core` is a teammate's desk browser as the desk and its
   browsers share it: the `DeskBrowser` trait and the types it carries, the
   `Gate` that says which addresses a page may load (with the person's

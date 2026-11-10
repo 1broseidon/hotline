@@ -86,6 +86,7 @@ crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the sup
   lib.rs                     the servers settings name, a teammate's grant, the live connections
   tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
   oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
+  oauth/reach.rs             which addresses a server's sign-in may connect to, and the client that holds it to them
 crates/hotline-browser-core/src/ the desk browser as the desk and its browsers share it; on the leaves and the store
   lib.rs                     DeskBrowser and its types, the Gate a page's loads are asked of, a teammate's web data
   pipe.rs                    the JSON lines between `hotline serve` and its browser helper, and the helper's end
@@ -730,8 +731,10 @@ The OAuth unit harness in `crates/hotline-core/src/mcp/tests.rs` runs a
 loopback protected-resource and authorization server, through the vault, through metadata discovery, DCR, PKCE callback, token
 refresh and authenticated MCP calls. It also covers restart reuse, denied and
 wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
-sign-out and the protected vault boundary. No real provider account is used by
-the test suite.
+sign-out and the protected vault boundary, and which addresses a sign-in may
+connect to, with DNS answered from a table through `hotline-mcp`'s
+`test-support` feature. No real provider account is used by the test suite,
+and no name is looked up off this computer.
 
 Most of `desk.rs` needs no provider key: it creates a teammate, watches
 the roster view, lists models, adds a credential, lists and marks a peer

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test as timed } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { TranscriptEvent } from "../src/generated/contract";
 import { installDom } from "./dom";
@@ -25,6 +25,27 @@ let watchers: Watcher[];
 /** A teammate of this test's own: a thread's row heights are remembered by thread, across conversations. */
 let persona: string;
 let made = 0;
+/** The body of the test last begun, and whether that test is over. */
+let body: Promise<void> = Promise.resolve();
+let over = false;
+
+/**
+ * A test whose body has stopped before the next test begins. The runner
+ * does not stop a body that has run out of time: it calls the test failed
+ * and goes on, and the body goes on too, a step at a time, on whatever page
+ * and frames stand where its own were, failing the tests after it. So each
+ * step a body takes goes through `act` (below), which refuses once the test
+ * is over, and the end of the test waits for the body to have met that.
+ * Being stopped is not a second failure: the runner has already called it.
+ */
+function test(name: string, run: () => Promise<void>) {
+	timed(name, () => {
+		body = run();
+		return body.catch((error: unknown) => {
+			if (!over) throw error;
+		});
+	});
+}
 
 /** A stand-in ResizeObserver the test fires by hand, as the engine does when a row's box changes. */
 class Watcher {
@@ -61,7 +82,11 @@ beforeEach(async () => {
 	Object.assign(globalThis, { MutationObserver: installed.dom.MutationObserver, CSS: { escape: installed.dom.CSS.escape, supports: () => false } });
 	persona = `ada-${++made}`;
 	({ tall, column, scrollsIntoView, restore } = layOut({ row: ROW, view: VIEW }));
-	act = (await import("react")).act;
+	const react = await import("react");
+	act = ((work: () => Promise<void>) => {
+		if (over) throw new Error("the test is over");
+		return react.act(work);
+	}) as typeof react.act;
 	({ Transcript } = await import("../src/components/Transcript"));
 	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
@@ -70,6 +95,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	over = true;
+	await body.catch(() => {});
+	over = false;
 	await act(async () => root.unmount());
 	restore();
 	await teardown();
@@ -134,6 +162,18 @@ async function measured() {
 	throw new Error("the rows were never all measured");
 }
 
+/**
+ * These rows as measured on an earlier visit: each one's height is known,
+ * as on coming back to a conversation, and none is drawn off to the side
+ * to be measured.
+ */
+async function read(events: TranscriptEvent[]) {
+	const { heightsOf } = await import("../src/components/transcript/rowWindow");
+	const heights = heightsOf(`dm:${persona}`);
+	heights.width = column.width;
+	for (const { id } of events) heights.known.set(id, tall.get(id) ?? ROW);
+}
+
 /** The thread opened and at rest: drawn, following its last line, the first frame taken in. */
 async function open(events: TranscriptEvent[], extra: Extra = {}) {
 	await act(async () => draw(events, extra));
@@ -142,7 +182,11 @@ async function open(events: TranscriptEvent[], extra: Extra = {}) {
 
 describe("a long thread", () => {
 	test("keeps a bounded number of rows in the page, however many are loaded", async () => {
-		// The last 372 lines, then the four pages above them: 1,972 rows.
+		// The last 372 lines, then the four pages above them: 1,972 rows, read
+		// on an earlier visit. What is counted here is the page; measuring a
+		// thread draws every row of it once, which the tests below do for
+		// threads a tenth as long.
+		await read(lines(1, 1972));
 		let events = lines(1601, 1972);
 		const redraw = (more: boolean) => draw(events, { more, onEarlier: earlier });
 		async function earlier() {
@@ -550,13 +594,14 @@ describe("what a person does to a row finds it in the page", () => {
 	});
 
 	test("the row on screen has the next and previous rows in the page, however tall it is, so a screen reader can move to them", async () => {
-		// One row taller than everything the window reaches for.
-		tall.set("e150", 4_000);
-		await open(lines(1, 300));
+		// One row taller than everything the window reaches for, with rows
+		// enough on each side of it for the window to move several times.
+		tall.set("e60", 4_000);
+		await open(lines(1, 120));
 		await measured();
 		// Previous, row by row, each scrolled into view as VoiceOver does on moving to it.
-		let at = rowOf("e300")!;
-		for (let step = 0; step < 299; step++) {
+		let at = rowOf("e120")!;
+		for (let step = 0; step < 119; step++) {
 			const previous = at.previousElementSibling as unknown as HTMLElement | null;
 			expect(previous?.className).toBe("tape-row");
 			await act(async () => previous!.scrollIntoView({ block: "nearest" }));
@@ -567,14 +612,14 @@ describe("what a person does to a row finds it in the page", () => {
 		expect(at.dataset["eventId"]).toBe("e1");
 		expect(at.previousElementSibling).toBeNull();
 		// And next, back down to the last line.
-		for (let step = 0; step < 299; step++) {
+		for (let step = 0; step < 119; step++) {
 			const next = at.nextElementSibling as unknown as HTMLElement | null;
 			expect(next?.className).toBe("tape-row");
 			await act(async () => next!.scrollIntoView({ block: "nearest" }));
 			await frame();
 			at = next!;
 		}
-		expect(at.dataset["eventId"]).toBe("e300");
+		expect(at.dataset["eventId"]).toBe("e120");
 	});
 
 	test("a row the person pressed stays in the page, so what they opened stays open", async () => {

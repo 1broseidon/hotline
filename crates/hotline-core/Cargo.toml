@@ -115,7 +115,7 @@ tempfile = "3"
 # teammate is granted and the server of its own teammate tools. Pinned exactly,
 # because the model types are `non_exhaustive` and a minor release is free to
 # grow a field the compiler then demands.
-rmcp = { version = "=3.2.0", features = [
+rmcp = { version = "=3.9.0", features = [
     "auth",
     "client",
     "server",
@@ -152,6 +152,8 @@ ts-rs.workspace = true
 hotline-websearch = { path = "../hotline-websearch", features = ["test-support"] }
 # The core's call tests charge the voice budget without a reservation.
 hotline-room = { path = "../hotline-room", features = ["test-support"] }
+# The OAuth harness answers a sign-in's name lookups from a table.
+hotline-mcp = { path = "../hotline-mcp", features = ["test-support"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

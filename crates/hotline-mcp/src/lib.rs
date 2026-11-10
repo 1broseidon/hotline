@@ -39,6 +39,8 @@
 mod oauth;
 mod tool;
 
+#[cfg(feature = "test-support")]
+pub use oauth::test_support as oauth_test_support;
 pub use oauth::{
     McpOAuthRegistration, McpOAuthService, OAuthVault, connect_oauth, manager_for_server,
 };
@@ -50,7 +52,7 @@ use hotline_room::mcp_servers::normalize_servers;
 use hotline_tools::capability::CapabilityLease;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rmcp::ServiceExt;
-use rmcp::model::{ClientCapabilities, ClientInfo, Implementation};
+use rmcp::model::{ClientCapabilities, ClientConfig, Implementation};
 use rmcp::service::RunningService;
 use rmcp::transport::auth::{CredentialStore, InMemoryCredentialStore};
 use rmcp::transport::streamable_http_client::{
@@ -148,7 +150,7 @@ pub struct FailedServer {
 pub struct Connections {
     pub tools: Vec<McpTool>,
     pub failed: Vec<FailedServer>,
-    _live: Vec<RunningService<rmcp::RoleClient, ClientInfo>>,
+    _live: Vec<RunningService<rmcp::RoleClient, ClientConfig>>,
     /// The process groups the stdio servers were spawned into, killed when
     /// this value goes. See [`ProcessGroup`].
     _groups: Vec<ProcessGroup>,
@@ -458,7 +460,7 @@ async fn connect_one<S: CredentialStore + Clone + 'static>(
     vaulted: Result<Vaulted<S>, String>,
 ) -> Result<
     (
-        RunningService<rmcp::RoleClient, ClientInfo>,
+        RunningService<rmcp::RoleClient, ClientConfig>,
         Vec<rmcp::model::Tool>,
         Option<ProcessGroup>,
     ),
@@ -528,10 +530,10 @@ async fn connect_one<S: CredentialStore + Clone + 'static>(
 }
 
 async fn handshake<E>(
-    serve: impl Future<Output = Result<RunningService<rmcp::RoleClient, ClientInfo>, E>>,
+    serve: impl Future<Output = Result<RunningService<rmcp::RoleClient, ClientConfig>, E>>,
 ) -> Result<
     (
-        RunningService<rmcp::RoleClient, ClientInfo>,
+        RunningService<rmcp::RoleClient, ClientConfig>,
         Vec<rmcp::model::Tool>,
     ),
     String,
@@ -550,8 +552,8 @@ where
     Ok((client, listed))
 }
 
-fn hotline_client() -> ClientInfo {
-    ClientInfo::new(
+fn hotline_client() -> ClientConfig {
+    ClientConfig::new(
         ClientCapabilities::default(),
         Implementation::new("Hotline", env!("CARGO_PKG_VERSION")),
     )
@@ -762,7 +764,7 @@ mod tests {
     use rmcp::handler::server::ServerHandler;
     use rmcp::model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
     };
     use rmcp::service::RequestContext;
     use serde_json::json;
@@ -780,8 +782,8 @@ mod tests {
     struct Echo;
 
     impl ServerHandler for Echo {
-        fn get_info(&self) -> ServerInfo {
-            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        fn get_info(&self) -> ServerConfig {
+            ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
         }
 
         fn list_tools(
@@ -837,7 +839,7 @@ mod tests {
         persona_id: &str,
     ) -> (
         tokio::task::JoinHandle<()>,
-        rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>,
+        rmcp::service::RunningService<rmcp::RoleClient, ClientConfig>,
         McpTool,
     ) {
         let (client_to_server, server_from_client) = tokio::io::duplex(8192);

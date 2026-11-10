@@ -82,6 +82,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   screenshots it takes in its desk browser, as a Claude Code teammate does.
   Until now its `screenshot` was refused, with a note to read the page as
   text instead.
+- Signing in to an MCP server with an account no longer sends requests to an
+  address inside your network because the server named a host that resolves
+  there, and an MCP server at a URL can no longer exhaust the desk's memory
+  with a reply that never ends (rmcp 3.9.0; RUSTSEC-2026-0457, 0461 and
+  0462). A server you run on this computer, your network or a tailnet still
+  signs in, set up by address or by name. One on the internet that points
+  its sign-in at a private address is refused, and says so.
+- SQLite 3.54.1 (rusqlite 0.41.1; RUSTSEC-2026-0459).
 
 ## [0.48.3] - 2026-11-06
 

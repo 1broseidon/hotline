@@ -13,7 +13,7 @@
 
 use super::Ready;
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
 };
@@ -49,7 +49,7 @@ async fn ask(ready: &Ready) -> Result<Guide, String> {
         StreamableHttpClientTransportConfig::with_uri(ready.url.clone())
             .auth_header(ready.token.clone()),
     );
-    let service = ClientInfo::new(
+    let service = ClientConfig::new(
         ClientCapabilities::default(),
         Implementation::new("hotline", env!("CARGO_PKG_VERSION")),
     )
@@ -104,7 +104,7 @@ pub(crate) mod fake {
     use rmcp::handler::server::ServerHandler;
     use rmcp::model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
     };
     use rmcp::service::RequestContext;
     use rmcp::transport::streamable_http_server::{
@@ -567,8 +567,8 @@ pub(crate) mod fake {
     }
 
     impl ServerHandler for FakeComputer {
-        fn get_info(&self) -> ServerInfo {
-            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        fn get_info(&self) -> ServerConfig {
+            ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
         }
 
         async fn list_tools(

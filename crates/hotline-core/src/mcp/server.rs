@@ -48,7 +48,7 @@ use rmcp::ErrorData;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, JsonObject,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::{
@@ -1877,8 +1877,8 @@ fn listed_job(job: ScheduledJob) -> Value {
 }
 
 impl ServerHandler for TeammateTools {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
     }
 
     async fn list_tools(
@@ -2021,7 +2021,7 @@ mod tests {
     use crate::session::ProviderKeys;
     use rig::tool::{ToolContext, ToolSet};
     use rmcp::ServiceExt;
-    use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
+    use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation};
     use rmcp::transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
     };
@@ -2850,8 +2850,8 @@ mod tests {
         assert_eq!(too_many, via_room);
     }
 
-    fn client() -> ClientInfo {
-        ClientInfo::new(
+    fn client() -> ClientConfig {
+        ClientConfig::new(
             ClientCapabilities::default(),
             Implementation::new("test", env!("CARGO_PKG_VERSION")),
         )

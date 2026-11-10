@@ -1027,7 +1027,7 @@ async fn unreadable_json_cannot_turn_a_saved_zero_cap_back_into_paid_defaults() 
 #[tokio::test]
 async fn acp_mcp_transport_lists_and_executes_the_same_image_tool() {
     use rmcp::ServiceExt;
-    use rmcp::model::{CallToolRequestParams, ClientInfo};
+    use rmcp::model::{CallToolRequestParams, ClientConfig};
     use rmcp::transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
     };
@@ -1037,7 +1037,7 @@ async fn acp_mcp_transport_lists_and_executes_the_same_image_tool() {
     let transport = StreamableHttpClientTransport::from_config(
         StreamableHttpClientTransportConfig::with_uri(served.url()).auth_header(served.token()),
     );
-    let client = ClientInfo::default().serve(transport).await.unwrap();
+    let client = ClientConfig::default().serve(transport).await.unwrap();
     let listing = client.list_tools(None).await.unwrap();
     assert!(
         listing

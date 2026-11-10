@@ -542,6 +542,19 @@ metadata, or rely on legacy guessed endpoints are reported as unsupported.
 Token endpoint client authentication follows the methods advertised by the
 authorization server through rmcp; Hotline does not invent another method or
 persist a client secret in settings.
+Sign-in's own requests (discovery, registration, the token exchange and each
+refresh) go only where the server's own address lets them, judged by the
+address a host resolves to and not by its name. A server on the internet
+reaches public addresses alone: when its metadata, a redirect or its own
+name points sign-in at this computer or a private network, sign-in stops
+before connecting and says "MCP OAuth sign-in refused: this server is on the
+internet but points to a private network address." A server the person runs
+on this computer, their network or a tailnet (a loopback or private IP
+address, or a name that answers only those) also reaches private addresses,
+and loopback ones when it is itself on loopback, so its authorization server
+can be beside it or on the internet. A link-local or reserved address is
+never reached. The whole rule, its limits and its tests are in
+[security.md](security.md#where-an-mcp-servers-sign-in-may-connect).
 Tokens, refresh tokens and DCR client secrets live in the private vault under
 the server URL and issuer binding. They are never settings, stream, tape,
 prompt, ACP descriptor or log data. Refreshes and rotated refresh tokens are

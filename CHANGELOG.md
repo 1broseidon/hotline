@@ -115,6 +115,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   signs in, set up by address or by name. One on the internet that points
   its sign-in at a private address is refused, and says so.
 - SQLite 3.54.1 (rusqlite 0.41.1; RUSTSEC-2026-0459).
+- The plan card under the band's gauge reads Claude Code's newer limits.
+  The Fable allowance Claude Code reports after a reply is the Fable line,
+  not a second line named "seven day overage included". A Fable line that
+  was refused earlier in the week shows the use read since, once that is
+  well under the limit, instead of 100% until the reset. Every name stays on
+  one line, a long one shortened, and the card grows to fit every line.
 
 ## [0.48.3] - 2026-11-06
 

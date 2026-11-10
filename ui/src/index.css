@@ -1049,7 +1049,9 @@
 	}
 	.plan-row {
 		display: grid;
-		grid-template-columns: 3.4em 1fr 2.8em 4.4em;
+		/* The name column is as wide as the card's longest name (--plan-name, in
+		 * characters of this face), so every bar starts in the same place. */
+		grid-template-columns: var(--plan-name) 1fr 2.8em 4.4em;
 		align-items: center;
 		column-gap: 8px;
 		height: 18px;
@@ -1058,7 +1060,13 @@
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-3);
 	}
+	/* One line, whatever a name is: a long one is shortened before it gets
+	 * here, and cut at the column's edge if it still does not fit. */
 	.plan-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--ink-2);
 	}
 	.plan-bar {
@@ -1128,9 +1136,12 @@
 	.plan-gauge[data-near="true"] .plan-gauge-arc {
 		stroke: var(--warn);
 	}
+	/* As tall as its lines, however many the plan has: the menu's cap would
+	 * scroll the last one under the card's edge. */
 	.plan-card {
 		width: 300px;
 		max-width: 300px;
+		max-height: none;
 		padding-bottom: 6px;
 	}
 	/* The effort of the model in use, one row of equal tabs under the agent.

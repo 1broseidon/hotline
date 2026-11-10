@@ -13,6 +13,10 @@ const NAMES: Record<string, string> = {
 	monthly: "Monthly",
 	seven_day_opus: "Opus",
 	seven_day_sonnet: "Sonnet",
+	// Claude Code's report of a model's own allowance, which the core files
+	// under that model's window once the plan has one. Before then it is
+	// named as Claude Code names it ("You've reached your Fable limit").
+	seven_day_overage_included: "Fable",
 	overage: "Extra",
 	period: "Credits",
 };
@@ -48,7 +52,37 @@ export function resetShort(resetsAt: number, now: number = Date.now()): string {
 
 /** A window as a line labels it: "5h", "Weekly", "Opus", a model's own by its name ("Fable"). */
 export function windowName(window: PlanWindow): string {
-	return NAMES[window.kind] ?? window.label?.split(" · ").pop() ?? window.kind.replace(/_/g, " ");
+	return NAMES[window.kind] ?? window.label?.split(" · ").pop() ?? unnamed(window.kind);
+}
+
+/**
+ * A kind the desk has no name for, said from its key: the window's length
+ * dropped, since the line's reset says it, and the rest as words, so
+ * `seven_day_oauth_apps` is "Oauth apps".
+ */
+function unnamed(kind: string): string {
+	const words = kind.replace(/^(five_hour|seven_day|monthly)_/, "").replace(/_/g, " ");
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The most characters a line's name takes: every name the desk gives fits, "Monthly" and "Opus 5" among them. */
+const NAME_MOST = 9;
+
+/**
+ * A name as a line has room for: whole when it fits, else cut after its
+ * last whole word that does ("Overage…"), or mid-word when its first word
+ * is longer than the room.
+ */
+export function shortName(name: string): string {
+	if (name.length <= NAME_MOST) return name;
+	const room = name.slice(0, NAME_MOST - 1);
+	const space = room.lastIndexOf(" ");
+	return `${space > 0 ? room.slice(0, space) : room}…`;
+}
+
+/** The name column's width in characters: the longest name on the card, as shortened, so every bar starts where the one above it does. */
+export function nameColumn(names: string[]): number {
+	return Math.max(2, ...names.map((name) => shortName(name).length));
 }
 
 /** How far into the window now is, 0 to 1, when the window says its length and reset. */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { elapsedShare, gaugeLabel, gaugeWindows, nearLimit, paceTick, planAccount, resetShort, resetText, runsOutAt, runwayText, shownWindows, windowName, windowNote, windowUse } from "../src/plan";
+import { elapsedShare, gaugeLabel, gaugeWindows, nameColumn, nearLimit, paceTick, planAccount, resetShort, resetText, runsOutAt, runwayText, shortName, shownWindows, windowName, windowNote, windowUse } from "../src/plan";
 import type { PlanWindow } from "../src/generated/contract";
 
 describe("a plan's limits", () => {
@@ -76,6 +76,30 @@ describe("a plan's limits", () => {
 		// A monthly plan has no weekly line to wait for.
 		const monthly = { at: 1, windows: [{ kind: "monthly", usedPercent: 10, status: "allowed" as const }] };
 		expect(shownWindows(monthly).map((one) => one.kind)).toEqual(["monthly"]);
+	});
+
+	test("Claude Code's model allowance and extra usage read as the plan names them, and a kind never heard of as words without its length", () => {
+		// What Claude Code 2.1.322 reports after a reply, and what its own
+		// messages call it: "your Fable limit", "usage credits".
+		expect(windowName({ kind: "seven_day_overage_included", status: "limited" })).toBe("Fable");
+		expect(windowName({ kind: "overage", status: "allowed" })).toBe("Extra");
+		// The read out of band names a model's own window, which wins.
+		expect(windowName({ kind: "seven_day_fable", label: "Weekly · Fable", status: "allowed" })).toBe("Fable");
+		expect(windowName({ kind: "seven_day_oauth_apps", status: "warning" })).toBe("Oauth apps");
+		expect(windowName({ kind: "five_hour_priority", status: "warning" })).toBe("Priority");
+		expect(windowName({ kind: "burst", status: "warning" })).toBe("Burst");
+	});
+
+	test("a name past nine characters is cut after its last whole word that fits, and the name column is as wide as the longest", () => {
+		expect(shortName("Weekly")).toBe("Weekly");
+		expect(shortName("Oauth apps")).toBe("Oauth…");
+		expect(shortName("Overage included")).toBe("Overage…");
+		// A first word longer than the room is cut inside it.
+		expect(shortName("Supercalifragilistic")).toBe("Supercal…");
+		for (const name of ["Oauth apps", "Overage included", "Supercalifragilistic"]) expect(shortName(name).length).toBeLessThanOrEqual(9);
+		expect(nameColumn(["5h", "Weekly", "Fable"])).toBe(6);
+		expect(nameColumn(["5h"])).toBe(2);
+		expect(nameColumn(["5h", "Weekly", "Overage included"])).toBe(8);
 	});
 
 	test("the head names the plan when the reading says it", () => {

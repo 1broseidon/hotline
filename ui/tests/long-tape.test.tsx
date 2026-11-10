@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { TranscriptEvent } from "../src/generated/contract";
 import { installDom } from "./dom";
+import { layOut } from "./transcript-layout";
 
 // A long conversation: older lines paged in above the one being read, a
 // diagram far down the tape, and captures of the computer's screen.
@@ -17,6 +18,11 @@ let Transcript: typeof import("../src/components/Transcript").Transcript;
 let frames: FrameRequestCallback[];
 let observed: { target: Element; root: Element | null; callback: IntersectionObserverCallback }[];
 let revoked: string[];
+let tall: Map<string, number>;
+let restore: () => void;
+/** The teammate, one of each test's own: a thread's row heights are remembered by thread, across conversations. */
+let ada: string;
+let made = 0;
 const revoke = URL.revokeObjectURL;
 
 /** A stand-in observer the test drives: it reports what it was told to watch and fires on demand. */
@@ -56,6 +62,8 @@ beforeEach(async () => {
 		MutationObserver: installed.dom.MutationObserver,
 		CSS: installed.dom.CSS,
 	});
+	({ tall, restore } = layOut({ row: ROW, view: VIEW }));
+	ada = `ada-${++made}`;
 	act = (await import("react")).act;
 	({ Transcript } = await import("../src/components/Transcript"));
 	const { createRoot } = await import("react-dom/client");
@@ -66,6 +74,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await act(async () => root.unmount());
+	restore();
 	URL.revokeObjectURL = revoke;
 	await teardown();
 });
@@ -76,23 +85,14 @@ function lines(from: number, to: number): TranscriptEvent[] {
 	return made;
 }
 
-/** The scroller, laid out as a browser would: each row a fixed height, the view a fixed window on them. */
+/** The transcript's scroller. Its layout is the test's (transcript-layout.ts): rows of ROW, a view of VIEW. */
 function laidOut(): HTMLElement {
-	const scroller = container.querySelector(".scroller") as unknown as HTMLElement;
-	Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => container.querySelectorAll(".tape-row").length * ROW });
-	Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => VIEW });
-	// Each row where it stands in the window: its place in the column, less the scroll.
-	const proto = (window as unknown as { HTMLElement: typeof HTMLElement }).HTMLElement.prototype;
-	const own = proto.getBoundingClientRect;
-	proto.getBoundingClientRect = function (this: HTMLElement) {
-		if (this === scroller) return { top: 0, bottom: VIEW, height: VIEW, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
-		if (this.classList.contains("tape-row")) {
-			const top = [...container.querySelectorAll(".tape-row")].indexOf(this) * ROW - scroller.scrollTop;
-			return { top, bottom: top + ROW, height: ROW, left: 0, right: 0, width: 0, x: 0, y: top, toJSON() {} } as DOMRect;
-		}
-		return own.call(this);
-	};
-	return scroller;
+	return container.querySelector(".scroller") as unknown as HTMLElement;
+}
+
+/** Where a row stands in the view: 0 is its top edge. */
+function topOf(id: string): number | undefined {
+	return (container.querySelector(`.tape-column > [data-event-id="${id}"]`) as unknown as HTMLElement | null)?.getBoundingClientRect().top;
 }
 
 /** A scroll, and the frame the transcript answers it on. */
@@ -113,7 +113,7 @@ describe("older lines arriving", () => {
 		const asked: (string | undefined)[] = [];
 		const draw = (more: boolean) =>
 			root.render(
-				<Transcript personaId="ada" name="Ada" events={events} streaming={[]} live={false} focus={null} more={more} onEarlier={earlier} />,
+				<Transcript personaId={ada} name="Ada" events={events} streaming={[]} live={false} focus={null} more={more} onEarlier={earlier} />,
 			);
 		async function earlier(through?: string) {
 			asked.push(through);
@@ -125,16 +125,18 @@ describe("older lines arriving", () => {
 		// The column was measured before it had a height here; the first
 		// frame takes the layout in, as a resize would in the window.
 		await scrolled(scroller);
-		expect(scroller.scrollTop).toBe(50 * ROW);
+		expect(scroller.scrollTop).toBe(50 * ROW - VIEW);
 
 		// Scrolled up near the top: reading line 53, two rows down the page.
 		scroller.scrollTop = 2 * ROW;
 		await scrolled(scroller);
+		expect(topOf("e53")).toBe(0);
 
 		expect(asked).toEqual([undefined]);
-		expect(container.querySelectorAll(".tape-row").length).toBe(100);
-		// Fifty rows arrived above, so the same line is fifty rows further down.
+		// Fifty rows arrived above, so the same line is fifty rows further down
+		// the column, and where it was in the view.
 		expect(scroller.scrollTop).toBe(52 * ROW);
+		expect(topOf("e53")).toBe(0);
 	});
 
 	test("keep a scroll made while they were on their way: the view moves by what arrived, not back to where it was asked", async () => {
@@ -142,7 +144,7 @@ describe("older lines arriving", () => {
 		let land: () => void = () => {};
 		const draw = (more: boolean) =>
 			root.render(
-				<Transcript personaId="ada" name="Ada" events={events} streaming={[]} live={false} focus={null} more={more} onEarlier={earlier} />,
+				<Transcript personaId={ada} name="Ada" events={events} streaming={[]} live={false} focus={null} more={more} onEarlier={earlier} />,
 			);
 		function earlier() {
 			return new Promise<void>((done) => {
@@ -164,9 +166,9 @@ describe("older lines arriving", () => {
 		// Still reading on while the page comes: up to the very top.
 		scroller.scrollTop = 0;
 		await act(async () => land());
-		expect(container.querySelectorAll(".tape-row").length).toBe(100);
 		// Line 51 is where the eye left it, fifty rows further down; not back at line 53.
 		expect(scroller.scrollTop).toBe(50 * ROW);
+		expect(topOf("e51")).toBe(0);
 		// Landed, the engine anchors again.
 		expect(scroller.dataset["landing"]).toBeUndefined();
 	});
@@ -176,7 +178,7 @@ describe("older lines arriving", () => {
 		await act(async () =>
 			root.render(
 				<Transcript
-					personaId="ada"
+					personaId={ada}
 					name="Ada"
 					events={lines(51, 100)}
 					streaming={[]}
@@ -197,7 +199,7 @@ describe("the line you sent, landing", () => {
 	test("keeps the conversation following when the written line takes its stand-in's row", async () => {
 		const said = (id: string): TranscriptEvent => ({ kind: "user", id, ts: 61, text: "Look at the renewals" }) as TranscriptEvent;
 		const draw = (events: TranscriptEvent[]) =>
-			root.render(<Transcript personaId="ada" name="Ada" events={events} streaming={[]} live={false} focus={null} />);
+			root.render(<Transcript personaId={ada} name="Ada" events={events} streaming={[]} live={false} focus={null} />);
 		// Sent: the stand-in is the last row, and the column follows it.
 		await act(async () => draw([...lines(1, 60), said("saying:1")]));
 		const scroller = laidOut();
@@ -224,12 +226,12 @@ describe("the line you sent, landing", () => {
 describe("a flick up from the bottom", () => {
 	/** At the bottom of sixty lines, with the column's height under the test's hand. */
 	async function atBottom() {
-		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={lines(1, 60)} streaming={[]} live={false} focus={null} />));
+		await act(async () => root.render(<Transcript personaId={ada} name="Ada" events={lines(1, 60)} streaming={[]} live={false} focus={null} />));
 		const scroller = laidOut();
-		let grown = 0;
-		Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => container.querySelectorAll(".tape-row").length * ROW + grown });
 		await scrolled(scroller);
-		return { scroller, grow: (by: number) => (grown += by) };
+		// A row in the page above the view, grown: the column is that much taller.
+		expect(topOf("e52")).toBeLessThan(0);
+		return { scroller, grow: (by: number) => tall.set("e52", ROW + by) };
 	}
 
 	test("lets go of the bottom though rows drawn above grew in its frame", async () => {
@@ -262,7 +264,7 @@ describe("a diagram", () => {
 	const diagram: TranscriptEvent = { kind: "agent", id: "d1", ts: 1, text: "```mermaid\ngraph TD; A-->B\n```" } as TranscriptEvent;
 
 	test("is not drawn until it comes near the view, and is watched against its scroller", async () => {
-		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[diagram]} streaming={[]} live={false} focus={null} />));
+		await act(async () => root.render(<Transcript personaId={ada} name="Ada" events={[diagram]} streaming={[]} live={false} focus={null} />));
 		const block = container.querySelector(".diagram-body");
 		expect(block).not.toBeNull();
 		expect(observed.map((one) => one.target)).toEqual([block as Element]);
@@ -295,7 +297,7 @@ describe("a capture of the computer's screen", () => {
 	}
 
 	test("is drawn from one blob URL per event, kept across a switch away and back", async () => {
-		const draw = (events: TranscriptEvent[], personaId = "ada") =>
+		const draw = (events: TranscriptEvent[], personaId = ada) =>
 			root.render(<Transcript personaId={personaId} name="Ada" events={events} streaming={[]} live={false} focus={null} />);
 		await act(async () => draw([frame("f1"), frame("f2")]));
 		const [first, second] = shown();
@@ -311,8 +313,10 @@ describe("a capture of the computer's screen", () => {
 
 	test("lets go of the least recently shown, never one on screen", async () => {
 		const many = Array.from({ length: 40 }, (_, n) => frame(`m${n}`));
+		// Thumbnails short enough that all forty are in the view at once.
+		for (const one of many) tall.set(one.id, 10);
 		await act(async () =>
-			root.render(<Transcript personaId="ada" name="Ada" events={many} streaming={[]} live={false} focus={null} />),
+			root.render(<Transcript personaId={ada} name="Ada" events={many} streaming={[]} live={false} focus={null} />),
 		);
 		const urls = shown();
 		expect(new Set(urls).size).toBe(40);

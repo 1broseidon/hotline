@@ -5614,38 +5614,69 @@
 	}
 }
 
-/* A row of the conversation that is off screen skips layout and paint until
- * it scrolls into view, keeping the size it last had. A long chapter is
- * hundreds of rows, and without this each word streamed into the last one
- * lays out and paints every one of them again. A row never laid out stands
- * at the 96px guess, so each is drawn once in the background while nobody
- * scrolls (Transcript.tsx), and keeps its own height from then on. */
+/* A row of the conversation is a box of its own: what is in it is laid out
+ * and painted inside it, and nothing in it reaches the rows around it. Only
+ * the rows near the view are in the page (Transcript.tsx), so a long chapter
+ * costs what the screen shows of it, not what it holds. */
 .tape-row {
-	content-visibility: auto;
-	/* Remembered from its first layout on, so the size it keeps while
-	 * skipped is its own. */
-	contain-intrinsic-block-size: auto 96px;
-	/* That skipping clips paint to the row, so a ring drawn outside an edge
-	 * flush with the column (a live card's) gets 4px of row each side to
-	 * paint in, without moving anything. */
+	contain: layout style paint;
+	/* That clips paint to the row, so a ring drawn outside an edge flush with
+	 * the column (a live card's) gets 4px of row each side to paint in,
+	 * without moving anything. */
 	margin-inline: -4px;
 	padding-inline: 4px;
 }
-/* Drawn once, off screen, so its height is known before it is scrolled to
- * (Transcript.tsx). */
-.tape-row[data-warm] {
-	content-visibility: visible;
+/* The room the rows take in all, held in the column whatever rows are in
+ * it. When the window moves, the rows that leave the page are taken out
+ * before the rows that join it are put in, and WebKit lays the column out in
+ * between: for that moment it is as short as what is left, and a view
+ * further down than that was thrown back to where the column ended. This
+ * stays through the swap at the height the rows have in all. It is out of
+ * the flow: it adds room to scroll in and moves nothing. */
+.tape-column {
+	position: relative;
 }
-/* While a page of older lines lands the conversation keeps its own place
- * (Transcript.tsx), so the engine's scroll anchoring would move it a second
- * time. The rest of the time the engine anchors: a row growing above the
- * view moves nothing on screen, and no script writes the scroll under a
- * flick, which would cut its momentum short. */
-.scroller[data-landing]:has(> .tape-column) {
+.tape-room {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 1px;
+	pointer-events: none;
 	overflow-anchor: none;
 }
-/* That skipping clips paint to the row, so the emoji hung off a bubble's
- * lower edge, or off files sent alone, get the room below it inside the row. */
+/* The rows not in the page, as one box of their height. It never gives up
+ * height to the column, and the engine never anchors the view to it: it
+ * changes height whenever a row leaves or joins it. */
+.tape-gap {
+	flex: none;
+	overflow-anchor: none;
+}
+/* Rows drawn only to learn how tall they are (useRowWindow.ts): in the
+ * column, so they are as wide as a row and styled as one, but taking no
+ * height, showing nothing, and stood off to one side, so nothing that
+ * watches what nears the view (a diagram waiting to be drawn) takes one
+ * for a row arriving. */
+.tape-probe {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	height: 0;
+	overflow: hidden;
+	visibility: hidden;
+	overflow-anchor: none;
+	transform: translateX(-300vw);
+}
+/* While a page of older lines lands, and while the window swaps rows for a
+ * gap (Transcript.tsx, useRowWindow.ts), the conversation keeps its own
+ * place, so the engine's scroll anchoring would move it a second time. The
+ * rest of the time the engine anchors: a row growing above the view moves
+ * nothing on screen, and no script writes the scroll under a flick, which
+ * would cut its momentum short. */
+.scroller:is([data-landing], [data-swapping]):has(> .tape-column) {
+	overflow-anchor: none;
+}
+/* A row clips paint to itself, so the emoji hung off a bubble's lower edge,
+ * or off files sent alone, get the room below it inside the row. */
 .said-group:has(> .speech > .reactions, > .said-files > .reactions) {
 	padding-bottom: 20px;
 }

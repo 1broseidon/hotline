@@ -1,5 +1,5 @@
 import { ErrorCard } from "./ErrorCard";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, RunningSubagent, ThreadId, TranscriptEvent } from "../generated/contract";
 import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent } from "../scheduledRuns";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
@@ -30,7 +30,7 @@ import {
 	toBlocks,
 	withStreaming,
 } from "../transcriptFolds";
-import { useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
+import { fly, useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
 import { Steps } from "./transcript/Steps";
 import { AgentSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
 import type { SentItem } from "./SentFile";
@@ -42,6 +42,8 @@ import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
+import { heightOf } from "./transcript/rowWindow";
+import { useRowWindow } from "./transcript/useRowWindow";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -62,22 +64,10 @@ export { SaidAloud, type ReactTarget, type ReplyTarget } from "./transcript/Bubb
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
 
-/** The first row in view: what the eye is on while rows change above it. */
-function onScreen(el: HTMLElement): HTMLElement | null {
-	const top = el.getBoundingClientRect().top;
-	for (const row of el.querySelectorAll<HTMLElement>(".tape-row")) {
-		if (row.getBoundingClientRect().bottom > top) return row;
-	}
-	return null;
-}
-
 /** Where a row stands in the column, the scroll aside. */
 function placeOf(el: HTMLElement, row: HTMLElement): number {
 	return row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
 }
-
-/** Rows drawn for the first time per frame. */
-const WARM_ROWS = 12;
 
 /** How long after the person's wheel, touch, key or scrollbar a scroll is still theirs. */
 const REACH_MS = 250;
@@ -256,7 +246,13 @@ export function Transcript({
 	/* The teammate's own conversation can run its failed turn again; a thread's cannot. */
 	const runAgain = useCallback(() => wire.command("session.retry", { personaId }), [personaId]);
 
-	useScrollToEvent(scroller, pinned, landing, events);
+	/* A flight on its way: a jump to a row, or back down to the latest line (transcript/hooks.ts). */
+	const flying = useRef<(() => void) | null>(null);
+	/* Takes in where the scroll is, as after a scroll: what a flight calls when it has arrived. */
+	const read = useRef(() => {});
+	useScrollToEvent(scroller, pinned, flying, read, landing, events);
+	/* Puts the rows near the view in the page (useRowWindow, below), for the scroll to call. */
+	const moveRef = useRef(() => {});
 
 	/* The window opens on the tape's last lines. Nearing the top loads the
 	 * page above, and the rows you were reading stay where they were: the
@@ -273,7 +269,7 @@ export function Transcript({
 		// The top row as it stands now: when the page lands above it, the
 		// scroll moves by however far it was pushed down, and by nothing
 		// else, so a scroll made while the page was on its way is kept.
-		const row = el.querySelector<HTMLElement>(".tape-row");
+		const row = el.querySelector<HTMLElement>(".tape-column > .tape-row");
 		const taken = { row, at: row === null ? 0 : placeOf(el, row), first: firstShown.current };
 		anchor.current = taken;
 		el.dataset["landing"] = "";
@@ -314,61 +310,6 @@ export function Transcript({
 	const loadEarlierRef = useRef(loadEarlier);
 	loadEarlierRef.current = loadEarlier;
 
-	/* Rows skip layout off screen (index.css, .tape-row), and one never laid
-	 * out stands at a 96px guess: scrolled up to, it would grow to its own
-	 * height and shove the rows under the eye; the engine's anchoring does
-	 * not cover a row skipped that way. So after a change the rows not yet
-	 * laid out are drawn a few at a time from the bottom up, and what that
-	 * moves on screen, which is nothing where the engine anchors, is moved
-	 * back. It runs while the person scrolls too: waiting for them to stop
-	 * left a long fling running into rows still at the guess. Each keeps its own height from
-	 * then on. Drawing them all at once would hold up opening a long chapter. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: new rows come with new written blocks; the drawing finds them in the DOM.
-	useEffect(() => {
-		const el = scroller.current;
-		if (!el) return;
-		let timer = 0;
-		let frame = 0;
-		let inFlight: HTMLElement[] = [];
-		const warm = () => {
-			timer = 0;
-			const cold = [...el.querySelectorAll<HTMLElement>(".tape-row:not([data-laid]):not([data-warm])")].slice(-WARM_ROWS).reverse();
-			if (cold.length === 0) return;
-			// A row in view, to tell whether the drawing moved what you see.
-			const seen = onScreen(el);
-			const was = seen?.getBoundingClientRect().top;
-			for (const row of cold) row.dataset["warm"] = "";
-			inFlight = cold;
-			// The engine anchors the view, so this moves nothing and nothing
-			// writes the scroll under a flick; where it does not anchor (an
-			// engine without it, a page landing) the script holds the view.
-			const moved = seen === null || was === undefined ? 0 : seen.getBoundingClientRect().top - was;
-			if (moved !== 0 && !pinned.current) {
-				el.scrollTop += moved;
-				pinning.current = true;
-			}
-			// Kept drawn through a frame, so the height it is remembered at is its own.
-			frame = requestAnimationFrame(() => {
-				frame = requestAnimationFrame(() => {
-					for (const row of cold) {
-						row.dataset["laid"] = "";
-						delete row.dataset["warm"];
-					}
-					inFlight = [];
-					timer = window.setTimeout(warm, 0);
-				});
-			});
-		};
-		timer = window.setTimeout(warm, 0);
-		return () => {
-			window.clearTimeout(timer);
-			cancelAnimationFrame(frame);
-			// A batch cut off between its frames goes back to waiting, rather
-			// than staying drawn for good.
-			for (const row of inFlight) delete row.dataset["warm"];
-		};
-	}, [written]);
-
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the scroller mounts and unmounts with empty, and the listeners move with it.
 	useEffect(() => {
 		const el = scroller.current;
@@ -392,6 +333,15 @@ export function Transcript({
 			// On the scroller itself, not a row in it: its scrollbar.
 			if (event.target === el) reach();
 		};
+		// The thumb the scroller draws for itself (ui/Scroll.tsx), pressed or
+		// dragged, and a press on its track: the person's scroll as much as a
+		// wheel is. A drag up from the foot passes rows whose heights are
+		// still being learned, a new layout nearly every frame, and read as
+		// the pin's own scroll it would be thrown back to the bottom.
+		const bar = el.parentElement;
+		const onBar = (event: PointerEvent) => {
+			if (event.buttons !== 0 && (event.target as Element).closest(".scroll-track") !== null) reach();
+		};
 		const onKey = (event: KeyboardEvent) => {
 			if (SCROLL_KEYS.has(event.key)) reach();
 		};
@@ -402,13 +352,18 @@ export function Transcript({
 				return;
 			}
 			seen = { height: el.scrollHeight, view: el.clientHeight };
-			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
-			setFollowing(pinned.current);
+			// A flight was sent where it is going: passing the bottom's slack on
+			// its way neither takes up following nor lets go of it. The way
+			// back down is offered by where the view is, as ever.
+			const near = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
+			if (flying.current === null) pinned.current = near;
+			setFollowing(near);
 			if (el.scrollTop < EARLIER_SLACK) loadEarlierRef.current();
 		};
 		const pin = () => {
 			seen = { height: el.scrollHeight, view: el.clientHeight };
-			if (!pinned.current) return;
+			// Nor under a flight: a write would end it where it stood.
+			if (!pinned.current || flying.current !== null) return;
 			// Never under the person's own scroll: a write there, even one to
 			// where it already is, cuts their flick short. Their scroll is read
 			// on its frame and either lets go of the bottom or pins again.
@@ -436,6 +391,7 @@ export function Transcript({
 			if (scrolled) measure();
 			scrolled = false;
 			resized = false;
+			moveRef.current();
 		};
 		const ask = () => {
 			if (frame === 0) frame = requestAnimationFrame(settle);
@@ -444,6 +400,7 @@ export function Transcript({
 			scrolled = true;
 			ask();
 		};
+		read.current = onScroll;
 		const onResize = () => {
 			resized = true;
 			ask();
@@ -452,6 +409,8 @@ export function Transcript({
 		el.addEventListener("wheel", reach, { passive: true });
 		el.addEventListener("touchmove", reach, { passive: true });
 		el.addEventListener("pointerdown", onPointer, { passive: true });
+		bar?.addEventListener("pointerdown", onBar, { passive: true });
+		bar?.addEventListener("pointermove", onBar, { passive: true });
 		el.addEventListener("keydown", onKey);
 		// Markdown lays out after the event lands, so the column's height
 		// changes without a scroll event; this is what notices.
@@ -474,10 +433,13 @@ export function Transcript({
 			el.removeEventListener("wheel", reach);
 			el.removeEventListener("touchmove", reach);
 			el.removeEventListener("pointerdown", onPointer);
+			bar?.removeEventListener("pointerdown", onBar);
+			bar?.removeEventListener("pointermove", onBar);
 			el.removeEventListener("keydown", onKey);
 			observer.disconnect();
 			rows.disconnect();
 			cancelAnimationFrame(frame);
+			read.current = () => {};
 		};
 		// The scroll listener above is enough while the events are the same.
 	}, [empty]);
@@ -537,6 +499,32 @@ export function Transcript({
 		return null;
 	};
 
+	// A running turn's steps are the composer's to show, and the pane's; its
+	// caption comes once the turn has ended. Every other block is a row.
+	const rows = useMemo(
+		() =>
+			blocks.flatMap((block, index) =>
+				block.kind === "steps" && block.open === true && live && onOpenWork !== undefined ? [] : [{ block, index, id: block.kind === "event" ? block.event.id : block.id }],
+			),
+		[blocks, live, onOpenWork],
+	);
+	const ids = useMemo(() => rows.map((row) => row.id), [rows]);
+	// A file message inside a run of them is found by the run's row.
+	const jump = useMemo(() => {
+		if (landing === null) return undefined;
+		return rows.find(({ block }) => block.kind === "sent" && block.messages.some((message) => message.id === landing.eventId))?.id ?? landing.eventId;
+	}, [landing, rows]);
+	const { heights, isDrawn, probed, move, touch } = useRowWindow({ scroller, pinned, pinning, flying, anchor, thread: `${rowThread.kind}:${rowThread.key}`, ids, arrived: written, jump });
+	moveRef.current = move;
+	// While a page of older lines is on its way, the row it is measured
+	// against is read again after every render, so what a window move or a
+	// height learned did to its place is not taken for the page's doing.
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		const taken = anchor.current;
+		if (el && taken?.row?.isConnected) taken.at = placeOf(el, taken.row);
+	});
+
 	if (empty) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
@@ -546,6 +534,107 @@ export function Transcript({
 			</div>
 		);
 	}
+
+	/** One row of the column. `probe` is the same row drawn off to the side to be measured. */
+	const rowOf = ({ block, index, id }: (typeof rows)[number], probe: boolean) => {
+		const previous = blocks[index - 1];
+		const stamp =
+			!isChapter(block) &&
+			(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
+		const event = block.kind === "event" ? block.event : null;
+		const side = sides[index] ?? null;
+		const run: Run = {
+			top: side !== null && !stamp && sideBefore(index) === side,
+			bottom: side !== null && sideAfter(index) === side,
+		};
+		return (
+			<div key={probe ? `probe:${id}` : id} {...(probe ? { "data-probe": id } : { "data-event-id": id })} data-members={block.kind === "sent" ? block.messages.map((message) => message.id).join(" ") : undefined} className="tape-row">
+				{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
+				{block.kind === "scheduled" ? (
+					<ScheduledGroup name={block.name} runs={block.runs} />
+				) : block.kind === "calls" ? (
+					<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
+				) : block.kind === "steps" ? (
+					<Steps
+						id={block.id}
+						items={block.items}
+						live={live && block.open === true}
+						shown={workShown}
+						{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
+					/>
+				) : block.kind === "sent" ? (
+					<Row
+						personaId={personaId}
+						thread={rowThread}
+						ownerName={name}
+						event={block.messages[block.messages.length - 1]!}
+						files={block.files}
+						working={false}
+						loopedIn={false}
+						quote={undefined}
+						top={run.top}
+						bottom={run.bottom}
+						people={people}
+						reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
+						{...(onReply !== undefined ? { onReply } : {})}
+						{...(onReact !== undefined ? { onReact } : {})}
+						{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+						onJump={onJump}
+					/>
+				) : event === null ? null : (
+					<Row
+						personaId={personaId}
+						thread={rowThread}
+						ownerName={name}
+						event={event}
+						working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
+						step={event.kind === "link" && event.threadKind === "run" ? subagents?.find((run) => run.runId === event.thread)?.lastStep : undefined}
+						loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
+						quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
+						top={run.top}
+						bottom={run.bottom}
+						people={people}
+						{...(onRetryMessage && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
+						{...(thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
+						reactions={reacted.on.get(event.id)}
+						{...(onReply !== undefined ? { onReply } : {})}
+						{...(onReact !== undefined ? { onReact } : {})}
+						{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+						{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
+						{...(onProviders !== undefined ? { onProviders } : {})}
+						onJump={onJump}
+					/>
+				)}
+			</div>
+		);
+	};
+	// A run of rows not in the page is one gap, as tall as they are.
+	const drawnRows: ReactNode[] = [];
+	let gap = 0;
+	let gapFrom: string | null = null;
+	const closeGap = () => {
+		if (gapFrom !== null) drawnRows.push(<div key={`gap:${gapFrom}`} className="tape-gap" style={{ height: gap }} />);
+		gap = 0;
+		gapFrom = null;
+	};
+	const measured: ReactNode[] = [];
+	// How tall the rows stand in all, by what is known of them: the column
+	// holds at least this much room (index.css, .tape-room).
+	let whole = 0;
+	rows.forEach((row, at) => {
+		if (isDrawn(at, row.id)) {
+			closeGap();
+			drawnRows.push(rowOf(row, false));
+			// One drawn for the first time counts once it has been measured.
+			whole += heights.known.get(row.id) ?? 0;
+			return;
+		}
+		gapFrom ??= row.id;
+		gap += heightOf(heights, row.id);
+		whole += heightOf(heights, row.id);
+		if (probed.includes(row.id)) measured.push(rowOf(row, true));
+	});
+	closeGap();
 
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col">
@@ -558,8 +647,11 @@ export function Transcript({
 			    (`wake` waits 200ms) and closes once the mark is gone, at once:
 			    easing it would reflow every row for the length of the ease.
 			    Subagents at the composer's corner keep the same room. */}
+			{/* A row pressed or typed in is noted here, so it stays in the page. */}
 			<div
 				className={`tape-column mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
+				onClickCapture={touch}
+				onInputCapture={touch}
 			>
 				{/* Scrolling up loads these on its own; the key is for a window
 				    whose loaded lines are too short to scroll. */}
@@ -568,82 +660,7 @@ export function Transcript({
 						Earlier messages
 					</button>
 				)}
-				{blocks.map((block, index) => {
-					// A running turn's steps are the composer's to show, and the
-					// pane's; its caption comes once the turn has ended.
-					if (block.kind === "steps" && block.open === true && live && onOpenWork !== undefined) return null;
-					const previous = blocks[index - 1];
-					const stamp =
-						!isChapter(block) &&
-						(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
-					const id = block.kind === "event" ? block.event.id : block.id;
-					const event = block.kind === "event" ? block.event : null;
-					const side = sides[index] ?? null;
-					const run: Run = {
-						top: side !== null && !stamp && sideBefore(index) === side,
-						bottom: side !== null && sideAfter(index) === side,
-					};
-					return (
-						<div key={id} data-event-id={id} data-members={block.kind === "sent" ? block.messages.map((message) => message.id).join(" ") : undefined} className="tape-row">
-							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
-							{block.kind === "scheduled" ? (
-								<ScheduledGroup name={block.name} runs={block.runs} />
-							) : block.kind === "calls" ? (
-								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
-							) : block.kind === "steps" ? (
-								<Steps
-									id={block.id}
-									items={block.items}
-									live={live && block.open === true}
-									shown={workShown}
-									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
-								/>
-							) : block.kind === "sent" ? (
-								<Row
-									personaId={personaId}
-									thread={rowThread}
-									ownerName={name}
-									event={block.messages[block.messages.length - 1]!}
-									files={block.files}
-									working={false}
-									loopedIn={false}
-									quote={undefined}
-									top={run.top}
-									bottom={run.bottom}
-									people={people}
-									reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
-									{...(onReply !== undefined ? { onReply } : {})}
-									{...(onReact !== undefined ? { onReact } : {})}
-									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
-									onJump={onJump}
-								/>
-							) : event === null ? null : (
-								<Row
-									personaId={personaId}
-									thread={rowThread}
-									ownerName={name}
-									event={event}
-									working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
-									step={event.kind === "link" && event.threadKind === "run" ? subagents?.find((run) => run.runId === event.thread)?.lastStep : undefined}
-									loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
-									quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
-									top={run.top}
-									bottom={run.bottom}
-									people={people}
-									{...(onRetryMessage && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
-									{...(thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
-									reactions={reacted.on.get(event.id)}
-									{...(onReply !== undefined ? { onReply } : {})}
-									{...(onReact !== undefined ? { onReact } : {})}
-									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
-									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
-									{...(onProviders !== undefined ? { onProviders } : {})}
-									onJump={onJump}
-								/>
-							)}
-						</div>
-					);
-				})}
+				{drawnRows}
 				{underway.count > 0 && (
 					<button type="button" className="rule-line rule-line-plain mt-3 w-full" onClick={onOpenThreads}>
 						<span className="min-w-0 truncate">
@@ -652,6 +669,12 @@ export function Transcript({
 						<span className="shrink-0">· Open</span>
 					</button>
 				)}
+				{measured.length > 0 && (
+					<div className="tape-probe" aria-hidden="true">
+						{measured}
+					</div>
+				)}
+				<div className="tape-room" style={{ height: whole }} />
 			</div>
 		</Scroll>
 		{activity !== null && onMark === undefined && (
@@ -687,7 +710,15 @@ export function Transcript({
 					const el = scroller.current;
 					if (!el) return;
 					pinned.current = true;
-					el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+					fly(
+						el,
+						flying,
+						() => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }),
+						() => {
+							el.scrollTop = el.scrollHeight;
+							read.current();
+						},
+					);
 				}}
 			>
 				<ArrowDownIcon />

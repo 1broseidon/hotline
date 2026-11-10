@@ -171,16 +171,64 @@ export function useCadence(personaId: string, blocks: Block[]): ReadonlySet<stri
 	return hidden.current;
 }
 
+/** How long a flight may take to arrive before it is taken to have. */
+const FLIGHT_MS = 1_000;
+/** What the person does that takes a scroll back from a flight. */
+const TAKEN_BY = ["wheel", "touchmove", "keydown"] as const;
+
+/**
+ * A scroll the transcript makes to somewhere that may be far: a jump to a
+ * row, or back down to the latest line. `go` starts it and `arrive` puts
+ * the view exactly there when the scroll ends.
+ *
+ * Rows on the way may never have been drawn, and arrive at heights nobody
+ * knew, so the place the scroll set out for is not always where it should
+ * end; and while it is on its way nothing on screen is being read. So for
+ * as long as `flying` holds a flight nothing holds the view (useRowWindow)
+ * and nothing pins it to the bottom (Transcript), either of which would
+ * write the scroll and end the flight where it stood; and the engine's own
+ * scroll anchoring is off (`data-swapping`, index.css), which would move the
+ * view by the rows swapped under it on the way. One flight at a time:
+ * a new one ends the last where it is, and so does a scroll of the person's
+ * own. Returns what ends it early.
+ */
+export function fly(root: HTMLElement, flying: RefObject<(() => void) | null>, go: () => void, arrive: () => void): () => void {
+	flying.current?.();
+	const land = (arrived: boolean) => {
+		if (flying.current !== cancel) return;
+		flying.current = null;
+		delete root.dataset["swapping"];
+		window.clearTimeout(late);
+		root.removeEventListener("scrollend", onEnd);
+		for (const kind of TAKEN_BY) root.removeEventListener(kind, cancel);
+		if (arrived) arrive();
+	};
+	const onEnd = () => land(true);
+	const cancel = () => land(false);
+	flying.current = cancel;
+	root.dataset["swapping"] = "";
+	root.addEventListener("scrollend", onEnd);
+	for (const kind of TAKEN_BY) root.addEventListener(kind, cancel, { passive: true });
+	// A scroll that is already where it is going moves nothing, and nothing ends.
+	const late = window.setTimeout(onEnd, FLIGHT_MS);
+	go();
+	return cancel;
+}
+
 /**
  * A search hit or a reply's quote: unpin, bring the row to the middle, and
  * light it briefly. The tape arrives after the jump is asked for when
  * Everywhere opens another teammate, so this waits until the fold contains
  * the id. `found` going true is the retry; a later append does not change
- * `found` and so does not jump.
+ * `found` and so does not jump. The row is in the page wherever the view is:
+ * the transcript keeps a jump's row drawn.
  */
 export function useScrollToEvent(
 	scroller: RefObject<HTMLDivElement | null>,
 	pinned: RefObject<boolean>,
+	flying: RefObject<(() => void) | null>,
+	/** Has the transcript take in where the scroll is, once the jump has arrived. */
+	read: RefObject<() => void>,
 	focus: { eventId: string; at: number } | null,
 	events: TranscriptEvent[],
 ): void {
@@ -197,9 +245,21 @@ export function useScrollToEvent(
 		if (!root || !row) return;
 		pinned.current = false;
 		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-		row.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+		const cancel = fly(
+			root,
+			flying,
+			() => row.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" }),
+			() => {
+				// In the middle already, this moves nothing.
+				if (row.isConnected) row.scrollIntoView({ block: "center" });
+				read.current();
+			},
+		);
 		row.classList.add("row-lit");
 		const timer = window.setTimeout(() => row.classList.remove("row-lit"), 1_800);
-		return () => window.clearTimeout(timer);
-	}, [focus, found, scroller, pinned]);
+		return () => {
+			window.clearTimeout(timer);
+			cancel();
+		};
+	}, [focus, found, scroller, pinned, flying, read]);
 }

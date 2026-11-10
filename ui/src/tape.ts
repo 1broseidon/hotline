@@ -50,7 +50,7 @@ export type ThreadDelta = Extract<StreamDelta, { type: "thread_delta" }>;
 
 /** The state with what the store keeps beside it, so a reconnect's snapshot does not lose the pages loaded above it. */
 type Held = ThreadState & {
-	/** Lines loaded above the window by `earlier`, oldest first. */
+	/** Lines loaded above the window by `earlier`, oldest first: the first of `events`, as many as there are here. */
 	older: TranscriptEvent[];
 	olderMore: boolean;
 };
@@ -110,9 +110,19 @@ export function reduceThread(held: Held, fold: Fold): Held {
 		}
 		case "pull":
 			return { ...held, pulling: fold.pulling };
-		case "left":
-			// Kept for the next visit, but what was mid-stream is no longer known.
+		case "left": {
+			// Kept for the next visit, but what was mid-stream is no longer
+			// known. And of its lines, only the window a visit opens on: the
+			// pages loaded above it run to megabytes in a long thread (every
+			// capture of a screen is in them as text), they would be held for
+			// each thread left behind, and coming back opens on the last
+			// lines whatever was loaded. The way up asks the desk for them
+			// again, a page at a time.
+			if (held.older.length > 0) {
+				return { ...held, events: held.events.slice(held.older.length), older: [], olderMore: false, more: true, streaming: [], pulling: null };
+			}
 			return held.streaming.length > 0 || held.pulling !== null ? { ...held, streaming: [], pulling: null } : held;
+		}
 	}
 }
 
@@ -143,8 +153,9 @@ export const dmOf = (personaId: string): ThreadId => ({ kind: "dm", key: persona
  * The conversation, the work card beside it and the dock read the same store,
  * so the desk sends the snapshot once and every delta is folded once. When the
  * last reader goes the subscription lingers for a minute, and after that the
- * folded events are kept (up to KEEP threads), so switching back draws what it
- * last showed while the new snapshot is on its way instead of an empty column.
+ * window's folded events are kept (up to KEEP threads), so switching back
+ * draws its last lines while the new snapshot is on its way instead of an
+ * empty column. The pages loaded above the window are let go then.
  *
  * Streaming deltas arrive a word or two at a time, often faster than the
  * screen draws. They are queued and folded once per animation frame, so a

@@ -98,13 +98,43 @@ describe("words arriving", () => {
 });
 
 describe("what happens to a thread nobody is reading", () => {
-	test("leaving drops what was mid-stream, and a download, and nothing else", () => {
+	test("leaving drops what was mid-stream, and a download, and no line of a thread with no page loaded above its window", () => {
 		const held = run([{ type: "snapshot", items: [said("a")] }, words("m", "x"), { type: "pull", pulling: { done: 1, total: 3 } }]);
 		const left = reduceThread(held, { type: "left" });
 		expect(left.streaming).toEqual([]);
 		expect(left.pulling).toBeNull();
 		expect(left.events).toBe(held.events);
 		expect(reduceThread(left, { type: "left" })).toBe(left);
+	});
+
+	test("a thread left behind keeps the window a visit opens on and lets go of the pages loaded above it: the way up asks the desk for them again", () => {
+		const capture = { kind: "computer_frame", id: "f", ts: 1, dataUrl: "data:image/png;base64,AAAA" } as TranscriptEvent;
+		const held = run([
+			{ type: "snapshot", items: [said("c"), said("d")] },
+			{ type: "page", events: [said("b"), capture], more: true },
+			{ type: "page", events: [said("a")], more: false },
+			// Lines that land while it is open are the window's, and one rewritten above it changes no count.
+			{ type: "event", item: said("e") },
+			{ type: "event", item: said("b", "rewritten") },
+		]);
+		expect(held.events.map((one) => one.id)).toEqual(["a", "b", "f", "c", "d", "e"]);
+		expect(held.more).toBe(false);
+
+		const left = reduceThread(held, { type: "left" });
+		expect(left.events.map((one) => one.id)).toEqual(["c", "d", "e"]);
+		expect(left.older).toEqual([]);
+		// There are lines above again, to be asked for from the first one kept.
+		expect(left.more).toBe(true);
+		expect(reduceThread(left, { type: "left" })).toBe(left);
+
+		// Back: the snapshot opens the window as on a first visit, and a page lands above it as before.
+		const again: Fold[] = [
+			{ type: "snapshot", items: [said("c"), said("d"), said("e")] },
+			{ type: "page", events: [said("b"), capture], more: true },
+		];
+		const back = again.reduce(reduceThread, left);
+		expect(back.events.map((one) => one.id)).toEqual(["b", "f", "c", "d", "e"]);
+		expect(back.more).toBe(true);
 	});
 
 	test("a download is a computer's, drawn on its button", () => {

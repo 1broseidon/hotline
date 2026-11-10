@@ -5,9 +5,10 @@ import { installDom } from "./dom";
 // A capture of the computer's screen costs its thumbnail, not the capture
 // (task-414). A capture is a whole screen and is drawn 110 px wide; drawn
 // from the capture itself, all of it is decoded for as long as its row is
-// in the page. So the thumbnail is drawn from a copy made at its own pixels
-// while the window is at rest, and the capture itself only where it is
-// asked for: pressed, and in the viewer.
+// in the page. So on macOS, where a copy made at the thumbnail's own pixels
+// is the picture WebKit itself draws, the thumbnail is drawn from that
+// copy, made while the window is at rest, and the capture itself only
+// where it is asked for: pressed, and in the viewer.
 //
 // Time here is the test's (as in diagrams.test.tsx): the window's timers
 // run when `after` says so. The engine's part is a stand-in: decoding a
@@ -34,6 +35,8 @@ let decoded: Blob[];
 let drawn: { width: number; height: number; quality: string }[];
 /** What the engine makes of a capture: its size, or a refusal. */
 let screen: { width: number; height: number } | null;
+/** Where the window runs: the shell says, and a copy is made only on macOS. */
+let os: string;
 /** The window's pixel ratio, and what is listening for it to change. */
 let ratio: number;
 let onRatio: (() => void)[];
@@ -49,6 +52,7 @@ beforeEach(async () => {
 	decoded = [];
 	drawn = [];
 	screen = SCREEN;
+	os = "macos";
 	ratio = 1;
 	onRatio = [];
 	now = 1_000;
@@ -90,6 +94,7 @@ beforeEach(async () => {
 		}),
 	});
 	Object.defineProperty(installed.dom, "devicePixelRatio", { configurable: true, get: () => ratio });
+	Object.defineProperty(installed.dom, "__hotlineDesk", { configurable: true, get: () => ({ platform: os }) });
 	spyOn(performance, "now").mockImplementation(() => now);
 	// A canvas that takes what is drawn to it and makes a PNG that says its size.
 	const canvas = (installed.dom as unknown as { HTMLCanvasElement: typeof HTMLCanvasElement }).HTMLCanvasElement.prototype;
@@ -247,6 +252,20 @@ describe("a thumbnail's decoded size is bounded by its drawn size", () => {
 		await after(1_000);
 		expect(copies()).toBe(3);
 		expect(decoded.length).toBe(3);
+	});
+
+	test("off macOS no copy is made: the engine's own thumbnail of the capture is the better picture there, and it is drawn as it was", async () => {
+		os = "linux";
+		await draw("f");
+		const first = thumbnail().getAttribute("src");
+		await after(2_000);
+		const img = thumbnail();
+		expect(img.getAttribute("src")).toBe(first);
+		expect(whatIs(first)).toBe("the capture");
+		expect(img.getAttribute("decoding")).toBe("async");
+		expect(img.style.aspectRatio).toBe("");
+		expect(decoded).toEqual([]);
+		expect(revoked).toEqual([]);
 	});
 
 	test("a capture no wider than its thumbnail, and one the engine cannot decode, are drawn as they came and not tried again", async () => {

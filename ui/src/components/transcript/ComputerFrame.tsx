@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { platform } from "../../native";
 import { atRest, stir } from "../../rest";
 import { Viewer } from "../../ui/Viewer";
 
@@ -10,16 +11,23 @@ import { Viewer } from "../../ui/Viewer";
  * A capture is a whole screen, some 1,500 px across, and its thumbnail is
  * 110. Drawn from the capture itself, the engine decodes all of it, four
  * bytes a pixel (5 MB for one), and holds that while the row is in the page
- * and for some time after. So the thumbnail is drawn from a copy of the
- * capture made at the thumbnail's own pixels (`small`, below): pixel for
- * pixel what WebKit draws in the thumbnail of a capture it has decoded
- * whole, as it has once the capture was opened in the viewer. (One never
- * opened it drew from a picture its decoder had scaled, a shade crisper;
- * every thumbnail now looks as the opened ones did.) The capture itself is
- * drawn only until that copy is made, in the viewer, and in the thumbnail
- * from the moment it is pressed until something else is: so the viewer
- * opens on a picture already decoded, and a drag or the system's Copy
- * Image, which take what the thumbnail holds, take the whole capture.
+ * and for some time after. So on macOS the thumbnail is drawn from a copy
+ * of the capture made at the thumbnail's own pixels (`small`, below):
+ * pixel for pixel what WebKit draws there in the thumbnail of a capture it
+ * has decoded whole, as it has once the capture was opened in the viewer.
+ * (One never opened it drew from a picture its decoder had scaled, a shade
+ * crisper; every thumbnail now looks as the opened ones did.) The capture
+ * itself is then drawn only until that copy is made, in the viewer, and in
+ * the thumbnail from the moment it is pressed until something else is: so
+ * the viewer opens on a picture already decoded, and a drag or the
+ * system's Copy Image, which take what the thumbnail holds, take the
+ * whole capture.
+ *
+ * Elsewhere the capture is drawn as it always was. WebKitGTK scales a
+ * picture it draws small far better than any scaling it offers a page
+ * (measured, 2.52: every copy a page can make differs from the engine's
+ * own thumbnail by 9 of 255 on average, and looks jagged beside it), so a
+ * copy there would be a worse thumbnail; WebView2 was not measured.
  */
 export function ComputerFrame({ eventId, dataUrl }: { eventId: string; dataUrl: string }) {
 	const [open, setOpen] = useState(false);
@@ -141,7 +149,8 @@ function onPixelRatio(changed: () => void): () => void {
 }
 
 function ask(eventId: string, dataUrl: string, pixels: number): void {
-	if (typeof createImageBitmap !== "function" || unmade.has(eventId)) return;
+	// Only where the copy is the picture the engine itself would draw (see the top of this file).
+	if (platform() !== "macos" || typeof createImageBitmap !== "function" || unmade.has(eventId)) return;
 	const waiting = line.find((one) => one.eventId === eventId);
 	if (waiting !== undefined) waiting.pixels = pixels;
 	else line.push({ eventId, dataUrl, pixels });

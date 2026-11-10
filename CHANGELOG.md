@@ -82,6 +82,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   screenshots it takes in its desk browser, as a Claude Code teammate does.
   Until now its `screenshot` was refused, with a note to read the page as
   text instead.
+- SQLite 3.54.1 (rusqlite 0.41.1; RUSTSEC-2026-0459).
 
 ## [0.48.3] - 2026-11-06
 

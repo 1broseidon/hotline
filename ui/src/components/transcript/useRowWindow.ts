@@ -137,11 +137,20 @@ export function useRowWindow({
 		const seen = !el || flying.current !== null ? null : onScreen(el);
 		return !el || seen === null ? null : { row: seen, top: seen.getBoundingClientRect().top, scroll: el.scrollTop };
 	}, [scroller, flying]);
+	/* What the last put-back could not give back, owed while the scroll is where that one left it (`putBack`). */
+	const owed = useRef({ scroll: Number.NaN, by: 0 });
 	/**
 	 * Puts a row seen on screen back where it stood, and says whether it had
 	 * to. Only when nothing else has moved the scroll since it was seen: an
 	 * engine that anchors has then done this already, and a pin to the bottom
 	 * or a scroll of the person's own is where the view is meant to be.
+	 *
+	 * A row stands at fractions of a pixel, and WebKit keeps the scroll in
+	 * whole ones, so there a put-back leaves the row a fraction from where it
+	 * stood. Left at that, a run of them adds up: each height learned above
+	 * the view moved what was being read most of a pixel, always the same
+	 * way. So the scroll goes to the nearest pixel
+	 * and what that leaves is carried to the next put-back.
 	 */
 	const putBack = useCallback(
 		(was: Seen | null): boolean => {
@@ -149,8 +158,13 @@ export function useRowWindow({
 			if (!el || !was?.row.isConnected || el.scrollTop !== was.scroll) return false;
 			const moved = was.row.getBoundingClientRect().top - was.top;
 			if (moved === 0) return false;
-			el.scrollTop += moved;
-			pinning.current = true;
+			const want = moved + (owed.current.scroll === was.scroll ? owed.current.by : 0);
+			el.scrollTop = was.scroll + want;
+			if (el.scrollTop - was.scroll !== want) el.scrollTop = was.scroll + Math.round(want);
+			const went = el.scrollTop - was.scroll;
+			// At either end of the column the scroll goes less far than asked, and nothing is owed for that.
+			owed.current = { scroll: el.scrollTop, by: Math.abs(want - went) < 1 ? want - went : 0 };
+			if (went !== 0) pinning.current = true;
 			return true;
 		},
 		[scroller, pinning],

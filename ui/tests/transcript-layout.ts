@@ -8,11 +8,13 @@
  * `tall` holds the heights by row id; a row not in it is `row` tall. Change
  * an entry and the row is that tall from then on, as when a picture arrives.
  * `column.width` is how wide the column is, for a window made narrower.
+ * With `whole`, the scroll is kept in whole pixels, the fraction dropped, as
+ * WebKit keeps it; otherwise to the fraction it was set to.
  *
  * The DOM's element classes outlive the window a test installs, so `restore`
  * puts back what this changed on them; call it when the test is over.
  */
-export function layOut({ row, view }: { row: number; view: number }): {
+export function layOut({ row, view, whole = false }: { row: number; view: number; whole?: boolean }): {
 	tall: Map<string, number>;
 	column: { width: number };
 	scrollsIntoView: { id: string | undefined; options: ScrollIntoViewOptions | undefined }[];
@@ -70,7 +72,7 @@ export function layOut({ row, view }: { row: number; view: number }): {
 			return Math.max(0, Math.min(scrolled.get(this) ?? 0, this.scrollHeight - this.clientHeight));
 		},
 		set(this: HTMLElement, to: number) {
-			scrolled.set(this, Math.max(0, Math.min(to, this.scrollHeight - this.clientHeight)));
+			scrolled.set(this, Math.max(0, Math.min(whole ? Math.floor(to) : to, this.scrollHeight - this.clientHeight)));
 		},
 	});
 	Object.defineProperty(proto, "clientHeight", {

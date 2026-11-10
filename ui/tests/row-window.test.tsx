@@ -257,6 +257,32 @@ describe("the row being read stays where it was", () => {
 		expect(guessed).not.toBe(120 * 130);
 	});
 
+	test("within a pixel on an engine that keeps the scroll in whole pixels, however many heights are learned above it: what one put-back cannot give is carried to the next, so the fractions never add up", async () => {
+		// The layout again, as WebKit scrolls it; and rows that stand at fractions of a pixel, as text does.
+		restore();
+		({ tall, column, scrollsIntoView, restore } = layOut({ row: ROW, view: VIEW, whole: true }));
+		for (let n = 1; n <= 400; n++) tall.set(`e${n}`, 60 + ((n * 37) % 64) / 64 + (n % 9) * 11);
+		await open(lines(1, 400));
+		wheel();
+		await scrollTo(scroller().scrollTop - 900);
+		const row = reading();
+		const was = topOf(row)!;
+		// Every pass learns twelve heights above the view, and each moves the
+		// row by a fraction the scroll cannot take. Half a pixel may already
+		// be owed when the row is first looked at here, and half a pixel may
+		// be owed at any look after: never more than one between the two.
+		let learned = 0;
+		for (let turn = 0; turn < 40; turn++) {
+			const before = scroller().scrollHeight;
+			await pass();
+			if (scroller().scrollHeight !== before) learned++;
+			expect(Math.abs(topOf(row)! - was)).toBeLessThanOrEqual(1);
+		}
+		expect(learned).toBeGreaterThan(10);
+		await measured();
+		expect(Math.abs(topOf(row)! - was)).toBeLessThanOrEqual(1);
+	});
+
 	test("when a row above it grows by itself", async () => {
 		await open(lines(1, 200));
 		await measured();

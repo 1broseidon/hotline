@@ -73,9 +73,10 @@ impl Room {
             return self.answer_browser_card(persona_id, request_id, option_id);
         }
 
+        let card = self.permission_card(persona_id, request_id);
         if let Some(TranscriptEvent::Permission {
             from: Some(from), ..
-        }) = self.permission_card(persona_id, request_id)
+        }) = &card
             && from.kind == ThreadKind::Call
         {
             return self
@@ -84,10 +85,21 @@ impl Room {
         }
 
         let session = self.session(persona_id)?;
+        // A card the tape has settled is never answered, whatever the driver
+        // still holds behind it: work the agent took up by itself can end,
+        // and expire its cards, while the agent is still asking. The person
+        // was shown a settled card, and an answer that names it afterwards
+        // must not become a decision.
+        if let Some(TranscriptEvent::Permission {
+            decision: Some(_), ..
+        }) = &card
+        {
+            return Err("That request is no longer waiting for an answer.".to_string());
+        }
         if !session.driver.answer_permission(request_id, option_id) {
             return Err("That request is no longer waiting for an answer.".to_string());
         }
-        let Some(card) = self.permission_card(persona_id, request_id) else {
+        let Some(card) = card else {
             return Ok(());
         };
         let TranscriptEvent::Permission {

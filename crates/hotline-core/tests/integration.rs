@@ -17,6 +17,8 @@ mod list_sources;
 mod local_speech;
 #[path = "mcp.rs"]
 mod mcp;
+#[path = "permission_cards.rs"]
+mod permission_cards;
 #[path = "rig_upgrade.rs"]
 mod rig_upgrade;
 #[path = "schedule.rs"]

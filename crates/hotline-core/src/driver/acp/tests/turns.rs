@@ -849,9 +849,11 @@ async fn dropping_the_driver_takes_the_childs_whole_process_group() {
 /// An ACP agent that raises a permission and then ends the turn without
 /// waiting for the answer — every harness does this when it gives up on a
 /// request — and does not end it until the test says so, so the card is up
-/// and drawn before the turn is over.
+/// and drawn before the turn is over. What its request was answered, if it
+/// was, is written to `heard`.
 fn agent_that_ends_the_turn_still_asking(
     ends: Arc<tokio::sync::Notify>,
+    heard: Arc<Mutex<Vec<String>>>,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
     let transport = agent_pipes();
     async move {
@@ -878,11 +880,12 @@ fn agent_that_ends_the_turn_still_asking(
                       responder: Responder<PromptResponse>,
                       cx: ConnectionTo<Client>| {
                     let ends = ends.clone();
+                    let heard = heard.clone();
                     async move {
                         let session = request.session_id.clone();
                         let asking = cx.clone();
                         cx.spawn(async move {
-                            let _ = asking
+                            let answered = asking
                                 .send_request(RequestPermissionRequest::new(
                                     session,
                                     ToolCallUpdate::new(
@@ -897,6 +900,13 @@ fn agent_that_ends_the_turn_still_asking(
                                 ))
                                 .block_task()
                                 .await;
+                            match answered.map(|answer| answer.outcome) {
+                                Ok(RequestPermissionOutcome::Selected(chosen)) => {
+                                    lock(&heard).push(format!("selected {}", chosen.option_id.0));
+                                }
+                                Ok(_) => lock(&heard).push("cancelled".to_string()),
+                                Err(_) => {}
+                            }
                             Ok(())
                         })?;
                         cx.spawn(async move {
@@ -930,7 +940,7 @@ fn agent_that_ends_the_turn_still_asking(
 async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
     let held = room("stale-card-room");
     let ends = Arc::new(tokio::sync::Notify::new());
-    let agent = agent_that_ends_the_turn_still_asking(ends.clone());
+    let agent = agent_that_ends_the_turn_still_asking(ends.clone(), Arc::default());
     let driver = ChildAgent::new(
         scratch("stale-card"),
         "cursor".to_string(),
@@ -978,6 +988,128 @@ async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
         !driver.answer_permission(&request_id, "once"),
         "a card the turn left behind was still answerable after the turn ended"
     );
+}
+
+/// A driver on the shipped bounds, its agent asking and holding its turn
+/// open, and what the agent's request is answered.
+async fn asking(
+    name: &str,
+    ends: Arc<tokio::sync::Notify>,
+) -> (ChildAgent, Arc<Mutex<Vec<String>>>) {
+    let held = room(&format!("{name}-room"));
+    let heard: Arc<Mutex<Vec<String>>> = Arc::default();
+    let agent = agent_that_ends_the_turn_still_asking(ends, heard.clone());
+    let driver = ChildAgent::new(
+        scratch(name),
+        "cursor".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "ada"),
+    );
+    tokio::spawn(agent);
+    driver
+        .handshake(&persona(&scratch_cwd(), Vec::new()), client_transport())
+        .await
+        .unwrap();
+    (driver, heard)
+}
+
+/// Waits, on the test's clock, until the agent has heard about its request.
+async fn hears(heard: &Mutex<Vec<String>>) {
+    for _ in 0..500 {
+        if !lock(heard).is_empty() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the agent never heard about its request");
+}
+
+/// A card nobody answers within the wait is expired in the turn that raised
+/// it, not left for the turn's end: the agent is told nobody answered, the
+/// session is told which card that was so the tape can say so, nothing stays
+/// behind the card, and an answer that comes afterwards is refused and never
+/// reaches the agent. The clock is the test's, so the wait is the shipped one.
+#[tokio::test(start_paused = true)]
+async fn a_card_nobody_answers_in_time_expires_in_its_turn_and_takes_no_late_answer() {
+    let wait = Bounds::default().permission;
+    let ends = Arc::new(tokio::sync::Notify::new());
+    let (driver, heard) = asking("lapsed-card", ends.clone()).await;
+
+    let mut updates = driver
+        .prompt("go".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    let Update::Permission {
+        request_id,
+        title,
+        options,
+    } = next(&mut updates).await
+    else {
+        panic!("the card did not arrive");
+    };
+    let asked = tokio::time::Instant::now();
+    assert_eq!(lock(&driver.live.pending).len(), 1, "the request is live");
+    assert!(lock(&heard).is_empty(), "the agent is waiting");
+
+    // Nobody answers. The next thing the turn says is that the card expired,
+    // when the wait has run out and not before.
+    let expired = tokio::time::timeout(wait * 2, updates.recv())
+        .await
+        .expect("the card never expired")
+        .expect("the turn ended early");
+    assert_eq!(
+        expired,
+        Update::PermissionExpired {
+            request_id: request_id.clone(),
+            title,
+            options,
+        }
+    );
+    assert!(asked.elapsed() >= wait, "the card expired early");
+    assert!(
+        lock(&driver.live.pending).is_empty(),
+        "an expired request was left waiting for an answer"
+    );
+    assert!(
+        !driver.answer_permission(&request_id, "once"),
+        "an expired card was still answerable"
+    );
+    hears(&heard).await;
+
+    // The turn was the agent's to go on with, and ends when it ends it.
+    ends.notify_one();
+    assert_eq!(turn_end(&mut updates).await, "end_turn");
+    assert_eq!(
+        *lock(&heard),
+        ["cancelled"],
+        "the agent hears once that nobody answered, and never the late answer"
+    );
+}
+
+/// A card answered within the wait is answered: the agent hears the choice,
+/// and the wait running out afterwards says nothing of a card already settled.
+#[tokio::test(start_paused = true)]
+async fn a_card_answered_in_time_does_not_expire_afterwards() {
+    let ends = Arc::new(tokio::sync::Notify::new());
+    let (driver, heard) = asking("answered-card", ends.clone()).await;
+
+    let mut updates = driver
+        .prompt("go".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    let Update::Permission { request_id, .. } = next(&mut updates).await else {
+        panic!("the card did not arrive");
+    };
+    assert!(driver.answer_permission(&request_id, "once"));
+    assert!(lock(&driver.live.pending).is_empty());
+    hears(&heard).await;
+
+    // Well past the wait: nothing is said of the card in it.
+    tokio::time::sleep(Bounds::default().permission * 2).await;
+    ends.notify_one();
+    assert!(
+        matches!(next(&mut updates).await, Update::Turn { .. }),
+        "an answered card was expired when its wait ran out"
+    );
+    assert_eq!(*lock(&heard), ["selected once"]);
 }
 
 #[test]

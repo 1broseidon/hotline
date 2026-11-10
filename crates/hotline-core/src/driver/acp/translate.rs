@@ -369,10 +369,19 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
 
 /// The agent is asking to be allowed to do something. The card goes on the
 /// tape now; the answer arrives later, over the wire, as its own command.
+///
+/// A request ends exactly one way, and the agent and the tape are told the
+/// same one: answered, settled with its turn, or expired because nobody
+/// answered within `wait`. An expired request is closed to answers before
+/// anything is said of it, so an answer that comes later finds nothing behind
+/// the card and is refused, and the card is written again as expired where it
+/// stands, in the turn that raised it, rather than left up for the turn's end
+/// to take down.
 pub(super) async fn ask_permission(
     live: Arc<Live>,
     request: RequestPermissionRequest,
     responder: Responder<RequestPermissionResponse>,
+    wait: Duration,
 ) {
     if lock(&live.auth).as_ref().is_some_and(|a| a.running()) {
         let _ = responder.respond(RequestPermissionResponse::new(
@@ -394,20 +403,36 @@ pub(super) async fn ask_permission(
         })
         .collect();
 
-    let (answer, answered) = oneshot::channel();
+    let (answer, mut answered) = oneshot::channel();
     lock(&live.pending).insert(request_id.clone(), answer);
     live.flush().await;
     live.emit(Update::Permission {
-        request_id,
-        title,
-        options,
+        request_id: request_id.clone(),
+        title: title.clone(),
+        options: options.clone(),
     })
     .await;
 
     tokio::spawn(async move {
-        let chosen = match tokio::time::timeout(PERMISSION_TIMEOUT, answered).await {
-            Ok(Ok(chosen)) => chosen,
-            _ => None,
+        let chosen = if let Ok(chosen) = tokio::time::timeout(wait, &mut answered).await {
+            // Answered, or settled with its turn or its session.
+            chosen.ok().flatten()
+        } else {
+            // Closed first: an answer either got in before this line and is
+            // the request's answer, or finds the request gone.
+            answered.close();
+            lock(&live.pending).remove(&request_id);
+            if let Ok(chosen) = answered.try_recv() {
+                chosen
+            } else {
+                live.emit(Update::PermissionExpired {
+                    request_id,
+                    title,
+                    options,
+                })
+                .await;
+                None
+            }
         };
         let outcome = match chosen {
             Some(option_id) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(

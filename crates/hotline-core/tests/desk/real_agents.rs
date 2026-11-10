@@ -1,10 +1,10 @@
 use super::*;
-use hotline_core::driver::acp::StartBounds;
+use hotline_core::driver::acp::Bounds;
 
 /// How long a real harness's start may take: the core's own bound for a
 /// first start, which may install the harness, and a reply's time after it.
 fn first_start() -> Duration {
-    StartBounds::default().first + common::ANSWER
+    Bounds::default().first + common::ANSWER
 }
 
 /// A real turn, with a real key: the agent reads a file in its workspace with

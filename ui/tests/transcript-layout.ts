@@ -11,6 +11,13 @@
  * With `whole`, the scroll is kept in whole pixels, the fraction dropped, as
  * WebKit keeps it; otherwise to the fraction it was set to.
  *
+ * A column is laid out once for each state of the page, not once for each
+ * question asked of it: where its rows start is worked out on the first read
+ * after the page or a height in `tall` changed, and every read until the next
+ * change is answered from that. The transcript reads every row's box each
+ * time it places its window, so working a row's place out afresh for each
+ * read cost the square of the rows in the page, at every placing.
+ *
  * The DOM's element classes outlive the window a test installs, so `restore`
  * puts back what this changed on them; call it when the test is over.
  */
@@ -20,13 +27,35 @@ export function layOut({ row, view, whole = false }: { row: number; view: number
 	scrollsIntoView: { id: string | undefined; options: ScrollIntoViewOptions | undefined }[];
 	restore(): void;
 } {
-	const tall = new Map<string, number>();
+	/* Set when what a column's layout was worked out from has changed: a row's height here, or the page (below). */
+	let stale = false;
+	class Tall extends Map<string, number> {
+		override set(id: string, height: number) {
+			stale = true;
+			return super.set(id, height);
+		}
+		override delete(id: string) {
+			stale = true;
+			return super.delete(id);
+		}
+		override clear() {
+			stale = true;
+			super.clear();
+		}
+	}
+	const tall = new Tall();
 	const column = { width: 700 };
 	const scrollsIntoView: { id: string | undefined; options: ScrollIntoViewOptions | undefined }[] = [];
 	const proto = (window as unknown as { HTMLElement: typeof HTMLElement }).HTMLElement.prototype;
 	const changed = ["getBoundingClientRect", "scrollHeight", "scrollTop", "clientHeight", "clientWidth", "scrollIntoView"] as const;
 	const before = changed.map((name) => [name, Object.getOwnPropertyDescriptor(proto, name)] as const);
+	// Every change to the page that moves a row: one joined or left, or a gap was given another height.
+	const changes = new window.MutationObserver(() => {
+		stale = true;
+	});
+	changes.observe(document as unknown as Node, { subtree: true, childList: true, attributes: true, attributeFilter: ["style"] });
 	const restore = () => {
+		changes.disconnect();
 		for (const [name, descriptor] of before) {
 			if (descriptor !== undefined) Object.defineProperty(proto, name, descriptor);
 			else Reflect.deleteProperty(proto, name);
@@ -39,18 +68,42 @@ export function layOut({ row, view, whole = false }: { row: number; view: number
 		if (is(el, "tape-row")) return tall.get(el.dataset["eventId"] ?? el.dataset["probe"] ?? "") ?? row;
 		return 0;
 	};
-	/** How far down the column a row or gap starts. */
-	const startOf = (el: HTMLElement): number => {
-		let y = 0;
-		for (let before = el.previousElementSibling; before !== null; before = before.previousElementSibling) y += heightOf(before as HTMLElement);
-		return y;
+	/** A column as laid out: where each of its rows and gaps starts and how tall it is, how tall they are in all, and the scroller it is in. */
+	type Laid = { parts: Map<Element, { start: number; height: number }>; total: number; scroller: HTMLElement | null };
+	const columns = new Map<Element, Laid>();
+	const scrollers = new Map<Element, number>();
+	/** Forgets every layout worked out before the page last changed. The changes not yet reported are taken here, so a read straight after one sees it. */
+	const current = () => {
+		if (changes.takeRecords().length > 0) stale = true;
+		if (!stale) return;
+		columns.clear();
+		scrollers.clear();
+		stale = false;
 	};
-	const scrollerOf = (el: Element) => el.closest(".scroller") as HTMLElement | null;
+	/** The layout of the column an element is a row or a gap of, or null when it is not in one. */
+	const laidIn = (parent: Element | null): Laid | null => {
+		if (parent === null) return null;
+		current();
+		const known = columns.get(parent);
+		if (known !== undefined) return known;
+		if (!is(parent, "tape-column")) return null;
+		const laid: Laid = { parts: new Map(), total: 0, scroller: parent.closest(".scroller") as HTMLElement | null };
+		for (const part of parent.children) {
+			if (!is(part, "tape-row") && !is(part, "tape-gap")) continue;
+			const height = heightOf(part as HTMLElement);
+			laid.parts.set(part, { start: laid.total, height });
+			laid.total += height;
+		}
+		columns.set(parent, laid);
+		return laid;
+	};
 	const box = (top: number, height: number) => ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON() {} }) as DOMRect;
 	proto.getBoundingClientRect = function (this: HTMLElement) {
-		if (is(this, "scroller")) return box(0, view);
 		const parent = this.parentElement;
-		if (parent !== null && is(parent, "tape-column") && (is(this, "tape-row") || is(this, "tape-gap"))) return box(startOf(this) - (scrollerOf(this)?.scrollTop ?? 0), heightOf(this));
+		const laid = laidIn(parent);
+		const part = laid?.parts.get(this);
+		if (laid && part) return box(part.start - (laid.scroller?.scrollTop ?? 0), part.height);
+		if (is(this, "scroller")) return box(0, view);
 		// Off to the side, where nothing is in view.
 		if (parent !== null && is(parent, "tape-probe")) return box(-1_000_000, heightOf(this));
 		return own.call(this);
@@ -58,9 +111,13 @@ export function layOut({ row, view, whole = false }: { row: number; view: number
 	Object.defineProperty(proto, "scrollHeight", {
 		configurable: true,
 		get(this: HTMLElement) {
+			current();
+			const known = scrollers.get(this);
+			if (known !== undefined) return known;
 			if (!is(this, "scroller")) return 0;
 			let total = 0;
-			for (const part of this.querySelectorAll<HTMLElement>(".tape-column > .tape-row, .tape-column > .tape-gap")) total += heightOf(part);
+			for (const inside of this.querySelectorAll(".tape-column")) total += laidIn(inside)!.total;
+			scrollers.set(this, total);
 			return total;
 		},
 	});
@@ -87,22 +144,22 @@ export function layOut({ row, view, whole = false }: { row: number; view: number
 			return is(this, "tape-column") ? column.width : 0;
 		},
 	});
-	// A row's height as laid out, which is how a row being measured off to the side is read.
+	// A row's height as laid out, which is how a row being measured off to
+	// the side is read: its height and nothing else. The DOM's own style
+	// for a row is not asked for; it works out every property there is.
 	const styled = window.getComputedStyle.bind(window);
-	window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
-		const style = styled(el, pseudo);
-		if (!is(el, "tape-row")) return style;
-		return new Proxy(style, { get: (target, key) => (key === "height" ? `${heightOf(el as HTMLElement)}px` : Reflect.get(target, key)) });
-	}) as typeof window.getComputedStyle;
+	window.getComputedStyle = ((el: Element, pseudo?: string | null) =>
+		is(el, "tape-row") ? ({ height: `${heightOf(el as HTMLElement)}px` } as CSSStyleDeclaration) : styled(el, pseudo)) as typeof window.getComputedStyle;
 	// A row scrolled into view, as the engine does it at once: to the middle, or just far enough to show.
 	proto.scrollIntoView = function (this: HTMLElement, options?: ScrollIntoViewOptions | boolean) {
-		const scroller = scrollerOf(this);
 		const target = this.closest<HTMLElement>(".tape-column > .tape-row");
+		const laid = laidIn(target?.parentElement ?? null);
+		const part = target ? laid?.parts.get(target) : undefined;
 		const asked = typeof options === "object" ? options : undefined;
 		scrollsIntoView.push({ id: target?.dataset["eventId"], options: asked });
-		if (scroller === null || target === null) return;
-		const start = startOf(target);
-		const height = heightOf(target);
+		const scroller = laid?.scroller;
+		if (!scroller || !part) return;
+		const { start, height } = part;
 		if (asked?.block === "center") scroller.scrollTop = Math.max(0, start + height / 2 - view / 2);
 		else if (start < scroller.scrollTop) scroller.scrollTop = start;
 		else if (start + height > scroller.scrollTop + view) scroller.scrollTop = start + height - view;

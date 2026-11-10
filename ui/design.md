@@ -300,6 +300,10 @@ transition and animation, and holds the mark still.
   cut, as on the phone: what fits, faded at the edge it goes on past (a
   table's head row never fades), and a line naming it ("Table · 7 rows ·
   8 columns"), and a click opens it. A diagram opens from its drawing.
+  Until a diagram has been drawn its source stands in its place; once
+  its size is known, an empty box of exactly that size does while its
+  picture is made again (another palette, a picture let go), so nothing
+  around it moves when the picture arrives.
 - The open view (docs/design/open-view.html): an object opens as a pane
   in the conversation's place, the rail beside it, never a float over it.
   It wears the 40px band with no line under it: ← back (Esc too, focus

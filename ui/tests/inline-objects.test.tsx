@@ -324,7 +324,7 @@ describe("a diagram", () => {
 		const source = "flowchart LR\n  A[App] --> B[Embed query]\n  A --> C[Cache]";
 		await say(`How a query flows:\n\n\`\`\`mermaid\n${source}\n\`\`\``);
 		expect(label("diagram")).toBe("flowchart");
-		// Not drawn here (bun cannot load mermaid's browser build), so its source shows, and keys wait for the drawing.
+		// Not drawn here (mermaid's script is never run under test: tests/preload.ts), so its source shows, and keys wait for the drawing.
 		expect(sheet("diagram")!.querySelector(".diagram-source")?.textContent).toBe(source);
 		expect(keys("diagram")).toEqual([]);
 	});

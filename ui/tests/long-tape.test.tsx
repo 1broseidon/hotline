@@ -4,8 +4,8 @@ import type { TranscriptEvent } from "../src/generated/contract";
 import { installDom } from "./dom";
 import { layOut } from "./transcript-layout";
 
-// A long conversation: older lines paged in above the one being read, a
-// diagram far down the tape, and captures of the computer's screen.
+// A long conversation: older lines paged in above the one being read, and
+// captures of the computer's screen. Its diagrams are in diagrams.test.tsx.
 
 const ROW = 100;
 const VIEW = 500;
@@ -16,7 +16,6 @@ let container: HTMLDivElement;
 let teardown: () => Promise<void>;
 let Transcript: typeof import("../src/components/Transcript").Transcript;
 let frames: FrameRequestCallback[];
-let observed: { target: Element; root: Element | null; callback: IntersectionObserverCallback }[];
 let revoked: string[];
 let tall: Map<string, number>;
 let restore: () => void;
@@ -25,27 +24,8 @@ let ada: string;
 let made = 0;
 const revoke = URL.revokeObjectURL;
 
-/** A stand-in observer the test drives: it reports what it was told to watch and fires on demand. */
-class Observer {
-	constructor(
-		private callback: IntersectionObserverCallback,
-		private options: IntersectionObserverInit = {},
-	) {}
-	observe(target: Element) {
-		observed.push({ target, root: (this.options.root as Element | null) ?? null, callback: this.callback });
-	}
-	disconnect() {
-		observed = observed.filter((one) => one.callback !== this.callback);
-	}
-	unobserve() {}
-	takeRecords() {
-		return [];
-	}
-}
-
 beforeEach(async () => {
 	frames = [];
-	observed = [];
 	revoked = [];
 	URL.revokeObjectURL = (url: string) => {
 		revoked.push(url);
@@ -54,7 +34,6 @@ beforeEach(async () => {
 	const installed = installDom({
 		requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
 		cancelAnimationFrame: () => {},
-		IntersectionObserver: Observer,
 	});
 	teardown = installed.teardown;
 	Object.assign(globalThis, {
@@ -257,34 +236,6 @@ describe("a flick up from the bottom", () => {
 		await scrolled(scroller);
 		expect(scroller.scrollTop).toBeGreaterThanOrEqual(bottom + 30);
 		expect(container.querySelector(".jump-latest")).toBeNull();
-	});
-});
-
-describe("a diagram", () => {
-	const diagram: TranscriptEvent = { kind: "agent", id: "d1", ts: 1, text: "```mermaid\ngraph TD; A-->B\n```" } as TranscriptEvent;
-
-	test("is not drawn until it comes near the view, and is watched against its scroller", async () => {
-		await act(async () => root.render(<Transcript personaId={ada} name="Ada" events={[diagram]} streaming={[]} live={false} focus={null} />));
-		const block = container.querySelector(".diagram-body");
-		expect(block).not.toBeNull();
-		expect(observed.map((one) => one.target)).toEqual([block as Element]);
-		expect(observed[0]?.root).toBe(container.querySelector(".scroller") as Element);
-
-		// Far away, nothing loads mermaid however long it waits.
-		await act(async () => new Promise((done) => setTimeout(done, 400)));
-		expect(document.head.querySelector("script")).toBeNull();
-
-		// Near: the observer lets go and the drawing starts.
-		const { callback } = observed[0]!;
-		await act(async () => callback([{ isIntersecting: true, target: block } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
-		expect(observed).toEqual([]);
-		// Bun cannot load mermaid's browser build, so here the drawing ends
-		// in the block's own note; in the window it ends in the diagram.
-		const started = () => document.head.querySelector("script") !== null || container.querySelector(".mermaid-note") !== null;
-		for (let waited = 0; waited < 5_000 && !started(); waited += 100) {
-			await act(async () => new Promise((done) => setTimeout(done, 100)));
-		}
-		expect(started()).toBe(true);
 	});
 });
 

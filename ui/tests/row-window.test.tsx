@@ -257,6 +257,24 @@ describe("the row being read stays where it was", () => {
 		expect(guessed).not.toBe(120 * 130);
 	});
 
+	test("rows that wait off to the side are read again on every pass: the measuring never stops with a row unmeasured, though nothing said what it waited for had come", async () => {
+		const fonts = { status: "loading", addEventListener() {}, removeEventListener() {} };
+		Object.defineProperty(document, "fonts", { configurable: true, value: fonts });
+		await open(lines(1, 120));
+		for (let turn = 0; turn < 10; turn++) await pass();
+		const waiting = [...container.querySelectorAll<HTMLElement>(".tape-probe > .tape-row")].map((row) => row.dataset["probe"]);
+		expect(waiting.length).toBeGreaterThan(0);
+		// The same rows wait, pass after pass, and the conversation is not drawn again for it.
+		const rows = container.querySelectorAll(".tape-column > .tape-row").length;
+		for (let turn = 0; turn < 10; turn++) await pass();
+		expect([...container.querySelectorAll<HTMLElement>(".tape-probe > .tape-row")].map((row) => row.dataset["probe"])).toEqual(waiting);
+		expect(container.querySelectorAll(".tape-column > .tape-row").length).toBe(rows);
+		// The font has arrived, and no event says so (it fired before anyone listened): the next pass reads them.
+		fonts.status = "loaded";
+		await measured();
+		expect(scroller().scrollHeight).toBe(120 * ROW);
+	});
+
 	test("within a pixel on an engine that keeps the scroll in whole pixels, however many heights are learned above it: what one put-back cannot give is carried to the next, so the fractions never add up", async () => {
 		// The layout again, as WebKit scrolls it; and rows that stand at fractions of a pixel, as text does.
 		restore();

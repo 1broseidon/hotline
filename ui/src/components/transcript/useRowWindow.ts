@@ -1,5 +1,6 @@
 import { type RefObject, type SyntheticEvent, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { onDrawings } from "../Mermaid";
 import { FIRST, LIMIT, REACH, SLACK, type Heights, forget, heightOf, heightsOf, rowsIn, settleGuess } from "./rowWindow";
 
 /**
@@ -56,8 +57,11 @@ function chosenRows(column: Element, ids: readonly string[]): { from: string; to
  * drawn says how tall it is and keeps that height when it leaves, so a row
  * coming back moves nothing. One never drawn stands at a guess until it is
  * measured, which happens off to the side, a few rows at a time, nearest the
- * view first, so its height is known before anyone scrolls to it. Whenever
- * a height learned changes a gap above the view, the row on screen is put
+ * view first, so its height is known before anyone scrolls to it. A row
+ * holding something that has not found its size yet (`data-unsized`: a
+ * diagram waiting to be drawn) is not measured until it has, since it is
+ * about to be another height: off to the side it waits there. Whenever a
+ * height learned changes a gap above the view, the row on screen is put
  * back where it was unless the engine's own anchoring already kept it there.
  *
  * Rows also stay in the page while a selection runs across them, while one
@@ -106,8 +110,10 @@ export function useRowWindow({
 	const [drawn, setDrawn] = useState<Drawn | null>(null);
 	const [probed, setProbed] = useState<readonly string[]>([]);
 	const [, redraw] = useReducer((count: number) => count + 1, 0);
-	/* Counts the times every height was forgotten: each starts the measuring again. */
+	/* Counts the times there came to be rows to measure with no line arriving: every height forgotten, a diagram drawn. Each starts the measuring again. */
 	const [forgotten, again] = useReducer((count: number) => count + 1, 0);
+	/* A row in the page was left unmeasured the last time the window was placed: it waits for its size, and the measuring goes on until it has one. */
+	const unread = useRef(false);
 	const touched = useRef(new Set<string>());
 
 	// A thread opens on its last lines. After that the window is from one row
@@ -148,8 +154,8 @@ export function useRowWindow({
 	 * A row stands at fractions of a pixel, and WebKit keeps the scroll in
 	 * whole ones, so there a put-back leaves the row a fraction from where it
 	 * stood. Left at that, a run of them adds up: each height learned above
-	 * the view moved what was being read most of a pixel, always the same
-	 * way. So the scroll goes to the nearest pixel
+	 * the view, each diagram drawn there, moved what was being read most of
+	 * a pixel, always the same way. So the scroll goes to the nearest pixel
 	 * and what that leaves is carried to the next put-back.
 	 */
 	const putBack = useCallback(
@@ -192,11 +198,24 @@ export function useRowWindow({
 		// not. A row in the page is read once it has arrived, and the rows
 		// off to the side wait there for it.
 		const settled = document.fonts?.status !== "loading";
+		// Nor of a row holding something that has not found its size yet: a
+		// diagram waiting to be drawn. In the page it is read once it has; off
+		// to the side it waits there, and its drawing wakes this (below).
+		const unsized = column.querySelectorAll("[data-unsized]");
+		const waits = (row: Element) => {
+			for (const part of unsized) if (row.contains(part)) return true;
+			return false;
+		};
+		unread.current = false;
 		let first: Element | null = null;
 		for (const child of column.children) {
 			if (child.classList.contains("tape-row")) {
 				first ??= child;
 				if (!settled) continue;
+				if (waits(child)) {
+					unread.current = true;
+					continue;
+				}
 				const id = (child as HTMLElement).dataset["eventId"]!;
 				// A row measured for the first time is a height the room the
 				// column holds for its rows (Transcript's `.tape-room`) lacks.
@@ -205,6 +224,7 @@ export function useRowWindow({
 			} else if (child.classList.contains("tape-gap")) first ??= child;
 			else if (child.classList.contains("tape-probe") && settled) {
 				for (const row of child.children) {
+					if (waits(row)) continue;
 					const id = (row as HTMLElement).dataset["probe"]!;
 					// Its height as laid out, not as a box on the page: these rows
 					// stand far off, where a box's edges are too coarse to subtract.
@@ -360,9 +380,19 @@ export function useRowWindow({
 			// even to what it already is, asks for a second render from
 			// inside the first; a burst of lines doing that trips React's
 			// guard against an update that never ends.
-			if (next.length === 0 && probed.length === 0) return;
-			setProbed(next);
-			if (next.length === 0) return;
+			if (next.length > 0 || probed.length > 0) {
+				// The rows there are to measure are the ones already off to the
+				// side: they wait there for a font or for a diagram to be drawn.
+				// They are read again, in case what they wait for has come, and
+				// no state is set: one set on every pass for as long as a
+				// diagram waits would draw the conversation again each time.
+				if (next.length === probed.length && next.every((id, at) => id === probed[at])) moveRef.current(true);
+				else setProbed(next);
+			}
+			// Over once nothing is left to measure: no row off to the side, and
+			// none in the page still waiting for its size, which may leave the
+			// page before it has one and is then measured here.
+			if (next.length === 0 && !unread.current) return;
 			frame = requestAnimationFrame(() => {
 				frame = requestAnimationFrame(pass);
 			});
@@ -381,6 +411,34 @@ export function useRowWindow({
 		fonts.addEventListener("loadingdone", onFonts);
 		return () => fonts.removeEventListener("loadingdone", onFonts);
 	}, []);
+
+	// A diagram was drawn, or found not to draw: the rows that waited for it
+	// are read in the render this asks for, and the measuring goes on. A
+	// drawing changes its row's height in a render of the block's own, which
+	// lands before this one. So the row on screen is noted here, before
+	// either, and put back after both, with the engine's anchoring off
+	// between, as when the window moves (`move`, above). Following the
+	// conversation, the view is then taken to its foot, where a diagram
+	// drawn in view has made the column taller: the transcript's own pin
+	// comes a frame later, and for that frame the last line would be out of
+	// view. Nobody is scrolling: a diagram is drawn with the window at
+	// rest. All of it is over before the window can paint.
+	useEffect(
+		() =>
+			onDrawings(() => {
+				const el = scroller.current;
+				held.current = look();
+				if (el && flying.current === null) el.dataset["swapping"] = "";
+				queueMicrotask(() => {
+					flushSync(again);
+					if (!el || !pinned.current || flying.current !== null) return;
+					const was = el.scrollTop;
+					el.scrollTop = el.scrollHeight;
+					if (el.scrollTop !== was) pinning.current = true;
+				});
+			}),
+		[scroller, pinned, pinning, flying, look],
+	);
 
 	// A selection made or stretched without a scroll (shift and a press, the
 	// whole window selected) still has to find every row it covers in the page.

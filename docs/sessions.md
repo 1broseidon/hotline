@@ -982,7 +982,7 @@ object on Windows, so killing it reaches the real agent behind a wrapper
 (`npx` starting node, `uvx` starting python, a `mise` shim) rather than
 orphaning it. Spawning it, `initialize` and opening the session
 (`session/new`, `session/load` or `session/resume`) run under one bound
-(`StartBounds` in `driver/acp.rs`):
+(`Bounds` in `driver/acp.rs`):
 
 - **60 seconds** for a launch that has answered on this machine before. Its
   package is already in npx's or uvx's cache, and a real start answers in
@@ -1182,8 +1182,12 @@ Only a child asks. A request becomes a `permission` event on the tape, id
 the driver first — it is the only thing that knows whether anything is still
 behind that request — and only then supersedes the card, so the transcript
 never shows a decision the agent never heard. A stale card (the turn ended,
-the session stopped, or somebody else answered first) is refused: `"That
-request is no longer waiting for an answer."`
+the session stopped, nobody answered in time, or somebody else answered
+first) is refused: `"That request is no longer waiting for an answer."` So
+is a card the tape already shows settled, before the driver is asked: work
+the agent took up by itself can end, and expire its cards, while the agent
+is still asking, and an answer that names such a card afterwards (a phone's
+notification, a window that had not caught up) must not become a decision.
 
 A card that is still live after a restart is a button nobody is behind. On
 startup every unanswered card is superseded with `decision: "expired"` and
@@ -1193,8 +1197,20 @@ answered in between would be a decision written down for an agent that had
 already stopped listening. `session.cancel` settles first for the same
 reason. When the turn's updates have all been recorded, any card still
 claiming to be live is expired on the tape, and a session that stops is the
-same fact. A person who does not answer within ten minutes is the same
-fact: the agent is told the request was cancelled.
+same fact.
+
+A person who does not answer within ten minutes (`Bounds::permission`) is
+the same fact, and it is settled then, not at the turn's end, because the
+agent goes on with its turn: a card left up would read as live, and keep
+the thread waiting on the person, for as long as that turn ran. The driver
+closes the request to answers first, so an answer that arrives from then on
+finds nothing behind the card and is refused; it tells the session, which
+supersedes the card with `decision: "expired"` and `decidedOptionName:
+"Expired unanswered"`; and it tells the agent the request was cancelled. An
+answer and the wait running out in the same instant end one way: whichever
+reached the request first, and the agent and the tape are told the same one.
+An answer names a request by the id its card carries, fresh for every
+request, so one that is refused is applied to no other.
 
 ## Asking the person
 

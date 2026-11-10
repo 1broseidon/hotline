@@ -836,6 +836,23 @@ pub(super) fn event_of(
             decision: None,
             decided_option_name: None,
         }],
+        // The same card by the same id, so it is superseded where it stands,
+        // settled as an answered card is: the outcome, and its words, which
+        // are the room's for a wait nobody answered (`peers`, `browser`).
+        Update::PermissionExpired {
+            request_id,
+            title,
+            options,
+        } => vec![TranscriptEvent::Permission {
+            from: None,
+            id: format!("perm:{request_id}"),
+            ts: now_ms(),
+            request_id,
+            title,
+            options,
+            decision: Some("expired".to_string()),
+            decided_option_name: Some("Expired unanswered".to_string()),
+        }],
         Update::Turn { stop_reason, usage } => vec![TranscriptEvent::Turn {
             id: new_id(),
             ts: now_ms(),

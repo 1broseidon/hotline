@@ -103,20 +103,17 @@ const UPDATE_DEPTH: usize = 256;
 /// usage report; this is for a harness that never says it is done.
 const UNPROMPTED_QUIET: Duration = Duration::from_secs(300);
 
-/// How long a permission card may wait for a person before the agent is told
-/// nobody answered. A live request cannot wait on an absent human forever;
-/// the agent gets its turn back and the card says it expired.
-const PERMISSION_TIMEOUT: Duration = Duration::from_mins(10);
-
-/// How long an agent's command has to answer `initialize` and open its
-/// session, from the moment it is spawned.
+/// How long the driver waits on what may never answer: an agent's command, to
+/// answer `initialize` and open its session from the moment it is spawned, and
+/// a person, to answer a permission card. A harness shortens them; the desk
+/// runs on the defaults.
 ///
 /// A launcher can hang without a word: a `mise` shim that re-executes itself
 /// forever, a wrapper waiting on a prompt nobody can see. Unbounded, that start
 /// never ends and the teammate never says why. Bounded, it ends as a failure
 /// that names the command, and the process group is killed.
 ///
-/// Two bounds, because silence on stdout means two different things. A launch
+/// Two bounds on a start, because silence on stdout means two different things. A launch
 /// that has answered on this machine before has its package in the npx or uvx
 /// cache, and answers in seconds; a minute is far past any honest start. A
 /// launch that has never answered here may be downloading its package, which
@@ -125,18 +122,25 @@ const PERMISSION_TIMEOUT: Duration = Duration::from_mins(10);
 /// that runs out the short bound is forgotten, so a package evicted from the
 /// cache gets the long one on its next start.
 #[derive(Clone, Copy, Debug)]
-pub struct StartBounds {
+pub struct Bounds {
     /// For a launch that has answered on this machine before.
     pub known: Duration,
     /// For a launch that never has, which may be fetching its package.
     pub first: Duration,
+    /// How long a permission card may wait for a person before the agent is
+    /// told nobody answered. A live request cannot wait on an absent human
+    /// forever: the agent gets its turn back, the card is settled as expired
+    /// where it stands, and an answer that comes later is refused (see
+    /// `translate::ask_permission`).
+    pub permission: Duration,
 }
 
-impl Default for StartBounds {
+impl Default for Bounds {
     fn default() -> Self {
         Self {
             known: Duration::from_secs(60),
             first: Duration::from_mins(5),
+            permission: Duration::from_mins(10),
         }
     }
 }
@@ -379,7 +383,7 @@ pub struct ChildAgent {
     served: Mutex<Option<Served>>,
     live: Arc<Live>,
     launch: Mutex<Option<registry::Launch>>,
-    start_bounds: StartBounds,
+    bounds: Bounds,
     operation_gate: tokio::sync::Mutex<()>,
 }
 
@@ -408,13 +412,13 @@ impl ChildAgent {
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
             launch: Mutex::new(None),
-            start_bounds: StartBounds::default(),
+            bounds: Bounds::default(),
             operation_gate: tokio::sync::Mutex::new(()),
         }
     }
 
-    pub(crate) fn with_start_bounds(mut self, bounds: StartBounds) -> Self {
-        self.start_bounds = bounds;
+    pub(crate) fn with_bounds(mut self, bounds: Bounds) -> Self {
+        self.bounds = bounds;
         self
     }
 
@@ -583,9 +587,9 @@ impl Driver for ChildAgent {
         *lock(&self.launch) = Some(launch.clone());
         *lock(&self.persona) = Some(persona.clone());
         let bound = if registry::started_before(&self.root, &launch) {
-            self.start_bounds.known
+            self.bounds.known
         } else {
-            self.start_bounds.first
+            self.bounds.first
         };
         self.live.spawning();
         let Ok(result) = tokio::time::timeout(bound, self.spawn(persona, &launch)).await else {

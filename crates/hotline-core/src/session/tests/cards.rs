@@ -87,6 +87,117 @@ async fn a_card_the_turn_left_open_is_expired_when_the_turn_ends() {
     assert_eq!(events[1]["decision"], "expired");
 }
 
+/// A card nobody answered in the driver's time is settled while its turn
+/// still runs. The driver has told the agent nobody answered and carries on
+/// with the turn; the card is superseded as expired where it stands, the tape
+/// stops reading as waiting on the person, and the answer that comes after is
+/// refused with the reason instead of being written down as a decision.
+#[tokio::test]
+async fn a_card_nobody_answered_in_time_expires_while_its_turn_runs_and_refuses_a_late_answer() {
+    let gate = Arc::new(Semaphore::new(0));
+    let options = vec![PermissionOption {
+        option_id: "once".to_string(),
+        name: "Allow once".to_string(),
+        kind: Some("allow_once".to_string()),
+    }];
+    let mut driver = Scripted::new(vec![
+        Update::Permission {
+            request_id: "r1".to_string(),
+            title: "Run rm -rf build".to_string(),
+            options: options.clone(),
+        },
+        Update::PermissionExpired {
+            request_id: "r1".to_string(),
+            title: "Run rm -rf build".to_string(),
+            options,
+        },
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ]);
+    driver.gate = Some(gate.clone());
+    let room = room("lapsed", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "clean up", None, None).await.unwrap();
+    gate.add_permits(1);
+    let events = settled(&room, "ada", 2).await;
+    assert!(events[1].get("decision").is_none(), "the card is live");
+    assert!(crate::wire::waiting_on(&tape(&room, "ada")));
+
+    gate.add_permits(1);
+    until("the card expires", || {
+        tape(&room, "ada")
+            .iter()
+            .any(|event| event["decision"] == "expired")
+    })
+    .await;
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(
+        kinds(&events),
+        ["user", "permission"],
+        "one card, and the turn still running"
+    );
+    assert_eq!(events[1]["id"], "perm:r1");
+    assert_eq!(events[1]["decision"], "expired");
+    assert_eq!(events[1]["title"], "Run rm -rf build");
+    assert_eq!(events[1]["decidedOptionName"], "Expired unanswered");
+    assert!(!crate::wire::waiting_on(&tape(&room, "ada")));
+
+    assert_eq!(
+        room.answer_permission("ada", "r1", "once").await,
+        Err("That request is no longer waiting for an answer.".to_string())
+    );
+    assert_eq!(settled(&room, "ada", 2).await[1]["decision"], "expired");
+
+    gate.add_permits(1);
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "permission", "turn"]);
+    assert_eq!(events[1]["decision"], "expired");
+}
+
+/// A card the tape has settled is never answered, whatever a driver still
+/// holds behind it. Work an agent takes up by itself can end, and its cards
+/// expire with it, while the agent is still asking; the person was shown an
+/// expired card, so an answer that names it afterwards (a phone's
+/// notification, a window that had not caught up) is refused and the card
+/// stays as it was.
+#[tokio::test]
+async fn a_card_the_tape_has_settled_is_not_answered_whatever_the_driver_holds() {
+    let driver = Scripted::new(vec![
+        Update::Permission {
+            request_id: "r1".to_string(),
+            title: "Edit the harbour log".to_string(),
+            options: vec![PermissionOption {
+                option_id: "once".to_string(),
+                name: "Allow once".to_string(),
+                kind: None,
+            }],
+        },
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ]);
+    // The driver would still take an answer to this request.
+    let held = driver.waiting.clone();
+    lock(&held).push("r1".to_string());
+    let room = room("settled-card", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "tidy", None, None).await.unwrap();
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(events[1]["decision"], "expired");
+
+    assert_eq!(
+        room.answer_permission("ada", "r1", "once").await,
+        Err("That request is no longer waiting for an answer.".to_string())
+    );
+    assert_eq!(settled(&room, "ada", 3).await[1]["decision"], "expired");
+    assert_eq!(*lock(&held), ["r1"], "the answer never reached the driver");
+}
+
 /// The agent's own id for the conversation is remembered on the teammate's
 /// record — once, after a turn has completed on it, and one entry per backend.
 #[tokio::test]

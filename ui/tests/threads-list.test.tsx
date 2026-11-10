@@ -61,6 +61,10 @@ let listed: ThreadSummary[];
 let jobs: ScheduleEntry[];
 let asides: Aside[];
 let threadLines: Record<string, TranscriptEvent[]>;
+/** Each thread the window is reading, by key, so a test can say what its tape says next. */
+let reading: Record<string, Handlers>;
+/** What the desk says to a command it refuses, by command. */
+let refused: Record<string, string>;
 let dom: import("happy-dom").Window;
 let sent: { cmd: string; params: unknown }[];
 let act: typeof import("react").act;
@@ -81,6 +85,8 @@ beforeEach(async () => {
 	jobs = [];
 	asides = [];
 	threadLines = {};
+	reading = {};
+	refused = {};
 	sent = [];
 	for (const one of ["pork", "elvis", "lou"]) rememberFilter(one, "all");
 	const connection = wireFor("local");
@@ -96,12 +102,14 @@ beforeEach(async () => {
 				: typeof target === "object" && target !== null && "threadId" in target
 					? (threadLines[(target as { threadId: { key: string } }).threadId.key] ?? [])
 					: [];
+		if (typeof target === "object" && target !== null && "threadId" in target) reading[(target as { threadId: { key: string } }).threadId.key] = handlers;
 		queueMicrotask(() => handlers.snapshot(first));
 		return () => {};
 	}) as Wire["subscribe"]);
 	restores.push(() => subscription.mockRestore());
 	const command = spyOn(connection, "command").mockImplementation((async (cmd: string, params: unknown) => {
 		sent.push({ cmd, params });
+		if (refused[cmd] !== undefined) throw new Error(refused[cmd]);
 		if (cmd === "thread.list") return listed;
 		if (cmd === "aside.list") return asides;
 		if (cmd === "aside.seen" || cmd === "thread.answer" || cmd === "secrets.passkey.answer") return null;
@@ -607,6 +615,35 @@ describe("task-403 needs-you actions", () => {
 		const yes = [...card.querySelectorAll<HTMLButtonElement>("button")].find((one) => one.textContent === "Yes");
 		expect(yes?.disabled).toBe(true);
 		await act(async () => cardRoot.unmount());
+	});
+
+	test("task-419: a permission card that expired unanswered takes its keys off the Needs you row, and a key pressed after it expired is told the desk's reason", async () => {
+		// A thread and a card of its own: an answer out on a card is kept by the card's id.
+		const lapsing: TranscriptEvent = { ...permission, id: "perm:lapsing", requestId: "lapsing", title: "rm -rf build" };
+		listed = [summary({ thread: { kind: "side", key: "w-lapse" }, title: "Clear the build", waiting: true })];
+		threadLines = { "w-lapse": [lapsing] };
+		await dock([entry(pork, { sides: [{ sideId: "w-lapse", title: "w-lapse", startedAt: 1, working: false }] })]);
+		await settle();
+		expect(sections()["Needs you"]).toEqual(["side:w-lapse"]);
+		expect(parts("side:w-lapse").line).toBe("rm -rf build");
+		expect(words("side:w-lapse")).toEqual(["Allow once", "Deny"]);
+
+		// The request has expired on the desk; this window has not heard yet.
+		refused["thread.answer"] = "That request is no longer waiting for an answer.";
+		await press("side:w-lapse", "Allow once");
+		await settle();
+		const needs = row("side:w-lapse")?.closest(".list-needs");
+		expect(needs?.querySelector('[role="alert"]')?.textContent).toBe("That request is no longer waiting for an answer.");
+		expect(keys("side:w-lapse").every((one) => !one.disabled)).toBe(true);
+
+		// The tape says the card expired: its answers leave the row, and the refusal with them.
+		await act(async () => reading["w-lapse"]?.event({ ...lapsing, ts: 2, decision: "expired", decidedOptionName: "Expired unanswered" }));
+		expect(words("side:w-lapse")).toEqual(["Open"]);
+		expect(needs?.querySelector('[role="alert"]')).toBeNull();
+		expect(parts("side:w-lapse").line).not.toBe("rm -rf build");
+		expect(sent.filter((one) => one.cmd === "thread.answer")).toEqual([
+			{ cmd: "thread.answer", params: { thread: { kind: "side", key: "w-lapse" }, answer: { kind: "permission", requestId: "lapsing", optionId: "once" } } },
+		]);
 	});
 
 	test("Where the card's answer needs more than a key (text, a credential), the row shows Open instead of a fake key", async () => {

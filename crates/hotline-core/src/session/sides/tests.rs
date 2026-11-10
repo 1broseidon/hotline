@@ -1093,6 +1093,74 @@ async fn a_permission_card_in_a_thread_is_answered_by_side_id() {
     );
 }
 
+/// A card raised in a work thread that nobody answers in time is settled on
+/// the thread's own stream while its turn runs, and the thread stops reading
+/// as stopped on a card; the answer that comes after is refused.
+#[tokio::test]
+async fn a_permission_card_in_a_thread_that_nobody_answers_expires_there_and_stops_waiting() {
+    let gate = Arc::new(Semaphore::new(1));
+    let options = vec![PermissionOption {
+        option_id: "allow".to_string(),
+        name: "Allow".to_string(),
+        kind: None,
+    }];
+    let agents = Fake::new(
+        Scripted::new(vec![
+            Update::Permission {
+                request_id: "r1".to_string(),
+                title: "Run the tests?".to_string(),
+                options: options.clone(),
+            },
+            Update::PermissionExpired {
+                request_id: "r1".to_string(),
+                title: "Run the tests?".to_string(),
+                options,
+            },
+            turn(),
+        ])
+        .gated(gate.clone()),
+    );
+    let room = room("side-permission-lapsed", agents);
+    let summary = room.start_side("ada", "Task").await.unwrap();
+    let cards = || -> Vec<Value> {
+        side_stream(&room, &summary.side_id)
+            .into_iter()
+            .filter(|event| event["kind"] == "permission")
+            .collect()
+    };
+    until("a permission card on the side's stream", || {
+        !cards().is_empty()
+    })
+    .await;
+    assert!(room.side_threads("ada")[0].waiting);
+
+    gate.add_permits(1);
+    until("the card expires", || {
+        cards().iter().any(|card| card["decision"] == "expired")
+    })
+    .await;
+    let settled = cards();
+    assert_eq!(settled.len(), 1, "one card, superseded: {settled:?}");
+    assert_eq!(settled[0]["id"], "perm:r1");
+    assert!(
+        !side_stream(&room, &summary.side_id)
+            .iter()
+            .any(|event| event["kind"] == "turn"),
+        "the turn is still running"
+    );
+    assert!(
+        !room.side_threads("ada")[0].waiting,
+        "the list still says it is stopped on a card"
+    );
+    assert_eq!(
+        room.answer_side_permission(&summary.side_id, "r1", "allow")
+            .await,
+        Err("That request is no longer waiting for an answer.".to_string())
+    );
+    assert_eq!(cards()[0]["decision"], "expired");
+    gate.add_permits(1);
+}
+
 /// Waits until the room's agents have heard `count` lines.
 async fn heard(agents: &Fake, count: usize) {
     until(&format!("the agent hears {count} lines"), || {

@@ -5,7 +5,7 @@
 use super::*;
 use crate::driver::CapabilityEpoch;
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 
@@ -165,7 +165,7 @@ async fn a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint() {
         .call("post_to_chat", &json!({"text": "Revoked in process."}))
         .await
         .unwrap_err();
-    let connected = ClientInfo::new(
+    let connected = ClientConfig::new(
         ClientCapabilities::default(),
         Implementation::new("test", env!("CARGO_PKG_VERSION")),
     )

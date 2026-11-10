@@ -542,6 +542,12 @@ metadata, or rely on legacy guessed endpoints are reported as unsupported.
 Token endpoint client authentication follows the methods advertised by the
 authorization server through rmcp; Hotline does not invent another method or
 persist a client secret in settings.
+Sign-in's own requests (discovery, registration, the token exchange and each
+refresh) are refused by the address a host resolves to, not by its name: a
+loopback or private address is reached only when the server's own URL names
+one of that kind (`localhost`, or a loopback or private IP literal), and a
+link-local or reserved address never. A server on a private network that is
+set up by host name therefore fails discovery.
 Tokens, refresh tokens and DCR client secrets live in the private vault under
 the server URL and issuer binding. They are never settings, stream, tape,
 prompt, ACP descriptor or log data. Refreshes and rotated refresh tokens are

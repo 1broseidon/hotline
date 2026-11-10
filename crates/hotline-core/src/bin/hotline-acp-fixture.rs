@@ -18,7 +18,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use serde_json::Value;
@@ -210,7 +210,7 @@ async fn answer(
         reqwest::Client::default(),
         StreamableHttpClientTransportConfig::with_uri(desk.url).auth_header(desk.token),
     );
-    let client = ClientInfo::new(
+    let client = ClientConfig::new(
         ClientCapabilities::default(),
         Implementation::new("hotline-acp-fixture", env!("CARGO_PKG_VERSION")),
     );

@@ -36,7 +36,7 @@ use url::Url;
 use uuid::Uuid;
 
 type OAuthRunningService = (
-    RunningService<rmcp::RoleClient, rmcp::model::ClientInfo>,
+    RunningService<rmcp::RoleClient, rmcp::model::ClientConfig>,
     Vec<rmcp::model::Tool>,
 );
 type OAuthCompleteCallback = Arc<dyn Fn() + Send + Sync>;
@@ -1353,7 +1353,16 @@ fn auth_error_message(error: AuthError) -> String {
         AuthError::RegistrationFailed(_) => {
             "MCP OAuth client registration failed; check that this server supports DCR.".to_string()
         }
-        AuthError::MetadataError(_) => "MCP OAuth metadata discovery failed.".to_string(),
+        // Discovery's ways of failing: a request that got no answer (or was
+        // refused for the address it resolved to), a protected-resource
+        // document that is not this server's, and authorization servers
+        // that publish nothing usable.
+        AuthError::MetadataError(_)
+        | AuthError::DiscoveryRequestFailed { .. }
+        | AuthError::ProtectedResourceMetadataInvalid { .. }
+        | AuthError::AuthorizationServersUnavailable { .. } => {
+            "MCP OAuth metadata discovery failed.".to_string()
+        }
         AuthError::HttpError(_) | AuthError::OAuthError(_) => {
             "MCP OAuth authorization request failed.".to_string()
         }
@@ -1435,6 +1444,34 @@ mod tests {
             assert!(validate_callback_url(expected, wrong).is_err(), "{wrong}");
         }
         assert!(validate_callback_url(expected, "not a url").is_err());
+    }
+
+    /// rmcp names a discovery request that never got an answer with its own
+    /// error, and the person still reads that discovery failed.
+    #[tokio::test]
+    async fn a_server_that_does_not_answer_discovery_says_discovery_failed() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let server = McpServer {
+            id: "unreachable".to_string(),
+            name: "Unreachable".to_string(),
+            transport: McpTransport::Http {
+                url: format!("http://127.0.0.1:{port}/mcp"),
+                auth: HttpAuth::Oauth,
+            },
+            refuse: None,
+        };
+        let vault = OAuthVault {
+            store: rmcp::transport::auth::InMemoryCredentialStore::new(),
+            token_lock: Arc::new(AsyncMutex::new(())),
+            registration: Ok(None),
+        };
+        let error = manager_for_server(&server, &vault, None)
+            .await
+            .err()
+            .expect("nothing listens on the port");
+        assert_eq!(error, "MCP OAuth metadata discovery failed.");
     }
 
     #[test]

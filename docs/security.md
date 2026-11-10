@@ -1622,6 +1622,7 @@ extend; when a change adds a boundary, it adds a row.
 | In the desk browser, a passkey signs only for the origin WebKit reports for the calling frame, never one the page writes, and never for a frame of another site, plain HTTP or a teammate not granted it; an ask-me passkey waits on the card; one is made only under the pane's arming for its one site and the person's approval, goes to the vault and is ticked for the teammate, and the page gets its public key only | `mcp/server/tests/desk_browser/passkeys.rs` `a_passkey_signs_for_the_origin_webkit_reports_never_the_one_the_page_claims`, `an_ask_me_passkey_holds_on_the_card_until_the_person_answers`, `a_passkey_is_made_only_under_an_arming_for_its_site_and_lands_in_the_vault`; `browser/authenticator.rs` `a_passkey_is_never_offered_to_another_site_or_an_insecure_page`; `hotline-app/src/browser/passkeys.rs` `a_frames_origin_is_built_from_what_webkit_reports` | a real site (webauthn.io): manual in the Mac app |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
+| The app updates itself only from one of two addresses fixed in the build, and the desk stores only which: Stable is offered a final release and never a pre-release, Beta also a `beta.N` and no other pre-release, and neither is ever offered a version that is not newer than the one running, so leaving Beta keeps the build until a final release passes it; a track file that names anything else is Stable; an offer found on one track is not shown on the other; only the main window may change the track | `hotline-app/src/updater.rs` `a_track_is_offered_only_its_releases_and_never_an_older_one`, `stable_reads_the_latest_final_release_and_beta_one_fixed_address`, `each_track_checks_its_own_manifest`, `a_beta_is_offered_its_final_and_later_betas`, `a_desk_back_on_stable_keeps_its_beta_until_a_final_release_passes_it`, `the_track_is_stored_with_the_desk_and_anything_unreadable_is_stable`, `changing_track_forgets_the_other_tracks_offer`, `downloads_are_verified_by_tauri_and_never_installed_by_tests`; `hotline-app/tests/window_capabilities.rs` `main_can_invoke_every_manifest_command_at_the_permission_layer`, `computer_viewers_can_invoke_only_the_four_viewer_commands` | the release workflow's own steps run only on GitHub (`docs/development.md`, The first dry run) |
 
 Where real macOS execution is required: every `hotline-tools/src/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and
@@ -2364,6 +2365,53 @@ with a message or an aside, on one desk or across a link.
 - **Residual risk:** the package managers and updaters are trusted as the
   person already trusts them for these CLIs. `@latest` is whatever npm
   publishes as latest.
+
+## Application updates and the update track (task-423)
+
+The updater installs code, so what it will accept is a boundary of its own.
+It is the person's, not a teammate's: no tool, wire command or companion
+seat reaches it, only the main window's own commands.
+
+- **Default:** Stable. A desk with no `update-track.json`, or one that is
+  unreadable, over 1 kB or names anything but `stable` or `beta`, is on
+  Stable. A build from before tracks reads Stable's address and has no
+  setting.
+- **Grant source:** the person, with the Track row in Settings → Updates
+  (`set_update_track`). The file holds the name of a track and nothing
+  else: no address, no key, no version.
+- **What is accepted:** a manifest from one of two HTTPS addresses compiled
+  into the build, Stable's in `tauri.conf.json` and Beta's in `updater.rs`;
+  from it, one package for this installation's own installer target, whose
+  signature the plugin verifies against the public key compiled into the
+  build before anything is installed. Betas are signed with the same key
+  as final releases; there is no second key to trust.
+- **Enforcement:** `updater::newer` is the one rule, applied by the plugin's
+  comparator at every check, again by the check that precedes every
+  install, and to an offer read back from the cache. The candidate must be
+  newer than the running version by semver on either track. Stable takes a
+  final release only, so a pre-release served at Stable's address is
+  ignored. Beta also takes `beta.N`, and no other pre-release. Nothing is
+  ever a downgrade, which is why a desk that leaves Beta stays on its build
+  until a final release passes it. An offer is kept with the track it was
+  found on and is dropped on the other.
+- **The release side** (`.github/workflows/desktop-release.yml`): a beta is
+  published as a GitHub pre-release, which GitHub does not serve as the
+  latest release, without a `latest.json`, so nothing it uploads can answer
+  at Stable's address. Beta's manifest is a copy of a published release's
+  own, moved only after every package it names answers, only forward, in
+  one step (`scripts/beta_pointer.py`). `scripts/test_updater_manifest.py`
+  and `scripts/test_beta_pointer.py` prove both.
+- **Tests:** the matrix row for the two tracks; the Track row itself in
+  `ui/tests/update-track.test.tsx`.
+- **Revocability:** choosing Stable again. It takes effect at once for what
+  is offered, and does not remove a beta already installed.
+- **Residual risk:** whoever can push to the repository can move either
+  manifest, as they can publish a release. What that can do is bounded by
+  the signature and by `newer`: offer a package signed with the updater key
+  that is newer than the one running, or withhold one. It cannot offer an
+  unsigned package or an older one. A download URL is not held to GitHub's
+  host; the signature is what is checked. `raw.githubusercontent.com`, which
+  serves Beta's manifest, is a second host to depend on, for Beta only.
 
 ## The owner phone changes a teammate's access (BRO-140, part)
 

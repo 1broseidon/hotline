@@ -779,7 +779,11 @@ function DeskFilter({ compact = false, onAdd }: { compact?: boolean | undefined;
 function DeskFilterMenu({ desks, compact, onAdd }: { desks: Desk[]; compact: boolean; onAdd(): void }) {
 	const filter = useDeskFilter();
 	const unread = useBackgroundUnread();
-	const links = useDeskLinks();
+	// A link's words are read only in the open menu, so the desk is asked
+	// for them only while it is open: a closed menu, which is the window at
+	// rest, asks nothing.
+	const [menuOpen, setMenuOpen] = useState(false);
+	const links = useDeskLinks(menuOpen);
 	const shown = desks.find((desk) => desk.id === filter) ?? null;
 	const away = desks.some((desk) => desk.kind === "remote" && desk.state !== undefined && desk.state !== "open");
 	const elsewhere = desks.some((desk) => desk.id !== shown?.id && (unread[desk.id] ?? 0) > 0);
@@ -811,6 +815,7 @@ function DeskFilterMenu({ desks, compact, onAdd }: { desks: Desk[]; compact: boo
 				label={`Desks: ${name}`}
 				title={shown === null ? `All desks${away ? " · one offline" : ""}` : `${shown.name} · ${deskDetail(shown)}`}
 				entries={entries}
+				onOpenChange={setMenuOpen}
 			>
 				{shown === null ? <AllTile away={away} count={desks.length} /> : <DeskTile desk={shown} />}
 				{!compact && <span className="account-name">{shown === null ? name : shortName(name)}</span>}

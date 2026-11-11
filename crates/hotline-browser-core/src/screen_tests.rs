@@ -174,9 +174,13 @@ async fn a_slow_viewer_holds_the_helper_back_rather_than_queueing_pictures() {
         assert_eq!(hello.persona, "ada");
         let input = read_message(&mut socket).await.unwrap().unwrap();
         assert_eq!(input, (TEXT, RELEASE.as_bytes().to_vec()));
-        // Big pictures: the socket's buffers fill and a write waits.
+        // Big pictures: the socket's buffers fill and a write waits. The link
+        // takes the first before its viewer takes anything, so that write
+        // ends however long a slow machine takes over it; only a later write
+        // that waits is the helper held back.
         let picture = vec![1u8; 4 * 1024 * 1024];
-        let mut sent = 0;
+        write_message(&mut socket, BINARY, &picture).await.unwrap();
+        let mut sent = 1;
         while tokio::time::timeout(
             std::time::Duration::from_millis(300),
             write_message(&mut socket, BINARY, &picture),
@@ -187,11 +191,9 @@ async fn a_slow_viewer_holds_the_helper_back_rather_than_queueing_pictures() {
             sent += 1;
             assert!(sent < 8, "the helper was never held back");
         }
-        sent
     });
     let mut link = connect(&path, "ada").await.unwrap();
     link.input.send(RELEASE.to_string()).await.unwrap();
-    let sent = helper.await.unwrap();
-    assert!(sent >= 1, "the first picture went");
+    helper.await.unwrap();
     assert!(matches!(link.shown.recv().await, Some(Shown::Frame(_))));
 }

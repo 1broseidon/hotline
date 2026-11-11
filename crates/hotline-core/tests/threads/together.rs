@@ -661,8 +661,11 @@ async fn a_handoffs_link_carries_its_request_into_the_receivers_dm() {
             .into_iter()
             .rfind(|event| event["kind"] == "link" && event["openerId"] == ada.as_str())
     };
-    until("the handoff's link is on Bob's DM", || {
-        link_on(&bob).is_some()
+    // The link is written on Bob's tape and then copied onto Ada's, two
+    // appends one after the other, so both are waited for: the copy can land
+    // a moment after Bob's.
+    until("the handoff's link is on both DMs", || {
+        link_on(&bob).is_some() && link_on(&ada).is_some()
     })
     .await;
 

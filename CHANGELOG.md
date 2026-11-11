@@ -125,9 +125,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   account no longer has (Claude's 5-hour window, once lifted) goes at the
   next read instead of staying on from an old reading, and a desk with such
   a reading saved heals itself. A window whose reset has passed shows a dash
-  until it is read again, not the last period's use. A weekly warning
-  clears once the week reads well under the line, its limit having been
-  raised.
+  until it is read again, not the last period's use, and a window keeps its
+  use through Claude Code's report after a reply when that report gives no
+  figure, instead of a dash until the next read. A weekly warning clears
+  once the week reads well under the line, its limit having been raised.
 
 ## [0.48.3] - 2026-11-06
 

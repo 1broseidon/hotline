@@ -21,6 +21,28 @@ const NAMES: Record<string, string> = {
 	period: "Credits",
 };
 
+/** Whether a window's reset has passed since it was read, so that what it says was used was the last period's. */
+export function rolledOver(window: PlanWindow, now: number = Date.now()): boolean {
+	return window.resetsAt !== undefined && window.resetsAt <= now;
+}
+
+/**
+ * The reading as it stands now. A window whose reset has passed since it
+ * was read keeps its line with no figure and no refusal until it is read
+ * again: the account most likely still has it, and the use it was read at
+ * was the last period's. The core keeps a reading the same way, but the
+ * reset can pass between readings.
+ */
+export function planAsOf(plan: PlanUsage, now: number = Date.now()): PlanUsage {
+	if (!plan.windows.some((window) => rolledOver(window, now))) return plan;
+	return { ...plan, windows: plan.windows.map((window) => (rolledOver(window, now) ? unread(window) : window)) };
+}
+
+/** A window as it stands once it has reset and not been read since. */
+function unread({ usedPercent: _, ...window }: PlanWindow): PlanWindow {
+	return { ...window, status: "allowed" };
+}
+
 /** A login's main windows, a line each whenever read. */
 const MAIN = new Set(["five_hour", "seven_day", "monthly"]);
 
@@ -156,8 +178,9 @@ export function planAccount(plan: PlanUsage | undefined): string {
 }
 
 /** How much of it is used, as a whole percentage, or how it stands when the agent gave no figure. */
-export function windowUse(window: PlanWindow): string {
+export function windowUse(window: PlanWindow, now: number = Date.now()): string {
 	if (window.status === "limited") return "limit reached";
+	if (window.usedPercent === undefined && rolledOver(window, now)) return "reset";
 	if (window.usedPercent !== undefined) return `${Math.round(window.usedPercent)}%`;
 	return window.status === "warning" ? "near the limit" : "in use";
 }
@@ -199,10 +222,10 @@ export function gaugeWindows(plan: PlanUsage | undefined): PlanWindow[] {
 }
 
 /** The gauge's name for a screen reader: "Plan usage: 5h 9%, weekly 39%", the inner ring first. */
-export function gaugeLabel(rings: PlanWindow[]): string {
+export function gaugeLabel(rings: PlanWindow[], now: number = Date.now()): string {
 	const said = [...rings].reverse().map((window) => {
 		const name = windowName(window);
-		return `${MAIN.has(window.kind) ? name.toLowerCase() : name} ${windowUse(window)}`;
+		return `${MAIN.has(window.kind) ? name.toLowerCase() : name} ${windowUse(window, now)}`;
 	});
 	return `Plan usage: ${said.join(", ")}`;
 }

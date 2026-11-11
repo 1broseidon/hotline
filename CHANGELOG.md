@@ -121,6 +121,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   was refused earlier in the week shows the use read since, once that is
   well under the limit, instead of 100% until the reset. Every name stays on
   one line, a long one shortened, and the card grows to fit every line.
+- The plan card shows the windows the account has now. A window the
+  account no longer has (Claude's 5-hour window, once lifted) goes at the
+  next read instead of staying on from an old reading, and a desk with such
+  a reading saved heals itself. A window whose reset has passed shows a dash
+  until it is read again, not the last period's use. A weekly warning
+  clears once the week reads well under the line, its limit having been
+  raised.
 
 ## [0.48.3] - 2026-11-06
 

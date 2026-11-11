@@ -152,6 +152,34 @@ test("each name stays on one line in a column as wide as the longest, a long one
 	expect(extra.querySelector(".plan-runway")?.textContent).toMatch(/^Resets [^·]+$/);
 });
 
+test("a window whose reset has passed since it was read keeps its line with no figure, and the gauge does not count it", async () => {
+	const reading = plan(100, 39);
+	reading.windows[0] = { ...reading.windows[0]!, status: "limited", resetsAt: Date.now() - hour };
+	const button = (await gauge(reading))!;
+	expect(rings(button)).toEqual([
+		["outer", "39"],
+		["inner", "0"],
+	]);
+	expect(button.getAttribute("aria-label")).toBe("Plan usage: 5h reset, weekly 39%");
+	expect(button.dataset["near"]).toBeUndefined();
+	await act(async () => button.click());
+	const five = card()!.querySelectorAll<HTMLElement>(".plan-window")[0]!;
+	expect(five.dataset["status"]).toBe("allowed");
+	expect(five.querySelector(".plan-name")?.textContent).toBe("5h");
+	expect(five.querySelector(".plan-use")?.textContent).toBe("–");
+	expect(five.querySelector(".plan-tick")).toBeNull();
+	expect(five.querySelector(".plan-runway")?.textContent).toBe("Reset");
+});
+
+test("the gauge draws again when a window's reset passes", async () => {
+	const reading = plan(9, 39);
+	reading.windows[0] = { ...reading.windows[0]!, resetsAt: Date.now() + 50 };
+	const button = (await gauge(reading))!;
+	expect(rings(button)[1]).toEqual(["inner", "9"]);
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+	expect(rings(button)[1]).toEqual(["inner", "0"]);
+});
+
 test("a line's name never wraps onto its neighbours, and the card grows with its lines rather than scrolling the last under its edge", () => {
 	const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
 	const rule = (selector: string) => css.match(new RegExp(`\\n\\t${selector.replace(/\./g, "\\.")} \\{([^}]*)\\}`))?.[1] ?? "";

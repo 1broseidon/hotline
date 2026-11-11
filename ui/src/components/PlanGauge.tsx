@@ -1,7 +1,7 @@
 import { type CSSProperties, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlanUsage, PlanWindow } from "../generated/contract";
-import { gaugeLabel, gaugeWindows, nameColumn, nearLimit, paceTick, planAccount, resetShort, shortName, shownWindows, usedShare, windowName, windowNote } from "../plan";
+import { gaugeLabel, gaugeWindows, nameColumn, nearLimit, paceTick, planAccount, planAsOf, resetShort, rolledOver, shortName, shownWindows, usedShare, windowName, windowNote } from "../plan";
 import { Mark } from "../ui/Mark";
 
 /** The ring radii: the outer (weekly) and the inner (5-hour), on an 18px face. */
@@ -15,7 +15,9 @@ const RINGS = [7, 3.75];
  * focused it shows the plan as a card: the agent and the plan's name, then
  * a line per window with its bar, pace tick, use and reset, and under each
  * when it resets and its runway. A click pins the card; a click elsewhere or Escape lets it go.
- * Shown only while the teammate's login has a reading.
+ * Shown only while the teammate's login has a reading. A window whose
+ * reset has passed since it was read shows no figure until it is read
+ * again, and the gauge draws again when a reset passes.
  */
 export function PlanGauge({
 	plan,
@@ -38,7 +40,19 @@ export function PlanGauge({
 	const [focused, setFocused] = useState(false);
 	const leave = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const open = pinned || hovered || focused;
-	const rings = gaugeWindows(plan);
+	const [, redraw] = useState(0);
+	const now = Date.now();
+	const current = plan === undefined ? undefined : planAsOf(plan, now);
+	const rings = gaugeWindows(current);
+
+	useEffect(() => {
+		const from = Date.now();
+		const next = Math.min(...(plan?.windows ?? []).map((window) => window.resetsAt ?? Number.POSITIVE_INFINITY).filter((at) => at > from));
+		if (!Number.isFinite(next)) return;
+		// A timer's longest wait is about 24 days.
+		const timer = setTimeout(() => redraw((times) => times + 1), Math.min(next - from + 1_000, 2_147_483_647));
+		return () => clearTimeout(timer);
+	}, [plan]);
 
 	const wasOpen = useRef(false);
 	useEffect(() => {
@@ -61,8 +75,8 @@ export function PlanGauge({
 		return () => document.removeEventListener("mousedown", away, true);
 	}, [open]);
 
-	if (plan === undefined || rings.length === 0) return null;
-	const near = nearLimit(plan);
+	if (current === undefined || rings.length === 0) return null;
+	const near = nearLimit(current);
 	const hover = (on: boolean) => {
 		if (leave.current !== null) clearTimeout(leave.current);
 		leave.current = null;
@@ -82,7 +96,7 @@ export function PlanGauge({
 				type="button"
 				className="control btn-icon plan-gauge"
 				data-near={near ? "true" : undefined}
-				aria-label={gaugeLabel(rings)}
+				aria-label={gaugeLabel(rings, now)}
 				aria-expanded={open}
 				aria-describedby={open ? id : undefined}
 				onMouseEnter={() => hover(true)}
@@ -110,7 +124,7 @@ export function PlanGauge({
 					ref={card}
 					id={id}
 					anchor={button.current}
-					plan={plan}
+					plan={current}
 					agent={agent}
 					mark={mark}
 					onHover={hover}
@@ -212,7 +226,7 @@ function PlanRows({ plan }: { plan: PlanUsage }) {
 	return (
 		<div className="plan-rows" style={{ "--plan-name": `${nameColumn(names)}ch` } as CSSProperties}>
 			{windows.map((window, at) => {
-				const tick = paceTick(window, now);
+				const tick = rolledOver(window, now) ? undefined : paceTick(window, now);
 				const note = windowNote(window, now);
 				const name = names[at]!;
 				const short = shortName(name);

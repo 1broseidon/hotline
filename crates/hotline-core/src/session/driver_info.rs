@@ -2,6 +2,7 @@
 //! the wakes and unprompted turns it raises, and the desk's changes to them.
 
 use super::*;
+use crate::driver::acp::plan::Extent;
 
 impl Room {
     /// Keeps ACP's live picker metadata in the roster without putting a
@@ -138,9 +139,10 @@ impl Room {
         session: &Arc<Session>,
         reported: &DriverInfo,
     ) -> Result<SessionInfo, String> {
-        // A reading is the account's, whichever teammate's agent gave it.
+        // A reading is the account's, whichever teammate's agent gave it: a
+        // report of one window, or a plan's name with none.
         if let Some(reading) = &reported.plan_usage {
-            self.take_plan(&session.backend_id, reading.clone());
+            self.take_plan(&session.backend_id, reading.clone(), Extent::Part);
         }
         let _lifecycle = lock(&self.lifecycle);
         session.capability.check()?;

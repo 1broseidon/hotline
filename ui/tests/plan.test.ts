@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { elapsedShare, gaugeLabel, gaugeWindows, nameColumn, nearLimit, paceTick, planAccount, resetShort, resetText, runsOutAt, runwayText, shortName, shownWindows, windowName, windowNote, windowUse } from "../src/plan";
+import { elapsedShare, gaugeLabel, gaugeWindows, nameColumn, nearLimit, paceTick, planAccount, planAsOf, resetShort, resetText, rolledOver, runsOutAt, runwayText, shortName, shownWindows, windowName, windowNote, windowUse } from "../src/plan";
 import type { PlanWindow } from "../src/generated/contract";
 
 describe("a plan's limits", () => {
@@ -110,6 +110,29 @@ describe("a plan's limits", () => {
 		expect(planAccount({ at: 1, windows: [{ kind: "five_hour", status: "allowed" }] })).toBe("subscription");
 		expect(planAccount({ at: 1, plan: "Max", windows: [{ kind: "five_hour", status: "allowed" }] })).toBe("Max subscription");
 		expect(planAccount({ at: 1, plan: "ChatGPT Pro", windows: [{ kind: "seven_day", status: "allowed" }] })).toBe("ChatGPT Pro subscription");
+	});
+});
+
+describe("a window past its reset", () => {
+	const now = new Date(2026, 10, 10, 12, 0).getTime();
+	const hour = 3_600_000;
+
+	test("holds no figure and no refusal until it is read again, and keeps its line, its length and its reset", () => {
+		const five: PlanWindow = { kind: "five_hour", usedPercent: 100, status: "limited", windowMinutes: 300, resetsAt: now - hour };
+		const week: PlanWindow = { kind: "seven_day", usedPercent: 39, status: "allowed", windowMinutes: 10_080, resetsAt: now + 50 * hour };
+		const plan = { at: now - 6 * hour, plan: "Max", windows: [five, week] };
+		expect(rolledOver(five, now)).toBe(true);
+		expect(rolledOver(week, now)).toBe(false);
+		const current = planAsOf(plan, now);
+		expect(current.windows).toEqual([{ kind: "five_hour", status: "allowed", windowMinutes: 300, resetsAt: now - hour }, week]);
+		expect(current.plan).toBe("Max");
+		expect(shownWindows(current).map((one) => one.kind)).toEqual(["five_hour", "seven_day"]);
+		expect(nearLimit(plan)).toBe(true);
+		expect(nearLimit(current)).toBe(false);
+		expect(windowUse(current.windows[0]!, now)).toBe("reset");
+		// Nothing past its reset: the same reading.
+		const fresh = { at: now, windows: [week] };
+		expect(planAsOf(fresh, now)).toBe(fresh);
 	});
 });
 

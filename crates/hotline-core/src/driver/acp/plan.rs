@@ -22,7 +22,8 @@
 //! the window, how much of it is used, when it resets and whether the
 //! account may use it. The room keeps one reading per login and merges each
 //! new one into it ([`merged`]): a read of every window the account has
-//! replaces the windows kept, a report of one replaces that one, and a
+//! replaces the windows kept, a report of one replaces that one (keeping the
+//! figure when the report has none and the period is the same), and a
 //! window whose reset has passed holds no figure ([`as_of`]).
 
 mod child;
@@ -315,7 +316,12 @@ pub(crate) enum Extent {
 /// refused Fable at 05:43 on 2026-11-10 and read it at 31% that afternoon,
 /// in the same week. What a window or the plan says only in one reading (its
 /// length, its label, the plan's name, banked resets) is kept from
-/// whichever said it, the later first. Claude Code's report of a model's
+/// whichever said it, the later first. So is how much of a window is used,
+/// in the same period: Claude Code's report after a reply leaves out
+/// `utilization` when its CLI has no figure, and the week read at 21% showed
+/// a dash after every reply (2026-11-10). A window rolled over keeps no
+/// figure from the last period, and a refusal keeps none: it says the window
+/// is used up, which every line draws as full. Claude Code's report of a model's
 /// own allowance is filed under that model's window ([`OVERAGE_INCLUDED`]).
 ///
 /// A window whose reset has passed is left to [`as_of`].
@@ -360,11 +366,18 @@ pub(crate) fn merged(was: Option<&PlanUsage>, mut reading: PlanUsage, extent: Ex
     let windows = if newer { reading.windows } else { Vec::new() };
     for mut window in windows {
         if let Some(kept) = plan.windows.iter().find(|one| one.kind == window.kind) {
-            if same_period(kept, &window)
+            let same = same_period(kept, &window);
+            let refused = window.status == PlanStatus::Limited;
+            // Before the figure is kept: only one the later reading gives is
+            // a sign the limit moved.
+            if same
                 && severity(kept.status) > severity(window.status)
                 && !limit_moved(kept, &window)
             {
                 window.status = kept.status;
+            }
+            if same && !refused {
+                window.used_percent = window.used_percent.or(kept.used_percent);
             }
             window.window_minutes = window.window_minutes.or(kept.window_minutes);
             window.label = window.label.take().or_else(|| kept.label.clone());
@@ -1137,6 +1150,121 @@ mod tests {
         week.resets_at = Some(now - 100 * hour);
         let plan = as_of(usage(vec![week], now - 5 * 24 * hour), now);
         assert_eq!(kinds(&plan), [("seven_day", PlanStatus::Allowed, None)]);
+    }
+
+    /// A Max login's kept reading on 0.49.0-beta.2, 2026-11-10, from the
+    /// whole read minutes before a Claude reply: the week at 21%.
+    fn read_before_the_reply() -> PlanUsage {
+        serde_json::from_value(json!({
+            "windows": [
+                {"kind": "seven_day", "usedPercent": 21.0, "resetsAt": 1_794_859_200_352_i64, "windowMinutes": 10_080, "status": "allowed"},
+                {"kind": "seven_day_fable", "usedPercent": 38.0, "resetsAt": 1_794_859_200_360_i64, "windowMinutes": 10_080, "label": "Weekly · Fable", "status": "allowed"}
+            ],
+            "at": 1_794_368_400_000_i64,
+            "plan": "Max"
+        }))
+        .unwrap()
+    }
+
+    /// When the reply's report came.
+    const REPLY_AT: i64 = 1_794_368_907_078;
+
+    /// Claude Code's report after a reply, with no `utilization`.
+    fn figureless(status: &str, resets_at: i64) -> PlanUsage {
+        let window = reported_window(Some(&meta(json!({
+            "status": status,
+            "rateLimitType": "seven_day",
+            "resetsAt": resets_at
+        }))))
+        .unwrap();
+        assert_eq!(window.used_percent, None);
+        with_window(None, window, REPLY_AT)
+    }
+
+    #[test]
+    fn a_report_with_no_figure_keeps_the_figure_read_in_the_same_period() {
+        let plan = merged(
+            Some(&read_before_the_reply()),
+            figureless("allowed", 1_794_859_200),
+            Extent::Part,
+        );
+        assert_eq!(
+            kinds(&plan),
+            [
+                ("seven_day", PlanStatus::Allowed, Some(21.0)),
+                ("seven_day_fable", PlanStatus::Allowed, Some(38.0)),
+            ]
+        );
+        // The report's own reset and the rest as the read said them.
+        assert_eq!(plan.windows[0].resets_at, Some(1_794_859_200_000));
+        assert_eq!(plan.windows[0].window_minutes, Some(WEEK_MINUTES));
+        assert_eq!(plan.windows[1].label.as_deref(), Some("Weekly · Fable"));
+        assert_eq!(plan.at, REPLY_AT);
+        // Warned with no figure: the figure and the warning.
+        let plan = merged(
+            Some(&read_before_the_reply()),
+            figureless("allowed_warning", 1_794_859_200),
+            Extent::Part,
+        );
+        assert_eq!(
+            kinds(&plan)[0],
+            ("seven_day", PlanStatus::Warning, Some(21.0))
+        );
+        // A warning kept at 21% stands through a later "allowed" with no
+        // figure: the kept figure is no sign the limit moved.
+        let plan = merged(
+            Some(&plan),
+            with_window(
+                None,
+                reported_window(Some(&meta(json!({
+                    "status": "allowed", "rateLimitType": "seven_day", "resetsAt": 1_794_859_200
+                }))))
+                .unwrap(),
+                REPLY_AT + 60_000,
+            ),
+            Extent::Part,
+        );
+        assert_eq!(
+            kinds(&plan)[0],
+            ("seven_day", PlanStatus::Warning, Some(21.0))
+        );
+    }
+
+    #[test]
+    fn a_report_with_no_figure_in_a_new_period_keeps_none() {
+        let plan = merged(
+            Some(&read_before_the_reply()),
+            figureless("allowed", 1_794_859_200 + WEEK_MINUTES * 60),
+            Extent::Part,
+        );
+        assert_eq!(kinds(&plan)[0], ("seven_day", PlanStatus::Allowed, None));
+    }
+
+    #[test]
+    fn a_refusal_with_no_figure_keeps_none_and_a_later_report_with_none_does_not_lift_it() {
+        let mut kept = read_before_the_reply();
+        kept.windows[0].used_percent = Some(85.0);
+        kept.windows[0].status = PlanStatus::Warning;
+        let plan = merged(
+            Some(&kept),
+            figureless("rejected", 1_794_859_200),
+            Extent::Part,
+        );
+        assert_eq!(kinds(&plan)[0], ("seven_day", PlanStatus::Limited, None));
+        // A later "allowed" with no figure in the same week: still refused.
+        let plan = merged(
+            Some(&plan),
+            with_window(
+                None,
+                reported_window(Some(&meta(json!({
+                    "status": "allowed", "rateLimitType": "seven_day", "resetsAt": 1_794_859_200
+                }))))
+                .unwrap(),
+                REPLY_AT + 60_000,
+            ),
+            Extent::Part,
+        );
+        assert_eq!(kinds(&plan)[0], ("seven_day", PlanStatus::Limited, None));
     }
 
     #[test]

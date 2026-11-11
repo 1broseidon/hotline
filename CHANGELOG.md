@@ -96,6 +96,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - An idle window no longer wakes several times a second for the browser
   picture's timer, and a conversation you have left lets go of the older
   lines it had loaded.
+- With two or more desks in one window, an idle window no longer asks its
+  desk for the desk menu every 4 seconds, which made its memory grow while
+  nothing happened. The menu reads its desks only while it is open.
+- A teammate's computer button is refreshed less often: every 10 seconds
+  with the window in front, every minute behind another app, and not at
+  all while the window is hidden. It is still refreshed at once when the
+  window comes back, a turn moves, or the computer is started or stopped.
 - On the Mac a screenshot's thumbnail is drawn from a small copy, so it is
   there at once when it scrolls back into view instead of growing in.
 - On Windows a step that read or edited a file is named by the file, as on

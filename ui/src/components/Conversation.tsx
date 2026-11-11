@@ -254,7 +254,9 @@ export function Conversation({
 		return () => window.removeEventListener("keydown", onKey);
 	}, [replying]);
 
-	const screen = useComputerViewer(personaId, persona.computer?.enabled ?? false);
+	// A computer the teammate starts in a turn is looked for again when the
+	// turn moves or its setup ends, not only at the key's slow tick.
+	const screen = useComputerViewer(personaId, persona.computer?.enabled ?? false, `${session.state}|${pulling === null}`);
 	const openScreen = useMemo(
 		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
 		[screen, personaId, persona.name],

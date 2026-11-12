@@ -233,8 +233,10 @@ describe("task-396 a command left running", () => {
 		expect(text(".link-row-kind")).toBe("Command");
 		expect(linkLine(line)).toStartWith("Command · make precheck");
 		// Its row in the composer's threads panel (task-437), where the chip was.
-		const [row] = liveThreads({ persona: { id: "poe" }, subagents: [run] } as Parameters<typeof liveThreads>[0], []);
+		const poe = { persona: { id: "poe" }, subagents: [run] } as unknown as Parameters<typeof liveThreads>[0]["entry"];
+		const listedRun: ThreadSummary = { thread: { kind: "run", key: runId }, personaId: "poe", title: "make precheck", state: "live", startedAt: run.startedAt, updatedAt: run.startedAt, working: false, waiting: false, runKind: "shell" };
+		const [row] = liveThreads({ listed: [listedRun], roster: [], entry: poe, jobs: [], nameOf: () => undefined, now: Date.now() });
 		expect(row?.kind).toBe("command");
-		expect(`${row?.what} · ${row?.doing}`).toBe("Command · make precheck");
+		expect(row?.line).toBe("Command · make precheck");
 	});
 });

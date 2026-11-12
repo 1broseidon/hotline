@@ -204,8 +204,11 @@ describe("a subagent's line and its row at the composer", () => {
 		expect(container.querySelector(".link-row-outcome")?.textContent).toBe("· Done in 3 min 34 s");
 
 		// The composer's threads panel says each one's latest step beside its kind (task-437).
-		const rows = liveThreads(entry(pork, [audit, models]), []);
-		expect(rows.map((row) => `${row.what} · ${row.doing}`)).toEqual(["Subagent · Read Dock.tsx", "Subagent · Fetch /v1/models · 200"]);
+		const runs = [audit, models];
+		const listedRuns = runs.map((run): ThreadSummary => ({ thread: { kind: "run", key: run.runId }, personaId: "pork", title: run.title, state: "live", startedAt: run.startedAt, updatedAt: run.startedAt, working: false, waiting: false }));
+		const ada = entry(pork, runs);
+		const rows = liveThreads({ listed: listedRuns, roster: [ada], entry: ada, jobs: [], nameOf: () => undefined, now: 10 });
+		expect(rows.map((row) => row.line)).toEqual(["Subagent · Fetch /v1/models · 200", "Subagent · Read Dock.tsx"]);
 	});
 });
 

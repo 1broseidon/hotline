@@ -1,6 +1,6 @@
 import { startCall } from "../voice/call";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, RunningSubagent, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
+import type { Attachment, RunningSubagent, ThreadId, ThreadSummary } from "../generated/contract";
 import { PaneClose } from "../ui/PaneClose";
 import { ArrowLeftIcon } from "../icons";
 import { carry } from "../serverFiles";
@@ -13,7 +13,6 @@ import {
 	DOCK_STEP,
 	DOCK_WIDTH,
 	draggedDock,
-	type LinkEvent,
 	openerOf,
 	openerWords,
 	pairWith,
@@ -21,13 +20,13 @@ import {
 	rowTitle,
 	threadOwnerId,
 	turnRunning,
-	withLinks,
 	withTurns,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
 import { useAsides } from "../asides";
 import { sideTitle } from "../links";
-import { answerCard, dmOf, sameThread, useThread } from "../tape";
+import { answerCard, sameThread, useThread } from "../tape";
+import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { wire, type RosterEntry } from "../wire";
@@ -102,11 +101,7 @@ export function Dock({
 	const rows = useMemo(() => withTurns(listed, roster, listedFor), [listed, roster, listedFor]);
 	const jobs = useJobs(entry?.persona.id);
 	/* A teammate on a linked desk is in no roster here; its pair's row names it ("Lou on grizzly"). */
-	const nameOf = useCallback(
-		(personaId: string) =>
-			roster.find((one) => one.persona.id === personaId)?.persona.name ?? rows.find((row) => row.withPersonaId === personaId)?.withName,
-		[roster, rows],
-	);
+	const nameOf = useCallback((personaId: string) => nameIn(roster, rows, personaId), [roster, rows]);
 	const people = usePeople(roster);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
@@ -203,73 +198,6 @@ function useFocusOnOpen(root: RefObject<HTMLElement | null>, first: string | str
 		done.current = true;
 		target.focus();
 	}, [root, selector, ready]);
-}
-
-/* ------------------------------------------------------------ the list */
-
-/**
- * The teammate's threads of every kind: what `thread.list` says, read again
- * whenever a thread starts, ends, parks or changes hands, and brought up to
- * what the links on the conversation say in between.
- */
-/** Each teammate's last list, shown at once on the way back while it is read again. */
-const lastLists = new Map<string, ThreadSummary[]>();
-
-function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list: ThreadSummary[] | undefined; reload(): void } {
-	const personaId = entry?.persona.id;
-	const [list, setList] = useState<ThreadSummary[] | undefined>(() => (personaId === undefined ? undefined : lastLists.get(personaId)));
-	const [revision, setRevision] = useState(0);
-	const { events } = useThread(personaId === undefined ? null : dmOf(personaId));
-	const links = useMemo(() => events.filter((event): event is LinkEvent => event.kind === "link"), [events]);
-	// A thread that started, parked or ended, or whose handoff ended, is a link rewritten; a turn starting or a card landing is the roster's word.
-	const signature =
-		links.map((link) => `${link.thread}:${link.state}${link.handoffEnded === true ? ":ended" : ""}`).join(",") +
-		"|" +
-		(entry?.sides ?? []).map((side) => `${side.sideId}:${side.working ? 1 : 0}`).join(",") +
-		"|" +
-		(entry?.subagents ?? []).map((run) => run.runId).join(",") +
-		"|" +
-		(entry?.workingJobs ?? []).join(",") +
-		"|" +
-		(entry?.workingCalls ?? []).join(",") +
-		(entry?.waiting === true ? "|waiting" : "");
-	// biome-ignore lint/correctness/useExhaustiveDependencies: signature and revision are what say the threads changed.
-	useEffect(() => {
-		if (personaId === undefined) return;
-		let cancelled = false;
-		void wire
-			.command("thread.list", { personaId })
-			.then((next) => {
-				lastLists.set(personaId, next);
-				if (!cancelled) setList(next);
-			})
-			.catch(() => !cancelled && setList((was) => was ?? []));
-		return () => {
-			cancelled = true;
-		};
-	}, [personaId, signature, revision]);
-	// A different teammate starts from what was last read for them, if anything; set during render so the old list never flashes.
-	const [shownFor, setShownFor] = useState(personaId);
-	if (shownFor !== personaId) {
-		setShownFor(personaId);
-		setList(personaId === undefined ? undefined : lastLists.get(personaId));
-	}
-	const rows = useMemo(() => withLinks(list ?? [], links, personaId ?? ""), [list, links, personaId]);
-	return { rows, list, reload: useCallback(() => setRevision((one) => one + 1), []) };
-}
-
-/** This teammate's jobs as the schedules view sends them, ended ones included. */
-function useJobs(personaId: string | undefined): ScheduleEntry[] {
-	const [entries, setEntries] = useState<ScheduleEntry[]>([]);
-	useEffect(() => {
-		setEntries([]);
-		if (personaId === undefined) return;
-		return wire.subscribe<ScheduleEntry>(
-			{ schedules: personaId },
-			{ snapshot: (next) => setEntries(next as ScheduleEntry[]), event: () => {}, removed: () => setEntries([]) },
-		);
-	}, [personaId]);
-	return entries;
 }
 
 /* ------------------------------------------------------------ one thread */

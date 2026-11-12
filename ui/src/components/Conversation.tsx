@@ -3,6 +3,7 @@ import type { Attachment, ConfigChoice, Persona, ScheduledJob, SessionProcess, T
 import { type Activity, isWorking, processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
 import { liveThreads } from "../liveThreads";
+import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, ProgressRing, WarningIcon } from "../icons";
@@ -203,8 +204,13 @@ export function Conversation({
 	 * at their times; the core never writes them into this conversation. */
 	const asides = useAsides(personaId, entry);
 	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
-	/* The threads live in the session, which the composer counts and lists, as the phone's does. */
-	const live = useMemo(() => liveThreads(entry, events), [entry, events]);
+	/* What runs in the session, which the composer counts and lists: the Threads list's Live group, from the rows it reads. */
+	const { rows: listed } = useThreadRows(entry);
+	const scheduled = useJobs(personaId);
+	const live = useMemo(
+		() => liveThreads({ listed, roster, entry, jobs: scheduled, nameOf: (id) => nameIn(roster, listed, id), now: Date.now() }),
+		[listed, roster, entry, scheduled],
+	);
 	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
 	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
 	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
@@ -385,8 +391,8 @@ export function Conversation({
 					onClearReply={() => setReplying(null)}
 					threads={{
 						rows: live,
-						isOpen: (thread) => opened(thread.thread),
-						onOpen: (thread) => onOpenThread({ thread: thread.thread, title: thread.title }),
+						isOpen: (thread) => opened(thread.open.thread),
+						onOpen: (thread) => onOpenThread(thread.open),
 					}}
 					{...(cornered
 						? { corner: <ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} /> }
@@ -495,7 +501,7 @@ const ConversationBand = memo(function ConversationBand({
 
 					{/* Side threads still live: a chip each. They are conversations of
 					 * their own rather than this turn's work; the composer's threads
-					 * count lists them too, beside the runs. They leave the band when
+					 * count lists them too while a turn of one runs. They leave the band when
 					 * archived; the conversation's own line keeps what came of each.
 					 * With the pane open they are in its list, and the band has no
 					 * room to name them. */}

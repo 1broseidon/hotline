@@ -1,12 +1,14 @@
 import { type KeyboardEvent, type Ref, useEffect, useState } from "react";
 import { ChevronRightIcon } from "../icons";
+import { asideTime } from "../asides";
 import { type LiveThread, liveFor, threadsLabel, threadsWords } from "../liveThreads";
 import { markOf } from "../threadList";
 
 /**
- * The composer's count of the threads live in the session (task-437), at the
- * right of its bottom row in the person's accent, as the phone has it: "2
- * threads ›". It opens the panel of them over the field. Absent at zero.
+ * The composer's count of the threads running in the session (task-437): the
+ * Threads list's Live group, at the right of its bottom row in the person's
+ * accent, as the phone has it: "2 threads ›". It opens the panel of them over
+ * the field. Absent at zero.
  */
 export function ThreadsKey({
 	count,
@@ -44,9 +46,10 @@ export function ThreadsKey({
 }
 
 /**
- * The live threads, in the pill's first row while the control is open: a
- * title saying how many, and a row each in the Threads list's shape, its
- * kind, what it is doing and how long it has run. A row opens its thread in
+ * The running threads, in the pill's first row while the control is open: a
+ * title saying how many, and the Threads list's Live rows in its shape, each
+ * its kind, what it is doing and how long it has run (a pair or a job, whose
+ * thread outlives its turns, its time as the list says it). A row opens its thread in
  * the right-hand pane, as the list's row does. Arrows, Home and End walk the
  * rows. Nothing else of the list is here: the full list stays in the pane.
  */
@@ -84,7 +87,7 @@ export function ThreadsPanel({
 			<ul>
 				{threads.map((thread) => {
 					const mark = markOf(thread.kind);
-					const time = liveFor(thread, now);
+					const time = thread.since !== undefined ? liveFor(thread.since, now) : asideTime(thread.at, now);
 					return (
 						<li key={thread.id}>
 							<button
@@ -92,9 +95,9 @@ export function ThreadsPanel({
 								className="list-row"
 								data-thread={thread.id}
 								data-kind={thread.kind}
-								data-state={thread.working ? "live" : undefined}
+								data-state="live"
 								aria-current={isOpen(thread) || undefined}
-								aria-label={`${thread.what}: ${thread.title}, ${thread.doing}, ${time}`}
+								aria-label={`${thread.title}, ${thread.line}, ${time}`}
 								onClick={() => onOpen(thread)}
 							>
 								<span className="list-mark" aria-hidden="true">
@@ -104,13 +107,11 @@ export function ThreadsPanel({
 									<span className="list-title">
 										<span className="list-title-text">{thread.title}</span>
 									</span>
-									<span className="list-line">
-										{thread.what} · {thread.doing}
-									</span>
+									<span className="list-line">{thread.line}</span>
 								</span>
 								<span className="list-when">
 									{time}
-									{thread.working && <span aria-hidden="true" className="dock-dot beat" data-state="running" />}
+									<span aria-hidden="true" className="dock-dot beat" data-state="running" />
 								</span>
 							</button>
 						</li>

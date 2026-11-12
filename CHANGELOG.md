@@ -56,12 +56,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
-- The composer says how many threads are live with a teammate, "2 threads ›"
-  in the accent colour, as the phone does, counting the same work threads,
-  subagents and background commands. It opens a short list over the field:
-  each thread's kind, what it is doing and how long it has run, and a row
-  opens the thread in the pane. The per-subagent chips at the composer's
-  corner are gone.
+- The composer says how many of a teammate's threads are running now, "2
+  threads ›" in the accent colour, as the phone does: the same threads the
+  Threads list shows under Live, so a subagent, a background command, or a
+  work thread, handoff, pair, call or job with a turn in flight, and never one
+  at rest or waiting for an answer. It opens a short list over the field: each
+  thread's kind, what it is doing and how long it has run, and a row opens
+  the thread in the pane. The per-subagent chips at the composer's corner are
+  gone.
 - A long conversation keeps in the page only the lines near the view, a
   gap of their measured height standing in for the rest, so it costs what
   the screen shows of it. With a 2,000-line thread loaded the window uses

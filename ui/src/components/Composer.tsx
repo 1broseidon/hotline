@@ -53,9 +53,9 @@ export function isDown(state: SessionState): boolean {
  * never a path typed or pasted into it as words. Escape gives up a dictation
  * first, then puts the chips down, then the quote, then it interrupts a turn.
  * What the teammate left running stands at the pill's top right (`corner`).
- * With threads live in the session the pill is two rows, as the phone's is,
- * and the bottom row's right has their count (`threads`), which opens them
- * as the pill's first row.
+ * With threads running in the session the pill is two rows, as the phone's
+ * is, and the bottom row's right has their count (`threads`), which opens
+ * them as the pill's first row.
  */
 export function Composer({
 	personaId,
@@ -103,7 +103,8 @@ export function Composer({
 	 */
 	work?: ({ open: boolean; onToggle(): void } & WorkMark) | undefined;
 	/**
-	 * The threads live in the teammate's session (task-437): counted at the
+	 * The threads running in the teammate's session, its Threads list's Live
+	 * group (task-437): counted at the
 	 * bottom row's right, and listed in a panel that grows the pill up while
 	 * open. The panel closes on Escape, a press outside the composer, or the
 	 * count pressed again; the field stays in use under it.
@@ -139,7 +140,7 @@ export function Composer({
 	const panelId = useId();
 	const threadRows = threads?.rows ?? [];
 	const [threadsWanted, setThreadsWanted] = useState(false);
-	// With none left live it closes, and does not come back by itself for the next one.
+	// With none left running it closes, and does not come back by itself for the next one.
 	const threadsOpen = threadsWanted && threadRows.length > 0;
 	if (threadsWanted && threadRows.length === 0) setThreadsWanted(false);
 	const firstRow = (last = false) => {

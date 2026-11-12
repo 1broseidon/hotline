@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
 import type { Root } from "react-dom/client";
-import type { RunningSubagent } from "../src/generated/contract";
-import type { ThreadRef } from "../src/components/Transcript";
 import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
@@ -18,9 +16,6 @@ describe("a turn open only for its subagents", () => {
 		expect(shownState({ state: "stopped", awaitingSubagents: true })).toBe("stopped");
 	});
 });
-
-const edges: RunningSubagent = { runId: "r1", title: "Edge cases", startedAt: 1 };
-const brakes: RunningSubagent = { runId: "r2", title: "Brakes", startedAt: 2 };
 
 let act: typeof import("react").act;
 let root: Root;
@@ -41,8 +36,8 @@ afterEach(async () => {
 	await teardown();
 });
 
-describe("the subagents at the composer's corner", () => {
-	test("stand on the pill's top right, in the pill's own column", async () => {
+describe("what stands on the composer's corner", () => {
+	test("stands on the pill's top right, in the pill's own column", async () => {
 		const { Composer } = await import("../src/components/Composer");
 		const composer = (corner?: ReactNode) => (
 			<Composer
@@ -56,9 +51,9 @@ describe("the subagents at the composer's corner", () => {
 				{...(corner !== undefined ? { corner } : {})}
 			/>
 		);
-		await act(async () => root.render(composer(<button type="button">Subagent · Edge cases</button>)));
+		await act(async () => root.render(composer(<button type="button">http.server 8770</button>)));
 		const corner = container.querySelector(".composer-corner");
-		expect(corner?.textContent).toBe("Subagent · Edge cases");
+		expect(corner?.textContent).toBe("http.server 8770");
 		// The pill's centred column holds both, the corner first, so it is
 		// placed against the pill and not the window.
 		expect(corner?.parentElement?.className).toContain("max-w-[46rem]");
@@ -68,61 +63,6 @@ describe("the subagents at the composer's corner", () => {
 
 		await act(async () => root.render(composer()));
 		expect(container.querySelector(".composer-corner")).toBeNull();
-	});
-
-	test("name one subagent and open its run", async () => {
-		const { SubagentChips } = await import("../src/components/Conversation");
-		const opened: ThreadRef[] = [];
-		await act(async () => {
-			root.render(<SubagentChips subagents={[edges]} opened={(runId) => runId === "r1"} onOpenThread={(thread) => opened.push(thread)} />);
-		});
-		const chip = container.querySelector<HTMLButtonElement>('[aria-label="Subagent working: Edge cases"]');
-		expect(chip?.textContent).toBe("Subagent · Edge cases");
-		expect(chip?.getAttribute("aria-pressed")).toBe("true");
-		await act(async () => chip!.click());
-		expect(opened).toEqual([{ thread: { kind: "run", key: "r1" }, title: "Edge cases" }]);
-	});
-
-	test("count several, with a menu that opens any of them", async () => {
-		const { SubagentChips } = await import("../src/components/Conversation");
-		const opened: ThreadRef[] = [];
-		await act(async () => {
-			root.render(<SubagentChips subagents={[edges, brakes]} opened={() => false} onOpenThread={(thread) => opened.push(thread)} />);
-		});
-		const chip = container.querySelector<HTMLButtonElement>('[aria-label="2 subagents working"]');
-		expect(chip?.textContent).toBe("2 subagents");
-		expect(chip?.getAttribute("aria-haspopup")).toBe("menu");
-		await act(async () => chip!.click());
-		const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-		expect(items.map((item) => item.textContent)).toEqual(["Edge cases", "Brakes"]);
-		await act(async () => items[1]!.click());
-		expect(opened).toEqual([{ thread: { kind: "run", key: "r2" }, title: "Brakes" }]);
-	});
-});
-
-describe("background work at the composer's corner", () => {
-	const crawl: RunningSubagent = { runId: "r3", title: "Crawl 12 sites", startedAt: 3, kind: "shell" };
-
-	test("says a command is running, not that a subagent works", async () => {
-		const { SubagentChips } = await import("../src/components/Conversation");
-		await act(async () => {
-			root.render(<SubagentChips subagents={[crawl]} opened={() => false} onOpenThread={() => {}} />);
-		});
-		const chip = container.querySelector<HTMLButtonElement>('[aria-label="Command running: Crawl 12 sites"]');
-		expect(chip?.textContent).toBe("Command · Crawl 12 sites");
-		expect(chip?.title).toBe("Open the command");
-	});
-
-	test("counts a mix as what is running, and names each one's kind", async () => {
-		const { SubagentChips } = await import("../src/components/Conversation");
-		await act(async () => {
-			root.render(<SubagentChips subagents={[edges, crawl]} opened={() => false} onOpenThread={() => {}} />);
-		});
-		const chip = container.querySelector<HTMLButtonElement>('[aria-label="2 running"]');
-		expect(chip?.textContent).toBe("2 running");
-		await act(async () => chip!.click());
-		const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-		expect(items.map((item) => item.textContent)).toEqual(["Subagent · Edge cases", "Command · Crawl 12 sites"]);
 	});
 });
 

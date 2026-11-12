@@ -6,12 +6,12 @@ import type { Wire } from "../src/wire";
 import { installDom } from "./dom";
 
 // task-399: work threads carry a kind label, and live subagents show their
-// latest step in the rail, link rows, chip and thread list.
+// latest step in the rail, link rows, the composer's threads panel and thread list.
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Dock } = await import("../src/components/Dock");
 const { Rail } = await import("../src/components/Rail");
-const { SubagentChips } = await import("../src/components/Conversation");
+const { liveThreads } = await import("../src/liveThreads");
 const { Transcript } = await import("../src/components/Transcript");
 const { replaceDesks, wireFor } = await import("../src/desks");
 const { endedWords } = await import("../src/dock");
@@ -183,7 +183,7 @@ describe("the rail", () => {
 	});
 });
 
-describe("a subagent's line and chip", () => {
+describe("a subagent's line and its row at the composer", () => {
 	const link = (state: "live" | "closed"): TranscriptEvent => ({
 		kind: "link", id: "link:run:r-audit", ts: 1, thread: "r-audit", threadKind: "run", personaId: "pork", title: "Audit side-pane thread rows", state,
 		...(state === "closed" ? { end: "done" as const, elapsedMs: 214_000 } : {}),
@@ -192,7 +192,7 @@ describe("a subagent's line and chip", () => {
 		<Transcript personaId="pork" name="Pork Chop" events={[event]} streaming={[]} live={false} focus={null} subagents={subagents} />
 	);
 
-	test("A subagent's link row and the composer chip show its latest step instead of only \"working\"", async () => {
+	test("A subagent's link row and the composer's threads panel show its latest step instead of only \"working\"", async () => {
 		await act(async () => root.render(transcript(link("live"), [audit])));
 		const row = container.querySelector(".link-row");
 		expect(row?.querySelector(".link-row-outcome")?.textContent).toBe("· Read Dock.tsx");
@@ -203,17 +203,9 @@ describe("a subagent's line and chip", () => {
 		await act(async () => root.render(transcript(link("closed"))));
 		expect(container.querySelector(".link-row-outcome")?.textContent).toBe("· Done in 3 min 34 s");
 
-		// One chip names what the subagent did last.
-		await act(async () => root.render(<SubagentChips subagents={[audit]} opened={() => false} onOpenThread={() => {}} />));
-		const chip = container.querySelector<HTMLButtonElement>("button");
-		expect(chip?.textContent).toBe("Subagent · Read Dock.tsx");
-		expect(chip?.getAttribute("aria-label")).toBe("Subagent working: Audit side-pane thread rows, Read Dock.tsx");
-
-		// Several are counted, and the menu says each one's latest step beside its title.
-		await act(async () => root.render(<SubagentChips subagents={[audit, models]} opened={() => false} onOpenThread={() => {}} />));
-		await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
-		const items = [...document.querySelectorAll('[role="menuitem"]')];
-		expect(items.map((item) => item.querySelector(".menu-item-detail")?.textContent)).toEqual(["Read Dock.tsx", "Fetch /v1/models · 200"]);
+		// The composer's threads panel says each one's latest step beside its kind (task-437).
+		const rows = liveThreads(entry(pork, [audit, models]), []);
+		expect(rows.map((row) => `${row.what} · ${row.doing}`)).toEqual(["Subagent · Read Dock.tsx", "Subagent · Fetch /v1/models · 200"]);
 	});
 });
 

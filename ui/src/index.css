@@ -61,7 +61,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .list-row, .list-fold, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
+	:where(.control, .rail-row, .list-row, .list-fold, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .composer-work, .composer-threads, .window-control, .swatch):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -2885,6 +2885,49 @@
 	}
 	.composer-work[aria-expanded="true"] .composer-work-chevron {
 		transform: none;
+	}
+	/* The threads live in the session, counted at the bottom row's right in
+	 * the person's accent, as the phone's composer has it: "2 threads ›". */
+	.composer-threads {
+		display: flex;
+		flex-shrink: 0;
+		height: 30px;
+		align-items: center;
+		gap: 4px;
+		margin: 0 4px;
+		padding: 0 8px 0 10px;
+		border-radius: 15px;
+		color: var(--accent-ink);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.composer-threads:hover,
+	.composer-threads[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	.composer-threads-chevron {
+		width: 12px;
+		height: 12px;
+	}
+	/* Open, they are the pill's first row, as a card waiting on the person
+	 * is: the Threads list's rows under a count, a long list scrolling. */
+	.composer[data-work] > .composer-threads-panel {
+		order: -2;
+		flex-basis: 100%;
+		max-height: min(40vh, 320px);
+		overflow-y: auto;
+		margin: 0 0 4px;
+		padding: 0 2px 4px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer-threads-panel .list-group {
+		padding-top: 6px;
+	}
+	.composer-threads-panel .list-row[aria-current="true"] {
+		background: var(--fill-hover);
 	}
 	.composer-attach:hover {
 		background: var(--fill-hover);

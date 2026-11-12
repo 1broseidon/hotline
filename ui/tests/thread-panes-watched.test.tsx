@@ -13,7 +13,7 @@ const { HandoffPane } = await import("../src/components/thread/HandoffPane");
 const { PairPane, pairLines } = await import("../src/components/thread/PairPane");
 const { CommandPane } = await import("../src/components/thread/CommandPane");
 const { LinkRow } = await import("../src/components/transcript/LinkRow");
-const { SubagentChips } = await import("../src/components/Conversation");
+const { liveThreads } = await import("../src/liveThreads");
 const { linkLine } = await import("../src/links");
 const { wire } = await import("../src/wire");
 
@@ -226,13 +226,15 @@ describe("task-396 a command left running", () => {
 		expect(text(".pane-terminal")).toBe("precheck: all 8 legs pass in 95s\n");
 	});
 
-	test("its link line and composer chip say Command, not Subagent", async () => {
+	test("its link line and its row at the composer say Command, not Subagent", async () => {
 		const line = link("closed") as Extract<TranscriptEvent, { kind: "link" }>;
 		await render(<LinkRow link={line} owner="poe" people={undefined} onOpen={() => {}} />);
 		expect(container.querySelector(".link-row")?.getAttribute("data-kind")).toBe("command");
 		expect(text(".link-row-kind")).toBe("Command");
 		expect(linkLine(line)).toStartWith("Command · make precheck");
-		await render(<SubagentChips subagents={[run]} opened={() => false} onOpenThread={() => {}} />);
-		expect(container.querySelector('[aria-label="Command running: make precheck"]')?.textContent).toBe("Command · make precheck");
+		// Its row in the composer's threads panel (task-437), where the chip was.
+		const [row] = liveThreads({ persona: { id: "poe" }, subagents: [run] } as Parameters<typeof liveThreads>[0], []);
+		expect(row?.kind).toBe("command");
+		expect(`${row?.what} · ${row?.doing}`).toBe("Command · make precheck");
 	});
 });

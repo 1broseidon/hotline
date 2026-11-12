@@ -1,7 +1,8 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, Persona, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
 import { type Activity, isWorking, processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
+import { liveThreads } from "../liveThreads";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, ProgressRing, WarningIcon } from "../icons";
@@ -119,10 +120,9 @@ export function Conversation({
 	const state = shownState(session);
 	const people = usePeople(roster);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
-	const subagents = entry.subagents ?? [];
 	/* Beside the state, never part of it: idle with a server up reads idle. */
 	const processes = session.processes ?? [];
-	const cornered = subagents.length > 0 || processes.length > 0;
+	const cornered = processes.length > 0;
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useThread(dmOf(personaId));
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
@@ -203,6 +203,8 @@ export function Conversation({
 	 * at their times; the core never writes them into this conversation. */
 	const asides = useAsides(personaId, entry);
 	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
+	/* The threads live in the session, which the composer counts and lists, as the phone's does. */
+	const live = useMemo(() => liveThreads(entry, events), [entry, events]);
 	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
 	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
 	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
@@ -381,19 +383,13 @@ export function Conversation({
 					focused={fresh}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
+					threads={{
+						rows: live,
+						isOpen: (thread) => opened(thread.thread),
+						onOpen: (thread) => onOpenThread({ thread: thread.thread, title: thread.title }),
+					}}
 					{...(cornered
-						? {
-								corner: (
-									<>
-										{subagents.length > 0 && (
-											<SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} />
-										)}
-										{processes.length > 0 && (
-											<ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} />
-										)}
-									</>
-								),
-							}
+						? { corner: <ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} /> }
 						: {})}
 				/>
 			</div>
@@ -498,8 +494,8 @@ const ConversationBand = memo(function ConversationBand({
 	
 
 					{/* Side threads still live: a chip each. They are conversations of
-					 * their own rather than this turn's work, so they stay in the band
-					 * when the subagents sit at the composer. They leave the band when
+					 * their own rather than this turn's work; the composer's threads
+					 * count lists them too, beside the runs. They leave the band when
 					 * archived; the conversation's own line keeps what came of each.
 					 * With the pane open they are in its list, and the band has no
 					 * room to name them. */}
@@ -632,77 +628,9 @@ export function teammateActions({
 	];
 }
 
-/** What the chip calls a run of each kind: a subagent works with a model of its own; a shell run is a command the harness left running, its own kind, never a subagent. */
-const RUN_KIND: Record<NonNullable<RunningSubagent["kind"]>, { word: string; running: string }> = {
-	subagent: { word: "Subagent", running: "Subagent working" },
-	shell: { word: "Command", running: "Command running" },
-};
-
-function runKind(run: RunningSubagent) {
-	return RUN_KIND[run.kind ?? "subagent"];
-}
-
-/**
- * Subagents, and commands the teammate's harness left running in the
- * background, still going, wherever their lines have scrolled to, at the composer's top
- * right: what the teammate left going is beside where you would speak to it,
- * after its turn as during it. One is named with its kind, several are
- * counted with a menu, and each opens its run in the pane. They go when they
- * finish; their runs keep how each went.
- */
-export function SubagentChips({
-	subagents,
-	opened,
-	onOpenThread,
-}: {
-	subagents: RunningSubagent[];
-	/** Whether a run is the one open in the pane. */
-	opened(runId: string): boolean;
-	onOpenThread(thread: ThreadRef): void;
-}) {
-	const open = (run: RunningSubagent) => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title });
-	if (subagents.length === 1) {
-		const run = subagents[0]!;
-		const kind = runKind(run);
-		const subagent = (run.kind ?? "subagent") === "subagent";
-		return (
-			<button
-				type="button"
-				className="control btn btn-sm min-w-0 shrink gap-1.5"
-				title={subagent ? "Open the subagent's run" : "Open the command"}
-				aria-label={`${kind.running}: ${run.title}${run.lastStep === undefined ? "" : `, ${run.lastStep}`}`}
-				aria-pressed={opened(run.runId)}
-				onClick={() => open(run)}
-			>
-				<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-				<span className="truncate">{`${kind.word} · ${run.lastStep ?? run.title}`}</span>
-			</button>
-		);
-	}
-	const allSubagents = subagents.every((run) => (run.kind ?? "subagent") === "subagent");
-	const count = allSubagents ? `${subagents.length} subagents` : `${subagents.length} running`;
-	return (
-		<MenuButton
-			className="control btn btn-sm shrink-0 gap-1.5"
-			label={allSubagents ? `${count} working` : count}
-			entries={subagents.map((run) => ({
-				kind: "item",
-				id: run.runId,
-				text: allSubagents ? run.title : `${runKind(run).word} · ${run.title}`,
-				...(run.lastStep !== undefined ? { detail: run.lastStep } : {}),
-				checked: opened(run.runId),
-				onSelect: () => open(run),
-			}))}
-		>
-			<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-			{count}
-		</MenuButton>
-	);
-}
-
 /**
  * Commands the teammate left running past its turns — a server, a watcher —
- * beside the subagents at the composer's corner. One is named by its short
+ * at the composer's corner. One is named by its short
  * command, several are counted with a menu, and each opens a card with its
  * output and Stop. They are only what the session lists, and go when the
  * process does.

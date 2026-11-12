@@ -1,4 +1,4 @@
-import { type PointerEvent as ButtonPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type KeyboardEvent as KeyEvent, type PointerEvent as ButtonPointerEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
@@ -26,6 +26,8 @@ import {
 } from "../voice/dictation";
 import { useDeskModelOffer } from "../voice/desk";
 import { setHearOnThisMac } from "../voice/hearing";
+import type { LiveThread } from "../liveThreads";
+import { ThreadsKey, ThreadsPanel } from "./LiveThreads";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -51,6 +53,9 @@ export function isDown(state: SessionState): boolean {
  * never a path typed or pasted into it as words. Escape gives up a dictation
  * first, then puts the chips down, then the quote, then it interrupts a turn.
  * What the teammate left running stands at the pill's top right (`corner`).
+ * With threads live in the session the pill is two rows, as the phone's is,
+ * and the bottom row's right has their count (`threads`), which opens them
+ * as the pill's first row.
  */
 export function Composer({
 	personaId,
@@ -68,6 +73,7 @@ export function Composer({
 	above,
 	stopOnCard = false,
 	work,
+	threads,
 	focused = false,
 	embedded = false,
 }: {
@@ -96,6 +102,13 @@ export function Composer({
 	 * grows the turn's steps (`above`) up inside the pill, and folds them.
 	 */
 	work?: ({ open: boolean; onToggle(): void } & WorkMark) | undefined;
+	/**
+	 * The threads live in the teammate's session (task-437): counted at the
+	 * bottom row's right, and listed in a panel that grows the pill up while
+	 * open. The panel closes on Escape, a press outside the composer, or the
+	 * count pressed again; the field stays in use under it.
+	 */
+	threads?: { rows: readonly LiveThread[]; isOpen(thread: LiveThread): boolean; onOpen(thread: LiveThread): void } | undefined;
 	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
 	focused?: boolean;
 	/**
@@ -121,6 +134,64 @@ export function Composer({
 	const [pasteFailed, setPasteFailed] = useState<string | null>(null);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking({ state });
+	const shell = useRef<HTMLDivElement>(null);
+	const threadsKey = useRef<HTMLButtonElement>(null);
+	const panelId = useId();
+	const threadRows = threads?.rows ?? [];
+	const [threadsWanted, setThreadsWanted] = useState(false);
+	// With none left live it closes, and does not come back by itself for the next one.
+	const threadsOpen = threadsWanted && threadRows.length > 0;
+	if (threadsWanted && threadRows.length === 0) setThreadsWanted(false);
+	const firstRow = (last = false) => {
+		const rows = document.getElementById(panelId)?.querySelectorAll<HTMLElement>(".list-row");
+		rows?.[last ? rows.length - 1 : 0]?.focus();
+	};
+	// Opened from the keyboard, focus goes to its first row once it is drawn.
+	const [focusRow, setFocusRow] = useState(false);
+	useEffect(() => {
+		if (!threadsOpen || !focusRow) return;
+		setFocusRow(false);
+		firstRow();
+	});
+	// Escape closes the panel before anything else on the window hears it
+	// (attachments, the quote, an interrupt), and focus goes back to the
+	// count, unless it is in the field, where the person is typing. A press
+	// outside the composer closes it too, and leaves focus where it landed.
+	useEffect(() => {
+		if (!threadsOpen) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || event.defaultPrevented || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			setThreadsWanted(false);
+			if (document.activeElement !== area.current) threadsKey.current?.focus();
+		};
+		const away = (event: MouseEvent) => {
+			if (shell.current?.contains(event.target as Node | null)) return;
+			setThreadsWanted(false);
+		};
+		window.addEventListener("keydown", onKey, true);
+		document.addEventListener("mousedown", away, true);
+		return () => {
+			window.removeEventListener("keydown", onKey, true);
+			document.removeEventListener("mousedown", away, true);
+		};
+	}, [threadsOpen]);
+	const toggleThreads = (keyboard: boolean) => {
+		if (threadsOpen) {
+			setThreadsWanted(false);
+			return;
+		}
+		setThreadsWanted(true);
+		if (keyboard) setFocusRow(true);
+	};
+	const keyArrows = (event: KeyEvent<HTMLButtonElement>) => {
+		if (!threadsOpen || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+		event.preventDefault();
+		// The panel stands above the count: up reaches its nearest row.
+		firstRow(event.key === "ArrowUp");
+	};
+	const twoRows = work !== undefined || threadRows.length > 0;
 	useEffect(() => {
 		if (focused) area.current?.focus();
 	}, [focused]);
@@ -305,7 +376,7 @@ export function Composer({
 	// down even when the field is not focused — and it does so before the
 	// conversation's listener puts the quote down.
 	useEffect(() => {
-		if (attachments.length === 0 || dictating) return;
+		if (attachments.length === 0 || dictating || threadsOpen) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape" || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
 			event.preventDefault();
@@ -314,7 +385,7 @@ export function Composer({
 		};
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
-	}, [attachments.length, dictating]);
+	}, [attachments.length, dictating, threadsOpen]);
 
 	const submit = () => {
 		countdown.cancel();
@@ -364,11 +435,24 @@ export function Composer({
 		/* Positioned, so it paints over the scroller before it, which is
 		   positioned too and would otherwise sit on the pill's top edge. */
 		<div className="relative shrink-0 px-6 pb-4">
-			<div className="relative mx-auto w-full max-w-[46rem]">
+			<div ref={shell} className="relative mx-auto w-full max-w-[46rem]">
 				{corner !== undefined && <div className="composer-corner">{corner}</div>}
-				{work === undefined && above}
-				<div className="composer" data-work={work !== undefined || undefined}>
-					{work !== undefined && work.open && above}
+				{!twoRows && above}
+				<div className="composer" data-work={twoRows || undefined}>
+					{threadsOpen && threads !== undefined ? (
+						<ThreadsPanel
+							id={panelId}
+							threads={threadRows}
+							isOpen={threads.isOpen}
+							onOpen={(thread) => {
+								setThreadsWanted(false);
+								threads.onOpen(thread);
+							}}
+							onEdge={() => threadsKey.current?.focus()}
+						/>
+					) : (
+						(work === undefined || work.open) && twoRows && above
+					)}
 					<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
 						<PlusIcon />
 					</button>
@@ -381,7 +465,12 @@ export function Composer({
 							data-done={work.done !== undefined || undefined}
 							aria-expanded={work.open}
 							title={work.open ? "Hide the steps" : "Show the steps"}
-							onClick={work.onToggle}
+							onClick={() => {
+								// What the row opens takes the pill's first row from the threads;
+								// already open under them, it is shown rather than folded.
+								setThreadsWanted(false);
+								if (!(threadsOpen && work.open)) work.onToggle();
+							}}
 						>
 							{work.done === undefined ? (
 								<>
@@ -396,6 +485,7 @@ export function Composer({
 							<ChevronDownIcon className="composer-work-chevron" />
 						</button>
 					)}
+					{work === undefined && twoRows && <span aria-hidden="true" className="flex-1" />}
 					<div className="composer-body">
 						{sendingSince !== null && (
 							<p className="composer-sending" role="status">
@@ -508,6 +598,7 @@ export function Composer({
 							</p>
 						)}
 					</div>
+					<ThreadsKey count={threadRows.length} open={threadsOpen} panelId={panelId} keyRef={threadsKey} onToggle={toggleThreads} onKeyDown={keyArrows} />
 					{working && !stopOnCard && (
 						<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
 							<StopIcon />

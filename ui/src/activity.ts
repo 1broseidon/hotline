@@ -2,13 +2,24 @@ import type { SessionInfo, SessionState, TranscriptEvent } from "./generated/con
 import type { Streaming } from "./tape";
 
 /**
- * The state a session reads as. A turn the core says is open only for
- * subagents it started (`awaitingSubagents`) reads as done: its reply is in
- * the chat, nothing works under the conversation, and the composer is as it
- * is between turns, while the subagents show at the composer's corner.
+ * Whether the turn in flight is open only for subagents the teammate started
+ * (`awaitingSubagents`): its reply is said and it does nothing itself until
+ * one of them reports or the person speaks.
+ */
+export function awaitingSubagents(session: Pick<SessionInfo, "state" | "awaitingSubagents">): boolean {
+	return session.state === "thinking" && session.awaitingSubagents === true;
+}
+
+/**
+ * The state a session reads as. A turn open only for its subagents reads as
+ * done: its reply is in the chat, nothing works under the conversation, and
+ * the composer takes a line as it does between turns (the core steers it into
+ * the open turn), while the subagents are counted in the composer's threads.
+ * Only the mark knows the difference: it rests in the composer with what the
+ * teammate said it is waiting on (`waitingOf`) rather than going to sleep.
  */
 export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagents">): SessionState {
-	return session.state === "thinking" && session.awaitingSubagents === true ? "ready" : session.state;
+	return awaitingSubagents(session) ? "ready" : session.state;
 }
 
 /**
@@ -127,6 +138,17 @@ export const LANDED: Activity = { phase: "landed", word: "" };
  * transcript, like LANDED, never read off the tape.
  */
 export const RESTING: Activity = { phase: "rest", word: "" };
+
+/**
+ * The mark while the turn is open only for its subagents: at rest, on the
+ * cradle, and beside it the words the teammate last said it is on in this
+ * turn, which is what it is waiting for when it said so. "Waiting" is not a
+ * kind it can declare, so it has no movement of its own; with nothing
+ * declared the toad rests alone, because the desk never makes the words up.
+ */
+export function waitingOf(events: TranscriptEvent[]): Activity {
+	return { phase: "rest", word: scan(events).declared?.message ?? "" };
+}
 
 /** What the tape says is happening in a turn that is running. */
 export function activityOf(events: TranscriptEvent[], streaming: Streaming[], queued = false): Activity {

@@ -137,11 +137,11 @@ export const linkFailed = (link: LinkEvent): boolean => link.state === "closed" 
 type LinkTone = "live" | "done" | "failed" | "quiet";
 
 /**
- * A link as its row draws it: which kind of thread (the glyph and the
- * label: a run is a Command when it is one a harness left running, and a
- * pair is a Pair), its title, what came of it in a few words, and the dot's tone.
- * The same facts `linkLine` says as one sentence, which the row keeps as
- * its accessible name.
+ * A link as its row draws it: which kind of thread it is (a run is a
+ * command when it is one a harness left running), which the row carries but
+ * does not say, its title, what it is doing or what came of it in a few
+ * words, and the dot's tone. The same facts `linkLine` says as one sentence,
+ * kind and all, which the row keeps as its accessible name.
  */
 export type LinkRowFacts = { kind: "thread" | "subagent" | "command" | "pair" | "call"; title: string; outcome: string; tone: LinkTone };
 

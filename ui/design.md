@@ -95,8 +95,12 @@ One family, **Workbench**, for every screen:
   menu, and each opens its run in the right-hand pane. A long name
   truncates before it reaches the mark, and the conversation's foot keeps
   the same room for them as for the mark. A turn whose reply is said and
-  that is open only for its subagents is over as far as the window shows:
-  no mark, no Interrupt, the reply in the conversation. Side threads are
+  that is open only for its subagents reads as done everywhere but the
+  mark: no Interrupt, Escape interrupts nothing, the band and the rail do
+  not beat, a line sent goes into the open turn, and the reply is in the
+  conversation. The mark stays in the composer at rest, on the cradle,
+  with the words the teammate last said it is on beside it, or alone when
+  it said none, and goes to sleep only when the turn ends. Side threads are
   conversations of their own, not the turn's work, so their chips stay in
   the band.
 - Menus and the search panel are pop-plane surfaces that borrow the

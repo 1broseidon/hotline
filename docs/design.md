@@ -628,6 +628,19 @@ updated, closed as what it became, or `ended` with nothing left behind; it is
 looked for on the calling thread and then the main conversation, so a job can
 close what the conversation opened. The desk closes nothing by itself yet.
 
+After George's first run of it (2026-11-12): a thread's line in the
+conversation is the job and what it is doing or how it ended, with no kind
+word ("Subagent", "Command"), which stays in the opened thread's header, the
+Threads list and the row's accessible name. A turn held open only for its
+subagents still reads as done everywhere (no Interrupt, no beat, a line sent
+goes into the turn), but the mark stays in the composer at rest beside the
+last words the teammate declared in the turn: parking writes no `turn` line,
+so the declaration stands until the turn truly ends or another replaces it.
+The house style asks for that wait to be said with `activity` and not in the
+chat, for no word when a helper reports until there is an outcome, and for
+outcomes and replies written for a person (no process ids, raw paths or
+commands to run unless asked; offer to do it instead).
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

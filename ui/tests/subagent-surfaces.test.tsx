@@ -176,6 +176,8 @@ describe("a subagent's line and its row at the composer", () => {
 		await act(async () => root.render(transcript(link("live"), [audit])));
 		const row = container.querySelector(".link-row");
 		expect(row?.querySelector(".link-row-outcome")?.textContent).toBe("· Read Dock.tsx");
+		// The conversation says the job and what it is doing; the kind is in its accessible name only.
+		expect(row?.querySelector(".link-row-words")?.textContent).toBe("Audit side-pane thread rows· Read Dock.tsx");
 		expect(row?.getAttribute("aria-label")).toBe("Subagent · Audit side-pane thread rows · Read Dock.tsx. Open it");
 		// Before its first step it works, and once ended it says how it went.
 		await act(async () => root.render(transcript(link("live"), [{ runId: audit.runId, title: audit.title, startedAt: audit.startedAt }])));

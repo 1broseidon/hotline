@@ -169,11 +169,11 @@ describe("task-395 a pair's pane", () => {
 		expect(container.querySelector('button[title="Stop the exchange"]')).toBeNull();
 	});
 
-	test("in the conversation that holds it, its link line says Pair, not Thread", async () => {
+	test("in the conversation that holds it, its link line is a pair's, and shows no kind word", async () => {
 		const link: Extract<TranscriptEvent, { kind: "link" }> = { kind: "link", id: "link:pair", ts: 1, thread: key, threadKind: "pair", title: "Lou on grizzly", state: "live" };
 		await render(<LinkRow link={link} owner="poe" people={undefined} onOpen={() => {}} />);
 		expect(container.querySelector(".link-row")?.getAttribute("data-kind")).toBe("pair");
-		expect(text(".link-row-kind")).toBe("Pair");
+		expect(text(".link-row")).toBe("Talking with Lou on grizzlyOpen ›");
 	});
 });
 
@@ -254,11 +254,12 @@ describe("task-396 a command left running", () => {
 		expect(text(".pane-terminal")).toBe("precheck: all 8 legs pass in 95s\n");
 	});
 
-	test("its link line and its row at the composer say Command, not Subagent", async () => {
+	test("its link line is a command's and shows no kind word, its accessible name and its row at the composer say Command, not Subagent", async () => {
 		const line = link("closed") as Extract<TranscriptEvent, { kind: "link" }>;
 		await render(<LinkRow link={line} owner="poe" people={undefined} onOpen={() => {}} />);
 		expect(container.querySelector(".link-row")?.getAttribute("data-kind")).toBe("command");
-		expect(text(".link-row-kind")).toBe("Command");
+		expect(text(".link-row")).not.toContain("Command");
+		expect(container.querySelector(".link-row")?.getAttribute("aria-label")).toStartWith("Command · make precheck");
 		expect(linkLine(line)).toStartWith("Command · make precheck");
 		// Its row in the composer's threads panel (task-437), where the chip was.
 		const poe = { persona: { id: "poe" }, subagents: [run] } as unknown as Parameters<typeof liveThreads>[0]["entry"];

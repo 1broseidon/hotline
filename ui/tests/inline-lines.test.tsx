@@ -174,7 +174,7 @@ test("the line under a reply is what the turn left behind, failed first, then th
 	expect([...container.querySelectorAll(".steps-caption .outcome")].map((one) => [one.getAttribute("data-mark"), one.textContent])).toEqual([["done", "Three quotes in"]]);
 });
 
-test("threads, subagents and calls are one quiet line: a state dot, the title, the kind, what came of it, and Open, with no glyph", async () => {
+test("threads, subagents and calls are one quiet line: a state dot, the title, what came of it, and Open, with no glyph and no kind word", async () => {
 	const opened: string[] = [];
 	await draw(
 		[
@@ -186,10 +186,16 @@ test("threads, subagents and calls are one quiet line: a state dot, the title, t
 	);
 	const rows = [...container.querySelectorAll<HTMLButtonElement>("button.link-row")];
 	expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["thread", "subagent", "call"]);
-	expect(rows.map((row) => [row.querySelector(".link-row-title")?.textContent, row.querySelector(".link-row-sub")?.textContent, row.querySelector(".link-row-dot")?.getAttribute("data-tone")])).toEqual([
-		["Load test the local Qdrant", "Thread· p50 6 ms, p99 18 ms", "done"],
-		["Benchmark sweep", "Subagent· Done in 1 min 35 s", "done"],
-		["Weekly recap", "Call· Parked", "quiet"],
+	expect(rows.map((row) => [row.querySelector(".link-row-words")?.textContent, row.querySelector(".link-row-dot")?.getAttribute("data-tone")])).toEqual([
+		["Load test the local Qdrant· p50 6 ms, p99 18 ms", "done"],
+		["Benchmark sweep· Done in 1 min 35 s", "done"],
+		["Weekly recap· Parked", "quiet"],
+	]);
+	// Heard alone, the row still says what it opens.
+	expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+		"Side thread · Load test the local Qdrant · p50 6 ms, p99 18 ms. Open it",
+		"Subagent · Benchmark sweep · done in 1 min 35 s. Open it",
+		"Weekly recap · parked. Open it",
 	]);
 	for (const row of rows) {
 		expect(row.querySelector("svg")).toBeNull();

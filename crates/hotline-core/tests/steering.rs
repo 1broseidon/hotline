@@ -4,6 +4,7 @@ use crate::common;
 
 use axum::{Router, body::Bytes, routing::post};
 use common::Client;
+use hotline_core::log::{Log, StreamId};
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
@@ -331,8 +332,11 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
 
 /// Hotline Agent hands work to a subagent and answers: the turn reads as done
 /// while the run works, with the run in the roster row's subagents and the
-/// reply in the chat. A line sent then is taken into the open turn and
-/// answered there, and the run's report wakes the turn, which ends cleanly.
+/// reply in the chat. What it said it is on before the wait is still the
+/// turn's newest declaration on the tape while it waits, because parking
+/// writes no turn line under it; the turn's end is what follows it. A line
+/// sent then is taken into the open turn and answered there, and the run's
+/// report wakes the turn, which ends cleanly.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_person() {
     let api = "chat_completions";
@@ -368,18 +372,24 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
                     match index {
                         0 => tool_events(
                             api,
+                            "activity",
+                            json!({"type":"searching","message":"Waiting on the edge cases"}),
+                            "call_activity",
+                        ),
+                        1 => tool_events(
+                            api,
                             "subagent",
                             json!({"task":"Check the edge cases of the lift","title":"Edge cases"}),
                             "call_sub",
                         ),
-                        1 => text_events(
+                        2 => text_events(
                             "The lift is in crane.rs; a subagent is checking the edge cases.",
                         ),
-                        2 => {
+                        3 => {
                             assert!(request.to_string().contains("also check the brakes"));
                             text_events("Noted, the brakes are next.")
                         }
-                        3 => {
+                        4 => {
                             assert!(request.to_string().contains("Two edge cases fail."));
                             text_events("Two edge cases fail; I will fix them.")
                         }
@@ -466,6 +476,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     );
     next_request(&mut requests).await;
     next_request(&mut requests).await;
+    next_request(&mut requests).await;
 
     // The reply is chat, and the turn reads as done while the run works.
     client
@@ -491,6 +502,17 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     let runs = waiting["event"]["subagents"].as_array().unwrap();
     assert_eq!(runs.len(), 1, "{waiting}");
     assert_eq!(runs[0]["title"], "Edge cases");
+    // What it said it is on stands through the wait: the tape has no turn
+    // line after it, so a window still reads it as this turn's.
+    let on_disk = || Log::open(root.path()).load(&StreamId::Tape(persona.clone()));
+    let last = |tape: &[Value], kind: &str| tape.iter().rposition(|line| line["kind"] == kind);
+    let tape_now = on_disk();
+    let declared = last(&tape_now, "activity").expect("the declaration is on the tape");
+    assert_eq!(tape_now[declared]["message"], "Waiting on the edge cases");
+    assert!(
+        last(&tape_now, "turn").is_none_or(|turn| turn < declared),
+        "the wait ended the turn under the declaration: {tape_now:?}"
+    );
 
     // Said meanwhile, it goes into the open turn, which works on it and
     // waits again. Each roster row read below is newer than the last one
@@ -528,6 +550,12 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
         })
         .await;
     assert_eq!(ended["event"]["stopReason"], "end_turn");
+    // Truly over, the turn's line stands under the declaration, which ends it.
+    let tape_now = on_disk();
+    assert!(
+        last(&tape_now, "turn") > last(&tape_now, "activity"),
+        "{tape_now:?}"
+    );
     let persona_id = persona.clone();
     let rested = client
         .next_where(common::ANSWER, move |frame| {

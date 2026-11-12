@@ -5,7 +5,7 @@ import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, 
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
-import { type WorkMark, activityOf } from "../activity";
+import { type WorkMark, activityOf, waitingOf } from "../activity";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -105,6 +105,7 @@ export function Transcript({
 	events,
 	streaming,
 	live,
+	waiting = false,
 	cornered = false,
 	workingCalls,
 	workingSides,
@@ -139,6 +140,11 @@ export function Transcript({
 	streaming: Streaming[];
 	/** A turn is running: the mark is up, above the composer. */
 	live: boolean;
+	/**
+	 * The turn is open only for the teammate's subagents (`awaitingSubagents`):
+	 * not live, but the mark stays up, at rest, with what it said it is on.
+	 */
+	waiting?: boolean;
 	/**
 	 * Something stands at the composer's top right, over the foot of the
 	 * conversation: the last line keeps clear of it as it does of the mark,
@@ -448,7 +454,10 @@ export function Transcript({
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
 	// The mark says what the teammate says it is on, in its words; the desk adds none of its own.
-	const currentActivity = useMemo(() => (!live && !queued ? null : activityOf(events, streaming, queued)), [live, queued, events, streaming]);
+	const currentActivity = useMemo(
+		() => (live || queued ? activityOf(events, streaming, queued) : waiting ? waitingOf(events) : null),
+		[live, waiting, queued, events, streaming],
+	);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 	const mark: WorkMark | null = activity !== null ? { activity, sleeping } : null;
 	/* The mark is handed up when what it says changes, not each time it is

@@ -1130,8 +1130,9 @@ before; the rows that lost and gained it are sent again when `teamLead`
 changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
 `awaitingSubagents: true` says it is open only for subagents it started and
-reads as done: the reply is in the conversation and the composer is as it is
-between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
+reads as done: the reply is in the conversation and the composer takes a line
+as it does between turns, with the mark at rest beside what the teammate last
+said it is on (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
 `subagents` lists the runs still going, oldest first, `{runId, title,
 startedAt, kind?, lastStep?, steps?, command?, model?, stoppable?}`: `kind` is `shell` for a
 command a harness left running (with its `command`) and absent for a

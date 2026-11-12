@@ -1,6 +1,6 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Activity, isWorking, processLabel, shownState } from "../activity";
+import { type Activity, awaitingSubagents, isWorking, processLabel, shownState } from "../activity";
 import { liveThreads } from "../liveThreads";
 import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { chordGlyph } from "../chords";
@@ -321,6 +321,7 @@ export function Conversation({
 					events={shown}
 					streaming={streaming}
 					live={isWorking(session)}
+					waiting={awaitingSubagents(session)}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}

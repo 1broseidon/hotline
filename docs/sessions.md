@@ -393,8 +393,11 @@ background subagents finish and it has said what they found. While nothing
 else is open, that turn reads as done. The reply is chat, not narration; the
 phone and a call hear it then, as they would at a turn's end; and the
 session's `awaitingSubagents` is true while `state` stays `thinking`. So the
-window shows no work card, its peek says Done, nothing offers Stop, and the
-desktop toast for a finished turn fires. Everything
+window's peek says Done, nothing offers Stop, and the desktop toast for a
+finished turn fires; only the mark stays in the composer, at rest, beside
+the last words the teammate gave `activity` in the turn, because the line
+that said them is still the turn's newest declaration: parking writes no
+`turn` line, so nothing ends it until the turn does. Everything
 that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 

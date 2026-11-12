@@ -250,7 +250,8 @@ function poseOf(phase: ActivityPhase, t: number, stall: number): Pose {
 		case "writing":
 		case "landed":
 			return { ...REST };
-		/* Going back to sleep: on the cradle, still. */
+		/* On the cradle, still: going back to sleep, or waiting on its
+		 * subagents, when only the blink moves it. */
 		case "rest":
 			return { ...REST };
 	}

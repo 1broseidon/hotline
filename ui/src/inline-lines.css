@@ -429,8 +429,8 @@
 	}
 
 	/* ---------------------------------------------------------- link row
-	 * Every way out of the chat, a thread, a subagent, a call: the kind's
-	 * glyph with a dot for how it stands, the title, what came of it, Open. */
+	 * Every way out of the chat, a thread, a subagent, a call: a dot for how
+	 * it stands, the title, what it is doing or what came of it, Open. */
 	.link-row {
 		display: flex;
 		max-width: 86%;
@@ -480,18 +480,6 @@
 		text-overflow: ellipsis;
 		font-weight: 500;
 		color: var(--ink-2);
-	}
-	.link-row-sub {
-		display: flex;
-		min-width: 0;
-		gap: 4px;
-		overflow: hidden;
-	}
-	.link-row-kind {
-		flex-shrink: 0;
-	}
-	.link-row-kind::before {
-		content: "· ";
 	}
 	.link-row-outcome {
 		min-width: 0;

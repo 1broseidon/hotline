@@ -35,19 +35,19 @@ test("a call row follows its own turn and then its parked link, and still opens 
 		));
 		return container.querySelector<HTMLButtonElement>("button.link-row")!;
 	};
-	const said = (row: HTMLButtonElement) => [".link-row-title", ".link-row-kind", ".link-row-outcome", ".link-row-open"].map((part) => row.querySelector(part)?.textContent);
-	expect(said(await draw(["c1"]))).toEqual(["Release checks", "Call", "· Running", "Open ›"]);
+	const said = (row: HTMLButtonElement) => [".link-row-title", ".link-row-outcome", ".link-row-open"].map((part) => row.querySelector(part)?.textContent);
+	expect(said(await draw(["c1"]))).toEqual(["Release checks", "· Running", "Open ›"]);
 	expect((await draw(["c1"])).querySelector(".link-row-dot")?.getAttribute("data-tone")).toBe("live");
-	expect(said(await draw(["other-call"]))).toEqual(["Release checks", "Call", "· Open", "Open ›"]);
+	expect(said(await draw(["other-call"]))).toEqual(["Release checks", "· Open", "Open ›"]);
 	link = { ...link, state: "parked" };
 	const parked = await draw([]);
-	expect(said(parked)).toEqual(["Release checks", "Call", "· Parked", "Open ›"]);
+	expect(said(parked)).toEqual(["Release checks", "· Parked", "Open ›"]);
 	expect(parked.querySelector(".link-row-dot")?.getAttribute("data-tone")).toBe("quiet");
 	expect(parked.getAttribute("aria-label")).toBe("Release checks · parked. Open it");
 	await act(async () => parked.click());
 	expect(opened).toEqual(["c1"]);
 	// A resumed turn can arrive before the rewritten link.
-	expect(said(await draw(["c1"]))[2]).toBe("· Running");
+	expect(said(await draw(["c1"]))[1]).toBe("· Running");
 });
 
 test("a call thread folds speech updates and opens work results as work", async () => {

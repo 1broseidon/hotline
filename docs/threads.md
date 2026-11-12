@@ -409,7 +409,7 @@ Where this differs from the design above:
   have no thread or marker.
 - **The client marker is `call`, additive.** `Link::wire` sends a call's link as
   `TranscriptEvent::Call` (`callId`, `title`, `status`, `durationMs`,
-  `outcome`). The desktop draws a quiet line, "Call · 4 min · Hung up". It has
+  `outcome`). The desktop draws a quiet line, "Weekly recap · 4 min · Hung up". It has
   no Open yet: reading a closed call in the pane waits for the thread view
   (phase 9). The phone drops transcript kinds it does not know (its tape filter
   and renderer have no case for them), so no capability gate was needed.
@@ -687,8 +687,10 @@ has one hook and one view.
   rows up to what the links say (a thread that closed reads closed at once, one the
   list has not heard of is a row from its link: `rowOfLink`).
 - **Links, not markers.** `Transcript` draws one `link` row for every kind
-  (`LinkRow`, from `linkRow` in `links.ts`: the kind's glyph with a state dot,
-  the title, what came of it; `linkLine` is its accessible name) with an Open
+  (`LinkRow`, from `linkRow` in `links.ts`: a state dot, the title, what it is
+  doing or what came of it, and no kind word, which stays where the person
+  goes for detail: the opened thread's header and the Threads list;
+  `linkLine`, kind and all, is its accessible name) with an Open
   that opens the thread in the dock; the
   `side`, `subagent` and `call` cases draw nothing, since a `threads2` socket is
   sent a link even for one written long ago. A `peer` marker and a delivery still

@@ -1,6 +1,11 @@
 import type { Attachment, ScheduledRun, TranscriptEvent } from "./generated/contract";
 
-export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" }>;
+/**
+ * The path of a turn: its thoughts and tool calls, and what the teammate said
+ * it was on (`activity`, which heads the steps after it) and what it left
+ * behind (`outcome`, which the line under the reply is made of).
+ */
+export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" | "activity" | "outcome" }>;
 
 /** A prompt a schedule or loop sent, as the operator's line it arrives on. */
 export type ScheduledEvent = Extract<TranscriptEvent, { kind: "user" }> & { scheduled: ScheduledRun };
@@ -11,8 +16,8 @@ export type CallLink = Extract<TranscriptEvent, { kind: "link" }> & { threadKind
 type AgentEvent = Extract<TranscriptEvent, { kind: "agent" }>;
 
 /**
- * Either one event, or a turn's machinery — its thoughts and tool calls —
- * folded into one block under its last bubble, so a transcript of forty tool
+ * Either one event, or a turn's machinery — its thoughts and tool calls, and
+ * what the teammate said of them — folded into one block under its last bubble, so a transcript of forty tool
  * calls still reads as a conversation. A turn still running has its block
  * last and `open`. A job that fired again and again
  * with nothing between is one block too, oldest run first, sitting where the

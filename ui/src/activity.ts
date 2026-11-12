@@ -1,4 +1,3 @@
-import type { TurnSummary } from "./turnFacts";
 import type { SessionInfo, SessionState, TranscriptEvent } from "./generated/contract";
 import type { Streaming } from "./tape";
 
@@ -43,46 +42,38 @@ export function processLabel(title: string): string {
 /**
  * What a teammate is doing right now, at the grain the mark can show it.
  *
- * A session's state only says a turn is running. That is enough to raise an
- * indicator and not enough to drive one: reaching for a file, hunting for a
- * string, running a command and writing to you are different kinds of work,
- * and the protocol already labels them. Everything here is read off events
- * that actually happened — nothing is inferred from elapsed time or invented
- * to fill a gap, because a mark that moves for reasons you cannot name is
- * decoration.
+ * A session's state only says a turn is running. The teammate says what it is
+ * on with its `activity` tool, a kind and a few words of its own, and the
+ * kind moves the mark: thinking, reading, searching, making and talking each
+ * have their own movement. Without a declaration the mark may still move by
+ * the kind of tool in use, as the protocol labels it, but nothing is said
+ * beside it: the words are the teammate's, and the desk never makes them up.
+ * Waiting on you, writing the reply and the hang-up stay the desk's own.
  */
-export type ActivityPhase = "thinking" | "read" | "search" | "edit" | "execute" | "doing" | "blocked" | "writing" | "landed" | "rest";
+export type ActivityPhase = "thinking" | "read" | "search" | "edit" | "execute" | "talking" | "doing" | "blocked" | "writing" | "landed" | "rest";
 
 export type Activity = {
 	phase: ActivityPhase;
-	/** One word beside the mark. Never a path or a command. */
+	/** The words beside the mark: the teammate's own, or the desk's for what is its own to say (waiting on you). Never a path or a command. */
 	word: string;
-	/** While it reads the web: the sites of the pages read so far, as icons beside the words. */
-	sites?: string[];
 };
 
 /**
  * The composer's bottom row while a teammate works, and for a moment after:
- * the mark and its words, how many steps so far, and once the turn is over
- * its counts.
+ * the mark, and whether it is going back to sleep.
  */
 export type WorkMark = {
 	activity: Activity;
 	sleeping: boolean;
-	count?: number;
-	done?: TurnSummary;
 };
 
 /**
- * Tool kinds, collapsed to what the mark can actually distinguish.
- * Seven kinds would be seven animations nobody learns. Four physical
- * categories — looking at, looking for, working on, running — are legible
- * at 30px without being taught, because they are what those verbs look like.
- *
- * An ACP agent sends ACP's kinds; Hotline Agent sends its own tool's name,
- * so its built-ins are here by name too, and a server's tool is read by the
- * part after its `server__` prefix (`computer__shell` runs, `ketch__search`
- * searches). A kind not here is still work: it shows as Working.
+ * Tool kinds, collapsed to what the mark can actually distinguish, for a
+ * teammate that has not said what it is on. An ACP agent sends ACP's kinds;
+ * Hotline Agent sends its own tool's name, so its built-ins are here by name
+ * too, and a server's tool is read by the part after its `server__` prefix
+ * (`computer__shell` runs, `ketch__search` searches). A kind not here is
+ * still work, and moves the mark plainly.
  */
 const KINDS: Record<string, ActivityPhase> = {
 	read: "read",
@@ -110,18 +101,18 @@ function kindPhase(kind: string | undefined): ActivityPhase {
 	return KINDS[name] ?? "doing";
 }
 
-const WORDS: Record<ActivityPhase, string> = {
-	thinking: "Thinking",
-	read: "Reading",
-	search: "Searching",
-	edit: "Editing",
-	execute: "Running",
-	doing: "Working",
-	blocked: "Waiting on you",
-	writing: "",
-	landed: "",
-	rest: "",
+/** The kinds a teammate may say it is on, and the movement each is; one the desk does not know moves the mark plainly. */
+const DECLARED: Record<string, ActivityPhase> = {
+	thinking: "thinking",
+	reading: "read",
+	searching: "search",
+	making: "edit",
+	talking: "talking",
 };
+
+function declaredPhase(type: string): ActivityPhase {
+	return DECLARED[type] ?? "doing";
+}
 
 /**
  * The reply has landed and the turn is over, but the mark stays a moment to
@@ -142,37 +133,53 @@ export function activityOf(events: TranscriptEvent[], streaming: Streaming[], qu
 	const latest = scan(events);
 	// Blocked outranks everything: it is the one state where nothing is
 	// happening and nothing will until you answer.
-	if (latest.blocked) return activity("blocked");
-	// Writing outranks the tool that produced it: once words are on their
-	// way, what produced them is no longer the headline.
+	if (latest.blocked) return { phase: "blocked", word: "Waiting on you" };
+	// Writing outranks what the teammate said it was on: once words are on
+	// their way, they are the headline.
 	// Bubbles still landing to the beat read as writing, whatever produced them.
-	if (queued || streaming.some((one) => one.kind === "agent")) return activity("writing");
+	if (queued || streaming.some((one) => one.kind === "agent")) return { phase: "writing", word: "" };
+	// What the teammate said it is on stands until it says something else or
+	// the turn ends.
+	if (latest.declared !== undefined) return { phase: declaredPhase(latest.declared.type), word: latest.declared.message ?? "" };
 	// The newest call's kind holds until the next call starts. Reads and
 	// listings finish in milliseconds and the gaps between them are the agent
 	// choosing its next step in the same kind of work; a mark that dropped to
 	// Thinking in every gap would show nothing but thinking. `worked` rather
 	// than a truthy kind: plenty of agents send a tool call with no kind at
 	// all, and those are still work.
-	if (latest.worked) return activity(kindPhase(latest.kind));
-	return activity("thinking");
+	if (latest.worked) return { phase: kindPhase(latest.kind), word: "" };
+	return { phase: "thinking", word: "" };
 }
 
-const activity = (phase: ActivityPhase): Activity => ({ phase, word: WORDS[phase] });
+type Declared = Extract<TranscriptEvent, { kind: "activity" }>;
 
 /**
- * The last thing in this turn that says what is happening: a permission
- * still waiting, or the newest tool call, running or done. Walked backwards
- * and stopped at the first answer or at the turn's start (the previous
- * turn's end, your message, or an answer delivered to the teammate),
- * because the answer is always near the end
- * and this runs on every event of a live turn.
+ * What this turn says is happening: a permission still waiting, the newest
+ * tool call, running or done, and the newest activity the teammate declared.
+ * Walked backwards and stopped once both are known or at the turn's start
+ * (the previous turn's end, your message, or an answer delivered to the
+ * teammate), because the answer is near the end and this runs on every
+ * event of a live turn. The calls that declare are not work of their own.
  */
-function scan(events: TranscriptEvent[]): { blocked: boolean; worked?: boolean; kind?: string | undefined } {
-	for (let index = events.length - 1; index >= 0; index--) {
+function scan(events: TranscriptEvent[]): { blocked: boolean; worked?: boolean; kind?: string | undefined; declared?: Declared } {
+	let found: { blocked: boolean; worked?: boolean; kind?: string | undefined } | null = null;
+	let declared: Declared | undefined;
+	for (let index = events.length - 1; index >= 0 && (found === null || declared === undefined); index--) {
 		const event = events[index]!;
-		if (event.kind === "permission" && event.decision === undefined) return { blocked: true };
-		if (event.kind === "tool") return { blocked: false, worked: true, kind: event.toolKind };
 		if (event.kind === "turn" || event.kind === "user" || event.kind === "delivery") break;
+		if (event.kind === "activity") declared ??= event;
+		if (found !== null) continue;
+		if (event.kind === "permission" && event.decision === undefined) found = { blocked: true };
+		else if (event.kind === "tool" && !declares(event)) found = { blocked: false, worked: true, kind: event.toolKind };
 	}
-	return { blocked: false };
+	return { ...(found ?? { blocked: false }), ...(declared !== undefined ? { declared } : {}) };
+}
+
+/**
+ * The step a call to `activity` or `outcome` is, known by the group the
+ * core's glance gives it: the line it wrote heads or marks the path, so the
+ * call itself is not drawn or counted as work.
+ */
+export function declares(event: Extract<TranscriptEvent, { kind: "tool" }>): boolean {
+	return event.said?.key === "activity" || event.said?.key === "outcome";
 }

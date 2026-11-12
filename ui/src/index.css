@@ -1802,6 +1802,25 @@
 		transform-box: fill-box;
 		transform-origin: center;
 	}
+	/* Talking: the brow become a headband, earcups that grow from its ends
+	 * about their own middles, and a mic boom cut in the ground's colour. */
+	.glyph .g-band {
+		fill: none;
+		stroke: currentColor;
+		stroke-linecap: round;
+	}
+	.glyph .g-cup {
+		transform-box: fill-box;
+		transform-origin: center;
+	}
+	.glyph .g-boom {
+		fill: none;
+		stroke: var(--canvas);
+		stroke-linecap: round;
+	}
+	.glyph .g-micdot {
+		fill: var(--canvas);
+	}
 	/* On the line: the handset as a stroke, pulled out above the toad into the reply. */
 	.glyph .g-line {
 		fill: none;
@@ -2193,6 +2212,44 @@
 		margin: 0;
 		padding: 0;
 		list-style: none;
+	}
+	/* What the teammate said it was on heads the steps it took meanwhile,
+	 * with when it began; the steps sit under it, set in. */
+	.trail-heading {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		padding: 4px 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.trail-heading-said {
+		min-width: 0;
+		flex: 1;
+		overflow-wrap: anywhere;
+	}
+	.trail-group + .trail-group,
+	.trail-step + .trail-group {
+		margin-top: 6px;
+	}
+	.trail-under {
+		padding-left: 12px;
+	}
+	/* What the turn left behind, where the teammate said so. */
+	.trail-outcome {
+		padding: 4px 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.step-heading,
+	.step-outcome {
+		margin: 0;
+		padding: 4px 8px 2px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
 	}
 	.trail-head {
 		display: flex;
@@ -2729,52 +2786,6 @@
 		margin: 0 0 4px;
 		border-bottom: var(--hairline) solid var(--line);
 	}
-	/* The turn running now, opened from the Working row (Work.tsx TurnSteps):
-	 * the pill's first row, its state and counts over its steps, a long run
-	 * scrolling, as the threads open there. */
-	.composer[data-work] > .composer-steps {
-		order: -2;
-		display: flex;
-		flex-basis: 100%;
-		flex-direction: column;
-		max-height: min(40vh, 320px);
-		margin: 0 0 4px;
-		padding: 2px 2px 4px;
-		border-bottom: var(--hairline) solid var(--line);
-	}
-	.composer-steps-head {
-		display: flex;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 8px;
-		padding: 4px 8px;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		color: var(--ink-3);
-	}
-	.composer-steps-state {
-		font-weight: 500;
-		color: var(--accent-ink);
-	}
-	.composer-steps-hide {
-		margin-left: auto;
-		padding: 2px 8px;
-		border-radius: var(--radius-control);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.composer-steps-hide:hover {
-		background: var(--fill-hover);
-		color: var(--ink);
-	}
-	.composer-steps-window {
-		min-height: 0;
-		flex: 1;
-		overflow-y: auto;
-		padding: 0 4px;
-	}
 	/* A card waiting on the person, opened in the composer to answer there:
 	 * the pill's first row, the card at its full width, a tall one scrolling. */
 	.composer[data-work] > .composer-ask {
@@ -2850,29 +2861,24 @@
 	.composer-work[data-sleeping] {
 		opacity: 0.5;
 	}
+	/* The teammate's own words for what it is on: new words come in from
+	 * the mark's side rather than change in place. */
 	.composer-work-word {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		animation: said-in var(--dur-move) var(--ease-out);
 	}
-	.composer-work-count,
-	.composer-work-failed {
-		margin-left: auto;
-		flex-shrink: 0;
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-3);
-	}
-	.composer-work-count {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-	}
-	.composer-work-failed {
-		color: var(--danger);
-	}
-	.composer-work-count ~ .composer-work-chevron,
-	.composer-work-failed ~ .composer-work-chevron {
-		margin-left: 2px;
+	@keyframes said-in {
+		from {
+			opacity: 0;
+			transform: translateX(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
 	}
 	/* A site's icon, and a few of them overlapping: the pages read. */
 	/* A site's icon sits on a light tile, as browsers show them, so a dark
@@ -2896,9 +2902,6 @@
 	.favicons > .favicon {
 		box-shadow: 0 0 0 1.5px var(--canvas);
 	}
-	.composer .favicons > .favicon {
-		box-shadow: 0 0 0 1.5px var(--pop);
-	}
 	.favicons > .favicon + .favicon {
 		margin-left: -2px;
 	}
@@ -2907,16 +2910,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: var(--ink-3);
-	}
-	/* What the turn came to, as counts: the instrument voice. */
-	.composer-work[data-done] .composer-work-word,
-	.composer-work[data-done] .composer-work-failed {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		letter-spacing: 0.02em;
-	}
-	.composer-work[data-done] .composer-work-word {
-		color: var(--ink-2);
 	}
 	/* The live line of the peek is what is happening now: it reads in full ink. */
 	.work-window .step[data-live] .step-title {
@@ -5678,6 +5671,7 @@
 	.trail-step[data-status="in_progress"] .trail-said,
 	.ambient-card,
 	.ambient-card[data-sleeping],
+	.composer-work-word,
 	.menu,
 	.rail-tip,
 	.search-panel,

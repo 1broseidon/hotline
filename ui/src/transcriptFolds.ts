@@ -1,3 +1,4 @@
+import { declares } from "./activity";
 import { excerptText } from "./excerpt";
 import type { Attachment, TranscriptEvent } from "./generated/contract";
 import { bubbleId, pacedLive } from "./pacing";
@@ -94,7 +95,9 @@ export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 	};
 	for (const event of events) {
 		if (event.kind === "computer_pull") continue;
-		if (event.kind === "thought" || event.kind === "tool") {
+		// The call that said what it was on, or what came of it, is the line it wrote.
+		if (event.kind === "tool" && declares(event)) continue;
+		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || event.kind === "outcome") {
 			group ??= { id: event.id, ts: event.ts, items: [] };
 			group.items.push(event);
 			continue;

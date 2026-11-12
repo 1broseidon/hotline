@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolOutput } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon, EyeIcon } from "../../icons";
-import { type Glance, glance } from "../../glance";
+import type { Glance } from "../../glance";
+import { markOf, type PathEntry, pathGroups, pathLines } from "../../outcomes";
 import { openLink } from "../../native";
 import { joinThoughts, stepTitle } from "../../stepText";
 import { type FileChange, type Source, type ToolStep, durationText, factOf, filesOf, pageOf, sourcesOf, stepTook, toolSteps } from "../../turnFacts";
@@ -75,7 +76,7 @@ export function Trail({
  */
 export function TrailHead({ items, settled = false, hot }: { items: Step[]; settled?: boolean; hot: Hot }) {
 	const sources = useMemo(() => sourcesOf(items), [items]);
-	const lines = useMemo(() => glance(items, !settled), [items, settled]);
+	const lines = useMemo(() => pathLines(pathGroups(items, !settled)), [items, settled]);
 	if (toolSteps(items).length === 0 && sources.length === 0) return null;
 	return (
 		<div className="work-sections work-head">
@@ -85,13 +86,27 @@ export function TrailHead({ items, settled = false, hot }: { items: Step[]; sett
 	);
 }
 
-/** What runs long, and so scrolls: the files the turn changed and its steps. */
+/**
+ * What runs long, and so scrolls: the files the turn changed and its path,
+ * the steps grouped under what the teammate said it was on as each happened,
+ * its words the heading with when it began, and what it left behind marked
+ * where it said so. Steps before it said anything come first, ungrouped.
+ */
 export function TrailSteps({ items, settled = false, openId, hot }: { items: Step[]; settled?: boolean; openId?: string | undefined; hot: Hot }) {
 	const sources = useMemo(() => sourcesOf(items), [items]);
 	const files = useMemo(() => filesOf(items), [items]);
-	const lines = useMemo(() => glance(items, !settled), [items, settled]);
-	const steps = lines.reduce((n, line) => n + line.steps.length, 0);
-	if (files.length === 0 && lines.length === 0) return null;
+	const groups = useMemo(() => pathGroups(items, !settled), [items, settled]);
+	const steps = pathLines(groups).reduce((n, line) => n + line.steps.length, 0);
+	if (files.length === 0 && groups.length === 0) return null;
+	const start = items[0]?.ts ?? 0;
+	const entry = (one: PathEntry) =>
+		one.kind === "line" ? (
+			<TrailLine key={one.line.id} line={one.line} sources={sources} startOpen={one.line.ids.includes(openId ?? "")} hot={hot} />
+		) : (
+			<li key={one.outcome.id} className="trail-outcome outcome" data-step-id={one.outcome.id} data-mark={markOf(one.outcome)}>
+				{one.outcome.message}
+			</li>
+		);
 	return (
 		<div className="work-sections">
 			{files.length > 0 && (
@@ -104,18 +119,34 @@ export function TrailSteps({ items, settled = false, openId, hot }: { items: Ste
 					</ul>
 				</section>
 			)}
-			{lines.length > 0 && (
+			{groups.length > 0 && (
 				<section aria-label="Steps">
 					<h3 className="work-heading steps-heading">Steps{steps > 0 ? ` · ${steps}` : ""}</h3>
 					<ol className="trail">
-						{lines.map((line) => (
-							<TrailLine key={line.id} line={line} sources={sources} startOpen={line.ids.includes(openId ?? "")} hot={hot} />
-						))}
+						{groups.map((group) =>
+							group.heading === null ? (
+								group.entries.map(entry)
+							) : (
+								<li key={group.heading.id} className="trail-group" data-step-id={group.heading.id}>
+									<p className="trail-heading">
+										<span className="trail-heading-said">{group.heading.message}</span>
+										<span className="trail-fact">{sinceStart(group.heading.ts - start)}</span>
+									</p>
+									{group.entries.length > 0 && <ol className="trail trail-under">{group.entries.map(entry)}</ol>}
+								</li>
+							),
+						)}
 					</ol>
 				</section>
 			)}
 		</div>
 	);
+}
+
+/** "0:04", "1:10": how far into the turn something began. */
+function sinceStart(ms: number): string {
+	const seconds = Math.max(0, Math.round(ms / 1000));
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 /** A pause between steps longer than this is the agent thinking, and shows as a gap of its own. */

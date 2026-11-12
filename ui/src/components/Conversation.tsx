@@ -26,7 +26,6 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
-import { TurnSteps } from "./Work";
 import { AskCard, askLine, nextLapse, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
@@ -136,10 +135,6 @@ export function Conversation({
 	const [refused, setRefused] = useState<string | null>(null);
 	/* The mark at work, carried in the composer's bottom row rather than on a card of its own. */
 	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
-	/* The turn's steps, open in the pill from the Working row. They close when the turn ends, and stay closed for the next. */
-	const [stepsWanted, setStepsWanted] = useState(false);
-	const stepsOpen = stepsWanted && mark !== null;
-	if (stepsWanted && mark === null) setStepsWanted(false);
 	/* The cards waiting on the person, answered from the composer: which is open there, or none.
 	 * With nothing left waiting it closes, and does not open by itself for the next one. */
 	const [clock, setClock] = useState(() => Date.now());
@@ -270,20 +265,6 @@ export function Conversation({
 		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
 		[screen, personaId, persona.name],
 	);
-	// Escape folds the steps before anything else hears it, as it closes the threads, and focus goes back to the row that opened them.
-	useEffect(() => {
-		if (!stepsOpen) return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || event.defaultPrevented || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
-			event.preventDefault();
-			event.stopImmediatePropagation();
-			setStepsWanted(false);
-			const steps = document.querySelector(".composer-steps");
-			if (steps?.contains(document.activeElement)) steps.closest(".composer")?.querySelector<HTMLElement>(".composer-work")?.focus();
-		};
-		window.addEventListener("keydown", onKey, true);
-		return () => window.removeEventListener("keydown", onKey, true);
-	}, [stepsOpen]);
 	const askPanel =
 		asking === null ? null : (
 			<div className="composer-ask">
@@ -367,11 +348,9 @@ export function Conversation({
 				<Composer
 					{...(asking !== null
 						? { above: askPanel }
-						: stepsOpen
-							? { above: <TurnSteps personaId={personaId} name={persona.name} live={isWorking(session)} onHide={() => setStepsWanted(false)} /> }
-							: dock !== undefined
-								? { above: <div className="work-dock">{dock}</div> }
-								: {})}
+						: dock !== undefined
+							? { above: <div className="work-dock">{dock}</div> }
+							: {})}
 					{...(asks.length > 0
 						? {
 								work: {
@@ -389,8 +368,9 @@ export function Conversation({
 							? {
 									work: {
 										...mark,
-										open: stepsOpen,
-										onToggle: () => setStepsWanted((was) => !was),
+										// The running turn's path, in the pane: the same press as the line under a reply.
+										open: workOpen === null,
+										onToggle: () => onOpenWork(null),
 									},
 								}
 							: {})}

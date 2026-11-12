@@ -546,6 +546,45 @@ pub enum TranscriptEvent {
     /// A quiet line, never a bubble; clients that do not know the kind skip
     /// it.
     Aside(Aside),
+    /// What the teammate says it is on now, with its `activity` tool: a kind
+    /// that moves the mark and a few words of its own beside it. The newest
+    /// in a turn stands until another replaces it, and none stands once the
+    /// turn has ended; each is kept, because together they head the turn's
+    /// path. `type` is `thinking`, `reading`, `searching`, `making` or
+    /// `talking`; any other word is kept as it came and drawn plainly.
+    /// Clients that do not know the kind skip it.
+    Activity {
+        id: String,
+        ts: i64,
+        r#type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        message: Option<String>,
+    },
+    /// Something a turn left behind, said by the teammate with its `outcome`
+    /// tool: a kind that picks the mark under the reply, and its own words.
+    /// `type` is `sent`, `made`, `changed`, `open` (still going after the
+    /// reply) or `yours` (left for the person to do); any other word is kept
+    /// and drawn plainly. `state` is `failed` or `partial` when it did not
+    /// wholly work. An open one is written again under the same id when the
+    /// teammate closes it: as what it became, or, still `open` with
+    /// `closedAt` set, as ended with nothing left behind. Clients that do not
+    /// know the kind skip it.
+    Outcome {
+        id: String,
+        ts: i64,
+        r#type: String,
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        state: Option<String>,
+        /// The teammate's own name for it, by which an open one is closed.
+        key: String,
+        /// When an open one was closed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        closed_at: Option<i64>,
+    },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.

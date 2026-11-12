@@ -205,34 +205,6 @@ export function WorkPage({
 	);
 }
 
-/**
- * The turn running now, inside the composer (desk-threads, George
- * 2026-11-12: Working, the threads and Needs you all open in the pill, and
- * nothing floats over the conversation): how it stands and its counts, Hide,
- * and its steps under them, following the newest, each opening to what it
- * did. The pill grows up to hold it and the field stays in use. A turn
- * already over is read in the right-hand pane, from its caption.
- */
-export function TurnSteps({ personaId, name, live, onHide }: { personaId: string; name: string; live: boolean; onHide(): void }) {
-	const { run, running, state, content, empty } = useTurnWork(personaId, null, name, live);
-	const hot = useHot();
-	return (
-		<section className="composer-steps" aria-label={`${name}'s work`}>
-			<div className="composer-steps-head">
-				{state === "Working" && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-				<h3 className="composer-steps-state">{state}</h3>
-				{run !== undefined && <span className="min-w-0 truncate">{workDetail(run.items)}</span>}
-				<button type="button" className="composer-steps-hide" onClick={onHide}>
-					Hide
-				</button>
-			</div>
-			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} frame="composer-steps-window">
-				{run === undefined ? empty : <TrailSteps key={run.id} items={run.items} settled={!running} hot={hot} />}
-			</FollowWindow>
-		</section>
-	);
-}
-
 /** The card itself: its band, and a window that follows the newest until you scroll back. */
 function WorkCard({
 	label,

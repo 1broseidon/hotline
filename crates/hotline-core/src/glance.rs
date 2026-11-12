@@ -133,6 +133,27 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         "react",
         label("react", "Reacted", "Reacted {n} times", "Reacting"),
     ),
+    // What the teammate says it is on and what it left behind head and mark
+    // the path in the pane; the window draws them there rather than as
+    // steps, and knows their calls by these two groups.
+    (
+        "activity",
+        label(
+            "activity",
+            "Said what it is on",
+            "Said what it is on",
+            "Saying what it is on",
+        ),
+    ),
+    (
+        "outcome",
+        label(
+            "outcome",
+            "Said what came of it",
+            "Said what came of it",
+            "Saying what came of it",
+        ),
+    ),
     (
         "post_to_chat",
         label(

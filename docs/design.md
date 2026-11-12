@@ -611,6 +611,23 @@ the step's own output named it, a page title only when the tool wrote one; see
 `removed` (`hotline_support::lines`), counted from the two versions the tool
 showed. A step without one of them shows without that fact.
 
+Outcomes, not work (epic-42, approved by George 2026-11-12). A teammate says
+three things in one voice: an opening line that fits the ask (the house style
+in `session/pacing.rs`, skipped when there is no wait), what it is on
+(`activity {type, message?}`) and what came of it (its reply, and
+`outcome {type, message, state?, id?, ended?}` once for each thing left
+behind). The conversation shows only those; the desk never writes the words.
+Each call is an `activity` or `outcome` event on the thread it was made in, so
+they survive a reload and an older client skips them as unknown kinds. The
+composer's mark moves by the declared type and shows its message, and with
+nothing declared it may move by the tool in use but says nothing; under a
+reply the line lists the turn's outcomes (failed first) and its time, and is
+the one press into the path, where steps sit under the activity they happened
+during. An open outcome is rewritten in place by the teammate, by its `id`:
+updated, closed as what it became, or `ended` with nothing left behind; it is
+looked for on the calling thread and then the main conversation, so a job can
+close what the conversation opened. The desk closes nothing by itself yet.
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

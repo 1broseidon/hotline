@@ -33,6 +33,12 @@ import { RECEIVER_SMALL as RECEIVER, receiverLine, receiverPath } from "./receiv
  * still; here the pupils are painted in the ground's colour rather than
  * masked, because a mask cannot be animated part by part and a blink needs
  * the eye and its pupil to squash together.
+ *
+ * Talking to someone who is not you puts on a headset: the brow over the
+ * eyes lifts into a headband, its ends become earcups, and a mic boom comes
+ * round from the left cup, cut in the ground's colour. Then it speaks in
+ * bursts, goes still with its head cocked to listen, and nods. The headset
+ * goes on once on entering the phase and comes off on leaving it.
  */
 
 type Pose = {
@@ -52,9 +58,12 @@ type Pose = {
 	/** The handset's own jolt, on top of where it is held: the ring. */
 	hy: number;
 	ht: number;
+	/** How far the brow has become a headset, and the mic come round. */
+	hp: number;
+	mic: number;
 };
 
-const REST: Pose = { pupil: 0, pupilY: 0, eyeL: 1, eyeR: 1, wide: 1, body: 1, rot: 0, dy: 0, lift: 0, tilt: 0, hx: 0, hy: 0, ht: 0 };
+const REST: Pose = { pupil: 0, pupilY: 0, eyeL: 1, eyeR: 1, wide: 1, body: 1, rot: 0, dy: 0, lift: 0, tilt: 0, hx: 0, hy: 0, ht: 0, hp: 0, mic: 0 };
 
 /** Uneven on purpose — a regular sweep would read as reading. */
 const DARTS = [-1, 0.6, -0.3, 1, -0.8, 0.2, 0.9, -0.6];
@@ -109,6 +118,35 @@ const REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)").m
 const ease = (p: number) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
 const easeIn = (p: number) => p ** 3;
 const clamp01 = (p: number) => Math.max(0, Math.min(1, p));
+
+/**
+ * Talking: the headset goes on over TALK_MORPH after a beat (TALK_ON), and
+ * comes off over TALK_OFF on leaving. Then a cycle of TALK_CYCLE: a burst of
+ * syllables for TALK_SPEAK, then still and listening, with a nod.
+ */
+const TALK_ON = 0.7;
+const TALK_MORPH = 0.5;
+const TALK_OFF = 0.45;
+const TALK_CYCLE = 2.9;
+const TALK_SPEAK = 1.6;
+const SYLLABLES = [0, 0.15, 0.29, 0.5, 0.63, 0.86, 1, 1.2, 1.36];
+
+function talk(t: number): Pose {
+	const hp = ease(clamp01((t - TALK_ON) / TALK_MORPH));
+	const on = { ...REST, hp, mic: hp };
+	if (t < TALK_ON + TALK_MORPH) return on;
+	const c = (t - TALK_ON - TALK_MORPH) % TALK_CYCLE;
+	if (c < TALK_SPEAK) {
+		let p = 0;
+		for (const k of SYLLABLES) if (c >= k) p = Math.exp(-(c - k) / 0.09);
+		return { ...on, pupil: 1.2, pupilY: -0.2, body: 1 + 0.1 * p, dy: -0.9 * p, rot: 1.1 * Math.sin(c * 5) };
+	}
+	/* Still, head cocked, listening; a nod partway through. */
+	const q = c - TALK_SPEAK;
+	const m = Math.min(ease(clamp01(q / 0.25)), ease(clamp01((TALK_CYCLE - TALK_SPEAK - q) / 0.2)));
+	const nod = q > 0.6 && q < 0.9 ? Math.sin(((q - 0.6) / 0.3) * Math.PI) : 0;
+	return { ...on, pupil: 1.2 - 2.6 * m, pupilY: 0.3 * m, eyeL: 1 - 0.26 * m, eyeR: 1 - 0.26 * m, rot: -4.5 * m, dy: 1.3 * nod };
+}
 
 /** Brrring, brrring: the handset jumps on the cradle. */
 function ring(t: number): { hy: number; ht: number } {
@@ -194,6 +232,9 @@ function poseOf(phase: ActivityPhase, t: number, stall: number): Pose {
 			const lag = hop(s - 0.07);
 			return { ...REST, body: h.body, dy: h.dy, pupilY: -0.4, lift: 4, tilt: -3, hy: lag.dy - h.dy };
 		}
+		/* On a headset, speaking and listening to someone who is not you. */
+		case "talking":
+			return talk(t);
 		/* A tool that named no kind. Says work is happening and nothing more. */
 		case "doing":
 			return { ...REST, body: 1 + 0.07 * Math.sin(s * 3.4), lift: 4 + 1.4 * Math.sin(s * 2.2), tilt: -4 };
@@ -276,7 +317,7 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			const pose = { ...REST };
 			watching(pose, 0, 1);
 			paint(node, pose, { lift: 0, tilt: 0, hx: 0 }, { points: voiceLine(0), width: LINE_WIDTH });
-		} else paint(node, { ...REST }, { lift: 0, tilt: 0, hx: 0 }, null);
+		} else paint(node, phase === "talking" ? { ...REST, hp: 1, mic: 1 } : { ...REST }, { lift: 0, tilt: 0, hx: 0 }, null);
 	}, [phase]);
 
 	useEffect(() => {
@@ -292,6 +333,9 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 		let entry = { ...held };
 		/* Where the voice line had got to, so landing reels in from there. */
 		let spoken = 0;
+		/* How far the headset is on, and how far it was on when its phase was left, so leaving takes it off from there. */
+		let worn = 0;
+		let wornAtChange = 0;
 
 		const draw = (now: number) => {
 			const node = root.current;
@@ -302,6 +346,7 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			if (since.current < 0) {
 				since.current = now;
 				entry = { ...held };
+				wornAtChange = worn;
 				if (phase !== "writing" && phase !== "landed" && phase !== "rest") blinkAt = now / 1000;
 			}
 			const t = (now - since.current) / 1000;
@@ -321,6 +366,10 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			const blink = gap >= 0 && gap < 0.18 ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
 
 			const pose = poseOf(phase, t, stall);
+			// Back to talking before the headset was off: it stays on rather than drop and go on again.
+			if (phase === "talking") pose.hp = pose.mic = Math.max(pose.hp, wornAtChange);
+			else pose.hp = pose.mic = wornAtChange * (1 - ease(clamp01(t / TALK_OFF)));
+			worn = pose.hp;
 			pose.eyeL = Math.min(pose.eyeL, blink);
 			pose.eyeR = Math.min(pose.eyeR, blink);
 			const k = 1 - Math.exp(-dt / 0.08);
@@ -389,6 +438,15 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 				<g className="g-hand">
 					<path className="g-receiver" d={receiverPath(RECEIVER)} />
 				</g>
+				<g className="g-hp" opacity="0">
+					<path className="g-band" d="" strokeWidth="3.8" />
+					<rect className="g-cup g-cupL" x="0.5" y="23" width="8.5" height="17" rx="3.6" />
+					<rect className="g-cup g-cupR" x="55" y="23" width="8.5" height="17" rx="3.6" />
+					<g className="g-mic" opacity="0">
+						<path className="g-boom" d="M5 40Q8 47.5 18 45.5" strokeWidth="2.6" />
+						<circle className="g-micdot" cx="19.5" cy="45.3" r="2.5" />
+					</g>
+				</g>
 				<path className="g-line" d="" opacity="0" />
 			</g>
 		</svg>
@@ -413,7 +471,19 @@ function paint(root: SVGSVGElement, pose: Pose, held: { lift: number; tilt: numb
 	set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w)})`);
 	set(".g-hand", "transform", `translate(${held.hx.toFixed(2)} ${(pose.hy - held.lift).toFixed(2)})`);
 	set(".g-receiver", "transform", `rotate(${(held.tilt + pose.ht).toFixed(2)})`);
-	set(".g-hand", "opacity", line ? "0" : "1");
+	// The headset grows out of the brow: the handset fades as the band takes its place.
+	const worn = clamp01(pose.hp * 2.2);
+	set(".g-hand", "opacity", line ? "0" : (1 - worn).toFixed(2));
+	set(".g-hp", "opacity", worn.toFixed(2));
+	if (pose.hp > 0) {
+		const end = (19 + 5 * pose.hp).toFixed(2);
+		const top = (13.5 - 11.5 * pose.hp).toFixed(2);
+		set(".g-band", "d", `M4.8 ${end}C4.8 ${top} 59.2 ${top} 59.2 ${end}`);
+		const cup = `scale(${f(0.4 + 0.6 * pose.hp)} ${f(pose.hp)})`;
+		set(".g-cupL", "transform", cup);
+		set(".g-cupR", "transform", cup);
+		set(".g-mic", "opacity", pose.mic.toFixed(2));
+	}
 	set(".g-line", "opacity", line ? "1" : "0");
 	if (line) {
 		set(".g-line", "d", `M${line.points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L")}`);

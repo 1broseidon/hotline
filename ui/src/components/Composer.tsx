@@ -5,8 +5,6 @@ import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
 import { ArrowUpIcon, ChevronDownIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
 import { isWorking, type WorkMark } from "../activity";
-import { type TurnSummary, summaryWords } from "../turnFacts";
-import { Favicons } from "./Favicon";
 import { Glyph } from "../ui/Glyph";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
@@ -98,8 +96,10 @@ export function Composer({
 	stopOnCard?: boolean;
 	/**
 	 * What the teammate is doing, as the composer's bottom row while a turn
-	 * runs: the mark and a few words, between the plus and the keys. A press
-	 * grows the turn's steps (`above`) up inside the pill, and folds them.
+	 * runs: the mark, moving by what it said it is on, and its own words
+	 * beside it, between the plus and the keys. A press opens the turn's path
+	 * in the pane; while something needs the person it grows what needs them
+	 * (`above`) up inside the pill instead, and folds it.
 	 */
 	work?: ({ open: boolean; onToggle(): void } & WorkMark) | undefined;
 	/**
@@ -203,6 +203,7 @@ export function Composer({
 		firstRow(event.key === "ArrowUp");
 	};
 	const twoRows = work !== undefined || threadRows.length > 0;
+	const blocked = work?.activity.phase === "blocked";
 	useEffect(() => {
 		if (focused) area.current?.focus();
 	}, [focused]);
@@ -477,10 +478,10 @@ export function Composer({
 							type="button"
 							className="composer-work"
 							data-sleeping={work.sleeping || undefined}
-							data-blocked={work.activity.phase === "blocked" || undefined}
-							data-done={work.done !== undefined || undefined}
+							data-blocked={blocked || undefined}
 							aria-expanded={work.open}
-							title={work.open ? "Hide the steps" : "Show the steps"}
+							aria-label={work.activity.word === "" ? (work.open ? "Hide the path" : "Show the path") : undefined}
+							title={blocked ? (work.open ? "Hide the steps" : "Show the steps") : work.open ? "Hide the path" : "Show the path"}
 							onClick={() => {
 								// What the row opens takes the pill's first row from the threads;
 								// already open under them, it is shown rather than folded.
@@ -488,17 +489,14 @@ export function Composer({
 								if (!(threadsOpen && work.open)) work.onToggle();
 							}}
 						>
-							{work.done === undefined ? (
-								<>
-									<Glyph phase={work.activity.phase} />
-									<span className="composer-work-word">{work.activity.word || "Working"}</span>
-									{work.activity.sites !== undefined && <Favicons sites={work.activity.sites} size={16} />}
-									{work.count !== undefined && work.count > 0 && <span className="composer-work-count">{work.count}</span>}
-								</>
-							) : (
-								<DoneWords summary={work.done} />
+							<Glyph phase={work.activity.phase} />
+							{/* Keyed by the words, so new words come in rather than change in place. */}
+							{work.activity.word !== "" && (
+								<span key={work.activity.word} className="composer-work-word">
+									{work.activity.word}
+								</span>
 							)}
-							<ChevronDownIcon className="composer-work-chevron" />
+							{blocked && <ChevronDownIcon className="composer-work-chevron" />}
 						</button>
 					)}
 					{work === undefined && twoRows && <span aria-hidden="true" className="flex-1" />}
@@ -820,14 +818,3 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 	xml: "application/xml",
 	zip: "application/zip",
 };
-
-/** The turn's work once it is over, for a moment before the row leaves: its counts, failures apart in red. */
-function DoneWords({ summary }: { summary: TurnSummary }) {
-	const words = summaryWords(summary);
-	return (
-		<>
-			<span className="composer-work-word">{words.said}</span>
-			{words.failed !== null && <span className="composer-work-failed">{words.failed}</span>}
-		</>
-	);
-}

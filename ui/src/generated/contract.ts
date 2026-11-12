@@ -2979,7 +2979,15 @@ request?: string,
  * What a run runs: `shell` for a command a harness left running.
  * Absent for a subagent and every other kind.
  */
-runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "activity", id: string, ts: number, type: string, message?: string, } | { "kind": "outcome", id: string, ts: number, type: string, message: string, state?: string, 
+/**
+ * The teammate's own name for it, by which an open one is closed.
+ */
+key: string, 
+/**
+ * When an open one was closed.
+ */
+closedAt?: number, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

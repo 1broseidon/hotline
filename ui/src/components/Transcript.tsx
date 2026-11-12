@@ -5,9 +5,7 @@ import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, 
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
-import { RESTING, type WorkMark, activityOf } from "../activity";
-import { pageOf, sitesRead, toolSteps } from "../turnFacts";
-import { glance } from "../glance";
+import { type WorkMark, activityOf } from "../activity";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -27,12 +25,11 @@ import {
 	type Run,
 	type Side,
 	sideOf,
-	stepRuns,
 	superseded,
 	toBlocks,
 	withStreaming,
 } from "../transcriptFolds";
-import { fly, useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
+import { fly, useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
 import { Steps } from "./transcript/Steps";
 import { AgentSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
 import type { SentItem } from "./SentFile";
@@ -450,23 +447,10 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
-	const latestRun = useMemo(() => stepRuns(events, streaming).at(-1), [events, streaming]);
-	const currentActivity = useMemo(() => {
-		if (!live && !queued) return null;
-		const now = activityOf(events, streaming, queued);
-		// At work with its tools, the card says what in a few words ("Running cargo test"), as the peek's last line does.
-		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase) || latestRun === undefined) return now;
-		const line = glance(latestRun.items, true).at(-1);
-		if (line === undefined) return now;
-		// Reading the web: the sites of the pages read so far stand beside the words.
-		const newest = line.steps.at(-1);
-		const reading = newest !== undefined && pageOf(newest) !== null;
-		return { ...now, word: line.text, ...(reading ? { sites: sitesRead(latestRun.items) } : {}) };
-	}, [live, queued, events, streaming, latestRun]);
+	// The mark says what the teammate says it is on, in its words; the desk adds none of its own.
+	const currentActivity = useMemo(() => (!live && !queued ? null : activityOf(events, streaming, queued)), [live, queued, events, streaming]);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
-	const steps = latestRun === undefined ? 0 : toolSteps(latestRun.items).length;
-	const done = useDone(personaId, activity, latestRun?.items);
-	const mark: WorkMark | null = activity !== null ? { activity, sleeping, count: steps } : done !== null ? { activity: RESTING, sleeping: false, done } : null;
+	const mark: WorkMark | null = activity !== null ? { activity, sleeping } : null;
 	/* The mark is handed up when what it says changes, not each time it is
 	 * worked out, which is for every line and every streamed bubble: each
 	 * handing up is a second render, of the conversation around this one,

@@ -72,13 +72,6 @@ export function sourcesOf(items: Step[]): Source[] {
 	return [...all.filter((one) => one.found !== true), ...all.filter((one) => one.found === true)];
 }
 
-/** The sites of the pages read so far, newest last, each once: the composer's favicons. */
-export function sitesRead(items: Step[]): string[] {
-	const sites: string[] = [];
-	for (const source of sourcesOf(items)) if (source.found !== true && !sites.includes(source.site)) sites.push(source.site);
-	return sites;
-}
-
 /** Files changed by the turn's finished steps, each once, its counts summed over its edits. */
 export function filesOf(items: Step[]): FileChange[] {
 	const files = new Map<string, FileChange & { counted: boolean }>();
@@ -112,14 +105,6 @@ export function summaryOf(items: Step[]): TurnSummary {
 
 const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** The summary's parts, failures apart so they can stand out: "12 steps · 4 sources · 3 files", "1 failed". */
-export function summaryWords(summary: TurnSummary): { said: string; failed: string | null } {
-	const parts = [counted(summary.steps, "step", "steps")];
-	if (summary.sources > 0) parts.push(counted(summary.sources, "source", "sources"));
-	if (summary.files > 0) parts.push(counted(summary.files, "file", "files"));
-	return { said: parts.join(" · "), failed: summary.failed > 0 ? `${summary.failed} failed` : null };
-}
-
 /** "+55 −6", with the true minus sign. */
 function linesText(added: number, removed: number): string {
 	return `+${added} −${removed}`;
@@ -140,11 +125,10 @@ export function stepTook(step: ToolStep): string | null {
 	return step.endedTs === undefined ? null : durationText(step.endedTs - step.ts);
 }
 
-/** How long a turn's work took, from its first step to its last step's end; null when its steps carry no ends. */
+/** How long a turn's work took, from the first thing on its path to the last, a step's end included; null for a turn with no path. */
 export function turnTook(items: Step[]): number | null {
-	const steps = toolSteps(items);
-	const ends = steps.flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
-	if (ends.length === 0 || items[0] === undefined) return null;
+	const ends = toolSteps(items).flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
+	if (items[0] === undefined) return null;
 	return Math.max(...ends, ...items.map((item) => item.ts)) - items[0].ts;
 }
 

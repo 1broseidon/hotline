@@ -70,16 +70,19 @@ One family, **Workbench**, for every screen:
   always there, and whether a session is up behind them is plumbing the
   window never reports. There is no start key and no "not running"; a
   message to a resting teammate starts the session on its way. While
-  they work the mark floats above the composer — not in a bubble, because
-  it is not a message — with one word for what kind of work: Reading,
-  Searching, Editing, Running, Thinking, or Waiting on you. It wakes up
+  they work the mark sits in the composer's bottom row — not in a bubble,
+  because it is not a message — moving by what the teammate says it is on
+  (thinking, reading, searching, making, talking), with the teammate's own
+  few words beside it and nothing of the desk's: no "Working", no step
+  count. With nothing said the mark moves alone. Waiting on you, the reply
+  on its way and the hang-up stay the desk's own. It wakes up
   from behind the composer when the work starts, and when the turn is over
   it settles on the cradle and sinks back behind it to sleep. Nothing
   streams. A reply lands whole, the way a text does; while it is on its
   way the receiver lifts off into a wave running above the toad, which
   stays and watches it — on the line — and when it lands the line reels
   back into the handset, which hangs up and winks before the mark goes. A
-  press on the mark opens the work behind it for that turn. The band is
+  press on the mark opens the turn's path in the right-hand pane. The band is
   the one place that says who this is: the face and the name, nothing
   more (the goal is on the inspector); then their model and effort and
   the tools. The name opens the inspector, where
@@ -246,8 +249,9 @@ of the receiver, the eyes and the body: thinking holds the receiver at
 the ear and looks up, a read parks it low and squints down the page, a
 search snaps the head about with the receiver swinging against it, an
 edit tucks it at the shoulder and takes each keystroke, a command hops,
-and a permission request puts it back on the cradle, rings twice, and
-stares at you. A blink marks each change into a new kind of work. Every
+talking lifts the brow into a headset with a mic and speaks in bursts,
+then listens with its head cocked and nods, and a permission request puts
+it back on the cradle, rings twice, and stares at you. A blink marks each change into a new kind of work. Every
 pose is a function of the phase and the time in it; the idle blink is
 the one motion that is not caused. Reduced motion removes every
 transition and animation, and holds the mark still.
@@ -277,10 +281,13 @@ transition and animation, and holds the mark still.
   from one speaker tightens the corners that face each other. A reply
   arrives paced, as a few bubbles in one run. Length is the agent's to
   keep down, not the window's to fold: a long reply is a long bubble,
-  and the fix is the prompt, not a card. What happened between two
-  messages is one quiet caption in the instrument
-  voice — a count, closed until pressed; a transcript that hides it
-  would lie, one that shouts it is a log.
+  and the fix is the prompt, not a card. Under a reply is one quiet line
+  of what the turn left behind, in the teammate's words — sent, made,
+  changed, still open, yours to do, a failure first in red — then how long
+  it took; a turn that left nothing says only its time. Pressed, it opens
+  the path in the pane: every step, under the teammate's words for what it
+  was on. That press is the trust boundary; a transcript that hides the
+  path would lie, one that shows it in the conversation is a log.
 - Said aloud: a reply to a call is the version written to be read, an
   ordinary bubble. What the teammate said for it on the call sits above
   that bubble as one transcript line in ink-3 at 12/16, the speaker glyph

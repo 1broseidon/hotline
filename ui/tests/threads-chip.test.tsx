@@ -592,41 +592,26 @@ describe("task-437 in the conversation", () => {
 		expect(container.querySelector(".dock textarea")).not.toBeNull();
 	});
 
-	test("Working opens the turn's steps inside the pill, over the field, not in the pane; Hide and Escape fold them", async () => {
-		// desk-threads, decision 1 (George, 2026-11-12): three chips, one pill; nothing floats over the transcript.
+	test("the working slot opens the running turn's path in the pane, and pressed again closes it (epic-42)", async () => {
+		// Outcomes, not work (George, 2026-11-12): the path is one press away, in the pane, never in the pill.
 		const { App } = await import("../src/App");
 		await act(async () => root!.render(<App />));
 		await settle();
 		await act(async () => container.querySelector<HTMLButtonElement>('[data-teammate-row][aria-label^="Nell"]')!.click());
-		await until(() => container.querySelector("button.composer-work") !== null, "the Working row");
-		const working = () => container.querySelector<HTMLButtonElement>("button.composer-work")!;
-		const steps = () => container.querySelector<HTMLElement>(".composer > .composer-steps");
-		expect(steps()).toBeNull();
-		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		expect(working().getAttribute("aria-expanded")).toBe("true");
-		expect(steps()?.getAttribute("aria-label")).toBe("Nell's work");
-		expect(steps()?.querySelector(".composer-steps-state")?.textContent).toBe("Working");
-		// The field stays, and the pane did not open for it.
+		await until(() => container.querySelector("button.composer-work") !== null, "the working slot");
+		const slot = () => container.querySelector<HTMLButtonElement>("button.composer-work")!;
+		// Nothing said yet: the mark alone, with no Working and no count.
+		expect(slot().textContent).toBe("");
+		expect(slot().getAttribute("aria-expanded")).toBe("false");
+		await act(async () => void slot().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		await until(() => container.querySelector('.dock [aria-label="Nell\'s work"]') !== null, "the path in the pane");
+		expect(slot().getAttribute("aria-expanded")).toBe("true");
+		expect(container.querySelector(".composer-steps")).toBeNull();
+		// The field stays in use under it.
 		expect(container.querySelector(".composer textarea")).not.toBeNull();
-		expect(container.querySelector(".dock")).toBeNull();
-		await act(async () => steps()!.querySelector<HTMLButtonElement>(".composer-steps-hide")!.click());
-		expect(steps()).toBeNull();
-		expect(working().getAttribute("aria-expanded")).toBe("false");
-		// Escape folds them before it reaches the turn.
-		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		const field = container.querySelector<HTMLTextAreaElement>(".composer textarea")!;
-		field.focus();
-		await act(async () => void field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-		expect(steps()).toBeNull();
-		// The threads take the pill's first row from the steps, and the row gives it back.
-		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		const key = container.querySelector<HTMLButtonElement>("button.composer-threads")!;
-		await act(async () => void key.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		expect(steps()).toBeNull();
-		expect(container.querySelector(".composer > .composer-threads-panel")).not.toBeNull();
-		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		expect(container.querySelector(".composer-threads-panel")).toBeNull();
-		expect(steps()).not.toBeNull();
+		await act(async () => void slot().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		await until(() => container.querySelector('.dock [aria-label="Nell\'s work"]') === null, "the pane closed");
+		expect(slot().getAttribute("aria-expanded")).toBe("false");
 	});
 
 	test("a thread between two teammates joins the count while one answers the other, and leaves it when the answer is in", async () => {

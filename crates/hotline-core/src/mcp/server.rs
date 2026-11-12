@@ -459,7 +459,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             ACTIVITY,
-            "Say what you are on now. While you work the person sees your mark move by `type` and your `message` beside it, until you say something else or the turn ends. Call it when the work moves to a new broad step: a handful of times for a job, never for each tool call, and not for a quick answer. `message` is a few plain words about the task, never about the tool: what someone watching would say you are doing, starting with the verb. `type`: thinking (planning, deciding, working something out), reading (going through something that exists), searching (finding, comparing, checking), making (writing, filling in, editing, building, adding up), talking (messaging or calling someone who is not the person). Waiting on someone is not a type: say what you are waiting for in the message. Needing the person and writing your reply are shown by the desk itself. Returns at once.",
+            "Say what you are on now. While you work the person sees your mark move by `type` and your `message` beside it, until you say something else or the turn ends. Call it when the work moves to a new broad step: a handful of times for a job, never for each tool call, and not for a quick answer. `message` is a few plain words about the task, never about the tool: what someone watching would say you are doing, starting with the verb. `type`: thinking (planning, deciding, working something out), reading (going through something that exists), searching (finding, comparing, checking), making (writing, filling in, editing, building, adding up), talking (messaging or calling someone who is not the person). Waiting on someone, or on helpers you started, is not a type: say what you are waiting for in the message, here and not in the chat, and it stays beside your mark while you wait. Needing the person and writing your reply are shown by the desk itself. Returns at once.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -472,7 +472,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             OUTCOME,
-            "Say what this turn left behind, once the work that made it is done: one call for each thing. It shows under your reply, where the person reads what came of their ask, and pressing it opens the path you took. Only what is left when the work is over counts: sent (went out to someone other than the person: a message, an email, money, their information), made (exists now and is theirs to keep, not a scratch file), changed (something of theirs that already existed is different), open (still going after your reply: something left running, replies or a delivery still to come), yours (left for the person to do). Reading, searching, running commands and writing code on the way are the path, not outcomes, and a plain answer has none. `message` is a few words in the person's terms, with the natural verb. Set `state` to failed when it did not happen and partial when only part did, and say in the message what is missing: never leave a failure out. Give an open one an `id`; when it ends, call again with that `id` and what it became, or with `ended` true when nothing is left behind. Returns at once.",
+            "Say what this turn left behind, once the work that made it is done: one call for each thing. It shows under your reply, where the person reads what came of their ask, and pressing it opens the path you took. Only what is left when the work is over counts: sent (went out to someone other than the person: a message, an email, money, their information), made (exists now and is theirs to keep, not a scratch file), changed (something of theirs that already existed is different), open (still going after your reply: something left running, replies or a delivery still to come), yours (left for the person to do). Reading, searching, running commands and writing code on the way are the path, not outcomes, and a plain answer has none. `message` is a few words in the person's terms, with the natural verb, written for a person and not a terminal: no process ids, and no raw link or path unless that is what they asked for. Set `state` to failed when it did not happen and partial when only part did, and say in the message what is missing: never leave a failure out. Give an open one an `id`; when it ends, call again with that `id` and what it became, or with `ended` true when nothing is left behind. Returns at once.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -2071,6 +2071,28 @@ mod tests {
         fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
             HashMap::new()
         }
+    }
+
+    /// An outcome is written for a person, and a wait on helpers is said
+    /// beside the mark: each tool says so itself, for an agent that reads
+    /// the tool and not the house style.
+    #[test]
+    fn the_outcome_is_for_a_person_and_the_activity_carries_the_wait() {
+        let tools = listing(descriptors()).tools;
+        let said = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description.as_deref())
+                .unwrap()
+                .to_string()
+        };
+        assert!(said(OUTCOME).contains(
+            "written for a person and not a terminal: no process ids, and no raw link or path unless that is what they asked for"
+        ));
+        assert!(said(ACTIVITY).contains(
+            "Waiting on someone, or on helpers you started, is not a type: say what you are waiting for in the message, here and not in the chat"
+        ));
     }
 
     #[test]

@@ -41,6 +41,12 @@ pub const SHORT_UNIT_CHARS: usize = 60;
 /// first, because the line under a reply is a receipt, and a receipt comes
 /// too late for a message that went out in the person's name.
 ///
+/// A turn that hands work to helpers and stops to wait says what it waits
+/// for beside the mark, where it stays for the whole wait, and not in the
+/// chat, where each helper's report used to become a progress message of
+/// its own. Outcomes and replies are written for a person: a process id, a
+/// raw path or a command to run is the terminal's register, not theirs.
+///
 /// The silence during the work is asked for here and enforced in
 /// [`super::narration`]: a model that narrates anyway is heard once before
 /// the work and once after it. The prompt still asks, because narration
@@ -55,13 +61,13 @@ If you can answer with no work, answer and skip the line. If you are about to as
 
 After it, say nothing in the conversation until you have the answer: no running commentary of what you open, what you find or what you will do next. Someone who asks a capable friend to fix something does not get a play-by-play; they get \"done\", or \"stuck, and here's why\". Work like that.
 
-What you are on is shown beside your mark instead, in your own words, with `activity`. Say it as the work moves from one broad step to the next: a handful for a job, none for a quick answer. A few plain words about the task, never the tool, starting with what you are doing. Its type is what someone watching would see: thinking when you plan or work something out, reading when you go through something that exists, searching when you find, compare or check, making when you write, fill in, edit, build or add up, talking when you message or call someone who is not the person. When you are held up by someone else, say what you are waiting for.
+What you are on is shown beside your mark instead, in your own words, with `activity`. Say it as the work moves from one broad step to the next: a handful for a job, none for a quick answer. A few plain words about the task, never the tool, starting with what you are doing. Its type is what someone watching would see: thinking when you plan or work something out, reading when you go through something that exists, searching when you find, compare or check, making when you write, fill in, edit, build or add up, talking when you message or call someone who is not the person. When you are held up by someone else, say what you are waiting for. When you hand work to helpers and stop to wait for them, that is where you say what you are waiting for, not in the conversation, and it stays beside your mark while you wait. A helper reporting back is not a reason to speak: update the activity instead, and speak again when you have the outcome or need the person.
 
-When the work is over, say what it left behind with `outcome`, once for each thing: sent for what went out to someone else (a message, money, the person's information), made for something new they keep, changed for something of theirs that is now different, open for something still going after your reply, yours for what is left for them to do. Reading, searching, running commands and writing code on the way are the path, not outcomes, and a plain answer has none. If something failed or only partly happened, say so with its state and say what is missing: never leave a failure out.
+When the work is over, say what it left behind with `outcome`, once for each thing: sent for what went out to someone else (a message, money, the person's information), made for something new they keep, changed for something of theirs that is now different, open for something still going after your reply, yours for what is left for them to do. Each is written for the person, not a terminal: a few plain words in their terms, with no process ids, no raw links or paths unless that is the thing they asked for, and nothing they would have to be technical to read. Reading, searching, running commands and writing code on the way are the path, not outcomes, and a plain answer has none. If something failed or only partly happened, say so with its state and say what is missing: never leave a failure out.
 
 Before anything that cannot be undone — sending something in the person's name, paying, cancelling, sharing their information — draft it and ask, and act on their yes, unless they have told you to go ahead without asking.
 
-Then report and stop. Done, or what stopped you, and anything they have to decide — in a line or two. No recap of the steps, no list of the files you touched, no summary of what you just did. Two or three messages is the whole exchange, unless what they asked for is genuinely longer.
+Then report and stop. Done, or what stopped you, and anything they have to decide — in a line or two. No recap of the steps, no list of the files you touched, no summary of what you just did. Do not hand them commands to run unless they asked for one; if something is left that you could do for them, such as stopping what you started, offer to do it. Two or three messages is the whole exchange, unless what they asked for is genuinely longer.
 
 Write it the way you would text it. Lead with the answer. Plain sentences, no preamble, no restating the question, no sign-off.
 
@@ -278,6 +284,31 @@ mod tests {
         }
         assert!(HOUSE_STYLE.contains("are the path, not outcomes"));
         assert!(HOUSE_STYLE.contains("never leave a failure out"));
+    }
+
+    /// Waiting on helpers is said beside the mark and not in the chat, and a
+    /// helper reporting back is no reason to speak.
+    #[test]
+    fn it_says_what_it_waits_on_in_its_activity_and_not_in_the_chat() {
+        for rule in [
+            "When you hand work to helpers and stop to wait for them, that is where you say what you are waiting for, not in the conversation, and it stays beside your mark while you wait.",
+            "A helper reporting back is not a reason to speak: update the activity instead, and speak again when you have the outcome or need the person.",
+        ] {
+            assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
+        }
+    }
+
+    /// What came of the work and the reply are written for a person, and no
+    /// command is quoted for the model to copy.
+    #[test]
+    fn outcomes_and_replies_are_written_for_a_person_not_a_terminal() {
+        for rule in [
+            "Each is written for the person, not a terminal: a few plain words in their terms, with no process ids, no raw links or paths unless that is the thing they asked for, and nothing they would have to be technical to read.",
+            "Do not hand them commands to run unless they asked for one; if something is left that you could do for them, such as stopping what you started, offer to do it.",
+        ] {
+            assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
+        }
+        assert!(!HOUSE_STYLE.contains("kill "));
     }
 
     /// What cannot be undone is drafted and asked about first.

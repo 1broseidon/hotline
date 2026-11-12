@@ -568,7 +568,8 @@ export function Transcript({
 					<Steps
 						id={block.id}
 						items={block.items}
-						live={live && block.open === true}
+						// A turn open only for its helpers is not over: no line under it until it is (the mark below is the line).
+						live={(live || waiting) && block.open === true}
 						shown={workShown}
 						{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 					/>

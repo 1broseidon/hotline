@@ -243,6 +243,17 @@ describe("drawn", () => {
 		expect(cancelled).toEqual(["thinking"]);
 	});
 
+	test("no line stands under a turn that only waits on its helpers; it comes when the turn ends", async () => {
+		const { Transcript } = await import("../src/components/Transcript");
+		const events = [user("u", 1), tool("t1", 2, "other", "subagent")];
+		const draw = (shown: typeof events, waiting: boolean) =>
+			act(async () => root.render(<Transcript personaId="quill" name="Quill" events={shown} streaming={[]} live={false} waiting={waiting} focus={null} />));
+		await draw(events, true);
+		expect(container.querySelector(".steps-caption")).toBeNull();
+		await draw([...events, turnEnd("e", 6)], false);
+		expect(container.querySelector(".steps-caption")).not.toBeNull();
+	});
+
 	test("a reply said just before the wait hangs up first, keeping the words, then rests", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const { LANDED_MS } = await import("../src/ui/Glyph");

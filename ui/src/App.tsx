@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useNarrow } from "./narrow";
 import { chordKeys } from "./chords";
 import { SettingsIcon } from "./icons";
-import type { ConfigChoice, RunningSubagent } from "./generated/contract";
+import type { ConfigChoice } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
@@ -306,16 +306,11 @@ export function App() {
             if (open.eventId !== undefined) setFocus({ eventId: open.eventId, at: Date.now() });
         } else openDock({ open });
     }, [openDock, select, setDock]);
-	/* A subagent's line in the rail opens its teammate, and its run beside it. */
-	const openRun = useCallback((personaId: string, run: RunningSubagent) => {
-		select(personaId);
-		openDock({ open: { thread: { kind: "run", key: run.runId }, title: run.title } });
-	}, [openDock, select]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
-	/* A turn's work is read in one place, the right-hand pane: its caption
-	 * or the composer's activity row opens it there, and pressed again with
-	 * that turn open, closes it. */
+	/* A turn that is over is read in the right-hand pane: its caption opens
+	 * it there, and pressed again with that turn open, closes it. The turn
+	 * running now opens in the composer, from its Working row. */
 	const toggleWorkPane = useCallback(
 		(personaId: string, blockId: string | null) => {
 			if (dock?.work?.personaId === personaId && dock.work.blockId === blockId) closeDock();
@@ -616,8 +611,6 @@ export function App() {
 				search={teamSearch(faces ? "beside" : "above")}
 				deskKey={deskCallKey()}
 				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
-				onOpenRun={openRun}
-				openRun={dock?.open?.thread.kind === "run" ? dock.open.thread.key : undefined}
 			/>
 			)}
 			</div>
@@ -684,7 +677,6 @@ export function App() {
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
-							paneOpen={dock !== null}
 							// Faces only, the rail no longer names who this is: the band does.
 							railOpen={railShown && !faces}
 							{...(workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}

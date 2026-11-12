@@ -28,7 +28,7 @@ const session = (personaId: string, state: "ready" | "thinking" = "ready") => ({
 	personaId, state, contextRestored: false, models: [], modes: [], configs: [], slashCommands: [],
 	capabilities: { activeInput: false, loadSession: false, resume: false, fork: false, mcpHttp: false, image: false, additionalDirectories: false },
 });
-type Going = { sides?: RunningSide[]; subagents?: RunningSubagent[]; workingJobs?: string[]; workingCalls?: string[] };
+type Going = { sides?: RunningSide[]; subagents?: RunningSubagent[]; workingJobs?: string[]; workingCalls?: string[]; workingPairs?: string[] };
 const entry = (going: Going = {}, state: "ready" | "thinking" = "ready", id = "ada", name = "Ada"): RosterEntry => ({
 	persona: persona(id, name), session: session(id, state), waiting: false, drawing: false,
 	...Object.fromEntries(Object.entries(going).filter(([, list]) => list.length > 0)),
@@ -61,7 +61,7 @@ const liveGroup = (row: RosterEntry, rows: ThreadSummary[], jobs: ScheduleEntry[
 
 /** Everything a teammate can have going: what runs, what rests, what waits and what has ended. */
 function busyAda() {
-	const row = entry({ sides: [notes, installer, idle, asking], subagents: [audit, fresh, crawl], workingJobs: ["j-digest"], workingCalls: ["c-1"] }, "thinking");
+	const row = entry({ sides: [notes, installer, idle, asking], subagents: [audit, fresh, crawl], workingJobs: ["j-digest"], workingCalls: ["c-1"], workingPairs: ["ada~lou"] }, "thinking");
 	const rows = [
 		...listOf([notes, installer, idle, asking], [audit, fresh, crawl]),
 		listed("call", "c-1", { title: "Standup", startedAt: NOW - 300_000 }),
@@ -133,6 +133,15 @@ describe("task-437 the count", () => {
 		expect(byId["job:j-digest"]?.open).toEqual({ thread: { kind: "job", key: "j-digest" }, title: "Morning digest" });
 	});
 
+	test("a pair runs while the roster says one of its two answers the other, whatever an older read of the list said", () => {
+		const rows = [listed("pair", "ada~lou", { withPersonaId: "lou", preview: "Is the deploy paused?" })];
+		expect(liveOf(entry(), rows)).toEqual([]);
+		const live = liveOf(entry({ workingPairs: ["ada~lou"] }), rows);
+		expect(live.map((one) => [one.id, one.line])).toEqual([["pair:ada~lou", "Pair · Working · Is the deploy paused?"]]);
+		// The list read mid-answer, the answer since in: the roster's word stands.
+		expect(liveOf(entry(), [{ ...rows[0]!, state: "live", working: true }])).toEqual([]);
+	});
+
 	test("a work thread joins the count when a turn of it starts and leaves it when the turn ends", () => {
 		const rows = listOf([idle], []);
 		expect(liveOf(entry({ sides: [idle] }), rows)).toEqual([]);
@@ -168,7 +177,8 @@ describe("task-437 the control and its panel", () => {
 
 	const opened: LiveThread[] = [];
 	const cancels: number[] = [];
-	async function composer(rows: LiveThread[], state: "ready" | "thinking" = "ready") {
+	const alls: number[] = [];
+	async function composer(rows: LiveThread[], state: "ready" | "thinking" = "ready", fresh?: number) {
 		const { Composer } = await import("../src/components/Composer");
 		await act(async () =>
 			root!.render(
@@ -182,7 +192,7 @@ describe("task-437 the control and its panel", () => {
 						onSend={() => {}}
 						onCancel={() => cancels.push(1)}
 						onClearReply={() => {}}
-						threads={{ rows, isOpen: (one) => one.id === "run:r-audit", onOpen: (one) => opened.push(one) }}
+						threads={{ rows, fresh, isOpen: (one) => one.id === "run:r-audit", onOpen: (one) => opened.push(one), onAll: () => alls.push(1) }}
 					/>
 				</div>,
 			),
@@ -190,7 +200,8 @@ describe("task-437 the control and its panel", () => {
 	}
 	const key = () => container.querySelector<HTMLButtonElement>("button.composer-threads");
 	const panel = () => container.querySelector<HTMLElement>(".composer-threads-panel");
-	const rows = () => [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row")];
+	const rows = () => [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-thread]")];
+	const allRow = () => container.querySelector<HTMLButtonElement>(".composer-threads-panel .composer-threads-all");
 	const field = () => container.querySelector("textarea")!;
 	const press = async (target: Element) => act(async () => void target.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
 	const down = async (target: Element) => act(async () => void target.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
@@ -200,6 +211,7 @@ describe("task-437 the control and its panel", () => {
 	beforeEach(() => {
 		opened.length = 0;
 		cancels.length = 0;
+		alls.length = 0;
 	});
 
 	test("is absent at zero, and reads 1 thread, 2 threads, 9+ threads at the bottom row's right as a button labelled how many run", async () => {
@@ -305,7 +317,7 @@ describe("task-437 the control and its panel", () => {
 		expect(key()?.title).toBe("Show threads");
 	});
 
-	test("opened from the keyboard it takes focus to its first row; arrows walk the rows, and down past the last is the control again", async () => {
+	test("opened from the keyboard it takes focus to its first row; arrows walk the rows and All threads, and down past the last is the control again", async () => {
 		await composer(live([notes, installer], [audit]));
 		key()!.focus();
 		// Enter or Space on a button is a click with no pointer behind it.
@@ -314,17 +326,33 @@ describe("task-437 the control and its panel", () => {
 		await keyDown(rows()[0]!, "ArrowDown");
 		expect(document.activeElement).toBe(rows()[1]!);
 		await keyDown(rows()[1]!, "End");
+		expect(document.activeElement).toBe(allRow());
+		await keyDown(allRow()!, "ArrowUp");
 		expect(document.activeElement).toBe(rows()[2]!);
-		await keyDown(rows()[2]!, "ArrowUp");
-		expect(document.activeElement).toBe(rows()[1]!);
-		await keyDown(rows()[1]!, "Home");
+		await keyDown(rows()[2]!, "Home");
 		expect(document.activeElement).toBe(rows()[0]!);
 		await keyDown(rows()[0]!, "End");
-		await keyDown(rows()[2]!, "ArrowDown");
+		await keyDown(allRow()!, "ArrowDown");
 		expect(document.activeElement).toBe(key());
 		// From the control, up reaches the row nearest it.
 		await keyDown(key()!, "ArrowUp");
-		expect(document.activeElement).toBe(rows()[2]!);
+		expect(document.activeElement).toBe(allRow());
+	});
+
+	test("its last row, All threads, opens the full list in the pane with how many things are new there, and the panel closes", async () => {
+		// desk-threads, decision 5: idle threads are not in the panel; the list in the pane has them.
+		await composer(live([installer], [audit]), "ready", 2);
+		await press(key()!);
+		expect(allRow()?.textContent).toBe("⋯All threads2 new");
+		expect(allRow()?.getAttribute("aria-label")).toBe("All threads, 2 new");
+		await press(allRow()!);
+		expect(alls).toEqual([1]);
+		expect(panel()).toBeNull();
+		// With nothing new it says only what it is.
+		await composer(live([installer], [audit]));
+		await press(key()!);
+		expect(allRow()?.getAttribute("aria-label")).toBe("All threads");
+		expect(allRow()?.textContent).toBe("⋯All threads");
 	});
 
 	test("the work row pressed with it open closes it, and shows what the row holds rather than folding it", async () => {
@@ -343,7 +371,7 @@ describe("task-437 the control and its panel", () => {
 						onClearReply={() => {}}
 						above={<div className="work-dock">The steps</div>}
 						work={{ activity: { phase: "thinking", word: "Thinking" }, sleeping: false, open, onToggle: () => toggles.push(1) }}
-						threads={{ rows: live([], [audit]), isOpen: () => false, onOpen: () => {} }}
+						threads={{ rows: live([], [audit]), isOpen: () => false, onOpen: () => {}, onAll: () => {} }}
 					/>,
 				),
 			);
@@ -380,19 +408,38 @@ describe("task-437 in the conversation", () => {
 	// Its own teammate: the window keeps each thread's store by desk and id for the
 	// process, so an "ada" another file opened would answer with that file's socket.
 	// A handoff and a subagent and a command run; a work thread rests.
-	const nell = (): RosterEntry => entry({ sides: [installer, idle], subagents: [audit, crawl] }, "thinking", "nell", "Nell");
-	const nellsList = (): ThreadSummary[] => listOf([installer, idle], [audit, crawl]).map((row) => ({ ...row, personaId: "nell" }));
+	/** Whether Nell's ask of Lou is being answered now: the core's word on her roster row and in her list. */
+	let pairAnswering = false;
+	const nell = (): RosterEntry => ({
+		...entry({ sides: [installer, idle], subagents: [audit, crawl] }, "thinking", "nell", "Nell"),
+		...(pairAnswering ? { workingPairs: ["lou~nell"] } : {}),
+	});
+	const nellsList = (): ThreadSummary[] => [
+		...listOf([installer, idle], [audit, crawl]).map((row) => ({ ...row, personaId: "nell" })),
+		// The thread between Nell and Lou, as `thread.list` says it: live only while an ask of it is answered.
+		listed("pair", "lou~nell", { personaId: "nell", withPersonaId: "lou", withName: "Lou", state: pairAnswering ? "live" : "parked", working: pairAnswering, preview: "Is the nightly deploy paused?" }),
+	];
 
 	class FakeCore {
 		static readonly OPEN = 1;
 		/** The teammate's threads, as `thread.list` says them, have reached the window. */
 		static listDelivered = false;
+		/** How many times the window asked for the list. */
+		static listReads = 0;
+		/** The socket open now, and its roster subscription: where a roster row is pushed. */
+		static open: FakeCore | null = null;
+		static rosterSub: unknown = null;
+		/** The core sends Nell's roster row again, as it does when her row changes. */
+		static pushRoster() {
+			FakeCore.open?.onmessage?.({ data: JSON.stringify({ sub: FakeCore.rosterSub, event: nell() }) });
+		}
 		readyState = 1;
 		onopen: (() => void) | null = null;
 		onmessage: ((message: { data: string }) => void) | null = null;
 		onclose: (() => void) | null = null;
 		onerror: (() => void) | null = null;
 		constructor(readonly url: string) {
+			FakeCore.open = this;
 			setTimeout(() => this.onopen?.(), 0);
 		}
 		send(data: string) {
@@ -401,12 +448,14 @@ describe("task-437 in the conversation", () => {
 			const reply = (answer: Record<string, unknown>) => setTimeout(() => this.onmessage?.({ data: JSON.stringify(answer) }), 0);
 			if ("sub" in frame) {
 				const target = JSON.stringify(frame["sub"]);
+				if (target.includes('"roster"')) FakeCore.rosterSub = id;
 				reply({ id, ok: true });
 				reply({ sub: id, snapshot: target.includes('"roster"') ? [nell()] : [] });
 				return;
 			}
 			if (frame["cmd"] === "client.hello") reply({ id, ok: true, result: { capabilities: ["threads", "threads2"] } });
 			else if (frame["cmd"] === "thread.list") {
+				FakeCore.listReads += 1;
 				setTimeout(() => {
 					this.onmessage?.({ data: JSON.stringify({ id, ok: true, result: nellsList() }) });
 					FakeCore.listDelivered = true;
@@ -423,6 +472,8 @@ describe("task-437 in the conversation", () => {
 
 	beforeEach(async () => {
 		FakeCore.listDelivered = false;
+		FakeCore.listReads = 0;
+		pairAnswering = false;
 		const installed = installDom({ ResizeObserver: NoResize, WebSocket: FakeCore, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 		teardown = installed.teardown;
 		// The pane puts focus back on an element when it closes.
@@ -468,7 +519,7 @@ describe("task-437 in the conversation", () => {
 		// The work thread at rest is not counted.
 		expect(key?.textContent).toBe("3 threads");
 		await act(async () => void key!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		const rows = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row")];
+		const rows = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-thread]")];
 		expect(rows.map((row) => row.querySelector(".list-line")?.textContent)).toEqual([
 			"Handoff from Mack · Working",
 			"Subagent · Read Dock.tsx",
@@ -481,7 +532,7 @@ describe("task-437 in the conversation", () => {
 		expect(container.querySelector(".dock .run-pane")?.getAttribute("aria-label")).toBe("Subagent of Nell: Audit side-pane thread rows");
 		// Open in the pane, its row says so.
 		await act(async () => void key!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		const again = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row")];
+		const again = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-thread]")];
 		expect(again.map((row) => row.getAttribute("aria-current"))).toEqual([null, "true", null]);
 		// The command's chip opened its run too.
 		await act(async () => void again[2]!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
@@ -507,7 +558,98 @@ describe("task-437 in the conversation", () => {
 		expect(container.querySelector("button.composer-threads")?.getAttribute("aria-label")).toBe("3 threads running");
 		const key = container.querySelector<HTMLButtonElement>("button.composer-threads")!;
 		await act(async () => void key.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		const rows = [...container.querySelectorAll<HTMLElement>(".composer-threads-panel .list-row")].map((row) => row.dataset["thread"]);
+		const rows = [...container.querySelectorAll<HTMLElement>(".composer-threads-panel .list-row[data-thread]")].map((row) => row.dataset["thread"]);
 		expect(rows).toEqual(listed);
+	});
+
+	test("the band has no side-thread chip; a work thread at rest is reached from All threads at the panel's foot, in the pane's list", async () => {
+		// desk-threads, decisions 4 and 5 (George, 2026-11-12).
+		const { App } = await import("../src/App");
+		await act(async () => root!.render(<App />));
+		await settle();
+		await act(async () => container.querySelector<HTMLButtonElement>('[data-teammate-row][aria-label^="Nell"]')!.click());
+		await until(() => FakeCore.listDelivered, "the teammate's threads");
+		await settle();
+		// Nell has two work threads live, one at rest: the band names neither.
+		expect(container.querySelector('[aria-label^="Side thread"]')).toBeNull();
+		expect(container.querySelector(".band")?.textContent ?? "").not.toMatch(/side threads?|Side:/);
+		const key = container.querySelector<HTMLButtonElement>("button.composer-threads")!;
+		await act(async () => void key.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		// The one at rest is not running, so not in the panel.
+		expect(container.querySelector('.composer-threads-panel [data-thread="side:s-idle"]')).toBeNull();
+		const all = container.querySelector<HTMLButtonElement>(".composer-threads-panel .composer-threads-all")!;
+		await act(async () => void all.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		await until(() => container.querySelector(".dock .list-group") !== null, "the Threads list");
+		// Its last word was long ago, so under Active it waits in the fold of what is earlier.
+		const fold = container.querySelector<HTMLButtonElement>(".dock .list-fold");
+		if (fold !== null) await act(async () => fold.click());
+		await until(() => container.querySelector('.dock .list-row[data-thread="side:s-idle"]') !== null, "the work thread at rest in the list");
+		expect(container.querySelector(".composer-threads-panel")).toBeNull();
+		expect(container.querySelector('.dock [aria-label="Threads"], .dock h2')?.textContent).toContain("Threads");
+		// Its row opens it, a conversation with its field.
+		await act(async () => container.querySelector<HTMLButtonElement>('.dock .list-row[data-thread="side:s-idle"]')!.click());
+		await settle();
+		expect(container.querySelector(".dock textarea")).not.toBeNull();
+	});
+
+	test("Working opens the turn's steps inside the pill, over the field, not in the pane; Hide and Escape fold them", async () => {
+		// desk-threads, decision 1 (George, 2026-11-12): three chips, one pill; nothing floats over the transcript.
+		const { App } = await import("../src/App");
+		await act(async () => root!.render(<App />));
+		await settle();
+		await act(async () => container.querySelector<HTMLButtonElement>('[data-teammate-row][aria-label^="Nell"]')!.click());
+		await until(() => container.querySelector("button.composer-work") !== null, "the Working row");
+		const working = () => container.querySelector<HTMLButtonElement>("button.composer-work")!;
+		const steps = () => container.querySelector<HTMLElement>(".composer > .composer-steps");
+		expect(steps()).toBeNull();
+		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		expect(working().getAttribute("aria-expanded")).toBe("true");
+		expect(steps()?.getAttribute("aria-label")).toBe("Nell's work");
+		expect(steps()?.querySelector(".composer-steps-state")?.textContent).toBe("Working");
+		// The field stays, and the pane did not open for it.
+		expect(container.querySelector(".composer textarea")).not.toBeNull();
+		expect(container.querySelector(".dock")).toBeNull();
+		await act(async () => steps()!.querySelector<HTMLButtonElement>(".composer-steps-hide")!.click());
+		expect(steps()).toBeNull();
+		expect(working().getAttribute("aria-expanded")).toBe("false");
+		// Escape folds them before it reaches the turn.
+		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		const field = container.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+		field.focus();
+		await act(async () => void field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+		expect(steps()).toBeNull();
+		// The threads take the pill's first row from the steps, and the row gives it back.
+		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		const key = container.querySelector<HTMLButtonElement>("button.composer-threads")!;
+		await act(async () => void key.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		expect(steps()).toBeNull();
+		expect(container.querySelector(".composer > .composer-threads-panel")).not.toBeNull();
+		await act(async () => void working().dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		expect(container.querySelector(".composer-threads-panel")).toBeNull();
+		expect(steps()).not.toBeNull();
+	});
+
+	test("a thread between two teammates joins the count while one answers the other, and leaves it when the answer is in", async () => {
+		// George's QA, 2026-11-12: a DM between agents never showed among the running threads.
+		// The list was read before the ask, and nothing the window heard made it read it again.
+		const { App } = await import("../src/App");
+		await act(async () => root!.render(<App />));
+		await settle();
+		await act(async () => container.querySelector<HTMLButtonElement>('[data-teammate-row][aria-label^="Nell"]')!.click());
+		await until(() => FakeCore.listDelivered, "the teammate's threads");
+		await settle();
+		const key = () => container.querySelector<HTMLButtonElement>("button.composer-threads");
+		expect(key()?.textContent).toBe("3 threads");
+		// Nell asks Lou; Lou answers. The core's word is her roster row, sent again.
+		pairAnswering = true;
+		await act(async () => FakeCore.pushRoster());
+		await until(() => key()?.textContent === "4 threads", "the pair in the count");
+		await act(async () => void key()!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		const pair = container.querySelector<HTMLButtonElement>('.composer-threads-panel .list-row[data-thread="pair:lou~nell"]');
+		expect(pair?.querySelector(".list-line")?.textContent).toBe("Pair · Working · Is the nightly deploy paused?");
+		// The answer is in: the row goes again, and the pair with it.
+		pairAnswering = false;
+		await act(async () => FakeCore.pushRoster());
+		await until(() => key()?.textContent === "3 threads", "the pair out of the count");
 	});
 });

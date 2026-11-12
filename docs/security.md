@@ -3047,7 +3047,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
-  | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
+  | `thread.list` | only what it may read: no calls | a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page; a pair is listed (since 0.49, George's call that a DM between teammates is a thread on the phone too), as it already subscribes to and pages one, though `peers.list` stays refused it |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |
 
@@ -3063,7 +3063,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   `a_thread_verb_the_kind_has_no_meaning_for_is_refused`,
   `thread_verbs_reach_the_handlers_the_older_commands_did`,
   `thread_list_reads_every_kind_as_one_summary`,
-  `a_companions_thread_list_leaves_out_calls_and_pairs`,
+  `a_companions_thread_list_leaves_out_calls_and_lists_pairs`,
   `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
   `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
   that send each shape; `remote/tests/phone.rs` for the hello a phone is sent;
@@ -3071,8 +3071,8 @@ thread, and reaching back into it with the home agent's own reading tools.
   runs one conversation through the real core for an old and a `threads2` client.
 - **Residual risk:** `thread.list` with no `personaId` reads every teammate's
   threads, titles and last lines in one answer. A companion already reads every
-  tape and work thread by subscribing, so this adds no reach, only one place to
-  read it.
+  tape, work thread and pair by subscribing, so this adds no reach, only one
+  place to read it.
 
 ## One computer, several threads
 

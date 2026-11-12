@@ -247,6 +247,13 @@ pub struct RosterEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<String>>", optional)]
     pub working_calls: Vec<String>,
+    /// The threads between this teammate and another with a request being
+    /// answered now, by pair key: the rule `thread.list` reads a pair as live
+    /// by, sent again as it changes, since a pair has no agent of its own
+    /// for the roster to follow. Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub working_pairs: Vec<String>,
     /// How many asides this teammate has been left that no turn of its has
     /// heard yet (`aside.list` lists them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]

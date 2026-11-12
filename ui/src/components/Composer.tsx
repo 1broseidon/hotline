@@ -109,7 +109,17 @@ export function Composer({
 	 * open. The panel closes on Escape, a press outside the composer, or the
 	 * count pressed again; the field stays in use under it.
 	 */
-	threads?: { rows: readonly LiveThread[]; isOpen(thread: LiveThread): boolean; onOpen(thread: LiveThread): void } | undefined;
+	threads?:
+		| {
+				rows: readonly LiveThread[];
+				/** What the teammate was told that the person has not read, counted on the panel's All threads row. */
+				fresh?: number | undefined;
+				isOpen(thread: LiveThread): boolean;
+				onOpen(thread: LiveThread): void;
+				/** Opens the full Threads list in the pane, from the panel's last row. */
+				onAll(): void;
+		  }
+		| undefined;
 	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
 	focused?: boolean;
 	/**
@@ -444,10 +454,15 @@ export function Composer({
 						<ThreadsPanel
 							id={panelId}
 							threads={threadRows}
+							fresh={threads.fresh}
 							isOpen={threads.isOpen}
 							onOpen={(thread) => {
 								setThreadsWanted(false);
 								threads.onOpen(thread);
+							}}
+							onAll={() => {
+								setThreadsWanted(false);
+								threads.onAll();
 							}}
 							onEdge={() => threadsKey.current?.focus()}
 						/>

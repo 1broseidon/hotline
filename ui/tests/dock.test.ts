@@ -218,10 +218,13 @@ describe("what a person can do in a thread", () => {
 		expect(withTurns([handed], roster, "mack")[0]?.working).toBe(false);
 		expect(turnRunning(roster[1], handed.thread, handed)).toBe(false);
 		expect(turnRunning(rosterOf("poe", { sides: [{ sideId: "h", title: "h", startedAt: 1, working: true }] }), handed.thread, undefined)).toBe(true);
-		// No roster row follows a pair, nor a teammate gone from the roster: the list says.
+		// A pair is on both its teammates' rows while one answers the other (`workingPairs`), whatever an older list said.
 		const pair = thread("ada~mack", "pair", { personaId: "ada", working: true });
-		expect(withTurns([pair], [rosterOf("mack")], "mack")[0]?.working).toBe(true);
+		expect(withTurns([pair], [rosterOf("mack")], "mack")[0]?.working).toBe(false);
+		expect(withTurns([{ ...pair, working: false }], [rosterOf("mack", { workingPairs: ["ada~mack"] })], "mack")[0]?.working).toBe(true);
+		// No roster row follows a teammate gone from the roster: the list says.
 		expect(turnRunning(undefined, handed.thread, handed)).toBe(true);
+		expect(turnRunning(undefined, pair.thread, pair)).toBe(true);
 	});
 
 	test("knows a handoff by a teammate opener other than its own teammate", () => {

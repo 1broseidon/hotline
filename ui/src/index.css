@@ -2729,6 +2729,52 @@
 		margin: 0 0 4px;
 		border-bottom: var(--hairline) solid var(--line);
 	}
+	/* The turn running now, opened from the Working row (Work.tsx TurnSteps):
+	 * the pill's first row, its state and counts over its steps, a long run
+	 * scrolling, as the threads open there. */
+	.composer[data-work] > .composer-steps {
+		order: -2;
+		display: flex;
+		flex-basis: 100%;
+		flex-direction: column;
+		max-height: min(40vh, 320px);
+		margin: 0 0 4px;
+		padding: 2px 2px 4px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer-steps-head {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.composer-steps-state {
+		font-weight: 500;
+		color: var(--accent-ink);
+	}
+	.composer-steps-hide {
+		margin-left: auto;
+		padding: 2px 8px;
+		border-radius: var(--radius-control);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.composer-steps-hide:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.composer-steps-window {
+		min-height: 0;
+		flex: 1;
+		overflow-y: auto;
+		padding: 0 4px;
+	}
 	/* A card waiting on the person, opened in the composer to answer there:
 	 * the pill's first row, the card at its full width, a tall one scrolling. */
 	.composer[data-work] > .composer-ask {
@@ -2928,6 +2974,20 @@
 	}
 	.composer-threads-panel .list-row[aria-current="true"] {
 		background: var(--fill-hover);
+	}
+	/* The panel's last row, All threads: the full list, in the pane. Quieter
+	 * than a running thread's row; what is new there in the accent. */
+	.composer-threads-all .list-title {
+		font-weight: 400;
+		color: var(--ink-2);
+	}
+	.composer-threads-all .list-mark {
+		color: var(--ink-4);
+	}
+	.composer-threads-all .list-when {
+		gap: 4px;
+		align-items: center;
+		color: var(--accent-ink);
 	}
 	.composer-attach:hover {
 		background: var(--fill-hover);
@@ -4807,53 +4867,34 @@
 	.pane-stream .steps-heading {
 		display: none;
 	}
+	/* A section's name in a watched thread's pane: the Activity over a run's
+	 * steps or a command's output, as the eyebrows of its task and result. */
+	.pane-section {
+		flex-shrink: 0;
+		margin: 4px 16px 0;
+	}
+	/* Words said between a run's steps: a line of its activity under who
+	 * said it, not a bubble, since nobody talks with a run. */
+	.pane-said {
+		margin-top: 10px;
+	}
+	.pane-said-who {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.pane-said-text {
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
 	.run-foot {
 		flex-shrink: 0;
 		padding: 10px 24px;
 		box-shadow: inset 0 var(--hairline) 0 var(--line);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-	}
-	/* A teammate's live subagents, nested under its row in the rail
-	 * (Rail.tsx): each its title over its latest step, on a thread of rule. */
-	.rail-runs {
-		margin: 0 4px 4px 26px;
-		padding-left: 6px;
-		box-shadow: inset var(--hairline) 0 0 var(--line);
-	}
-	.rail-run {
-		display: flex;
-		width: 100%;
-		align-items: flex-start;
-		gap: 8px;
-		padding: 4px 8px;
-		border-radius: var(--radius-control);
-		text-align: left;
-	}
-	.rail-run:hover {
-		background: var(--fill-hover);
-	}
-	.rail-run[aria-current="true"] {
-		background: var(--fill-selected);
-	}
-	.rail-run-title {
-		display: block;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink);
-	}
-	.rail-run-step {
-		display: block;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
 	}
 	/* The Threads list (ThreadList.tsx): the chips that narrow it, a group's
@@ -4955,18 +4996,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	/* A note's words are the row: two lines of them, at the explaining ink. */
-	.list-row[data-kind="note"] .list-title {
-		font-weight: 400;
-		color: var(--ink-2);
-	}
-	.list-row[data-kind="note"] .list-title-text {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		white-space: normal;
-		overflow-wrap: anywhere;
-	}
 	.list-notes {
 		flex-shrink: 0;
 		padding: 0 5px;
@@ -4993,10 +5022,15 @@
 		font-size: var(--text-xs);
 		color: var(--ink-2);
 	}
+	/* A note's row is where it came from over who told the teammate what:
+	 * two lines of the words, at the explaining ink. */
 	.list-row[data-kind="note"] .list-line {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-4);
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		color: var(--ink-2);
 	}
 	/* A row in Needs you: the card's own answers under its line, or Open. */
 	.list-keys {

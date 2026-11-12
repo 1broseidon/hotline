@@ -20,9 +20,12 @@ thread is told the main conversation's last handoff note and its last few
 lines, so it knows what the teammate is busy with. After that, nothing said
 in the side thread reaches the main conversation, and the other way round.
 
-While a side thread is running, a chip in the conversation's header shows it
-("Side:" and its title, or a count with a menu when there are several), and
-the main conversation has one line for it with **Open**.
+The main conversation has one line for each side thread, which opens it.
+While a turn of one is running, it is counted with the teammate's other
+running threads at the right of the message box ("2 threads ›"), and a press
+there lists them. A side thread at rest is reached from its line, or from
+**All threads** at the foot of that list, or **Threads** in the teammate's
+menu.
 
 A side thread lasts as long as the topic does:
 
@@ -49,9 +52,10 @@ model, but with none of the conversation. The teammate keeps talking to you
 while the subagent works, and tells you what it found when the report comes
 back.
 
-While one is running, it shows at the top right of the message box, by its
-title, or as a count with a menu when there are several. Press it to read
-what the subagent is doing. Each subagent also leaves one line in the
+While one is running, it is counted at the right of the message box
+("2 threads ›"), and a press there lists it with what it did last. Open it to
+read what it was asked, its steps with their times, and its result when it
+finishes. Each subagent also leaves one line in the
 conversation with its result, and that line opens the run too. Runs are
 read-only. Stopping a Hotline Agent teammate stops its subagents.
 

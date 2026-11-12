@@ -1881,6 +1881,13 @@ workingJobs?: Array<string>,
  */
 workingCalls?: Array<string>, 
 /**
+ * The threads between this teammate and another with a request being
+ * answered now, by pair key: the rule `thread.list` reads a pair as live
+ * by, sent again as it changes, since a pair has no agent of its own
+ * for the roster to follow. Absent when there are none.
+ */
+workingPairs?: Array<string>, 
+/**
  * How many asides this teammate has been left that no turn of its has
  * heard yet (`aside.list` lists them). Absent when there are none.
  */

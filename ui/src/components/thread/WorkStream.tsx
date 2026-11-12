@@ -5,6 +5,7 @@ import { CookieAskCard } from "../transcript/CookieAskCard";
 import { CredentialAsk } from "../transcript/CredentialAsk";
 import { HumanAction, PasskeyAskCard, Permission } from "../transcript/Asks";
 import { NamedSay } from "../transcript/Bubbles";
+import { Markdown } from "../Markdown";
 import { Plan } from "../transcript/Plan";
 import { SecretUseAsk } from "../transcript/SecretUseAsk";
 import { TrailSteps, useHot } from "../transcript/Trail";
@@ -23,9 +24,16 @@ type WorkProps = {
 	/** The worker's turn is running. */
 	live: boolean;
 	worker: Worker;
-	/** Who said a line, and whether it is the person's own: null leaves it out of the stream. */
-	said(event: Said): { name: string; mine: boolean } | null;
+	/**
+	 * Who said a line, and whether it is the person's own: null leaves it out
+	 * of the stream. `plain`: a line of the work rather than of a
+	 * conversation, under its speaker's name without a bubble, as a
+	 * subagent's words between its steps are (a run is activity, not a chat).
+	 */
+	said(event: Said): Speaker | null;
 };
+
+type Speaker = { name: string; mine: boolean; plain?: boolean };
 
 /**
  * A thread's work where it is drawn: each run of steps where it fell between
@@ -80,7 +88,7 @@ function StreamBlock({
 	block: Block;
 	thread: ThreadId;
 	worker: Worker;
-	said(event: Said): { name: string; mine: boolean } | null;
+	said(event: Said): Speaker | null;
 	hot: ReturnType<typeof useHot>;
 }) {
 	if (block.kind === "steps") return <TrailSteps items={block.items} settled={block.open !== true} hot={hot} />;
@@ -91,7 +99,18 @@ function StreamBlock({
 		case "user":
 		case "delivery": {
 			const who = said(event);
-			return who === null ? null : <NamedSay name={who.name} mine={who.mine} text={event.text} />;
+			if (who === null) return null;
+			if (who.plain === true) {
+				return (
+					<div className="pane-said">
+						<p className="pane-said-who">{who.name}</p>
+						<div className="pane-said-text selectable">
+							<Markdown text={event.text} />
+						</div>
+					</div>
+				);
+			}
+			return <NamedSay name={who.name} mine={who.mine} text={event.text} />;
 		}
 		case "turn":
 			return event.stopReason === "end_turn" ? null : <p className="instrument mt-1 text-right text-ink-4">{event.stopReason.replace(/_/g, " ")}</p>;

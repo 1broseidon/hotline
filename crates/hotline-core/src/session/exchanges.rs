@@ -698,11 +698,14 @@ pub(super) enum Finished {
 /// Whether an `exchange_pair` record has a request an agent is answering now,
 /// as the room stream says it: running, or waiting on the person.
 pub(crate) fn answering(record: &serde_json::Value) -> bool {
-    serde_json::from_value::<Pair>(record.clone()).is_ok_and(|pair| {
-        pair.requests
+    serde_json::from_value::<Pair>(record.clone()).is_ok_and(|pair| pair.answering())
+}
+impl Pair {
+    fn answering(&self) -> bool {
+        self.requests
             .iter()
             .any(|request| matches!(request.phase(), Phase::Running | Phase::WaitingHuman))
-    })
+    }
 }
 impl Room {
     async fn authorize_exchange(
@@ -755,6 +758,15 @@ impl Room {
     }
     fn exchange_pair(&self, key: &str) -> Option<Pair> {
         self.exchange_pairs().into_iter().find(|p| p.id == key)
+    }
+    /// The pairs this teammate is in with a request being answered now, by
+    /// key: what `thread.list` reads as a live pair, for the roster row.
+    pub fn working_pairs(&self, persona_id: &str) -> Vec<String> {
+        self.exchange_pairs()
+            .into_iter()
+            .filter(|pair| (pair.a == persona_id || pair.b == persona_id) && pair.answering())
+            .map(|pair| pair.id)
+            .collect()
     }
     fn save_pair(&self, pair: &Pair) -> Result<(), String> {
         let mut value = serde_json::to_value(pair).map_err(|e| e.to_string())?;

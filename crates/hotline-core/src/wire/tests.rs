@@ -218,6 +218,10 @@ impl ProviderKeys for NoKeys {
 
 #[async_trait]
 impl RoomHandle for CoreHandle {
+    fn working_pairs(&self, persona_id: &str) -> Vec<String> {
+        self.room.working_pairs(persona_id)
+    }
+
     fn harness_updates(&self) -> crate::contract::HarnessUpdates {
         self.room.harness_updates()
     }

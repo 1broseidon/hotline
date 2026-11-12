@@ -266,9 +266,10 @@ pub(super) fn page(
 }
 
 /// The threads of one teammate, or of the room: live first, then parked, then
-/// closed, each newest first. A companion is listed only what it may read: not
-/// pairs, which it may not list under their older name either, and not calls,
-/// whose summaries carry what was spoken in their `preview`.
+/// closed, each newest first. A companion is listed only what it may read
+/// (`phone_may_read`): not calls, whose summaries carry what was spoken in
+/// their `preview`. A pair is a thread like the rest, which it already
+/// subscribes to and pages, so it is listed too.
 pub(super) fn list(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -281,10 +282,7 @@ pub(super) fn list(
     let roster = crate::room::personas(&events);
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
-        .filter(|thread| {
-            !companion
-                || (thread.kind() != ThreadKind::Pair && super::seat::phone_may_read(&thread.id))
-        })
+        .filter(|thread| !companion || super::seat::phone_may_read(&thread.id))
         .map(|thread| summarize(log, room, thread, &roster, &events))
         .collect();
     summaries.sort_by_key(|summary| {

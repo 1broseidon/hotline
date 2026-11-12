@@ -265,7 +265,7 @@ describe("the notes in the Threads list", () => {
 	}
 	const notes = () => [...container.querySelectorAll<HTMLElement>('.list-row[data-kind="note"]')];
 
-	test("lists each with its words, who and where it came from, newest first, marks them read, and opens a thread", async () => {
+	test("lists each as where it came from over who told the teammate what, newest first, marks them read, and opens a thread", async () => {
 		answers["aside.list"] = () => [
 			aside("e1", 10, { seen: 15, text: "All 297 tests passed." }),
 			aside("n2", 30, { level: "person", text: "The share button still has two names. Which one?", by: "huck" }),
@@ -275,14 +275,12 @@ describe("the notes in the Threads list", () => {
 		const states: unknown[] = [];
 		await showNotes([entry(goldie), entry(quill, { asides: 2, asidesNew: 2 }), entry(huck)], states);
 		const rows = notes();
-		expect(rows.map((row) => row.querySelector(".list-title-text")?.textContent)).toEqual([
-			"The share button still has two names. Which one?",
-			"Build 46 is up.",
-		]);
 		// Already read, it is its thread's count, not a row of its own.
-		expect(rows[0]!.querySelector(".list-line")?.textContent).toBe("from Huck · release 0.11.1 · to you ›");
+		expect(rows.map((row) => row.querySelector(".list-title-text")?.textContent)).toEqual(["release 0.11.1", "release 0.11.1"]);
+		// One meant for the person says so; one that woke the teammate says that.
+		expect(rows[0]!.querySelector(".list-line")?.textContent).toBe("Huck told you: The share button still has two names. Which one? ›");
 		expect(rows[0]!.getAttribute("data-level")).toBe("person");
-		expect(rows[1]!.querySelector(".list-line")?.textContent).toBe("from Goldie · release 0.11.1 ›");
+		expect(rows[1]!.querySelector(".list-line")?.textContent).toBe("Goldie woke Quill: Build 46 is up. ›");
 		expect(sent.some((one) => one.cmd === "aside.seen" && (one.params as { personaId: string }).personaId === "quill")).toBe(true);
 
 		await act(async () => rows[1]!.click());
@@ -295,7 +293,7 @@ describe("the notes in the Threads list", () => {
 		answers["aside.seen"] = () => null;
 		await showNotes([entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })]);
 		const line = notes()[0]?.querySelector(".list-line")?.textContent;
-		expect(line).toBe("from George · release 0.11.1 ›");
+		expect(line).toBe("George woke Quill: George looped you in. ›");
 	});
 
 	test("names an inbound aside's source, with no thread to open", async () => {
@@ -309,8 +307,8 @@ describe("the notes in the Threads list", () => {
 		await showNotes([entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })]);
 		const row = notes()[0];
 		expect(row?.tagName).toBe("DIV");
-		expect(row?.querySelector(".list-line")?.textContent).toBe("from hotline repo");
-		expect(row?.querySelector(".list-title-text")?.textContent).toBe("CI failed on main.");
+		expect(row?.querySelector(".list-title-text")?.textContent).toBe("hotline repo");
+		expect(row?.querySelector(".list-line")?.textContent).toBe("Told Quill: CI failed on main.");
 	});
 });
 

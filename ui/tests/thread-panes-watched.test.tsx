@@ -190,9 +190,37 @@ describe("task-396 a command left running", () => {
 		kind: "tool", id: "tool:c1", ts: 9, toolCallId: "c1", title: "make precheck", toolKind: "execute", status: "completed",
 		output: [{ type: "text", text: "precheck: all 8 legs pass in 95s\n" }],
 	};
+	const stops: number[] = [];
 	const pane = (running: RunningSubagent | undefined, events: TranscriptEvent[]) => (
-		<CommandPane personaId="poe" runId={runId} owner="Poe" cwd="/Users/george/Projects/personal/hotline-wt-049" run={running} events={events} onBack={() => {}} onClose={() => {}} />
+		<CommandPane
+			personaId="poe"
+			runId={runId}
+			owner="Poe"
+			cwd="/Users/george/Projects/personal/hotline-wt-049"
+			run={running}
+			events={events}
+			onStop={async () => void stops.push(1)}
+			onBack={() => {}}
+			onClose={() => {}}
+		/>
 	);
+
+	test("reads as activity, not a chat: Activity over its output, no field, Stop only where the desk can stop it, and a foot saying whose it is", async () => {
+		// desk-threads, decision 2 (George, 2026-11-12).
+		output = { command: "make precheck", tail: "restore/full ........ ok\n" };
+		stops.length = 0;
+		await render(pane(run, [link("live")]));
+		expect(text(".pane-section")).toBe("Activity");
+		expect(container.querySelector("textarea, input, .speech")).toBeNull();
+		expect(container.querySelector('button[title="Stop this command"]')).toBeNull();
+		expect(text(".run-foot")).toBe("Left running by Poe.");
+		await render(pane({ ...run, stoppable: true }, [link("live")]));
+		await act(async () => container.querySelector<HTMLButtonElement>('button[title="Stop this command"]')!.click());
+		expect(stops).toEqual([1]);
+		// Ended, there is nothing to stop.
+		await render(pane(undefined, [link("closed")]));
+		expect(container.querySelector('button[title="Stop this command"]')).toBeNull();
+	});
 
 	test('opens as "$ Command" started by the teammate, titled by the command, "in <dir> · started <time>"', async () => {
 		output = { command: "make precheck", tail: "" };

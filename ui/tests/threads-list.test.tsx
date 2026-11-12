@@ -271,7 +271,7 @@ describe("task-400 one row shape", () => {
 		expect(parts("call:c1").line).toBe("Ended · 2 min");
 	});
 
-	test("A note row shows its words and \"from <source>\" and opens the thread it came from; a thread with notes shows a ✎ count", async () => {
+	test("A note row is where it came from over who told the teammate what, and opens the thread it came from; a thread with notes shows a ✎ count", async () => {
 		const roster = everyKind();
 		asides = [
 			aside("n1", today(0, 40), { text: "Linux and Windows are green on 2736d08d." }),
@@ -283,9 +283,10 @@ describe("task-400 one row shape", () => {
 		asides[3] = outside;
 		const states: DockState[] = [];
 		await dock(roster, states);
-		expect(parts("note:n1")).toMatchObject({ title: "Linux and Windows are green on 2736d08d.", line: "from Watch CI on release/0.49.0 ›" });
-		expect(parts("note:n3").line).toBe("from Elvis · work thread ›");
-		expect(parts("note:n4").line).toBe("from hotline repo");
+		// desk-threads, decision 5: "a thread that told the teammate something says so on its row".
+		expect(parts("note:n1")).toMatchObject({ title: "Watch CI on release/0.49.0", line: "Told Pork Chop: Linux and Windows are green on 2736d08d. ›" });
+		expect(parts("note:n3")).toMatchObject({ title: "work thread", line: "Elvis told Pork Chop: Site copy is drafted; it needs the changelog lines. ›" });
+		expect(parts("note:n4")).toMatchObject({ title: "hotline repo", line: "Told Pork Chop: CI failed on main." });
 		// A note from outside has no thread to open.
 		expect(row("note:n4")?.tagName).toBe("DIV");
 		await act(async () => row("note:n1")!.click());
@@ -336,17 +337,19 @@ describe("task-400 one row shape", () => {
 });
 
 describe("task-401 the Active default", () => {
-	test("Default filter Active groups Needs you, Live, Recent (the last 24 hours), in that order", async () => {
+	test("Default filter Active groups Needs you, Live, New (what told the teammate something unread), Recent (the last 24 hours), in that order", async () => {
 		// A teammate whose list has never been narrowed opens on Active.
 		await dock(aDay("ada"));
 		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
-		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "Recent", "Earlier and routine · 4"]);
+		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "New", "Recent", "Earlier and routine · 3"]);
 		expect(sections()).toEqual({
 			"Needs you": ["side:w1"],
 			Live: ["run:r-audit", "job:watch"],
-			Recent: ["note:unread", "pair:lou~ada", "run:r-map"],
+			// Unread, however old: Friday's note too.
+			New: ["note:unread", "note:friday"],
+			Recent: ["pair:lou~ada", "run:r-map"],
 			// Folded: the rest wait under one row.
-			"Earlier and routine · 4": [],
+			"Earlier and routine · 3": [],
 		});
 	});
 
@@ -355,20 +358,21 @@ describe("task-401 the Active default", () => {
 		await act(async () => rememberFilter("pork", "active"));
 		const fold = container.querySelector<HTMLButtonElement>(".list-fold")!;
 		expect(fold.getAttribute("aria-expanded")).toBe("false");
-		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 4", "Show"]);
-		for (const folded of ["run:r-pre", "job:sweep", "side:old", "note:friday"]) expect(row(folded)).toBeNull();
+		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 3", "Show"]);
+		for (const folded of ["run:r-pre", "job:sweep", "side:old"]) expect(row(folded)).toBeNull();
 		await act(async () => fold.click());
 		expect(fold.getAttribute("aria-expanded")).toBe("true");
 		expect(fold.lastElementChild?.textContent).toBe("Hide");
 		// In place: under the fold, newest first, and nothing above it moved.
-		expect(sections()["Earlier and routine · 4"]).toEqual(["run:r-pre", "job:sweep", "side:old", "note:friday"]);
+		expect(sections()["Earlier and routine · 3"]).toEqual(["run:r-pre", "job:sweep", "side:old"]);
 		expect(parts("run:r-pre").mark).toBe("$");
 		expect(parts("run:r-pre").line).toStartWith("Done · All 8 legs pass · ");
-		expect(sections()["Recent"]).toEqual(["note:unread", "pair:lou~pork", "run:r-map"]);
+		expect(sections()["New"]).toEqual(["note:unread", "note:friday"]);
+		expect(sections()["Recent"]).toEqual(["pair:lou~pork", "run:r-map"]);
 		// Under All nothing is folded: routine and read lately are Recent's, the rest Earlier.
 		await act(async () => chip("All")!.click());
 		expect(container.querySelector(".list-fold")).toBeNull();
-		expect(sections()["Earlier"]).toEqual(["side:old", "note:friday"]);
+		expect(sections()["Earlier"]).toEqual(["side:old"]);
 		expect(sections()["Recent"]).toContain("run:r-pre");
 	});
 
@@ -403,9 +407,9 @@ describe("task-401 the Active default", () => {
 	test("Counts show only on Needs you and Live", async () => {
 		await dock(aDay());
 		await act(async () => rememberFilter("pork", "active"));
-		expect(headings().slice(0, 3)).toEqual([["Needs you", "1"], ["Live", "2"], ["Recent"]]);
+		expect(headings().slice(0, 4)).toEqual([["Needs you", "1"], ["Live", "2"], ["New"], ["Recent"]]);
 		await act(async () => chip("All")!.click());
-		expect(headings()).toEqual([["Needs you", "1"], ["Live", "2"], ["Recent"], ["Earlier"]]);
+		expect(headings()).toEqual([["Needs you", "1"], ["Live", "2"], ["New"], ["Recent"], ["Earlier"]]);
 	});
 });
 

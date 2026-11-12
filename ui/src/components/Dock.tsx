@@ -172,10 +172,6 @@ export function Dock({
 
 const NO_RUNS: RunningSubagent[] = [];
 
-/** How soon after a line in a running thread its list is read again, and how often while it runs. */
-const LIST_AFTER_LINE_MS = 1500;
-const LIST_WHILE_WORKING_MS = 5000;
-
 /** The pane's header: what it holds, and the way out. */
 function DockBand({ onClose }: { onClose(): void }) {
 	return (
@@ -288,23 +284,6 @@ function ThreadView({
 		if (eventIds.length > 0) void wire.command("peers.mark_read", { key: id.key, eventIds });
 	}, [id.kind, id.key, events]);
 
-	// Whether a pair's turn is running is the thread list's word, and the
-	// roster does not hear of a pair's turn ending, so nothing would read the
-	// list again: while the list says it runs, it is read again shortly after
-	// each new line, and every few seconds besides, so it ends when the turn does.
-	const newest = events.at(-1)?.id;
-	const listedWorking = row?.working === true;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new line is what asks for the list again.
-	useEffect(() => {
-		if (!listedWorking) return;
-		const soon = setTimeout(onChanged, LIST_AFTER_LINE_MS);
-		const every = setInterval(onChanged, LIST_WHILE_WORKING_MS);
-		return () => {
-			clearTimeout(soon);
-			clearInterval(every);
-		};
-	}, [listedWorking, newest]);
-
 	const refuse = (error: unknown) => setRefused(error instanceof Error ? error.message : String(error));
 	// A refused message goes back to this thread's field, even when the person has gone elsewhere before the refusal came.
 	const conv = `${id.kind}:${id.key}`;
@@ -347,7 +326,7 @@ function ThreadView({
 		);
 	}
 	if (id.kind === "run" && runKind === "shell") {
-		return <CommandPane personaId={self.id} runId={id.key} owner={self.name} cwd={ownerEntry?.persona.cwd} run={listedRun} events={events} onBack={onBack} onClose={onClose} />;
+		return <CommandPane personaId={self.id} runId={id.key} owner={self.name} cwd={ownerEntry?.persona.cwd} run={listedRun} events={events} onStop={cancel} onBack={onBack} onClose={onClose} />;
 	}
 	if (id.kind === "run") {
 		return <RunPane open={open} row={row} run={listedRun} teammate={self} events={events} streaming={streaming} onStop={cancel} onBack={onBack} onClose={onClose} />;

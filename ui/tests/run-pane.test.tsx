@@ -201,8 +201,9 @@ describe("the task", () => {
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx")];
 		await show(running());
-		const card = container.querySelector('.run-pane section[aria-label="Task"]');
-		expect(card?.querySelector(".pane-task-from")?.textContent).toEndWith("from Pork Chop");
+		// desk-threads, decision 2: what it was asked, and by whom.
+		const card = container.querySelector('.run-pane section[aria-label="Asked by Pork Chop"]');
+		expect(card?.querySelector(".eyebrow")?.textContent).toBe("Asked by Pork Chop");
 		expect(card?.querySelector(".pane-task-body")?.textContent).toBe(TASK);
 		expect(card?.querySelector(".pane-task-body")?.hasAttribute("data-open")).toBe(false);
 		const more = card?.querySelector<HTMLButtonElement>(".pane-task-more");
@@ -222,10 +223,13 @@ describe("the stream", () => {
 		await show(running());
 		const stream = container.querySelector<HTMLDivElement>(".pane-stream")!;
 		// In the order they came: a step, then the words.
-		const parts = [...stream.querySelectorAll(".trail-step, .speech")].map((part) => part.className.includes("speech") ? "words" : "step");
+		const parts = [...stream.querySelectorAll(".trail-step, .pane-said")].map((part) => part.className.includes("pane-said") ? "words" : "step");
 		expect(parts).toEqual(["step", "words"]);
-		// The words are the subagent's, as the handoff's are its receiver's: the stream both panes share.
-		expect(stream.querySelector(".said-name")?.textContent).toBe("Subagent");
+		// Its Activity: the words are the subagent's, a line of its work under its name, never a bubble.
+		expect(container.querySelector(".run-pane .pane-section")?.textContent).toBe("Activity");
+		expect(stream.querySelector(".pane-said-who")?.textContent).toBe("Subagent");
+		expect(stream.querySelector(".speech, .said-name")).toBeNull();
+		expect(container.querySelector(".run-pane textarea, .run-pane input")).toBeNull();
 
 		// A step opens to what it did.
 		const step = stream.querySelector<HTMLButtonElement>(".trail-head")!;
@@ -253,22 +257,22 @@ describe("the stream", () => {
 });
 
 describe("the result", () => {
-	test("A result card closes the run (\"Result · sent to <teammate>\"); foot says read only / reported back", async () => {
+	test("A Result card closes the run; the foot says whom it reports to, then that it reported", async () => {
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx"), said("a1", "Looking at the rows.")];
 		await show(running());
 		expect(container.querySelector(".pane-result")).toBeNull();
-		expect(container.querySelector(".run-foot")?.textContent).toBe("Read only. Reports to Pork Chop.");
+		expect(container.querySelector(".run-foot")?.textContent).toBe("Reports to Pork Chop when it finishes.");
 
 		next();
 		first = [link("closed", "done", 214_000), task, read("t1", "c1", "Read Dock.tsx"), said("a1", "Looking at the rows."), said("a2", "A run is shown on 6 surfaces.", STARTED + 200_000), { kind: "turn", id: "t9", ts: STARTED + 214_000, stopReason: "end_turn" }];
 		await show(undefined);
 		const result = container.querySelector(".pane-result");
-		expect(result?.querySelector(".pane-result-head")?.textContent).toBe("Result · sent to Pork Chop3:34");
+		expect(result?.querySelector(".pane-result-head")?.textContent).toBe("Result3:34");
 		expect(result?.querySelector(".pane-result-body")?.textContent).toContain("A run is shown on 6 surfaces.");
 		// The result closes the stream: the last thing in it, said once.
 		expect(container.querySelector(".pane-stream > :last-child")?.className).toContain("pane-result");
-		expect([...container.querySelectorAll(".pane-stream .speech")].map((one) => one.textContent)).toEqual(["Looking at the rows."]);
+		expect([...container.querySelectorAll(".pane-stream .pane-said-text")].map((one) => one.textContent)).toEqual(["Looking at the rows."]);
 		expect(container.querySelector(".run-foot")?.textContent).toMatch(/^Reported to Pork Chop at 2:00\s?PM\.$/);
 
 		// A run stopped before it reported has no result: it says it stopped.

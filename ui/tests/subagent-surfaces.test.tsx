@@ -6,7 +6,8 @@ import type { Wire } from "../src/wire";
 import { installDom } from "./dom";
 
 // task-399: work threads carry a kind label, and live subagents show their
-// latest step in the rail, link rows, the composer's threads panel and thread list.
+// latest step in link rows, the composer's threads panel and thread list. The
+// rail no longer nests them under their teammate (desk-threads, decision 3).
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Dock } = await import("../src/components/Dock");
@@ -132,11 +133,13 @@ describe("a work thread's pane", () => {
 });
 
 describe("the rail", () => {
-	async function rail(entries: RosterEntry[], onOpenRun: (personaId: string, run: RunningSubagent) => void, openRun?: string) {
+	// George, 2026-11-12 (desk-threads mockup, decision 3): a teammate's subagents are
+	// no longer nested under it in the rail; the composer's threads count covers them.
+	test("names each teammate once, with nothing nested under one whose subagents are at work", async () => {
 		await act(async () => {
 			root.render(
 				<Rail
-					entries={entries}
+					entries={[entry(pork, [audit, models, crawl]), entry(lou)]}
 					selectedId="pork"
 					seen={{}}
 					connection="open"
@@ -150,36 +153,13 @@ describe("the rail", () => {
 					settings={null}
 					search={null}
 					deskKey={null}
-					onOpenRun={onOpenRun}
-					openRun={openRun}
 				/>,
 			);
 		});
-	}
-
-	test("The rail nests a teammate's live subagents under it, each with its title and latest step; it leaves the rail when it reports", async () => {
-		const opened: [string, string][] = [];
-		await rail([entry(pork, [audit, models, crawl]), entry(lou)], (personaId, run) => opened.push([personaId, run.runId]), "r-audit");
-		const rows = [...container.querySelectorAll("[data-teammate-row], .rail-run")];
-		// Under Pork Chop, before Lou; a command left running is not a subagent.
-		expect(rows.map((row) => row.getAttribute("data-run") ?? row.getAttribute("aria-label"))).toEqual(["Pork Chop", "r-audit", "r-models", "Lou"]);
-		const first = container.querySelector<HTMLButtonElement>('[data-run="r-audit"]')!;
-		expect(first.querySelector(".rail-run-title")?.textContent).toBe("Audit side-pane thread rows");
-		expect(first.querySelector(".rail-run-step")?.textContent).toBe("Read Dock.tsx");
-		expect(first.getAttribute("aria-current")).toBe("true");
-		expect(container.querySelector('[data-run="r-models"] .rail-run-step')?.textContent).toBe("Fetch /v1/models · 200");
-		await act(async () => first.click());
-		expect(opened).toEqual([["pork", "r-audit"]]);
-
-		// Its latest step moves with the roster row.
-		await rail([entry(pork, [{ ...audit, lastStep: "Search \"subagent\" in ui/src" }, models]), entry(lou)], () => {});
-		expect(container.querySelector('[data-run="r-audit"] .rail-run-step')?.textContent).toBe("Search \"subagent\" in ui/src");
-
-		// Reported, it is off the roster row, and off the rail.
-		await rail([entry(pork, [models]), entry(lou)], () => {});
-		expect(container.querySelector('[data-run="r-audit"]')).toBeNull();
-		await rail([entry(pork), entry(lou)], () => {});
-		expect(container.querySelector(".rail-runs")).toBeNull();
+		const rows = [...container.querySelectorAll("[data-teammate-row]")].map((row) => row.getAttribute("aria-label"));
+		expect(rows).toEqual(["Pork Chop", "Lou"]);
+		expect(container.querySelector("[data-run], .rail-runs")).toBeNull();
+		expect(container.textContent).not.toContain("Audit side-pane thread rows");
 	});
 });
 

@@ -50,21 +50,28 @@ export function ThreadsKey({
  * title saying how many, and the Threads list's Live rows in its shape, each
  * its kind, what it is doing and how long it has run (a pair or a job, whose
  * thread outlives its turns, its time as the list says it). A row opens its thread in
- * the right-hand pane, as the list's row does. Arrows, Home and End walk the
- * rows. Nothing else of the list is here: the full list stays in the pane.
+ * the right-hand pane, as the list's row does. Its last row, All threads,
+ * opens the full list in the pane, where what is at rest, new or ended is,
+ * with how many things there are new. Arrows, Home and End walk the rows.
  */
 export function ThreadsPanel({
 	id,
 	threads,
+	fresh = 0,
 	isOpen,
 	onOpen,
+	onAll,
 	onEdge,
 }: {
 	id: string;
 	threads: readonly LiveThread[];
+	/** How many things the teammate was told that the person has not read: the list's New, as the teammate menu counts it. */
+	fresh?: number | undefined;
 	/** Whether a thread is the one open in the pane. */
 	isOpen(thread: LiveThread): boolean;
 	onOpen(thread: LiveThread): void;
+	/** Opens the full Threads list in the pane. */
+	onAll(): void;
 	/** An arrow past the last row: back to the control below. */
 	onEdge(): void;
 }) {
@@ -117,6 +124,20 @@ export function ThreadsPanel({
 						</li>
 					);
 				})}
+				<li>
+					<button type="button" className="list-row composer-threads-all" aria-label={fresh > 0 ? `All threads, ${fresh} new` : "All threads"} onClick={onAll}>
+						<span className="list-mark" aria-hidden="true">
+							⋯
+						</span>
+						<span className="list-title min-w-0 flex-1">
+							<span className="list-title-text">All threads</span>
+						</span>
+						<span className="list-when">
+							{fresh > 0 && <span>{fresh} new</span>}
+							<ChevronRightIcon className="composer-threads-chevron" />
+						</span>
+					</button>
+				</li>
 			</ul>
 		</section>
 	);

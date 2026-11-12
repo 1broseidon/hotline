@@ -1,7 +1,6 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
 import { type Activity, isWorking, processLabel, shownState } from "../activity";
-import { sideTitle } from "../links";
 import { liveThreads } from "../liveThreads";
 import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { chordGlyph } from "../chords";
@@ -27,6 +26,7 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
+import { TurnSteps } from "./Work";
 import { AskCard, askLine, nextLapse, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
@@ -63,7 +63,6 @@ export function Conversation({
 	onOpenProcess,
 	processOpen,
 	threadOpen,
-	paneOpen = false,
 	railOpen = true,
 	dock,
 	models,
@@ -109,8 +108,6 @@ export function Conversation({
 	processOpen: string | undefined;
 	/** Which thread is open in the right-hand pane, if any. */
 	threadOpen: ThreadId | undefined;
-	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
-	paneOpen?: boolean;
 	/** The rail is out with names and names the teammate in its selected row; closed or faces only, the band names it. */
 	railOpen?: boolean;
 	/** The peek: a turn of work as a glance, standing up out of the composer over the conversation. */
@@ -139,6 +136,10 @@ export function Conversation({
 	const [refused, setRefused] = useState<string | null>(null);
 	/* The mark at work, carried in the composer's bottom row rather than on a card of its own. */
 	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
+	/* The turn's steps, open in the pill from the Working row. They close when the turn ends, and stay closed for the next. */
+	const [stepsWanted, setStepsWanted] = useState(false);
+	const stepsOpen = stepsWanted && mark !== null;
+	if (stepsWanted && mark === null) setStepsWanted(false);
 	/* The cards waiting on the person, answered from the composer: which is open there, or none.
 	 * With nothing left waiting it closes, and does not open by itself for the next one. */
 	const [clock, setClock] = useState(() => Date.now());
@@ -269,6 +270,20 @@ export function Conversation({
 		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
 		[screen, personaId, persona.name],
 	);
+	// Escape folds the steps before anything else hears it, as it closes the threads, and focus goes back to the row that opened them.
+	useEffect(() => {
+		if (!stepsOpen) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || event.defaultPrevented || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			setStepsWanted(false);
+			const steps = document.querySelector(".composer-steps");
+			if (steps?.contains(document.activeElement)) steps.closest(".composer")?.querySelector<HTMLElement>(".composer-work")?.focus();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [stepsOpen]);
 	const askPanel =
 		asking === null ? null : (
 			<div className="composer-ask">
@@ -303,7 +318,7 @@ export function Conversation({
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+				onOpenSchedules, onDelete, onOpenThreadList, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
@@ -352,9 +367,11 @@ export function Conversation({
 				<Composer
 					{...(asking !== null
 						? { above: askPanel }
-						: dock !== undefined
-							? { above: <div className="work-dock">{dock}</div> }
-							: {})}
+						: stepsOpen
+							? { above: <TurnSteps personaId={personaId} name={persona.name} live={isWorking(session)} onHide={() => setStepsWanted(false)} /> }
+							: dock !== undefined
+								? { above: <div className="work-dock">{dock}</div> }
+								: {})}
 					{...(asks.length > 0
 						? {
 								work: {
@@ -372,8 +389,8 @@ export function Conversation({
 							? {
 									work: {
 										...mark,
-										open: workOpen === null,
-										onToggle: () => onOpenWork(null),
+										open: stepsOpen,
+										onToggle: () => setStepsWanted((was) => !was),
 									},
 								}
 							: {})}
@@ -391,8 +408,10 @@ export function Conversation({
 					onClearReply={() => setReplying(null)}
 					threads={{
 						rows: live,
+						fresh: entry.asidesNew,
 						isOpen: (thread) => opened(thread.open.thread),
 						onOpen: (thread) => onOpenThread(thread.open),
+						onAll: onOpenThreadList,
 					}}
 					{...(cornered
 						? { corner: <ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} /> }
@@ -406,19 +425,17 @@ export function Conversation({
 /** The header follows room state and controls, independently of streamed body changes. */
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+	onOpenSchedules, onDelete, onOpenThreadList, callBar,
 	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
-	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
-	| "threadOpen" | "paneOpen" | "callBar" | "onProviders" | "railOpen"> & {
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThreadList"
+	| "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
 	setRefused(message: string | null): void;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const sides = entry.sides ?? [];
-	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
 	/* Success is the tape: the marker is superseded in place and the title
@@ -499,41 +516,6 @@ const ConversationBand = memo(function ConversationBand({
 					<span className="min-w-0 flex-1" />
 	
 
-					{/* Side threads still live: a chip each. They are conversations of
-					 * their own rather than this turn's work; the composer's threads
-					 * count lists them too while a turn of one runs. They leave the band when
-					 * archived; the conversation's own line keeps what came of each.
-					 * With the pane open they are in its list, and the band has no
-					 * room to name them. */}
-					{paneOpen ? null : sides.length === 1 ? (
-						<button
-							type="button"
-							className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
-							title="Open the side thread"
-							aria-label={`Side thread: ${sideTitle(sides[0]!.title)}`}
-							aria-pressed={opened({ kind: "side", key: sides[0]!.sideId })}
-							onClick={() => onOpenThread({ thread: { kind: "side", key: sides[0]!.sideId }, title: sides[0]!.title })}
-						>
-							<span className="truncate">{narrow ? "Side" : `Side: ${sideTitle(sides[0]!.title)}`}</span>
-							{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-						</button>
-					) : sides.length > 1 ? (
-						<MenuButton
-							className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
-							label={`${sides.length} side threads`}
-							entries={sides.map((side) => ({
-								kind: "item",
-								id: side.sideId,
-								text: sideTitle(side.title),
-								checked: opened({ kind: "side", key: side.sideId }),
-								onSelect: () => onOpenThread({ thread: { kind: "side", key: side.sideId }, title: side.title }),
-							}))}
-						>
-							{`${sides.length} side threads`}
-							{sides.some((side) => side.working) && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-						</MenuButton>
-					) : null}
-	
 					{jobs.length > 0 && !narrow && (
 						<button
 							type="button"

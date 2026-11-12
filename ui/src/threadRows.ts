@@ -27,7 +27,7 @@ function readList(personaId: string, key: string): Promise<ThreadSummary[]> {
 /**
  * The teammate's threads of every kind: what `thread.list` says, read again
  * whenever a thread starts, ends, parks or changes hands, a turn in one starts
- * or ends, or a card lands, and brought up to what the links on the
+ * or ends (a pair's included: the roster's `workingPairs`), or a card lands, and brought up to what the links on the
  * conversation say in between.
  */
 export function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list: ThreadSummary[] | undefined; reload(): void } {
@@ -47,6 +47,8 @@ export function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[
 		(entry?.workingJobs ?? []).join(",") +
 		"|" +
 		(entry?.workingCalls ?? []).join(",") +
+		"|" +
+		(entry?.workingPairs ?? []).join(",") +
 		(entry?.waiting === true ? "|waiting" : "");
 	// Read again when the signature or the revision says the threads changed; the key shares a read already under way.
 	useEffect(() => {

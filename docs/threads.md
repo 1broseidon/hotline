@@ -600,7 +600,9 @@ Where this differs from the design above:
   are. Moving them is a wire change for the phone to age out of.
 - **The window keeps no hello.** The desk's own socket is sent none, so
   `client.hello` answers the capabilities as well.
-- **A phone's list leaves pairs out**, as `peers.list` is refused it.
+- **A phone's list leaves pairs out**, as `peers.list` is refused it. (Since
+  0.49 it lists them: a DM between teammates is a thread on the phone too,
+  and it already subscribes to and pages one. `peers.list` stays refused.)
 - **Unread and read receipts are still the client's** (`peers.mark_read` stays).
 
 Notes for phase 9:
@@ -693,8 +695,14 @@ has one hook and one view.
   open the pair they name, in the dock. The rows of the composer's threads
   panel (its "2 threads ›" count is the Threads list's Live group, read from
   the same `thread.list` rows and roster by the same `listItems` and `filtered`
-  rule: `liveThreads.ts`, `threadRows.ts`), the band's side chips, the More
-  menu's Threads entry and its Start a side thread all open the dock. That
+  rule: `liveThreads.ts`, `threadRows.ts`; its All threads row opens the
+  list; a pair is live there while the roster rows of both its teammates
+  carry its key in `workingPairs`, which the core sends again whenever the
+  pair's `exchange_pair` record moves, since a pair has no agent of its own
+  to follow), the More menu's Threads entry and its Start a side thread all open
+  the dock. The band's side-thread chips and the rail's nested subagent rows
+  are gone (desk-threads mockup, 2026-11-12): an idle work thread is reached
+  from its link row or the list. That
   last is `thread.open` with no text: the thread opens untitled and idle, and
   the first line said in it names it. There is no `/side` command.
 - **Not done.** `search.thread` hits are chapters and messages with no thread in
@@ -708,7 +716,8 @@ the lease is turned away if its thread was revoked while it waited, a release
 waits for the call in flight, and the lease is held by an agent (`Holder::new`)
 rather than by its thread's key, so a replaced DM agent cannot release its
 replacement's hold (`computer/gate.rs`, `docs/security.md`). A companion's
-`thread.list` leaves out calls as well as pairs (`phone_may_read`). A work
+`thread.list` leaves out calls as well as pairs (`phone_may_read`; pairs
+are listed since 0.49). A work
 thread's delivery is stamped read when its turn begins (`LiveSide::begin`), so
 one saved and never admitted is handed over again after a restart, and a
 colleague's result carries its request through `Line::from` and is checked

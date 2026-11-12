@@ -915,3 +915,59 @@ async fn roster_frame(socket: &mut Socket, wanted: impl Fn(&Value) -> bool) -> V
     .await
     .expect("the roster frame arrives")
 }
+
+/// A thread between two teammates is on both their roster rows while one
+/// answers the other, and leaves them when the answer is in: the pair's record
+/// on the room stream is what moves, and the rows are sent again for it. Before
+/// this a window heard nothing when an ask between teammates started or ended,
+/// so its count of what runs never had the pair in it.
+#[tokio::test]
+async fn a_pair_answering_is_on_both_roster_rows_while_it_answers() {
+    let (_root, log, port, _room) = core_door("roster-working-pairs");
+    let mut socket = desk(port).await;
+    ask(&mut socket, json!({ "id": 1, "sub": { "view": "roster" } })).await;
+    let snapshot = roster_frame(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert!(
+        snapshot["snapshot"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row.get("workingPairs").is_none()),
+        "{snapshot}"
+    );
+    let key = paths::thread_key("ada", "bob").unwrap();
+    let pair = |phase: &str| {
+        json!({
+            "kind": "exchange_pair", "id": key, "a": "ada", "b": "bob",
+            "exchanges": 0, "paused": false,
+            "requests": [{
+                "id": "q1", "from": "ada", "to": "bob", "message": "Is the deploy paused?",
+                "intent": "ask", "phase": phase, "reply": "", "failed": false
+            }]
+        })
+    };
+    // The two rows come in either order: each teammate's newest, until both have come.
+    async fn both(socket: &mut Socket, working: bool) -> std::collections::HashMap<String, Value> {
+        let mut rows = std::collections::HashMap::new();
+        while rows.len() < 2 {
+            let frame = roster_frame(socket, |frame| {
+                frame["event"].is_object()
+                    && frame["event"].get("workingPairs").is_some() == working
+            })
+            .await;
+            let who = frame["event"]["persona"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            rows.insert(who, frame["event"].clone());
+        }
+        rows
+    }
+    log.append(&StreamId::Room, &pair("running")).unwrap();
+    let rows = both(&mut socket, true).await;
+    assert_eq!(rows["ada"]["workingPairs"], json!([key]));
+    assert_eq!(rows["bob"]["workingPairs"], json!([key]));
+    log.append(&StreamId::Room, &pair("done")).unwrap();
+    let rows = both(&mut socket, false).await;
+    assert!(rows.contains_key("ada") && rows.contains_key("bob"));
+}

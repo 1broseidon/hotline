@@ -87,15 +87,17 @@ One family, **Workbench**, for every screen:
   more (the goal is on the inspector); then their model and effort and
   the tools. The name opens the inspector, where
   everything else about a teammate — its mode included — lives.
-- What a teammate left running stands on the composer's **corner**, its
+- What a teammate has running stands on the composer's **corner**, its
   top right, in the row the mark rises into: the mark at the left, the
-  corner at the right. Today that is its subagents, as keys on the pop
-  plane because the conversation scrolls under them: one is named
-  ("Subagent · Edge cases"), several are counted ("2 subagents") with a
-  menu, and each opens its run in the right-hand pane. A long name
-  truncates before it reaches the mark, and the conversation's foot keeps
-  the same room for them as for the mark. A turn whose reply is said and
-  that is open only for its subagents reads as done everywhere but the
+  corner at the right. It is the threads count ("2 threads ›"), whose
+  panel lists each thread that runs, its helpers (a subagent is a
+  **helper** wherever the person reads it) and its commands among them,
+  and opens each in the right-hand pane. The conversation's foot keeps
+  the same room for it as for the mark. A helper and a command have no
+  row in the conversation, running or finished: while they run they are
+  in the count, and once the turn is over they are in its path. A turn
+  whose reply is said and that is open only for its helpers reads as done
+  everywhere but the
   mark: no Interrupt, Escape interrupts nothing, the band and the rail do
   not beat, a line sent goes into the open turn, and the reply is in the
   conversation. The mark stays in the composer at rest, on the cradle,
@@ -152,14 +154,14 @@ aside until you return. The inspector is a pane beside the conversation.
 
 The **right-hand pane** holds the open teammate's threads, beside the
 conversation: a work thread (a side thread or a handoff), a conversation with
-another teammate, a subagent's run, a command, a call, a job, and the notes
+another teammate, a helper's run, a command, a call, a job, and the notes
 (asides) the teammate was left (docs/design/threads-list.html, idea A). Its
 band is the title, Threads, and the way out; under it a search field (Search
 threads and notes) reads every row, the folded ones too, by its title, its
 line, what was said in it or came of it, and a note's words; Escape in it
 clears it. Under the search, chips narrow the list:
 Active, All, Needs you, Live, Threads (work threads, handoffs and commands),
-Subagents, Jobs, Calls, Pairs and Notes, the chip pressed on the pressed
+Helpers, Jobs, Calls, Pairs and Notes, the chip pressed on the pressed
 plane, Needs you in amber while something waits, and only Needs you and Live
 counted. A kind's chip shows all of that kind, live and ended, with an All ·
 Live · Ended switch under the chips. The chip last pressed is kept for each
@@ -168,7 +170,7 @@ face: Needs you, Live, Recent (the last 24 hours) and Earlier, and only Needs yo
 counted. The list opens on Active, where what is older than a day, what is
 routine (a finished command, a job run that posted nothing) and a note already
 read fold into one row, "Earlier and routine · N", that opens in place. Every row is one shape: the kind's mark in the instrument face
-(≡ work thread, ⇄ handoff, ◆ subagent, $ command, ◎ pair, ☏ call, ↻ job, ✎
+(≡ work thread, ⇄ handoff, ◆ helper, $ command, ◎ pair, ☏ call, ↻ job, ✎
 note; accent while it runs, amber while it waits on the person), the title
 over one line (its state, its latest step, or what came of it), and the time,
 the clock today and the day or date before, with the beat beside it while it
@@ -181,8 +183,10 @@ and No, Done and Decline, an option of a permission, Approve and Deny), at one
 weight with no primary, answering exactly as the card in the thread does and
 waiting with it; a card whose answer is more than a key, a sign-in, a
 credential or a handoff's written answer, has Open there instead. Nothing is folded away by kind. A row, or Open on a thread's line in the
-conversation, opens the thread in the pane under a band of its own with a back
-arrow. Every kind is the same page, the conversation's own transcript and
+conversation (a work thread's, a pair's, a call's or a job's: a helper and a
+command have none), or a helper's line in a turn's path, opens the thread in
+the pane under a band of its own with a back arrow, which goes back to the list,
+or to the path it was opened from. Every kind is the same page, the conversation's own transcript and
 cards, and only what can be done in it differs: a work thread has the composer,
 Archive in the band and Continue in its place once closed, and a parked one says
 it is parked and that saying something wakes it; a pair reads whole from the one press that opened it: an ask and its answer as plain lines under each speaker's face and name, a handoff as its request with a small Handoff chip by the name, the work thread's steps and words as they happen under it, and its result as that teammate's line with the same chip, with one plain line only if it failed or was stopped, and an aside between the two as a line with an Aside chip; a pair, a run and a call are
@@ -192,7 +196,7 @@ and stepped by the arrows. One of it and the inspector stands there at a time,
 and none shows in Settings, as the inspector does not. When the conversation
 would be left under 396px beside it, the pane lies over the conversation at the
 window's right on the menus' float shadow instead of squeezing it. Escape steps
-back to the list, then closes. The work card keeps only the current turn's
+back to the list, or to the path a helper was opened from, then closes. The work card keeps only the current turn's
 steps, read-only, and stays a floating card that moves left of the pane.
 
 ## Theme
@@ -288,9 +292,22 @@ transition and animation, and holds the mark still.
   and the fix is the prompt, not a card. Under a reply is one quiet line
   of what the turn left behind, in the teammate's words — sent, made,
   changed, still open, yours to do, a failure first in red — then how long
-  it took; a turn that left nothing says only its time. Pressed, it opens
-  the path in the pane: every step, under the teammate's words for what it
-  was on. That press is the trust boundary; a transcript that hides the
+  it took; a turn that left nothing says only its time. A helper or a
+  command the turn started that failed is on that line too, first, in red
+  ("Helper failed: Profile group B", "3 helpers failed", "Command failed:
+  npm test"), since the conversation has no row for it. Pressed, the line
+  opens the path in the pane: every step, under the teammate's words for
+  what it was on, and the helpers and commands the turn started where it
+  started them. Helpers started together are one line, "Started 4
+  helpers", with how many still run, else how many failed, else how many
+  are done at its right; pressed, it unfolds to each helper's title with
+  how it ended and how long it took ("Done in 1 min 6 s", "Failed after 4
+  s"), and each opens that helper's own activity in the pane, with Back to
+  the path. One helper alone is "Started a helper: <title>" and opens at
+  once; a command is "Started a command: <title>", a line of its own. The
+  step that started a helper is not said again beside it. While the turn
+  waits only on its helpers, the resting mark opens the same path, headed
+  Waiting. That press is the trust boundary; a transcript that hides the
   path would lie, one that shows it in the conversation is a log.
 - Said aloud: a reply to a call is the version written to be read, an
   ordinary bubble. What the teammate said for it on the call sits above

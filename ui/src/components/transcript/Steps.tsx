@@ -3,13 +3,17 @@ import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
 import { joinThoughts, outputText, stepTitle } from "../../stepText";
-import { markOf, outcomesOf } from "../../outcomes";
+import { failedRuns, markOf, outcomesOf } from "../../outcomes";
+import type { RunLink } from "../../scheduledRuns";
 import { durationText, turnTook } from "../../turnFacts";
 
 /**
  * The line under a reply: what the turn left behind, in the teammate's own
  * words, each marked by how it went (failed first, in red), then how long it
- * took. A turn that left nothing behind says only its time. It is always the
+ * took. A helper or a command the turn started that failed is marked failed
+ * there too, first of all: the conversation has no row of its own for one,
+ * and a failure is what the person must not miss. A turn that left nothing
+ * behind says only its time. It is always the
  * way in: pressed, it opens the path the turn took, in the pane beside a
  * conversation (`onOpenWork`) or in place in a thread or a run, where the
  * live rows show only if you pressed the mark. While the turn is still on it
@@ -34,6 +38,7 @@ export const Steps = memo(function Steps({
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
 	const outcomes = useMemo(() => outcomesOf(items), [items]);
+	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
 	const took = useMemo(() => turnTook(items), [items]);
 	const expanded = inPane ? paneOpen === true : open;
 
@@ -47,6 +52,11 @@ export const Steps = memo(function Steps({
 					aria-expanded={expanded}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
 				>
+					{failed.map((words) => (
+						<span key={words} className="outcome" data-mark="failed">
+							{words}
+						</span>
+					))}
 					{outcomes.map((outcome) => (
 						<span key={outcome.id} className="outcome" data-mark={markOf(outcome)}>
 							{outcome.message}
@@ -66,6 +76,20 @@ export const Steps = memo(function Steps({
 		</div>
 	);
 });
+
+/**
+ * What failed among the helpers and commands a turn started, as the line
+ * under the reply says it: "Helper failed: Fetch the READMEs", or "3 helpers
+ * failed" for more than one, and each command by its own name.
+ */
+export function failedWords(runs: RunLink[]): string[] {
+	const helpers = runs.filter((run) => run.runKind !== "shell");
+	const commands = runs.filter((run) => run.runKind === "shell");
+	const said = commands.map((run) => `Command failed: ${run.title}`);
+	if (helpers.length === 1) said.unshift(`Helper failed: ${helpers[0]!.title}`);
+	if (helpers.length > 1) said.unshift(`${helpers.length} helpers failed`);
+	return said;
+}
 
 /**
  * Each step as a row, its detail behind a press: a run of thoughts as one
@@ -101,6 +125,10 @@ export function StepRows({
 					{row.message}
 				</p>
 			)
+		) : row.kind === "link" ? (
+			// Only a teammate's own tape holds a helper's line, and that path is
+			// read in the pane (Trail), never in place.
+			null
 		) : row.kind === "outcome" ? (
 			<p key={row.id} className="step-outcome outcome" data-step-id={row.id} data-mark={markOf(row)}>
 				{row.message}

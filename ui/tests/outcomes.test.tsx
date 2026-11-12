@@ -113,7 +113,7 @@ describe("a turn's path", () => {
 		] as Step[];
 		const shape = pathGroups(items, false).map((group) => [
 			group.heading?.message ?? null,
-			group.entries.map((entry) => (entry.kind === "line" ? entry.line.text : `outcome:${entry.outcome.message}`)),
+			group.entries.map((entry) => (entry.kind === "line" ? entry.line.text : entry.kind === "outcome" ? `outcome:${entry.outcome.message}` : entry.kind)),
 		]);
 		expect(shape).toEqual([
 			[null, ["Read a file"]],

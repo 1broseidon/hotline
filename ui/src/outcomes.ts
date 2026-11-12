@@ -1,5 +1,6 @@
 import { type Glance, glance } from "./glance";
-import type { Step } from "./scheduledRuns";
+import { linkFailed } from "./links";
+import { type RunLink, type Step, isRunLink } from "./scheduledRuns";
 
 /*
  * What a turn came to and the path it took, in the teammate's own words.
@@ -8,8 +9,9 @@ import type { Step } from "./scheduledRuns";
  * (`outcome`); the desk never makes either up. Under a reply, the outcomes
  * are the line: what went out, what was made or changed, what is still
  * going, what is left for you. In the pane, the path: the steps grouped
- * under the activity each happened during, its words the heading, and each
- * outcome marked where it was said. The phone will keep a copy.
+ * under the activity each happened during, its words the heading, each
+ * outcome marked where it was said, and the helpers and commands the turn
+ * started where it started them. The phone will keep a copy.
  */
 
 type ActivityLine = Extract<Step, { kind: "activity" }>;
@@ -41,8 +43,28 @@ export function outcomesOf(items: Step[]): OutcomeLine[] {
 	return [...failed, ...standing.filter((outcome) => markOf(outcome) !== "failed")];
 }
 
-/** One thing in the path: a line of steps, or an outcome where it was said. */
-export type PathEntry = { kind: "line"; line: Glance } | { kind: "outcome"; outcome: OutcomeLine; ended: boolean };
+/**
+ * One thing in the path: a line of steps, an outcome where it was said, the
+ * helpers started together (one line however many: "Started 4 helpers"), or
+ * a command left running, each command a line of its own.
+ */
+export type PathEntry =
+	| { kind: "line"; line: Glance }
+	| { kind: "outcome"; outcome: OutcomeLine; ended: boolean }
+	| { kind: "helpers"; links: RunLink[] }
+	| { kind: "command"; link: RunLink };
+
+/**
+ * The step that started a helper, done: the helper's own line in the path
+ * stands for it ("Started a helper: …"), so it is not said twice. One that
+ * failed started nothing and stays, as does one still on its way.
+ */
+const startedHelper = (item: Step): boolean => item.kind === "tool" && item.said?.key === "subagent" && item.status === "completed";
+
+/** The helpers and commands a turn started that failed, in the order started. */
+export function failedRuns(items: Step[]): RunLink[] {
+	return items.filter((item): item is RunLink => isRunLink(item) && linkFailed(item));
+}
 
 /** The steps said during one activity, under its words; the steps before any, or after one with no words, have no heading. */
 export type PathGroup = { heading: ActivityLine | null; entries: PathEntry[] };
@@ -51,8 +73,9 @@ export type PathGroup = { heading: ActivityLine | null; entries: PathEntry[] };
  * A turn's path in groups. Steps are read at a glance a run at a time, the
  * run between two things the teammate said, so a line never spans two
  * headings; thinking with no step after it in its run waits for the next.
- * `running` is whether the turn is at work: its last line says what is
- * happening now.
+ * Helpers started one after another, with nothing but thinking between,
+ * are one entry. `running` is whether the turn is at work: its last line
+ * says what is happening now.
  */
 export function pathGroups(items: Step[], running: boolean): PathGroup[] {
 	const groups: PathGroup[] = [{ heading: null, entries: [] }];
@@ -70,7 +93,14 @@ export function pathGroups(items: Step[], running: boolean): PathGroup[] {
 		} else if (item.kind === "outcome") {
 			flush(false);
 			groups[groups.length - 1]!.entries.push({ kind: "outcome", outcome: item, ended: ended(item) });
-		} else run.push(item);
+		} else if (isRunLink(item)) {
+			flush(false);
+			const entries = groups[groups.length - 1]!.entries;
+			const last = entries[entries.length - 1];
+			if (item.runKind === "shell") entries.push({ kind: "command", link: item });
+			else if (last?.kind === "helpers") last.links.push(item);
+			else entries.push({ kind: "helpers", links: [item] });
+		} else if (!startedHelper(item)) run.push(item);
 	}
 	flush(true);
 	return groups.filter((group) => group.heading !== null || group.entries.length > 0);

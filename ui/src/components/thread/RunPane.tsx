@@ -121,7 +121,7 @@ export function RunPane({
 	const now = useSecond(live);
 	const took = startedAt === undefined ? undefined : live ? now - startedAt : (link?.elapsedMs ?? (row === undefined ? undefined : row.updatedAt - startedAt));
 	const endedAt = startedAt !== undefined && took !== undefined ? startedAt + took : row?.updatedAt;
-	const title = run?.title ?? row?.title ?? link?.title ?? open.title ?? "Subagent";
+	const title = run?.title ?? row?.title ?? link?.title ?? open.title ?? "Helper";
 	const [refused, setRefused] = useState<string | null>(null);
 	const [stopping, setStopping] = useState(false);
 	const stop = () => {
@@ -137,7 +137,7 @@ export function RunPane({
 	const foot = live ? `Reports to ${teammate.name} when it finishes.` : state === "Done" ? `Reported to ${teammate.name}${at}.` : `${state}${at}.`;
 
 	return (
-		<section className="dock-page run-pane" aria-label={`Subagent of ${teammate.name}: ${title}`}>
+		<section className="dock-page run-pane" aria-label={`Helper of ${teammate.name}: ${title}`}>
 			<Band>
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
@@ -145,7 +145,7 @@ export function RunPane({
 				<BandKind kind={threadFamily("run", teammate.name)} live={live} state={state} tone={state === "Failed" ? "failed" : state === "Stopped" ? "quiet" : "done"} />
 				<span className="instrument shrink-0 pr-1">{counted}</span>
 				{live && run?.stoppable === true && (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this subagent" disabled={stopping} onClick={stop}>
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this helper" disabled={stopping} onClick={stop}>
 						Stop
 					</button>
 				)}
@@ -166,7 +166,7 @@ export function RunPane({
 				live={live}
 				worker={{ id: teammate.id, name: teammate.name, hash: teammate.avatarHash }}
 				// Its teammate may tell it more after the task; nothing else speaks in a run.
-				said={(event) => (event.kind === "agent" ? { name: "Subagent", mine: false, plain: true } : event.kind === "user" ? { name: teammate.name, mine: false, plain: true } : null)}
+				said={(event) => (event.kind === "agent" ? { name: "Helper", mine: false, plain: true } : event.kind === "user" ? { name: teammate.name, mine: false, plain: true } : null)}
 			>
 				{result !== undefined && <ResultCard eyebrow="Result" aside={took === undefined ? undefined : stopwatch(took)} text={result} />}
 				{shown.length === 0 && result === undefined && !live && <p className="work-empty">Nothing was written.</p>}

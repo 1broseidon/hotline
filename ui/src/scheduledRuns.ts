@@ -1,11 +1,21 @@
 import type { Attachment, ScheduledRun, TranscriptEvent } from "./generated/contract";
 
 /**
- * The path of a turn: its thoughts and tool calls, and what the teammate said
- * it was on (`activity`, which heads the steps after it) and what it left
- * behind (`outcome`, which the line under the reply is made of).
+ * A helper (a subagent) or a command left running, as the line its teammate's
+ * tape holds for it. Its place in the turn that started it is its place in
+ * that turn's path; the conversation has no row for it.
  */
-export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" | "activity" | "outcome" }>;
+export type RunLink = Extract<TranscriptEvent, { kind: "link" }> & { threadKind: "run" };
+
+export const isRunLink = (event: TranscriptEvent): event is RunLink => event.kind === "link" && event.threadKind === "run";
+
+/**
+ * The path of a turn: its thoughts and tool calls, what the teammate said
+ * it was on (`activity`, which heads the steps after it) and what it left
+ * behind (`outcome`, which the line under the reply is made of), and the
+ * helpers and commands it started (`RunLink`).
+ */
+export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" | "activity" | "outcome" }> | RunLink;
 
 /** A prompt a schedule or loop sent, as the operator's line it arrives on. */
 export type ScheduledEvent = Extract<TranscriptEvent, { kind: "user" }> & { scheduled: ScheduledRun };

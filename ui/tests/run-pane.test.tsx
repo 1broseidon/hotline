@@ -152,39 +152,39 @@ describe("the band", () => {
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx")];
 		await show(running());
-		expect(band()).toBe("Subagent, Working");
-		expect(container.querySelector(".run-pane h2")?.textContent).toBe("◆ Subagent");
+		expect(band()).toBe("Helper, Working");
+		expect(container.querySelector(".run-pane h2")?.textContent).toBe("◆ Helper");
 		expect(container.querySelector(".run-pane h2 .run-dot")?.className).toContain("beat");
 		expect(counted()).toMatch(/^1 step · \d+:\d\d/);
-		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop this subagent"]');
+		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop this helper"]');
 		expect(stop?.textContent).toBe("Stop");
 		await act(async () => stop!.click());
 		expect(sent).toEqual([{ cmd: "thread.cancel", params: { thread: { kind: "run", key } } }]);
 
 		// A harness's subagent, which the desk cannot stop, has no Stop.
 		await show({ ...running(), stoppable: false });
-		expect(container.querySelector('button[title="Stop this subagent"]')).toBeNull();
+		expect(container.querySelector('button[title="Stop this helper"]')).toBeNull();
 
 		// Ended, its state stands still, with the steps and how long it took.
 		next();
 		first = [link("closed", "done", 214_000), task, read("t1", "c1", "Read Dock.tsx"), read("t2", "c2", "Read LinkRow.tsx"), said("a1", "Done.")];
 		await show(undefined);
-		expect(band()).toBe("Subagent, Done");
+		expect(band()).toBe("Helper, Done");
 		expect(container.querySelector(".run-pane h2 .run-dot")?.className).not.toContain("beat");
 		expect(counted()).toBe("2 steps · 3:34");
-		expect(container.querySelector('button[title="Stop this subagent"]')).toBeNull();
+		expect(container.querySelector('button[title="Stop this helper"]')).toBeNull();
 
 		next();
 		first = [link("closed", "cancelled", 9_000), task];
 		await show(undefined);
-		expect(band()).toBe("Subagent, Stopped");
+		expect(band()).toBe("Helper, Stopped");
 		expect(runStateOf(false, "failed")).toBe("Failed");
 		expect(stopwatch(3_723_000)).toBe("1:02:03");
 	});
 });
 
 describe("the head", () => {
-	test("\"◆ Subagent\" kind label + \"Read only\"; title; \"sent by <teammate> · <model> · started <time>\"", async () => {
+	test("\"◆ Helper\" kind label + \"Read only\"; title; \"sent by <teammate> · <model> · started <time>\"", async () => {
 		next();
 		first = [link("live"), task];
 		await show(running());
@@ -227,7 +227,7 @@ describe("the stream", () => {
 		expect(parts).toEqual(["step", "words"]);
 		// Its Activity: the words are the subagent's, a line of its work under its name, never a bubble.
 		expect(container.querySelector(".run-pane .pane-section")?.textContent).toBe("Activity");
-		expect(stream.querySelector(".pane-said-who")?.textContent).toBe("Subagent");
+		expect(stream.querySelector(".pane-said-who")?.textContent).toBe("Helper");
 		expect(stream.querySelector(".speech, .said-name")).toBeNull();
 		expect(container.querySelector(".run-pane textarea, .run-pane input")).toBeNull();
 

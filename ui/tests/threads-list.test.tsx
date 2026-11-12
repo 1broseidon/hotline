@@ -246,7 +246,7 @@ describe("task-400 one row shape", () => {
 		expect(marks).toEqual({
 			"side:s1": "≡ Work thread",
 			"side:h1": "⇄ Handoff",
-			"run:r-audit": "◆ Subagent",
+			"run:r-audit": "◆ Helper",
 			"run:r-pre": "$ Command",
 			"pair:lou~pork": "◎ Pair",
 			"call:c1": "☏ Call",
@@ -423,7 +423,7 @@ describe("task-402 filters and search", () => {
 	}
 	const span = (word: string) => [...container.querySelectorAll<HTMLButtonElement>('.list-span [role="tab"]')].find((one) => one.textContent === word);
 
-	test("Chips: Active, All, Needs you, Live, and a Kind menu of Threads, Subagents, Jobs, Calls, Pairs, From teammates. A kind shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
+	test("Chips: Active, All, Needs you, Live, and a Kind menu of Threads, Helpers, Jobs, Calls, Pairs, From teammates. A kind shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
 		await dock(aDay());
 		const words = [...container.querySelectorAll(".list-chips button")].map((one) => one.firstChild?.textContent);
 		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Kind"]);
@@ -434,7 +434,7 @@ describe("task-402 filters and search", () => {
 
 		// No switch outside a kind's chip.
 		expect(container.querySelector(".list-span")).toBeNull();
-		await pickKind("Subagents");
+		await pickKind("Helpers");
 		expect(rowIds()).toEqual(["run:r-audit", "run:r-map"]);
 		expect(span("All")?.getAttribute("aria-selected")).toBe("true");
 		await act(async () => span("Live")!.click());

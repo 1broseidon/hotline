@@ -30,7 +30,7 @@ import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { wire, type RosterEntry } from "../wire";
-import { isWorking, workingState } from "../activity";
+import { awaitingSubagents, isWorking, workingState } from "../activity";
 import { Composer } from "./Composer";
 import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
@@ -48,6 +48,8 @@ import { startedWords, threadFamily } from "../threadKinds";
 /**
  * What the right-hand pane shows: the list, one thread open in it, or a
  * teammate's turn of work (`work`), opened from the peek at the line pressed.
+ * A thread open with a turn's work under it is a helper or a command opened
+ * from that turn's path, and Back goes to the path.
  */
 export type DockState = {
 	open: ThreadRef | null;
@@ -112,24 +114,28 @@ export function Dock({
 	const work = state.work !== undefined && entry !== null && entry.persona.id === state.work.personaId ? state.work : undefined;
 	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));
 	const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
-	const back = { open: null };
+	// Back from a thread opened from a turn's path is the path; from any other, the list.
+	const back: DockState = work === undefined ? { open: null } : { open: null, work };
+	const path = at === null ? work : undefined;
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label={work !== undefined ? "Work" : "Threads"}>
-				{work !== undefined && entry !== null ? (
+			<aside ref={root} className="dock" aria-label={path !== undefined ? "Work" : "Threads"}>
+				{path !== undefined && entry !== null ? (
 					<WorkPage
-						key={`${work.blockId ?? "now"}:${work.stepId ?? ""}`}
-						personaId={work.personaId}
-						blockId={work.blockId}
-						stepId={work.stepId}
+						key={`${path.blockId ?? "now"}:${path.stepId ?? ""}`}
+						personaId={path.personaId}
+						blockId={path.blockId}
+						stepId={path.stepId}
 						name={entry.persona.name}
 						live={isWorking(entry.session)}
+						resting={awaitingSubagents(entry.session)}
+						onOpenThread={(open, blockId) => onState({ open, work: { personaId: path.personaId, blockId } })}
 						onClose={onClose}
 					/>
 				) : at === null && <DockBand onClose={onClose} />}
-				{work !== undefined ? null : at === null ? (
+				{path !== undefined ? null : at === null ? (
 					<ThreadList
 						key={entry?.persona.id ?? ""}
 						entry={entry}

@@ -14,10 +14,11 @@ export const DOCK_STEP = 16;
 export const DOCK_KEY = "hotline.dock.size";
 /**
  * Escape in the pane: one step back, then out. A thread goes back to the
- * list, and the list closes.
+ * list, or to the turn's path it was opened from, and the list or the path
+ * closes.
  */
 export function dockBack(dock: DockState): DockState | null {
-	if (dock.open !== null) return { open: null };
+	if (dock.open !== null) return dock.work === undefined ? { open: null } : { open: null, work: dock.work };
 	return null;
 }
 

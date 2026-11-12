@@ -174,27 +174,24 @@ test("the line under a reply is what the turn left behind, failed first, then th
 	expect([...container.querySelectorAll(".steps-caption .outcome")].map((one) => [one.getAttribute("data-mark"), one.textContent])).toEqual([["done", "Three quotes in"]]);
 });
 
-test("threads, subagents and calls are one quiet line: a state dot, the title, what came of it, and Open, with no glyph and no kind word", async () => {
+test("threads and calls are one quiet line: a state dot, the title, what came of it, and Open, with no glyph and no kind word", async () => {
 	const opened: string[] = [];
 	await draw(
 		[
 			{ kind: "link", id: "l1", ts: 1, thread: "s1", threadKind: "side", title: "Load test the local Qdrant", state: "closed", end: "agent", outcome: "p50 6 ms, p99 18 ms" },
-			{ kind: "link", id: "l2", ts: 2, thread: "r1", threadKind: "run", title: "Benchmark sweep", state: "closed", end: "done", elapsedMs: 95_000 },
 			{ kind: "link", id: "l3", ts: 3, thread: "c1", threadKind: "call", title: "Weekly recap", state: "parked" },
 		],
 		{ onOpenThread: (ref) => opened.push(ref.thread.key) },
 	);
 	const rows = [...container.querySelectorAll<HTMLButtonElement>("button.link-row")];
-	expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["thread", "subagent", "call"]);
+	expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["thread", "call"]);
 	expect(rows.map((row) => [row.querySelector(".link-row-words")?.textContent, row.querySelector(".link-row-dot")?.getAttribute("data-tone")])).toEqual([
 		["Load test the local Qdrant· p50 6 ms, p99 18 ms", "done"],
-		["Benchmark sweep· Done in 1 min 35 s", "done"],
 		["Weekly recap· Parked", "quiet"],
 	]);
 	// Heard alone, the row still says what it opens.
 	expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
 		"Side thread · Load test the local Qdrant · p50 6 ms, p99 18 ms. Open it",
-		"Subagent · Benchmark sweep · done in 1 min 35 s. Open it",
 		"Weekly recap · parked. Open it",
 	]);
 	for (const row of rows) {
@@ -202,7 +199,7 @@ test("threads, subagents and calls are one quiet line: a state dot, the title, w
 		expect(row.querySelector(".link-row-open")?.textContent).toBe("Open ›");
 		await act(async () => row.click());
 	}
-	expect(opened).toEqual(["s1", "r1", "c1"]);
+	expect(opened).toEqual(["s1", "c1"]);
 	expect(container.querySelector(".rule-line:not(.tape-stamp)")).toBeNull();
 });
 

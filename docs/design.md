@@ -630,7 +630,7 @@ close what the conversation opened. The desk closes nothing by itself yet.
 
 After George's first run of it (2026-11-12): a thread's line in the
 conversation is the job and what it is doing or how it ended, with no kind
-word ("Subagent", "Command"), which stays in the opened thread's header, the
+word ("Helper", "Command"), which stays in the opened thread's header, the
 Threads list and the row's accessible name. A turn held open only for its
 subagents still reads as done everywhere (no Interrupt, no beat, a line sent
 goes into the turn), but the mark stays in the composer at rest beside the
@@ -640,6 +640,20 @@ The house style asks for that wait to be said with `activity` and not in the
 chat, for no word when a helper reports until there is an outcome, and for
 outcomes and replies written for a person (no process ids, raw paths or
 commands to run unless asked; offer to do it instead).
+
+Then (task-448, George 2026-11-12): a helper's or a command's row between the
+ask and the answer is path, not outcome. It repeated the composer's threads
+count while it ran, was pushed up as the person kept talking, and stood
+afterwards as a "Done in" line that meant nothing. So a run's link draws no
+row: while it runs it is in the threads count, and afterwards it is in the
+path of the turn that started it, where it started, helpers started together
+as one line ("Started 4 helpers") that unfolds to each and opens each with
+Back to the path. A failed one marks the line under the reply, the one
+place the desk adds words of its own there, because a failure must not be
+missed and has nowhere else to show. Work threads, pairs, calls and jobs are
+conversations in their own right and keep their rows. A subagent is a
+"helper" wherever the person reads it; the code and the wire keep subagent.
+This is a drawing change: the tape and the wire are as they were.
 
 ### 5. No fleet in the first version
 

@@ -34,7 +34,7 @@ fn not_here(thread: &ThreadId, what: &str) -> String {
         ThreadKind::Side => "a work thread",
         ThreadKind::Pair => "a thread between two teammates",
         ThreadKind::Call => "a call",
-        ThreadKind::Run => "a subagent's run",
+        ThreadKind::Run => "a helper's run",
         ThreadKind::Job => "a job",
     };
     format!("{what} does not apply to {kind}.")

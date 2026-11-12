@@ -325,7 +325,6 @@ export function Conversation({
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}
-					subagents={entry.subagents}
 					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}

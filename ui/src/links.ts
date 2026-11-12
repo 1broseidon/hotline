@@ -15,12 +15,9 @@ function runWords(ms: number): string {
 	return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
 }
 
-/**
- * How a subagent's run has got to, in the words its line ends with: while it
- * works, what it did last when the roster says (`step`), else that it works.
- */
-export function runState(link: Pick<LinkEvent, "state" | "end" | "elapsedMs">, step?: string): string {
-	if (link.state !== "closed") return step !== undefined && step !== "" ? step : "working";
+/** How a helper or a command has got to: working, or how it ended and after how long. */
+export function runState(link: Pick<LinkEvent, "state" | "end" | "elapsedMs">): string {
+	if (link.state !== "closed") return "working";
 	const took = link.elapsedMs === undefined ? "" : ` after ${runWords(link.elapsedMs)}`;
 	switch (link.end) {
 		case "failed":
@@ -115,12 +112,11 @@ function workWords(link: LinkEvent, owner: string, people?: ReadonlyMap<string, 
  * A thread's line in the conversation that holds it: one quiet sentence,
  * whatever the kind. `owner` is whose tape it is, and `people` names the
  * colleagues a handoff is between. `working` is the roster's live turn state,
- * separate from the link's saved lifetime.
+ * separate from the link's saved lifetime. A helper or a command has no line
+ * in the conversation: it is in the path of the turn that started it.
  */
-export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false, step?: string): string {
+export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): string {
 	switch (link.threadKind) {
-		case "run":
-			return `${link.runKind === "shell" ? "Command" : "Subagent"} · ${link.title} · ${runState(link, step)}`;
 		case "call":
 			return callWords(link, working);
 		case "pair":
@@ -137,26 +133,21 @@ export const linkFailed = (link: LinkEvent): boolean => link.state === "closed" 
 type LinkTone = "live" | "done" | "failed" | "quiet";
 
 /**
- * A link as its row draws it: which kind of thread it is (a run is a
- * command when it is one a harness left running), which the row carries but
- * does not say, its title, what it is doing or what came of it in a few
- * words, and the dot's tone. The same facts `linkLine` says as one sentence,
- * kind and all, which the row keeps as its accessible name.
+ * A link as its row draws it: which kind of thread it is, which the row
+ * carries but does not say, its title, what it is doing or what came of it
+ * in a few words, and the dot's tone. The same facts `linkLine` says as one
+ * sentence, kind and all, which the row keeps as its accessible name.
  */
-export type LinkRowFacts = { kind: "thread" | "subagent" | "command" | "pair" | "call"; title: string; outcome: string; tone: LinkTone };
+export type LinkRowFacts = { kind: "thread" | "pair" | "call"; title: string; outcome: string; tone: LinkTone };
 
 const sentence = (words: string): string => words.charAt(0).toUpperCase() + words.slice(1);
 
-export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false, step?: string): LinkRowFacts {
+/** A helper's or a command's state as its line in the path says it: "Working", "Done in 1 min 6 s", "Failed after 4 s". */
+export const runStatus = (link: Pick<LinkEvent, "state" | "end" | "elapsedMs">): string => sentence(runState(link));
+
+export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): LinkRowFacts {
 	const failed = linkFailed(link);
 	switch (link.threadKind) {
-		case "run":
-			return {
-				kind: link.runKind === "shell" ? "command" : "subagent",
-				title: link.title,
-				outcome: sentence(runState(link, step)),
-				tone: link.state !== "closed" ? "live" : failed ? "failed" : link.end === "cancelled" || link.end === "stopped" ? "quiet" : "done",
-			};
 		case "call": {
 			if (link.state !== "closed") {
 				const state = working ? "Running" : link.state === "parked" ? "Parked" : "Open";

@@ -1,10 +1,10 @@
 ---
-title: Side threads and subagents
+title: Side threads and helpers
 description: Talk to a busy teammate about something else, and follow the workers it sends off.
 ---
 
 A teammate can work on more than one thing at a time. A **side thread** is a
-second conversation with the same teammate that you start. A **subagent** is
+second conversation with the same teammate that you start. A **helper** is
 a worker the teammate starts. Both open in the **Threads** pane on the right.
 
 ## Side threads
@@ -44,25 +44,33 @@ so the main conversation can ask about it later.
 A teammate runs at most three threads at a time. Starting another parks the
 one you have left alone longest. Parked and archived threads do not count.
 
-## Subagents
+## Helpers
 
-A teammate can hand a piece of its own work to a **subagent**: a fresh worker
-that runs as the teammate, in the same folder, with the same tools and
-model, but with none of the conversation. The teammate keeps talking to you
-while the subagent works, and tells you what it found when the report comes
-back.
+A teammate can hand a piece of its own work to a **helper** (other tools call
+it a subagent): a fresh worker that runs as the teammate, in the same folder,
+with the same tools and model, but with none of the conversation. The
+teammate keeps talking to you while the helper works, and tells you what it
+found when the report comes back.
 
-While one is running, it is counted at the right of the message box
-("2 threads ›"), and a press there lists it with what it did last. Open it to
-read what it was asked, its steps with their times, and its result when it
-finishes. Each subagent also leaves one line in the
-conversation with its result, and that line opens the run too. Runs are
-read-only. Stopping a Hotline Agent teammate stops its subagents.
+A helper has no line of its own in the conversation; what it found reaches
+you in the teammate's words. While one is running, it is counted at the
+right of the message box ("2 threads ›"), and a press there lists it with
+what it did last. Once the turn is over, the line under the teammate's reply
+opens the turn's path in the right-hand pane, and the helpers it started are
+there where it started them: helpers started together are one line,
+"Started 4 helpers", that opens to each one with how it ended and how long
+it took. Open one to read what it was asked, its steps with their times, and
+its result; **Back** returns to the path. A helper that failed is marked in
+red on the line under the reply. Helpers are read-only. Stopping a Hotline
+Agent teammate stops its helpers.
 
-Hotline Agent teammates start subagents with a tool of their own, up to four
-at a time. Claude Code and Codex show their own subagents the same way when
-their adapter reports them; other harnesses show the work as steps of the
-teammate's turn.
+A command the teammate left running in the background is the same: counted
+in the message box while it runs, a line of its own in the path afterwards.
+
+Hotline Agent teammates start helpers with a tool of their own, up to four
+at a time. Claude Code and Codex show their own subagents as helpers the same
+way when their adapter reports them; other harnesses show the work as steps
+of the teammate's turn.
 
 ## The Threads pane
 
@@ -72,7 +80,7 @@ beside the open teammate's main conversation:
 - its side threads, and work threads other teammates
   [handed it](/docs/use/teammates-together/#handoffs), first;
 - its conversations with other teammates (**Pair**);
-- subagent runs (**Subagent**);
+- helpers (**Helper**);
 - calls (**Call**).
 
 Each row shows whether it is running, waiting on you, parked or closed, with

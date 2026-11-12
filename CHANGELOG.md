@@ -23,15 +23,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.
-- A subagent opened in the right-hand pane reads as its activity, not a
+- A helper opened in the right-hand pane reads as its activity, not a
   chat: what its teammate asked of it, then under Activity its steps and
   words in the order they came, each step opening to its output, and its
   Result once it reports. There are no bubbles and no message field; the
   foot says it reports to its teammate when it finishes. The band says
-  Working, Done or Stopped with its step count and time, and a subagent of
+  Working, Done or Stopped with its step count and time, and a helper of
   Hotline Agent's has Stop.
-- A subagent's line in the conversation, its row in the composer's threads
-  and the thread list say its latest step.
+- A helper's row in the composer's threads and in the thread list says its
+  latest step.
 - A call opened in the right-hand pane reads as a transcript: each line
   under who said it, You or the teammate, and the work the teammate went
   off to do folded where it fell, saying what it checked and how many
@@ -60,21 +60,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 - The composer says how many of a teammate's threads are running now, "2
   threads ›" in the accent colour, as the phone does: the same threads the
-  Threads list shows under Live, so a subagent, a background command, or a
+  Threads list shows under Live, so a helper, a background command, or a
   work thread, handoff, pair, call or job with a turn in flight, and never one
   at rest or waiting for an answer. It opens a short list over the field: each
   thread's kind, what it is doing and how long it has run, and a row opens
   the thread in the pane. Its last row, All threads, opens the Threads list
-  in the pane, with how many things there are new. The per-subagent chips at
-  the composer's corner are gone.
+  in the pane, with how many things there are new. The chip for each helper
+  at the composer's corner is gone.
 - Working, the threads and Needs you all open inside the message box, which
   grows up to hold them while the field stays in use: Working now shows the
   turn's steps there instead of in the right-hand pane. A turn that is over
   still opens in the pane from its line.
 - The conversation's header no longer has a chip for side threads, and the
-  rail no longer lists a teammate's subagents under it. A side thread is
+  rail no longer lists a teammate's helpers under it. A side thread is
   opened from its line in the conversation or from the Threads list, and a
-  running one, like a running subagent, is in the message box's threads.
+  running one, like a running helper, is in the message box's threads.
 - A long conversation keeps in the page only the lines near the view, a
   gap of their measured height standing in for the rest, so it costs what
   the screen shows of it. With a 2,000-line thread loaded the window uses
@@ -86,7 +86,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and a line being read stays where it is when one above it draws. A thread
   with a diagram in it loads the diagram library when it opens.
 - The right-hand pane is one list, Threads: every work thread, handoff,
-  subagent, command, pair, call and job, and every aside the teammate was
+  helper, command, pair, call and job, and every aside the teammate was
   left, as rows of one shape, the kind's mark, the title, one line of state,
   latest step or result, and the time. An aside opens the thread it came from,
   and once read it is counted on that thread's row. An aside's row is named
@@ -95,7 +95,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   was told that you have not read) and Recent (the last 24 hours), with what
   is earlier and routine runs
   folded into one row that opens in place. Chips narrow it to Needs you, Live
-  or a kind from the Kind menu: Threads, Subagents, Jobs,
+  or a kind from the Kind menu: Threads, Helpers, Jobs,
   Calls, Pairs or From teammates (handoffs and asides), a kind's with a Live /
   Ended switch, search reads every row and aside, and the chip last used is
   kept for each teammate. A thread waiting on you shows the card's question
@@ -105,8 +105,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   gone; Threads in the teammate's menu counts the new asides, and an
   ended job's Remove is in its pane's band.
 - A pair's line in the conversation says Pair, and a command left running
-  says Command on its line and its chip, instead of Thread, Subagent and
-  Background.
+  says Command in the message box's threads and in the pane, instead of
+  Thread, Subagent and Background.
+- A helper or a command a teammate starts no longer has a line of its own
+  in the conversation, running or finished. While it runs it is in the
+  message box's threads. Once the turn is over it is in the turn's path,
+  behind the line under the reply: helpers started together are one line,
+  "Started 4 helpers", that unfolds to each one with how it ended and how
+  long it took, and each opens its own activity in the pane, with Back to
+  the path. While the turn waits only on its helpers, the resting mark
+  opens the same path. A helper or a command that failed is marked on the
+  line under the reply.
+- The window calls a subagent a helper everywhere: the Threads list and its
+  Kind menu, the message box's threads, the pane's header, Stop's tooltip,
+  and the path.
 
 ### Fixed
 

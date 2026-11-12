@@ -40,7 +40,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Common workflows', slug: 'use/workflows' },
 						{ label: 'Working in a conversation', slug: 'use/conversations' },
-						{ label: 'Side threads and subagents', slug: 'use/side-threads' },
+						{ label: 'Side threads and helpers', slug: 'use/side-threads' },
 						{ label: 'Teammates working together', slug: 'use/teammates-together' },
 						{ label: 'Calls and dictation', slug: 'use/voice' },
 						{ label: 'Pictures', slug: 'use/images' },

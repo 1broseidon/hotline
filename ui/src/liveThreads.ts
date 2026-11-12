@@ -30,7 +30,7 @@ export type LiveThread = {
 	id: string;
 	kind: ListKind;
 	title: string;
-	/** Its kind and the list row's line: "Subagent · Read Dock.tsx", "Handoff from Mack · Working". */
+	/** Its kind and the list row's line: "Helper · Read Dock.tsx", "Handoff from Mack · Working". */
 	line: string;
 	/** What a press opens, as the list's row opens it. */
 	open: ThreadRef;

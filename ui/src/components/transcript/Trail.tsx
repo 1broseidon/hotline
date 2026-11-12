@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolOutput } from "../../generated/contract";
-import type { Step } from "../../scheduledRuns";
+import type { RunLink, Step } from "../../scheduledRuns";
+import { linkFailed, runStatus } from "../../links";
+import type { ThreadRef } from "../Transcript";
 import { ChevronDownIcon, ChevronRightIcon, EyeIcon } from "../../icons";
 import type { Glance } from "../../glance";
 import { markOf, type PathEntry, pathGroups, pathLines } from "../../outcomes";
@@ -21,7 +23,9 @@ import { StepOutput } from "./Steps";
  * line opens to each step as a person reads it: a search as its query and
  * what it found, a page read as its title, a command as what it was for,
  * the command, and the first lines of its output; a failure stands out in
- * red.
+ * red. The helpers the turn started are one line where it started them,
+ * and each command it left running a line of its own; each opens its own
+ * activity in the pane.
  */
 
 /** Output as a person reads it: no markdown fence around it, and JSON laid out. */
@@ -89,10 +93,24 @@ export function TrailHead({ items, settled = false, hot }: { items: Step[]; sett
 /**
  * What runs long, and so scrolls: the files the turn changed and its path,
  * the steps grouped under what the teammate said it was on as each happened,
- * its words the heading with when it began, and what it left behind marked
- * where it said so. Steps before it said anything come first, ungrouped.
+ * its words the heading with when it began, what it left behind marked
+ * where it said so, and the helpers and commands it started where it started
+ * them. Steps before it said anything come first, ungrouped.
  */
-export function TrailSteps({ items, settled = false, openId, hot }: { items: Step[]; settled?: boolean; openId?: string | undefined; hot: Hot }) {
+export function TrailSteps({
+	items,
+	settled = false,
+	openId,
+	hot,
+	onOpenThread,
+}: {
+	items: Step[];
+	settled?: boolean;
+	openId?: string | undefined;
+	hot: Hot;
+	/** Opens a helper or a command in the pane; without it their lines only say how they went. */
+	onOpenThread?: ((thread: ThreadRef) => void) | undefined;
+}) {
 	const sources = useMemo(() => sourcesOf(items), [items]);
 	const files = useMemo(() => filesOf(items), [items]);
 	const groups = useMemo(() => pathGroups(items, !settled), [items, settled]);
@@ -102,6 +120,10 @@ export function TrailSteps({ items, settled = false, openId, hot }: { items: Ste
 	const entry = (one: PathEntry) =>
 		one.kind === "line" ? (
 			<TrailLine key={one.line.id} line={one.line} sources={sources} startOpen={one.line.ids.includes(openId ?? "")} hot={hot} />
+		) : one.kind === "helpers" ? (
+			<HelpersLine key={one.links[0]!.id} links={one.links} onOpen={onOpenThread} />
+		) : one.kind === "command" ? (
+			<RunLine key={one.link.id} link={one.link} said={`Started a command: ${one.link.title}`} onOpen={onOpenThread} />
 		) : (
 			<li key={one.outcome.id} className="trail-outcome outcome" data-step-id={one.outcome.id} data-mark={markOf(one.outcome)}>
 				{one.outcome.message}
@@ -140,6 +162,75 @@ export function TrailSteps({ items, settled = false, openId, hot }: { items: Ste
 				</section>
 			)}
 		</div>
+	);
+}
+
+/** What opens a helper or a command: its own thread, by its link. */
+const runRef = (link: RunLink): ThreadRef => ({ thread: { kind: "run", key: link.thread }, title: link.title });
+
+/** How a helper or a command stands, as a path line's dot and words read it. */
+function runTone(link: RunLink): "in_progress" | "failed" | "completed" {
+	return link.state !== "closed" ? "in_progress" : linkFailed(link) ? "failed" : "completed";
+}
+
+/**
+ * One line in the path for one helper or command: what was started, and at
+ * the right how it is going or how it ended and after how long. Pressed, it
+ * opens that one's own activity in the pane.
+ */
+function RunLine({ link, said, onOpen }: { link: RunLink; said: string; onOpen: ((thread: ThreadRef) => void) | undefined }) {
+	const tone = runTone(link);
+	return (
+		<li className="trail-step" data-step-id={link.id} data-status={tone}>
+			<button type="button" className="trail-head" disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
+				<span aria-hidden="true" className={`trail-dot ${tone === "in_progress" ? "beat" : ""}`} />
+				<span className="trail-said">{said}</span>
+				<span className="trail-fact" data-tone={tone === "in_progress" ? "live" : tone === "failed" ? "danger" : undefined}>
+					{runStatus(link)}
+				</span>
+				{onOpen !== undefined && <ChevronRightIcon className="trail-chevron" />}
+			</button>
+		</li>
+	);
+}
+
+/**
+ * The helpers a turn started together, as one line: "Started a helper: …"
+ * for one, which opens it, or "Started 4 helpers" for more, which unfolds
+ * to each with how it ended and how long it took, each opening its own
+ * activity. At the right, how many still run, else how many failed, else
+ * that all are done.
+ */
+function HelpersLine({ links, onOpen }: { links: RunLink[]; onOpen: ((thread: ThreadRef) => void) | undefined }) {
+	const [open, setOpen] = useState(false);
+	const one = links.length === 1 ? links[0] : undefined;
+	if (one !== undefined) return <RunLine link={one} said={`Started a helper: ${one.title}`} onOpen={onOpen} />;
+	const running = links.filter((link) => link.state !== "closed").length;
+	const failed = links.filter(linkFailed).length;
+	const status = running > 0 ? "in_progress" : failed > 0 ? "failed" : "completed";
+	const fact = running > 0 ? { text: `${running} running`, tone: "live" } : failed > 0 ? { text: `${failed} failed`, tone: "danger" } : { text: `${links.length} done`, tone: undefined };
+	return (
+		<li className="trail-step" data-step-id={links[0]!.id} data-status={status}>
+			<button type="button" className="trail-head" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+				<span aria-hidden="true" className={`trail-dot ${running > 0 ? "beat" : ""}`} />
+				<span className="trail-said">Started {links.length} helpers</span>
+				<span className="trail-fact" data-tone={fact.tone}>
+					{fact.text}
+				</span>
+				{open ? <ChevronDownIcon className="trail-chevron" /> : <ChevronRightIcon className="trail-chevron" />}
+			</button>
+			{open && (
+				<div className="trail-detail">
+					{links.map((link) => (
+						<button key={link.id} type="button" className="trail-row" data-step-id={link.id} disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
+							<span className="trail-page">{link.title}</span>
+							<span className={linkFailed(link) ? "trail-meta text-danger" : "trail-meta"}>{runStatus(link)}</span>
+							{onOpen !== undefined && <ChevronRightIcon className="shrink-0 text-ink-3" />}
+						</button>
+					))}
+				</div>
+			)}
+		</li>
 	);
 }
 

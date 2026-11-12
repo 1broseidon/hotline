@@ -14,7 +14,7 @@ const { PairPane, pairLines } = await import("../src/components/thread/PairPane"
 const { CommandPane } = await import("../src/components/thread/CommandPane");
 const { LinkRow } = await import("../src/components/transcript/LinkRow");
 const { liveThreads } = await import("../src/liveThreads");
-const { linkLine } = await import("../src/links");
+const { Transcript } = await import("../src/components/Transcript");
 const { wire } = await import("../src/wire");
 
 class NoResize {
@@ -254,13 +254,10 @@ describe("task-396 a command left running", () => {
 		expect(text(".pane-terminal")).toBe("precheck: all 8 legs pass in 95s\n");
 	});
 
-	test("its link line is a command's and shows no kind word, its accessible name and its row at the composer say Command, not Subagent", async () => {
-		const line = link("closed") as Extract<TranscriptEvent, { kind: "link" }>;
-		await render(<LinkRow link={line} owner="poe" people={undefined} onOpen={() => {}} />);
-		expect(container.querySelector(".link-row")?.getAttribute("data-kind")).toBe("command");
-		expect(text(".link-row")).not.toContain("Command");
-		expect(container.querySelector(".link-row")?.getAttribute("aria-label")).toStartWith("Command · make precheck");
-		expect(linkLine(line)).toStartWith("Command · make precheck");
+	test("it has no line in the conversation, and its row at the composer says Command, not Helper", async () => {
+		await render(<Transcript personaId="poe" name="Poe" events={[link("live"), link("closed")]} streaming={[]} live={false} focus={null} />);
+		expect(container.querySelector(".link-row")).toBeNull();
+		expect(container.textContent).not.toContain("make precheck");
 		// Its row in the composer's threads panel (task-437), where the chip was.
 		const poe = { persona: { id: "poe" }, subagents: [run] } as unknown as Parameters<typeof liveThreads>[0]["entry"];
 		const listedRun: ThreadSummary = { thread: { kind: "run", key: runId }, personaId: "poe", title: "make precheck", state: "live", startedAt: run.startedAt, updatedAt: run.startedAt, working: false, waiting: false, runKind: "shell" };

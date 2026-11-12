@@ -21,7 +21,7 @@ const CHIPS: { filter: ListFilter; word: string }[] = [
 /** The kinds, under one key so the chips stay one row at the pane's width. */
 const KINDS: { filter: ListFilter; word: string }[] = [
 	{ filter: "threads", word: "Threads" },
-	{ filter: "subagents", word: "Subagents" },
+	{ filter: "subagents", word: "Helpers" },
 	{ filter: "jobs", word: "Jobs" },
 	{ filter: "calls", word: "Calls" },
 	{ filter: "pairs", word: "Pairs" },

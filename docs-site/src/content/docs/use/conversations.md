@@ -139,7 +139,7 @@ manage their own context.
 The **More** menu in the conversation's header also has:
 
 - **Start a side thread** and **Threads**: see
-  [Side threads and subagents](/docs/use/side-threads/).
+  [Side threads and helpers](/docs/use/side-threads/).
 - **Reveal working directory**, which opens the teammate's folder.
 - **Show teammate**, which opens its pane
   (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>I</kbd>, or press the teammate's name).

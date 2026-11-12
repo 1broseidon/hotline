@@ -111,8 +111,8 @@ describe("task-437 the count", () => {
 		expect(Object.fromEntries(live.map((one) => [one.id, one.line]))).toEqual({
 			"side:s-notes": "Work thread · Working",
 			"side:s-hand": "Handoff from Mack · Working",
-			"run:r-audit": "Subagent · Read Dock.tsx",
-			"run:r-fresh": "Subagent · Starting",
+			"run:r-audit": "Helper · Read Dock.tsx",
+			"run:r-fresh": "Helper · Starting",
 			"run:r-crawl": "Command · python3 crawl.py",
 			"call:c-1": "Call · Working",
 			"job:j-digest": "Job · Running",
@@ -256,13 +256,13 @@ describe("task-437 the control and its panel", () => {
 		expect(panel()?.parentElement?.className).toBe("composer");
 		expect(rows().map((row) => [row.querySelector(".list-title-text")?.textContent, row.querySelector(".list-line")?.textContent])).toEqual([
 			["Check the installer", "Handoff from Mack · Working"],
-			["Audit side-pane thread rows", "Subagent · Read Dock.tsx"],
+			["Audit side-pane thread rows", "Helper · Read Dock.tsx"],
 		]);
 		// Each row beats: everything in it runs.
 		expect(rows().every((row) => row.getAttribute("data-state") === "live" && row.querySelector(".dock-dot.beat") !== null)).toBe(true);
 		const when = rows().map((row) => row.querySelector(".list-when")?.textContent ?? "");
 		expect(when.every((one) => /^\d+:\d\d(:\d\d)?$/.test(one))).toBe(true);
-		expect(rows()[1]?.getAttribute("aria-label")).toStartWith("Audit side-pane thread rows, Subagent · Read Dock.tsx, ");
+		expect(rows()[1]?.getAttribute("aria-label")).toStartWith("Audit side-pane thread rows, Helper · Read Dock.tsx, ");
 		// The one open in the pane says so, as the chip's pressed state did.
 		expect(rows()[1]?.getAttribute("aria-current")).toBe("true");
 		expect(rows()[0]?.hasAttribute("aria-current")).toBe(false);
@@ -522,14 +522,14 @@ describe("task-437 in the conversation", () => {
 		const rows = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-thread]")];
 		expect(rows.map((row) => row.querySelector(".list-line")?.textContent)).toEqual([
 			"Handoff from Mack · Working",
-			"Subagent · Read Dock.tsx",
+			"Helper · Read Dock.tsx",
 			"Command · python3 crawl.py",
 		]);
 		// The subagent's chip opened its run in the pane; its row does the same.
 		await act(async () => void rows[1]!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
 		await settle();
 		expect(container.querySelector(".composer-threads-panel")).toBeNull();
-		expect(container.querySelector(".dock .run-pane")?.getAttribute("aria-label")).toBe("Subagent of Nell: Audit side-pane thread rows");
+		expect(container.querySelector(".dock .run-pane")?.getAttribute("aria-label")).toBe("Helper of Nell: Audit side-pane thread rows");
 		// Open in the pane, its row says so.
 		await act(async () => void key!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
 		const again = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-thread]")];

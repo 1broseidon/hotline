@@ -686,14 +686,27 @@ has one hook and one view.
   sides or subagents, or a waiting card change, and in between `withLinks` brings
   rows up to what the links say (a thread that closed reads closed at once, one the
   list has not heard of is a row from its link: `rowOfLink`).
-- **Links, not markers.** `Transcript` draws one `link` row for every kind
-  (`LinkRow`, from `linkRow` in `links.ts`: a state dot, the title, what it is
-  doing or what came of it, and no kind word, which stays where the person
-  goes for detail: the opened thread's header and the Threads list;
-  `linkLine`, kind and all, is its accessible name) with an Open
+- **Links, not markers.** `Transcript` draws one `link` row for a work
+  thread, a pair and a call (`LinkRow`, from `linkRow` in `links.ts`: a state
+  dot, the title, what it is doing or what came of it, and no kind word, which
+  stays where the person goes for detail: the opened thread's header and the
+  Threads list; `linkLine`, kind and all, is its accessible name) with an Open
   that opens the thread in the dock; the
   `side`, `subagent` and `call` cases draw nothing, since a `threads2` socket is
-  sent a link even for one written long ago. A `peer` marker and a delivery still
+  sent a link even for one written long ago. A run's link (a subagent, which
+  the window calls a helper, or a command a harness left running) has no row
+  (George, 2026-11-12, task-448): `toBlocks` folds it into the steps of the
+  turn open on the tape when it was written, where it was written, so it is
+  part of that turn's path (`pathGroups`: helpers one after another are one
+  `helpers` entry, "Started 4 helpers", each command a `command` entry, and
+  the completed `subagent` tool step that started one is dropped), and the
+  pane opens it from there with Back to the path (`DockState` holds the
+  thread open over the turn's `work`). One written while the DM had no turn
+  open, by a work thread's turn, stays a line of its own that nothing draws,
+  reached from the Threads list. A failed one marks the line under the
+  reply (`failedRuns`). A search hit on a run's link, like one on a step or
+  an outcome, lands on its turn's line under the reply. The tape and the
+  wire are unchanged: the phone still reads each link. A `peer` marker and a delivery still
   open the pair they name, in the dock. The rows of the composer's threads
   panel (its "2 threads ›" count is the Threads list's Live group, read from
   the same `thread.list` rows and roster by the same `listItems` and `filtered`

@@ -53,7 +53,7 @@ Set `HOTLINE_DATA_DIR` to put it somewhere else. Inside it:
   record;
 - `transcripts/`: one per teammate, its whole conversation, every chapter;
 - `threads/`, `sides/`, `runs/` and `calls/`: conversations between
-  teammates, side threads and work threads, subagent runs, and calls;
+  teammates, side threads and work threads, helpers' runs, and calls;
 - `files/` and `avatars/`: Hotline's copies of files sent in a conversation,
   and teammates' pictures;
 - `workspaces/`: the folders of teammates you did not give a folder to;

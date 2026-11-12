@@ -368,9 +368,9 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         "subagent",
         label(
             "subagent",
-            "Started a subagent",
-            "Started {n} subagents",
-            "Starting a subagent",
+            "Started a helper",
+            "Started {n} helpers",
+            "Starting a helper",
         ),
     ),
     (

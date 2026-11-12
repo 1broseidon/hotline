@@ -737,7 +737,7 @@ fn announcements_are_read_from_the_adapters_draft_updates() {
         })),
         Some(Announced::Spawned {
             child: "t1:generation:2".to_string(),
-            title: "Subagent".to_string(),
+            title: "Helper".to_string(),
             task: "Explore the repo".to_string(),
         })
     );

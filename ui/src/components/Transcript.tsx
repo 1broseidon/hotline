@@ -1,7 +1,7 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { DeliveryCause, RunningSubagent, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent } from "../scheduledRuns";
+import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
@@ -109,7 +109,6 @@ export function Transcript({
 	cornered = false,
 	workingCalls,
 	workingSides,
-	subagents,
 	focus,
 	onReply,
 	onReact,
@@ -155,8 +154,6 @@ export function Transcript({
 	workingCalls?: readonly string[] | undefined;
 	/** Work thread IDs running a turn or with a line waiting for one, from the roster. */
 	workingSides?: readonly string[] | undefined;
-	/** The teammate's subagents at work, from the roster: each one's line says what it did last. */
-	subagents?: readonly RunningSubagent[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	onReply?(target: ReplyTarget): void;
@@ -255,7 +252,6 @@ export function Transcript({
 	const flying = useRef<(() => void) | null>(null);
 	/* Takes in where the scroll is, as after a scroll: what a flight calls when it has arrived. */
 	const read = useRef(() => {});
-	useScrollToEvent(scroller, pinned, flying, read, landing, events);
 	/* Puts the rows near the view in the page (useRowWindow, below), for the scroll to call. */
 	const moveRef = useRef(() => {});
 
@@ -473,6 +469,9 @@ export function Transcript({
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
+	// A helper or a command has no row: it is in the path of the turn that
+	// started it (toBlocks), and one another thread started is in the
+	// Threads list, as every one is.
 	// A job that fired again and again with nothing drawn between is one row,
 	// so this is decided on what is left to draw.
 	// A block that holds what it held is the block it was (keepBlocks), so
@@ -488,6 +487,7 @@ export function Transcript({
 							answered.has(block.event.id) ||
 							reacted.lines.has(block.event.id) ||
 							(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
+							isRunLink(block.event) ||
 							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
 					),
 			),
@@ -519,11 +519,18 @@ export function Transcript({
 		[blocks, live, onOpenWork],
 	);
 	const ids = useMemo(() => rows.map((row) => row.id), [rows]);
-	// A file message inside a run of them is found by the run's row.
+	// A file message inside a run of them is found by the run's row, and a
+	// step, an outcome or a helper by the line under its turn's reply.
 	const jump = useMemo(() => {
 		if (landing === null) return undefined;
-		return rows.find(({ block }) => block.kind === "sent" && block.messages.some((message) => message.id === landing.eventId))?.id ?? landing.eventId;
+		const holds = ({ block }: (typeof rows)[number]) =>
+			(block.kind === "sent" && block.messages.some((message) => message.id === landing.eventId)) ||
+			(block.kind === "steps" && block.items.some((item) => item.id === landing.eventId));
+		return rows.find(holds)?.id ?? landing.eventId;
 	}, [landing, rows]);
+	// Made once per jump: a new one each render would send the flight again.
+	const flight = useMemo(() => (landing === null || jump === undefined ? landing : { eventId: jump, at: landing.at }), [landing, jump]);
+	useScrollToEvent(scroller, pinned, flying, read, flight, events);
 	const { heights, isDrawn, probed, move, touch } = useRowWindow({ scroller, pinned, pinning, flying, anchor, thread: `${rowThread.kind}:${rowThread.key}`, ids, arrived: written, jump });
 	moveRef.current = move;
 	// While a page of older lines is on its way, the row it is measured
@@ -600,7 +607,6 @@ export function Transcript({
 						ownerName={name}
 						event={event}
 						working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
-						step={event.kind === "link" && event.threadKind === "run" ? subagents?.find((run) => run.runId === event.thread)?.lastStep : undefined}
 						loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
 						quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
 						top={run.top}
@@ -758,7 +764,6 @@ const Row = memo(function Row({
 	ownerName,
 	event,
 	working,
-	step,
 	loopedIn,
 	quote,
 	top,
@@ -781,8 +786,6 @@ const Row = memo(function Row({
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
 	working: boolean;
-	/** A subagent's line while it works: what it did last. */
-	step?: string | undefined;
 	/** A delivery from a colleague the person looped into this thread: its one answer. */
 	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
@@ -963,11 +966,11 @@ const Row = memo(function Row({
 			);
 		}
 
-		/* A thread this conversation holds, whatever its kind: a work thread, a
-		 * subagent's run, a call. One row that fills in as the thread goes, and
-		 * opens it in the right-hand pane. */
+		/* A thread this conversation holds: a work thread, a pair, a call. One
+		 * row that fills in as the thread goes, and opens it in the right-hand
+		 * pane. */
 		case "link":
-			return <LinkRow link={event} owner={personaId} people={people} working={working} step={step} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
+			return <LinkRow link={event} owner={personaId} people={people} working={working} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
 
 		/* The markers links replaced. The window declares `threads2`, so the
 		 * desk sends it a link for each, even for one written long ago. */

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LinkEvent } from "../src/dock";
-import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, runState, threadOfLink } from "../src/links";
+import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, runState, runStatus, threadOfLink } from "../src/links";
 
 const link = (extra: Partial<LinkEvent> = {}): LinkEvent => ({
 	kind: "link",
@@ -49,8 +49,9 @@ describe("a subagent's run's line", () => {
 	const run = (extra: Partial<LinkEvent> = {}) => link({ threadKind: "run", thread: "r1", title: "Read the logs", ...extra });
 
 	test("is working until it stops, then how it went and how long it took", () => {
-		expect(linkLine(run())).toBe("Subagent · Read the logs · working");
-		expect(linkLine(run({ state: "closed", end: "done", elapsedMs: 75_000 }))).toBe("Subagent · Read the logs · done in 1 min 15 s");
+		expect(runState(run())).toBe("working");
+		expect(runState(run({ state: "closed", end: "done", elapsedMs: 75_000 }))).toBe("done in 1 min 15 s");
+		expect(runStatus(run({ state: "closed", end: "done", elapsedMs: 66_000 }))).toBe("Done in 1 min 6 s");
 		expect(runState({ state: "closed", end: "failed", elapsedMs: 4_000 })).toBe("failed after 4 s");
 		expect(runState({ state: "closed", end: "cancelled" })).toBe("stopped");
 		expect(runState({ state: "closed", end: "done" })).toBe("done");

@@ -133,6 +133,14 @@ pub enum Update {
         title: String,
         options: Vec<PermissionOption>,
     },
+    /// Nobody answered that request in the time the driver gives a person,
+    /// and the agent has been told so. The card it raised is written again as
+    /// expired; an answer to it is refused from here on.
+    PermissionExpired {
+        request_id: String,
+        title: String,
+        options: Vec<PermissionOption>,
+    },
     /// The turn is still open but has nothing more to say until one of its
     /// background jobs finishes or the person says something: Hotline Agent
     /// with a shell command or a subagent still running, or a harness that
@@ -173,6 +181,13 @@ pub enum SubagentReport {
     Told { child: String, text: String },
     /// Something the subagent did, in the vocabulary of a turn.
     Update { child: String, update: Update },
+    /// What a command run in the background has written since it was sent
+    /// there: the whole of it so far when `replaces`, else the next piece.
+    Output {
+        child: String,
+        text: String,
+        replaces: bool,
+    },
     Ended {
         child: String,
         status: SubagentStatus,

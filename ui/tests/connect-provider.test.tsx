@@ -56,3 +56,50 @@ test("a status poll that fails leaves the pane with a way to sign in again, not 
 		await teardown();
 	}
 });
+
+test("a sign-in code has a Copy that puts the code on the clipboard", async () => {
+	const { teardown } = installDom();
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { ConnectProvider } = await import("../src/components/ConnectProvider");
+	const { wire } = await import("../src/wire");
+	const native = await import("../src/native");
+	const command = spyOn(wire, "command").mockImplementation((async (cmd: string) => {
+		if (cmd === "credential.login") return { loginId: "l1", userCode: "WXYZ-1234", verificationUri: "https://x" };
+		if (cmd === "credential.login_status") return { state: "pending" };
+		return null;
+	}) as typeof wire.command);
+	const copied: string[] = [];
+	const clipboard = spyOn(native, "writeClipboard").mockImplementation(async (text: string) => {
+		copied.push(text);
+	});
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	try {
+		await act(async () => root.render(<ConnectProvider provider={oauthOnly} onConnected={() => {}} onCancel={() => {}} />));
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 30));
+		});
+		const copy = container.querySelector<HTMLButtonElement>('button[aria-label="Copy sign-in code"]');
+		expect(copy).not.toBeNull();
+		await act(async () => copy!.click());
+		expect(copied).toEqual(["WXYZ-1234"]);
+		expect(copy!.textContent).toBe("Copied");
+		const opened: string[] = [];
+		const open = spyOn(native, "openLink").mockImplementation(async (url: string) => {
+			opened.push(url);
+		});
+		const page = [...container.querySelectorAll("button")].find((b) => b.textContent === "Open Acme sign-in");
+		await act(async () => page!.click());
+		open.mockRestore();
+		// Opening the sign-in page copies the code first, so it is pasted there.
+		expect(copied).toEqual(["WXYZ-1234", "WXYZ-1234"]);
+		expect(opened).toEqual(["https://x"]);
+	} finally {
+		await act(async () => root.unmount());
+		clipboard.mockRestore();
+		command.mockRestore();
+		await teardown();
+	}
+});

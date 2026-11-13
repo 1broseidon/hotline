@@ -8,6 +8,243 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-11-12
+
+### Added
+
+- A teammate says what it is on and what came of it in its own words,
+  through two new tools of Hotline's own, `activity` and `outcome`, on every
+  backend. `activity` is a kind (thinking, reading, searching, making or
+  talking) and a few words, up to 80 characters. `outcome` is one thing the
+  turn left behind, up to 120 characters: sent, made, changed, open (still
+  going after the reply) or yours (left for you to do), marked failed or
+  partial where it did not all happen. An open outcome is updated or closed
+  later by its id, on the thread where it was said, or in the teammate's
+  main conversation from another of its threads, such as a job. Each is a
+  line on the
+  thread it was said in, so it survives a reload, and an older phone skips
+  it. The desk writes none of these words itself, and a helper is offered
+  neither tool.
+- Settings › Updates has a Track. Stable, the default, gets final releases.
+  Beta also gets the betas that come before one. A desk that goes back to
+  Stable keeps its beta until a newer final release is out, and the row says
+  so. A beta shows its whole version, such as 0.49.0-beta.1, wherever the
+  version is shown.
+- The pane for two teammates reads as their one conversation. A handoff
+  between them is its request in full with a Handoff chip by the name, the
+  work it became, step by step as it happens, and its result as that
+  teammate's line. Asides between them stand among the lines with an Aside
+  chip. Nothing there needs a second press to be read.
+- A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
+  beside it, as on the phone, and opening the sign-in page copies the code
+  too, so it is pasted there instead of typed.
+- A helper opened in the right-hand pane reads as its activity, not a
+  chat: what its teammate asked of it, then under Activity its steps and
+  words in the order they came, each step opening to its output, and its
+  Result once it reports. There are no bubbles and no message field; the
+  foot says it reports to its teammate when it finishes. The band says
+  Working, Done or Stopped with its step count and time, and a helper of
+  Hotline Agent's has Stop.
+- A helper's row in the composer's threads and in the thread list says its
+  latest step.
+- A call opened in the right-hand pane reads as a transcript: each line
+  under who said it, You or the teammate, and the work the teammate went
+  off to do folded where it fell, saying what it checked and how many
+  steps, opening to them. The band says Live or Ended, how long the call
+  has run, and the voice model, with End call while it is live.
+- A job opened in the right-hand pane says Loop or Once, whose it is, how
+  often it runs and what it posts, counts down to its next run beside what
+  it last posted, and lists each run newest first as a section of its own
+  with how it went, what it found and its steps, the one running open as
+  it works. End job and Stop are in its band.
+- A job's post in the chat is headed by the job's line, Job · its name ·
+  posted, which opens the job.
+- A handoff open in the right pane shows the request it was handed on a card,
+  then the receiver's steps and words as they happen, each reply marked as
+  going back to the one who sent it. You can still say something in it, stop
+  a turn and end it as before.
+- A pair open in the right pane shows its two teammates' lines on two sides,
+  each under its face and name, as they talk, with Stop exchange while the
+  exchange stands.
+- A command a teammate's harness left running opens in the right pane as
+  its activity: the command, and its output in a terminal as it writes it,
+  with Stop where the desk can stop it. Once it ends, the last of its output
+  stays.
+
+### Changed
+
+- The line under a reply is what the turn left behind, in the teammate's
+  words: each outcome with its mark, a failure first and in red, then the
+  sites of the web pages it read, then how long it took. A turn that left
+  nothing and read nothing says only its time. It replaces the count of
+  steps and failures. Pressed, it opens the turn's path in the right-hand
+  pane: every step, grouped under what the teammate said it was on, with
+  each outcome where it was said. A turn held open only for its helpers has
+  no line under it until it ends.
+- While a teammate works, the mark in the message box moves by the kind of
+  work it says it is on, thinking, reading, searching, making or talking,
+  with its own few words beside it and none of the desk's: no word for the
+  tool in use (Reading, Editing, Running) and no step count after the turn. Talking, to anyone
+  but you, is a new movement: the mark puts on a headset and speaks in
+  bursts, then listens and nods. With nothing said, the mark moves alone.
+  Waiting on you stays the desk's to say. Pressing the mark opens the
+  running turn's path in the right-hand pane, as the line under a reply
+  does. While a turn waits only on its helpers, the mark rests in the
+  message box beside the last words the teammate said, until the turn ends.
+- Hotline's house style asks a teammate for the opening line a person would
+  say to this particular request, in place of the stock "On it", and for no
+  opening line when it can answer at once or is about to ask a question or
+  decline. It asks the teammate to say what it is on with `activity` rather
+  than in the chat, to say what it is waiting for there while its helpers
+  work and keep quiet as each reports until there is an outcome, to write
+  outcomes and replies for a person (no process ids, raw paths or commands
+  to run unless asked), and to draft and ask before anything that cannot be
+  undone, such as sending something in your name, paying, cancelling or
+  sharing your information, unless you have said to go ahead.
+- The composer says how many of a teammate's threads are running now, "2
+  threads ›" in the accent colour, as the phone does: the same threads the
+  Threads list shows under Live, so a helper, a background command, or a
+  work thread, handoff, pair, call or job with a turn in flight, and never one
+  at rest or waiting for an answer. A thread between two teammates counts
+  while one of them answers the other, and leaves when the answer is in; the
+  phone's Threads list has these threads too. The count opens a short list
+  inside the message box, which grows up to hold it while the field stays
+  in use: each thread's kind, what it is doing and how long it has run, and
+  a row opens the thread in the pane. Its last row, All threads, opens the
+  Threads list in the pane, with how many things there are new. The chip
+  for each subagent at the composer's corner is gone.
+- The conversation's header no longer has a chip for each live side thread.
+  A side thread is opened from its line in the conversation or from the
+  Threads list, and a running one, like a running helper, is in the message
+  box's threads. The rows the 0.49 betas put under a teammate in the rail
+  for its working subagents are gone too.
+- A long conversation keeps in the page only the lines near the view, a
+  gap of their measured height standing in for the rest, so it costs what
+  the screen shows of it. With a 2,000-line thread loaded the window uses
+  about half the memory it did, and scrolling, coming back to a teammate and
+  a reply landing no longer stutter. Text selected across lines, a jump to a
+  quoted line, search hits and chapter marks bring their lines into the page.
+- A diagram is drawn ahead of the view while the window is at rest, never
+  under a scroll or a keystroke, so scrolling up past one no longer stalls,
+  and a line being read stays where it is when one above it draws. A thread
+  with a diagram in it loads the diagram library when it opens.
+- The right-hand pane is one list, Threads: every work thread, handoff,
+  helper, command, pair, call and job, and every aside the teammate was
+  left, as rows of one shape, the kind's mark, the title, one line of state,
+  latest step or result, and the time. An aside opens the thread it came from,
+  and once read it is counted on that thread's row. An aside's row is named
+  for where it came from and says who told the teammate what ("Juno told
+  Pork Chop: …"). It opens on Active: Needs you, Live, New (what the teammate
+  was told that you have not read) and Recent (the last 24 hours), with what
+  is earlier and routine runs
+  folded into one row that opens in place. Chips narrow it to Needs you, Live
+  or a kind from the Kind menu: Threads, Helpers, Jobs,
+  Calls, Pairs or From teammates (handoffs and asides), a kind's with a Live /
+  Ended switch, search reads every row and aside, and the chip last used is
+  kept for each teammate. A thread waiting on you shows the card's question
+  on its row with the card's own answers, Yes and No or Approve and Deny,
+  and Open where the answer is a sign-in or written words. The Subagents
+  working, Ended subagents, Jobs and Closed groups and the Noted page are
+  gone; Threads in the teammate's menu counts the new asides, and an
+  ended job's Remove is in its pane's band.
+- A thread's line in the conversation is the job and how it stands, with
+  no word for its kind: a pair reads "Talking with Juno" or "Talked with
+  Juno", a call its name, length and how it ended. The kind is said where
+  you look for detail, in the opened thread's band and the Threads list,
+  where a pair is a Pair and a command left running is a Command, instead
+  of Thread and Background.
+- A helper or a command a teammate starts no longer has a line of its own
+  in the conversation, running or finished. While it runs it is in the
+  message box's threads. Once the turn is over it is in the turn's path,
+  behind the line under the reply: helpers started together are one line,
+  "Started 4 helpers", that unfolds to each one with how it ended and how
+  long it took, and each opens its own activity in the pane, with Back to
+  the path. While the turn waits only on its helpers, the resting mark
+  opens the same path. A helper or a command that failed is marked on the
+  line under the reply.
+- The window calls a subagent a helper everywhere: the Threads list and its
+  Kind menu, the message box's threads, the pane's header, Stop's tooltip,
+  and the path.
+- A helper or a command started by Claude Code or Codex reads as one by
+  Hotline Agent does: its start says "Started a helper" or "Started a
+  command" in the path, whatever the agent calls its own tool, and once the
+  helper's or the command's own line is there the start is not said again
+  beside it. A start that failed stays, marked failed. Codex's calls that
+  say what a teammate is on and what came of it are those lines in the
+  path, not steps named after the tool.
+- The line under a reply shows the sites of the web pages the teammate
+  read for it as a small stack of their icons with "+N" for the other
+  sites, after what the turn left behind and before how long it took.
+  Hovering it names the first site and how many more, and a screen reader
+  hears the first three by name and how many more. With
+  link previews off, or no icon for any of them, the first site is named
+  in words. The path the line opens lists those pages first, under
+  Sources, each opening in your browser, now also where the path opens
+  in place in a thread.
+- A reply's sources are the pages the teammate opened. A page it went to
+  in its computer's browser or in its desk browser counts, on new turns
+  and old ones, as a fetch did. A web search's results are no longer
+  sources unless it opened them: the search keeps them in the path, with
+  its count of results and an eye on those it opened. Pages on this
+  computer or at a .local name (localhost, 127.x, ::1, 0.0.0.0, .local
+  names) are not sources, as on the phone.
+- A web search that hands the teammate the pages' content counts those
+  pages as read. Claude Code's own web search does, so a Claude Code turn
+  that answered from its searches alone shows those pages as its sources,
+  on new turns and old ones; Hotline's web search, which hands back only
+  each result's title, address and a short preview, still lists them.
+
+### Fixed
+
+- A long reply no longer stops the conversation updating as it ends. While a
+  reply streams only its own bubble is drawn again, not every line above it.
+- A permission card nobody answers in ten minutes says Expired and has no
+  buttons, and its teammate stops waiting on you. An answer sent after that
+  is refused in words, not applied.
+- An idle window no longer wakes several times a second for the browser
+  picture's timer, and a conversation you have left lets go of the older
+  lines it had loaded.
+- With two or more desks in one window, an idle window no longer asks its
+  desk for the desk menu every 4 seconds, which made its memory grow while
+  nothing happened. The menu reads its desks only while it is open.
+- A teammate's computer button is refreshed less often: every 10 seconds
+  with the window in front, every minute behind another app, and not at
+  all while the window is hidden. It is still refreshed at once when the
+  window comes back, a turn moves, or the computer is started or stopped.
+- On the Mac a screenshot's thumbnail is drawn from a small copy, so it is
+  there at once when it scrolls back into view instead of growing in.
+- On Windows a step that read or edited a file is named by the file, as on
+  the Mac, not by its whole path.
+- Scrolling up a conversation is smooth again. Since 0.48.0 a flick up just
+  after opening one could be pulled back to the bottom, and the view
+  stuttered as older lines were drawn in above it.
+- A Hotline Agent teammate on a model that reads images sees the
+  screenshots it takes in its desk browser, as a Claude Code teammate does.
+  Until now its `screenshot` was refused, with a note to read the page as
+  text instead.
+- Signing in to an MCP server with an account no longer sends requests to an
+  address inside your network because the server named a host that resolves
+  there, and an MCP server at a URL can no longer exhaust the desk's memory
+  with a reply that never ends (rmcp 3.9.0; RUSTSEC-2026-0457, 0461 and
+  0462). A server you run on this computer, your network or a tailnet still
+  signs in, set up by address or by name. One on the internet that points
+  its sign-in at a private address is refused, and says so.
+- SQLite 3.54.1 (rusqlite 0.41.1; RUSTSEC-2026-0459).
+- The plan card under the band's gauge reads Claude Code's newer limits.
+  The Fable allowance Claude Code reports after a reply is the Fable line,
+  not a second line named "seven day overage included". A Fable line that
+  was refused earlier in the week shows the use read since, once that is
+  well under the limit, instead of 100% until the reset. Every name stays on
+  one line, a long one shortened, and the card grows to fit every line.
+- The plan card shows the windows the account has now. A window the
+  account no longer has (Claude's 5-hour window, once lifted) goes at the
+  next read instead of staying on from an old reading, and a desk with such
+  a reading saved heals itself. A window whose reset has passed shows a dash
+  until it is read again, not the last period's use, and a window keeps its
+  use through Claude Code's report after a reply when that report gives no
+  figure, instead of a dash until the next read. A weekly warning clears
+  once the week reads well under the line, its limit having been raised.
+
 ## [0.48.3] - 2026-11-06
 
 ### Added

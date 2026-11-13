@@ -652,15 +652,56 @@ async fn a_full_page_look_answers_the_page_top_to_bottom() {
         short, plain,
         "a short page answers as a plain screenshot does"
     );
+}
 
-    let refused = tools(&room)
-        .call(
-            BROWSER,
-            &json!({ "action": "screenshot", "full_page": true }),
-        )
+/// A Hotline Agent calls the browser as a Rig tool in this process, not over
+/// MCP, and a screenshot reaches it as the same pictures and note an MCP
+/// child gets, rather than a refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hotline_agent_sees_its_screenshot_as_an_mcp_child_does() {
+    use rig::message::{DocumentSourceKind, ImageMediaType, ToolResultContent};
+
+    let (room, fake) = with_browser("browser-rig-look", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
         .await
-        .unwrap_err();
-    assert!(refused.contains("cannot be handed a picture"), "{refused}");
+        .unwrap();
+    *fake.viewports.lock().unwrap() = 6;
+    let full = json!({ "action": "screenshot", "full_page": true });
+    let (child_heights, child_note) = looked(&room, full.clone()).await;
+
+    let mut set = ToolSet::default();
+    for tool in tools(&room).as_dynamic() {
+        set.add_dynamic_tool(tool);
+    }
+    let result = set
+        .execute(BROWSER, full.to_string(), &mut ToolContext::new())
+        .await;
+    assert!(result.is_success(), "{result:?}");
+    let mut notes = Vec::new();
+    let mut heights = Vec::new();
+    for block in result.output().as_content() {
+        match block {
+            ToolResultContent::Text(text) => notes.push(text.text.clone()),
+            ToolResultContent::Image(image) => {
+                assert_eq!(image.media_type, Some(ImageMediaType::PNG));
+                let DocumentSourceKind::Base64(data) = &image.data else {
+                    panic!("a picture is carried as its bytes: {image:?}");
+                };
+                heights.push(
+                    image::load_from_memory(&STANDARD.decode(data).unwrap())
+                        .unwrap()
+                        .height(),
+                );
+            }
+            other @ ToolResultContent::Json { .. } => {
+                panic!("a screenshot answers pictures and a note: {other:?}")
+            }
+        }
+    }
+    assert_eq!(heights, child_heights);
+    assert_eq!(heights, [1, 2, 3, 4]);
+    assert_eq!(notes, [child_note]);
 }
 
 /// A page can be seen at a phone's width: `viewport` sizes it, says the

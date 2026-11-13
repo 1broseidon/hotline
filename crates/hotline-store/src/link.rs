@@ -25,13 +25,29 @@
 //! changes, so it is replaced in place and never doubled.
 
 use hotline_contract::{
-    CallStatus, End, SideEnd, SideOpener, SideStatus, SubagentStatus, ThreadId, ThreadKind,
-    TranscriptEvent,
+    CallStatus, End, RunKind, SideEnd, SideOpener, SideStatus, SubagentStatus, ThreadId,
+    ThreadKind, TranscriptEvent,
 };
 use serde_json::{Value, json};
 
 /// The `kind` of a link line.
 pub const KIND: &str = "link";
+
+/// The most of a handoff's or a question's words its link keeps. Enough for
+/// any request a person would read in the conversation; a longer one is in
+/// full in the thread the link opens.
+pub const REQUEST_CHARS: usize = 4_000;
+
+/// A handoff's or a question's words as its link keeps them: trimmed, lines
+/// kept, and cut to [`REQUEST_CHARS`] with an ellipsis standing for the rest.
+pub fn request_words(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().count() <= REQUEST_CHARS {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(REQUEST_CHARS - 1).collect();
+    format!("{}…", kept.trim_end())
+}
 
 /// Where a thread stands. The records say what they say: a thread whose
 /// record says `Live` has an agent only if the room holds one, and the room
@@ -89,6 +105,15 @@ pub struct Link {
     /// teammate's main conversation was busy, so the thread answered for it,
     /// and its link is on the pair's thread too. Absent otherwise.
     pub asked_in: Option<String>,
+    /// The words a colleague's handoff or question opened this work thread
+    /// with, as sent and cut to [`REQUEST_CHARS`], so the conversation the
+    /// link is on can say what was asked. Absent for every other thread, and
+    /// on a link written before it was kept.
+    pub request: Option<String>,
+    /// What a run runs, when it is a command a harness left running rather
+    /// than a subagent, so its line says Command after it has ended too.
+    /// Absent for a subagent and every other kind.
+    pub run_kind: Option<RunKind>,
 }
 
 /// A teammate that opened a thread on another, and what it is called.
@@ -188,6 +213,12 @@ impl Link {
             self.handoff_ended.then_some(Value::Bool(true)),
         );
         put("askedIn", self.asked_in.clone().map(Value::from));
+        put("request", self.request.clone().map(Value::from));
+        put(
+            "runKind",
+            self.run_kind
+                .and_then(|kind| serde_json::to_value(kind).ok()),
+        );
         line
     }
 
@@ -234,6 +265,10 @@ impl Link {
                 .map(|(persona_id, name)| Opener { persona_id, name }),
             handoff_ended: event.get("handoffEnded").and_then(Value::as_bool) == Some(true),
             asked_in: text("askedIn"),
+            request: text("request"),
+            run_kind: event
+                .get("runKind")
+                .and_then(|kind| serde_json::from_value(kind.clone()).ok()),
         })
     }
 
@@ -279,6 +314,8 @@ impl Link {
                 opener: opened_by.map(Opener::from),
                 handoff_ended: false,
                 asked_in: None,
+                request: None,
+                run_kind: None,
             }),
             TranscriptEvent::Subagent {
                 id,
@@ -307,6 +344,8 @@ impl Link {
                 opener: None,
                 handoff_ended: false,
                 asked_in: None,
+                request: None,
+                run_kind: None,
             }),
             _ => None,
         }
@@ -424,6 +463,8 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
+            run_kind: None,
         }
     }
 
@@ -446,6 +487,8 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
+            run_kind: None,
         };
         assert_eq!(Link::read(&run.event()), Some(run));
         let ended = Link {
@@ -461,11 +504,34 @@ mod tests {
         assert!(closed_side().event().get("handoffEnded").is_none());
         let asked = Link {
             asked_in: Some("ada~mack".into()),
+            request: Some("Is the badge cached?\nIt looks stale.".into()),
+            run_kind: None,
             ..closed_side()
         };
         assert_eq!(asked.event()["askedIn"], "ada~mack");
+        assert_eq!(
+            asked.event()["request"],
+            "Is the badge cached?\nIt looks stale."
+        );
         assert_eq!(Link::read(&asked.event()), Some(asked));
         assert!(closed_side().event().get("askedIn").is_none());
+        assert!(closed_side().event().get("request").is_none());
+    }
+
+    #[test]
+    fn a_request_keeps_its_lines_and_is_cut_at_its_cap() {
+        assert_eq!(
+            request_words("  Fix it.\n\nThen ship.  "),
+            "Fix it.\n\nThen ship."
+        );
+        let long = "a".repeat(REQUEST_CHARS + 50);
+        let kept = request_words(&long);
+        assert_eq!(kept.chars().count(), REQUEST_CHARS);
+        assert!(kept.ends_with('…'));
+        assert_eq!(
+            request_words(&"é".repeat(REQUEST_CHARS)),
+            "é".repeat(REQUEST_CHARS)
+        );
     }
 
     #[test]
@@ -518,6 +584,21 @@ mod tests {
         assert_eq!(old["end"], "cancelled");
         let said = json!({"kind": "agent", "id": "a", "ts": 1, "text": "hi"});
         assert_eq!(Link::threads2(said.clone()), said);
+    }
+
+    #[test]
+    fn a_command_run_says_its_kind_and_a_subagent_says_none() {
+        let mut run = closed_side();
+        run.thread = ThreadId::run("r1");
+        run.run_kind = Some(RunKind::Shell);
+        let line = run.event();
+        assert_eq!(line["runKind"], "shell");
+        assert_eq!(Link::read(&line), Some(run.clone()));
+        run.run_kind = None;
+        assert!(
+            run.event().get("runKind").is_none(),
+            "a tape without commands reads as before"
+        );
     }
 
     #[test]

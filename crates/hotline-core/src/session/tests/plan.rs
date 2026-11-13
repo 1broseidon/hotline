@@ -365,3 +365,92 @@ async fn opening_a_teammate_looks_at_its_agent_and_a_new_offer_redraws_its_resti
     until("codex is looked at", || lock(&fake.driver.looks).len() >= 2).await;
     assert_eq!(*lock(&fake.driver.looks), ["claude-acp", "codex-acp"]);
 }
+
+/// A desk whose kept reading is stuck from an old run heals itself: a
+/// window that reset long ago is gone as the desk loads it, a read that
+/// finds no windows or fails leaves the reading as it is, and the first
+/// read with windows drops every window it does not have.
+#[tokio::test]
+async fn a_stuck_reading_heals_as_it_loads_and_on_the_first_read_with_windows() {
+    let log = scratch("plan-stuck");
+    let root = log.root().to_path_buf();
+    enrol_logins(&log);
+    let now = now_ms();
+    let window = |kind: &str, used: f64, resets_at: i64, minutes: i64| PlanWindow {
+        kind: kind.into(),
+        used_percent: Some(used),
+        resets_at: Some(resets_at),
+        window_minutes: Some(minutes),
+        label: None,
+        status: PlanStatus::Allowed,
+    };
+    let week = window("seven_day", 20.0, now + 86_400_000, 10_080);
+    let stuck = PlanUsage {
+        windows: vec![
+            window("five_hour", 9.0, now - 11 * 86_400_000, 300),
+            week.clone(),
+            window("seven_day_opus", 5.0, now + 86_400_000, 10_080),
+        ],
+        at: now - 20 * 60_000,
+        plan: Some("Max".into()),
+        banked: None,
+        banked_expires_at: None,
+    };
+    let path = crate::paths::plan_usage_path(&root);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&HashMap::from([("claude-acp", stuck.clone())])).unwrap(),
+    )
+    .unwrap();
+
+    let fake = Fake::new(Scripted::new(saying("a", "ok")));
+    let room = logins_room(log, fake.clone());
+    let kinds = |room: &Room| {
+        room.plan_of("claude-acp")
+            .unwrap()
+            .windows
+            .into_iter()
+            .map(|one| one.kind)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds(&room), ["seven_day", "seven_day_opus"]);
+
+    // A read that fails, then one that finds no windows: the windows stand.
+    let weak = Arc::downgrade(&room);
+    let round = || crate::session::plan::read_logins(&weak, 0);
+    assert!(round().await);
+    assert_eq!(kinds(&room), ["seven_day", "seven_day_opus"]);
+    *lock(&fake.driver.plan) = Some(PlanUsage {
+        windows: Vec::new(),
+        at: now,
+        plan: Some("Max".into()),
+        banked: None,
+        banked_expires_at: None,
+    });
+    assert!(round().await);
+    assert_eq!(kinds(&room), ["seven_day", "seven_day_opus"]);
+    assert_eq!(room.plan_of("claude-acp").unwrap().at, now);
+
+    // The first read with windows: only the week is left, and kept so.
+    let mut read_week = week.clone();
+    read_week.used_percent = Some(21.0);
+    *lock(&fake.driver.plan) = Some(PlanUsage {
+        windows: vec![read_week.clone()],
+        at: now + 1,
+        plan: Some("Max".into()),
+        banked: None,
+        banked_expires_at: None,
+    });
+    assert!(round().await);
+    assert_eq!(
+        room.plan_of("claude-acp").unwrap().windows,
+        [read_week.clone()]
+    );
+    drop(room);
+    let reopened = logins_room(
+        Log::open(&root),
+        Fake::new(Scripted::new(saying("b", "ok"))),
+    );
+    assert_eq!(reopened.plan_of("claude-acp").unwrap().windows, [read_week]);
+}

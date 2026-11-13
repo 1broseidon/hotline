@@ -40,20 +40,45 @@ export function Favicon({ site, size = 16 }: { site: string; size?: number }) {
 	return icon ? <Icon source={icon} size={size} /> : null;
 }
 
-/** A few sites' icons, overlapping like a hand of cards: the pages read so far, and how many more. */
-export function Favicons({ sites, most = 3, size = 16, total }: { sites: string[]; most?: number; size?: number; total?: number }) {
+/**
+ * A few sites' icons, overlapping like a hand of cards: the pages read so far, and how many more.
+ *
+ * Given the sites in words (`said`), the stack is named by them, for a
+ * pointer and a screen reader, and stands for them on its own: where none of
+ * the first few has an icon (or link previews are off) it names the first
+ * site in words rather than draw nothing, since it is the only place the
+ * sites are said. Without them, a stack with no icon draws nothing.
+ */
+export function Favicons({
+	sites,
+	most = 3,
+	size = 16,
+	total,
+	said,
+}: {
+	sites: string[];
+	most?: number;
+	size?: number;
+	total?: number;
+	said?: { label: string; tip: string };
+}) {
 	const shown = sites.slice(0, most);
 	const icons = useIcons(shown);
 	const drawn = icons.filter((icon): icon is string => typeof icon === "string");
-	if (drawn.length === 0) return null;
+	const asking = icons.some((icon) => icon === undefined);
+	if (drawn.length === 0 && (said === undefined || asking || sites.length === 0)) return null;
 	// "+N" counts what the icons stand for: the pages, when `total` says how many, so it agrees with the pane's count.
-	const more = (total ?? sites.length) - drawn.length;
+	const more = (total ?? sites.length) - Math.max(drawn.length, 1);
 	return (
-		<span className="favicons">
-			{drawn.map((icon, index) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: two sites may share one icon; the order is the sites'.
-				<Icon key={index} source={icon} size={size} />
-			))}
+		<span className="favicons" {...(said !== undefined ? { role: "img", "aria-label": said.label, title: said.tip } : {})}>
+			{drawn.length === 0 ? (
+				<span className="favicons-site">{sites[0]}</span>
+			) : (
+				drawn.map((icon, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: two sites may share one icon; the order is the sites'.
+					<Icon key={index} source={icon} size={size} />
+				))
+			)}
 			{more > 0 && <span className="favicons-more">+{more}</span>}
 		</span>
 	);

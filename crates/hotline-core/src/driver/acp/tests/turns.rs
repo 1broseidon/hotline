@@ -1,28 +1,153 @@
 use super::*;
 
-/// Claude's adapter marks the call that launched a subagent only in
-/// `_meta`; kept as a launch, a turn left open for it reads as done.
+/// A call is kept under the desk's kind when the agent's own name for the
+/// tool behind it says it is the desk's: a subagent's launch, whatever the
+/// agent calls its tool for one, and a tool of the room's MCP server, however
+/// the agent titles it. The shapes are the adapters' own: Claude's 0.106
+/// (`_meta.claudeCode.toolName`; its Hotline tools titled as on Quill's tape
+/// of 2026-11-12, `mcp__hotline__activity`), Codex's 1.12 and 2.6
+/// (`mcp.<server>.<tool>` with `{ server, tool }` in the input; `spawnAgent`
+/// as its collaboration tool). Anything else keeps its ACP kind.
 #[test]
-fn a_call_claude_says_launched_a_subagent_is_kept_as_one() {
-    let meta = |name: &str| {
-        serde_json::json!({"claudeCode": {"toolName": name}})
-            .as_object()
-            .cloned()
-            .unwrap()
-    };
-    assert_eq!(
-        tool_kind(acp::ToolKind::Other, Some(&meta("Agent"))),
-        SUBAGENT_LAUNCH
+fn a_call_is_kept_under_the_desks_kind_by_the_tool_behind_it() {
+    let meta = |value: Value| value.as_object().cloned().unwrap();
+    let claude = |name: &str| meta(serde_json::json!({"claudeCode": {"toolName": name}}));
+    let collaboration = serde_json::json!({
+        "prompt": "Profile group A",
+        "senderThreadId": "thr_root",
+        "receiverThreadIds": ["thr_child"],
+        "agentsStates": {},
+        "model": null,
+        "reasoningEffort": null,
+        "status": "failed",
+    });
+    let codex_mcp = |server: &str, tool: &str| serde_json::json!({"server": server, "tool": tool, "arguments": {"type": "searching"}});
+    let is_mcp = meta(serde_json::json!({"is_mcp_tool_call": true}));
+    /// What the case is, the call's ACP kind, `_meta`, input and title, and
+    /// the kind it is kept under.
+    type Case = (
+        &'static str,
+        acp::ToolKind,
+        Option<acp::Meta>,
+        Option<Value>,
+        &'static str,
+        &'static str,
     );
-    assert_eq!(
-        tool_kind(acp::ToolKind::Think, Some(&meta("Task"))),
-        SUBAGENT_LAUNCH
-    );
-    assert_eq!(
-        tool_kind(acp::ToolKind::Execute, Some(&meta("Bash"))),
-        "execute"
-    );
-    assert_eq!(tool_kind(acp::ToolKind::Read, None), "read");
+    let cases: Vec<Case> = vec![
+        (
+            "Claude's Agent",
+            acp::ToolKind::Other,
+            Some(claude("Agent")),
+            None,
+            "Profile agent tools group A",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Claude's Task",
+            acp::ToolKind::Think,
+            Some(claude("Task")),
+            None,
+            "Task",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Claude's Bash",
+            acp::ToolKind::Execute,
+            Some(claude("Bash")),
+            None,
+            "ls",
+            "execute",
+        ),
+        (
+            "Claude's activity",
+            acp::ToolKind::Other,
+            Some(claude("mcp__hotline__activity")),
+            None,
+            "mcp__hotline__activity",
+            "mcp__hotline__activity",
+        ),
+        (
+            "Claude's other server",
+            acp::ToolKind::Other,
+            Some(claude("mcp__brainfile__list_tasks")),
+            None,
+            "mcp__brainfile__list_tasks",
+            "other",
+        ),
+        (
+            "Codex's outcome",
+            acp::ToolKind::Execute,
+            Some(is_mcp.clone()),
+            Some(codex_mcp("hotline", "outcome")),
+            "mcp.hotline.outcome",
+            "mcp__hotline__outcome",
+        ),
+        (
+            "Codex's other server",
+            acp::ToolKind::Execute,
+            Some(is_mcp),
+            Some(codex_mcp("github", "list_issues")),
+            "mcp.github.list_issues",
+            "execute",
+        ),
+        (
+            "an unmarked server input",
+            acp::ToolKind::Execute,
+            None,
+            Some(codex_mcp("hotline", "outcome")),
+            "hotline outcome",
+            "execute",
+        ),
+        (
+            "Codex 1.x's spawnAgent",
+            acp::ToolKind::Other,
+            Some(meta(
+                serde_json::json!({"codex": {"collaboration": {"tool": "spawnAgent", "senderThreadId": "thr_root", "receiverThreadIds": []}}}),
+            )),
+            Some(collaboration.clone()),
+            "spawnAgent",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Codex 2.x's spawnAgent",
+            acp::ToolKind::Other,
+            None,
+            Some(collaboration.clone()),
+            "spawnAgent",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Codex's sendInput",
+            acp::ToolKind::Other,
+            None,
+            Some(collaboration),
+            "sendInput",
+            "other",
+        ),
+        (
+            "a spawnAgent title alone",
+            acp::ToolKind::Other,
+            None,
+            Some(serde_json::json!({"x": 1})),
+            "spawnAgent",
+            "other",
+        ),
+        (
+            "a plain read",
+            acp::ToolKind::Read,
+            None,
+            None,
+            "Read a.md",
+            "read",
+        ),
+    ];
+    for (case, kind, meta, input, title, kept) in cases {
+        assert_eq!(
+            tool_kind(kind, meta.as_ref(), input.as_ref(), title),
+            kept,
+            "{case}"
+        );
+    }
 }
 fn recovery_agent(
     heard: Heard,
@@ -737,7 +862,7 @@ fn announcements_are_read_from_the_adapters_draft_updates() {
         })),
         Some(Announced::Spawned {
             child: "t1:generation:2".to_string(),
-            title: "Subagent".to_string(),
+            title: "Helper".to_string(),
             task: "Explore the repo".to_string(),
         })
     );
@@ -849,9 +974,11 @@ async fn dropping_the_driver_takes_the_childs_whole_process_group() {
 /// An ACP agent that raises a permission and then ends the turn without
 /// waiting for the answer — every harness does this when it gives up on a
 /// request — and does not end it until the test says so, so the card is up
-/// and drawn before the turn is over.
+/// and drawn before the turn is over. What its request was answered, if it
+/// was, is written to `heard`.
 fn agent_that_ends_the_turn_still_asking(
     ends: Arc<tokio::sync::Notify>,
+    heard: Arc<Mutex<Vec<String>>>,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
     let transport = agent_pipes();
     async move {
@@ -878,11 +1005,12 @@ fn agent_that_ends_the_turn_still_asking(
                       responder: Responder<PromptResponse>,
                       cx: ConnectionTo<Client>| {
                     let ends = ends.clone();
+                    let heard = heard.clone();
                     async move {
                         let session = request.session_id.clone();
                         let asking = cx.clone();
                         cx.spawn(async move {
-                            let _ = asking
+                            let answered = asking
                                 .send_request(RequestPermissionRequest::new(
                                     session,
                                     ToolCallUpdate::new(
@@ -897,6 +1025,13 @@ fn agent_that_ends_the_turn_still_asking(
                                 ))
                                 .block_task()
                                 .await;
+                            match answered.map(|answer| answer.outcome) {
+                                Ok(RequestPermissionOutcome::Selected(chosen)) => {
+                                    lock(&heard).push(format!("selected {}", chosen.option_id.0));
+                                }
+                                Ok(_) => lock(&heard).push("cancelled".to_string()),
+                                Err(_) => {}
+                            }
                             Ok(())
                         })?;
                         cx.spawn(async move {
@@ -930,7 +1065,7 @@ fn agent_that_ends_the_turn_still_asking(
 async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
     let held = room("stale-card-room");
     let ends = Arc::new(tokio::sync::Notify::new());
-    let agent = agent_that_ends_the_turn_still_asking(ends.clone());
+    let agent = agent_that_ends_the_turn_still_asking(ends.clone(), Arc::default());
     let driver = ChildAgent::new(
         scratch("stale-card"),
         "cursor".to_string(),
@@ -978,6 +1113,128 @@ async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
         !driver.answer_permission(&request_id, "once"),
         "a card the turn left behind was still answerable after the turn ended"
     );
+}
+
+/// A driver on the shipped bounds, its agent asking and holding its turn
+/// open, and what the agent's request is answered.
+async fn asking(
+    name: &str,
+    ends: Arc<tokio::sync::Notify>,
+) -> (ChildAgent, Arc<Mutex<Vec<String>>>) {
+    let held = room(&format!("{name}-room"));
+    let heard: Arc<Mutex<Vec<String>>> = Arc::default();
+    let agent = agent_that_ends_the_turn_still_asking(ends, heard.clone());
+    let driver = ChildAgent::new(
+        scratch(name),
+        "cursor".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "ada"),
+    );
+    tokio::spawn(agent);
+    driver
+        .handshake(&persona(&scratch_cwd(), Vec::new()), client_transport())
+        .await
+        .unwrap();
+    (driver, heard)
+}
+
+/// Waits, on the test's clock, until the agent has heard about its request.
+async fn hears(heard: &Mutex<Vec<String>>) {
+    for _ in 0..500 {
+        if !lock(heard).is_empty() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the agent never heard about its request");
+}
+
+/// A card nobody answers within the wait is expired in the turn that raised
+/// it, not left for the turn's end: the agent is told nobody answered, the
+/// session is told which card that was so the tape can say so, nothing stays
+/// behind the card, and an answer that comes afterwards is refused and never
+/// reaches the agent. The clock is the test's, so the wait is the shipped one.
+#[tokio::test(start_paused = true)]
+async fn a_card_nobody_answers_in_time_expires_in_its_turn_and_takes_no_late_answer() {
+    let wait = Bounds::default().permission;
+    let ends = Arc::new(tokio::sync::Notify::new());
+    let (driver, heard) = asking("lapsed-card", ends.clone()).await;
+
+    let mut updates = driver
+        .prompt("go".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    let Update::Permission {
+        request_id,
+        title,
+        options,
+    } = next(&mut updates).await
+    else {
+        panic!("the card did not arrive");
+    };
+    let asked = tokio::time::Instant::now();
+    assert_eq!(lock(&driver.live.pending).len(), 1, "the request is live");
+    assert!(lock(&heard).is_empty(), "the agent is waiting");
+
+    // Nobody answers. The next thing the turn says is that the card expired,
+    // when the wait has run out and not before.
+    let expired = tokio::time::timeout(wait * 2, updates.recv())
+        .await
+        .expect("the card never expired")
+        .expect("the turn ended early");
+    assert_eq!(
+        expired,
+        Update::PermissionExpired {
+            request_id: request_id.clone(),
+            title,
+            options,
+        }
+    );
+    assert!(asked.elapsed() >= wait, "the card expired early");
+    assert!(
+        lock(&driver.live.pending).is_empty(),
+        "an expired request was left waiting for an answer"
+    );
+    assert!(
+        !driver.answer_permission(&request_id, "once"),
+        "an expired card was still answerable"
+    );
+    hears(&heard).await;
+
+    // The turn was the agent's to go on with, and ends when it ends it.
+    ends.notify_one();
+    assert_eq!(turn_end(&mut updates).await, "end_turn");
+    assert_eq!(
+        *lock(&heard),
+        ["cancelled"],
+        "the agent hears once that nobody answered, and never the late answer"
+    );
+}
+
+/// A card answered within the wait is answered: the agent hears the choice,
+/// and the wait running out afterwards says nothing of a card already settled.
+#[tokio::test(start_paused = true)]
+async fn a_card_answered_in_time_does_not_expire_afterwards() {
+    let ends = Arc::new(tokio::sync::Notify::new());
+    let (driver, heard) = asking("answered-card", ends.clone()).await;
+
+    let mut updates = driver
+        .prompt("go".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    let Update::Permission { request_id, .. } = next(&mut updates).await else {
+        panic!("the card did not arrive");
+    };
+    assert!(driver.answer_permission(&request_id, "once"));
+    assert!(lock(&driver.live.pending).is_empty());
+    hears(&heard).await;
+
+    // Well past the wait: nothing is said of the card in it.
+    tokio::time::sleep(Bounds::default().permission * 2).await;
+    ends.notify_one();
+    assert!(
+        matches!(next(&mut updates).await, Update::Turn { .. }),
+        "an answered card was expired when its wait ran out"
+    );
+    assert_eq!(*lock(&heard), ["selected once"]);
 }
 
 #[test]
@@ -1107,11 +1364,26 @@ fn background_agent(
                         "content": { "type": "text", "text": "The crawl is running." },
                     }))?;
                     let answered = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    // The crawl writes as it runs, a piece and then its whole
+                    // output, and its last piece comes with its end.
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "c1",
+                        "_meta": { "terminal_output_delta": { "terminal_id": "c1", "data": "site 1\n" } },
+                    }))?;
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "c1",
+                        "_meta": { "terminal_output": { "terminal_id": "c1", "data": "site 1\nsite 2\n" } },
+                    }))?;
                     // The crawl ends after the turn: its terminal closes.
                     say("parent", serde_json::json!({
                         "sessionUpdate": "tool_call_update",
                         "toolCallId": "c1",
-                        "_meta": { "terminal_exit": { "terminal_id": "c1", "exit_code": null, "signal": null } },
+                        "_meta": {
+                            "terminal_output_delta": { "terminal_id": "c1", "data": "done\n" },
+                            "terminal_exit": { "terminal_id": "c1", "exit_code": null, "signal": null },
+                        },
                     }))?;
                     answered
                 },
@@ -1128,7 +1400,8 @@ fn background_agent(
 /// Hotline asks only what a standard client asks: the subagents RFD and the
 /// terminal extension, never an editor's own extension. From those, a
 /// command left running past its result is a background run that ends when
-/// its terminal closes, after the turn; a foreground command's output still
+/// its terminal closes, after the turn, its output reported to its run as it
+/// writes it; a foreground command's output still
 /// reaches the turn; and an RFD subagent is a run with its prompt and words.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_standard_clients_signals_show_background_commands_and_rfd_subagents() {
@@ -1186,6 +1459,28 @@ async fn a_standard_clients_signals_show_background_commands_and_rfd_subagents()
         ],
         "a command's output comes from its terminal"
     );
+    // The call that sent the crawl to the background is written again as the
+    // start of its run, before its result, so its step reads "Started a
+    // command" and the run's line stands for it; the foreground `ls` stays
+    // the command it was.
+    let kinds: Vec<(&str, &str)> = turn
+        .iter()
+        .filter_map(|update| match update {
+            Update::ToolCall { call_id, kind, .. } => Some((call_id.as_str(), kind.as_str())),
+            Update::ToolResult { call_id, .. } => Some((call_id.as_str(), "result")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("c1", "execute"),
+            ("c1", super::super::translate::BACKGROUND_COMMAND),
+            ("c1", "result"),
+            ("c2", "execute"),
+            ("c2", "result"),
+        ]
+    );
 
     let mut reported = Vec::new();
     for _ in 0..500 {
@@ -1240,6 +1535,21 @@ async fn a_standard_clients_signals_show_background_commands_and_rfd_subagents()
             SubagentReport::Ended {
                 child: "child-1".to_string(),
                 status: SubagentStatus::Done,
+            },
+            SubagentReport::Output {
+                child: "c1".to_string(),
+                text: "site 1\n".to_string(),
+                replaces: false,
+            },
+            SubagentReport::Output {
+                child: "c1".to_string(),
+                text: "site 1\nsite 2\n".to_string(),
+                replaces: true,
+            },
+            SubagentReport::Output {
+                child: "c1".to_string(),
+                text: "done\n".to_string(),
+                replaces: false,
             },
             SubagentReport::Ended {
                 child: "c1".to_string(),
@@ -1310,5 +1620,265 @@ fn an_rfd_subagent_update_is_read_as_its_start_or_its_end() {
             "content": [{ "type": "text", "text": "Done." }],
         })),
         None
+    );
+}
+
+/// One turn as the real harnesses send it, from Quill's turn of 2026-11-12
+/// 16:09 in the dev desk (Claude Code through claude-agent-acp 0.106, the
+/// "four helpers" comparison chart: `transcripts/1e615299…/1.jsonl`, lines
+/// 804-843), with Codex 2.6's shapes for the same tools from its adapter's
+/// source, since no Codex turn on the dev desk has called them yet. Claude
+/// says what it is on through `mcp__hotline__activity`, runs a command of its
+/// own, starts four helpers that it announces with the RFD's
+/// `subagent_update` and their prompts as `session_message`s whose id is the
+/// launch's own (the launch call itself is never shown), fails to start a
+/// fifth (the adapter shows that launch, failed, titled by its description),
+/// and says what came of it through `mcp__hotline__outcome`. Codex says what
+/// it is on through `mcp.hotline.activity` and fails a `spawnAgent`.
+fn real_starts_agent() -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("real-starts")
+            .on_receive_request(
+                async move |_request: RawInitialize, responder: Responder<InitializeResponse>, _cx| {
+                    responder.respond(InitializeResponse::new(ProtocolVersion::V1))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: NewSessionRequest,
+                            responder: Responder<NewSessionResponse>,
+                            _cx| {
+                    responder.respond(NewSessionResponse::new(SessionId::new("parent")))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: PromptRequest,
+                            responder: Responder<PromptResponse>,
+                            cx: ConnectionTo<Client>| {
+                    let say = |session: &str, update: Value| {
+                        cx.send_notification(RawSessionUpdate {
+                            session_id: session.to_string(),
+                            update,
+                        })
+                    };
+                    let done = |id: &str, title: &str, kind: &str, meta: Value, input: Value| {
+                        serde_json::json!({
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": id,
+                            "title": title,
+                            "kind": kind,
+                            "status": "completed",
+                            "rawInput": input,
+                            "content": [{ "type": "content", "content": { "type": "text", "text": "Noted." } }],
+                            "_meta": meta,
+                        })
+                    };
+                    let claude = |name: &str| serde_json::json!({ "claudeCode": { "toolName": name } });
+                    say("parent", done(
+                        "toolu_01NdUJc9fnzhTay6TEygqB9Z",
+                        "mcp__hotline__activity",
+                        "other",
+                        claude("mcp__hotline__activity"),
+                        serde_json::json!({ "type": "searching", "message": "Checking each tool's features at the source" }),
+                    ))?;
+                    for (child, launch, group) in [
+                        ("sub-a", "toolu_a", "A"),
+                        ("sub-b", "toolu_b", "B"),
+                        ("sub-c", "toolu_c", "C"),
+                        ("sub-d", "toolu_d", "D"),
+                    ] {
+                        say("parent", serde_json::json!({
+                            "sessionUpdate": "subagent_update",
+                            "sessionId": child,
+                            "title": format!("Profile agent tools group {group}"),
+                            "capabilities": { "cancel": {} },
+                            "state": { "state": "running" },
+                        }))?;
+                        say(child, serde_json::json!({
+                            "sessionUpdate": "session_message",
+                            "messageId": launch,
+                            "senderSessionId": "parent",
+                            "recipientSessionId": child,
+                            "senderMessageId": launch,
+                            "content": [{ "type": "text", "text": format!("Profile group {group}.") }],
+                        }))?;
+                    }
+                    say("parent", done(
+                        "toolu_01Lz9mnJkGDZVxVrVPRq3jNC",
+                        "cd /Users/george/Projects/personal/hotline && git tag --sort=-creatordate | head -2",
+                        "execute",
+                        claude("Bash"),
+                        serde_json::json!({
+                            "command": "cd /Users/george/Projects/personal/hotline && git tag --sort=-creatordate | head -2",
+                            "description": "Check Hotline release and docs for its own row",
+                        }),
+                    ))?;
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "toolu_e",
+                        "title": "Profile agent tools group E",
+                        "kind": "think",
+                        "status": "failed",
+                        "rawInput": { "description": "Profile agent tools group E", "prompt": "Profile group E.", "subagent_type": "general-purpose", "run_in_background": true },
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "Agent type 'general-purpose' is not available." } }],
+                        "_meta": claude("Agent"),
+                    }))?;
+                    say("parent", done(
+                        "toolu_012WrgRKgx1iys2LLvEN3iGX",
+                        "mcp__hotline__outcome",
+                        "other",
+                        claude("mcp__hotline__outcome"),
+                        serde_json::json!({ "type": "made", "message": "Comparison chart of 16 agent tools vs Hotline" }),
+                    ))?;
+                    say("parent", done(
+                        "call_codex_activity",
+                        "mcp.hotline.activity",
+                        "execute",
+                        serde_json::json!({ "is_mcp_tool_call": true }),
+                        serde_json::json!({ "server": "hotline", "tool": "activity", "arguments": { "type": "reading" } }),
+                    ))?;
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "call_codex_spawn",
+                        "title": "spawnAgent",
+                        "kind": "other",
+                        "status": "failed",
+                        "rawInput": {
+                            "prompt": "Profile group F.",
+                            "senderThreadId": "thr_root",
+                            "receiverThreadIds": [],
+                            "agentsStates": {},
+                            "model": null,
+                            "reasoningEffort": null,
+                            "status": "failed",
+                        },
+                    }))?;
+                    responder.respond(PromptResponse::new(StopReason::EndTurn))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the real-starts agent ended: {error}");
+        }
+    }
+}
+
+/// Each step reaches the turn under the desk's kind for the tool behind it:
+/// the two Hotline tools Claude calls and the one Codex calls are Hotline's,
+/// so their steps are the lines they wrote and not steps; a launch that
+/// failed is the start of a helper, failed, in the desk's words, from Claude
+/// and from Codex alike; an unrelated command stays the command it is; and
+/// four helpers announced with no launch shown are four runs and no step.
+#[tokio::test(flavor = "multi_thread")]
+async fn real_harnesses_starts_and_declarations_reach_the_turn_under_the_desks_kinds() {
+    use crate::contract::RunKind;
+    let held = room("real-starts-room");
+    let quill = persona(&scratch_cwd(), Vec::new());
+    let driver = ChildAgent::new(
+        scratch("real-starts"),
+        "claude".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "quill"),
+    );
+    tokio::spawn(real_starts_agent());
+    let mut reports = Driver::subscribe_subagents(&driver).unwrap();
+    driver.handshake(&quill, client_transport()).await.unwrap();
+    let mut updates = driver
+        .prompt(
+            "compare the desks".to_string(),
+            Vec::new(),
+            Reach::Workspace,
+        )
+        .await;
+    // Each step as the tape will say it: its kind, and its words from its
+    // title, its kind and the agent's own description of it.
+    let mut steps: Vec<(String, String, String, Option<String>)> = Vec::new();
+    loop {
+        match next(&mut updates).await {
+            Update::ToolCall {
+                call_id,
+                title,
+                kind,
+            } => steps.push((call_id, title, kind, None)),
+            Update::ToolSaid { call_id, words } => {
+                if let Some(step) = steps.iter_mut().find(|step| step.0 == call_id) {
+                    step.3 = Some(words);
+                }
+            }
+            Update::Turn { .. } => break,
+            _ => {}
+        }
+    }
+    let said: Vec<(&str, &str, String, String)> = steps
+        .iter()
+        .map(|(id, title, kind, words)| {
+            let said = crate::glance::step_said(title, kind, words.as_deref());
+            (id.as_str(), kind.as_str(), said.key, said.one)
+        })
+        .collect();
+    let line = |id: &'static str, kind: &'static str, key: &str, one: &str| {
+        (id, kind, key.to_string(), one.to_string())
+    };
+    assert_eq!(
+        said,
+        [
+            line(
+                "toolu_01NdUJc9fnzhTay6TEygqB9Z",
+                "mcp__hotline__activity",
+                "activity",
+                "Said what it is on"
+            ),
+            line(
+                "toolu_01Lz9mnJkGDZVxVrVPRq3jNC",
+                "execute",
+                "own:execute",
+                "Check Hotline release and docs for its own row"
+            ),
+            line("toolu_e", SUBAGENT_LAUNCH, "subagent", "Started a helper"),
+            line(
+                "toolu_012WrgRKgx1iys2LLvEN3iGX",
+                "mcp__hotline__outcome",
+                "outcome",
+                "Said what came of it"
+            ),
+            line(
+                "call_codex_activity",
+                "mcp__hotline__activity",
+                "activity",
+                "Said what it is on"
+            ),
+            line(
+                "call_codex_spawn",
+                SUBAGENT_LAUNCH,
+                "subagent",
+                "Started a helper"
+            ),
+        ]
+    );
+
+    let mut started = Vec::new();
+    for _ in 0..200 {
+        while let Ok(report) = reports.try_recv() {
+            if let SubagentReport::Started { title, kind, .. } = report {
+                started.push((title, kind));
+            }
+        }
+        if started.len() == 4 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        started,
+        ["A", "B", "C", "D"].map(|group| (
+            format!("Profile agent tools group {group}"),
+            RunKind::Subagent
+        ))
     );
 }

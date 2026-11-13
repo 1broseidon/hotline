@@ -49,7 +49,7 @@ about?: ThreadId, level: AsideLevel,
  */
 heard?: number, 
 /**
- * When the person last opened the teammate's Noted page with it there
+ * When the person last read the teammate's notes with it there
  * (`aside.seen`): the person's reading, apart from the teammate's
  * hearing. Absent until then.
  */
@@ -1660,7 +1660,10 @@ export type PlanWindow = {
 /**
  * The agent's name for the window: `five_hour`, `seven_day`,
  * `seven_day_opus`, `seven_day_sonnet`, a model's own
- * `seven_day_<model>`, `monthly`.
+ * `seven_day_<model>`, `monthly`; Claude Code's
+ * `seven_day_overage_included` (a model's own allowance, kept under that
+ * model's window once the plan has one) and `overage` (extra usage);
+ * or a kind the desk does not know yet.
  */
 kind: string, 
 /**
@@ -1878,12 +1881,19 @@ workingJobs?: Array<string>,
  */
 workingCalls?: Array<string>, 
 /**
+ * The threads between this teammate and another with a request being
+ * answered now, by pair key: the rule `thread.list` reads a pair as live
+ * by, sent again as it changes, since a pair has no agent of its own
+ * for the roster to follow. Absent when there are none.
+ */
+workingPairs?: Array<string>, 
+/**
  * How many asides this teammate has been left that no turn of its has
  * heard yet (`aside.list` lists them). Absent when there are none.
  */
 asides?: number, 
 /**
- * How many of them the person has not seen on its Noted page yet
+ * How many of them the person has not read among its notes yet
  * (`aside.seen` marks them). Absent when there are none.
  */
 asidesNew?: number, session: SessionInfo, };
@@ -1918,7 +1928,38 @@ title: string, startedAt: number,
  * background. Absent for a subagent, so a client that predates it reads
  * the row as it did.
  */
-kind?: RunKind, };
+kind?: RunKind, 
+/**
+ * What the run did last, in one short line: its latest step as a
+ * glance says it ("Read Dock.tsx"), or the first clause of its latest
+ * words in quotes. Kept as the run's stream is written, so every
+ * surface that lists the run can say what it is doing without opening
+ * it. Absent until it has done or said anything.
+ */
+lastStep?: string, 
+/**
+ * How many steps (tool calls) the run has taken so far. Absent before
+ * its first, so a row from a desk that predates it reads as none.
+ */
+steps?: number, 
+/**
+ * The command a shell run runs, as its harness titled it. Absent for a
+ * subagent.
+ */
+command?: string, 
+/**
+ * The model the run works on, as its teammate's picker names it, when
+ * the desk knows it: a run of Hotline's own is on the model its
+ * teammate was on when it started. Absent for a harness's subagent,
+ * whose harness does not say.
+ */
+model?: string, 
+/**
+ * The person can stop the run (`thread.cancel` on it). A run of
+ * Hotline's own can be; a harness's subagent cannot, since its harness
+ * has no way to stop one run. Absent when it cannot.
+ */
+stoppable?: boolean, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the
@@ -2530,7 +2571,20 @@ preview?: string,
 /**
  * What a closed thread came to, in a line.
  */
-outcome?: string, };
+outcome?: string, 
+/**
+ * What a run runs, when it is a command a harness left running rather
+ * than a subagent, as its link records: so a list says Command after
+ * the roster has let it go. Absent for a subagent and every other kind.
+ */
+runKind?: RunKind, 
+/**
+ * For a job's thread that has fired: whether its latest firing posted
+ * to the chat. A quiet job's firing that found nothing says nothing
+ * there, and a list takes it for routine. Absent for every other
+ * thread, and for a job that has not fired.
+ */
+posted?: boolean, };
 
 /**
  * What one turn's requests cost in tokens. On Hotline Agent the input counts
@@ -2602,7 +2656,13 @@ export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
  * at startup. Note this is Hotline's own record: replaying it is not the same as
  * the agent remembering the conversation.
  */
-export type TranscriptEvent = { "kind": "user", id: string, ts: number, text: string, attachments?: Array<Attachment>, reactions?: Array<string>, replyTo?: string, 
+export type TranscriptEvent = { "kind": "user", id: string, ts: number, text: string, 
+/**
+ * On a pair's line that is a handoff or its result: the key of the
+ * work thread the handoff runs in, so the pair says so and opens it.
+ * Absent on every other line, and on one written before it.
+ */
+handoffThread?: string, attachments?: Array<Attachment>, reactions?: Array<string>, replyTo?: string, 
 /**
  * Nobody typed this: a schedule fired. The text stays the prompt in
  * full; this is what lets the transcript draw one line and keep the
@@ -2623,6 +2683,12 @@ client?: Client, } | { "kind": "agent", id: string, ts: number,
  * With a file, the caption, which may be empty.
  */
 text: string, 
+/**
+ * On a pair's line that is a handoff or its result: the key of the
+ * work thread the handoff runs in, so the pair says so and opens it.
+ * Absent on every other line, and on one written before it.
+ */
+handoffThread?: string, 
 /**
  * A file the teammate sent the person with `send_file`: one per
  * message, read back with `file.read`.
@@ -2668,9 +2734,12 @@ said?: StepSaid,
  */
 endedTs?: number, 
 /**
- * The web pages a step read or found: a fetch's page, a web
- * search's results, each as the step's own output names it. Absent
- * on every other step, and on steps written before 0.45.
+ * The web pages a step opened or found: a fetch's page, a `curl`
+ * command's, the page the teammate's browser went to (since
+ * 0.49), a web search's results (`found`, but read when the search
+ * hands the model their content, as Claude Code's does, since
+ * 0.49), each as the step's own output names it. Absent on every
+ * other step, and on steps written before 0.45.
  */
 sources?: Array<WebSource>, } | { "kind": "permission", 
 /**
@@ -2901,7 +2970,27 @@ handoffEnded?: boolean,
  * teammate's main conversation was busy, so the thread answered
  * for it. Its link is on that pair's thread too.
  */
-askedIn?: string, } | { "kind": "aside" } & Aside | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+askedIn?: string, 
+/**
+ * The words a colleague's handoff or question opened this work
+ * thread with, as sent, cut to 4,000 characters, for a client to
+ * say what was asked without opening the thread.
+ * Absent for any other thread, and on a link written before it.
+ */
+request?: string, 
+/**
+ * What a run runs: `shell` for a command a harness left running.
+ * Absent for a subagent and every other kind.
+ */
+runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "activity", id: string, ts: number, type: string, message?: string, } | { "kind": "outcome", id: string, ts: number, type: string, message: string, state?: string, 
+/**
+ * The teammate's own name for it, by which an open one is closed.
+ */
+key: string, 
+/**
+ * When an open one was closed.
+ */
+closedAt?: number, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

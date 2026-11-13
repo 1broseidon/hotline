@@ -48,7 +48,8 @@ const fetched = (url: string, title: string, took: number) =>
 function recorded(): Step[] {
 	at = 0;
 	return [
-		step('Search "release blockers"', "fetch", "Searched the web", {
+		// Hotline's web_search, which only lists what it found (Claude Code's reads it: opened-sources.test.ts).
+		step("web_search: release blockers", "search", "Searched the web", {
 			endedTs: 1400,
 			sources: [
 				{ url: "https://nextjs.org/blog/next-15-4", title: "Next.js 15.4", found: true },
@@ -75,11 +76,10 @@ function before045(): Step[] {
 }
 
 describe("a turn's work in words and counts", () => {
-	test("the done summary counts steps, distinct sources, files and failures", async () => {
-		const { summaryOf, summaryWords } = await import("../src/turnFacts");
-		const summary = summaryOf(recorded());
-		expect(summary).toEqual({ steps: 7, sources: 4, files: 2, failed: 1 });
-		expect(summaryWords(summary)).toEqual({ said: "7 steps · 4 sources · 2 files", failed: "1 failed" });
+	test("the summary counts steps, distinct pages opened, files and failures", async () => {
+		const { summaryOf } = await import("../src/turnFacts");
+		// Two pages opened; what the search listed and the turn never opened is not counted.
+		expect(summaryOf(recorded())).toEqual({ steps: 7, sources: 2, files: 2, failed: 1 });
 	});
 
 	test("each line's fact is one the steps recorded: results, lines in and out, tests passed, a time, a timeout", async () => {
@@ -121,12 +121,12 @@ describe("the pane's sections, built from a recorded turn", () => {
 		const { Trail } = await import("../src/components/transcript/Trail");
 		await act(async () => root.render(<Trail items={recorded()} settled />));
 		const headings = [...container.querySelectorAll(".work-heading")].map((one) => one.textContent);
-		expect(headings).toEqual(["Sources · 4", "Files changed · 2", "Steps · 7"]);
+		expect(headings).toEqual(["Sources · 2", "Files changed · 2", "Steps · 7"]);
 		const cards = [...container.querySelectorAll<HTMLAnchorElement>("a.source-card")];
-		expect(cards.map((card) => card.querySelector(".source-site")?.textContent)).toEqual(["nextjs.org", "stackoverflow.com", "github.com", "vercel.com"]);
+		// The pages opened, not github.com and vercel.com, which the search only listed.
+		expect(cards.map((card) => card.querySelector(".source-site")?.textContent)).toEqual(["nextjs.org", "stackoverflow.com"]);
+		// A page's own title over the one its listing gave.
 		expect(cards[0]!.querySelector(".source-title")?.textContent).toBe("Next.js 15.4: Turbopack builds are stable");
-		// A page with no title of its own says where on the site it is.
-		expect(cards[3]!.querySelector(".source-title")?.textContent).toBe("/changelog");
 		const files = [...container.querySelectorAll(".file-row")].map((row) => row.textContent);
 		expect(files).toEqual(["src/upload/Uploader.tsx+18 −4", "src/upload/safari.ts+31 −0"]);
 	});
@@ -155,8 +155,8 @@ describe("the pane's sections, built from a recorded turn", () => {
 	});
 });
 
-describe("the composer's row, in its five states", () => {
-	async function row(work: { activity: Activity; count?: number; done?: { steps: number; sources: number; files: number; failed: number } }) {
+describe("the composer's slot while a teammate works (epic-42)", () => {
+	async function row(work: { activity: Activity; open?: boolean }, onToggle: () => void = () => {}) {
 		const { Composer } = await import("../src/components/Composer");
 		await act(async () =>
 			root.render(
@@ -168,44 +168,53 @@ describe("the composer's row, in its five states", () => {
 					onSend={() => {}}
 					onCancel={() => {}}
 					onClearReply={() => {}}
-					work={{ sleeping: false, open: false, onToggle: () => {}, ...work }}
+					work={{ sleeping: false, open: false, onToggle, ...work }}
 				/>,
 			),
 		);
 		return container.querySelector<HTMLButtonElement>("button.composer-work")!;
 	}
 
-	test("Thinking: the mark and the word", async () => {
-		const button = await row({ activity: { phase: "thinking", word: "Thinking" } });
-		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Thinking");
-		expect(button.querySelector(".composer-work-count")).toBeNull();
+	test("the teammate's own words beside the mark, and no step count, chevron or word of the desk's", async () => {
+		const button = await row({ activity: { phase: "read", word: "Reading the lease" } });
+		expect(button.querySelector(".glyph")).not.toBeNull();
+		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Reading the lease");
+		expect(button.textContent).toBe("Reading the lease");
+		expect(button.querySelector(".composer-work-chevron")).toBeNull();
+		expect(button.title).toBe("Show the path");
 	});
 
-	test("Working: what it is doing now and how many steps so far", async () => {
-		const button = await row({ activity: { phase: "doing", word: "Searching issues in arc-ui/web" }, count: 5 });
-		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Searching issues in arc-ui/web");
-		expect(button.querySelector(".composer-work-count")?.textContent).toBe("5");
+	test("with nothing said, the mark alone: no Working, no words, and its name for a screen reader", async () => {
+		const button = await row({ activity: { phase: "execute", word: "" } });
+		expect(button.querySelector(".glyph")).not.toBeNull();
+		expect(button.querySelector(".composer-work-word")).toBeNull();
+		expect(button.textContent).toBe("");
+		expect(button.getAttribute("aria-label")).toBe("Show the path");
 	});
 
-	test("Reading the web: the site, and the icons of the sites read so far", async () => {
-		const button = await row({ activity: { phase: "search", word: "Reading vercel.com", sites: ["nextjs.org", "github.com", "vercel.com"] }, count: 4 });
-		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Reading vercel.com");
-		// An icon is only what the desk fetched and keeps (tests/link-previews.test.tsx); the
-		// window never asks a site, and with no desk here it has none to draw, nor a stand-in.
-		expect(button.querySelector(".favicons")).toBeNull();
-		expect(button.querySelectorAll("img").length).toBe(0);
+	test("new words come in as new words, so they fade in rather than change in place", async () => {
+		const first = (await row({ activity: { phase: "search", word: "Finding plumbers near you" } })).querySelector(".composer-work-word");
+		const same = (await row({ activity: { phase: "search", word: "Finding plumbers near you" } })).querySelector(".composer-work-word");
+		expect(same).toBe(first);
+		const next = (await row({ activity: { phase: "edit", word: "Filling out form T-128" } })).querySelector(".composer-work-word");
+		expect(next).not.toBe(first);
+		expect(next?.textContent).toBe("Filling out form T-128");
 	});
 
-	test("Needs you: amber, with what waits", async () => {
+	test("pressed, it opens the running turn's path, and reads as open while the pane shows it", async () => {
+		const pressed: number[] = [];
+		const button = await row({ activity: { phase: "talking", word: "Asking Huck for the numbers" } }, () => pressed.push(1));
+		await act(async () => button.click());
+		expect(pressed).toEqual([1]);
+		const open = await row({ activity: { phase: "talking", word: "Asking Huck for the numbers" }, open: true });
+		expect(open.getAttribute("aria-expanded")).toBe("true");
+		expect(open.title).toBe("Hide the path");
+	});
+
+	test("Needs you stays the desk's own: amber, with what waits, and its chevron", async () => {
 		const button = await row({ activity: { phase: "blocked", word: "Needs you · Allow rm -rf build" } });
 		expect(button.hasAttribute("data-blocked")).toBe(true);
 		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Needs you · Allow rm -rf build");
-	});
-
-	test("Done: the counts, the failure apart, and no mark", async () => {
-		const button = await row({ activity: { phase: "rest", word: "" }, done: { steps: 12, sources: 4, files: 3, failed: 1 } });
-		expect(button.querySelector(".composer-work-word")?.textContent).toBe("12 steps · 4 sources · 3 files");
-		expect(button.querySelector(".composer-work-failed")?.textContent).toBe("1 failed");
-		expect(button.querySelector(".glyph")).toBeNull();
+		expect(button.querySelector(".composer-work-chevron")).not.toBeNull();
 	});
 });

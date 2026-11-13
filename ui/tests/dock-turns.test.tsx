@@ -8,6 +8,7 @@ import { installDom } from "./dom";
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Dock } = await import("../src/components/Dock");
 const { replaceDesks, wireFor } = await import("../src/desks");
+const { BURST_MS } = await import("../src/tape");
 
 const persona = (id: string, name: string): Persona => ({
 	id, name, goal: "", backendId: "hotline", cwd: `/work/${id}`,
@@ -205,7 +206,7 @@ describe("a handed-over thread continued in the pane", () => {
 
 describe("a handed-over thread's lines", () => {
 	for (const pane of [exec, lead]) {
-		test(`are the person's on the right, and the thread's teammate's and the opener's on the left under their names, in ${pane.name}'s pane`, async () => {
+		test(`are the request on its card, the person's on the right, and the receiver's on the left labelled as going back to the sender, in ${pane.name}'s pane`, async () => {
 			desk = { key: `work-sides-${pane.id}`, state: "live", working: false };
 			await show(pane, false);
 			await act(async () => {
@@ -215,15 +216,19 @@ describe("a handed-over thread's lines", () => {
 				});
 				threadHandlers?.event({ kind: "user", id: "u1", ts: 4, text: "Add div too." });
 				threadHandlers?.event({ kind: "agent", id: "a2", ts: 5, text: "Added div:\n\n- `div` raises on zero\n- two tests" });
+				// The lines behind the first land together, when the burst's wait is over.
+				await new Promise((resolve) => setTimeout(resolve, BURST_MS));
 			});
 			const bubble = (text: string) => [...container.querySelectorAll(".speech")].find((one) => one.textContent?.includes(text));
 			const nameAbove = (text: string) => bubble(text)?.parentElement?.querySelector(".said-name")?.textContent;
 			for (const theirs of ["Three tests pass.", "raises on zero"]) {
 				expect(bubble(theirs)?.classList.contains("said-them")).toBe(true);
-				expect(nameAbove(theirs)).toBe("Exec");
+				expect(nameAbove(theirs)).toBe("Exec → Lead");
 			}
-			expect(bubble("Add mul to calc.py.")?.classList.contains("said-them")).toBe(true);
-			expect(nameAbove("Add mul to calc.py.")).toBe("Lead");
+			// The request is the handoff's task card, not a line of the stream.
+			expect(container.querySelector(".pane-task-body")?.textContent).toBe("Add mul to calc.py.");
+			expect(container.querySelector(".pane-task-from")?.textContent).toEndWith("from Lead");
+			expect(bubble("Add mul to calc.py.")).toBeUndefined();
 			expect(bubble("Add div too.")?.classList.contains("said-me")).toBe(true);
 			expect([...container.querySelectorAll(".said-name")].map((one) => one.textContent)).toContain("You");
 			expect([...container.querySelectorAll(".said-me")].every((one) => one.textContent?.includes("Add div too."))).toBe(true);
@@ -287,6 +292,32 @@ describe("the bar of a handed-over thread", () => {
 		await show(receiver, false);
 		expect(container.textContent).toContain("Poe handed this to Toad. The handoff has ended.");
 		expect(container.textContent).toContain("Talk to Poe about it");
+	});
+});
+
+describe("the head of a handed-over thread", () => {
+	for (const pane of [exec, lead]) {
+		test(`says it is a handoff, who it is from and to, and where answers go, in ${pane.name}'s pane`, async () => {
+			desk = { key: `work-head-${pane.id}`, state: "live", working: false };
+			await show(pane, false);
+			const head = container.querySelector(".pane-head");
+			expect(container.querySelector(".band-kind")?.textContent).toBe("⇄ Handoff");
+			expect(head?.querySelector(".pane-meta")?.textContent).toBe("from Lead · to Exec · answers go back to Lead");
+			// The band says the kind and the head the title, as on every thread's pane.
+			expect(head?.querySelector(".pane-title")?.textContent).not.toBe("");
+		});
+	}
+});
+
+describe("task-394 a handoff's pane in the dock", () => {
+	test("keeps its composer (Message), Stop and End thread as today, and has no Handed off from block", async () => {
+		desk = { key: "work-keeps", state: "live", working: true };
+		await show(exec, true);
+		expect(container.querySelector("textarea")?.getAttribute("placeholder")).toBe("Message");
+		expect(container.querySelector('button[title="End this thread"]')).not.toBeNull();
+		expect(container.querySelector('button[title="Stop this turn"]')).not.toBeNull();
+		expect(container.querySelector("details")).toBeNull();
+		expect(container.textContent).not.toContain("Handed off from");
 	});
 });
 

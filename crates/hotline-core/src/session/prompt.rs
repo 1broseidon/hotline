@@ -316,6 +316,7 @@ impl Room {
         self.append(
             session,
             TranscriptEvent::User {
+                handoff_thread: None,
                 id: id.clone(),
                 ts,
                 text: sending.shown,
@@ -374,6 +375,7 @@ impl Room {
             .find(|event| event["kind"] == "user" && event.get("scheduled").is_none())
             .ok_or_else(|| "There is no message from the person to react to.".to_string())?;
         let TranscriptEvent::User {
+            handoff_thread,
             id,
             ts,
             text,
@@ -397,6 +399,7 @@ impl Room {
         self.write(
             &session.persona_id,
             &TranscriptEvent::User {
+                handoff_thread,
                 id,
                 ts,
                 text,
@@ -704,6 +707,7 @@ pub(super) fn event_of(
                         .into_iter()
                         .enumerate()
                         .map(|(i, text)| TranscriptEvent::Agent {
+                            handoff_thread: None,
                             id: if i == 0 {
                                 id.clone()
                             } else {
@@ -831,6 +835,23 @@ pub(super) fn event_of(
             options,
             decision: None,
             decided_option_name: None,
+        }],
+        // The same card by the same id, so it is superseded where it stands,
+        // settled as an answered card is: the outcome, and its words, which
+        // are the room's for a wait nobody answered (`peers`, `browser`).
+        Update::PermissionExpired {
+            request_id,
+            title,
+            options,
+        } => vec![TranscriptEvent::Permission {
+            from: None,
+            id: format!("perm:{request_id}"),
+            ts: now_ms(),
+            request_id,
+            title,
+            options,
+            decision: Some("expired".to_string()),
+            decided_option_name: Some("Expired unanswered".to_string()),
         }],
         Update::Turn { stop_reason, usage } => vec![TranscriptEvent::Turn {
             id: new_id(),

@@ -9,16 +9,26 @@
 //! calls is answered "On it." A REPLY_JSON line supplies a JSON string as
 //! the answer, so reply-format scenarios need not echo session instructions.
 //! REPORT_TOOLS also emits ACP tool notifications around those MCP calls.
+//! `STEP <json>` anywhere in a line reports one of the agent's own steps, as a harness
+//! reports a tool of its own or of another MCP server: `{"title", "kind",
+//! "output", "failed"?}`, announced and then finished with its output as
+//! the call's content, before any calls.
+//! `CALL ask_permission {"command": "..."}` is the fixture's own: it asks the
+//! person to allow a shell command, as a harness does before running one,
+//! and reports the command as run or failed by the answer it gets.
+//! `CALL wait_for {"path": "..."}` holds the calls after it until that file
+//! exists, as a WAIT_FOR line holds the end of the turn.
 
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
-    McpServer, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields,
+    AgentCapabilities, Content, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
+    McpServer, NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
+    PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest, SessionId,
+    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallContent,
+    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use serde_json::Value;
@@ -94,6 +104,7 @@ async fn main() {
                     // The calls run off the connection's own loop, which has
                     // to stay free to carry the session's other messages.
                     cx.spawn(async move {
+                        report_steps(&said, &replying, &session)?;
                         let reply = answer(&said, desk, &replying, &session).await;
                         if let Some(path) = said
                             .lines()
@@ -192,6 +203,55 @@ fn calls(said: &str) -> Vec<(String, Value)> {
         .collect()
 }
 
+/// Reports each `STEP <json>` as a step the agent ran itself: the call
+/// announced with its title and kind, then finished with its output.
+fn report_steps(
+    said: &str,
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+) -> Result<(), agent_client_protocol::Error> {
+    for step in said
+        .lines()
+        .filter_map(|line| Some(&line[line.find("STEP ")? + "STEP ".len()..]))
+    {
+        let step: Value = serde_json::from_str(step).expect("STEP is JSON");
+        let text = |field: &str| step[field].as_str().unwrap_or_default().to_string();
+        let kind = match text("kind").as_str() {
+            "fetch" => ToolKind::Fetch,
+            "execute" => ToolKind::Execute,
+            "search" => ToolKind::Search,
+            "read" => ToolKind::Read,
+            _ => ToolKind::Other,
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        connection.send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCall(
+                ToolCall::new(id.clone(), text("title"))
+                    .kind(kind)
+                    .status(ToolCallStatus::InProgress),
+            ),
+        ))?;
+        let status = if step["failed"] == true {
+            ToolCallStatus::Failed
+        } else {
+            ToolCallStatus::Completed
+        };
+        connection.send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                id,
+                ToolCallUpdateFields::new()
+                    .status(status)
+                    .content(vec![ToolCallContent::Content(Content::new(
+                        ContentBlock::Text(TextContent::new(text("output"))),
+                    ))]),
+            )),
+        ))?;
+    }
+    Ok(())
+}
+
 /// Makes the calls the prompt asks for and says what came back.
 async fn answer(
     said: &str,
@@ -210,7 +270,7 @@ async fn answer(
         reqwest::Client::default(),
         StreamableHttpClientTransportConfig::with_uri(desk.url).auth_header(desk.token),
     );
-    let client = ClientInfo::new(
+    let client = ClientConfig::new(
         ClientCapabilities::default(),
         Implementation::new("hotline-acp-fixture", env!("CARGO_PKG_VERSION")),
     );
@@ -223,6 +283,18 @@ async fn answer(
     for (tool, arguments) in calls {
         if matches!(tool.as_str(), "write" | "edit") {
             lines.push(write_file(connection, session, &tool, &arguments).await);
+            continue;
+        }
+        if tool == "ask_permission" {
+            lines.push(ask_permission(connection, session, &arguments).await);
+            continue;
+        }
+        if tool == "wait_for" {
+            let path = arguments["path"].as_str().expect("fixture path");
+            while !std::path::Path::new(path).exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            lines.push("wait_for: there".to_string());
             continue;
         }
 
@@ -345,4 +417,68 @@ async fn write_file(
         ))
         .unwrap();
     format!("{tool}: {status:?}")
+}
+
+/// Asks the person to allow a shell command and waits for the answer, as a
+/// harness does before it runs one. The command is announced first, and ends
+/// run or failed with what the harness would say of the answer: Claude's
+/// adapter reports a cancelled request as the person's refusal.
+async fn ask_permission(
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+    arguments: &Value,
+) -> String {
+    let command = arguments["command"].as_str().expect("fixture command");
+    let input = serde_json::json!({"command": command});
+    let id = uuid::Uuid::new_v4().to_string();
+    connection
+        .send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCall(
+                ToolCall::new(id.clone(), command)
+                    .kind(ToolKind::Execute)
+                    .status(ToolCallStatus::Pending)
+                    .raw_input(input.clone()),
+            ),
+        ))
+        .unwrap();
+    let answered = connection
+        .send_request(RequestPermissionRequest::new(
+            session.clone(),
+            ToolCallUpdate::new(id.clone(), ToolCallUpdateFields::new().raw_input(input)),
+            vec![
+                PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
+                PermissionOption::new("deny", "Deny", PermissionOptionKind::RejectOnce),
+            ],
+        ))
+        .block_task()
+        .await;
+    let (status, said) = match answered.map(|answer| answer.outcome) {
+        Ok(RequestPermissionOutcome::Selected(chosen))
+            if chosen.option_id.0.as_ref() == "allow" =>
+        {
+            (ToolCallStatus::Completed, "ran")
+        }
+        Ok(RequestPermissionOutcome::Selected(_)) => (ToolCallStatus::Failed, "The person said no"),
+        _ => (
+            ToolCallStatus::Failed,
+            "User refused permission to run tool",
+        ),
+    };
+    let content = serde_json::from_value(
+        serde_json::json!({"type": "content", "content": {"type": "text", "text": said}}),
+    )
+    .unwrap();
+    connection
+        .send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                id,
+                ToolCallUpdateFields::new()
+                    .status(status)
+                    .content(vec![content]),
+            )),
+        ))
+        .unwrap();
+    format!("ask_permission: {said}")
 }

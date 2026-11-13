@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { Root } from "react-dom/client";
 import type { PlanUsage } from "../src/generated/contract";
 import { installDom } from "./dom";
@@ -117,4 +118,76 @@ test("focus shows the card too; a click pins it until a click elsewhere or Escap
 	expect(card()).not.toBeNull();
 	await act(async () => button.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
 	expect(card()).toBeNull();
+});
+
+test("each name stays on one line in a column as wide as the longest, a long one shortened and whole on hover, in the order the reading has them", async () => {
+	const week = Date.now() + 6 * 24 * hour;
+	const button = (await gauge({
+		at: 1,
+		plan: "Max",
+		windows: [
+			{ kind: "five_hour", usedPercent: 12, status: "allowed", windowMinutes: 300, resetsAt: Date.now() + 2 * hour },
+			{ kind: "seven_day", usedPercent: 17, status: "allowed", windowMinutes: 10_080, resetsAt: week },
+			{ kind: "seven_day_fable", label: "Weekly · Fable", status: "limited", windowMinutes: 10_080, resetsAt: week },
+			{ kind: "seven_day_priority_burst", usedPercent: 85, status: "warning", windowMinutes: 10_080, resetsAt: week },
+			{ kind: "overage", usedPercent: 92, status: "warning", resetsAt: week },
+		],
+	}))!;
+	await act(async () => button.click());
+	const shown = card()!;
+	const names = [...shown.querySelectorAll<HTMLElement>(".plan-name")];
+	expect(names.map((name) => [name.textContent, name.title])).toEqual([
+		["5h", ""],
+		["Weekly", ""],
+		["Fable", ""],
+		["Priority…", "Priority burst"],
+		["Extra", ""],
+	]);
+	expect(shown.querySelector<HTMLElement>(".plan-rows")!.style.getPropertyValue("--plan-name")).toBe("9ch");
+	// Extra usage is money past the plan: its share of the cap and its
+	// reset, no pace tick and no runway.
+	const extra = shown.querySelectorAll<HTMLElement>(".plan-window")[4]!;
+	expect(extra.querySelector(".plan-use")?.textContent).toBe("92%");
+	expect(extra.querySelector(".plan-tick")).toBeNull();
+	expect(extra.querySelector(".plan-runway")?.textContent).toMatch(/^Resets [^·]+$/);
+});
+
+test("a window whose reset has passed since it was read keeps its line with no figure, and the gauge does not count it", async () => {
+	const reading = plan(100, 39);
+	reading.windows[0] = { ...reading.windows[0]!, status: "limited", resetsAt: Date.now() - hour };
+	const button = (await gauge(reading))!;
+	expect(rings(button)).toEqual([
+		["outer", "39"],
+		["inner", "0"],
+	]);
+	expect(button.getAttribute("aria-label")).toBe("Plan usage: 5h reset, weekly 39%");
+	expect(button.dataset["near"]).toBeUndefined();
+	await act(async () => button.click());
+	const five = card()!.querySelectorAll<HTMLElement>(".plan-window")[0]!;
+	expect(five.dataset["status"]).toBe("allowed");
+	expect(five.querySelector(".plan-name")?.textContent).toBe("5h");
+	expect(five.querySelector(".plan-use")?.textContent).toBe("–");
+	expect(five.querySelector(".plan-tick")).toBeNull();
+	expect(five.querySelector(".plan-runway")?.textContent).toBe("Reset");
+});
+
+test("the gauge draws again when a window's reset passes", async () => {
+	const reading = plan(9, 39);
+	reading.windows[0] = { ...reading.windows[0]!, resetsAt: Date.now() + 50 };
+	const button = (await gauge(reading))!;
+	expect(rings(button)[1]).toEqual(["inner", "9"]);
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+	expect(rings(button)[1]).toEqual(["inner", "0"]);
+});
+
+test("a line's name never wraps onto its neighbours, and the card grows with its lines rather than scrolling the last under its edge", () => {
+	const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+	const rule = (selector: string) => css.match(new RegExp(`\\n\\t${selector.replace(/\./g, "\\.")} \\{([^}]*)\\}`))?.[1] ?? "";
+	expect(rule(".plan-row")).toMatch(/grid-template-columns:\s*var\(--plan-name\) 1fr/);
+	expect(rule(".plan-row")).toMatch(/height:\s*18px/);
+	const name = rule(".plan-name");
+	expect(name).toMatch(/white-space:\s*nowrap/);
+	expect(name).toMatch(/overflow:\s*hidden/);
+	expect(name).toMatch(/text-overflow:\s*ellipsis/);
+	expect(rule(".plan-card")).toMatch(/max-height:\s*none/);
 });

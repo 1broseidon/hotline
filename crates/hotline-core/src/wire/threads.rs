@@ -34,7 +34,7 @@ fn not_here(thread: &ThreadId, what: &str) -> String {
         ThreadKind::Side => "a work thread",
         ThreadKind::Pair => "a thread between two teammates",
         ThreadKind::Call => "a call",
-        ThreadKind::Run => "a subagent's run",
+        ThreadKind::Run => "a helper's run",
         ThreadKind::Job => "a job",
     };
     format!("{what} does not apply to {kind}.")
@@ -91,7 +91,7 @@ pub(super) fn cancel(
             let (a, b) = pair_of(thread)?;
             room.stop_exchange(a, b)?;
         }
-        ThreadKind::Run => return Err(not_here(thread, "Cancelling")),
+        ThreadKind::Run => room.run_cancel(&thread.key)?,
     }
     Ok(Value::Null)
 }
@@ -266,9 +266,10 @@ pub(super) fn page(
 }
 
 /// The threads of one teammate, or of the room: live first, then parked, then
-/// closed, each newest first. A companion is listed only what it may read: not
-/// pairs, which it may not list under their older name either, and not calls,
-/// whose summaries carry what was spoken in their `preview`.
+/// closed, each newest first. A companion is listed only what it may read
+/// (`phone_may_read`): not calls, whose summaries carry what was spoken in
+/// their `preview`. A pair is a thread like the rest, which it already
+/// subscribes to and pages, so it is listed too.
 pub(super) fn list(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -281,10 +282,7 @@ pub(super) fn list(
     let roster = crate::room::personas(&events);
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
-        .filter(|thread| {
-            !companion
-                || (thread.kind() != ThreadKind::Pair && super::seat::phone_may_read(&thread.id))
-        })
+        .filter(|thread| !companion || super::seat::phone_may_read(&thread.id))
         .map(|thread| summarize(log, room, thread, &roster, &events))
         .collect();
     summaries.sort_by_key(|summary| {
@@ -373,7 +371,11 @@ fn summarize(
         let events = StreamId::of_thread(&thread.id)
             .map(|stream| log.load(&stream))
             .unwrap_or_default();
-        let preview = crate::session::preview_line(&events);
+        let preview = if thread.kind() == ThreadKind::Pair {
+            crate::session::newest_line(&events)
+        } else {
+            crate::session::preview_line(&events)
+        };
         let started = events.iter().filter_map(ts_of).min().unwrap_or_default();
         (events, started, preview)
     };
@@ -409,6 +411,10 @@ fn summarize(
         ThreadKind::Call => room.thread_working(&thread.id),
     };
 
+    let posted = (thread.kind() == ThreadKind::Job)
+        .then(|| job_posted(room_events, &thread.id.key, &events))
+        .flatten();
+
     ThreadSummary {
         thread: thread.id.clone(),
         persona_id,
@@ -427,8 +433,27 @@ fn summarize(
         working,
         waiting: super::waiting_on(&events),
         preview,
+        run_kind: link.as_ref().and_then(|link| link.run_kind),
+        posted,
         outcome: link.and_then(|link| link.outcome),
     }
+}
+
+/// Whether a job's latest firing posted to the chat: its last post came at
+/// or after the firing's line on the job's thread. None before it has fired.
+fn job_posted(room_events: &[Value], job_id: &str, events: &[Value]) -> Option<bool> {
+    let fired = events
+        .iter()
+        .filter(|event| event["kind"] == "user" && event.get("scheduled").is_some())
+        .filter_map(ts_of)
+        .max()?;
+    let job = crate::room::jobs(room_events)
+        .into_iter()
+        .find(|job| job.id == job_id);
+    Some(
+        job.and_then(|job| job.last_post)
+            .is_some_and(|post| post.at >= fired),
+    )
 }
 
 fn ts_of(event: &Value) -> Option<i64> {

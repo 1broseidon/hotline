@@ -741,8 +741,7 @@ async fn command(
                         .await
                 }
                 (Command::MobileAttachment { upload }, Some(phone)) => phone.upload(upload).await,
-                // A companion is listed what it could read: no pairs, which
-                // `peers.list` would not show it either, and no calls.
+                // A companion is listed what it could read: no calls.
                 (Command::ThreadList { persona_id }, _) => {
                     threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
                 }

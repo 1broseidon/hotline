@@ -35,7 +35,7 @@ has `archive_thread`, to close the thread when the work is done.
 
 Hotline Agent also has its own file tools and shell, confined to the
 teammate's folders, and `subagent` to send work to a
-[subagent](/docs/use/side-threads/#subagents). Coding tools such as Claude
+[helper](/docs/use/side-threads/#helpers). Coding tools such as Claude
 Code bring their own.
 
 ## MCP servers

@@ -698,11 +698,14 @@ pub(super) enum Finished {
 /// Whether an `exchange_pair` record has a request an agent is answering now,
 /// as the room stream says it: running, or waiting on the person.
 pub(crate) fn answering(record: &serde_json::Value) -> bool {
-    serde_json::from_value::<Pair>(record.clone()).is_ok_and(|pair| {
-        pair.requests
+    serde_json::from_value::<Pair>(record.clone()).is_ok_and(|pair| pair.answering())
+}
+impl Pair {
+    fn answering(&self) -> bool {
+        self.requests
             .iter()
             .any(|request| matches!(request.phase(), Phase::Running | Phase::WaitingHuman))
-    })
+    }
 }
 impl Room {
     async fn authorize_exchange(
@@ -755,6 +758,15 @@ impl Room {
     }
     fn exchange_pair(&self, key: &str) -> Option<Pair> {
         self.exchange_pairs().into_iter().find(|p| p.id == key)
+    }
+    /// The pairs this teammate is in with a request being answered now, by
+    /// key: what `thread.list` reads as a live pair, for the roster row.
+    pub fn working_pairs(&self, persona_id: &str) -> Vec<String> {
+        self.exchange_pairs()
+            .into_iter()
+            .filter(|pair| (pair.a == persona_id || pair.b == persona_id) && pair.answering())
+            .map(|pair| pair.id)
+            .collect()
     }
     fn save_pair(&self, pair: &Pair) -> Result<(), String> {
         let mut value = serde_json::to_value(pair).map_err(|e| e.to_string())?;
@@ -1858,6 +1870,10 @@ impl Room {
                 &request.to,
                 &format!("result:{}", request.id),
                 &request.reply,
+                request
+                    .thread
+                    .as_deref()
+                    .filter(|_| request.intent == Intent::Handoff),
             )?;
         }
         self.nudge_handoff_result(key, request);
@@ -1923,6 +1939,7 @@ impl Room {
         from: &str,
         id: &str,
         text: &str,
+        handoff_thread: Option<&str>,
     ) -> Result<(), String> {
         thread::ensure(self.log.root(), key).map_err(|e| e.to_string())?;
         let kind = if thread_participants(key).is_some_and(|(a, _)| a == from) {
@@ -1934,12 +1951,12 @@ impl Room {
         if self.log.load(&stream).iter().any(|v| v["id"] == id) {
             return Ok(());
         }
+        let mut line = json!({"kind":kind,"id":id,"ts":now_ms(),"text":text,"receipt":"sent"});
+        if let Some(thread) = handoff_thread {
+            line["handoffThread"] = thread.into();
+        }
         // Through the shared write path, so both teammates' searches find it.
-        self.threads().write(
-            &ThreadId::pair(key),
-            from,
-            &json!({"kind":kind,"id":id,"ts":now_ms(),"text":text,"receipt":"sent"}),
-        );
+        self.threads().write(&ThreadId::pair(key), from, &line);
         Ok(())
     }
 }

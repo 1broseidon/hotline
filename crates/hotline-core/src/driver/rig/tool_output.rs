@@ -36,9 +36,10 @@ pub(super) fn mcp_dynamic(tool: mcp::McpTool) -> DynamicTool {
     )
 }
 
-/// The model-visible form of an MCP result: text as before, and every image
-/// as an image block so a screenshot is not flattened away.
-pub(super) fn rig_output(content: mcp::CallContent) -> Result<ToolOutput, ToolExecutionError> {
+/// The model-visible form of an MCP result, a granted server's or Hotline's
+/// own: text as before, and every image as an image block so a screenshot is
+/// not flattened away.
+pub(crate) fn rig_output(content: mcp::CallContent) -> Result<ToolOutput, ToolExecutionError> {
     if content.images.is_empty() {
         return Ok(ToolOutput::text(content.text));
     }

@@ -11,7 +11,7 @@ use crate::common;
 
 use common::{Client, stalled};
 use hotline_core::desk::Desk;
-use hotline_core::driver::acp::StartBounds;
+use hotline_core::driver::acp::Bounds;
 use hotline_core::wire::Door;
 use serde_json::json;
 use std::sync::Arc;
@@ -29,12 +29,13 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
     std::fs::create_dir_all(root.join("workspace")).unwrap();
     let pids = stalled::install(&root);
     let (base, server) = stalled::model_endpoint("At your service.").await;
-    let desk = Desk::open_with_acp_start_bounds(
+    let desk = Desk::open_with_acp_bounds(
         &root,
         common::store(),
-        StartBounds {
+        Bounds {
             known: BOUND,
             first: BOUND,
+            ..Bounds::default()
         },
     )
     .unwrap();

@@ -13,9 +13,35 @@ const NAMES: Record<string, string> = {
 	monthly: "Monthly",
 	seven_day_opus: "Opus",
 	seven_day_sonnet: "Sonnet",
+	// Claude Code's report of a model's own allowance, which the core files
+	// under that model's window once the plan has one. Before then it is
+	// named as Claude Code names it ("You've reached your Fable limit").
+	seven_day_overage_included: "Fable",
 	overage: "Extra",
 	period: "Credits",
 };
+
+/** Whether a window's reset has passed since it was read, so that what it says was used was the last period's. */
+export function rolledOver(window: PlanWindow, now: number = Date.now()): boolean {
+	return window.resetsAt !== undefined && window.resetsAt <= now;
+}
+
+/**
+ * The reading as it stands now. A window whose reset has passed since it
+ * was read keeps its line with no figure and no refusal until it is read
+ * again: the account most likely still has it, and the use it was read at
+ * was the last period's. The core keeps a reading the same way, but the
+ * reset can pass between readings.
+ */
+export function planAsOf(plan: PlanUsage, now: number = Date.now()): PlanUsage {
+	if (!plan.windows.some((window) => rolledOver(window, now))) return plan;
+	return { ...plan, windows: plan.windows.map((window) => (rolledOver(window, now) ? unread(window) : window)) };
+}
+
+/** A window as it stands once it has reset and not been read since. */
+function unread({ usedPercent: _, ...window }: PlanWindow): PlanWindow {
+	return { ...window, status: "allowed" };
+}
 
 /** A login's main windows, a line each whenever read. */
 const MAIN = new Set(["five_hour", "seven_day", "monthly"]);
@@ -48,7 +74,37 @@ export function resetShort(resetsAt: number, now: number = Date.now()): string {
 
 /** A window as a line labels it: "5h", "Weekly", "Opus", a model's own by its name ("Fable"). */
 export function windowName(window: PlanWindow): string {
-	return NAMES[window.kind] ?? window.label?.split(" · ").pop() ?? window.kind.replace(/_/g, " ");
+	return NAMES[window.kind] ?? window.label?.split(" · ").pop() ?? unnamed(window.kind);
+}
+
+/**
+ * A kind the desk has no name for, said from its key: the window's length
+ * dropped, since the line's reset says it, and the rest as words, so
+ * `seven_day_oauth_apps` is "Oauth apps".
+ */
+function unnamed(kind: string): string {
+	const words = kind.replace(/^(five_hour|seven_day|monthly)_/, "").replace(/_/g, " ");
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The most characters a line's name takes: every name the desk gives fits, "Monthly" and "Opus 5" among them. */
+const NAME_MOST = 9;
+
+/**
+ * A name as a line has room for: whole when it fits, else cut after its
+ * last whole word that does ("Overage…"), or mid-word when its first word
+ * is longer than the room.
+ */
+export function shortName(name: string): string {
+	if (name.length <= NAME_MOST) return name;
+	const room = name.slice(0, NAME_MOST - 1);
+	const space = room.lastIndexOf(" ");
+	return `${space > 0 ? room.slice(0, space) : room}…`;
+}
+
+/** The name column's width in characters: the longest name on the card, as shortened, so every bar starts where the one above it does. */
+export function nameColumn(names: string[]): number {
+	return Math.max(2, ...names.map((name) => shortName(name).length));
 }
 
 /** How far into the window now is, 0 to 1, when the window says its length and reset. */
@@ -122,8 +178,9 @@ export function planAccount(plan: PlanUsage | undefined): string {
 }
 
 /** How much of it is used, as a whole percentage, or how it stands when the agent gave no figure. */
-export function windowUse(window: PlanWindow): string {
+export function windowUse(window: PlanWindow, now: number = Date.now()): string {
 	if (window.status === "limited") return "limit reached";
+	if (window.usedPercent === undefined && rolledOver(window, now)) return "reset";
 	if (window.usedPercent !== undefined) return `${Math.round(window.usedPercent)}%`;
 	return window.status === "warning" ? "near the limit" : "in use";
 }
@@ -165,10 +222,10 @@ export function gaugeWindows(plan: PlanUsage | undefined): PlanWindow[] {
 }
 
 /** The gauge's name for a screen reader: "Plan usage: 5h 9%, weekly 39%", the inner ring first. */
-export function gaugeLabel(rings: PlanWindow[]): string {
+export function gaugeLabel(rings: PlanWindow[], now: number = Date.now()): string {
 	const said = [...rings].reverse().map((window) => {
 		const name = windowName(window);
-		return `${MAIN.has(window.kind) ? name.toLowerCase() : name} ${windowUse(window)}`;
+		return `${MAIN.has(window.kind) ? name.toLowerCase() : name} ${windowUse(window, now)}`;
 	});
 	return `Plan usage: ${said.join(", ")}`;
 }

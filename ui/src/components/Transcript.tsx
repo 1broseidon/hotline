@@ -1,13 +1,11 @@
 import { ErrorCard } from "./ErrorCard";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
-import { RESTING, type WorkMark, activityOf } from "../activity";
-import { pageOf, sitesRead, toolSteps } from "../turnFacts";
-import { glance } from "../glance";
+import { type WorkMark, activityOf, waitingOf } from "../activity";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -15,24 +13,25 @@ import { Scroll } from "../ui/Scroll";
 import { failedLast } from "../retryTurn";
 import { wire } from "../wire";
 import {
+	blockId,
 	deliveryLine,
 	deliveryMissed,
 	foldReactions,
 	heardOnce,
+	keepBlocks,
 	peerLine,
 	quotedLine,
 	retryForNotice,
 	type Run,
 	type Side,
 	sideOf,
-	stepRuns,
 	superseded,
 	toBlocks,
 	withStreaming,
 } from "../transcriptFolds";
-import { useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
-import { CallTools, Steps } from "./transcript/Steps";
-import { AgentSay, NamedSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
+import { fly, useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
+import { Steps } from "./transcript/Steps";
+import { AgentSay, type Quote, type ReactTarget, type ReplyTarget, UserBubble } from "./transcript/Bubbles";
 import type { SentItem } from "./SentFile";
 import { LinkRow } from "./transcript/LinkRow";
 import { Plan } from "./transcript/Plan";
@@ -42,6 +41,8 @@ import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
+import { heightOf } from "./transcript/rowWindow";
+import { useRowWindow } from "./transcript/useRowWindow";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -67,17 +68,16 @@ function placeOf(el: HTMLElement, row: HTMLElement): number {
 	return row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
 }
 
-/** Rows drawn for the first time per frame. */
-const WARM_ROWS = 12;
+/** How long after the person's wheel, touch, key or scrollbar a scroll is still theirs. */
+const REACH_MS = 250;
+/** Keys that scroll the conversation when it has focus. */
+const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 
 /** How near the top a scroll asks for the page above. */
 const EARLIER_SLACK = 600;
 
 /** Slack under the latest line that still counts as following the conversation. */
 const PIN_SLACK = 80;
-
-/** Whose chair we are in, for a peer thread: this teammate is `mine`. */
-export type Speakers = { me: string; them: string; mine: "user" | "agent" };
 
 /**
  * The conversation, and only the conversation.
@@ -105,11 +105,11 @@ export function Transcript({
 	events,
 	streaming,
 	live,
+	waiting = false,
 	cornered = false,
 	workingCalls,
 	workingSides,
 	focus,
-	speakers,
 	onReply,
 	onReact,
 	onRetryMessage,
@@ -140,6 +140,11 @@ export function Transcript({
 	/** A turn is running: the mark is up, above the composer. */
 	live: boolean;
 	/**
+	 * The turn is open only for the teammate's subagents (`awaitingSubagents`):
+	 * not live, but the mark stays up, at rest, with what it said it is on.
+	 */
+	waiting?: boolean;
+	/**
 	 * Something stands at the composer's top right, over the foot of the
 	 * conversation: the last line keeps clear of it as it does of the mark,
 	 * and the way back down sits above it.
@@ -151,8 +156,6 @@ export function Transcript({
 	workingSides?: readonly string[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
-	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
-	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
 	/** An emoji on a teammate's line, sent the way the phone sends one. */
 	onReact?(target: ReactTarget, emoji: string): void;
@@ -227,7 +230,7 @@ export function Transcript({
 	/* Who the person looped in here: their answers are said whole, under their faces. */
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call"), thread?.kind === "call"), [events, thread?.kind]);
+	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -245,7 +248,12 @@ export function Transcript({
 	/* The teammate's own conversation can run its failed turn again; a thread's cannot. */
 	const runAgain = useCallback(() => wire.command("session.retry", { personaId }), [personaId]);
 
-	useScrollToEvent(scroller, pinned, landing, events);
+	/* A flight on its way: a jump to a row, or back down to the latest line (transcript/hooks.ts). */
+	const flying = useRef<(() => void) | null>(null);
+	/* Takes in where the scroll is, as after a scroll: what a flight calls when it has arrived. */
+	const read = useRef(() => {});
+	/* Puts the rows near the view in the page (useRowWindow, below), for the scroll to call. */
+	const moveRef = useRef(() => {});
 
 	/* The window opens on the tape's last lines. Nearing the top loads the
 	 * page above, and the rows you were reading stay where they were: the
@@ -262,9 +270,10 @@ export function Transcript({
 		// The top row as it stands now: when the page lands above it, the
 		// scroll moves by however far it was pushed down, and by nothing
 		// else, so a scroll made while the page was on its way is kept.
-		const row = el.querySelector<HTMLElement>(".tape-row");
+		const row = el.querySelector<HTMLElement>(".tape-column > .tape-row");
 		const taken = { row, at: row === null ? 0 : placeOf(el, row), first: firstShown.current };
 		anchor.current = taken;
+		el.dataset["landing"] = "";
 		void load(through).finally(() => {
 			// The page lands as a render that may not have committed when the
 			// load settles; a frame later it has, and the layout effect below
@@ -272,6 +281,7 @@ export function Transcript({
 			// let the next scroll ask again.
 			requestAnimationFrame(() => {
 				if (anchor.current === taken) anchor.current = null;
+				if (anchor.current === null) delete el.dataset["landing"];
 			});
 		});
 	}, []);
@@ -280,12 +290,17 @@ export function Transcript({
 		const was = anchor.current;
 		if (!el || was === null || events[0]?.id === was.first) return;
 		anchor.current = null;
-		if (pinned.current || was.row === null || !was.row.isConnected) return;
+		if (pinned.current || was.row === null || !was.row.isConnected) {
+			delete el.dataset["landing"];
+			return;
+		}
 		const pushed = placeOf(el, was.row) - was.at;
 		if (pushed !== 0) {
 			el.scrollTop += pushed;
 			pinning.current = true;
 		}
+		// The page in place, the engine anchors the view again.
+		delete el.dataset["landing"];
 	}, [events]);
 	// A search hit or a quoted reply above the window: load back to it, and
 	// the jump lands once it is there.
@@ -295,60 +310,6 @@ export function Transcript({
 	}, [landing, more, events, loadEarlier]);
 	const loadEarlierRef = useRef(loadEarlier);
 	loadEarlierRef.current = loadEarlier;
-
-	/* Rows skip layout off screen (index.css, .tape-row), and one never laid
-	 * out stands at a 96px guess: scrolled up to, it would grow to its own
-	 * height and shove the rows under the eye. So after a change the rows not
-	 * yet laid out are drawn a few at a time from the bottom up, and the
-	 * scroll moves by what those above the view grew, so nothing on screen
-	 * moves. It runs while the person scrolls too: waiting for them to stop
-	 * left a long fling running into rows still at the guess. Each keeps its own height from
-	 * then on. Drawing them all at once would hold up opening a long chapter. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: new rows come with new written blocks; the drawing finds them in the DOM.
-	useEffect(() => {
-		const el = scroller.current;
-		if (!el) return;
-		let timer = 0;
-		let frame = 0;
-		let inFlight: HTMLElement[] = [];
-		const warm = () => {
-			timer = 0;
-			const cold = [...el.querySelectorAll<HTMLElement>(".tape-row:not([data-laid]):not([data-warm])")].slice(-WARM_ROWS).reverse();
-			if (cold.length === 0) return;
-			const top = el.getBoundingClientRect().top;
-			const before = cold.map((row) => row.getBoundingClientRect());
-			for (const row of cold) row.dataset["warm"] = "";
-			inFlight = cold;
-			let grew = 0;
-			cold.forEach((row, index) => {
-				const was = before[index]!;
-				if (was.bottom <= top) grew += row.getBoundingClientRect().height - was.height;
-			});
-			if (grew !== 0 && !pinned.current) {
-				el.scrollTop += grew;
-				pinning.current = true;
-			}
-			// Kept drawn through a frame, so the height it is remembered at is its own.
-			frame = requestAnimationFrame(() => {
-				frame = requestAnimationFrame(() => {
-					for (const row of cold) {
-						row.dataset["laid"] = "";
-						delete row.dataset["warm"];
-					}
-					inFlight = [];
-					timer = window.setTimeout(warm, 0);
-				});
-			});
-		};
-		timer = window.setTimeout(warm, 0);
-		return () => {
-			window.clearTimeout(timer);
-			cancelAnimationFrame(frame);
-			// A batch cut off between its frames goes back to waiting, rather
-			// than staying drawn for good.
-			for (const row of inFlight) delete row.dataset["warm"];
-		};
-	}, [written]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the scroller mounts and unmounts with empty, and the listeners move with it.
 	useEffect(() => {
@@ -360,21 +321,54 @@ export function Transcript({
 		// to a column hundreds of pixels taller or shorter than the one it
 		// pinned, and read as distance it looks like you scrolling away. So a
 		// scroll that comes with a new layout never lets go of the bottom; only
-		// one on the layout already seen can.
+		// one on the layout already seen can, or one the person made: after a
+		// chapter opens, the rows drawn in the background change the column's
+		// height nearly every frame, and a flick up read as the pin's own
+		// scroll was thrown back to the bottom.
 		let seen = { height: el.scrollHeight, view: el.clientHeight };
+		let reached = Number.NEGATIVE_INFINITY;
+		const reach = () => {
+			reached = performance.now();
+		};
+		const onPointer = (event: PointerEvent) => {
+			// On the scroller itself, not a row in it: its scrollbar.
+			if (event.target === el) reach();
+		};
+		// The thumb the scroller draws for itself (ui/Scroll.tsx), pressed or
+		// dragged, and a press on its track: the person's scroll as much as a
+		// wheel is. A drag up from the foot passes rows whose heights are
+		// still being learned, a new layout nearly every frame, and read as
+		// the pin's own scroll it would be thrown back to the bottom.
+		const bar = el.parentElement;
+		const onBar = (event: PointerEvent) => {
+			if (event.buttons !== 0 && (event.target as Element).closest(".scroll-track") !== null) reach();
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (SCROLL_KEYS.has(event.key)) reach();
+		};
 		const measure = () => {
-			if (pinned.current && (el.scrollHeight !== seen.height || el.clientHeight !== seen.view)) {
+			const changed = el.scrollHeight !== seen.height || el.clientHeight !== seen.view;
+			if (pinned.current && changed && performance.now() - reached > REACH_MS) {
 				pin();
 				return;
 			}
 			seen = { height: el.scrollHeight, view: el.clientHeight };
-			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
-			setFollowing(pinned.current);
+			// A flight was sent where it is going: passing the bottom's slack on
+			// its way neither takes up following nor lets go of it. The way
+			// back down is offered by where the view is, as ever.
+			const near = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
+			if (flying.current === null) pinned.current = near;
+			setFollowing(near);
 			if (el.scrollTop < EARLIER_SLACK) loadEarlierRef.current();
 		};
 		const pin = () => {
 			seen = { height: el.scrollHeight, view: el.clientHeight };
-			if (!pinned.current) return;
+			// Nor under a flight: a write would end it where it stood.
+			if (!pinned.current || flying.current !== null) return;
+			// Never under the person's own scroll: a write there, even one to
+			// where it already is, cuts their flick short. Their scroll is read
+			// on its frame and either lets go of the bottom or pins again.
+			if (performance.now() - reached <= REACH_MS) return;
 			const was = el.scrollTop;
 			el.scrollTop = el.scrollHeight;
 			// Only a scroll that really moves fires an event to be told apart.
@@ -388,10 +382,17 @@ export function Transcript({
 		let resized = false;
 		const settle = () => {
 			frame = 0;
+			// A scroll the person made is read before a reflow pins, since it
+			// may have let go of the bottom.
+			if (scrolled && performance.now() - reached <= REACH_MS) {
+				scrolled = false;
+				measure();
+			}
 			if (resized) pin();
 			if (scrolled) measure();
 			scrolled = false;
 			resized = false;
+			moveRef.current();
 		};
 		const ask = () => {
 			if (frame === 0) frame = requestAnimationFrame(settle);
@@ -400,11 +401,18 @@ export function Transcript({
 			scrolled = true;
 			ask();
 		};
+		read.current = onScroll;
 		const onResize = () => {
 			resized = true;
 			ask();
 		};
 		el.addEventListener("scroll", onScroll, { passive: true });
+		el.addEventListener("wheel", reach, { passive: true });
+		el.addEventListener("touchmove", reach, { passive: true });
+		el.addEventListener("pointerdown", onPointer, { passive: true });
+		bar?.addEventListener("pointerdown", onBar, { passive: true });
+		bar?.addEventListener("pointermove", onBar, { passive: true });
+		el.addEventListener("keydown", onKey);
 		// Markdown lays out after the event lands, so the column's height
 		// changes without a scroll event; this is what notices.
 		const observer = new ResizeObserver(onResize);
@@ -423,9 +431,16 @@ export function Transcript({
 		pin();
 		return () => {
 			el.removeEventListener("scroll", onScroll);
+			el.removeEventListener("wheel", reach);
+			el.removeEventListener("touchmove", reach);
+			el.removeEventListener("pointerdown", onPointer);
+			bar?.removeEventListener("pointerdown", onBar);
+			bar?.removeEventListener("pointermove", onBar);
+			el.removeEventListener("keydown", onKey);
 			observer.disconnect();
 			rows.disconnect();
 			cancelAnimationFrame(frame);
+			read.current = () => {};
 		};
 		// The scroll listener above is enough while the events are the same.
 	}, [empty]);
@@ -434,43 +449,52 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
-	const latestRun = useMemo(() => stepRuns(events, streaming).at(-1), [events, streaming]);
-	const currentActivity = useMemo(() => {
-		if (!live && !queued) return null;
-		const now = activityOf(events, streaming, queued);
-		// At work with its tools, the card says what in a few words ("Running cargo test"), as the peek's last line does.
-		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase) || latestRun === undefined) return now;
-		const line = glance(latestRun.items, true).at(-1);
-		if (line === undefined) return now;
-		// Reading the web: the sites of the pages read so far stand beside the words.
-		const newest = line.steps.at(-1);
-		const reading = newest !== undefined && pageOf(newest) !== null;
-		return { ...now, word: line.text, ...(reading ? { sites: sitesRead(latestRun.items) } : {}) };
-	}, [live, queued, events, streaming, latestRun]);
+	// The mark says what the teammate says it is on, in its words; the desk adds none of its own.
+	const currentActivity = useMemo(
+		() => (live || queued ? activityOf(events, streaming, queued) : waiting ? waitingOf(events) : null),
+		[live, waiting, queued, events, streaming],
+	);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
-	const steps = latestRun === undefined ? 0 : toolSteps(latestRun.items).length;
-	const done = useDone(personaId, activity, latestRun?.items);
+	const mark: WorkMark | null = activity !== null ? { activity, sleeping } : null;
+	/* The mark is handed up when what it says changes, not each time it is
+	 * worked out, which is for every line and every streamed bubble: each
+	 * handing up is a second render, of the conversation around this one,
+	 * asked for from inside the first, and a long reply's worth of those in
+	 * a row trips React's guard against an update that never ends. */
+	const markSaid = JSON.stringify(mark);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `markSaid` is the mark, by what it says.
 	useEffect(() => {
-		onMark?.(activity !== null ? { activity, sleeping, count: steps } : done !== null ? { activity: RESTING, sleeping: false, done } : null);
-	}, [onMark, activity, sleeping, steps, done]);
+		onMark?.(mark);
+	}, [onMark, markSaid]);
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
+	// A helper or a command has no row: it is in the path of the turn that
+	// started it (toBlocks), and one another thread started is in the
+	// Threads list, as every one is.
 	// A job that fired again and again with nothing drawn between is one row,
 	// so this is decided on what is left to draw.
-	const blocks = useMemo(() => groupSent(groupCalls(groupScheduled(
-		arrived.filter(
-			(block) =>
-				!(
-					block.kind === "event" &&
-					(hidden.has(block.event.id) ||
-						answered.has(block.event.id) ||
-						reacted.lines.has(block.event.id) ||
-						(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
-						(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
-				),
-		),
-	))), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
+	// A block that holds what it held is the block it was (keepBlocks), so
+	// its row is handed what it was handed before and is not drawn again.
+	const drawnBefore = useRef<Block[]>([]);
+	const blocks = useMemo(() => {
+		const drawn = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(
+			arrived.filter(
+				(block) =>
+					!(
+						block.kind === "event" &&
+						(hidden.has(block.event.id) ||
+							answered.has(block.event.id) ||
+							reacted.lines.has(block.event.id) ||
+							(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
+							isRunLink(block.event) ||
+							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
+					),
+			),
+		))));
+		drawnBefore.current = drawn;
+		return drawn;
+	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
 	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId, workingSides ?? []), [onOpenThreads, events, personaId, workingSides]);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
@@ -485,6 +509,39 @@ export function Transcript({
 		return null;
 	};
 
+	// A running turn's steps are the composer's to show, and the pane's; its
+	// caption comes once the turn has ended. Every other block is a row.
+	const rows = useMemo(
+		() =>
+			blocks.flatMap((block, index) =>
+				block.kind === "steps" && block.open === true && live && onOpenWork !== undefined ? [] : [{ block, index, id: blockId(block) }],
+			),
+		[blocks, live, onOpenWork],
+	);
+	const ids = useMemo(() => rows.map((row) => row.id), [rows]);
+	// A file message inside a run of them is found by the run's row, and a
+	// step, an outcome or a helper by the line under its turn's reply.
+	const jump = useMemo(() => {
+		if (landing === null) return undefined;
+		const holds = ({ block }: (typeof rows)[number]) =>
+			(block.kind === "sent" && block.messages.some((message) => message.id === landing.eventId)) ||
+			(block.kind === "steps" && block.items.some((item) => item.id === landing.eventId));
+		return rows.find(holds)?.id ?? landing.eventId;
+	}, [landing, rows]);
+	// Made once per jump: a new one each render would send the flight again.
+	const flight = useMemo(() => (landing === null || jump === undefined ? landing : { eventId: jump, at: landing.at }), [landing, jump]);
+	useScrollToEvent(scroller, pinned, flying, read, flight, events);
+	const { heights, isDrawn, probed, move, touch } = useRowWindow({ scroller, pinned, pinning, flying, anchor, thread: `${rowThread.kind}:${rowThread.key}`, ids, arrived: written, jump });
+	moveRef.current = move;
+	// While a page of older lines is on its way, the row it is measured
+	// against is read again after every render, so what a window move or a
+	// height learned did to its place is not taken for the page's doing.
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		const taken = anchor.current;
+		if (el && taken?.row?.isConnected) taken.at = placeOf(el, taken.row);
+	});
+
 	if (empty) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
@@ -494,6 +551,108 @@ export function Transcript({
 			</div>
 		);
 	}
+
+	/** One row of the column. `probe` is the same row drawn off to the side to be measured. */
+	const rowOf = ({ block, index, id }: (typeof rows)[number], probe: boolean) => {
+		const previous = blocks[index - 1];
+		const stamp =
+			!isChapter(block) &&
+			(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
+		const event = block.kind === "event" ? block.event : null;
+		const side = sides[index] ?? null;
+		const run: Run = {
+			top: side !== null && !stamp && sideBefore(index) === side,
+			bottom: side !== null && sideAfter(index) === side,
+		};
+		return (
+			<div key={probe ? `probe:${id}` : id} {...(probe ? { "data-probe": id } : { "data-event-id": id })} data-members={block.kind === "sent" ? block.messages.map((message) => message.id).join(" ") : undefined} className="tape-row">
+				{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
+				{block.kind === "scheduled" ? (
+					<ScheduledGroup name={block.name} runs={block.runs} />
+				) : block.kind === "calls" ? (
+					<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
+				) : block.kind === "steps" ? (
+					<Steps
+						id={block.id}
+						items={block.items}
+						// A turn open only for its helpers is not over: no line under it until it is (the mark below is the line).
+						live={(live || waiting) && block.open === true}
+						shown={workShown}
+						{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
+					/>
+				) : block.kind === "sent" ? (
+					<Row
+						personaId={personaId}
+						thread={rowThread}
+						ownerName={name}
+						event={block.messages[block.messages.length - 1]!}
+						files={block.files}
+						working={false}
+						loopedIn={false}
+						quote={undefined}
+						top={run.top}
+						bottom={run.bottom}
+						people={people}
+						// None, as a line with no reactions has none: an empty list made here would be a new one each render, and the row drawn again for it.
+						reactions={block.messages.some((message) => reacted.on.has(message.id)) ? block.messages.flatMap((message) => reacted.on.get(message.id) ?? []) : undefined}
+						{...(onReply !== undefined ? { onReply } : {})}
+						{...(onReact !== undefined ? { onReact } : {})}
+						{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+						onJump={onJump}
+					/>
+				) : event === null ? null : (
+					<Row
+						personaId={personaId}
+						thread={rowThread}
+						ownerName={name}
+						event={event}
+						working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
+						loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
+						quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
+						top={run.top}
+						bottom={run.bottom}
+						people={people}
+						{...(onRetryMessage && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
+						{...(thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
+						reactions={reacted.on.get(event.id)}
+						{...(onReply !== undefined ? { onReply } : {})}
+						{...(onReact !== undefined ? { onReact } : {})}
+						{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+						{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
+						{...(onProviders !== undefined ? { onProviders } : {})}
+						onJump={onJump}
+					/>
+				)}
+			</div>
+		);
+	};
+	// A run of rows not in the page is one gap, as tall as they are.
+	const drawnRows: ReactNode[] = [];
+	let gap = 0;
+	let gapFrom: string | null = null;
+	const closeGap = () => {
+		if (gapFrom !== null) drawnRows.push(<div key={`gap:${gapFrom}`} className="tape-gap" style={{ height: gap }} />);
+		gap = 0;
+		gapFrom = null;
+	};
+	const measured: ReactNode[] = [];
+	// How tall the rows stand in all, by what is known of them: the column
+	// holds at least this much room (index.css, .tape-room).
+	let whole = 0;
+	rows.forEach((row, at) => {
+		if (isDrawn(at, row.id)) {
+			closeGap();
+			drawnRows.push(rowOf(row, false));
+			// One drawn for the first time counts once it has been measured.
+			whole += heights.known.get(row.id) ?? 0;
+			return;
+		}
+		gapFrom ??= row.id;
+		gap += heightOf(heights, row.id);
+		whole += heightOf(heights, row.id);
+		if (probed.includes(row.id)) measured.push(rowOf(row, true));
+	});
+	closeGap();
 
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col">
@@ -506,8 +665,11 @@ export function Transcript({
 			    (`wake` waits 200ms) and closes once the mark is gone, at once:
 			    easing it would reflow every row for the length of the ease.
 			    Subagents at the composer's corner keep the same room. */}
+			{/* A row pressed or typed in is noted here, so it stays in the page. */}
 			<div
 				className={`tape-column mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
+				onClickCapture={touch}
+				onInputCapture={touch}
 			>
 				{/* Scrolling up loads these on its own; the key is for a window
 				    whose loaded lines are too short to scroll. */}
@@ -516,85 +678,7 @@ export function Transcript({
 						Earlier messages
 					</button>
 				)}
-				{blocks.map((block, index) => {
-					// A running turn's steps are the composer's to show, and the
-					// pane's; its caption comes once the turn has ended.
-					if (block.kind === "steps" && block.open === true && live && onOpenWork !== undefined) return null;
-					const previous = blocks[index - 1];
-					const stamp =
-						!isChapter(block) &&
-						(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
-					const id = block.kind === "event" ? block.event.id : block.id;
-					const event = block.kind === "event" ? block.event : null;
-					const side = sides[index] ?? null;
-					const run: Run = {
-						top: side !== null && !stamp && sideBefore(index) === side,
-						bottom: side !== null && sideAfter(index) === side,
-					};
-					return (
-						<div key={id} data-event-id={id} data-members={block.kind === "sent" ? block.messages.map((message) => message.id).join(" ") : undefined} className="tape-row">
-							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
-							{block.kind === "scheduled" ? (
-								<ScheduledGroup name={block.name} runs={block.runs} />
-							) : block.kind === "calls" ? (
-								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
-							) : block.kind === "steps" ? (thread?.kind === "call" ? (
-								<CallTools items={block.items} />
-							) : (
-								<Steps
-									id={block.id}
-									items={block.items}
-									live={live && block.open === true}
-									shown={workShown}
-									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
-								/>
-							)) : block.kind === "sent" ? (
-								<Row
-									personaId={personaId}
-									thread={rowThread}
-									ownerName={name}
-									event={block.messages[block.messages.length - 1]!}
-									files={block.files}
-									working={false}
-									loopedIn={false}
-									quote={undefined}
-									top={run.top}
-									bottom={run.bottom}
-									speakers={speakers}
-									people={people}
-									reactions={block.messages.flatMap((message) => reacted.on.get(message.id) ?? [])}
-									{...(onReply !== undefined ? { onReply } : {})}
-									{...(onReact !== undefined ? { onReact } : {})}
-									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
-									onJump={onJump}
-								/>
-							) : event === null ? null : (
-								<Row
-									personaId={personaId}
-									thread={rowThread}
-									ownerName={name}
-									event={event}
-									working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
-									loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
-									quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
-									top={run.top}
-									bottom={run.bottom}
-									speakers={speakers}
-									people={people}
-									{...(onRetryMessage && !speakers && event.kind === "notice" ? { onRetry: retries(event.id) } : {})}
-									{...(!speakers && thread === undefined && event.kind === "notice" && failedLast(events, event.id) ? { onRunAgain: runAgain } : {})}
-									reactions={reacted.on.get(event.id)}
-									{...(onReply !== undefined ? { onReply } : {})}
-									{...(onReact !== undefined ? { onReact } : {})}
-									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
-									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
-									{...(onProviders !== undefined ? { onProviders } : {})}
-									onJump={onJump}
-								/>
-							)}
-						</div>
-					);
-				})}
+				{drawnRows}
 				{underway.count > 0 && (
 					<button type="button" className="rule-line rule-line-plain mt-3 w-full" onClick={onOpenThreads}>
 						<span className="min-w-0 truncate">
@@ -603,6 +687,12 @@ export function Transcript({
 						<span className="shrink-0">· Open</span>
 					</button>
 				)}
+				{measured.length > 0 && (
+					<div className="tape-probe" aria-hidden="true">
+						{measured}
+					</div>
+				)}
+				<div className="tape-room" style={{ height: whole }} />
 			</div>
 		</Scroll>
 		{activity !== null && onMark === undefined && (
@@ -638,7 +728,15 @@ export function Transcript({
 					const el = scroller.current;
 					if (!el) return;
 					pinned.current = true;
-					el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+					fly(
+						el,
+						flying,
+						() => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }),
+						() => {
+							el.scrollTop = el.scrollHeight;
+							read.current();
+						},
+					);
 				}}
 			>
 				<ArrowDownIcon />
@@ -670,7 +768,6 @@ const Row = memo(function Row({
 	quote,
 	top,
 	bottom,
-	speakers,
 	people,
 	reactions,
 	files,
@@ -695,7 +792,6 @@ const Row = memo(function Row({
 	quote: Quote | undefined;
 	top: boolean;
 	bottom: boolean;
-	speakers: Speakers | undefined;
 	people: ReadonlyMap<string, Person> | undefined;
 	/** Emoji the phone or this window sent as lines of their own, folded onto this one: yours. */
 	reactions: string[] | undefined;
@@ -716,14 +812,6 @@ const Row = memo(function Row({
 	const who = { id: personaId, name: ownerName, hash: people?.get(personaId)?.hash };
 	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask" || event.kind === "credential_ask") && event.from?.kind === "call") {
 		const origin = event.from;
-		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
-		const label = event.kind === "permission" ? event.title : event.kind === "human_action" ? event.reason : event.name;
-		if (thread.kind === "call") return (
-			<button type="button" className="rule-line rule-line-plain"
-				onClick={() => onOpenThread?.({ thread: { kind: "dm", key: personaId }, eventId: event.id })}>
-				{settled ? "Settled" : "Needs you"}: {label} · Open card in home chat
-			</button>
-		);
 		return (
 			<div>
 				<button type="button" className="said-name"
@@ -739,41 +827,14 @@ const Row = memo(function Row({
 	}
 	switch (event.kind) {
 		case "user":
-			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
-			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
-                <p className="said-name text-right">You</p>
-                <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
-            </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
-			) : speakers !== undefined ? (
-				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
 				<UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		case "agent":
-            if (thread.kind === "call") {
-                const { spoken, ...written } = event;
-                const heard = spoken?.trim() ? spoken : event.text;
-                return <>
-                    <p className="said-name">{ownerName}</p>
-                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} files={files} run={run} reactions={worn} bubble={people?.get(personaId)?.bubble}
-                        {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
-                        {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
-                    {heard !== event.text && <details className="my-2 text-sm text-ink-3">
-                        <summary>Written reply</summary>
-                        <NamedSay name={ownerName} mine={false} text={event.text} />
-                    </details>}
-                </>;
-            }
-			return speakers !== undefined ? (
-				<NamedSay
-					name={speakers.mine === "agent" ? speakers.me : speakers.them}
-					mine={speakers.mine === "agent"}
-					text={event.text}
-				/>
-			) : (
+			return (
 				<AgentSay
                     {...(onOpenThread !== undefined ? { onOpenThread } : {})}
 					personaId={personaId}
@@ -799,7 +860,7 @@ const Row = memo(function Row({
 				return (
 					<ErrorCard
 						text={event.text}
-						{...(!speakers ? { personaId } : {})}
+						personaId={personaId}
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}
 						{...(onProviders ? { onProviders } : {})}
@@ -881,8 +942,6 @@ const Row = memo(function Row({
 			const cause = event.cause;
 			const line = deliveryLine(event);
 			if (cause.kind === "answer" || line === null) return null;
-			// Where both sides are named, a colleague's words are the conversation: said whole, in their voice.
-			if (speakers !== undefined) return <NamedSay name={cause.name} mine={false} text={event.text} />;
 			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (
 				<button
@@ -907,9 +966,9 @@ const Row = memo(function Row({
 			);
 		}
 
-		/* A thread this conversation holds, whatever its kind: a work thread, a
-		 * subagent's run, a call. One row that fills in as the thread goes, and
-		 * opens it in the right-hand pane. */
+		/* A thread this conversation holds: a work thread, a pair, a call. One
+		 * row that fills in as the thread goes, and opens it in the right-hand
+		 * pane. */
 		case "link":
 			return <LinkRow link={event} owner={personaId} people={people} working={working} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
 

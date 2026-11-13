@@ -9,7 +9,12 @@
 //! turn — is merged into the one kept
 //! ([`crate::driver::acp::plan::merged`]), written to the data directory,
 //! and put on the `SessionInfo` of every live session on that backend,
-//! including one that starts later.
+//! including one that starts later. The read out of band and Codex's logs
+//! say every window the account has, so a window kept that they no longer
+//! have is dropped; Claude Code's report says one window and replaces only
+//! that. A window whose reset has passed holds no figure until it is read
+//! again ([`crate::driver::acp::plan::as_of`]), in what the room keeps and
+//! what it loads from the last run alike.
 //!
 //! A login is read when the desk starts (each one some teammate runs on, a
 //! few seconds apart), every ten minutes while it runs, when a teammate's
@@ -26,7 +31,7 @@ use super::*;
 use crate::contract::PlanUsage;
 use crate::driver::acp::catalog::Catalog;
 use crate::driver::acp::models;
-use crate::driver::acp::plan::{catalogued, merged, readable};
+use crate::driver::acp::plan::{Extent, as_of, catalogued, merged, readable};
 use std::io::Write as _;
 
 /// How old a reading may be before opening the picker reads it again.
@@ -74,12 +79,20 @@ pub(super) struct Plans {
 }
 
 impl Plans {
-    /// The readings kept when the desk last ran.
+    /// The readings kept when the desk last ran, as they stand now: a
+    /// window that reset since holds no figure, and one long gone is not
+    /// kept.
     pub(super) fn load(root: &Path) -> Self {
-        let readings = std::fs::read(crate::paths::plan_usage_path(root))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let now = now_ms();
+        let readings: HashMap<String, PlanUsage> =
+            std::fs::read(crate::paths::plan_usage_path(root))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default();
+        let readings = readings
+            .into_iter()
+            .map(|(backend_id, plan)| (backend_id, as_of(plan, now)))
+            .collect();
         Self {
             readings: Mutex::new(readings),
             reading: Mutex::default(),
@@ -160,18 +173,21 @@ pub(super) async fn read_logins(room: &Weak<Room>, fresh_for: i64) -> bool {
 }
 
 impl Room {
-    /// The account's reading as the room keeps it.
+    /// The account's reading as the room keeps it, as it stands now.
     pub fn plan_of(&self, backend_id: &str) -> Option<PlanUsage> {
-        lock(&self.plans.readings).get(backend_id).cloned()
+        let plan = lock(&self.plans.readings).get(backend_id).cloned()?;
+        Some(as_of(plan, now_ms()))
     }
 
     /// A reading of an account, from any teammate on it: merged into the one
-    /// kept, written down, and shown on every session of that account.
-    pub(super) fn take_plan(&self, backend_id: &str, reading: PlanUsage) {
+    /// kept, as it stands now, written down, and shown on every session of
+    /// that account. `extent` says whether it has every window the account
+    /// has, which only the caller knows.
+    pub(super) fn take_plan(&self, backend_id: &str, reading: PlanUsage, extent: Extent) {
         let plan = {
             let mut readings = lock(&self.plans.readings);
             let was = readings.get(backend_id);
-            let plan = merged(was, reading);
+            let plan = as_of(merged(was, reading, extent), now_ms());
             if was == Some(&plan) {
                 return;
             }
@@ -340,8 +356,10 @@ impl Room {
             return;
         };
         let read = self.agents.read_login(backend_id, how).await;
+        // Out of band or from Codex's logs, a reading has every window the
+        // account has. A read that failed has none and leaves the one kept.
         if let Some(plan) = read.plan {
-            self.take_plan(backend_id, plan);
+            self.take_plan(backend_id, plan, Extent::Whole);
         }
         if how == PlanRead::Now && catalogued(backend_id) {
             self.take_catalog(backend_id, read.catalog);

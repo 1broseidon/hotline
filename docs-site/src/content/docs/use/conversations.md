@@ -11,10 +11,24 @@ teammate exists. This page covers what you can do in it.
 Type in the message box and press <kbd>Enter</kbd>
 (<kbd>Shift</kbd> + <kbd>Enter</kbd> starts a new line).
 
-While the teammate is working, a card floating under the header shows the
-steps of the turn as they happen: the commands it runs, the files it reads,
-the edits it makes, and a **Thinking** row you can open. The teammate's
-mark at the foot of the conversation shows what kind of work it is doing.
+While the teammate is working, its mark in the message box moves with the
+kind of work it is doing, beside the teammate's own words for what it is
+on. Press it to follow the turn's steps in the right-hand pane.
+
+Once the turn is over, a line under the reply says what the turn left
+behind, then the sites of the web pages the teammate opened for it, as a
+small stack of their icons, then how long it took. Hover the icons for the
+sites' names. Press the line to open the turn's path: the pages it opened
+come first, under **Sources**, each opening in your browser, then its
+steps.
+
+A source is a page the teammate actually opened, with a fetch, a command
+or its browser, or read through a web search that hands it the pages'
+content, as Claude Code's own search does. The results of a search that
+only lists titles and links, as Hotline's does, are not sources until it
+opens one: they stay with the search in the path, where opening it lists
+them and marks the ones it went on to read. Pages on your own computer or
+local network, such as `localhost`, are not counted.
 
 You do not have to wait for it to finish:
 
@@ -139,7 +153,7 @@ manage their own context.
 The **More** menu in the conversation's header also has:
 
 - **Start a side thread** and **Threads**: see
-  [Side threads and subagents](/docs/use/side-threads/).
+  [Side threads and helpers](/docs/use/side-threads/).
 - **Reveal working directory**, which opens the teammate's folder.
 - **Show teammate**, which opens its pane
   (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>I</kbd>, or press the teammate's name).

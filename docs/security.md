@@ -1454,6 +1454,90 @@ credential by construction.
 | JSON off, an unreachable instance and an answer that is not JSON each say what to fix, without the address or the key | `hotline-websearch/src/tests.rs` `searxng_with_json_off_says_how_to_turn_it_on`, `searxng_unreachable_or_not_json_says_so_without_its_address`; `mcp/server.rs` `a_searxng_instance_with_json_off_or_out_of_reach_says_what_to_fix` |
 | The Tools pane's switch waits for a URL, saves the URL and key, and never draws the key back | `ui/tests/web-search-settings.test.tsx` |
 
+## Where an MCP server's sign-in may connect
+
+An HTTP MCP server that signs in with an account publishes metadata naming
+the hosts its sign-in is done at, and the desk sends them requests:
+discovery, client registration, the token exchange and each refresh. Left
+alone, a server on the internet could aim those at this computer or the
+network it is on (RUSTSEC-2026-0457). A server the person runs on that
+network has to reach its neighbours. No teammate capability changes: a
+teammate cannot add a server or start a sign-in, and what a granted server
+may do is unchanged. What is decided is where the desk itself connects on a
+server's word (`hotline-mcp` `oauth/reach.rs`):
+
+- **The server's own address decides, per server.** The URL the person
+  typed is placed once for each sign-in client. *On the internet*: a public
+  IP address, a name that answers any public address, or a name that
+  answers nothing. *On this computer or network*: a loopback or private IP
+  address (RFC 1918, a tailnet's `100.64.0.0/10`, unique-local IPv6), or a
+  name that answers no public address and at least one of those. IPv6 that
+  carries IPv4 (mapped, compatible, NAT64, 6to4) is judged as the IPv4
+  address it reaches, so `::ffff:10.0.0.9` is `10.0.0.9`.
+- **On the internet: public addresses only.** Discovery, registration, the
+  token endpoint and every redirect of theirs. A name that answers both
+  kinds is on the internet, and only its public addresses are connected to.
+- **On this computer or network: private addresses too**, and loopback
+  ones when the server is itself on loopback. Its metadata may name an
+  authorization server beside it or one on the internet.
+- **Never link-local or reserved.** `169.254.0.0/16` (where a cloud keeps
+  instance metadata), `fe80::/10`, the unspecified, broadcast and multicast
+  addresses and the reserved ranges are connected to for no server, bar a
+  server's own address when its URL is that IP address.
+- **Judged where the connection is made.** Every sign-in request goes
+  through one HTTP client whose name lookups hand the connector only the
+  addresses the rule admits, so the address judged is the address
+  connected to; a URL whose host is an IP address, which needs no lookup,
+  is judged before each request and at each redirect. A name that answers
+  the internet when the server is placed and a private address when the
+  connection is made (DNS rebinding) is therefore refused at the
+  connection. The other way round, a name placed on a private network is
+  held to the addresses it answered then and is never asked for again by
+  that client, so what the internet later serves under the name is never
+  read with the network in reach. Such a client connects directly, past any
+  configured proxy, which would look the name up for itself.
+- **Refused in words.** A server on the internet that is refused reads
+  "MCP OAuth sign-in refused: this server is on the internet but points to
+  a private network address." Where its token or registration endpoint
+  would connect is asked when discovery ends, so that is said before a
+  client is registered or a browser opens, not after the person has signed
+  in.
+
+The classes of address are rmcp's own, repeated because its type is private
+and tested against the table rmcp tests its own by, so the two agree on
+what an address is. rmcp's check of a URL's spelling still runs before any
+request, and what it refuses there stays refused.
+
+Residual. The rule covers sign-in's requests, not the MCP connection: that
+goes to the URL the person typed, wherever it resolves, as it always has,
+and carries the sign-in's token there. Outside loopback that URL is https,
+so a host must hold a certificate for the name before anything it answers
+is read; whoever owns a name can still point it at a private address and
+have the desk open a connection there. rmcp refuses, by spelling alone, a
+metadata document or authorization server named by a loopback or private
+IP address unless it and the server are both on loopback, and only its own
+client can relax that: such an authorization server is given a host name. A
+server at a link-local IP address reaches itself and the internet and no
+neighbour. A sign-in on the internet goes through a configured proxy as the
+desk's other requests do, and the proxy looks names up itself, so there
+only an IP address in a URL, and the endpoints asked about when discovery
+ends, are judged here, as with rmcp's own client. The proxy's own host is
+left unjudged only when the environment names it (`HTTPS_PROXY` and its
+kin): one the system's settings name by host name, at a private address,
+is refused like any private address, in the same words, and sign-in to a
+server on the internet fails there. The token exchange and a refresh are
+refused like the rest but rmcp keeps no cause for them, so a name that
+turned inward after discovery reads as a failed exchange.
+
+| Boundary | Proof |
+| --- | --- |
+| An address is classed as rmcp classes it, IPv6 that carries IPv4 by the IPv4 address; a server at an IP address is placed by it, one by name by what the name answers, a name of both kinds on the internet | `hotline-mcp/src/oauth/reach.rs` `an_address_is_classed_as_rmcp_classes_it`, `a_server_at_an_ip_address_is_placed_by_that_address`, `a_server_by_name_is_placed_by_what_its_name_answers` |
+| A server on the internet that points discovery, registration or the token exchange at a loopback, private, tailnet or link-local address, by IP address or by name, is refused in the person's words with no connection made to it | `mcp/tests.rs` `a_server_on_the_internet_that_points_sign_in_at_a_private_address_is_refused_unconnected`; `hotline-mcp/src/oauth/reach.rs` `a_server_on_the_internet_connects_to_public_addresses_only`, `where_a_request_would_connect_can_be_asked_before_it_is_made`; `hotline-mcp/src/oauth.rs` `an_authorization_server_at_a_private_ip_address_reads_as_refused_from_the_internet` |
+| A name that changes its answer between the check and the connection gains nothing, either way round | `mcp/tests.rs` `a_name_that_moves_inward_after_it_was_checked_is_never_connected_to`; `hotline-mcp/src/oauth/reach.rs` `a_name_that_changes_its_answer_gains_nothing`; `hotline-mcp/src/oauth.rs` `a_server_on_the_internet_whose_name_moves_inward_is_refused_in_plain_words` |
+| A server set up by name on a private network signs in (discovery, registration, the token exchange, a refresh) at the address it was checked at; one on loopback signs in end to end; its authorization server may be private or on the internet, never loopback for a server that is not, never link-local | `mcp/tests.rs` `a_server_named_on_a_private_network_signs_in_at_the_address_it_was_checked_at`, `oauth_discovery_dcr_native_callback_refresh_restart_and_mcp_call`; `hotline-mcp/src/oauth/reach.rs` `a_server_on_a_private_network_reaches_private_and_public_but_not_loopback` |
+| A redirect is held to the same addresses as the request it answers | `mcp/tests.rs` `a_redirect_to_an_address_sign_in_may_not_use_is_not_followed` |
+| A proxy named in the environment is connected to wherever it is, and nothing else is for that | `hotline-mcp/src/oauth/reach.rs` `a_proxy_in_the_environment_is_connected_to_wherever_it_is`, `a_proxy_is_named_by_its_host` |
+
 ## The regression matrix
 
 Each row is one thing that must stay true, and the test that proves it
@@ -1509,12 +1593,14 @@ extend; when a change adds a boundary, it adds a row.
 | A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | A colleague sees a teammate's roster state, goal, agent, model and effort, and capabilities as switches, words and granted MCP servers' names; never its workspace path, `mcpPolicy`, a server's address, login header or environment, an ungranted server, `node` or `backendId`; no computer reads `none`; a linked desk's row is cut to the same fields and words | `mcp/server.rs` `a_colleague_sees_a_teammates_goal_agent_model_and_capabilities_and_no_more`, `a_teammate_without_a_computer_or_grants_shows_none_of_them`, `list_teammates_never_carries_a_colleagues_message_text`; `hotline-room/src/linked.rs` `a_published_roster_is_cut_down_to_what_a_roster_row_holds`; `session/links/tests.rs` `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | A teammate withdraws only its own `request_human` card: another teammate's id is refused, a withdrawn card stops reading as waiting for the desk and phone seats and delivers nothing, and an answer to it is refused; a card expires at its lifetime, two hours unless `wait_hours` asks for up to a day, and tells the teammate once; a handoff's waiting result is never released by a withdrawal | `wire/tests/asks.rs` `a_withdrawn_card_is_gone_for_the_desk_and_the_phone`, `a_card_past_its_lifetime_expires_and_tells_the_teammate_once`, `a_longer_wait_is_honoured_up_to_a_day`; `session/exchanges/tests.rs` `a_withdrawn_card_lets_a_running_handoff_finish_and_a_waiting_one_keeps_its_card` | — |
+| A permission card nobody answers within the driver's wait (ten minutes) is closed to answers first, then settled as expired on its thread in the turn that raised it, and stops that thread reading as waiting; the agent is told once that nobody answered; an answer that comes after is refused with the reason, over `thread.answer` and `session.answer_permission`, and is applied to no other request, each having its own id; a card answered in time does not expire afterwards; a card the tape shows settled is refused before the driver is asked | `driver/acp/tests/turns.rs` `a_card_nobody_answers_in_time_expires_in_its_turn_and_takes_no_late_answer`, `a_card_answered_in_time_does_not_expire_afterwards`; `session/tests/cards.rs` `a_card_nobody_answered_in_time_expires_while_its_turn_runs_and_refuses_a_late_answer`, `a_card_the_tape_has_settled_is_not_answered_whatever_the_driver_holds`; `session/sides/tests.rs` `a_permission_card_in_a_thread_that_nobody_answers_expires_there_and_stops_waiting`; `tests/permission_cards.rs` `a_card_nobody_answers_expires_where_it_stands_and_a_late_answer_is_refused` | work an agent takes up by itself can end (a new message, five quiet minutes) and expire its cards on the tape while the driver still holds the request, until its turn ends or its ten minutes run out: the agent waits that long on a card nobody can answer, and an answer naming it is refused at the room |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued firing is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests/scheduled.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_firing_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` leaves external and dangling symlinks alone, writing through neither; runtime mode is separate from effort and other configs stay hidden | `driver/acp/tests/session_new.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_leaves_external_and_dangling_symlinks_alone`; `driver/acp/tests/config.rs` `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
 | An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only the reading tools, starts no runs of its own and never reopens the teammate's session; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | Clones: a subagent and a job each reach back into the home thread with `search_thread` and `list_chapters` and read the granted folder, and one the home agent made `without` folders cannot read it; a run is not offered the doors to the person; a job's card is raised on its own thread, not the DM, and the answer comes back to it as a turn; a job's thread is found by `search_thread` after the index is rebuilt; a clone is built with the computer unless it was left out, on the model the home session is on, and on its teammate's own harness, ACP included; a run whose home lease is revoked never starts; a job is offered the home thread's tools but `JOB_WITHOUT`, and `schedule` writes what was left out on the job | `tests/schedule/clones.rs` `a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked`, `a_job_is_a_clone_on_its_own_thread_and_reaches_back_after_a_restart`; `session/tests/runs.rs` `a_run_has_the_computer_unless_the_home_agent_leaves_it_out`, `a_run_is_a_clone_on_its_teammates_own_harness`, `a_run_refuses_a_brief_that_is_a_jobs`; `session/tests/scheduled.rs` `a_jobs_card_is_raised_and_answered_on_its_own_thread`, `a_job_has_the_computer_unless_it_was_made_without_it`; `session/agent.rs` `a_clone_is_narrowed_by_what_the_home_agent_left_out`, `a_clone_is_on_the_model_and_effort_its_home_session_is_on`; `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`; `hotline-store/src/search.rs` `a_rebuild_keeps_what_the_teammates_jobs_said`; `tests/threads/together.rs` `every_thread_reaches_the_chat_through_one_door_on_both_drivers`, `a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart` | Unix for the computer rows |
 | `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a question answered in the target's main conversation may not post, its reply being the chat already, and lands in neither chat; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_question_turn_may_not_post`, `an_acp_question_turn_may_not_post`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
+| `activity` and `outcome`: each writes one line on the calling thread, at once, on Hotline Agent and an ACP child; an unknown kind is kept and said to be shown plainly, an overlong message is refused and lands nowhere; an open outcome is updated, closed or `ended` by its `id` in place, from its thread or a work thread of the same teammate, and an `id` with nothing open is refused; a subagent run is refused both | `tests/mcp/outcomes.rs` `hotline_agent_says_what_it_is_on_and_what_it_left`, `an_acp_child_says_what_it_is_on_and_what_it_left`, `hotline_agent_closes_an_open_outcome_by_its_id`, `an_acp_child_closes_an_open_outcome_by_its_id`; `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session` | — |
 | A receipt cannot move machinery | `session/peers/tests.rs` `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
@@ -1537,6 +1623,7 @@ extend; when a change adds a boundary, it adds a row.
 | In the desk browser, a passkey signs only for the origin WebKit reports for the calling frame, never one the page writes, and never for a frame of another site, plain HTTP or a teammate not granted it; an ask-me passkey waits on the card; one is made only under the pane's arming for its one site and the person's approval, goes to the vault and is ticked for the teammate, and the page gets its public key only | `mcp/server/tests/desk_browser/passkeys.rs` `a_passkey_signs_for_the_origin_webkit_reports_never_the_one_the_page_claims`, `an_ask_me_passkey_holds_on_the_card_until_the_person_answers`, `a_passkey_is_made_only_under_an_arming_for_its_site_and_lands_in_the_vault`; `browser/authenticator.rs` `a_passkey_is_never_offered_to_another_site_or_an_insecure_page`; `hotline-app/src/browser/passkeys.rs` `a_frames_origin_is_built_from_what_webkit_reports` | a real site (webauthn.io): manual in the Mac app |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
+| The app updates itself only from one of two addresses fixed in the build, and the desk stores only which: Stable is offered a final release and never a pre-release, Beta also a `beta.N` and no other pre-release, and neither is ever offered a version that is not newer than the one running, so leaving Beta keeps the build until a final release passes it; a track file that names anything else is Stable; an offer found on one track is not shown on the other; only the main window may change the track | `hotline-app/src/updater.rs` `a_track_is_offered_only_its_releases_and_never_an_older_one`, `stable_reads_the_latest_final_release_and_beta_one_fixed_address`, `each_track_checks_its_own_manifest`, `a_beta_is_offered_its_final_and_later_betas`, `a_desk_back_on_stable_keeps_its_beta_until_a_final_release_passes_it`, `the_track_is_stored_with_the_desk_and_anything_unreadable_is_stable`, `changing_track_forgets_the_other_tracks_offer`, `downloads_are_verified_by_tauri_and_never_installed_by_tests`; `hotline-app/tests/window_capabilities.rs` `main_can_invoke_every_manifest_command_at_the_permission_layer`, `computer_viewers_can_invoke_only_the_four_viewer_commands` | the release workflow's own steps run only on GitHub (`docs/development.md`, The first dry run) |
 
 Where real macOS execution is required: every `hotline-tools/src/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and
@@ -1731,8 +1818,8 @@ the start of its next turn, never a message in the person's chat
   recipient hears an aside in its next turn's context and may act on it with
   every permission it already has, as with an ask's answer. The person sees
   them as the window draws them: quiet lines in the recipient's main
-  conversation, read from `aside.list` and never written there, and its Noted
-  page. `aside.seen` only marks the person's reading, on the desk, owner and
+  conversation, read from `aside.list` and never written there, and note
+  rows in its Threads list (a phone's Noted page). `aside.seen` only marks the person's reading, on the desk, owner and
   phone seats, and changes nothing a turn hears.
 
 ## Loop in… and End thread (epic-28, task-323)
@@ -2280,6 +2367,53 @@ with a message or an aside, on one desk or across a link.
   person already trusts them for these CLIs. `@latest` is whatever npm
   publishes as latest.
 
+## Application updates and the update track (task-423)
+
+The updater installs code, so what it will accept is a boundary of its own.
+It is the person's, not a teammate's: no tool, wire command or companion
+seat reaches it, only the main window's own commands.
+
+- **Default:** Stable. A desk with no `update-track.json`, or one that is
+  unreadable, over 1 kB or names anything but `stable` or `beta`, is on
+  Stable. A build from before tracks reads Stable's address and has no
+  setting.
+- **Grant source:** the person, with the Track row in Settings → Updates
+  (`set_update_track`). The file holds the name of a track and nothing
+  else: no address, no key, no version.
+- **What is accepted:** a manifest from one of two HTTPS addresses compiled
+  into the build, Stable's in `tauri.conf.json` and Beta's in `updater.rs`;
+  from it, one package for this installation's own installer target, whose
+  signature the plugin verifies against the public key compiled into the
+  build before anything is installed. Betas are signed with the same key
+  as final releases; there is no second key to trust.
+- **Enforcement:** `updater::newer` is the one rule, applied by the plugin's
+  comparator at every check, again by the check that precedes every
+  install, and to an offer read back from the cache. The candidate must be
+  newer than the running version by semver on either track. Stable takes a
+  final release only, so a pre-release served at Stable's address is
+  ignored. Beta also takes `beta.N`, and no other pre-release. Nothing is
+  ever a downgrade, which is why a desk that leaves Beta stays on its build
+  until a final release passes it. An offer is kept with the track it was
+  found on and is dropped on the other.
+- **The release side** (`.github/workflows/desktop-release.yml`): a beta is
+  published as a GitHub pre-release, which GitHub does not serve as the
+  latest release, without a `latest.json`, so nothing it uploads can answer
+  at Stable's address. Beta's manifest is a copy of a published release's
+  own, moved only after every package it names answers, only forward, in
+  one step (`scripts/beta_pointer.py`). `scripts/test_updater_manifest.py`
+  and `scripts/test_beta_pointer.py` prove both.
+- **Tests:** the matrix row for the two tracks; the Track row itself in
+  `ui/tests/update-track.test.tsx`.
+- **Revocability:** choosing Stable again. It takes effect at once for what
+  is offered, and does not remove a beta already installed.
+- **Residual risk:** whoever can push to the repository can move either
+  manifest, as they can publish a release. What that can do is bounded by
+  the signature and by `newer`: offer a package signed with the updater key
+  that is newer than the one running, or withhold one. It cannot offer an
+  unsigned package or an older one. A download URL is not held to GitHub's
+  host; the signature is what is checked. `raw.githubusercontent.com`, which
+  serves Beta's manifest, is a second host to depend on, for Beta only.
+
 ## The owner phone changes a teammate's access (BRO-140, part)
 
 - **Default and old records:** nothing new is stored. `mobile.persona_access`
@@ -2797,6 +2931,44 @@ thread it came from.
   word `quiet` on its line, so its model may say it is staying silent: those
   words land on the job's thread, never in the chat.
 
+## What a teammate says of its work (epic-42)
+
+`activity(type, message?)` and `outcome(type, message, state?, id?, ended?)`
+are two of Hotline's own tools. Each writes one line, as the teammate, on the
+thread the call was made in: what it is on, drawn beside its mark, and what a
+turn left behind, drawn under its reply. They reach nothing outside that
+teammate's own threads.
+
+- **Default and old records:** nothing is granted per teammate and nothing
+  new is stored on a persona. The tools are on the desk's MCP server and among
+  Hotline Agent's in-process tools in every session but a subagent run's and a
+  voice front's. A tape written before them has no such lines and draws as it
+  did; a client that does not know the kinds skips them.
+- **Grant source:** none: the teammate's own session. A subagent run is refused
+  both by name (`RUN_TOOLS`), because it reports to the teammate that launched
+  it and draws nothing; a voice front has neither (`FRONT_TOOLS`).
+- **Enforcement:** `TeammateTools::answer` checks the session's capability
+  lease first, as for every tool, then `Room::declare_activity` and
+  `Room::declare_outcome` (`session/declared.rs`) write through `Threads::write`
+  to the thread the tools were made for, never one named in the arguments.
+  `outcome`'s `id` closes an open outcome only on that thread or the same
+  teammate's main conversation; an `id` on a colleague's thread is never
+  looked for. Words are bounded (80 characters for an activity, 120 for an
+  outcome, 64 for an id), and the desk adds none of its own.
+- **Tests:** `tests/mcp/outcomes.rs`
+  `hotline_agent_says_what_it_is_on_and_what_it_left`,
+  `an_acp_child_says_what_it_is_on_and_what_it_left`,
+  `hotline_agent_closes_an_open_outcome_by_its_id`,
+  `an_acp_child_closes_an_open_outcome_by_its_id`, through the real handler on
+  both drivers, read off the wire and from disk; `session/tests/runs.rs`
+  `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`
+  refuses a run both.
+- **Residual risk:** the words are the model's. A teammate can say it sent
+  something it did not, or leave a failure out: the outcome line is a receipt
+  in the teammate's words, and the path one press away is the check on it. An
+  `ended` or rewritten outcome replaces the line by id, so the earlier words
+  are on disk but no longer drawn.
+
 ## Jobs on their own threads (ADR 0008 §7)
 
 A job's firing is a turn on its own thread, by an agent of the teammate's
@@ -2914,7 +3086,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
-  | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
+  | `thread.list` | only what it may read: no calls | a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page; a pair is listed (since 0.49, George's call that a DM between teammates is a thread on the phone too), as it already subscribes to and pages one, though `peers.list` stays refused it |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |
 
@@ -2930,7 +3102,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   `a_thread_verb_the_kind_has_no_meaning_for_is_refused`,
   `thread_verbs_reach_the_handlers_the_older_commands_did`,
   `thread_list_reads_every_kind_as_one_summary`,
-  `a_companions_thread_list_leaves_out_calls_and_pairs`,
+  `a_companions_thread_list_leaves_out_calls_and_lists_pairs`,
   `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
   `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
   that send each shape; `remote/tests/phone.rs` for the hello a phone is sent;
@@ -2938,8 +3110,8 @@ thread, and reaching back into it with the home agent's own reading tools.
   runs one conversation through the real core for an old and a `threads2` client.
 - **Residual risk:** `thread.list` with no `personaId` reads every teammate's
   threads, titles and last lines in one answer. A companion already reads every
-  tape and work thread by subscribing, so this adds no reach, only one place to
-  read it.
+  tape, work thread and pair by subscribing, so this adds no reach, only one
+  place to read it.
 
 ## One computer, several threads
 

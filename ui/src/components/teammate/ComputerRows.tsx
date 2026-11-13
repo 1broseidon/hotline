@@ -109,7 +109,9 @@ export function ComputerRows({
 			void wire
 				.command("computer.status", { personaId })
 				.then((seen) => {
-					if (!gone) setStatus(seen);
+					// The pane asks every few seconds; an answer that says what the
+					// last one said keeps the status it has, so nothing draws again.
+					if (!gone) setStatus((was) => (was !== null && JSON.stringify(was) === JSON.stringify(seen) ? was : seen));
 				})
 				.catch(() => {
 					if (!gone) setStatus(null);

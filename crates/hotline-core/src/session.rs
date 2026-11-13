@@ -39,6 +39,7 @@ mod call_cards;
 mod call_files;
 mod chapters;
 mod computer;
+pub(crate) mod declared;
 mod dm;
 mod driver_info;
 pub(crate) mod exchanges;
@@ -90,7 +91,7 @@ mod secret_uses;
 mod secrets;
 mod sides;
 mod start;
-pub(crate) use sides::preview_line;
+pub(crate) use sides::{newest_line, preview_line};
 pub(crate) mod browser;
 mod browser_passkeys;
 mod stopping;
@@ -352,7 +353,7 @@ struct DeskAgents {
     root: PathBuf,
     log: Log,
     mcp_vault: Option<Arc<Vault>>,
-    acp_start: acp::StartBounds,
+    acp_bounds: acp::Bounds,
 }
 
 #[async_trait]
@@ -427,7 +428,7 @@ impl Agents for DeskAgents {
         )
         .with_history(said)
         .with_mcp(grant.servers, grant.missing)
-        .with_start_bounds(self.acp_start);
+        .with_bounds(self.acp_bounds);
         let driver = match &self.mcp_vault {
             Some(vault) => driver.with_mcp_vault(vault.clone()),
             None => driver,
@@ -742,7 +743,7 @@ pub struct Room {
     job_threads: Mutex<HashMap<String, Arc<job_thread::LiveJob>>>,
     /// Subagents running now, by teammate, for the roster row. Like a
     /// drawing, nothing about a run survives a restart.
-    subagents: Mutex<HashMap<String, Vec<crate::contract::RunningSubagent>>>,
+    subagents: Mutex<HashMap<String, Vec<runner::Listed>>>,
     deltas: broadcast::Sender<StreamDelta>,
     /// Wakes the scheduler when a job is written, so a create does not wait
     /// for the nearest existing nextAt.
@@ -844,7 +845,7 @@ impl Room {
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: None,
-            acp_start: acp::StartBounds::default(),
+            acp_bounds: acp::Bounds::default(),
         });
         Self::with_agents(log, keys, agents)
     }
@@ -862,7 +863,7 @@ impl Room {
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: None,
-            acp_start: acp::StartBounds::default(),
+            acp_bounds: acp::Bounds::default(),
         });
         let nowhere = log.root().join("no-runtime");
         Self::with_agents_computers_and_vault(
@@ -880,14 +881,14 @@ impl Room {
         log: Log,
         keys: Arc<dyn ProviderKeys>,
         vault: Arc<Vault>,
-        acp_start: acp::StartBounds,
+        acp_bounds: acp::Bounds,
     ) -> Arc<Self> {
         let agents = Arc::new(DeskAgents {
             keys: keys.clone(),
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: Some(vault.clone()),
-            acp_start,
+            acp_bounds,
         });
         Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
     }
@@ -1143,36 +1144,6 @@ impl Room {
     /// Whether this teammate's picture is being drawn.
     pub fn drawing(&self, persona_id: &str) -> bool {
         lock(&self.drawing).contains(persona_id)
-    }
-
-    /// The subagents this teammate has running, oldest first.
-    pub fn subagents(&self, persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
-        lock(&self.subagents)
-            .get(persona_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Lists a run on its teammate's roster row while it is running, and
-    /// takes it off once it is not, telling the roster either way.
-    pub(crate) fn list_subagent(
-        &self,
-        persona_id: &str,
-        run: crate::contract::RunningSubagent,
-        running: bool,
-    ) {
-        {
-            let mut all = lock(&self.subagents);
-            let runs = all.entry(persona_id.to_string()).or_default();
-            runs.retain(|one| one.run_id != run.run_id);
-            if running {
-                runs.push(run);
-            }
-            if runs.is_empty() {
-                all.remove(persona_id);
-            }
-        }
-        let _ = self.info_changes.send(self.info(persona_id));
     }
 
     /// Marks a picture as being drawn until the guard drops, telling the
@@ -1569,12 +1540,17 @@ impl Room {
             .map_err(|_| "That process is not running.".to_string())
     }
 
-    /// One running command in full, and the latest of its output.
+    /// One running command in full, and the latest of its output: one
+    /// Hotline Agent left running, by its job id, or one a harness sent to
+    /// the background, by its run's id.
     pub fn process_output(
         &self,
         persona_id: &str,
         id: &str,
     ) -> Result<crate::contract::ProcessOutput, String> {
+        if let Some(output) = self.shell_output(persona_id, id) {
+            return Ok(output);
+        }
         let (command, tail) = self
             .processes_of(persona_id, id)?
             .output(id)

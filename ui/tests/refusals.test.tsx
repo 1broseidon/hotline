@@ -91,7 +91,7 @@ async function expectDisclosed(label: string, reason: string) {
 describe("a refusal in settings is a few words, with the detail behind a disclosure", () => {
 	test("the update check", async () => {
 		const status: UpdateStatus = {
-			current: "0.40.0", available: null, checkedAt: null, phase: "idle", downloaded: 0, total: null, error: null, disabledReason: null,
+			current: "0.40.0", track: "stable", available: null, checkedAt: null, phase: "idle", downloaded: 0, total: null, error: null, disabledReason: null,
 		};
 		const spies = [
 			spyOn(native, "watchUpdates").mockImplementation((onChange) => { onChange(status); return () => {}; }),

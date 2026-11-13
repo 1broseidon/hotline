@@ -210,7 +210,9 @@ fn after<'a>(said: &'a str, word: &str) -> Option<&'a str> {
 /// The model: what its line spells out. Each `CALL <tool> <json>` is one call
 /// to one of Hotline's tools, made in order; then it says what follows `SAY`,
 /// or `RESULTS` with what each call came back with, or "No change." A line
-/// with `STALL` holds its first answer back for [`STALL`]. A line of Hotline's
+/// with `STALL` holds its first answer back for [`STALL`], and one with `PACE`
+/// holds back each answer after a call's result as long, so a test can read
+/// the turn between its steps. A line of Hotline's
 /// own execution data (a subagent's report coming back) is not a script, so
 /// a report that quotes one is never run again. Every line it is handed is
 /// kept in `heard`.
@@ -236,6 +238,8 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
         if asked.contains("STALL") {
             tokio::time::sleep(STALL).await;
         }
+    } else if asked.contains("PACE") {
+        tokio::time::sleep(STALL).await;
     }
     if asked.contains("Hotline execution data") {
         return streamed(vec![chunk(
@@ -568,6 +572,54 @@ async fn each_firing_is_a_turn_on_the_jobs_thread_parked_between_and_started_fro
     assert!(listed[0]["endedAt"].is_i64(), "{listed:?}");
     assert_eq!(listed[0]["lastPost"]["text"], "The crane is steady.");
     assert!(listed[0]["nextAt"].is_i64());
+}
+
+/// A job's thread on the thread list says whether its latest firing posted to
+/// the chat, so a list can fold a run that posted nothing away as routine: a
+/// quiet firing that found nothing did not post, a loud one did.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_jobs_thread_is_listed_with_whether_its_latest_firing_posted() {
+    let mut desk = seeded(|ada| {
+        let mut quiet = looping("quiet", ada, 60_000, "SAY Nothing new.");
+        quiet["quiet"] = json!(true);
+        vec![
+            quiet,
+            looping("loud", ada, 60_000, "SAY The crane is steady."),
+        ]
+    })
+    .await;
+    until("both have fired once and parked", || {
+        ["quiet", "loud"].iter().all(|job| {
+            desk.kinds(job) == ["user", "agent", "turn"]
+                && desk.state(job).as_deref() == Some("parked")
+        }) && desk.chat().len() == 1
+    })
+    .await;
+    let threads = desk
+        .client
+        .call("thread.list", json!({"personaId": desk.persona_id}))
+        .await;
+    let listed = |key: &str| {
+        threads["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|thread| thread["thread"] == json!({"kind": "job", "key": key}))
+            .cloned()
+            .unwrap_or_else(|| panic!("the job's thread is listed: {threads}"))
+    };
+    assert_eq!(listed("quiet")["posted"], false, "{threads}");
+    assert_eq!(listed("loud")["posted"], true, "{threads}");
+    // A work thread or a run says nothing of posting.
+    assert!(
+        threads["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|thread| thread["thread"]["kind"] != "job")
+            .all(|thread| thread.get("posted").is_none()),
+        "{threads}"
+    );
 }
 
 /// A firing still running when the next is due is skipped, the skip is said on

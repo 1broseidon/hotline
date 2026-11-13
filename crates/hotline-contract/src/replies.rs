@@ -78,6 +78,17 @@ pub struct ThreadSummary {
     /// What a closed thread came to, in a line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
+    /// What a run runs, when it is a command a harness left running rather
+    /// than a subagent, as its link records: so a list says Command after
+    /// the roster has let it go. Absent for a subagent and every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_kind: Option<RunKind>,
+    /// For a job's thread that has fired: whether its latest firing posted
+    /// to the chat. A quiet job's firing that found nothing says nothing
+    /// there, and a list takes it for routine. Absent for every other
+    /// thread, and for a job that has not fired.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub posted: Option<bool>,
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core
@@ -236,11 +247,18 @@ pub struct RosterEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<String>>", optional)]
     pub working_calls: Vec<String>,
+    /// The threads between this teammate and another with a request being
+    /// answered now, by pair key: the rule `thread.list` reads a pair as live
+    /// by, sent again as it changes, since a pair has no agent of its own
+    /// for the roster to follow. Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub working_pairs: Vec<String>,
     /// How many asides this teammate has been left that no turn of its has
     /// heard yet (`aside.list` lists them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asides: Option<u32>,
-    /// How many of them the person has not seen on its Noted page yet
+    /// How many of them the person has not read among its notes yet
     /// (`aside.seen` marks them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asides_new: Option<u32>,
@@ -263,6 +281,37 @@ pub struct RunningSubagent {
     #[serde(default, skip_serializing_if = "RunKind::is_subagent")]
     #[ts(as = "Option<RunKind>", optional)]
     pub kind: RunKind,
+    /// What the run did last, in one short line: its latest step as a
+    /// glance says it ("Read Dock.tsx"), or the first clause of its latest
+    /// words in quotes. Kept as the run's stream is written, so every
+    /// surface that lists the run can say what it is doing without opening
+    /// it. Absent until it has done or said anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_step: Option<String>,
+    /// How many steps (tool calls) the run has taken so far. Absent before
+    /// its first, so a row from a desk that predates it reads as none.
+    #[serde(default, skip_serializing_if = "crate::inbound::is_zero")]
+    #[ts(as = "Option<u32>", optional)]
+    pub steps: u32,
+    /// The command a shell run runs, as its harness titled it. Absent for a
+    /// subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<String>,
+    /// The model the run works on, as its teammate's picker names it, when
+    /// the desk knows it: a run of Hotline's own is on the model its
+    /// teammate was on when it started. Absent for a harness's subagent,
+    /// whose harness does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model: Option<String>,
+    /// The person can stop the run (`thread.cancel` on it). A run of
+    /// Hotline's own can be; a harness's subagent cannot, since its harness
+    /// has no way to stop one run. Absent when it cannot.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub stoppable: bool,
 }
 
 /// What a run is. A subagent works the task with a model of its own; a

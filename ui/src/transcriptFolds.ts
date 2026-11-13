@@ -1,8 +1,9 @@
+import { declares } from "./activity";
 import { excerptText } from "./excerpt";
 import type { Attachment, TranscriptEvent } from "./generated/contract";
 import { bubbleId, pacedLive } from "./pacing";
 import { wholeBubbles } from "./reveal";
-import type { Block, Step } from "./scheduledRuns";
+import { type Block, type Step, isRunLink } from "./scheduledRuns";
 import type { Streaming } from "./tape";
 
 /**
@@ -73,8 +74,9 @@ function sameWords(a: string, b: string): boolean {
 }
 
 /**
- * The written events as rows. A turn's thoughts and tool calls, wherever they
- * fell between its bubbles, fold into one block of steps that sits under its
+ * The written events as rows. A turn's thoughts and tool calls, and the
+ * helpers and commands it started, wherever they fell between its bubbles,
+ * fold into one block of steps that sits under its
  * last bubble, just above the line that ends it: the work is read as a whole,
  * once the turn has said what it came to. A turn with no end yet (still
  * running) has its block last, `open`. A message from the person ends a turn
@@ -94,8 +96,18 @@ export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 	};
 	for (const event of events) {
 		if (event.kind === "computer_pull") continue;
-		if (event.kind === "thought" || event.kind === "tool") {
+		// The call that said what it was on, or what came of it, is the line it wrote.
+		if (event.kind === "tool" && declares(event)) continue;
+		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || event.kind === "outcome") {
 			group ??= { id: event.id, ts: event.ts, items: [] };
+			group.items.push(event);
+			continue;
+		}
+		// A helper or a command is part of the turn that started it, where it
+		// started. One with no turn open here was started by another thread of
+		// the teammate's (its line is on this tape all the same) and stays a
+		// line of its own, which the conversation does not draw.
+		if (isRunLink(event) && group !== null) {
 			group.items.push(event);
 			continue;
 		}
@@ -138,6 +150,47 @@ export function withStreaming(written: Block[], streaming: Streaming[]): Block[]
 		else blocks.push({ kind: "steps", id: thought.id, ts: thought.ts, items: [thought], open: true });
 	}
 	return blocks;
+}
+
+/** What a block is drawn under: its line's id, or the id its group goes by. */
+export function blockId(block: Block): string {
+	return block.kind === "event" ? block.event.id : block.id;
+}
+
+/**
+ * `next`, with each block that holds what the block of its id held in `was`
+ * handed back as it was. The blocks are worked out anew for every line that
+ * lands and every bubble that streams in: a streamed bubble is made again
+ * each time, and so is every run of steps, files, calls and scheduled runs.
+ * A row is drawn again when it is handed something it was not handed
+ * before, so without this a reply that streams as forty bubbles draws all
+ * forty for each new one.
+ */
+export function keepBlocks(was: Block[], next: Block[]): Block[] {
+	const before = new Map(was.map((block) => [blockId(block), block]));
+	return next.map((block) => {
+		const kept = before.get(blockId(block));
+		return kept !== undefined && sameBlock(kept, block) ? kept : block;
+	});
+}
+
+function sameBlock(was: Block, now: Block): boolean {
+	const sameMembers = <T,>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((one, index) => one === b[index]);
+	switch (was.kind) {
+		case "event":
+			if (now.kind !== "event" || was.live !== now.live) return false;
+			if (was.event === now.event) return true;
+			// A streamed bubble is a new line each time it is worked out: the same while it says the same.
+			return was.live === true && was.event.kind === "agent" && now.event.kind === "agent" && was.event.text === now.event.text && was.event.ts === now.event.ts;
+		case "steps":
+			return now.kind === "steps" && was.open === now.open && was.ts === now.ts && sameMembers(was.items, now.items);
+		case "scheduled":
+			return now.kind === "scheduled" && sameMembers(was.runs, now.runs);
+		case "calls":
+			return now.kind === "calls" && sameMembers(was.calls, now.calls);
+		case "sent":
+			return now.kind === "sent" && sameMembers(was.messages, now.messages);
+	}
 }
 
 /**

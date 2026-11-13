@@ -1,4 +1,4 @@
-import type { Ability, LinkState, RosterEntry, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, RosterEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import type { DockState } from "./components/Dock";
 import { sideTitle } from "./links";
 
@@ -14,10 +14,11 @@ export const DOCK_STEP = 16;
 export const DOCK_KEY = "hotline.dock.size";
 /**
  * Escape in the pane: one step back, then out. A thread goes back to the
- * list, and the list closes.
+ * list, or to the turn's path it was opened from, and the list or the path
+ * closes.
  */
 export function dockBack(dock: DockState): DockState | null {
-	if (dock.open !== null) return { open: null };
+	if (dock.open !== null) return dock.work === undefined ? { open: null } : { open: null, work: dock.work };
 	return null;
 }
 
@@ -65,38 +66,20 @@ export const draggedDock = (began: number, startX: number, x: number): number =>
  */
 export const dockOverlays = (mainWidth: number, dockWidth: number): boolean => mainWidth < dockWidth + 8 + CONVERSATION_MIN;
 
-/** What a thread is doing, as the list's dot says it. */
-export type ThreadDot = "running" | "waiting" | "parked" | "closed" | "idle";
-
-export function threadDot(row: Pick<ThreadSummary, "state" | "working" | "waiting">): ThreadDot {
-	if (row.state === "closed") return "closed";
-	if (row.waiting) return "waiting";
-	if (row.state === "parked") return "parked";
-	return row.working ? "running" : "idle";
+/** What came of an ended run, in a line: how it ended, what it reported (a command, what it printed), and how long it took. */
+export function endedWords(row: ThreadSummary, command = false): string {
+	const how = row.end === "failed" ? "Failed" : row.end === "cancelled" || row.end === "stopped" ? "Stopped" : command ? "Done" : "Reported";
+	const said = row.outcome ?? row.preview ?? "";
+	return [how, said, stopwatch(row.updatedAt - row.startedAt)].filter((part) => part !== "").join(" · ");
 }
 
-/** Where a kind sits in the list: work first, then the rest in the order a person reaches for them. */
-const KIND_RANK: Record<ThreadKind, number> = { side: 0, pair: 1, run: 2, call: 3, dm: 4, job: 5 };
-
-/** Within a kind, what wants you first: a card waiting, a turn running, a thread open, then one parked. */
-const DOT_RANK: Record<ThreadDot, number> = { waiting: 0, running: 1, idle: 2, parked: 3, closed: 4 };
-
-/**
- * The list: threads still open grouped by kind (work threads, then pairs,
- * runs and calls), each kind newest first with what wants you at its head, and
- * the closed ones folded apart, newest first. A teammate's own conversation is
- * the window beside the list, so it is not a row, and a job's thread is a row of
- * the Jobs group, which the schedules view feeds.
- */
-export function groupThreads(list: ThreadSummary[]): { open: ThreadSummary[]; closed: ThreadSummary[] } {
-	const rows = list.filter((row) => row.thread.kind !== "dm" && row.thread.kind !== "job");
-	const newest = (a: ThreadSummary, b: ThreadSummary) => b.updatedAt - a.updatedAt;
-	return {
-		open: rows
-			.filter((row) => row.state !== "closed")
-			.sort((a, b) => KIND_RANK[a.thread.kind] - KIND_RANK[b.thread.kind] || DOT_RANK[threadDot(a)] - DOT_RANK[threadDot(b)] || newest(a, b)),
-		closed: rows.filter((row) => row.state === "closed").sort(newest),
-	};
+/** A run's length the way a stopwatch shows it: 0:07, 3:41, 1:02:09. */
+export function stopwatch(ms: number): string {
+	const total = Math.max(0, Math.floor(ms / 1000));
+	const hours = Math.floor(total / 3600);
+	const minutes = Math.floor((total % 3600) / 60);
+	const seconds = String(total % 60).padStart(2, "0");
+	return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
 
 /** A thread's link on its parent's stream, the way the window reads it. */
@@ -117,6 +100,7 @@ export function rowOfLink(link: LinkEvent, personaId: string): ThreadSummary {
 		working: false,
 		waiting: false,
 		...(link.outcome !== undefined ? { outcome: link.outcome } : {}),
+		...(link.runKind !== undefined ? { runKind: link.runKind } : {}),
 	};
 }
 
@@ -157,9 +141,6 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 	return [...rows.values()];
 }
 
-/** The kinds a row names, when its title would not: a pair has none, and a run or call is not work. */
-const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call", job: "Job" };
-
 /**
  * Whose hands a thread came from, when a teammate other than its own opened
  * it: "from Mack". In the pane of the teammate who handed it over, it says
@@ -171,11 +152,6 @@ export function openerWords(row: ThreadSummary, listedFor: string, nameOf: (pers
 	return `from ${row.opener.name}`;
 }
 
-/** The line a row opens with: whose hands it passed through, and what kind it is when that is not obvious. */
-export function rowOpener(row: ThreadSummary, listedFor: string, nameOf: (personaId: string) => string | undefined): string {
-	return [KIND_WORDS[row.thread.kind], openerWords(row, listedFor, nameOf)].filter((part) => part !== "").join(" · ");
-}
-
 /** The other teammate in a pair: its key is the two ids, joined. */
 export const pairWith = (key: string, selfId: string): string | undefined => key.split("~").find((id) => id !== selfId);
 
@@ -184,20 +160,7 @@ export function rowTitle(row: ThreadSummary, selfId: string, nameOf: (personaId:
 	if (row.title !== undefined && row.title !== "") return row.title;
 	if (row.thread.kind === "side") return sideTitle(row.title);
 	const other = row.thread.kind === "pair" ? pairWith(row.thread.key, selfId) : undefined;
-	return other !== undefined ? `With ${nameOf(other) ?? "a teammate"}` : "Conversation";
-}
-
-/** A time the way a list says it: now, 5m, 3h, 2d, then the date. */
-export function relativeTime(at: number, now: number = Date.now()): string {
-	const seconds = Math.max(0, Math.round((now - at) / 1000));
-	if (seconds < 45) return "now";
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return `${minutes}m`;
-	const hours = Math.round(minutes / 60);
-	if (hours < 24) return `${hours}h`;
-	const days = Math.round(hours / 24);
-	if (days < 7) return `${days}d`;
-	return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+	return other !== undefined ? `${nameOf(selfId) ?? "A teammate"} ↔ ${nameOf(other) ?? "a teammate"}` : "Conversation";
 }
 
 /**
@@ -234,8 +197,8 @@ export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string)
  * Whether a turn of a thread is running, as the roster row of the teammate
  * whose agent it is says. The roster hears a turn start and end first; a list
  * is read at a moment, and in the pane of the teammate who handed a thread
- * over it is not read again when the receiver's turn ends. A pair, which no
- * roster row follows, is the list's word.
+ * over it is not read again when the receiver's turn ends. A pair is on the
+ * rows of both its teammates while one answers the other (`workingPairs`).
  */
 export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, row: ThreadSummary | undefined): boolean {
 	if (owner === undefined) return row?.working === true;
@@ -248,6 +211,8 @@ export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, ro
 			return owner.workingJobs?.includes(thread.key) ?? false;
 		case "call":
 			return owner.workingCalls?.includes(thread.key) ?? false;
+		case "pair":
+			return owner.workingPairs?.includes(thread.key) ?? false;
 		default:
 			return row?.working === true;
 	}
@@ -266,18 +231,6 @@ export function withTurns(rows: ThreadSummary[], roster: RosterEntry[], listedFo
 export function openerOf(row: ThreadSummary | undefined): { personaId: string; name: string } | undefined {
 	if (row === undefined || row.thread.kind !== "side" || row.opener === undefined) return undefined;
 	return row.opener.personaId !== row.personaId ? row.opener : undefined;
-}
-
-/**
- * The Jobs group: every job that has a thread (a plain reminder posts to the
- * conversation and has none), the ones still running soonest first, then the
- * ended ones, most recently ended first.
- */
-export function jobRows(entries: ScheduleEntry[]): ScheduleEntry[] {
-	const jobs = entries.filter((entry) => entry.reminder !== true);
-	const running = jobs.filter((entry) => entry.endedAt === undefined).sort((a, b) => a.nextAt - b.nextAt);
-	const ended = jobs.filter((entry) => entry.endedAt !== undefined).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
-	return [...running, ...ended];
 }
 
 const LEFT_OUT: Record<Ability, string> = {

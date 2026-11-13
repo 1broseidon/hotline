@@ -37,14 +37,22 @@ export function sizeName(viewport: Viewport | undefined): string | null {
 export function BrowserPip({ personaId, name, view }: { personaId: string; name: string; view: BrowserView | undefined }) {
 	const [picture, setPicture] = useState<string>();
 	const [dismissed, setDismissed] = useState<number>();
-	const [now, setNow] = useState(() => Date.now());
+	const [lapsed, setLapsed] = useState<number>();
 	const [refused, setRefused] = useState<string>();
 	const remote = useActiveDesk()?.kind === "remote";
 
+	// The PIP leaves when the teammate's last move is LINGER_MS old, and
+	// nothing else here depends on the time: one timer, set for that moment,
+	// and none while there is no browser or its linger is already over. A
+	// window at rest is then not woken to ask whether anything changed.
+	const activeAt = view?.activeAt;
 	useEffect(() => {
-		const timer = setInterval(() => setNow(Date.now()), 5_000);
-		return () => clearInterval(timer);
-	}, []);
+		if (activeAt === undefined) return;
+		const left = activeAt + LINGER_MS - Date.now();
+		if (left <= 0) return;
+		const timer = setTimeout(() => setLapsed(activeAt), left);
+		return () => clearTimeout(timer);
+	}, [activeAt]);
 
 	const taken = view?.snapshotAt;
 	useEffect(() => {
@@ -66,7 +74,7 @@ export function BrowserPip({ personaId, name, view }: { personaId: string; name:
 	const size = sizeName(view.viewport);
 	const shape = view.viewport === undefined ? "16 / 10" : `${view.viewport.width} / ${view.viewport.height}`;
 	const upright = view.viewport !== undefined && view.viewport.height > view.viewport.width;
-	const recent = now - view.activeAt < LINGER_MS;
+	const recent = lapsed !== view.activeAt && Date.now() - view.activeAt < LINGER_MS;
 	const needs = view.needs;
 	if (!yours && (dismissed === view.activeAt || (!needs && !recent))) return null;
 	let host = view.url;

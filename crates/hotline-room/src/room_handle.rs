@@ -286,6 +286,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// The pairs this teammate is in with a request being answered now, by
+    /// key, for the roster row.
+    fn working_pairs(&self, _persona_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Whether one of this teammate's threads other than its DM has a card
     /// waiting on the person, for the roster row.
     fn threads_waiting(&self, _persona_id: &str) -> bool {
@@ -363,6 +369,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Stops the turn in flight in a job's thread; the job goes on firing.
     fn job_cancel(&self, _job_id: &str) -> Result<(), String> {
         Err("Jobs are unavailable on this room.".to_string())
+    }
+
+    /// The person's Stop on a subagent's run: it ends cancelled and says so
+    /// to its teammate.
+    fn run_cancel(&self, _run_id: &str) -> Result<(), String> {
+        Err("Subagents are unavailable on this room.".to_string())
     }
 
     /// Answers a permission card raised inside a job's thread.

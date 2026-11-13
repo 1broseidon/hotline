@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Aside, TranscriptEvent } from "../src/generated/contract";
-import { asideTime, groupNoted, leftHere, levelWord, sourceThread, withAsides } from "../src/asides";
+import { asideTime, leftHere, levelWord, sourceThread, withAsides } from "../src/asides";
 
 const aside = (id: string, ts: number, extra: Partial<Aside> = {}): Aside => ({
 	id,
@@ -56,19 +56,7 @@ describe("asides in the receiver's main conversation", () => {
 	});
 });
 
-describe("the Noted page's groups", () => {
-	test("are what the person has not seen, then the rest, each newest first", () => {
-		const { fresh, earlier } = groupNoted([aside("a", 1, { seen: 9 }), aside("b", 3), aside("c", 2), aside("d", 4, { seen: 9 })]);
-		expect(fresh.map((one) => one.id)).toEqual(["b", "c"]);
-		expect(earlier.map((one) => one.id)).toEqual(["d", "a"]);
-	});
-
-	test("keep what was new when the page opened under New once it is marked seen", () => {
-		const { fresh, earlier } = groupNoted([aside("a", 1, { seen: 9 }), aside("b", 3, { seen: 9 })], new Set(["b"]));
-		expect(fresh.map((one) => one.id)).toEqual(["b"]);
-		expect(earlier.map((one) => one.id)).toEqual(["a"]);
-	});
-
+describe("an aside's level", () => {
 	test("say a person aside is to you, and the others by their level", () => {
 		expect(levelWord("person")).toBe("to you");
 		expect(levelWord("nudge")).toBe("nudge");

@@ -3,6 +3,7 @@
 //! reattaching what is running.
 
 use super::*;
+use crate::driver::acp::plan::Extent;
 
 impl Room {
     /// Brings a teammate up, on the driver its backend names. One caller at a
@@ -183,7 +184,7 @@ impl Room {
         // The account's reading, kept by the room across teammates and
         // restarts, with whatever the agent reported as it started.
         if let Some(reading) = reported.plan_usage {
-            self.take_plan(&persona.backend_id, reading);
+            self.take_plan(&persona.backend_id, reading, Extent::Part);
         }
         info.plan_usage = self.plan_of(&persona.backend_id);
         let session = Arc::new(Session {

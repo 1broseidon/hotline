@@ -3,6 +3,16 @@
 # without creating a release or moving latest. Published versions are immutable.
 # The manifest uses explicit installer targets; a missing deb cannot select an AppImage.
 #
+# A tag is a final release, desktop-vX.Y.Z, or a beta of one,
+# desktop-vX.Y.Z-beta.N; any other tag is refused before anything is built.
+# Both build and sign the same packages with the same key. A final is
+# published as the latest release, whose latest.json is the Stable track's
+# manifest. A beta is published as a pre-release, which GitHub never serves
+# as latest, and carries no latest.json at all. After either, the Beta
+# track's manifest is pointed at the new release (scripts/beta_pointer.py),
+# so a desk on Beta gets betas and finals alike. docs/development.md has the
+# order things happen in and what a failure at each point leaves behind.
+#
 # macOS signing and notarization are optional and driven by the repository
 # secrets from the Electrobun era, whose names are kept because a secret
 # cannot be copied, only re-uploaded. Developer ID Application certificate
@@ -22,6 +32,11 @@ on:
   push:
     tags: ["desktop-v[0-9]*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Build as this version, for example 0.49.0-beta.1. Empty builds the checkout's own. Nothing is published either way.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -128,17 +143,37 @@ jobs:
       # Forgetting both makes the build unpack the pinned archive again.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
+
+      # A manual run can build as a version nobody has tagged, so a beta's
+      # packaging is seen on every runner before a beta exists. The version
+      # is written into this runner's checkout and goes no further.
+      - name: Build as the version a manual run asked for
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        shell: bash
+        env:
+          ASKED: ${{ inputs.version }}
+        run: |
+          python scripts/release_version.py "$ASKED" --set
+          cargo update --workspace
+
+      # Refuses a version that is neither X.Y.Z nor X.Y.Z-beta.N, and says
+      # how deb and rpm write a beta (scripts/release_version.py).
+      - name: The version, and how each package format writes it
+        id: version
+        shell: bash
+        run: python scripts/release_version.py "$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')" >> "$GITHUB_OUTPUT"
 
       # The window's toolkit and the tray's library, found through pkg-config
-      # before the deb is written (docs/development.md).
+      # before the deb is written (docs/development.md). rpm only reads the
+      # finished package's version back, below.
       - name: Install the Linux toolkit
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            patchelf build-essential libssl-dev libdbus-1-dev
+            patchelf build-essential libssl-dev libdbus-1-dev rpm
 
       - name: Install the window's dependencies
         working-directory: ui
@@ -192,6 +227,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "Missing Hotline updater signing key" >&2; exit 1; }
 
+      # A beta's Linux build leaves the rpm to the next step: the bundler
+      # refuses to write a version with a pre-release into one.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -199,8 +236,27 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: crates/hotline-app
-          args: --target ${{ matrix.target }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          args: --target ${{ matrix.target }} --config '{"bundle":{"createUpdaterArtifacts":true}}' ${{ runner.os == 'Linux' && steps.version.outputs.beta == 'true' && '--bundles appimage,deb' || '' }}
           uploadUpdaterJson: false
+
+      # `-` parts an rpm's version from its release, so X.Y.Z-beta.N cannot
+      # be an rpm version. A beta's rpm is version X.Y.Z at release 0.beta.N,
+      # which rpm sorts before the final's release 1. Only the package's
+      # label is the final's: this packs the app built above, which still
+      # calls itself X.Y.Z-beta.N, and compiles nothing. `tauri` is the CLI
+      # the action above installed.
+      - name: Package a beta's rpm
+        if: runner.os == 'Linux' && steps.version.outputs.beta == 'true'
+        working-directory: crates/hotline-app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TARGET: ${{ matrix.target }}
+          BASE: ${{ steps.version.outputs.base }}
+          RPM_RELEASE: ${{ steps.version.outputs.rpm_release }}
+        run: |
+          tauri bundle --bundles rpm --target "$TARGET" \
+            --config "{\"version\":\"$BASE\",\"bundle\":{\"createUpdaterArtifacts\":true,\"linux\":{\"rpm\":{\"release\":\"$RPM_RELEASE\"}}}}"
 
       - name: Collect packages and signatures
         shell: bash
@@ -222,6 +278,67 @@ jobs:
             take "$bundle"/deb/*.deb "hotline_${version}_${SUFFIX}.deb"
             take "$bundle"/rpm/*.rpm "hotline_${version}_${SUFFIX}.rpm"
           fi
+
+      # dpkg reads X.Y.Z-beta.N as newer than X.Y.Z, so a beta's deb says
+      # X.Y.Z~beta.N (scripts/deb_version.py). That changes the package's
+      # bytes, and the rpm above was signed under the final's version, so
+      # both are signed again here, with the same key, as the version the
+      # updater compares. The old signature goes first: a package this step
+      # did not sign is left with none, and the manifest refuses it.
+      - name: Write a beta's deb for dpkg and sign its Linux packages again
+        if: runner.os == 'Linux' && steps.version.outputs.beta == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          deb="out/hotline_${VERSION}_${SUFFIX}.deb"
+          rpm="out/hotline_${VERSION}_${SUFFIX}.rpm"
+          python scripts/deb_version.py "$deb" "$VERSION"
+          for package in "$deb" "$rpm"; do
+            rm -f "$package.sig"
+            tauri signer sign --app-version "$VERSION" "$package"
+            test -s "$package.sig"
+          done
+
+      # What each finished Linux package says its version is, read back with
+      # the package managers' own tools, and that each sorts a beta before
+      # its final. A final says the version as it is, at rpm's release 1.
+      - name: The Linux packages say the version their package managers sort
+        if: runner.os == 'Linux'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BASE: ${{ steps.version.outputs.base }}
+          BETA: ${{ steps.version.outputs.beta }}
+          DEB_VERSION: ${{ steps.version.outputs.deb_version }}
+          RPM_RELEASE: ${{ steps.version.outputs.rpm_release }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          deb="out/hotline_${VERSION}_${SUFFIX}.deb"
+          rpm="out/hotline_${VERSION}_${SUFFIX}.rpm"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb" > /dev/null
+          said="$(dpkg-deb -f "$deb" Version)"
+          [ "$said" = "$DEB_VERSION" ] || { echo "::error::the deb says $said, not $DEB_VERSION"; exit 1; }
+          said="$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$rpm")"
+          [ "$said" = "$BASE-$RPM_RELEASE" ] || { echo "::error::the rpm says $said, not $BASE-$RPM_RELEASE"; exit 1; }
+          if [ "$BETA" = "true" ]; then
+            dpkg --compare-versions "$DEB_VERSION" lt "$BASE" || { echo "::error::dpkg does not sort $DEB_VERSION before $BASE"; exit 1; }
+            order="$(rpm --eval "%{lua: print(rpm.vercmp('$RPM_RELEASE', '1'))}")"
+            [ "$order" = "-1" ] || { echo "::error::rpm does not sort release $RPM_RELEASE before 1"; exit 1; }
+          fi
+
+      # The Mac bundle and the Windows installer take a pre-release version
+      # as it is; the bundle's own record of it is read back here.
+      - name: The Mac bundle says the whole version
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          said="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "target/$TARGET/release/bundle/macos/Hotline.app/Contents/Info.plist")"
+          [ "$said" = "$VERSION" ] || { echo "::error::the bundle says $said, not $VERSION"; exit 1; }
 
       - uses: actions/upload-artifact@v7
         with:
@@ -261,7 +378,15 @@ jobs:
       # The cache lacks the speech engine's unpacked library; see above.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
+      # As in the desktop build: the version goes no further than this runner.
+      - name: Build as the version a manual run asked for
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          ASKED: ${{ inputs.version }}
+        run: |
+          python3 scripts/release_version.py "$ASKED" --set
+          cargo update --workspace
       # libdbus only because the core links the keyring crate; `--store
       # file` never talks to it. WebKitGTK's headers for hotline-browser,
       # which links it; `hotline` never does.
@@ -292,12 +417,15 @@ jobs:
           path: out/*
           if-no-files-found: error
 
-  publish:
-    if: github.event_name == 'push'
+  # Every package and signature from the jobs above, the release notes, and
+  # the manifest that names them. A manual run ends here, with the result
+  # kept to read; this job holds no permission to publish anything.
+  manifest:
     needs: [build, server]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      beta: ${{ steps.version.outputs.beta }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -310,39 +438,140 @@ jobs:
           pattern: server-*
           path: dist
           merge-multiple: true
-      # Only the scripts this job runs; make check in CI runs the rest, some
+      # Only the scripts this workflow runs; make check in CI runs the rest, some
       # of which need the window's toolchain this job does not install.
-      - name: Verify manifest generation and release notes
+      - name: Verify the release scripts
         run: |
-          python3 -m unittest discover -s scripts -p 'test_updater_manifest.py'
-          python3 -m unittest discover -s scripts -p 'test_release_notes.py'
-      - name: Prepare a draft and release notes
+          for tests in test_release_version.py test_deb_version.py test_updater_manifest.py test_release_notes.py test_beta_pointer.py; do
+            python3 -m unittest discover -s scripts -p "$tests"
+          done
+      - name: The version being released
+        id: version
         env:
-          GH_TOKEN: ${{ github.token }}
+          ASKED: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            version="${GITHUB_REF_NAME#desktop-v}"
+          elif [ -n "$ASKED" ]; then
+            version="$ASKED"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          fi
+          python3 scripts/release_version.py "$version" >> "$GITHUB_OUTPUT"
+      # The release notes written for people (docs/releases/<version>.md, a
+      # beta's being its final's) go to the app's updater; the GitHub Release
+      # gets them over the version's CHANGELOG.md section. A tag missing
+      # either is refused here, before anything is published. A manual run
+      # may come before the notes are written, and says so in their place.
+      - name: Release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! python3 scripts/release_notes.py "$VERSION" --repository "$GITHUB_REPOSITORY" --app dist/app-notes.md --github dist/notes.md; then
+            [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || exit 1
+            echo "::warning::$VERSION has no release notes yet; a tag of it would be refused here."
+            echo "A manual run of $VERSION, before its release notes were written." > dist/app-notes.md
+            cp dist/app-notes.md dist/notes.md
+          fi
+      - name: Generate the complete update manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 scripts/updater_manifest.py dist --version "$VERSION" --repository "$GITHUB_REPOSITORY" --notes dist/app-notes.md
+          cd dist
+          sha256sum hotline_* hotline-server_* > checksums.txt
+      # latest.json is what a desk on Stable reads. A beta must not have one.
+      - name: Only a final release carries the Stable track's manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BETA: ${{ steps.version.outputs.beta }}
+        run: |
+          if [ "$BETA" = "true" ]; then
+            [ ! -e dist/latest.json ] || { echo "::error::a beta wrote latest.json"; exit 1; }
+          else
+            cmp dist/latest.json "dist/updater-$VERSION.json"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-manifest
+          path: |
+            dist/updater-*.json
+            dist/latest.json
+            dist/checksums.txt
+            dist/notes.md
+            dist/app-notes.md
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: manifest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.manifest.outputs.version }}
+      BETA: ${{ needs.manifest.outputs.beta }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: server-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-manifest
+          path: dist
+      # A beta is a pre-release from its first moment as a draft.
+      - name: Prepare a draft with the release notes
         run: |
           state="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
           if [ "$state" = "false" ]; then
             echo "This release is already published; refusing to replace it." >&2
             exit 1
           fi
-          # The release notes written for people (docs/releases/<version>.md) go
-          # to the app's updater; the GitHub Release gets them over the version's
-          # CHANGELOG.md section. A tag missing either is refused here, before
-          # anything is published.
-          python3 scripts/release_notes.py "${GITHUB_REF_NAME#desktop-v}" --repository "$GITHUB_REPOSITORY" --app dist/app-notes.md --github dist/notes.md
           if [ "$state" = "none" ]; then
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --notes-file dist/notes.md --title "$GITHUB_REF_NAME"
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --notes-file dist/notes.md --title "$GITHUB_REF_NAME" --prerelease="$BETA"
           else
-            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file dist/notes.md
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file dist/notes.md --prerelease="$BETA"
           fi
-      - name: Generate the complete update manifest
-        run: |
-          python3 scripts/updater_manifest.py dist --version "${GITHUB_REF_NAME#desktop-v}" --repository "$GITHUB_REPOSITORY" --notes dist/app-notes.md
-          cd dist
-          sha256sum hotline_* hotline-server_* > checksums.txt
+      # One call makes the draft public. For a final the same call marks it
+      # latest, which is the moment the Stable track's manifest changes. A
+      # beta is published as a pre-release and explicitly not latest, and
+      # latest.json is not among its files, so the Stable track's address
+      # goes on answering with the last final release.
       - name: Publish only after all packages and the manifest are uploaded
+        run: |
+          files=(dist/hotline_* dist/hotline-server_* dist/checksums.txt "dist/updater-$VERSION.json")
+          if [ "$BETA" = "true" ]; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false --title "$GITHUB_REF_NAME"
+          else
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}" dist/latest.json
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest --title "$GITHUB_REF_NAME"
+          fi
+
+  # The Beta track reads one manifest at a fixed address: beta.json on the
+  # update-tracks branch. After a release of either kind is public, that
+  # release's own manifest is fetched back from it, every package it names
+  # is asked for, and the branch is moved to it in one step, forward only
+  # (scripts/beta_pointer.py). A failure here leaves the old manifest in
+  # place and the release as it is; run this job again and nothing else.
+  beta-track:
+    if: github.event_name == 'push'
+    needs: [manifest, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Point the Beta track at the published release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber dist/hotline_* dist/hotline-server_* dist/checksums.txt dist/updater-*.json dist/latest.json
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest --title "$GITHUB_REF_NAME"
+          VERSION: ${{ needs.manifest.outputs.version }}
+        run: python3 scripts/beta_pointer.py --version "$VERSION" --repository "$GITHUB_REPOSITORY"

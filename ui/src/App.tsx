@@ -184,14 +184,15 @@ export function App() {
 					setRoster(entries);
 					setRosterLoaded(true);
 				},
-				event: (entry) =>
+				event: (entry) => {
 					setRoster((known) => {
 						const at = known.findIndex((one) => one.persona.id === entry.persona.id);
 						if (at === -1) return [...known, entry];
 						const next = known.slice();
 						next[at] = entry;
 						return next;
-					}),
+					});
+				},
 				removed: (personaId) =>
 					setRoster((known) => known.filter((one) => one.persona.id !== personaId)),
 			},
@@ -306,11 +307,10 @@ export function App() {
         } else openDock({ open });
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
-	const openNoted = useCallback(() => openDock({ open: null, noted: true }), [openDock]);
 
-	/* A turn's work is read in one place, the right-hand pane: its caption
-	 * or the composer's activity row opens it there, and pressed again with
-	 * that turn open, closes it. */
+	/* A turn that is over is read in the right-hand pane: its caption opens
+	 * it there, and pressed again with that turn open, closes it. The turn
+	 * running now opens in the composer, from its Working row. */
 	const toggleWorkPane = useCallback(
 		(personaId: string, blockId: string | null) => {
 			if (dock?.work?.personaId === personaId && dock.work.blockId === blockId) closeDock();
@@ -318,6 +318,19 @@ export function App() {
 		},
 		[dock, closeDock, openDock],
 	);
+	/* These two are handed down to the rows of the conversation, and a row
+	 * is drawn again when it is handed something new: made here once, not in
+	 * the markup on every render, or each roster update draws every row. */
+	const toggleSelectedWork = useCallback(
+		(blockId: string | null) => {
+			if (selectedId !== null) toggleWorkPane(selectedId, blockId);
+		},
+		[selectedId, toggleWorkPane],
+	);
+	const openProviders = useCallback(() => {
+		setSettingsSection("providers");
+		setPane("settings");
+	}, [setSettingsSection, setPane]);
 	/* A command left running opens in the card over the composer's foot;
 	 * pressed again with it open, the card closes. */
 	const openWork = useCallback(
@@ -636,10 +649,7 @@ export function App() {
 							onCreated={select}
 							onClose={closePane}
 							onDesk={(deskId) => openOnDesk(deskId, { pane: "new-teammate" })}
-							onProviders={() => {
-								setSettingsSection("providers");
-								setPane("settings");
-							}}
+							onProviders={openProviders}
 						/>
 				) : selected ? (
 					<>
@@ -651,10 +661,7 @@ export function App() {
 							onCall={directCalls ? () => callTeammate(selected) : undefined}
 							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
 							callBar={callBar}
-							onProviders={() => {
-								setSettingsSection("providers");
-								setPane("settings");
-							}}
+							onProviders={openProviders}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -665,13 +672,11 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
-							onOpenNoted={openNoted}
-							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
+							onOpenWork={toggleSelectedWork}
 							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
-							paneOpen={dock !== null}
 							// Faces only, the rail no longer names who this is: the band does.
 							railOpen={railShown && !faces}
 							{...(workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}

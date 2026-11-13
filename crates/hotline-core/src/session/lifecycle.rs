@@ -124,8 +124,8 @@ impl Room {
                 .values()
                 .flatten()
                 .map(|run| Quiet {
-                    thread: ThreadId::run(&run.run_id),
-                    since: run.started_at,
+                    thread: ThreadId::run(&run.row.run_id),
+                    since: run.row.started_at,
                     working: true,
                 })
                 .collect(),
@@ -562,8 +562,14 @@ mod tests {
                 title: "Check the crane".into(),
                 started_at: 1,
                 kind: crate::contract::RunKind::Subagent,
+                last_step: None,
+                steps: 0,
+                command: None,
+                model: None,
+                stoppable: false,
             },
             true,
+            None,
         );
 
         let mut looked_again = HashMap::new();
@@ -625,6 +631,8 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
+            run_kind: None,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
@@ -812,6 +820,8 @@ mod tests {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
+            run_kind: None,
         };
         let tape = StreamId::Tape("ada".into());
         let stream = StreamId::of_thread(&call).unwrap();
@@ -877,6 +887,8 @@ mod tests {
             }),
             handoff_ended: false,
             asked_in: None,
+            request: None,
+            run_kind: None,
         };
         let mut copy = live.event();
         copy["id"] = format!("{}@ada", live.id).into();

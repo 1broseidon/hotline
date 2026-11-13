@@ -78,7 +78,7 @@ pub struct InboundSource {
     clippy::trivially_copy_pass_by_ref,
     reason = "serde's skip_serializing_if hands the field by reference"
 )]
-fn is_zero(count: &u32) -> bool {
+pub(crate) fn is_zero(count: &u32) -> bool {
     *count == 0
 }
 

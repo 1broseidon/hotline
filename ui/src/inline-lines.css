@@ -344,21 +344,22 @@
 		box-shadow: inset 0 0 0 1.5px var(--ink-4);
 	}
 
-	/* ----------------------------------------------------- steps caption
-	 * The machinery between messages, folded to one pill: how many steps,
-	 * the failures in red, and how long they took. The chevron only shows
-	 * itself to a hand. */
-	/* A turn's steps are one quiet line, as a thread's or a call's is. */
+	/* ------------------------------------------------------ outcome line
+	 * Under a reply, what the turn left behind in the teammate's own words,
+	 * each with the mark for how it went, then the time it took and the way
+	 * into its path. A turn that left nothing says only its time. */
 	.steps-caption {
-		display: inline-flex;
-		max-width: 100%;
+		display: flex;
+		width: calc(100% + 6px);
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 8px;
+		gap: 3px 14px;
 		margin-left: -6px;
 		padding: 3px 8px 3px 6px;
 		border-radius: var(--radius-control);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
+		text-align: left;
 		color: var(--ink-2);
 		transition: background var(--dur-press) var(--ease-out);
 	}
@@ -367,18 +368,17 @@
 		background: var(--fill-hover);
 		color: var(--ink-2);
 	}
-	.steps-caption-failed {
-		flex-shrink: 0;
-		margin-left: -4px;
-		color: var(--danger);
-	}
 	.steps-caption-took {
+		display: inline-flex;
 		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+		margin-left: auto;
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
-	.steps-caption > svg {
+	.steps-caption svg {
 		width: 12px;
 		height: 12px;
 		flex-shrink: 0;
@@ -386,15 +386,51 @@
 		opacity: 0.6;
 		transition: opacity var(--dur-press) var(--ease-out);
 	}
-	.steps-caption:hover > svg,
-	.steps-caption:focus-visible > svg,
-	.steps-caption[aria-expanded="true"] > svg {
+	.steps-caption:hover svg,
+	.steps-caption:focus-visible svg,
+	.steps-caption[aria-expanded="true"] svg {
 		opacity: 1;
+	}
+	/* One outcome: its mark, then its words. Failed is red, and first; what
+	 * is left for you is in full ink; one still going keeps its dot. */
+	.outcome {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.outcome::before {
+		margin-right: 6px;
+		color: var(--accent-ink);
+	}
+	.outcome[data-mark="done"]::before {
+		content: "✓";
+	}
+	.outcome[data-mark="failed"],
+	.outcome[data-mark="failed"]::before {
+		color: var(--danger);
+	}
+	.outcome[data-mark="failed"]::before {
+		content: "✕";
+	}
+	.outcome[data-mark="partial"]::before {
+		content: "–";
+		color: var(--ink-3);
+	}
+	.outcome[data-mark="open"]::before {
+		content: "●";
+		font-size: 9px;
+		vertical-align: 1px;
+	}
+	.outcome[data-mark="yours"],
+	.outcome[data-mark="yours"]::before {
+		color: var(--ink);
+	}
+	.outcome[data-mark="yours"]::before {
+		content: "→";
 	}
 
 	/* ---------------------------------------------------------- link row
-	 * Every way out of the chat, a thread, a subagent, a call: the kind's
-	 * glyph with a dot for how it stands, the title, what came of it, Open. */
+	 * Every way out of the chat, a thread, a subagent, a call: a dot for how
+	 * it stands, the title, what it is doing or what came of it, Open. */
 	.link-row {
 		display: flex;
 		max-width: 86%;
@@ -444,18 +480,6 @@
 		text-overflow: ellipsis;
 		font-weight: 500;
 		color: var(--ink-2);
-	}
-	.link-row-sub {
-		display: flex;
-		min-width: 0;
-		gap: 4px;
-		overflow: hidden;
-	}
-	.link-row-kind {
-		flex-shrink: 0;
-	}
-	.link-row-kind::before {
-		content: "· ";
 	}
 	.link-row-outcome {
 		min-width: 0;

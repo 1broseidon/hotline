@@ -15,6 +15,10 @@
 //! DM's tape keeps its own door ([`Room::write_value`]) until it is ported:
 //! chapters index it, and the turn loop pushes its cards.
 //!
+//! A run's write also moves its teammate's roster row on: the run's latest
+//! step and its count are kept from what lands on its stream
+//! ([`Room::run_wrote`]).
+//!
 //! Unread is not kept here: a client counts it against each thread's newest
 //! line, so a write's part is only to land one and to wake the roster row.
 
@@ -155,6 +159,9 @@ impl Threads<'_> {
         if let Err(error) = self.room.log.append(&stream, &event) {
             eprintln!("the {thread} could not be written to: {error}");
             return Written::default();
+        }
+        if thread.kind == ThreadKind::Run {
+            self.room.run_wrote(persona_id, &thread.key, &event);
         }
         let policy = Policy::of(thread.kind);
         if policy.surface.index {
@@ -594,6 +601,7 @@ mod tests {
                     saved: None,
                     handoff: None,
                     asked: None,
+                    opened_with: None,
                 },
             )
             .unwrap();

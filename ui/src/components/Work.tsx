@@ -1,14 +1,16 @@
-import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, memo, useMemo, useEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
 import { PaneClose } from "../ui/PaneClose";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
-import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon, } from "../icons";
+import { ChevronLeftIcon, ChevronRightIcon } from "../icons";
+import { FollowWindow } from "./FollowWindow";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
 import { runEnding, stepRuns } from "./Transcript";
 import { workDetail } from "../turnFacts";
 import { TrailHead, TrailSteps, useHot } from "./transcript/Trail";
+import type { ThreadRef } from "./Transcript";
 
 /**
  * What the card shows: a turn's work, by its caption's id, or the turn
@@ -23,6 +25,33 @@ export function sameWork(a: OpenWork, b: OpenWork): boolean {
 
 /** How often an open process card reads its output again; the core only answers when asked. */
 const OUTPUT_EVERY_MS = 1000;
+
+/**
+ * A command left running, read while it runs: its whole command and the
+ * latest of what it has written, read again each second, and the last read
+ * kept once it ends. `id` is a job Hotline Agent left running, or the run of
+ * a command a harness sent to the background.
+ */
+export function useProcessOutput(personaId: string, id: string, running: boolean): ProcessOutput | null {
+	const [read, setRead] = useState<ProcessOutput | null>(null);
+	useEffect(() => {
+		if (!running) return;
+		let cancelled = false;
+		const readOutput = () => {
+			void wire
+				.command("process.output", { personaId, id })
+				.then((next) => !cancelled && setRead(next))
+				.catch(() => {});
+		};
+		readOutput();
+		const tick = window.setInterval(readOutput, OUTPUT_EVERY_MS);
+		return () => {
+			cancelled = true;
+			window.clearInterval(tick);
+		};
+	}, [personaId, id, running]);
+	return read;
+}
 
 /**
  * A command the teammate left running, in the work card's place: the whole
@@ -44,25 +73,8 @@ export function ProcessWork({
 	docked?: boolean;
 	onClose(): void;
 }) {
-	const [read, setRead] = useState<ProcessOutput | null>(null);
 	const [refused, setRefused] = useState<string | null>(null);
-	const running = process !== undefined;
-	useEffect(() => {
-		if (!running) return;
-		let cancelled = false;
-		const readOutput = () => {
-			void wire
-				.command("process.output", { personaId, id: processId })
-				.then((next) => !cancelled && setRead(next))
-				.catch(() => {});
-		};
-		readOutput();
-		const tick = window.setInterval(readOutput, OUTPUT_EVERY_MS);
-		return () => {
-			cancelled = true;
-			window.clearInterval(tick);
-		};
-	}, [personaId, processId, running]);
+	const read = useProcessOutput(personaId, processId, process !== undefined);
 	const stop = () => {
 		setRefused(null);
 		void wire.command("process.stop", { personaId, id: processId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
@@ -104,11 +116,12 @@ export function ProcessWork({
 /** The turn just begun, as a place to step to before it has a run of its own. */
 const NOW = { id: "" };
 
-/** Slack under the newest step that still counts as following it. */
-const FOLLOW_SLACK = 48;
-
-/** A turn's work: the run a caption names, or the latest, and how it stands. */
-function useTurnWork(personaId: string, blockId: string | null, name: string, live: boolean) {
+/**
+ * A turn's work: the run a caption names, or the latest, and how it stands.
+ * `resting` is a turn open only for the helpers it started: its own work is
+ * over and it waits on them, so its path says Waiting, not Working or Done.
+ */
+function useTurnWork(personaId: string, blockId: string | null, name: string, live: boolean, resting: boolean) {
 	const { events, streaming } = useThread(dmOf(personaId));
 	const runs = useMemo(() => stepRuns(events, streaming), [events, streaming]);
 	const latest = runs[runs.length - 1];
@@ -118,7 +131,7 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const run = blockId === null ? (begun ? undefined : latest) : runs.find((one) => one.id === blockId);
 	const running = live && run !== undefined && run.open === true;
 	const waiting = blockId === null && live && run === undefined;
-	const state = running || waiting ? "Working" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
+	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
@@ -129,7 +142,8 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
  * A turn's work as a page of the right-hand pane, flush and full height like
  * a thread: the room to read it, every step opening to say what it did. A
  * line asked for arrives open and in view; otherwise the page follows the
- * newest step.
+ * newest step. A helper or a command the turn started opens from its line
+ * here, in the pane's place, with Back to this turn (`onOpenThread`).
  */
 export function WorkPage({
 	personaId,
@@ -137,6 +151,8 @@ export function WorkPage({
 	stepId,
 	name,
 	live,
+	resting,
+	onOpenThread,
 	onClose,
 }: {
 	personaId: string;
@@ -145,13 +161,17 @@ export function WorkPage({
 	stepId?: string | undefined;
 	name: string;
 	live: boolean;
+	/** The turn is open only for its helpers (`awaitingSubagents`). */
+	resting: boolean;
+	/** Opens a helper or a command from its line, and the turn it was opened from, to come back to. */
+	onOpenThread(thread: ThreadRef, blockId: string): void;
 	onClose(): void;
 }) {
 	/* The turn shown: null follows the latest, rolling on to each new turn
 	 * as it starts; an id holds that turn, and stepping back in time is what
 	 * holds one. Opened on the latest turn's own caption, the pane follows. */
 	const [held, setHeld] = useState<string | null>(blockId);
-	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live);
+	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live, resting);
 	const settledOpen = useRef(false);
 	useEffect(() => {
 		if (settledOpen.current || latest === undefined) return;
@@ -191,7 +211,7 @@ export function WorkPage({
 			{/* The turn's shape and its sources stay put; the steps, which run long, scroll. */}
 			{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={openId === undefined}>
-				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} />}
+				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} onOpenThread={(thread) => onOpenThread(thread, run.id)} />}
 			</FollowWindow>
 		</section>
 	);
@@ -268,71 +288,3 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 		</Band>
 	);
 });
-
-/**
- * The window a card reads through: it follows the newest line until you
- * scroll back, and offers a way down again.
- */
-function FollowWindow({
-	following: followKey,
-	count,
-	content,
-	follow = true,
-	children,
-}: {
-	/** What the window is following: a new one starts at its newest. */
-	following: string | undefined;
-	count: number;
-	/** Changes when the visible body changes, including a growing thought or tool output. */
-	content: unknown;
-	/** Whether it starts at the newest; a page opened at a line it was asked for starts there instead. */
-	follow?: boolean;
-	children: ReactNode;
-}) {
-	const frame = useRef<HTMLDivElement>(null);
-	const [following, setFollowing] = useState(follow);
-	// Follow actual body changes, including text growing within one step.
-	// Unrelated parent renders need no layout read.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: content and followKey identify the body whose layout changed.
-	useLayoutEffect(() => {
-		const el = frame.current;
-		if (el && following) el.scrollTop = el.scrollHeight;
-	}, [content, followKey, following]);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new followKey is new work to follow.
-	useEffect(() => setFollowing(follow), [followKey]);
-	// Opened at a line, with the whole run in view: there is nothing newer to go down to.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: measured once the body has laid out.
-	useEffect(() => {
-		const el = frame.current;
-		if (el && !following && el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK) setFollowing(true);
-	}, [content, followKey]);
-
-	return (
-		<div className="relative flex min-h-0 flex-1 flex-col">
-			<div
-				ref={frame}
-				className="work-window"
-				onScroll={(scroll) => {
-					const el = scroll.currentTarget;
-					const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
-					if (atEnd !== following) setFollowing(atEnd);
-				}}
-			>
-				{children}
-			</div>
-			{!following && count > 0 && (
-				<button
-					type="button"
-					className="control btn btn-sm work-newest gap-1"
-					onClick={() => {
-						setFollowing(true);
-						frame.current?.scrollTo({ top: frame.current.scrollHeight, behavior: "smooth" });
-					}}
-				>
-					<ArrowDownIcon />
-					Newest
-				</button>
-			)}
-		</div>
-	);
-}

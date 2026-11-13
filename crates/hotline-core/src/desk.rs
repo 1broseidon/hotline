@@ -230,16 +230,17 @@ impl Desk {
             store,
             services,
             hotline_voice::speech::local::catalogue(),
-            acp::StartBounds::default(),
+            acp::Bounds::default(),
         )
     }
 
-    /// Open giving an ACP agent's command these bounds to start in, for a
-    /// harness whose agent never answers and should not take a minute to say so.
-    pub fn open_with_acp_start_bounds(
+    /// Open giving the ACP driver these bounds on its waits, for a harness
+    /// whose agent never answers, or whose permission card nobody does, and
+    /// should not take a minute, or ten, to say so.
+    pub fn open_with_acp_bounds(
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
-        bounds: crate::driver::acp::StartBounds,
+        bounds: crate::driver::acp::Bounds,
     ) -> io::Result<Desk> {
         Self::open_inner(
             root,
@@ -257,7 +258,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         models: Vec<hotline_voice::speech::local::Model>,
     ) -> io::Result<Desk> {
-        Self::open_inner(root, store, None, models, acp::StartBounds::default())
+        Self::open_inner(root, store, None, models, acp::Bounds::default())
     }
 
     fn open_inner(
@@ -265,7 +266,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         services: Option<crate::voice::Services>,
         models: Vec<hotline_voice::speech::local::Model>,
-        acp_start: crate::driver::acp::StartBounds,
+        acp_bounds: crate::driver::acp::Bounds,
     ) -> io::Result<Desk> {
         install_crypto_provider();
         let log = Log::open(root);
@@ -282,7 +283,7 @@ impl Desk {
             log: log.clone(),
             budget: budget.clone(),
         });
-        let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_start);
+        let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_bounds);
         let mcp_oauth = Arc::new(McpOAuth::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {
@@ -647,6 +648,10 @@ impl RoomHandle for Desk {
         self.room.working_calls(persona_id)
     }
 
+    fn working_pairs(&self, persona_id: &str) -> Vec<String> {
+        self.room.working_pairs(persona_id)
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
     }
@@ -706,6 +711,10 @@ impl RoomHandle for Desk {
 
     fn job_cancel(&self, job_id: &str) -> Result<(), String> {
         self.room.cancel_job_turn(job_id)
+    }
+
+    fn run_cancel(&self, run_id: &str) -> Result<(), String> {
+        self.room.stop_run(run_id)
     }
 
     async fn job_answer_permission(

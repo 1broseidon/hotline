@@ -95,6 +95,13 @@ describe("light mode", () => {
 	});
 });
 
+describe("a command's terminal", () => {
+	test("its output and its quiet lines hold 4.5:1 in both palettes", () => {
+		for (const [mode, palette] of [["dark", dark], ["light", light]] as const)
+			for (const ink of ["ink-2", "ink-3"]) expect({ mode, ink, ratio: ratio(palette, ink, "terminal") >= 4.5 }).toEqual({ mode, ink, ratio: true });
+	});
+});
+
 describe("dark mode", () => {
 	test("body, secondary and caption text hold 4.5:1 on every plane", () => {
 		for (const ink of ["ink", "ink-2", "ink-3"])

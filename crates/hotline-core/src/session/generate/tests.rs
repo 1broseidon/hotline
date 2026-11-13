@@ -2,7 +2,7 @@ use super::*;
 use crate::contract::SkillPolicy;
 use crate::contract::{McpPolicy, Persona, PolicyMode};
 use crate::driver::CapabilityEpoch;
-use crate::driver::acp::StartBounds;
+use crate::driver::acp::Bounds;
 use crate::imagegen::{Aspect, Image, ImageError, ImageGen, ImageId};
 use crate::log::{Log, StreamId};
 use crate::mcp::server::TeammateTools;
@@ -846,7 +846,7 @@ async fn a_connected_custom_provider_generates_through_the_real_resolver_and_htt
             },
         )
         .unwrap();
-    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, StartBounds::default());
+    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, Bounds::default());
     let tools = TeammateTools::new(&room, "ada");
     let result: Value = serde_json::from_str(&tools.call("generate_image", &json!({
         "prompt": "a lighthouse", "aspect": "16:9", "transparent": true, "name": "resolved"
@@ -902,7 +902,7 @@ async fn http_400_refusals_leave_the_ledger_unchanged() {
             },
         )
         .unwrap();
-    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, StartBounds::default());
+    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, Bounds::default());
     let tools = TeammateTools::new(&room, "ada");
     let before = room.spending_summary().unwrap();
     for _ in 0..3 {
@@ -1027,7 +1027,7 @@ async fn unreadable_json_cannot_turn_a_saved_zero_cap_back_into_paid_defaults() 
 #[tokio::test]
 async fn acp_mcp_transport_lists_and_executes_the_same_image_tool() {
     use rmcp::ServiceExt;
-    use rmcp::model::{CallToolRequestParams, ClientInfo};
+    use rmcp::model::{CallToolRequestParams, ClientConfig};
     use rmcp::transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
     };
@@ -1037,7 +1037,7 @@ async fn acp_mcp_transport_lists_and_executes_the_same_image_tool() {
     let transport = StreamableHttpClientTransport::from_config(
         StreamableHttpClientTransportConfig::with_uri(served.url()).auth_header(served.token()),
     );
-    let client = ClientInfo::default().serve(transport).await.unwrap();
+    let client = ClientConfig::default().serve(transport).await.unwrap();
     let listing = client.list_tools(None).await.unwrap();
     assert!(
         listing

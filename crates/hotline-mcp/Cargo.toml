@@ -9,6 +9,11 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+# `test-support`: a sign-in's manager with the name lookup handed in, so the
+# core's OAuth harness answers for DNS from a table and reaches no network.
+[features]
+test-support = []
+
 [dependencies]
 hotline-contract = { path = "../hotline-contract" }
 hotline-support = { path = "../hotline-support" }
@@ -26,7 +31,7 @@ uuid = { version = "1.26.0", features = ["v4"] }
 # The client half of MCP, on the version the core's server half uses. Pinned
 # exactly, because the model types are `non_exhaustive` and a minor release is
 # free to grow a field the compiler then demands.
-rmcp = { version = "=3.2.0", features = [
+rmcp = { version = "=3.9.0", features = [
     "auth",
     "client",
     "transport-child-process",
@@ -42,4 +47,4 @@ libc = "0.2"
 # The tests serve a scripted MCP server to the client over an in-memory pipe.
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-rmcp = { version = "=3.2.0", features = ["server", "transport-io"] }
+rmcp = { version = "=3.9.0", features = ["server", "transport-io"] }

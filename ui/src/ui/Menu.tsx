@@ -307,6 +307,8 @@ export function MenuButton({
 	className,
 	label,
 	title,
+	pressed,
+	onOpenChange,
 	children,
 }: {
 	entries: MenuEntry[];
@@ -314,10 +316,17 @@ export function MenuButton({
 	className: string;
 	label: string;
 	title?: string;
+	/** The key is standing for one of its entries now, as a pressed chip does. */
+	pressed?: boolean;
+	/** Told when the menu opens and closes, for entries that are only worth reading while they can be seen. */
+	onOpenChange?: (open: boolean) => void;
 	children: ReactNode;
 }) {
 	const button = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
+	useEffect(() => {
+		onOpenChange?.(open);
+	}, [open, onOpenChange]);
 	return (
 		<>
 			<button
@@ -328,6 +337,7 @@ export function MenuButton({
 				title={open ? undefined : (title ?? label)}
 				aria-haspopup="menu"
 				aria-expanded={open}
+				aria-pressed={pressed}
 				onClick={() => setOpen((was) => !was)}
 			>
 				{children}

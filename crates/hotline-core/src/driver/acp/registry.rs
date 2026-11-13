@@ -63,7 +63,7 @@ impl Launch {
 
 /// Whether this launch has answered on this machine before. One that has not
 /// may be `npx` or `uvx` fetching its package, which is a download and not a
-/// hang, so its start is given longer (see `StartBounds`).
+/// hang, so its start is given longer (see `Bounds`).
 pub fn started_before(root: &Path, launch: &Launch) -> bool {
     read_started(root).contains(&launch.line())
 }

@@ -167,7 +167,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `agent.auth.poll` | `{personaId, id}` | `{state: "running"\|"succeeded"\|"failed", output, error?}`, what the sign-in has printed so far |
 | `agent.auth.input` | `{personaId, id, input}` | none; a line typed into the sign-in |
 | `agent.auth.cancel` | `{personaId, id}` | none |
-| `process.output` | `{personaId, id}` | `ProcessOutput` `{command, tail}`: a command the teammate left running, whole, and the latest of its output ([sessions.md](sessions.md#running-processes)) |
+| `process.output` | `{personaId, id}` | `ProcessOutput` `{command, tail}`: a command the teammate left running, whole, and the latest of its output; `id` is a running process's job id or a running `shell` run's id ([sessions.md](sessions.md#running-processes)) |
 | `process.stop` | `{personaId, id}` | none; stops that command, without waking the teammate on its end |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
@@ -202,17 +202,17 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), `rosterOptions` ([roster catalog updates](#the-roster-view)), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
-| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
+| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
-| `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs). Without `interrupt`, as the phone and an older window send it, it is the person's Stop: on a work thread it drops what waited behind the turn and ends for good a colleague's handoff it reaches (the cut turn's, a dropped line's, or one an Interrupt left the thread carrying), whose sender is left one `note` aside and never woken; the thread closes as `stopped` when the handoff's own turn was cut. `interrupt` is the window's Interrupt and Esc: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the turn the person's next line there starts; on the main conversation it is `session.cancel`'s; elsewhere it changes nothing ([Stop and Interrupt](sessions.md#stop-and-interrupt)) |
+| `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a subagent's run it is the person's Stop, which ends the run cancelled and reports that to its teammate (refused for a harness's subagent, which has no way to stop one run); on a job, the firing or line running, and the job keeps its schedule (refused when none runs). Without `interrupt`, as the phone and an older window send it, it is the person's Stop: on a work thread it drops what waited behind the turn and ends for good a colleague's handoff it reaches (the cut turn's, a dropped line's, or one an Interrupt left the thread carrying), whose sender is left one `note` aside and never woken; the thread closes as `stopped` when the handoff's own turn was cut. `interrupt` is the window's Interrupt and Esc: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the turn the person's next line there starts; on the main conversation it is `session.cancel`'s; elsewhere it changes nothing ([Stop and Interrupt](sessions.md#stop-and-interrupt)) |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none; one mid-turn is refused, since parking would cut the turn |
 | `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`: on one a teammate handed over, the person's End thread, which ends the handoff too), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
 | `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what the teammate's colleagues and threads left it without telling the person ([Asides](#asides)). The desk, owner and phone seats |
-| `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Noted page opened): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
+| `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Threads list shown with its notes): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
 | `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: the colleague is left a `nudge` aside from the thread with `loopedIn`, and the thread asks it once, as a question from the thread's teammate that the person's act grants, with the thread's last lines; its answer comes back into the thread as a delivery under the colleague's name. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
 | `inbound.list` | `{}` | `InboundSource[]`, oldest first: the desk's inbound sources ([Inbound sources](#inbound-sources)). The desk, owner and phone seats |
 | `inbound.add` | `{draft}` | the new `InboundSource`; `draft` is an `InboundDraft` (`{type, name, teammates, maxLevel?, filesAllowed?, rate?, secret?}`). Refused for a teammate not on this desk, no teammates, a rate outside 1–120, or a `secret` that names no stored secret. The desk and owner seats |
@@ -970,14 +970,25 @@ needs a newer core.
 
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
-backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?}`; `end`
+backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?,
+request?, runKind?}`; `end`
 is how a closed thread ended (`person`, `agent`, `idle`, `stopped`, `done`,
 `failed`, `cancelled`). `handoffEnded` is `true` on a thread a teammate handed
 over once the handoff it serves no longer stands (Stop exchange, a revocation
 or an unlink ended it; see [sessions.md](sessions.md)), and absent while it
 stands. `askedIn` is the pair key of the question that opened a work thread
 while its teammate's main conversation was busy; such a link is on the pair's
-stream too, under its id with `@pair` added.
+stream too, under its id with `@pair` added. `request` is the words a
+colleague's handoff or question opened a work thread with, as sent, trimmed and
+cut to 4,000 characters (an ellipsis ending one that was cut), for a client
+to say what was asked without opening the thread; it is set when such a thread
+is opened, kept as the thread goes, and absent on every other thread and on a
+link written before it was kept, where `title` is what there is. A `user` or
+`agent` line on a pair's stream that is a handoff, or that handoff's result
+(id `result:<request>`), carries `handoffThread`, the key of the work thread it
+runs in; every other line, an ask's and its answer's among them, has none.
+`runKind` is `shell` on a run
+that is a command a harness left running, and absent for a subagent.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
 written down. The room broadcasts only that; the older four are what the door
@@ -985,8 +996,13 @@ turns it into for a socket that did not declare.
 
 **`ThreadSummary`**, one shape for every kind: `{thread, personaId,
 withPersonaId?, withName?, title?, state, end?, opener?, handoffEnded?,
-startedAt, updatedAt, working, waiting, preview?, outcome?}`; `handoffEnded` is
-what the thread's link records. `personaId` is the teammate whose thread it is
+startedAt, updatedAt, working, waiting, preview?, outcome?, runKind?, posted?}`;
+`handoffEnded` is what the thread's link records, and so is `runKind`,
+`shell` for a run that is a command a harness left running, so a list still
+says Command once the roster has let it go. `posted` is a job's thread's
+alone, once it has fired: whether its latest firing posted to the chat (its
+`lastPost` came at or after the firing's line), so a list can fold a run
+that found nothing away as routine. `personaId` is the teammate whose thread it is
 (a pair is listed with the first of its two, and `withPersonaId` is the other;
 `withName` is what to call the other when it is on a linked desk, in no roster
 here, [Linked desks](#linked-desks));
@@ -1015,7 +1031,7 @@ kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 raises no card), neither
 `thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.loop_in` on a work thread only, `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
-pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
+calls (a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
 
 A call is `voice.*`'s, a run's lifetime is its teammate's, and nobody answers a
@@ -1053,8 +1069,8 @@ the teammate whose words it is, absent for an inbound source.
 `about` is the recipient's thread it is heard in, absent for its main
 conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
 or `person` (a card was raised for the person too). `heard` is when a turn
-took it in, absent until then; `seen` is when the person last opened the
-teammate's Noted page with it there (`aside.seen`), absent until then.
+took it in, absent until then; `seen` is when the person last read the
+teammate's notes with it there (`aside.seen`), absent until then.
 `loopedIn: true` marks the nudge the person's Loop in… left (`by` is then the
 thread's teammate, and the words are Hotline's). The thread it was said in
 carries the same object as a quiet `{kind: "aside", …}` event, which a client
@@ -1114,15 +1130,27 @@ before; the rows that lost and gained it are sent again when `teamLead`
 changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
 `awaitingSubagents: true` says it is open only for subagents it started and
-reads as done: the reply is in the conversation and the composer is as it is
-between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
-`subagents` lists the runs still going, oldest first, and `sides` the work
+reads as done: the reply is in the conversation and the composer takes a line
+as it does between turns, with the mark at rest beside what the teammate last
+said it is on (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
+`subagents` lists the runs still going, oldest first, `{runId, title,
+startedAt, kind?, lastStep?, steps?, command?, model?, stoppable?}`: `kind` is `shell` for a
+command a harness left running (with its `command`) and absent for a
+subagent; `lastStep` is what the run did last, its latest step as a glance
+says it ("Read Dock.tsx") or the first clause of its latest words in quotes,
+and `steps` how many steps it has taken, each absent until there is one;
+`model` is the model a run of Hotline's own works on, and `stoppable` says
+`thread.cancel` can stop it, both absent for a harness's subagent. The
+row is sent again as each of them changes, so a client never asks. `sides` lists the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
-can be stopped; each is absent when there are none. `asides` is how many
+can be stopped; `workingPairs` the keys of the threads between this teammate
+and another with a request being answered now, the rule `thread.list` reads a
+pair's `working` by, sent again whenever the pair's record moves; each is
+absent when there are none. `asides` is how many
 asides the teammate has been left that no turn of its has heard yet, absent
-when none, and `asidesNew` how many of them the person has not seen on its
-Noted page; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row
+when none, and `asidesNew` how many of them the person has not seen among its
+notes; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports

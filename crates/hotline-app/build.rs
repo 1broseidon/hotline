@@ -43,6 +43,7 @@ fn main() {
         "check_update",
         "install_update",
         "cancel_update",
+        "set_update_track",
         "speech_capability",
         "speech_permit",
         "speech_start",

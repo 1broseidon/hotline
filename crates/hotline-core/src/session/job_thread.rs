@@ -940,6 +940,7 @@ impl Room {
         live.say(
             self,
             &TranscriptEvent::User {
+                handoff_thread: None,
                 id: new_id(),
                 ts: now,
                 text: job.prompt.clone(),
@@ -1069,6 +1070,7 @@ impl Room {
         live.say(
             self,
             &TranscriptEvent::User {
+                handoff_thread: None,
                 id: new_id(),
                 ts,
                 text: text.to_string(),
@@ -1450,6 +1452,8 @@ impl Room {
             opener: None,
             handoff_ended: false,
             asked_in: None,
+            request: None,
+            run_kind: None,
         });
     }
 
@@ -1522,7 +1526,7 @@ impl Room {
             let Some(link) = self.link_of(&thread) else {
                 continue;
             };
-            let stream = StreamId::Job(job.id.clone());
+            let stream = StreamId::Job(job.id);
             let mut lines = crate::log::expire_orphaned_permissions(&self.log.load(&stream), now);
             if link.state == ThreadState::Live {
                 lines.push(

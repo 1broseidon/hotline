@@ -1,6 +1,7 @@
 import type MermaidApi from "mermaid";
 import { type PointerEvent as ReactPointerEvent, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SourceIcon } from "../icons";
+import { atRest, stir } from "../rest";
 import { Sheet, SheetKey, useOpen } from "./Sheet";
 
 /**
@@ -13,58 +14,74 @@ import { Sheet, SheetKey, useOpen } from "./Sheet";
  * reason (HTML labels would need `foreignObject`), and mermaid runs in its
  * strict mode on top.
  *
- * Mermaid is a few megabytes, so its script is loaded the first time a diagram
- * is on screen and never by a window that shows none. A long conversation can
- * hold dozens of diagrams, and drawing them all on opening it would hold the
- * window up for rows nobody is looking at, so a block is drawn once it comes
- * within a screen of being seen; one drawn before is shown at once. A block
- * still streaming in is not drawn until its source stops changing, and one
- * that does not parse stays the code it was, with a line saying so. A diagram
- * drawn to fit a bubble is often too small to read, so a click on it shows it
- * over the whole window, and Source shows what it was drawn from.
+ * Mermaid is a few megabytes, evaluating it holds the window up for longer
+ * than a frame, and so does drawing one diagram. So neither is done as a
+ * block scrolls into view: a block asks for its drawing as soon as it is in
+ * the document, the transcript's rows measured off to the side included
+ * (transcript/useRowWindow.ts), and the work is done while the window is at
+ * rest (`ask`, below). By the time a row is scrolled to its diagram is drawn
+ * and its height known. A window that shows no diagram never loads the
+ * script: once run it holds some 50 MB, which the engine does not give
+ * back when the script is let go, so it is not run on a guess.
+ *
+ * What stands in a diagram's place before it is drawn: its source, while
+ * nobody knows how big the drawing will be; and once that is known (drawn
+ * before, in another palette or since let go) an empty box of exactly the
+ * drawing's size, so the picture arrives without moving anything. A block
+ * still streaming in is not asked for until its source stops changing, and
+ * one that does not parse stays the code it was, with a line saying so. A
+ * diagram drawn to fit a bubble is often too small to read, so a click on
+ * it shows it over the whole window, and Source shows what it was drawn
+ * from.
  */
 export function Mermaid({ source, caption }: { source: string; caption?: string | undefined }) {
 	const look = useLook();
-	const [drawn, setDrawn] = useState<{ key: string; url: string } | null>(null);
-	const [failed, setFailed] = useState<string | null>(null);
+	// Read again whenever a drawing is made or one is found not to draw.
+	useSyncExternalStore(onDrawings, () => made);
 	const [showSource, setShowSource] = useState(false);
 	const openFrom = useOpen();
 	const key = `${look}\n${source}`;
 	const block = useRef<HTMLDivElement>(null);
 	const near = useNear(block);
+	const drawing = pictures.get(key);
+	const outcome = known.get(source);
+	const size = drawing ?? (outcome !== undefined && "width" in outcome ? outcome : null);
+	const failed = size !== null ? null : outcome !== undefined && "failed" in outcome ? outcome.failed : unloadable;
 
 	useEffect(() => {
-		if (!near && !diagrams.has(key)) return;
-		let gone = false;
+		if (drawing !== undefined) {
+			if (near) shown(key);
+			return;
+		}
+		// One that does not draw is not tried again; one whose size is known
+		// is drawn again only to be looked at.
+		if ((outcome !== undefined && "failed" in outcome) || (size !== null && !near)) return;
 		// Settle first: while a message streams, the source changes every few
-		// characters and most of those prefixes are not diagrams yet. One
-		// already drawn needs no settling.
-		const timer = window.setTimeout(() => {
-			void drawnUrl(source, look).then(
-				(url) => {
-					if (gone) return;
-					setDrawn({ key, url });
-					setFailed(null);
-				},
-				(error: unknown) => {
-					if (!gone) setFailed(error instanceof Error ? error.message : String(error));
-				},
-			);
-		}, diagrams.has(key) ? 0 : SETTLE_MS);
+		// characters and most of those prefixes are not diagrams yet. A source
+		// drawn before is whole. A block that leaves the document before its
+		// turn no longer waits for one.
+		let withdraw = () => {};
+		const timer = window.setTimeout(
+			() => {
+				withdraw = ask(source, near);
+			},
+			size === null ? SETTLE_MS : 0,
+		);
 		return () => {
-			gone = true;
 			window.clearTimeout(timer);
+			withdraw();
 		};
-	}, [key, source, look, near]);
+	}, [key, source, near, drawing, outcome, size]);
 
-	const current = drawn?.key === key ? drawn : null;
 	const object = { kind: "diagram" as const, text: fenced(source), fact: factOf(source), caption };
+	/* The drawing's own width and shape, so the box is its size before the picture has loaded (inline-objects.css). */
+	const box = size === null ? undefined : { width: size.width, aspectRatio: `${size.width} / ${size.height}` };
 	return (
 		<Sheet
 			kind="diagram"
 			label={diagramKind(source)}
 			keys={
-				current !== null && (
+				drawing !== undefined && (
 					<SheetKey
 						icon={<SourceIcon />}
 						label="Source"
@@ -75,24 +92,27 @@ export function Mermaid({ source, caption }: { source: string; caption?: string 
 				)
 			}
 		>
-			<div ref={block} className="diagram-body">
-				{current === null || showSource ? (
+			{/* `data-unsized`: this block is about to be another height, so the row it is in is not measured yet (useRowWindow.ts). */}
+			<div ref={block} className="diagram-body" data-unsized={size === null && failed === null ? "" : undefined}>
+				{size === null || showSource ? (
 					<>
 						<pre className="diagram-source">
 							<code>{source}</code>
 						</pre>
-						{failed !== null && current === null && (
+						{failed !== null && (
 							<p className="mermaid-note" title={failed}>
 								Couldn't draw this diagram, so here is its source.
 							</p>
 						)}
 					</>
+				) : drawing === undefined ? (
+					<div className="mermaid-diagram" style={box} />
 				) : openFrom !== null ? (
 					<button type="button" className="picture-open" title="Open" onClick={() => openFrom(object, block.current?.closest<HTMLElement>(".sheet") ?? null)}>
-						<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
+						<img className="mermaid-diagram" style={box} src={drawing.url} alt="Diagram" draggable={false} />
 					</button>
 				) : (
-					<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
+					<img className="mermaid-diagram" style={box} src={drawing.url} alt="Diagram" draggable={false} />
 				)}
 			</div>
 		</Sheet>
@@ -144,12 +164,16 @@ export function DiagramStage({ source }: { source: string }) {
 	const [view, setView] = useState<{ scale: number; x: number; y: number } | null>(null);
 	const drag = useRef<{ x: number; y: number; from: { x: number; y: number } } | null>(null);
 
+	// Drawn at once, not when the window is next at rest: the person has asked to see it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: another look is another drawing, in the colours the window has by then.
 	useEffect(() => {
 		let gone = false;
-		void drawnUrl(source, look).then(
-			(drawn) => !gone && setUrl(drawn),
-			() => !gone && setFailed(true),
-		);
+		void load()
+			.then((mermaid) => draw(mermaid, source, true))
+			.then(
+				(drawn) => !gone && drawn !== null && setUrl(drawn.url),
+				() => !gone && setFailed(true),
+			);
 		return () => {
 			gone = true;
 		};
@@ -263,11 +287,11 @@ function fenced(source: string): string {
 const SETTLE_MS = 300;
 
 /**
- * Whether the block has come within a screen of the scroller it sits in. It
- * stays true: a diagram drawn once is not taken down when it scrolls away.
- * The scroller is the observer's root because the window's viewport would
- * clip the block to the scroller and see it only once it was already showing.
- * A window without the observer draws everything, as it did before.
+ * Whether the block has come within a screen of the scroller it sits in:
+ * its drawing is then the next one made, and its picture is kept. It stays
+ * true. The scroller is the observer's root because the window's viewport
+ * would clip the block to the scroller and see it only once it was already
+ * showing. A window without the observer takes every block for near.
  */
 function useNear(block: RefObject<HTMLElement | null>): boolean {
 	const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
@@ -285,81 +309,217 @@ function useNear(block: RefObject<HTMLElement | null>): boolean {
 	}, [block, near]);
 	return near;
 }
-/** How many drawings stay as URLs after their bubble leaves the screen. */
-const KEPT = 40;
-const diagrams = new Map<string, string>();
 
+/** A drawing kept: its picture as a URL, and how big it is. */
+type Drawing = { url: string; width: number; height: number };
+/** What drawing a source came to: how big the drawing is, or why there is none. */
+type Outcome = { width: number; height: number } | { failed: string };
+
+/** How many pictures stay as URLs, by look (palette and accent) and source: the least recently shown is let go. */
+const KEPT = 40;
 /**
- * The URL of a diagram, drawn once per look (palette and accent) and source
- * and kept, so a teammate switched back to shows theirs at once. The least
- * recently shown is let go when there are too many.
+ * How many sources' outcomes are remembered. A size is two numbers, and it
+ * is what lets a row stand at its height while its picture is made again,
+ * so these are kept long after the pictures. A drawing is the same size in
+ * every look: a look changes its colours and nothing else.
  */
-async function drawnUrl(source: string, look: string): Promise<string> {
-	const key = `${look}\n${source}`;
-	const known = diagrams.get(key);
-	if (known !== undefined) {
-		diagrams.delete(key);
-		diagrams.set(key, known);
-		return known;
-	}
-	const svg = await draw(source);
-	const url = diagrams.get(key) ?? URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-	diagrams.set(key, url);
-	if (diagrams.size > KEPT) {
-		const oldest = diagrams.keys().next().value as string;
-		URL.revokeObjectURL(diagrams.get(oldest)!);
-		diagrams.delete(oldest);
-	}
-	return url;
+const KNOWN = 400;
+const pictures = new Map<string, Drawing>();
+const known = new Map<string, Outcome>();
+/** Why mermaid's script could not be loaded, until a later try loads it. */
+let unloadable: string | null = null;
+
+/* Counts every change to the three above: what a block reads them again for. */
+let made = 0;
+const watching = new Set<() => void>();
+function changed(): void {
+	made++;
+	for (const listener of watching) listener();
 }
 
-let loading: Promise<typeof MermaidApi> | null = null;
-let drawn = 0;
+/** Calls `listener` whenever a diagram is drawn or found not to draw. Returns what stops it. */
+export function onDrawings(listener: () => void): () => void {
+	watching.add(listener);
+	return () => watching.delete(listener);
+}
+
+/** A picture on screen is the newest: the last to be let go. */
+function shown(key: string): void {
+	const drawing = pictures.get(key);
+	if (drawing === undefined) return;
+	pictures.delete(key);
+	pictures.set(key, drawing);
+}
+
+/** A source waiting to be drawn, and how many blocks wait for it. `near` the view, its picture is kept whatever else is. */
+type Wanted = { source: string; near: boolean; askers: number };
+const line: Wanted[] = [];
+/** A diagram is being drawn. */
+let busy = false;
+
+/**
+ * Asks for a source to be drawn, in its turn: those near the view first,
+ * the newest of them before the others. Returns what withdraws the asking,
+ * for a block that leaves the document: a source nobody waits for is not
+ * drawn.
+ */
+function ask(source: string, near: boolean): () => void {
+	let wanted = line.find((one) => one.source === source);
+	if (wanted === undefined) {
+		wanted = { source, near: false, askers: 0 };
+		line.push(wanted);
+	}
+	const asked = wanted;
+	asked.askers++;
+	if (near && !asked.near) {
+		asked.near = true;
+		line.splice(line.indexOf(asked), 1);
+		line.unshift(asked);
+	}
+	work();
+	return () => {
+		asked.askers--;
+		const at = line.indexOf(asked);
+		if (asked.askers === 0 && at !== -1) line.splice(at, 1);
+	};
+}
+
+/**
+ * Does the next thing the line needs, once the window is at rest (rest.ts):
+ * loads mermaid's script if it is not here, or draws one diagram. Each is a
+ * turn of its own, and the end of one counts as a stir, so the window draws
+ * frames and takes input between two. Every asking brings a turn; one that
+ * finds a diagram being drawn, or nothing waiting, does nothing.
+ */
+function work(): void {
+	if (line.length === 0) return;
+	atRest(() => {
+		const next = busy ? undefined : line[0];
+		if (next === undefined) return;
+		const mermaid = (globalThis as { mermaid?: typeof MermaidApi }).mermaid;
+		if (mermaid === undefined) {
+			// The line stays as it is: whoever asks next tries the script again.
+			load().then(
+				() => {
+					if (unloadable !== null) {
+						unloadable = null;
+						changed();
+					}
+					stir();
+					work();
+				},
+				(error: unknown) => {
+					unloadable = error instanceof Error ? error.message : String(error);
+					changed();
+				},
+			);
+			return;
+		}
+		line.shift();
+		busy = true;
+		const done = () => {
+			busy = false;
+			stir();
+			work();
+		};
+		// What it came to is in `known`, put there by `draw`.
+		draw(mermaid, next.source, next.near).then(done, done);
+	});
+}
 
 /**
  * mermaid's single-file build, as a classic script that sets
  * `globalThis.mermaid`. Its ES module build splits into chunks WebKitGTK's
  * module loader rejects in development; this one file behaves the same in
  * development and in a release. Its URL is imported here, when a diagram is
- * first drawn, so nothing runs it at import time.
+ * first drawn, so nothing runs it at import time. The tag in the page is
+ * the load on its way: whoever else asks meanwhile waits on the same one.
  */
 function load(): Promise<typeof MermaidApi> {
-	loading ??= import("mermaid/dist/mermaid.min.js?url").then(
+	const here = () => (globalThis as { mermaid?: typeof MermaidApi }).mermaid;
+	const loaded = here();
+	if (loaded !== undefined) return Promise.resolve(loaded);
+	return import("mermaid/dist/mermaid.min.js?url").then(
 		({ default: url }) =>
 			new Promise<typeof MermaidApi>((resolve, reject) => {
-				const script = document.createElement("script");
-				script.src = url;
-				script.async = true;
-				script.onload = () => {
-					const loaded = (globalThis as { mermaid?: typeof MermaidApi }).mermaid;
-					if (loaded) resolve(loaded);
-					else reject(new Error("mermaid did not load"));
+				const arrived = here();
+				if (arrived !== undefined) {
+					resolve(arrived);
+					return;
+				}
+				let script = document.head.querySelector<HTMLScriptElement>("script[data-mermaid]");
+				if (script === null) {
+					script = document.createElement("script");
+					script.dataset["mermaid"] = "";
+					script.src = url;
+					script.async = true;
+					document.head.append(script);
+				}
+				const tag = script;
+				// A tag that came to nothing is taken out, so the next try loads it afresh.
+				const fail = (why: string) => {
+					tag.remove();
+					reject(new Error(why));
 				};
-				script.onerror = () => {
-					loading = null;
-					reject(new Error("mermaid could not be loaded"));
-				};
-				document.head.append(script);
+				tag.addEventListener("load", () => {
+					const mermaid = here();
+					if (mermaid !== undefined) resolve(mermaid);
+					else fail("mermaid did not load");
+				});
+				tag.addEventListener("error", () => fail("mermaid could not be loaded"));
 			}),
 	);
-	return loading;
 }
 
 /** One render at a time: mermaid keeps global configuration, and the theme is part of it. */
 let queue: Promise<unknown> = Promise.resolve();
+let drawn = 0;
 
-function draw(source: string): Promise<string> {
+/**
+ * Draws a source in the look the window has now, and remembers what it came
+ * to: its size, or that it does not draw. The picture is kept when it is
+ * `wanted` (its block is near the view, or open) or there is room for it;
+ * one drawn ahead of the view never takes the place of a picture already
+ * kept, since those were drawn nearer the view than it. Resolves to the
+ * picture when one is kept.
+ */
+function draw(mermaid: typeof MermaidApi, source: string, wanted: boolean): Promise<Drawing | null> {
 	const next = queue.then(async () => {
-		const mermaid = await load();
-		const colours = tokenColours();
-		mermaid.initialize(mermaidConfig(colours));
-		const marked = lit(source, colours);
-		await mermaid.parse(marked);
-		const { svg } = await mermaid.render(`mermaid-${++drawn}`, marked);
-		return sized(svg);
+		const key = `${lookNow()}\n${source}`;
+		const kept = pictures.get(key);
+		if (kept !== undefined) return kept;
+		try {
+			const colours = tokenColours();
+			mermaid.initialize(mermaidConfig(colours));
+			const marked = lit(source, colours);
+			await mermaid.parse(marked);
+			const { svg } = await mermaid.render(`mermaid-${++drawn}`, marked);
+			const picture = sized(svg);
+			remember(source, { width: picture.width, height: picture.height });
+			if (!wanted && pictures.size >= KEPT) return null;
+			const drawing = { url: URL.createObjectURL(new Blob([picture.svg], { type: "image/svg+xml" })), width: picture.width, height: picture.height };
+			pictures.set(key, drawing);
+			if (pictures.size > KEPT) {
+				const oldest = pictures.keys().next().value as string;
+				URL.revokeObjectURL(pictures.get(oldest)!.url);
+				pictures.delete(oldest);
+			}
+			return drawing;
+		} catch (error) {
+			remember(source, { failed: error instanceof Error ? error.message : String(error) });
+			throw error;
+		} finally {
+			changed();
+		}
 	});
 	queue = next.catch(() => {});
 	return next;
+}
+
+function remember(source: string, outcome: Outcome): void {
+	known.delete(source);
+	known.set(source, outcome);
+	if (known.size > KNOWN) known.delete(known.keys().next().value as string);
 }
 
 /** The window's tokens a diagram is drawn in, as colours an SVG image and mermaid's colour maths can read. */
@@ -491,34 +651,34 @@ const FONT = "ui-sans-serif, system-ui, sans-serif";
 /**
  * Mermaid sizes its SVG to its container (`width="100%"`, a max-width style),
  * which an image has none of. The viewBox is the drawing's real size, so that
- * becomes its width and height.
+ * becomes its width and height, and is what the block lays its box out by.
  */
-function sized(svg: string): string {
+function sized(svg: string): { svg: string; width: number; height: number } {
 	const document = new DOMParser().parseFromString(svg, "image/svg+xml");
 	const root = document.documentElement;
 	const box = root.getAttribute("viewBox")?.split(/[\s,]+/).map(Number);
-	if (box?.length === 4 && box.every(Number.isFinite)) {
-		root.setAttribute("width", String(Math.ceil(box[2] ?? 0)));
-		root.setAttribute("height", String(Math.ceil(box[3] ?? 0)));
-		root.removeAttribute("style");
-	}
-	return new XMLSerializer().serializeToString(document);
+	if (box?.length !== 4 || !box.every(Number.isFinite)) throw new Error("mermaid drew a diagram with no size");
+	const width = Math.ceil(box[2] ?? 0);
+	const height = Math.ceil(box[3] ?? 0);
+	root.setAttribute("width", String(width));
+	root.setAttribute("height", String(height));
+	root.removeAttribute("style");
+	return { svg: new XMLSerializer().serializeToString(document), width, height };
 }
 
 /**
  * The look actually on screen: the palette, which on "System" is the OS's and
  * can change while the window is open, and the room's accent.
  */
+function lookNow(): string {
+	const { theme, accent } = document.documentElement.dataset;
+	return `${theme === "light" ? "light" : "dark"} ${accent ?? ""}`;
+}
+
 function useLook(): string {
-	return useSyncExternalStore(
-		(listener) => {
-			const observer = new MutationObserver(listener);
-			observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent"] });
-			return () => observer.disconnect();
-		},
-		() => {
-			const { theme, accent } = document.documentElement.dataset;
-			return `${theme === "light" ? "light" : "dark"} ${accent ?? ""}`;
-		},
-	);
+	return useSyncExternalStore((listener) => {
+		const observer = new MutationObserver(listener);
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent"] });
+		return () => observer.disconnect();
+	}, lookNow);
 }

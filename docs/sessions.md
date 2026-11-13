@@ -327,6 +327,24 @@ settled as `cancelled` when its session ends or is replaced. An adapter
 that does not take the capability keeps showing subagents as tool calls on
 the teammate's turn.
 
+Under the RFD, Claude's adapter (0.106) and Codex's (2.6) do not show a
+launch that became a subagent session: the announcement is all there is,
+and the run's line in the path is its start. A launch that became none is
+shown, failed. Whatever an agent calls its tool, `translate::own_tool`
+keeps such a call under Hotline Agent's kind, `subagent`, from the agent's
+own name for the tool and never from a title it wrote for a person:
+Claude's `_meta.claudeCode.toolName` `Agent` or `Task`, and Codex's
+collaboration tool `spawnAgent` (`_meta.codex.collaboration.tool` in 1.x;
+the title, with the collaboration input `senderThreadId` and
+`receiverThreadIds`, in 2.x). A call to one of the room's own tools is kept
+as `mcp__hotline__<tool>`, so a glance knows it however it was titled:
+Claude names it so in `toolName`, and Codex marks it
+`_meta.is_mcp_tool_call` with `{ server: "hotline", tool }` as its input and
+titles it `mcp.hotline.<tool>`. A kind found this way stays through the
+call's later updates. `glance::step_said` says a `subagent` step "Started a
+helper" whatever its title or description, so every agent's start reads
+alike and the window knows it by its group.
+
 A command a harness sends to the background is a run of its own too, of
 kind `shell`. Hotline asks for the terminal extension
 (`_meta.terminal_output`), under which Claude's adapter puts a command's
@@ -336,14 +354,27 @@ the terminal left open (`terminal_info` and no `terminal_exit`), and a
 `tool_call_update` carrying only the `terminal_exit` when it ends, often
 after the turn. `Live::backgrounded` reports the first as a run's start and
 `Live::background_ended` the second as its end, failed on a nonzero exit
-code. The roster entry carries the kind, so the key at the composer's
-corner says `Background` rather than `Subagent`, and stays after the turn
-that started the command ends. Hotline never names itself an editor's
+code. The call that sent the command there is written again, before its
+result, under the kind `background`, which a glance says as "Started a
+command" (group `command`): the run is that call's, by its own id, and the
+command's line in the path stands for the step. The roster entry carries the kind, so the key at the composer's
+corner says `Command` rather than `Subagent`, and stays after the turn
+that started the command ends; the run's link carries it too
+(`runKind: "shell"`), so its line says Command once it has ended. What the
+command writes after it went to the background comes as
+`tool_call_update`s with no status carrying `_meta.terminal_output` (its
+whole output so far) or `_meta.terminal_output_delta` (the next piece);
+`Live::background_output` reports each to the run, the room keeps the
+latest 16,000 characters on the run's roster entry while it runs, and
+`process.output` answers the run's id with them, as it does a running
+process's job id. When the command ends, the last of it is written to the
+run as its one step, so an ended command still shows it. Stopping one is
+not offered: the adapter stops a background command only through ACP v2's
+`terminal/cancel`, and Hotline speaks v1. Hotline never names itself an editor's
 client (`_meta.jetbrains.air`): the adapter would then change the shape of
 much of what it sends. So the adapter's own task lifecycle
 (`async_task_*`), its workflows and monitors, and the summary and output
-file of a finished background command are not seen; a background command's
-output is what its result showed.
+file of a finished background command are not seen.
 
 ### Running processes
 
@@ -383,8 +414,11 @@ background subagents finish and it has said what they found. While nothing
 else is open, that turn reads as done. The reply is chat, not narration; the
 phone and a call hear it then, as they would at a turn's end; and the
 session's `awaitingSubagents` is true while `state` stays `thinking`. So the
-window shows no work card, its peek says Done, nothing offers Stop, and the
-desktop toast for a finished turn fires. Everything
+window's peek says Done, nothing offers Stop, and the desktop toast for a
+finished turn fires; only the mark stays in the composer, at rest, beside
+the last words the teammate gave `activity` in the turn, because the line
+that said them is still the turn's newest declaration: parking writes no
+`turn` line, so nothing ends it until the turn does. Everything
 that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 
@@ -498,7 +532,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -532,6 +566,19 @@ metadata, or rely on legacy guessed endpoints are reported as unsupported.
 Token endpoint client authentication follows the methods advertised by the
 authorization server through rmcp; Hotline does not invent another method or
 persist a client secret in settings.
+Sign-in's own requests (discovery, registration, the token exchange and each
+refresh) go only where the server's own address lets them, judged by the
+address a host resolves to and not by its name. A server on the internet
+reaches public addresses alone: when its metadata, a redirect or its own
+name points sign-in at this computer or a private network, sign-in stops
+before connecting and says "MCP OAuth sign-in refused: this server is on the
+internet but points to a private network address." A server the person runs
+on this computer, their network or a tailnet (a loopback or private IP
+address, or a name that answers only those) also reaches private addresses,
+and loopback ones when it is itself on loopback, so its authorization server
+can be beside it or on the internet. A link-local or reserved address is
+never reached. The whole rule, its limits and its tests are in
+[security.md](security.md#where-an-mcp-servers-sign-in-may-connect).
 Tokens, refresh tokens and DCR client secrets live in the private vault under
 the server URL and issuer binding. They are never settings, stream, tape,
 prompt, ACP descriptor or log data. Refreshes and rotated refresh tokens are
@@ -972,7 +1019,7 @@ object on Windows, so killing it reaches the real agent behind a wrapper
 (`npx` starting node, `uvx` starting python, a `mise` shim) rather than
 orphaning it. Spawning it, `initialize` and opening the session
 (`session/new`, `session/load` or `session/resume`) run under one bound
-(`StartBounds` in `driver/acp.rs`):
+(`Bounds` in `driver/acp.rs`):
 
 - **60 seconds** for a launch that has answered on this machine before. Its
   package is already in npx's or uvx's cache, and a real start answers in
@@ -1172,8 +1219,12 @@ Only a child asks. A request becomes a `permission` event on the tape, id
 the driver first — it is the only thing that knows whether anything is still
 behind that request — and only then supersedes the card, so the transcript
 never shows a decision the agent never heard. A stale card (the turn ended,
-the session stopped, or somebody else answered first) is refused: `"That
-request is no longer waiting for an answer."`
+the session stopped, nobody answered in time, or somebody else answered
+first) is refused: `"That request is no longer waiting for an answer."` So
+is a card the tape already shows settled, before the driver is asked: work
+the agent took up by itself can end, and expire its cards, while the agent
+is still asking, and an answer that names such a card afterwards (a phone's
+notification, a window that had not caught up) must not become a decision.
 
 A card that is still live after a restart is a button nobody is behind. On
 startup every unanswered card is superseded with `decision: "expired"` and
@@ -1183,8 +1234,20 @@ answered in between would be a decision written down for an agent that had
 already stopped listening. `session.cancel` settles first for the same
 reason. When the turn's updates have all been recorded, any card still
 claiming to be live is expired on the tape, and a session that stops is the
-same fact. A person who does not answer within ten minutes is the same
-fact: the agent is told the request was cancelled.
+same fact.
+
+A person who does not answer within ten minutes (`Bounds::permission`) is
+the same fact, and it is settled then, not at the turn's end, because the
+agent goes on with its turn: a card left up would read as live, and keep
+the thread waiting on the person, for as long as that turn ran. The driver
+closes the request to answers first, so an answer that arrives from then on
+finds nothing behind the card and is refused; it tells the session, which
+supersedes the card with `decision: "expired"` and `decidedOptionName:
+"Expired unanswered"`; and it tells the agent the request was cancelled. An
+answer and the wait running out in the same instant end one way: whichever
+reached the request first, and the agent and the tape are told the same one.
+An answer names a request by the id its card carries, fresh for every
+request, so one that is refused is applied to no other.
 
 ## Asking the person
 
@@ -1365,8 +1428,8 @@ colleague whose words it is, `about` the recipient's thread it is heard in. It i
 thread it came from, and written as an `aside` event on the thread it was said
 in, so the sender's record shows it. It is never on the recipient's tape, and
 never a message in the person's chat: the window draws the recipient's asides
-into its main conversation from `aside.list`, as quiet lines, and lists them on
-its Noted page. Opening Noted marks them `seen` (`aside.seen`,
+into its main conversation from `aside.list`, as quiet lines, and lists them as
+note rows in its Threads list. Showing them there marks them `seen` (`aside.seen`,
 `Room::mark_asides_seen`, under the lock hearing takes), which is the person's
 reading and leaves `heard` alone; the roster row counts the unseen.
 
@@ -1466,7 +1529,7 @@ threads of three. The colleague is left a `nudge` aside from the thread with
 name, else "The person"), which the thread draws as "Quill was looped in". It
 is the person's act, so it is from them: the colleague hears it under the
 person's name (else "The person"), and the window says "from Ada" (else "from
-you") and lists it on Noted under the person's name and the `(·)` mark, never
+you") and lists it as a note from the person's name, never
 the thread's teammate's. The
 thread then asks the colleague once: an ask from the thread's teammate, sent
 from the thread, carrying the thread's title and its last eight lines, and
@@ -1510,7 +1573,7 @@ hotline repo (outside Hotline): …", and found by `search_thread` under the
 source's name. A nudge that wakes its teammate counts one on the source's
 brake (`wakes`), which mutes it at a pair's twelve until the person unmutes
 it; a `person` aside's card says the source is outside Hotline. The window
-lists them on Noted under the source's name, marked "outside", and Settings →
+lists them as notes from the source's name, with no thread to open, and Settings →
 Inbound lists the sources with a switch (off is muted) and Remove.
 
 ## Files between teammates
@@ -2517,9 +2580,9 @@ stops its turn in flight, a firing's or the person's, and drops what waited
 behind it: that turn posts no report, the thread gets a notice that it was
 stopped, and the job keeps its schedule. `thread.close` cancels the job. The
 roster row's `workingJobs` says which jobs have a turn running, so the
-window offers Stop only then; the Jobs group's row and the job's thread
-header both offer Stop and Cancel, and the header says what a narrowed job
-runs without (`without` on the schedules view). A companion phone may do
+window offers Stop only then; the job's pane offers Stop and End job in its
+band, and Remove once the job has ended, and says what a narrowed job runs
+without (`without` on the schedules view). A companion phone may do
 neither, as it may not `schedule.cancel`. A card the job raises pushes with
 the job's thread as `data.thread`, so a tap can open it.
 

@@ -16,7 +16,13 @@ const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
 const EVERY_MS = 4000;
 
+/**
+ * Tells the listeners only when the links changed. The answer is a new list
+ * every time it is asked for, and an idle window asks every few seconds: a
+ * render for each would wake the page for nothing.
+ */
 function publish(next: DeskLink[]) {
+	if (JSON.stringify(next) === JSON.stringify(links)) return;
 	links = next;
 	for (const listener of listeners) listener();
 }
@@ -54,8 +60,15 @@ function subscribe(listener: () => void) {
 	};
 }
 
-export function useDeskLinks(): DeskLink[] {
-	return useSyncExternalStore(subscribe, () => links);
+const unwatched = () => () => {};
+
+/**
+ * The links, asked for again every few seconds while `watching`. A caller
+ * that shows them only some of the time (a menu while it is open) watches
+ * only then, and reads what was last said otherwise.
+ */
+export function useDeskLinks(watching = true): DeskLink[] {
+	return useSyncExternalStore(watching ? subscribe : unwatched, () => links);
 }
 
 /** Links this computer's desk with a desk this window is connected to. */

@@ -125,6 +125,10 @@ async fn an_ask_to_an_idle_main_conversation_is_answered_there() {
         .find(|v| v["id"] == format!("result:{id}"))
         .expect("the thread keeps the answer");
     assert_eq!(answered["text"], "result-0");
+    assert!(
+        asked.get("handoffThread").is_none() && answered.get("handoffThread").is_none(),
+        "an ask and its answer are ordinary lines of the pair"
+    );
 }
 
 /// The separate ask session is gone: an ask builds no agent of the pair's
@@ -255,6 +259,17 @@ async fn a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_a
     .await;
     let link = room.link_of(&ThreadId::side(&thread)).unwrap();
     assert_eq!(link.asked_in.as_deref(), Some("ada~bob"));
+    assert_eq!(
+        link.request.as_deref(),
+        Some("work ask"),
+        "the link says what was asked"
+    );
+    assert!(
+        room.tape("bob").iter().any(|v| v["kind"] == "link"
+            && v["thread"] == thread.as_str()
+            && v["request"] == "work ask"),
+        "Bob's conversation reads the question without opening the thread"
+    );
     assert!(
         room.log
             .load(&StreamId::Pair("ada~bob".into()))

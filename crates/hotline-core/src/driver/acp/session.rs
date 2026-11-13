@@ -123,7 +123,13 @@ impl ChildAgent {
         // that callback plane is always confined to the teammate workspace;
         // an old stored machine reach and an ACP mode string cannot widen it.
         let callback_workspace = Self::callback_workspace(persona, self.teammate.capability())?;
-        let connection = connect(self.live.clone(), callback_workspace, transport).await?;
+        let connection = connect(
+            self.live.clone(),
+            callback_workspace,
+            self.bounds.permission,
+            transport,
+        )
+        .await?;
         self.check_capability()?;
         *lock(&self.live.connection) = Some(connection.clone());
 
@@ -702,6 +708,7 @@ impl ChildAgent {
 async fn connect(
     live: Arc<Live>,
     callback_workspace: Workspace,
+    permission_wait: Duration,
     transport: ByteStreams<
         impl futures_util::AsyncWrite + Send + 'static,
         impl futures_util::AsyncRead + Send + 'static,
@@ -735,7 +742,7 @@ async fn connect(
                 move |request: RequestPermissionRequest, responder, _cx| {
                     let live = asked.clone();
                     async move {
-                        ask_permission(live, request, responder).await;
+                        ask_permission(live, request, responder, permission_wait).await;
                         Ok(())
                     }
                 },
@@ -853,10 +860,11 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
         "subagent_spawned" => {
             let task = text("task").unwrap_or_default();
             Some(Announced::Spawned {
+                // Unnamed, it is titled by the person's word for one.
                 title: clip(
                     text("name")
                         .filter(|name| !name.is_empty())
-                        .unwrap_or("Subagent"),
+                        .unwrap_or("Helper"),
                     TITLE_CHARS,
                 ),
                 // The adapter's own prompt is what the subagent was told; the
@@ -899,7 +907,7 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
                         text("title")
                             .filter(|title| !title.is_empty())
                             .or_else(|| text("description").filter(|d| !d.is_empty()))
-                            .unwrap_or("Subagent"),
+                            .unwrap_or("Helper"),
                         TITLE_CHARS,
                     ),
                     // The task comes as the child's own first message.

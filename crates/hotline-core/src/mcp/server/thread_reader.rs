@@ -71,7 +71,9 @@ pub(super) fn read(room: &Room, persona: &str, args: &Value) -> Result<Value, St
             let speaker = match event["kind"].as_str() {
                 Some("user") => user,
                 Some("agent") => agent,
-                Some("tool" | "thought") if kind != ThreadKind::Pair => persona,
+                Some("tool" | "thought" | "activity" | "outcome") if kind != ThreadKind::Pair => {
+                    persona
+                }
                 _ => "record",
             };
             line["speaker"] = json!(speaker);

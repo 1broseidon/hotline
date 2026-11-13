@@ -101,7 +101,7 @@ These come over as ideas and, where the code was already Rust, as code.
   `schedule.create` on the wire takes no `without`: a job the person makes
   runs as their teammate, with the reach they already granted it, so the
   person narrows a teammate by changing its grants, or asks it to make the
-  job narrower, and the Jobs group shows "Runs without …" either way. A
+  job narrower, and the job's pane shows "Runs without …" either way. A
   wire field with no window or phone to send it would be a second door to
   the same rule with nothing behind it. What came back to a job (a card's
   answer, a colleague's reply) is written on its thread before it is
@@ -582,7 +582,12 @@ private vault, bound to the server URL and issuer. Hotline Agent uses rmcp's
 refreshing client; ACP receives a capability checked loopback proxy so its
 child process never sees OAuth tokens. The page the browser lands on after
 sign-in is one escaped card under a Content-Security-Policy that loads
-nothing but its inline style, with no script. Operator sign-in does not alter a
+nothing but its inline style, with no script. Where sign-in connects is
+decided by the server's own address: one on the internet reaches public
+addresses only, one the person runs on this computer or their network
+reaches private ones too
+([security.md](security.md#where-an-mcp-servers-sign-in-may-connect)).
+Operator sign-in does not alter a
 teammate's MCP grant, and sign-out invalidates live sessions before clearing
 the vault record.
 
@@ -600,11 +605,102 @@ and the phone never keep lists of their own.
 
 The facts a glance shows beside the words are recorded on the same event when
 the step finishes, never fetched or guessed afterwards: `endedTs` (how long it
-took), `sources` (the web pages a fetch read or a web search listed, each as
-the step's own output named it, a page title only when the tool wrote one; see
+took), `sources` (the web pages a fetch, a `curl` or the teammate's browser
+opened, and a web search's results, marked `found` when the search only
+listed them and not when its tool hands the model their content, each as the
+step's own output named it, a page title only when the tool wrote one; see
 `glance::sources_of`), and on each changed file the lines its diff `added` and
 `removed` (`hotline_support::lines`), counted from the two versions the tool
 showed. A step without one of them shows without that fact.
+
+Outcomes, not work (epic-42, approved by George 2026-11-12). A teammate says
+three things in one voice: an opening line that fits the ask (the house style
+in `session/pacing.rs`, skipped when there is no wait), what it is on
+(`activity {type, message?}`) and what came of it (its reply, and
+`outcome {type, message, state?, id?, ended?}` once for each thing left
+behind). The conversation shows only those; the desk never writes the words.
+Each call is an `activity` or `outcome` event on the thread it was made in, so
+they survive a reload and an older client skips them as unknown kinds. The
+composer's mark moves by the declared type and shows its message, and with
+nothing declared it may move by the tool in use but says nothing; under a
+reply the line lists the turn's outcomes (failed first) and its time, and is
+the one press into the path, where steps sit under the activity they happened
+during. An open outcome is rewritten in place by the teammate, by its `id`:
+updated, closed as what it became, or `ended` with nothing left behind; it is
+looked for on the calling thread and then the main conversation, so a job can
+close what the conversation opened. The desk closes nothing by itself yet.
+
+After George's first run of it (2026-11-12): a thread's line in the
+conversation is the job and what it is doing or how it ended, with no kind
+word ("Helper", "Command"), which stays in the opened thread's header, the
+Threads list and the row's accessible name. A turn held open only for its
+subagents still reads as done everywhere (no Interrupt, no beat, a line sent
+goes into the turn), but the mark stays in the composer at rest beside the
+last words the teammate declared in the turn: parking writes no `turn` line,
+so the declaration stands until the turn truly ends or another replaces it.
+The house style asks for that wait to be said with `activity` and not in the
+chat, for no word when a helper reports until there is an outcome, and for
+outcomes and replies written for a person (no process ids, raw paths or
+commands to run unless asked; offer to do it instead).
+
+Then (task-448, George 2026-11-12): a helper's or a command's row between the
+ask and the answer is path, not outcome. It repeated the composer's threads
+count while it ran, was pushed up as the person kept talking, and stood
+afterwards as a "Done in" line that meant nothing. So a run's link draws no
+row: while it runs it is in the threads count, and afterwards it is in the
+path of the turn that started it, where it started, helpers started together
+as one line ("Started 4 helpers") that unfolds to each and opens each with
+Back to the path. A failed one marks the line under the reply, the one
+place the desk adds words of its own there, because a failure must not be
+missed and has nowhere else to show. Work threads, pairs, calls and jobs are
+conversations in their own right and keep their rows. A subagent is a
+"helper" wherever the person reads it; the code and the wire keep subagent.
+This is a drawing change: the tape and the wire are as they were.
+
+A helper is one concept whatever the agent calls its tool for one (George,
+2026-11-12, task-449). The ACP driver keeps an agent's own launch of a
+subagent under Hotline Agent's kind, `subagent`, from the agent's name for
+the tool and not its title, and the call that sent a command to the
+background as `background`; a glance says them "Started a helper" and
+"Started a command". The path drops such a start, done, when the turn has
+the helper's or the command's own line to stand for it, and keeps one that
+failed, which started nothing. Hotline's own tools called through an
+agent's MCP client are known the same way, so Codex's `activity` and
+`outcome` are the lines they wrote and not steps.
+
+A reply's sources are back on the line under it (George, 2026-11-12): of
+"how it got there" they are the one part someone who does not code cares
+about, and for an answer of fact they are the evidence. They are not
+outcomes, since nothing was left behind, so they carry no outcome mark and
+sit after the outcomes and before the time, as a stack of the sites' icons
+(three, then "+N" for the other sites) named in words for the pointer and a
+screen reader. A source is a page the turn opened (George, 2026-11-12;
+`sourcesOf` in `ui/src/turnFacts.ts`), in the order it first opened it: a
+fetch's page, a `curl` or `wget` command's, and a page its browser went to.
+The browser is the computer's (`computer__browser`, `mcp__Computer__browser`
+through an ACP agent), whose answer says "navigated to <address>" or "opened
+new tab at <address>", and the desk's (`browser`, `mcp__hotline__browser`),
+which heads every answer with the page it is on; a click that names no
+address opened nothing that can be told. A step written before the desk
+recorded a browser's page is read for it from its answer, as a fetch's from
+its title. A search whose tool hands the model the pages' content read them,
+so its results are sources: Claude Code's `WebSearch` (a `fetch` step titled
+`Search "<query>"`) answers with the links and then what it drew from those
+pages, where Hotline's `web_search` hands back each result's title, address
+and a preview of at most 300 characters, a listing. The desk writes Claude's
+results unmarked, and the window reads one an older desk marked `found` the
+same way, by the step's title and kind. What a search only listed is no
+source, as it is not evidence for the answer: the search's own line keeps it, its count of results ("6
+results") and, opened, each result with an eye on those the turn opened; a
+listing's title still names a page opened without one. A page on this
+machine or the local network is not a source: 127.x, `localhost` and
+`*.localhost`, `::1`, `0.0.0.0` and `*.local`, the phone's rule
+(`localAddress`); nor is a `file:` page, a local file or a search's query.
+The "+N" counts sites, where the desk's caption before 0.48 and the phone's
+count pages, because the stack is one icon a site and its words name sites. The
+path lists them first, by name and link, in the pane and where it opens in
+place in a thread. The composer's slot stays the mark and the teammate's
+words: no site icons there.
 
 ### 5. No fleet in the first version
 

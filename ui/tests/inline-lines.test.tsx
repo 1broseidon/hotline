@@ -126,49 +126,80 @@ test("a plan's segments are only done, lit or empty, and its head counts what is
 	expect([...container.querySelectorAll(".plan-segment")].map((segment) => segment.className.replace("plan-segment ", ""))).toEqual(["plan-segment-done", "plan-segment-done", "plan-segment-todo", "plan-segment-todo"]);
 });
 
-test("the steps caption is a pill of the count, the failures and the time the steps took, with no site icons", async () => {
+test("the line under a reply is what the turn left behind, failed first, then the time; with nothing left, only the time (epic-42)", async () => {
 	const tool = (id: string, ts: number, endedTs: number, status: "completed" | "failed"): TranscriptEvent => ({
 		kind: "tool", id, ts, endedTs, toolCallId: id, title: "Fetch https://qdrant.tech/documentation", toolKind: "fetch", status,
 	});
-	await draw([
+	const turn = (outcomes: TranscriptEvent[]): TranscriptEvent[] => [
 		{ kind: "user", id: "u", ts: 0, text: "Which vector database?" },
 		tool("t1", 1_000, 9_000, "completed"),
-		tool("t2", 9_000, 20_000, "completed"),
-		tool("t3", 20_000, 30_000, "failed"),
+		tool("t2", 9_000, 20_000, "failed"),
+		...outcomes,
 		tool("t4", 30_000, 39_000, "completed"),
 		{ kind: "agent", id: "a", ts: 40_000, text: "My pick for a small team: **Qdrant**." },
 		{ kind: "turn", id: "end", ts: 40_001, stopReason: "end_turn" },
+	];
+	// Nothing left behind: a failed step is the path's, not the line's, and no count is said.
+	await draw(turn([]));
+	let line = container.querySelector(".steps-caption")!;
+	expect(line.textContent).toBe("38s");
+	expect(line.querySelector(".outcome")).toBeNull();
+	expect(line.getAttribute("title")).toBe("Show the path");
+	// The sites the turn read stand on the line too, once the desk hands over their icons (tests/line-sources.test.tsx).
+	const outcome = (id: string, ts: number, type: string, message: string, more: object = {}): TranscriptEvent => ({ kind: "outcome", id, ts, type, message, key: id, ...more });
+	await draw(
+		turn([
+			outcome("o1", 21_000, "sent", "Shared your address with 4 firms"),
+			outcome("o2", 22_000, "made", "Aftercare form, 18 of 22 answers", { state: "partial" }),
+			outcome("o3", 23_000, "sent", "Could not reach the school office", { state: "failed" }),
+			outcome("o4", 24_000, "open", "Waiting on quotes: 1 of 4"),
+			outcome("o5", 25_000, "yours", "Sign page 3"),
+			outcome("o6", 26_000, "open", "Web server stopped", { closedAt: 27_000 }),
+			outcome("o7", 27_000, "booked", "Booked Dr. Patel, Tue 3:30"),
+		]),
+	);
+	line = container.querySelector(".steps-caption")!;
+	const said = [...line.querySelectorAll(".outcome")].map((one) => [one.getAttribute("data-mark"), one.textContent]);
+	expect(said).toEqual([
+		["failed", "Could not reach the school office"],
+		["done", "Shared your address with 4 firms"],
+		["partial", "Aftercare form, 18 of 22 answers"],
+		["open", "Waiting on quotes: 1 of 4"],
+		["yours", "Sign page 3"],
+		["plain", "Booked Dr. Patel, Tue 3:30"],
 	]);
-	const caption = container.querySelector(".steps-caption")!;
-	expect(caption.textContent).toBe("4 steps· 1 failed38s");
-	expect(caption.querySelector(".steps-caption-failed")?.textContent).toBe("· 1 failed");
-	expect(caption.querySelector(".steps-caption-took")?.textContent).toBe("38s");
-	expect(caption.querySelector(".favicon, .favicons, img")).toBeNull();
+	expect(line.querySelector(".steps-caption-took")?.textContent).toBe("38s");
+	// An open one closed later as what it became is an ordinary outcome where it was said.
+	await draw(turn([outcome("o4", 24_000, "made", "Three quotes in", { closedAt: 50_000 })]));
+	expect([...container.querySelectorAll(".steps-caption .outcome")].map((one) => [one.getAttribute("data-mark"), one.textContent])).toEqual([["done", "Three quotes in"]]);
 });
 
-test("threads, subagents and calls are one quiet line: a state dot, the title, the kind, what came of it, and Open, with no glyph", async () => {
+test("threads and calls are one quiet line: a state dot, the title, what came of it, and Open, with no glyph and no kind word", async () => {
 	const opened: string[] = [];
 	await draw(
 		[
 			{ kind: "link", id: "l1", ts: 1, thread: "s1", threadKind: "side", title: "Load test the local Qdrant", state: "closed", end: "agent", outcome: "p50 6 ms, p99 18 ms" },
-			{ kind: "link", id: "l2", ts: 2, thread: "r1", threadKind: "run", title: "Benchmark sweep", state: "closed", end: "done", elapsedMs: 95_000 },
 			{ kind: "link", id: "l3", ts: 3, thread: "c1", threadKind: "call", title: "Weekly recap", state: "parked" },
 		],
 		{ onOpenThread: (ref) => opened.push(ref.thread.key) },
 	);
 	const rows = [...container.querySelectorAll<HTMLButtonElement>("button.link-row")];
-	expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["thread", "subagent", "call"]);
-	expect(rows.map((row) => [row.querySelector(".link-row-title")?.textContent, row.querySelector(".link-row-sub")?.textContent, row.querySelector(".link-row-dot")?.getAttribute("data-tone")])).toEqual([
-		["Load test the local Qdrant", "Thread· p50 6 ms, p99 18 ms", "done"],
-		["Benchmark sweep", "Subagent· Done in 1 min 35 s", "done"],
-		["Weekly recap", "Call· Parked", "quiet"],
+	expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["thread", "call"]);
+	expect(rows.map((row) => [row.querySelector(".link-row-words")?.textContent, row.querySelector(".link-row-dot")?.getAttribute("data-tone")])).toEqual([
+		["Load test the local Qdrant· p50 6 ms, p99 18 ms", "done"],
+		["Weekly recap· Parked", "quiet"],
+	]);
+	// Heard alone, the row still says what it opens.
+	expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+		"Side thread · Load test the local Qdrant · p50 6 ms, p99 18 ms. Open it",
+		"Weekly recap · parked. Open it",
 	]);
 	for (const row of rows) {
 		expect(row.querySelector("svg")).toBeNull();
 		expect(row.querySelector(".link-row-open")?.textContent).toBe("Open ›");
 		await act(async () => row.click());
 	}
-	expect(opened).toEqual(["s1", "r1", "c1"]);
+	expect(opened).toEqual(["s1", "c1"]);
 	expect(container.querySelector(".rule-line:not(.tape-stamp)")).toBeNull();
 });
 

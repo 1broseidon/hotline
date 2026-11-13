@@ -61,7 +61,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
+	:where(.control, .rail-row, .list-row, .list-fold, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .composer-work, .composer-threads, .window-control, .swatch):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -1049,7 +1049,9 @@
 	}
 	.plan-row {
 		display: grid;
-		grid-template-columns: 3.4em 1fr 2.8em 4.4em;
+		/* The name column is as wide as the card's longest name (--plan-name, in
+		 * characters of this face), so every bar starts in the same place. */
+		grid-template-columns: var(--plan-name) 1fr 2.8em 4.4em;
 		align-items: center;
 		column-gap: 8px;
 		height: 18px;
@@ -1058,7 +1060,13 @@
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-3);
 	}
+	/* One line, whatever a name is: a long one is shortened before it gets
+	 * here, and cut at the column's edge if it still does not fit. */
 	.plan-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--ink-2);
 	}
 	.plan-bar {
@@ -1128,9 +1136,12 @@
 	.plan-gauge[data-near="true"] .plan-gauge-arc {
 		stroke: var(--warn);
 	}
+	/* As tall as its lines, however many the plan has: the menu's cap would
+	 * scroll the last one under the card's edge. */
 	.plan-card {
 		width: 300px;
 		max-width: 300px;
+		max-height: none;
 		padding-bottom: 6px;
 	}
 	/* The effort of the model in use, one row of equal tabs under the agent.
@@ -1791,6 +1802,25 @@
 		transform-box: fill-box;
 		transform-origin: center;
 	}
+	/* Talking: the brow become a headband, earcups that grow from its ends
+	 * about their own middles, and a mic boom cut in the ground's colour. */
+	.glyph .g-band {
+		fill: none;
+		stroke: currentColor;
+		stroke-linecap: round;
+	}
+	.glyph .g-cup {
+		transform-box: fill-box;
+		transform-origin: center;
+	}
+	.glyph .g-boom {
+		fill: none;
+		stroke: var(--canvas);
+		stroke-linecap: round;
+	}
+	.glyph .g-micdot {
+		fill: var(--canvas);
+	}
 	/* On the line: the handset as a stroke, pulled out above the toad into the reply. */
 	.glyph .g-line {
 		fill: none;
@@ -1997,51 +2027,10 @@
 		color: var(--ink-2);
 		overflow-wrap: anywhere;
 	}
-	.aside-line[data-level="person"] .aside-level,
-	.noted-level[data-level="person"] {
+	.aside-line[data-level="person"] .aside-level {
 		color: var(--warn-ink);
 	}
 
-	/* The Noted page's rows: a face, where it came from, its level, its time
-	 * and its words, a hairline apart in one group. */
-	.noted-group {
-		border-top: var(--hairline) solid var(--line);
-	}
-	.noted-row {
-		display: flex;
-		width: 100%;
-		align-items: flex-start;
-		gap: 10px;
-		padding: 8px;
-		border-bottom: var(--hairline) solid var(--line);
-		text-align: left;
-		background: none;
-	}
-	button.noted-row:hover {
-		background: var(--fill-hover);
-	}
-	.noted-row > svg:last-child {
-		align-self: center;
-	}
-	.noted-level {
-		flex-shrink: 0;
-		padding: 0 5px;
-		border-radius: var(--radius-control);
-		background: var(--fill-hover);
-	}
-	.noted-level[data-level="person"] {
-		background: var(--warn-soft);
-	}
-	.noted-text {
-		display: -webkit-box;
-		margin-top: 2px;
-		overflow: hidden;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink);
-	}
 
 	/* One row per step once the caption is open: a status mark, an
 	 * instrument title, and the output behind a press. */
@@ -2223,6 +2212,44 @@
 		margin: 0;
 		padding: 0;
 		list-style: none;
+	}
+	/* What the teammate said it was on heads the steps it took meanwhile,
+	 * with when it began; the steps sit under it, set in. */
+	.trail-heading {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		padding: 4px 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.trail-heading-said {
+		min-width: 0;
+		flex: 1;
+		overflow-wrap: anywhere;
+	}
+	.trail-group + .trail-group,
+	.trail-step + .trail-group {
+		margin-top: 6px;
+	}
+	.trail-under {
+		padding-left: 12px;
+	}
+	/* What the turn left behind, where the teammate said so. */
+	.trail-outcome {
+		padding: 4px 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.step-heading,
+	.step-outcome {
+		margin: 0;
+		padding: 4px 8px 2px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
 	}
 	.trail-head {
 		display: flex;
@@ -2523,6 +2550,10 @@
 		margin: 4px 0;
 		border-left: 2px solid var(--line);
 		padding-left: 6px;
+	}
+	/* A path opened in place: the pages read, by name, over its steps. */
+	.steps > [aria-label="Sources"] {
+		margin: 4px 0 10px;
 	}
 
 	/* A card in the tape: a permission asked, a hand to a person. Not
@@ -2834,29 +2865,24 @@
 	.composer-work[data-sleeping] {
 		opacity: 0.5;
 	}
+	/* The teammate's own words for what it is on: new words come in from
+	 * the mark's side rather than change in place. */
 	.composer-work-word {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		animation: said-in var(--dur-move) var(--ease-out);
 	}
-	.composer-work-count,
-	.composer-work-failed {
-		margin-left: auto;
-		flex-shrink: 0;
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-3);
-	}
-	.composer-work-count {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-	}
-	.composer-work-failed {
-		color: var(--danger);
-	}
-	.composer-work-count ~ .composer-work-chevron,
-	.composer-work-failed ~ .composer-work-chevron {
-		margin-left: 2px;
+	@keyframes said-in {
+		from {
+			opacity: 0;
+			transform: translateX(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
 	}
 	/* A site's icon, and a few of them overlapping: the pages read. */
 	/* A site's icon sits on a light tile, as browsers show them, so a dark
@@ -2880,9 +2906,6 @@
 	.favicons > .favicon {
 		box-shadow: 0 0 0 1.5px var(--canvas);
 	}
-	.composer .favicons > .favicon {
-		box-shadow: 0 0 0 1.5px var(--pop);
-	}
 	.favicons > .favicon + .favicon {
 		margin-left: -2px;
 	}
@@ -2891,16 +2914,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: var(--ink-3);
-	}
-	/* What the turn came to, as counts: the instrument voice. */
-	.composer-work[data-done] .composer-work-word,
-	.composer-work[data-done] .composer-work-failed {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		letter-spacing: 0.02em;
-	}
-	.composer-work[data-done] .composer-work-word {
-		color: var(--ink-2);
 	}
 	/* The live line of the peek is what is happening now: it reads in full ink. */
 	.work-window .step[data-live] .step-title {
@@ -2915,6 +2928,63 @@
 	}
 	.composer-work[aria-expanded="true"] .composer-work-chevron {
 		transform: none;
+	}
+	/* The threads live in the session, counted at the bottom row's right in
+	 * the person's accent, as the phone's composer has it: "2 threads ›". */
+	.composer-threads {
+		display: flex;
+		flex-shrink: 0;
+		height: 30px;
+		align-items: center;
+		gap: 4px;
+		margin: 0 4px;
+		padding: 0 8px 0 10px;
+		border-radius: 15px;
+		color: var(--accent-ink);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.composer-threads:hover,
+	.composer-threads[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	.composer-threads-chevron {
+		width: 12px;
+		height: 12px;
+	}
+	/* Open, they are the pill's first row, as a card waiting on the person
+	 * is: the Threads list's rows under a count, a long list scrolling. */
+	.composer[data-work] > .composer-threads-panel {
+		order: -2;
+		flex-basis: 100%;
+		max-height: min(40vh, 320px);
+		overflow-y: auto;
+		margin: 0 0 4px;
+		padding: 0 2px 4px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer-threads-panel .list-group {
+		padding-top: 6px;
+	}
+	.composer-threads-panel .list-row[aria-current="true"] {
+		background: var(--fill-hover);
+	}
+	/* The panel's last row, All threads: the full list, in the pane. Quieter
+	 * than a running thread's row; what is new there in the accent. */
+	.composer-threads-all .list-title {
+		font-weight: 400;
+		color: var(--ink-2);
+	}
+	.composer-threads-all .list-mark {
+		color: var(--ink-4);
+	}
+	.composer-threads-all .list-when {
+		gap: 4px;
+		align-items: center;
+		color: var(--accent-ink);
 	}
 	.composer-attach:hover {
 		background: var(--fill-hover);
@@ -4387,6 +4457,116 @@
 	.handoff-answer .field {
 		border-color: color-mix(in oklch, var(--warn) 60%, transparent);
 	}
+	/* A handoff's stream while the receiver works between its steps and words. */
+	.pane-thinking {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 12px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* A pair's line: the speaker's face beside their bubble, the one the pair
+	 * is with on the right, in the raised plane the other side's words take. */
+	.pair-line {
+		display: flex;
+		align-items: flex-end;
+		gap: 8px;
+		margin-top: 10px;
+	}
+	.pair-line[data-right] {
+		flex-direction: row-reverse;
+	}
+	.pair-line-body {
+		display: flex;
+		min-width: 0;
+		max-width: 80%;
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.pair-line[data-right] .pair-line-body {
+		align-items: flex-end;
+	}
+	.pair-line-said {
+		min-width: 0;
+		/* The column's cross axis: without it a long line is as wide as its
+		 * longest and, on the right, runs out of the pane's left edge. */
+		max-width: 100%;
+		padding: 8px 12px;
+		border-radius: var(--radius-bubble);
+		background: var(--said-them);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		overflow-wrap: anywhere;
+	}
+	.pair-line[data-right] .pair-line-said {
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	}
+	.pair-line-name {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 2px;
+		font-family: var(--font-mono);
+	}
+	/* What a line of the pair is, when it is more than a line: Handoff, Aside. */
+	.pair-chip {
+		padding: 0 5px;
+		border-radius: var(--radius-chip);
+		background: var(--fill-active);
+		font-family: var(--font-sans);
+		color: var(--ink-2);
+	}
+	/* A handoff's work, under its request, in the pair's own window. */
+	.pair-work {
+		margin-top: 6px;
+		padding-left: 30px;
+	}
+	.pair-work:empty {
+		display: none;
+	}
+	.pair-work-cut {
+		margin-top: 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* A command left running: the command as typed, then its output in a
+	 * terminal sunk below the canvas, the one surface that is a terminal. */
+	.pane-command {
+		flex-shrink: 0;
+		margin: 0 16px 8px;
+		padding: 8px 10px;
+		border-radius: var(--radius-control);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.pane-command-prompt {
+		margin-right: 8px;
+		color: var(--accent-ink);
+	}
+	.pane-terminal {
+		min-height: 200px;
+		margin: 0;
+		padding: 10px 12px;
+		border-radius: var(--radius-pane);
+		background: var(--terminal);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: 1.6;
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
 	.link-quiet {
 		color: var(--accent-ink);
 		font-weight: 600;
@@ -4401,8 +4581,484 @@
 		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
-	.dock-row {
+	/* A thread's head under its band (thread/Pane.tsx): what kind of thread
+	 * it is and what the person is to it, its title, and a line of facts.
+	 * A thread being watched marks its kind in the accent ink; one the person
+	 * is in, in the annotating ink, because it is a conversation like any. */
+	.pane-head {
+		flex-shrink: 0;
+		padding: 2px 24px 12px;
+	}
+	.pane-title {
+		font-size: var(--text-lg);
+		line-height: var(--text-lg--line-height);
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.pane-meta {
+		margin-top: 2px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		overflow-wrap: anywhere;
+	}
+	/* What the thread was handed: three lines of it until Show all. */
+	.pane-task {
+		flex-shrink: 0;
+		margin: 0 16px 8px;
+		padding: 10px 12px 8px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	}
+	.pane-task-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
+	.pane-task-from {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	.pane-task-body {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		overflow: hidden;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.pane-task-body[data-open] {
+		display: block;
+		-webkit-line-clamp: unset;
+	}
+	.pane-task-more {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--accent-ink);
+	}
+	.pane-task-more:hover {
+		color: var(--accent-hover);
+	}
+	/* The work as it happens, on the pane's own canvas. */
+	.pane-stream {
+		min-height: 0;
+		flex: 1;
+		overflow-y: auto;
+		padding: 8px 16px 16px;
+	}
+	/* What came of it: the one card in the stream edged in the accent. */
+	.pane-result {
+		margin: 12px 0 4px;
+		padding: 10px 12px;
+		border-radius: var(--radius-card);
+		background: color-mix(in oklab, var(--accent) 6%, var(--raised));
+		box-shadow: inset 0 0 0 var(--hairline) color-mix(in oklab, var(--accent) 40%, transparent);
+	}
+	.pane-result-head {
+		display: flex;
+		justify-content: space-between;
+		gap: 8px;
+		color: var(--accent-ink);
+	}
+	.pane-result-body {
+		margin-top: 6px;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	/* A call's transcript (thread/CallPane.tsx): who said each line in a
+	 * narrow column of its own, the words beside it, so the speakers read
+	 * down one edge. Yours are labelled in your words' mint and said in ink;
+	 * the teammate's in the annotating ink and said in ink-2. */
+	.call-transcript {
+		display: flex;
+		flex-direction: column;
+	}
+	.call-line {
+		display: grid;
+		grid-template-columns: 72px minmax(0, 1fr);
+		gap: 8px;
+		margin: 8px 0;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	.call-who {
+		padding-top: 2px;
+		overflow: hidden;
+		text-align: right;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.call-line[data-mine] .call-who {
+		color: var(--said-me);
+	}
+	.call-words {
+		min-width: 0;
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.call-line[data-mine] .call-words {
+		color: var(--ink);
+	}
+	.call-written {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		white-space: normal;
+	}
+	/* The work between two lines, folded where it fell, set under the words' column. */
+	.call-work {
+		margin: 4px 0 8px 80px;
+		padding: 4px 8px;
+		border-radius: var(--radius-card);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.call-work-head {
+		display: flex;
+		width: 100%;
+		min-width: 0;
+		align-items: center;
+		gap: 8px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+		text-align: left;
+	}
+	.call-work-head:hover {
+		color: var(--ink);
+	}
+	.call-work-dot,
+	.job-run-dot {
+		width: 7px;
+		height: 7px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--ink-4);
+	}
+	.call-work-dot[data-live],
+	.job-run-dot[data-state="working"],
+	.job-run-dot[data-state="posted"] {
+		background: var(--accent);
+	}
+	.job-run-dot[data-state="failed"] {
+		background: var(--danger);
+	}
+	/* A job's next run and last post, side by side over its runs (thread/JobPane.tsx). */
+	.job-facts {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.job-facts > div {
+		min-width: 0;
+		padding: 8px 10px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	}
+	.job-facts dt {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.job-facts dd {
+		margin-top: 2px;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	/* Each run a section of its own, newest first, opening to what it found and its steps. */
+	.job-runs {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.job-run {
+		border-radius: var(--radius-card);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		overflow: hidden;
+	}
+	.job-run-head {
+		display: flex;
+		width: 100%;
+		min-width: 0;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+		text-align: left;
+	}
+	.job-run-head:not(:disabled):hover {
+		background: var(--fill-hover);
+	}
+	.job-run-when {
+		margin-left: auto;
+		flex-shrink: 0;
+		color: var(--ink-4);
+	}
+	.job-run[data-open] .job-run-head {
+		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+	}
+	.job-run-body {
+		padding: 8px 10px;
+	}
+	.job-run-found {
+		margin-bottom: 6px;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	.job-run-notice {
+		margin-bottom: 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* A subagent's run (thread/RunPane.tsx): its state's dot in the band
+	 * and one line of fact at its foot. */
+	.run-dot {
+		flex-shrink: 0;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent);
+	}
+	.run-dot[data-state="Stopped"],
+	.run-dot[data-tone="quiet"] {
+		background: var(--ink-4);
+	}
+	.run-dot[data-tone="failed"] {
+		background: var(--danger);
+	}
+	.run-dot[data-state="Failed"] {
+		background: var(--danger);
+	}
+	/* A watched thread's steps (thread/WorkStream.tsx) are the work page's
+	 * lines where they fell between the words, without a heading over each run. */
+	.pane-stream .work-sections {
+		padding: 0;
+	}
+	.pane-stream .steps-heading {
+		display: none;
+	}
+	/* A section's name in a watched thread's pane: the Activity over a run's
+	 * steps or a command's output, as the eyebrows of its task and result. */
+	.pane-section {
+		flex-shrink: 0;
+		margin: 4px 16px 0;
+	}
+	/* Words said between a run's steps: a line of its activity under who
+	 * said it, not a bubble, since nobody talks with a run. */
+	.pane-said {
+		margin-top: 10px;
+	}
+	.pane-said-who {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.pane-said-text {
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
+	.run-foot {
+		flex-shrink: 0;
+		padding: 10px 24px;
+		box-shadow: inset 0 var(--hairline) 0 var(--line);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* The Threads list (ThreadList.tsx): the chips that narrow it, a group's
+	 * heading in the instrument face with its count at the right, the fold
+	 * of what is earlier and routine, and rows of one shape: the kind's mark,
+	 * the title over one line, and the time. */
+	.list-search {
+		padding: 0 12px 8px;
+	}
+	.list-chips {
+		padding: 0 12px 8px;
+	}
+	.list-chips .btn-sm {
+		gap: 6px;
+	}
+	.list-chips .btn-sm[aria-pressed="false"] {
+		color: var(--ink-3);
+	}
+	/* Needs you, while something waits: its word in the amber that asks, and its count. */
+	.list-chips .btn-sm[data-tone="warn"][aria-pressed="false"] {
+		color: var(--warn-ink);
+	}
+	.list-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-4);
+	}
+	.list-span {
+		padding: 0 12px 8px;
+	}
+	.list-group,
+	.list-fold {
+		display: flex;
+		width: 100%;
+		justify-content: space-between;
+		padding: 12px 8px 4px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.list-fold {
+		margin-top: 4px;
+		padding-bottom: 8px;
+		border-radius: var(--radius-control);
+		color: var(--ink-2);
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.list-fold:hover {
+		background: var(--fill-hover);
+	}
+	.list-row {
+		display: flex;
+		width: 100%;
 		align-items: flex-start;
+		gap: 8px;
+		padding: 8px;
+		border-radius: var(--radius-control);
+		text-align: left;
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	button.list-row:hover {
+		background: var(--fill-hover);
+	}
+	button.list-row:active {
+		background: var(--fill-active);
+	}
+	.list-mark {
+		width: 16px;
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: 18px;
+		text-align: center;
+		color: var(--ink-3);
+	}
+	.list-row[data-state="live"] .list-mark {
+		color: var(--accent-ink);
+	}
+	.list-row[data-state="waiting"] .list-mark,
+	.list-row[data-level="person"] .list-mark {
+		color: var(--warn-ink);
+	}
+	.list-title {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		font-weight: 500;
+		line-height: 18px;
+		color: var(--ink);
+	}
+	.list-title-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.list-notes {
+		flex-shrink: 0;
+		padding: 0 5px;
+		border-radius: var(--radius-chip);
+		background: var(--fill-hover);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.list-line {
+		display: block;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	/* A live row's line is its latest step, in the instrument face. */
+	.list-row[data-state="live"] .list-line {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+	}
+	/* A note's row is where it came from over who told the teammate what:
+	 * two lines of the words, at the explaining ink. */
+	.list-row[data-kind="note"] .list-line {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		color: var(--ink-2);
+	}
+	/* A row in Needs you: the card's own answers under its line, or Open. */
+	.list-keys {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		padding: 0 8px 8px 32px;
+	}
+	.list-refused {
+		width: 100%;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--danger);
+	}
+	.list-when {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+		padding-top: 1px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-4);
+	}
+	.list-when .dock-dot {
+		width: 6px;
+		height: 6px;
+		margin-top: 0;
 	}
 	.dock-dot {
 		flex-shrink: 0;
@@ -4414,16 +5070,6 @@
 	}
 	.dock-dot[data-state="running"] {
 		background: var(--accent);
-	}
-	.dock-dot[data-state="waiting"] {
-		background: var(--warn);
-	}
-	.dock-dot[data-state="idle"] {
-		background: var(--ink-2);
-	}
-	.dock-dot[data-state="parked"] {
-		background: none;
-		box-shadow: inset 0 0 0 1.5px var(--ink-3);
 	}
 	/* A turn's work floats in the window's corner, over the conversation
 	 * rather than beside it: a translucent card you glance at and close,
@@ -5029,6 +5675,7 @@
 	.trail-step[data-status="in_progress"] .trail-said,
 	.ambient-card,
 	.ambient-card[data-sleeping],
+	.composer-work-word,
 	.menu,
 	.rail-tip,
 	.search-panel,
@@ -5053,36 +5700,69 @@
 	}
 }
 
-/* A row of the conversation that is off screen skips layout and paint until
- * it scrolls into view, keeping the size it last had. A long chapter is
- * hundreds of rows, and without this each word streamed into the last one
- * lays out and paints every one of them again. A row never laid out stands
- * at the 96px guess, so each is drawn once in the background while nobody
- * scrolls (Transcript.tsx), and keeps its own height from then on. */
+/* A row of the conversation is a box of its own: what is in it is laid out
+ * and painted inside it, and nothing in it reaches the rows around it. Only
+ * the rows near the view are in the page (Transcript.tsx), so a long chapter
+ * costs what the screen shows of it, not what it holds. */
 .tape-row {
-	content-visibility: auto;
-	/* Remembered from its first layout on, so the size it keeps while
-	 * skipped is its own. */
-	contain-intrinsic-block-size: auto 96px;
-	/* That skipping clips paint to the row, so a ring drawn outside an edge
-	 * flush with the column (a live card's) gets 4px of row each side to
-	 * paint in, without moving anything. */
+	contain: layout style paint;
+	/* That clips paint to the row, so a ring drawn outside an edge flush with
+	 * the column (a live card's) gets 4px of row each side to paint in,
+	 * without moving anything. */
 	margin-inline: -4px;
 	padding-inline: 4px;
 }
-/* Drawn once, off screen, so its height is known before it is scrolled to
- * (Transcript.tsx). */
-.tape-row[data-warm] {
-	content-visibility: visible;
+/* The room the rows take in all, held in the column whatever rows are in
+ * it. When the window moves, the rows that leave the page are taken out
+ * before the rows that join it are put in, and WebKit lays the column out in
+ * between: for that moment it is as short as what is left, and a view
+ * further down than that was thrown back to where the column ended. This
+ * stays through the swap at the height the rows have in all. It is out of
+ * the flow: it adds room to scroll in and moves nothing. */
+.tape-column {
+	position: relative;
 }
-/* The conversation keeps its own place when rows arrive or grow above the
- * view (Transcript.tsx: a page of older lines, the background drawing), so
- * the engine's scroll anchoring would move it a second time. */
-.scroller:has(> .tape-column) {
+.tape-room {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 1px;
+	pointer-events: none;
 	overflow-anchor: none;
 }
-/* That skipping clips paint to the row, so the emoji hung off a bubble's
- * lower edge, or off files sent alone, get the room below it inside the row. */
+/* The rows not in the page, as one box of their height. It never gives up
+ * height to the column, and the engine never anchors the view to it: it
+ * changes height whenever a row leaves or joins it. */
+.tape-gap {
+	flex: none;
+	overflow-anchor: none;
+}
+/* Rows drawn only to learn how tall they are (useRowWindow.ts): in the
+ * column, so they are as wide as a row and styled as one, but taking no
+ * height, showing nothing, and stood off to one side, so nothing that
+ * watches what nears the view (a diagram waiting to be drawn) takes one
+ * for a row arriving. */
+.tape-probe {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	height: 0;
+	overflow: hidden;
+	visibility: hidden;
+	overflow-anchor: none;
+	transform: translateX(-300vw);
+}
+/* While a page of older lines lands, and while the window swaps rows for a
+ * gap (Transcript.tsx, useRowWindow.ts), the conversation keeps its own
+ * place, so the engine's scroll anchoring would move it a second time. The
+ * rest of the time the engine anchors: a row growing above the view moves
+ * nothing on screen, and no script writes the scroll under a flick, which
+ * would cut its momentum short. */
+.scroller:is([data-landing], [data-swapping]):has(> .tape-column) {
+	overflow-anchor: none;
+}
+/* A row clips paint to itself, so the emoji hung off a bubble's lower edge,
+ * or off files sent alone, get the room below it inside the row. */
 .said-group:has(> .speech > .reactions, > .said-files > .reactions) {
 	padding-bottom: 20px;
 }
@@ -5945,6 +6625,16 @@
 		border-radius: 4px;
 		font-size: 12px;
 		font-variant-numeric: tabular-nums;
+	}
+	/* A beta's version is longer than a third of the dock. The middle key is
+	 * never narrower than its version, and the keys either side give way.
+	 * The same inset on all three keeps them equal thirds for a final one. */
+	.settings-dock > button {
+		padding: 0 6px;
+	}
+	.settings-dock > .settings-dock-version {
+		min-width: max-content;
+		white-space: nowrap;
 	}
 	.settings-dock-shortcuts {
 		border-radius: 4px 15px 15px 4px;

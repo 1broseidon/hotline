@@ -21,7 +21,7 @@
 mod policy;
 mod store;
 
-pub use hotline_store::link::{AgentBinding, Link, Opener, ThreadState};
+pub use hotline_store::link::{AgentBinding, Link, Opener, ThreadState, request_words};
 pub(crate) use policy::QUIET_MS;
 #[cfg(test)]
 pub(crate) use policy::SIDE_IDLE_MS;

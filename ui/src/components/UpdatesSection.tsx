@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HarnessUpdate, HarnessUpdates } from "../generated/contract";
-import { appVersion, cancelUpdate, checkUpdate, installUpdate, openLink, updateStatus, watchUpdates, type UpdateStatus } from "../native";
+import { appVersion, cancelUpdate, checkUpdate, installUpdate, openLink, setUpdateTrack, updateStatus, watchUpdates, type UpdateStatus, type UpdateTrack } from "../native";
+import { Chips } from "../ui/Chips";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
@@ -18,6 +19,20 @@ function refusal(label: string, error: unknown): Refused {
 	return refused(label, error);
 }
 const STATUS_UNREAD = "Couldn't read update status";
+const TRACKS: readonly { id: UpdateTrack; name: string; title: string }[] = [
+	{ id: "stable", name: "Stable", title: "Final releases" },
+	{ id: "beta", name: "Beta", title: "Betas and finals" },
+];
+
+/**
+ * What the track row says. A desk is never moved to an older version, so one
+ * that left Beta on a beta keeps it until a final release is newer, and the
+ * row says which build that is.
+ */
+export function trackValue(track: UpdateTrack, current: string): string {
+	if (track === "beta") return "Final releases and betas";
+	return current.includes("-") ? `Keeps ${current} until a newer final release` : "Final releases";
+}
 const mb = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
 export function UpdatesSection() {
@@ -77,6 +92,19 @@ export function UpdatesSection() {
 							{downloading && <button type="button" className="control btn-quiet" onClick={() => void cancelUpdate().catch((error) => setError(refusal("Couldn't cancel download", error)))}>Cancel</button>}
 							<span className="min-w-0 flex-1 text-sm text-ink-3">Waits for teammates to finish. Nothing is lost.</span>
 						</div>
+					</div>
+				)}
+				{status && (
+					<div className="nt-fold-row">
+						<span className="nt-fold-title">Track</span>
+						<span className="nt-fold-value">{trackValue(status.track, status.current)}</span>
+						<Chips
+							value={status.track}
+							choices={TRACKS}
+							label="Update track"
+							disabled={busy || !!status.disabledReason}
+							onChange={(track) => track !== status.track && void run("Couldn't change track", () => setUpdateTrack(track))}
+						/>
 					</div>
 				)}
 				<div className="nt-fold-row">

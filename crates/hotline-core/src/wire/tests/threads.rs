@@ -339,9 +339,11 @@ async fn thread_list_reads_every_kind_as_one_summary() {
 }
 
 /// A companion is listed the threads it may read, which leaves out a call:
-/// its summary's preview is what was spoken in it.
+/// its summary's preview is what was spoken in it. A pair between two
+/// teammates is a thread it reads, so it is listed (George, 2026-11-12: a
+/// DM between agents is a thread on the phone too).
 #[tokio::test]
-async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
+async fn a_companions_thread_list_leaves_out_calls_and_lists_pairs() {
     let (_root, log, port) = door("thread-list-companion");
     let mut socket = desk(port).await;
     let ada = create(&mut socket, 1, "Ada").await["id"]
@@ -405,12 +407,12 @@ async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
             !phone.to_string().contains("said in c1"),
             "a call's words are not a companion's to list: {phone}"
         );
-        assert!(
-            !kinds(&phone)
-                .iter()
-                .any(|kind| kind == "call" || kind == "pair")
-        );
+        assert!(!kinds(&phone).iter().any(|kind| kind == "call"));
         assert!(kinds(&phone).iter().any(|kind| kind == "side"));
+        assert!(
+            kinds(&phone).iter().any(|kind| kind == "pair"),
+            "a pair is a thread the phone reads: {phone}"
+        );
         let owner =
             remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), request).await;
         assert!(kinds(&owner).iter().any(|kind| kind == "call"));

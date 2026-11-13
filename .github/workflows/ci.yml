@@ -78,7 +78,7 @@ jobs:
       - name: Unpack the speech engine again
         if: runner.environment == 'github-hosted'
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       # grizzly's Linux image has these baked in.
       - name: Install the Linux toolkit
@@ -151,7 +151,7 @@ jobs:
 
       # The cache lacks the speech engine's unpacked library; see above.
       - name: Unpack the speech engine again
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       # The server build's libraries, WebKitGTK's headers, and the packages
       # `install --server --browser` puts on a server.
@@ -231,7 +231,7 @@ jobs:
       # The cache lacks the speech engine's unpacked library; see above.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       - name: Check integration-test registration
         shell: bash
@@ -274,7 +274,7 @@ jobs:
 
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       - name: Probe the developer shims in both shells
         run: |
@@ -333,7 +333,7 @@ jobs:
       # The cache lacks the speech engine's unpacked library; see above.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       - name: Install the Linux toolkit
         if: runner.os == 'Linux'

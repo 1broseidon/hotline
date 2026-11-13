@@ -112,30 +112,6 @@ describe("the transcript line", () => {
 });
 
 
-describe("a call thread is a transcript", () => {
-    test("names both speakers and shows every tool inline in order", () => {
-        const events: TranscriptEvent[] = [
-            { kind: "user", id: "u", ts: 1, text: "Check the mascot." },
-            { kind: "agent", id: "a", ts: 2, text: "The written plan.", spoken: "I will check Bramble." },
-            { kind: "tool", id: "t1", ts: 3, toolCallId: "tc1", title: "Read mascot.txt", toolKind: "read_file", status: "completed", output: [{ type: "text", text: "Bramble, a wiry terrier.\nMore detail." }] },
-            { kind: "tool", id: "t2", ts: 4, toolCallId: "tc2", title: "Save the plan", toolKind: "write_file", status: "completed", output: [{ type: "text", text: "Saved mascot.txt." }] },
-            { kind: "agent", id: "a2", ts: 5, text: "Ready to implement." },
-        ];
-        const html = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "call", key: "c1" }} events={events} streaming={[]} live={false} focus={null} />);
-        expect(html).toContain("You");
-        expect(html).toContain("Ada");
-        expect(html).toContain("I will check Bramble.");
-        expect(html).toContain("Bramble, a wiry terrier. More detail.");
-        expect(html).not.toContain(">2 steps<");
-        expect(html).not.toContain("steps-caption");
-        expect(html.indexOf("I will check Bramble.")).toBeLessThan(html.indexOf("read_file"));
-        expect(html.indexOf("read_file")).toBeLessThan(html.indexOf("write_file"));
-        expect(html.indexOf("write_file")).toBeLessThan(html.indexOf("Ready to implement."));
-        const work = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "side", key: "s1" }} events={events} streaming={[]} live={false} focus={null} />);
-        expect(work).toContain("2 steps");
-    });
-});
-
 describe("a reply that was said as it was written", () => {
     // A spoken-only reply on a call: the first bubble keeps the whole of what
     // was heard and the later bubbles hold the rest of the same words.
@@ -148,27 +124,17 @@ describe("a reply that was said as it was written", () => {
     ];
     const count = (html: string, text: string) => html.split(text).length - 1;
 
-    test("a call's transcript says each sentence once, with no written reply to open", () => {
-        const html = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "call", key: "c1" }} events={events} streaming={[]} live={false} focus={null} />);
-        for (const line of ["Quite a bit, mostly QA.", "Midweek I audited the board.", "Then you ran backend switching."]) expect(count(html, line)).toBe(1);
-        expect(html).not.toContain("Written reply");
-    });
-
     test("the chat draws no said-aloud line over the same words", () => {
         const html = transcript(events);
         expect(html).not.toContain("said-aloud");
         expect(count(html, "Midweek I audited the board.")).toBe(1);
     });
 
-    test("a reply whose versions differ is said once, with its whole written version under it", () => {
+    test("a reply whose versions differ keeps its said-aloud line in the chat", () => {
         const differs: TranscriptEvent[] = [
             { kind: "agent", id: "d", ts: 2, text: "The build fails for two reasons:", spoken: "Two things are wrong, both fixes are in the chat." },
             { kind: "agent", id: "d-2", ts: 2, text: "1. **Missing API key.**\n2. **Port 8080 in use.**" },
         ];
-        const html = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "call", key: "c1" }} events={differs} streaming={[]} live={false} focus={null} />);
-        expect(count(html, "Two things are wrong")).toBe(1);
-        expect(count(html, "Missing API key.")).toBe(1);
-        expect(html.indexOf("Written reply")).toBeLessThan(html.indexOf("Missing API key."));
         expect(transcript(differs)).toContain("said-aloud");
     });
 });

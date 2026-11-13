@@ -302,3 +302,75 @@ async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String 
 
 #[path = "threads/together.rs"]
 mod together;
+
+/// A command a harness left running is listed as a command once it has
+/// ended and the roster has let it go: the list reads what it ran from its
+/// link, so the window says Command rather than Subagent, and a subagent's
+/// run says nothing of it. The runs' links are written before this desk's
+/// core starts; the teammate is made on a first desk's wire.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_command_is_listed_as_a_command_and_a_subagent_as_neither() {
+    use hotline_core::log::{Log, StreamId};
+    async fn door(root: &std::path::Path) -> Client {
+        let desk = common::open_desk(root).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk), parts).unwrap();
+        let port = door.port();
+        tokio::spawn(door.run());
+        Client::connect(port, TOKEN).await
+    }
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let mut making = door(first.path()).await;
+    let made = making
+        .call(
+            "persona.create",
+            json!({"draft": {"name": "Ada", "goal": "Keep the harbour."}}),
+        )
+        .await;
+    assert_eq!(made["ok"], true, "{made}");
+    let persona = made["result"]["id"].as_str().unwrap().to_owned();
+    std::fs::copy(
+        first.path().join("room.jsonl"),
+        second.path().join("room.jsonl"),
+    )
+    .unwrap();
+
+    let log = Log::open(second.path());
+    let link = |run: &str, title: &str, extra: Value| {
+        let mut line = json!({
+            "kind": "link", "id": format!("link:run:{run}"), "ts": 1_000, "thread": run,
+            "threadKind": "run", "personaId": persona, "title": title,
+            "state": "closed", "end": "done", "at": 2_000,
+        });
+        for (key, value) in extra.as_object().cloned().unwrap_or_default() {
+            line[key] = value;
+        }
+        line
+    };
+    for (run, title, extra) in [
+        ("cmd", "make precheck", json!({"runKind": "shell"})),
+        ("sub", "Map browser stream latency", json!({})),
+    ] {
+        let line = link(run, title, extra);
+        log.append(&StreamId::Tape(persona.clone()), &line).unwrap();
+        log.append(&StreamId::Run(run.to_string()), &line).unwrap();
+    }
+
+    let mut client = door(second.path()).await;
+    let listed = client
+        .call("thread.list", json!({"personaId": persona}))
+        .await;
+    let row = |key: &str| {
+        listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["thread"] == json!({"kind": "run", "key": key}))
+            .cloned()
+            .unwrap_or_else(|| panic!("the run {key} is listed: {listed}"))
+    };
+    assert_eq!(row("cmd")["state"], "closed", "{listed}");
+    assert_eq!(row("cmd")["runKind"], "shell", "{listed}");
+    assert!(row("sub").get("runKind").is_none(), "{listed}");
+}

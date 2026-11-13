@@ -1,22 +1,28 @@
 //! MCP OAuth sign-in end to end against a loopback authorization server,
 //! through the vault: the client crate's flow, and the values this module
-//! reads for it and the registration it saves back.
+//! reads for it and the registration it saves back. And which addresses a
+//! sign-in may connect to, with DNS answered from a table: nothing here
+//! leaves this computer.
 
 use super::*;
 use crate::log::{Log, StreamId};
+use crate::test_support::until;
 use crate::vault::Vault;
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, WWW_AUTHENTICATE};
+use axum::http::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, WWW_AUTHENTICATE};
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use axum::routing::any;
 use axum::{Router, body::to_bytes};
 use hotline_mcp::connect_oauth;
+use hotline_mcp::oauth_test_support::{NameLookup, error_message, sign_in_manager};
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use rmcp::model::CallToolRequestParams;
-use rmcp::transport::auth::CredentialStore;
+use rmcp::transport::auth::{AuthorizationMetadata, CredentialStore, OAuthClientConfig};
 use serde_json::json;
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -62,11 +68,21 @@ impl MockOAuthServer {
     }
 
     async fn start_with_registration(supports_registration: bool) -> Self {
+        Self::start_as("127.0.0.1", supports_registration).await
+    }
+
+    /// The mock on loopback as every other, known to its metadata by
+    /// `host`: a server set up by name.
+    async fn start_named(host: &str) -> Self {
+        Self::start_as(host, true).await
+    }
+
+    async fn start_as(host: &str, supports_registration: bool) -> Self {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("mock OAuth listener");
-        let address = listener.local_addr().expect("mock OAuth address");
-        let base = format!("http://{address}");
+        let port = listener.local_addr().expect("mock OAuth address").port();
+        let base = format!("http://{host}:{port}");
         let state = Arc::new(MockOAuthState {
             base: base.clone(),
             supports_registration,
@@ -181,6 +197,14 @@ async fn mock_request(
                 }),
             )
         }
+        // A registration endpoint that has moved to the address a cloud
+        // keeps its instance metadata at.
+        ("POST", "/as/moved") => Response::builder()
+            .status(StatusCode::TEMPORARY_REDIRECT)
+            .header(LOCATION, "http://169.254.169.254/as/register")
+            .header(CONTENT_LENGTH, "0")
+            .body(Body::empty())
+            .expect("mock redirect"),
         ("POST", "/as/token") => {
             let form: HashMap<String, String> =
                 url::form_urlencoded::parse(&body).into_owned().collect();
@@ -861,4 +885,297 @@ async fn a_pasted_address_finishes_only_its_own_sign_in_and_is_never_echoed() {
     assert_eq!(signed_in["status"], "signed_in");
     assert_eq!(mock.state.code_exchanges.load(Ordering::SeqCst), 1);
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// DNS for a test: each name's answers in turn, the last one kept, and no
+/// answer for a name it was not given.
+struct Names(Mutex<HashMap<String, Vec<Vec<IpAddr>>>>);
+
+fn names(entries: &[(&str, &[&[&str]])]) -> NameLookup {
+    let entries = entries
+        .iter()
+        .map(|(name, answers)| {
+            let answers = answers
+                .iter()
+                .map(|answer| answer.iter().map(|ip| ip.parse().expect("an IP")).collect())
+                .collect();
+            (name.to_string(), answers)
+        })
+        .collect();
+    Arc::new(Names(Mutex::new(entries)))
+}
+
+impl Resolve for Names {
+    fn resolve(&self, name: Name) -> Resolving {
+        let mut names = self.0.lock().expect("names");
+        let answer = match names.get_mut(name.as_str()) {
+            Some(answers) if answers.len() > 1 => answers.remove(0),
+            Some(answers) => answers[0].clone(),
+            None => Vec::new(),
+        };
+        Box::pin(async move {
+            let addresses: Vec<SocketAddr> = answer
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip, 0))
+                .collect();
+            Ok(Box::new(addresses.into_iter()) as Addrs)
+        })
+    }
+}
+
+/// An address out on the internet that is no one's: TEST-NET-3.
+const PUBLIC: &str = "203.0.113.10";
+
+/// A host on the person's own computer or network: a loopback listener
+/// that counts every connection made to it, whatever is said over it.
+struct Inward {
+    port: u16,
+    connections: Arc<AtomicUsize>,
+    task: JoinHandle<()>,
+}
+
+impl Inward {
+    async fn listen() -> Self {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("inward listener");
+        let port = listener.local_addr().expect("inward address").port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let counted = connections.clone();
+        let task = tokio::spawn(async move {
+            while listener.accept().await.is_ok() {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        Self {
+            port,
+            connections,
+            task,
+        }
+    }
+
+    /// That nothing connected: connections are accepted in the order they
+    /// were made, so once this one of the test's own is counted, any made
+    /// before it has been too.
+    async fn assert_unconnected(&self) {
+        let _own = TcpStream::connect(("127.0.0.1", self.port))
+            .await
+            .expect("the test's own connection");
+        until("the test's own connection is counted", || {
+            self.connections.load(Ordering::SeqCst) >= 1
+        })
+        .await;
+        assert_eq!(
+            self.connections.load(Ordering::SeqCst),
+            1,
+            "sign-in connected to a host on the person's network"
+        );
+    }
+}
+
+impl Drop for Inward {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+fn state_of(authorization_url: &str) -> String {
+    Url::parse(authorization_url)
+        .expect("authorization URL")
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.into_owned())
+        .expect("OAuth state")
+}
+
+/// A server the person runs on their own network and set up by name signs
+/// in: discovery, registration and the token exchange all reach it, at the
+/// address its name answered when it was checked. The name answers an
+/// address on the internet to every later question, and is never asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_named_on_a_private_network_signs_in_at_the_address_it_was_checked_at() {
+    let mock = MockOAuthServer::start_named("box.tailnet.test").await;
+    let lookup = names(&[("box.tailnet.test", &[&["127.0.0.1"], &[PUBLIC]])]);
+    let mut manager = sign_in_manager(&format!("{}/mcp", mock.base), lookup)
+        .await
+        .expect("manager");
+
+    let resolution = manager.resolve_metadata().await.expect("discovery");
+    assert!(resolution.source.is_discovered());
+    assert_eq!(
+        resolution.metadata.token_endpoint,
+        format!("{}/as/token", mock.base)
+    );
+    manager.set_metadata(resolution.metadata);
+    let redirect = "http://127.0.0.1/callback";
+    let client = manager
+        .register_client("Hotline MCP Gateway", redirect, &["mcp"])
+        .await
+        .expect("registration");
+    assert_eq!(client.client_id, "mock-client");
+    assert_eq!(mock.state.registrations.load(Ordering::SeqCst), 1);
+    manager.configure_client(client).expect("client");
+    let authorization_url = manager
+        .get_authorization_url(&["mcp"])
+        .await
+        .expect("authorization URL");
+    assert!(authorization_url.starts_with(&format!("{}/as/authorize", mock.base)));
+    manager
+        .exchange_code_for_token("good-code", &state_of(&authorization_url))
+        .await
+        .expect("token exchange");
+    assert_eq!(mock.state.code_exchanges.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        manager.get_access_token().await.expect("access token"),
+        "access-2",
+        "the token it was given had expired, so it was refreshed there too"
+    );
+}
+
+/// A redirect is held to the same addresses as the request it answers: a
+/// registration moved to a link-local address goes nowhere, even for a
+/// server on the person's own network.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_redirect_to_an_address_sign_in_may_not_use_is_not_followed() {
+    let mock = MockOAuthServer::start_named("box.tailnet.test").await;
+    let lookup = names(&[("box.tailnet.test", &[&["127.0.0.1"]])]);
+    let mut manager = sign_in_manager(&format!("{}/mcp", mock.base), lookup)
+        .await
+        .expect("manager");
+    let mut metadata = manager
+        .resolve_metadata()
+        .await
+        .expect("discovery")
+        .metadata;
+    metadata.registration_endpoint = Some(format!("{}/as/moved", mock.base));
+    manager.set_metadata(metadata);
+
+    let error = manager
+        .register_client("Hotline MCP Gateway", "http://127.0.0.1/callback", &[])
+        .await
+        .expect_err("a registration moved to a link-local address");
+    assert!(
+        error
+            .to_string()
+            .contains("no address of `169.254.169.254` is allowed for this sign-in"),
+        "{error}"
+    );
+    assert_eq!(mock.state.registrations.load(Ordering::SeqCst), 0);
+}
+
+/// A server on the internet cannot aim sign-in at this computer or the
+/// network it is on. Nothing a test can reach is on the internet, so the
+/// server's part is what it would have answered: a challenge that points
+/// discovery inward, and metadata that puts registration and the token
+/// exchange there, by IP address in either family's spelling and by a name
+/// that answers one. Each is refused in the person's words where rmcp keeps
+/// the cause, and no connection is made to the host it was aimed at.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_on_the_internet_that_points_sign_in_at_a_private_address_is_refused_unconnected()
+{
+    const REFUSED: &str = "MCP OAuth sign-in refused: this server is on the internet but points to a private network address.";
+    let inward = Inward::listen().await;
+    let port = inward.port;
+    let lookup = || {
+        names(&[
+            ("mcp.public.test", &[&[PUBLIC]]),
+            ("inward.public.test", &[&["127.0.0.1"]]),
+            ("tailnet.public.test", &[&["100.64.0.9"]]),
+        ])
+    };
+    let server = "https://mcp.public.test/mcp";
+
+    // An https server's pointer is https, or rmcp drops it unasked.
+    for pointer in [
+        format!("https://inward.public.test:{port}/.well-known/oauth-protected-resource"),
+        "https://tailnet.public.test/.well-known/oauth-protected-resource".to_string(),
+    ] {
+        let manager = sign_in_manager(server, lookup()).await.expect("manager");
+        let challenge = format!(r#"Bearer resource_metadata="{pointer}""#);
+        let error = manager
+            .resolve_metadata_from_challenge(Some(&challenge))
+            .await
+            .expect_err("discovery pointed inward");
+        assert_eq!(error_message(error), REFUSED, "{pointer}");
+    }
+
+    let metadata = |registration: String, token: String| {
+        let mut metadata = AuthorizationMetadata::default();
+        metadata.issuer = Some("https://mcp.public.test".to_string());
+        metadata.authorization_endpoint = "https://mcp.public.test/authorize".to_string();
+        metadata.token_endpoint = token;
+        metadata.registration_endpoint = Some(registration);
+        metadata.response_types_supported = Some(vec!["code".to_string()]);
+        metadata.code_challenge_methods_supported = Some(vec!["S256".to_string()]);
+        metadata
+    };
+    let redirect = "http://127.0.0.1/callback";
+    for inward_endpoint in [
+        format!("http://127.0.0.1:{port}/as"),
+        format!("http://[::1]:{port}/as"),
+        format!("http://[::ffff:127.0.0.1]:{port}/as"),
+        format!("http://inward.public.test:{port}/as"),
+        "https://10.0.0.9/as".to_string(),
+        "https://[::ffff:10.0.0.9]/as".to_string(),
+        "https://100.64.0.9/as".to_string(),
+        "https://tailnet.public.test/as".to_string(),
+        "http://169.254.169.254/as".to_string(),
+    ] {
+        let mut manager = sign_in_manager(server, lookup()).await.expect("manager");
+        manager.set_metadata(metadata(
+            inward_endpoint.clone(),
+            "https://mcp.public.test/token".to_string(),
+        ));
+        let error = manager
+            .register_client("Hotline MCP Gateway", redirect, &[])
+            .await
+            .expect_err("registration at an inward address");
+        assert_eq!(error_message(error), REFUSED, "{inward_endpoint}");
+
+        // The token exchange is refused as well; rmcp keeps no cause for
+        // it, which is why a sign-in asks where it would connect first.
+        let mut manager = sign_in_manager(server, lookup()).await.expect("manager");
+        manager.set_metadata(metadata(
+            "https://mcp.public.test/register".to_string(),
+            inward_endpoint.clone(),
+        ));
+        manager
+            .configure_client(OAuthClientConfig::new("client", redirect))
+            .expect("client");
+        let authorization_url = manager
+            .get_authorization_url(&[])
+            .await
+            .expect("authorization URL");
+        manager
+            .exchange_code_for_token("good-code", &state_of(&authorization_url))
+            .await
+            .expect_err("a token exchange at an inward address");
+    }
+
+    inward.assert_unconnected().await;
+}
+
+/// DNS rebinding: a name that answers the internet when the server is
+/// placed and this computer when the connection is made is never connected
+/// to, because the answer is judged where the connection is made.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_name_that_moves_inward_after_it_was_checked_is_never_connected_to() {
+    let inward = Inward::listen().await;
+    let lookup = names(&[("mcp.public.test", &[&[PUBLIC], &["127.0.0.1"]])]);
+    let manager = sign_in_manager(
+        &format!("http://mcp.public.test:{}/mcp", inward.port),
+        lookup,
+    )
+    .await
+    .expect("manager");
+
+    let error = manager
+        .resolve_metadata()
+        .await
+        .expect_err("discovery at a name that moved inward");
+    assert_eq!(
+        error_message(error),
+        "MCP OAuth sign-in refused: this server is on the internet but points to a private network address."
+    );
+    inward.assert_unconnected().await;
 }

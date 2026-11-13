@@ -9,6 +9,7 @@ import { installDom } from "./dom";
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Dock } = await import("../src/components/Dock");
 const { replaceDesks, wireFor } = await import("../src/desks");
+const { rememberFilter } = await import("../src/threadList");
 
 const persona = (id: string, name: string): Persona => ({
 	id, name, goal: "", backendId: "hotline", cwd: `/work/${id}`,
@@ -197,7 +198,7 @@ describe("an aside in a conversation", () => {
 	});
 });
 
-describe("Noted in the teammate's menu", () => {
+describe("Threads in the teammate's menu", () => {
 	test("stands between Threads and Remove with how many are new", async () => {
 		const { teammateActions } = await import("../src/components/Conversation");
 		const { ModelPicker } = await import("../src/components/ModelPicker");
@@ -209,8 +210,7 @@ describe("Noted in the teammate's menu", () => {
 				unseen,
 				onToggleInspector: () => {},
 				onStartChapter: () => {},
-				onOpenThreadList: () => {},
-				onOpenNoted: () => done.push("noted"),
+				onOpenThreadList: () => done.push("threads"),
 				onDelete: () => {},
 			});
 		const render = (unseen: number) =>
@@ -230,30 +230,25 @@ describe("Noted in the teammate's menu", () => {
 		await render(3);
 		await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
 		const items = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] .menu-item .menu-item-text')].map((one) => one.textContent);
-		expect(items().slice(-5)).toEqual(["Settings", "New chapter", "Threads", "Noted3 new", "Remove"]);
-		const noted = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith("Noted"))!;
-		await act(async () => noted.click());
-		expect(done).toEqual(["noted"]);
+		// Asides are rows of the Threads list: its menu item counts the new ones, and there is no second item.
+		expect(items().slice(-4)).toEqual(["Settings", "New chapter", "Threads3 new", "Remove"]);
+		const threads = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith("Threads"))!;
+		await act(async () => threads.click());
+		expect(done).toEqual(["threads"]);
 		await render(0);
 		await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
-		expect(items()).toContain("Noted");
+		expect(items()).toContain("Threads");
+		expect(items()).not.toContain("Asides");
 	});
 });
 
-describe("the Noted page", () => {
-	test("lists New then Earlier with who, where, level and time, marks them seen, and opens a thread", async () => {
-		answers["aside.list"] = () => [
-			aside("n2", 30, { level: "person", text: "The share button still has two names. Which one?", by: "huck" }),
-			aside("n1", 20, { level: "nudge", text: "Build 46 is up." }),
-			aside("e1", 10, { seen: 15, text: "All 297 tests passed." }),
-		];
-		answers["aside.seen"] = () => null;
-		const states: unknown[] = [];
-		const roster = [entry(goldie), entry(quill, { asides: 2, asidesNew: 2 }), entry(huck)];
+describe("the notes in the Threads list", () => {
+	async function showNotes(roster: RosterEntry[], states: unknown[] = []) {
+		rememberFilter(roster[1]!.persona.id, "teammates");
 		await act(async () => {
 			root.render(
 				<Dock
-					state={{ open: null, noted: true }}
+					state={{ open: null }}
 					onState={(next) => states.push(next)}
 					onClose={() => {}}
 					onOpenTeammate={() => {}}
@@ -266,54 +261,42 @@ describe("the Noted page", () => {
 			);
 		});
 		await settle();
-		const text = container.textContent ?? "";
-		expect(text).toContain("Noted");
-		expect(text.indexOf("New · 2")).toBeLessThan(text.indexOf("Earlier"));
-		const rows = [...container.querySelectorAll<HTMLButtonElement>("button.noted-row")];
-		expect(rows.map((row) => row.querySelector(".noted-text")?.textContent)).toEqual([
-			"The share button still has two names. Which one?",
-			"Build 46 is up.",
-			"All 297 tests passed.",
-		]);
-		expect(rows[0]!.textContent).toContain("Huck · work thread");
-		const amber = rows[0]!.querySelector(".noted-level");
-		expect(amber?.textContent).toBe("to you");
-		expect(amber?.getAttribute("data-level")).toBe("person");
-		expect(rows[1]!.querySelector(".noted-level")?.textContent).toBe("nudge");
+		await settle();
+	}
+	const notes = () => [...container.querySelectorAll<HTMLElement>('.list-row[data-kind="note"]')];
+
+	test("lists each as where it came from over who told the teammate what, newest first, marks them read, and opens a thread", async () => {
+		answers["aside.list"] = () => [
+			aside("e1", 10, { seen: 15, text: "All 297 tests passed." }),
+			aside("n2", 30, { level: "person", text: "The share button still has two names. Which one?", by: "huck" }),
+			aside("n1", 20, { level: "nudge", text: "Build 46 is up." }),
+		];
+		answers["aside.seen"] = () => null;
+		const states: unknown[] = [];
+		await showNotes([entry(goldie), entry(quill, { asides: 2, asidesNew: 2 }), entry(huck)], states);
+		const rows = notes();
+		// Already read, it is its thread's count, not a row of its own.
+		expect(rows.map((row) => row.querySelector(".list-title-text")?.textContent)).toEqual(["release 0.11.1", "release 0.11.1"]);
+		// One meant for the person says so; one that woke the teammate says that.
+		expect(rows[0]!.querySelector(".list-line")?.textContent).toBe("Huck told you: The share button still has two names. Which one? ›");
+		expect(rows[0]!.getAttribute("data-level")).toBe("person");
+		expect(rows[1]!.querySelector(".list-line")?.textContent).toBe("Goldie woke Quill: Build 46 is up. ›");
 		expect(sent.some((one) => one.cmd === "aside.seen" && (one.params as { personaId: string }).personaId === "quill")).toBe(true);
 
 		await act(async () => rows[1]!.click());
-		expect(states).toEqual([{ open: { thread: release }, noted: true }]);
+		expect(states).toEqual([{ open: { thread: release, title: "release 0.11.1" } }]);
 	});
 
-	test("lists a Loop in as the person's, under the mark rather than the face of the thread's teammate", async () => {
+	test("lists a Loop in as the person's, by their name rather than the thread's teammate", async () => {
 		roomLines = [{ kind: "setting", id: "personName", value: "George" }];
 		answers["aside.list"] = () => [aside("l1", 40, { level: "nudge", loopedIn: true, text: "George looped you in." })];
 		answers["aside.seen"] = () => null;
-		const roster = [entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })];
-		await act(async () => {
-			root.render(
-				<Dock
-					state={{ open: null, noted: true }}
-					onState={() => {}}
-					onClose={() => {}}
-					onOpenTeammate={() => {}}
-					entry={roster[1]!}
-					roster={roster}
-					width={360}
-					onWidth={() => {}}
-					overlay={false}
-				/>,
-			);
-		});
-		await settle();
-		const row = container.querySelector("button.noted-row");
-		expect(row?.textContent).toContain("George · work thread");
-		expect(row?.textContent).not.toContain("Goldie");
-		expect(row?.querySelector(".aside-mark")).not.toBeNull();
+		await showNotes([entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })]);
+		const line = notes()[0]?.querySelector(".list-line")?.textContent;
+		expect(line).toBe("George woke Quill: George looped you in. ›");
 	});
 
-	test("names an inbound aside's source and marks it outside, with no thread to open", async () => {
+	test("names an inbound aside's source, with no thread to open", async () => {
 		const { by: _by, ...fromOutside } = aside("o1", 40, {
 			from: { inbound: "gh" },
 			sourceName: "hotline repo",
@@ -321,28 +304,11 @@ describe("the Noted page", () => {
 		});
 		answers["aside.list"] = () => [fromOutside];
 		answers["aside.seen"] = () => null;
-		const roster = [entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })];
-		await act(async () => {
-			root.render(
-				<Dock
-					state={{ open: null, noted: true }}
-					onState={() => {}}
-					onClose={() => {}}
-					onOpenTeammate={() => {}}
-					entry={roster[1]!}
-					roster={roster}
-					width={360}
-					onWidth={() => {}}
-					overlay={false}
-				/>,
-			);
-		});
-		await settle();
-		expect(container.querySelector("button.noted-row")).toBeNull();
-		const row = container.querySelector(".noted-row");
-		expect(row?.textContent).toContain("hotline repo · outside");
-		expect(row?.querySelector(".noted-text")?.textContent).toBe("CI failed on main.");
-		expect(row?.querySelector(".aside-mark")).not.toBeNull();
+		await showNotes([entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })]);
+		const row = notes()[0];
+		expect(row?.tagName).toBe("DIV");
+		expect(row?.querySelector(".list-title-text")?.textContent).toBe("hotline repo");
+		expect(row?.querySelector(".list-line")?.textContent).toBe("Told Quill: CI failed on main.");
 	});
 });
 

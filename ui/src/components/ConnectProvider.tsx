@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Credential, CredentialKind, Provider, ProviderJob } from "../generated/contract";
-import { ChevronRightIcon } from "../icons";
-import { openLink } from "../native";
+import { CheckIcon, ChevronRightIcon, CopyIcon } from "../icons";
+import { openLink, writeClipboard } from "../native";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { formOf, restingAfter, signInBusy, signInStep } from "../signIn";
 import { wire } from "../wire";
@@ -209,12 +209,13 @@ export function ConnectProvider({
 						) : (
 							<>
 								{login.userCode !== "" && (
-									<div className="group-row">
+									<div className="group-row justify-between">
 										<span className="selectable font-mono text-xl tracking-wide">{login.userCode}</span>
+										<CopyCode code={login.userCode} />
 									</div>
 								)}
 								<div className="group-row">
-									<button type="button" className="text-sm text-ink-2 underline" onClick={() => void openLink(login.verificationUri)}>
+									<button type="button" className="text-sm text-ink-2 underline" onClick={() => void openSignIn(login)}>
 										Open {provider.name} sign-in
 									</button>
 								</div>
@@ -227,11 +228,34 @@ export function ConnectProvider({
 							</button>
 						</div>
 					</div>
-					<p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
+					<p className="group-hint">{login?.userCode ? "Opening the page copies the code. Paste it there." : "Finish signing in with your browser, then return here."}</p>
 				</section>
 			)}
 			{refusal !== null && <Refusal {...refusal} />}
 		</>
+	);
+}
+
+/** The sign-in page, with its code already on the clipboard to paste there. */
+async function openSignIn(login: { userCode: string; verificationUri: string }) {
+	if (login.userCode !== "") await writeClipboard(login.userCode).catch(() => {});
+	await openLink(login.verificationUri);
+}
+
+/** A sign-in code's Copy, so it is pasted on the sign-in page rather than
+ * typed: it says Copied for a moment once the clipboard has it. */
+function CopyCode({ code }: { code: string }) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = window.setTimeout(() => setCopied(false), 1500);
+		return () => window.clearTimeout(timer);
+	}, [copied]);
+	return (
+		<button type="button" className="control btn btn-sm gap-1.5" title="Copy code" aria-label="Copy sign-in code" onClick={() => void writeClipboard(code).then(() => setCopied(true))}>
+			{copied ? <CheckIcon /> : <CopyIcon />}
+			{copied ? "Copied" : "Copy"}
+		</button>
 	);
 }
 

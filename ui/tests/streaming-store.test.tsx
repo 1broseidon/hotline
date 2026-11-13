@@ -13,15 +13,21 @@ let root: Root;
 let container: HTMLDivElement;
 let teardown: () => Promise<void>;
 let frames: Map<number, FrameRequestCallback>;
+/** The store's own timer: the wait the lines behind one that landed share (tape.ts, BURST_MS). */
+let bursts: Map<number, () => void>;
 let handlers: { snapshot(items: TranscriptEvent[]): void; event(item: TranscriptEvent): void; ephemeral(delta: StreamDelta): void };
 const thread = { kind: "dm" as const, key: "streaming-test" };
 
 beforeEach(async () => {
 	frames = new Map();
+	bursts = new Map();
 	let frameId = 0;
+	let timerId = 0;
 	const installed = installDom({
 		requestAnimationFrame: (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; },
 		cancelAnimationFrame: (id: number) => frames.delete(id),
+		setTimeout: (callback: () => void) => { bursts.set(++timerId, callback); return timerId; },
+		clearTimeout: (id: number) => bursts.delete(id),
 	});
 	teardown = installed.teardown;
 	Object.assign(globalThis, { ResizeObserver: installed.dom.ResizeObserver, MutationObserver: installed.dom.MutationObserver, CSS: installed.dom.CSS });
@@ -47,6 +53,12 @@ function flush() {
 	const due = [...frames.values()];
 	frames.clear();
 	for (const callback of due) callback(0);
+}
+/** The burst's wait is over: the lines behind the one that landed land together. */
+function burstOver() {
+	const due = [...bursts.values()];
+	bursts.clear();
+	for (const callback of due) callback();
 }
 
 test("a long unfinished reply wakes readers once, then publishes the final bubble", async () => {
@@ -100,6 +112,7 @@ test("whole bubbles retain their stamp, thoughts grow, and queued words settle a
 	handlers.event({ kind: "agent", id: "reply", ts: 2, text: paragraph });
 	expect(notifications).toBe(1);
 	expect(frames.size).toBe(0);
+	burstOver();
 	handlers.event({ kind: "agent", id: "reply-2", ts: 3, text: "Still writing and finished." });
 	expect(store.snapshot().events.filter((one) => one.kind === "agent").map((one) => one.text)).toEqual([paragraph, "Still writing and finished."]);
 	expect(store.snapshot().streaming.map((one) => one.messageId)).toEqual(["thought"]);
@@ -108,6 +121,7 @@ test("whole bubbles retain their stamp, thoughts grow, and queued words settle a
 	handlers.event({ ...tool, status: "completed", output: [{ type: "text", text: "Found it" }] });
 	const card = { kind: "permission" as const, id: "card", requestId: "request", ts: 5, title: "Allow?", options: [] };
 	handlers.event(card);
+	burstOver();
 	expect(store.snapshot().events.at(-2)).toMatchObject({ status: "completed", output: [{ type: "text", text: "Found it" }] });
 	expect(store.snapshot().events.at(-1)).toBe(card);
 	handlers.snapshot([{ kind: "agent", id: "reply", ts: 2, text: "Restored reply" }]);
@@ -118,7 +132,7 @@ test("whole bubbles retain their stamp, thoughts grow, and queued words settle a
 test("tool results and answered cards update the rendered transcript during a reply", async () => {
 	function Reader() {
 		const state = useSyncExternalStore(store.subscribe, store.snapshot);
-		return <Transcript personaId="streaming-test" name="Test" thread={{ kind: "call", key: "call" }} events={state.events} streaming={state.streaming} live focus={null} />;
+		return <Transcript personaId="streaming-test" name="Test" thread={{ kind: "side", key: "side" }} events={state.events} streaming={state.streaming} live={false} focus={null} />;
 	}
 	await act(async () => root.render(<Reader />));
 	const tool = { kind: "tool" as const, id: "tool", toolCallId: "call", ts: 2, title: "Read file", status: "pending" as const };
@@ -128,13 +142,18 @@ test("tool results and answered cards update the rendered transcript during a re
 		flush();
 		handlers.event(tool);
 		handlers.event(card);
+		burstOver();
 	});
-	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("pending");
+	await act(async () => container.querySelector<HTMLButtonElement>(".steps-caption")?.click());
+	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("Read file");
+	expect(container.querySelector('[data-step-id="tool"] button')?.hasAttribute("disabled")).toBe(true);
 	expect(container.querySelector('[data-event-id="card"] button')?.textContent).toBe("Allow once");
 	await act(async () => {
 		handlers.event({ ...tool, status: "completed", output: [{ type: "text", text: "The result is here" }] });
 		handlers.event({ ...card, decision: "yes" });
+		burstOver();
 	});
+	await act(async () => container.querySelector<HTMLButtonElement>('[data-step-id="tool"] button')?.click());
 	expect(container.querySelector('[data-step-id="tool"]')?.textContent).toContain("The result is here");
 	expect(container.querySelector('[data-event-id="card"] button')).toBeNull();
 	expect(container.querySelector('[data-event-id="card"] .ask-chip')?.textContent).toBe("Allow once");
@@ -149,5 +168,61 @@ test("words whose line was never written go when their turn ends, and are not dr
 	expect(store.snapshot().streaming).toEqual([]);
 	handlers.event({ kind: "user", id: "next", ts: 7, text: "wait 30 seconds then send a message" });
 	handlers.event({ kind: "agent", id: "answer", ts: 8, text: "30 seconds are up." });
+	burstOver();
+	expect(store.snapshot().events.at(-1)).toMatchObject({ id: "answer" });
 	expect(store.snapshot().streaming).toEqual([]);
+});
+
+test("a burst of lines is two publishes: the first as it lands, the rest together when the burst's wait is over", () => {
+	let notifications = 0;
+	store.subscribe(() => notifications++);
+	// Words on their way when the burst begins are folded before the line they came before.
+	words("reply", "Line 0");
+	for (let n = 0; n < 96; n++) handlers.event({ kind: "agent", id: n === 0 ? "reply" : `reply-${n + 1}`, ts: 2, text: `Line ${n}` });
+	expect(notifications).toBe(1);
+	expect(store.snapshot().events.map((one) => one.id)).toEqual(["u", "reply"]);
+	expect(store.snapshot().streaming).toEqual([]);
+	burstOver();
+	expect(notifications).toBe(2);
+	expect(store.snapshot().events.map((one) => one.id)).toEqual(["u", "reply", ...Array.from({ length: 95 }, (_, n) => `reply-${n + 2}`)]);
+	// The burst over, a line lands at once again.
+	handlers.event({ kind: "turn", id: "end", ts: 3, stopReason: "end_turn" });
+	expect(notifications).toBe(3);
+	expect(store.snapshot().events.at(-1)).toMatchObject({ id: "end" });
+});
+
+test("a snapshot takes the place of the lines still waiting out a burst", () => {
+	handlers.event({ kind: "agent", id: "first", ts: 2, text: "First" });
+	handlers.event({ kind: "agent", id: "second", ts: 3, text: "Second" });
+	// A reconnect: the desk says the whole thread again, the waiting line in it.
+	handlers.snapshot([{ kind: "user", id: "u", ts: 1, text: "Write it" }, { kind: "agent", id: "first", ts: 2, text: "First" }, { kind: "agent", id: "second", ts: 3, text: "Second" }]);
+	expect(bursts.size).toBe(0);
+	expect(store.snapshot().events.map((one) => one.id)).toEqual(["u", "first", "second"]);
+	// The next line lands at once: no burst is under way.
+	handlers.event({ kind: "agent", id: "third", ts: 4, text: "Third" });
+	expect(store.snapshot().events.at(-1)).toMatchObject({ id: "third" });
+});
+
+test("sixty lines that each land alone, with no turn of React's scheduler between two, trip no update guard: a line asks for one render, not a second from inside the first", async () => {
+	function Reader() {
+		const state = useSyncExternalStore(store.subscribe, store.snapshot);
+		return <Transcript personaId="streaming-test" name="Test" events={state.events} streaming={state.streaming} live focus={null} />;
+	}
+	await act(async () => root.render(<Reader />));
+	let thrown: unknown = null;
+	// One `act` is no turn of the scheduler: only what a line asks to have done at once is done between two lines.
+	await act(async () => {
+		try {
+			for (let n = 0; n < 60; n++) {
+				// Written just now, so it waits for the beat bubbles land to and no row is drawn for it yet.
+				handlers.event({ kind: "agent", id: `line-${n}`, ts: Date.now(), text: `Line ${n} of a reply that is long enough to be a bubble of its own.` });
+				burstOver();
+				await Promise.resolve();
+			}
+		} catch (error) {
+			thrown = error;
+		}
+	});
+	expect(thrown).toBeNull();
+	expect(store.snapshot().events).toHaveLength(61);
 });

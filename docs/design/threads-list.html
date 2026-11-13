@@ -1,0 +1,293 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Hotline · one threads list</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --well:oklch(12% .006 250);--canvas:oklch(16% .006 250);--raised:oklch(20% .007 250);--pop:oklch(24% .008 250);--pressed:oklch(28% .008 250);
+  --ink:oklch(95% .004 250);--ink-2:oklch(78% .006 250);--ink-3:oklch(62% .008 250);--ink-4:oklch(46% .008 250);
+  --line:oklch(100% 0 0/.09);--line-strong:oklch(100% 0 0/.16);--fill-hover:oklch(100% 0 0/.05);--fill-selected:oklch(100% 0 0/.08);
+  --accent:oklch(78.7% .128 163);--on-accent:oklch(24% .044 165);--accent-soft:oklch(78.7% .128 163/.16);
+  --said-me:oklch(78.7% .128 163);--said-me-ink:oklch(24% .044 165);--said-them:oklch(22% .008 250);
+  --sheet:oklch(0% 0 0/.24);--warn:oklch(80% .14 80);--danger:oklch(70% .17 25);
+  --sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#07080a;color:var(--ink);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+.mono{font-family:var(--mono)}
+.instrument{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--ink-3)}
+
+/* ---------- page chrome (not the app) ---------- */
+.page{max-width:1500px;margin:0 auto;padding:28px 28px 60px}
+.page h1{font-size:20px;font-weight:600;margin:0 0 4px}
+.page .lede{color:var(--ink-2);margin:0 0 18px;max-width:880px}
+.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-bottom:16px}
+.seg{display:inline-flex;background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{padding:5px 12px;border-radius:7px;color:var(--ink-2);font-size:13px}
+.seg button[aria-pressed=true]{background:var(--pressed);color:var(--ink)}
+.seg-label{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-right:8px}
+.notes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}
+.note{background:var(--canvas);border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:var(--ink-2);font-size:13px}
+.note b{color:var(--ink);font-weight:600;display:block;margin-bottom:4px;font-size:13.5px}
+.note ul{margin:6px 0 0;padding-left:18px}.note li{margin:3px 0}
+
+/* ---------- the window ---------- */
+.win{display:grid;grid-template-columns:232px 1fr 440px;height:780px;background:var(--well);border:1px solid oklch(30% .024 252);border-radius:14px;overflow:hidden;gap:6px;padding:6px}
+.pane{background:var(--canvas);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-width:0;position:relative}
+.band{height:46px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;border-bottom:1px solid var(--line)}
+.band h2{margin:0;font:500 13.5px var(--mono);display:flex;align-items:center;gap:8px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.icon-btn{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--ink-3)}
+.icon-btn:hover{background:var(--fill-hover);color:var(--ink)}
+.btn{height:26px;padding:0 10px;border-radius:7px;background:var(--pop);border:1px solid var(--line);font-size:12.5px;color:var(--ink-2)}
+.btn:hover{background:var(--pressed);color:var(--ink)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ink-4);flex:none}
+.dot.live{background:var(--accent);animation:beat 1.4s ease-in-out infinite}
+.dot.done{background:var(--accent)}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.35}}
+.scroll{overflow-y:auto;flex:1;min-height:0;scrollbar-width:thin;scrollbar-color:oklch(34% .008 250) transparent}
+
+/* ---------- rail ---------- */
+.rail-head{padding:14px 14px 8px;display:flex;justify-content:space-between;align-items:center}
+.rail-head .eyebrow{font-size:11px}
+.mate{display:flex;align-items:center;gap:10px;padding:7px 10px;margin:1px 6px;border-radius:8px;cursor:default}
+.mate[aria-current=true]{background:var(--fill-selected)}
+.ava{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;font:600 12px var(--sans);color:var(--on-accent)}
+.mate .who{flex:1;min-width:0}
+.mate .name{font-weight:500;font-size:13.5px}
+.mate .sub{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mate .sub.working{color:var(--accent)}
+.kids{margin:2px 6px 6px 30px;border-left:1px solid var(--line);padding-left:6px}
+.kid{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:7px;cursor:pointer}
+.kid:hover{background:var(--fill-hover)}
+.kid[aria-current=true]{background:var(--fill-selected)}
+.kid .dot{margin-top:6px;width:6px;height:6px}
+.kid .t{font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kid .a{font:11.5px var(--mono);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .3s}
+.kid .a.flash{color:var(--ink-2)}
+.kid .tag{font:10.5px var(--mono);color:var(--ink-4)}
+
+/* ---------- conversation ---------- */
+.convo{padding:22px 26px;display:flex;flex-direction:column;gap:12px}
+.stamp{align-self:center;font:12px var(--mono);color:var(--ink-3);margin:4px 0}
+.bub{max-width:78%;padding:10px 14px;border-radius:16px;font-size:14.5px;line-height:1.5}
+.bub.me{align-self:flex-end;background:var(--said-me);color:var(--said-me-ink)}
+.bub.them{align-self:flex-start;background:var(--said-them)}
+.linkrow{align-self:flex-start;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);min-width:340px;cursor:pointer}
+.linkrow:hover{background:var(--fill-hover)}
+.linkrow .t{font-size:13.5px}
+.linkrow .s{font:11.5px var(--mono);color:var(--ink-3)}
+.linkrow .open{margin-left:auto;font-size:12px;color:var(--ink-3)}
+.composer{margin:0 18px 16px;background:var(--pop);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.composer .ph{color:var(--ink-3);font-size:14px;padding:2px 4px}
+.composer .row{display:flex;align-items:center;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border-radius:13px;background:var(--raised);font:12px var(--mono);color:var(--ink-2);cursor:pointer}
+.chip:hover{color:var(--ink)}
+
+/* ---------- dock: shared ---------- */
+.dock-title{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.kind{display:inline-flex;align-items:center;gap:6px;font:500 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid color-mix(in oklab,var(--accent) 45%,transparent);border-radius:5px;padding:2px 6px}
+.kind.dm{color:var(--ink-3);border-color:var(--line-strong)}
+.dock-title .t{font-size:15.5px;font-weight:600;margin:8px 0 2px;line-height:1.35}
+.dock-title .m{font:12px var(--mono);color:var(--ink-3)}
+.dock-title .m .sep{color:var(--ink-4);margin:0 5px}
+
+/* task (initial message) */
+.task{margin:12px 14px 4px;background:var(--raised);border-radius:12px;padding:10px 12px 8px;border:1px solid var(--line)}
+.task-head{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.task-head .from{display:flex;align-items:center;gap:6px;font:12px var(--mono);color:var(--ink-3)}
+.task-head .from .ava{width:16px;height:16px;font-size:8px}
+.task-body{font-size:13.5px;color:var(--ink-2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}
+.task[data-open=true] .task-body{-webkit-line-clamp:unset;display:block}
+.task-more{margin-top:4px;font-size:12px;color:var(--accent)}
+
+/* the stream: words and steps interleaved */
+.stream{padding:8px 14px 70px}
+.ev{animation:in .35s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.say{background:var(--said-them);border-radius:14px;padding:9px 12px;margin:10px 0;font-size:13.5px;line-height:1.5;max-width:94%}
+.say .who{font:11px var(--mono);color:var(--ink-3);display:block;margin-bottom:2px}
+.steps{margin:6px 0;border-left:1px solid var(--line);margin-left:3px}
+.step{display:flex;align-items:baseline;gap:9px;padding:3px 0 3px 12px;position:relative;cursor:pointer;font:12.5px/1.55 var(--mono);color:var(--ink-2)}
+.step::before{content:"";position:absolute;left:-4px;top:10px;width:7px;height:7px;border-radius:50%;background:oklch(40% .02 163)}
+.step.run::before{background:var(--accent);animation:beat 1.2s infinite}
+.step.fail::before{background:var(--danger)}
+.step .v{color:var(--ink)}
+.step .x{color:var(--ink-4);margin-left:auto;padding-left:8px;white-space:nowrap}
+.step:hover{color:var(--ink)}
+.step.run .v{background:linear-gradient(90deg,var(--ink) 0%,var(--ink-3) 50%,var(--ink) 100%);background-size:200% 100%;-webkit-background-clip:text;color:transparent;animation:shim 1.6s linear infinite}
+@keyframes shim{to{background-position:-200% 0}}
+.out{margin:2px 0 6px 12px;background:var(--sheet);border-radius:8px;padding:8px 10px;font:11.5px/1.5 var(--mono);color:var(--ink-3);white-space:pre-wrap;display:none}
+.step[data-open=true]+.out{display:block}
+.think{font:12.5px var(--mono);color:var(--ink-3);font-style:italic;padding:3px 0 3px 12px}
+.result{margin:12px 0 4px;border:1px solid color-mix(in oklab,var(--accent) 40%,transparent);border-radius:12px;padding:10px 12px;background:color-mix(in oklab,var(--accent) 6%,var(--raised))}
+.result .eyebrow{color:var(--accent);display:flex;justify-content:space-between}
+.result p{margin:6px 0 0;font-size:13.5px}
+.result ul{margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--ink-2)}
+.latest{position:absolute;left:50%;transform:translateX(-50%);bottom:62px;background:var(--pop);border:1px solid var(--line-strong);border-radius:14px;padding:4px 12px;font:12px var(--mono);color:var(--ink);display:none;align-items:center;gap:6px;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.latest.show{display:flex}
+.foot{flex:none;border-top:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink-3);background:var(--canvas)}
+.foot .grow{flex:1}
+
+/* dm/work-thread pane (today) */
+.caption{display:inline-flex;align-items:center;gap:8px;font:12.5px var(--mono);color:var(--ink-3);padding:4px 10px;border-radius:8px;border:1px solid var(--line);margin:6px 0;cursor:pointer;align-self:flex-start}
+.caption:hover{color:var(--ink);background:var(--fill-hover)}
+
+/* thread list rows */
+.lrow{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.lrow:hover{background:var(--fill-hover)}
+.lrow .dot{margin-top:7px}
+.lrow .body{flex:1;min-width:0}
+.lrow .top{display:flex;align-items:center;gap:8px}
+.lrow .t{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.lrow .when{font:11.5px var(--mono);color:var(--ink-4)}
+.lrow .snip{font-size:12.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.lrow .tick{margin-top:6px;background:var(--sheet);border-radius:7px;padding:5px 8px;font:11.5px/1.5 var(--mono);color:var(--ink-3);height:58px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+.lrow .tick div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .tick div:last-child{color:var(--ink)}
+.group{padding:12px 14px 4px;font:11px var(--mono);color:var(--ink-3);letter-spacing:.04em}
+.hidden{display:none!important}
+
+
+.win{grid-template-columns:232px 1fr 460px}
+.kind{font:500 10.5px var(--mono);color:var(--ink-3);border:1px solid var(--line-strong);border-radius:5px;padding:1px 5px;text-transform:none;letter-spacing:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.chip2{height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--line);font-size:12.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px}
+.chip2 .n{font:11px var(--mono);color:var(--ink-4)}
+.chip2[aria-pressed=true]{background:var(--pressed);color:var(--ink);border-color:var(--line-strong)}
+.chip2.warn[aria-pressed=false]{color:var(--warn)}
+.search{margin:10px 12px 0;height:32px;border-radius:9px;background:var(--well);border:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--ink-4);font-size:13px}
+.grp{padding:12px 14px 4px;font:11px var(--mono);color:var(--ink-3);display:flex;justify-content:space-between}
+.row{display:grid;grid-template-columns:22px 1fr auto;gap:8px;padding:9px 12px 9px 12px;border-bottom:1px solid var(--line);cursor:pointer;align-items:start}
+.row:hover{background:var(--fill-hover)}
+.row .g{font:13px var(--mono);color:var(--ink-3);text-align:center;padding-top:1px}
+.row.live .g{color:var(--accent)}
+.row.ask .g{color:var(--warn)}
+.row .t{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:12.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.row.live .s{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.row .w{font:11.5px var(--mono);color:var(--ink-4);padding-top:2px;text-align:right;white-space:nowrap}
+.row .w .dot{display:inline-block;margin-left:6px;vertical-align:middle}
+.row.aside .t{font-weight:400;color:var(--ink-2);white-space:normal}
+.row .src{font:11.5px var(--mono);color:var(--ink-4);margin-top:3px}
+.askpill{font:11px var(--mono);color:var(--warn);border:1px solid color-mix(in oklab,var(--warn) 50%,transparent);border-radius:5px;padding:0 5px;margin-left:6px}
+.badge{font:11px var(--mono);color:var(--ink-3);background:var(--raised);border-radius:8px;padding:0 6px;margin-left:6px}
+/* B */
+.livecard{margin:8px 12px;background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:9px 11px;cursor:pointer}
+.livecard.ask{border-color:color-mix(in oklab,var(--warn) 55%,transparent)}
+.livecard .top{display:flex;align-items:center;gap:8px}
+.livecard .t{font-size:13.5px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.livecard .k{font:11px var(--mono);color:var(--ink-3)}
+.livecard .tick{margin-top:6px;background:var(--sheet);border-radius:7px;padding:5px 8px;font:11.5px/1.5 var(--mono);color:var(--ink-3)}
+.livecard .tick div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.livecard .tick div:last-child{color:var(--ink)}
+.livecard .acts{display:flex;gap:6px;margin-top:7px}
+.hist{display:grid;grid-template-columns:22px 1fr auto auto;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);font-size:13px;align-items:center;cursor:pointer}
+.hist:hover{background:var(--fill-hover)}
+.hist .g{font:12.5px var(--mono);color:var(--ink-4);text-align:center}
+.hist .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist .o{font-size:12px;color:var(--ink-3);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.hist .w{font:11.5px var(--mono);color:var(--ink-4);text-align:right;min-width:40px}
+.bar2{display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}
+.sel{height:28px;border-radius:8px;border:1px solid var(--line);background:var(--pop);font-size:12.5px;color:var(--ink-2);padding:0 9px;display:inline-flex;align-items:center;gap:6px}
+.seg2{display:inline-flex;background:var(--well);border:1px solid var(--line);border-radius:8px;padding:2px}
+.seg2 button{height:22px;padding:0 9px;border-radius:6px;font-size:12px;color:var(--ink-3)}
+.seg2 button[aria-pressed=true]{background:var(--pressed);color:var(--ink)}
+.notebox{margin:0 12px 10px 42px;border-left:2px solid var(--line-strong);padding:4px 10px;font-size:12.5px;color:var(--ink-2)}
+.notebox .src{font:11px var(--mono);color:var(--ink-4)}
+.hidden{display:none!important}
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+</style></head><body><div class="page">
+<h1>One threads list</h1>
+<p class="lede">Today Pork Chop's right pane splits into Subagents working, Threads, Ended subagents, Jobs, Closed, plus a separate Noted page for asides. Both ideas fold all of it into one list called <b>Threads</b>, since a work thread, subagent, job, call and pair are all threads already. An aside is a note from one of them.</p>
+<div class="controls"><span><span class="seg-label">IDEA</span><span class="seg" id="idea"><button aria-pressed="true" data-i="a">A · One list, filtered</button><button aria-pressed="false" data-i="b">B · Live on top, history below</button></span></span></div>
+<div class="win">
+ <nav class="pane"><div class="rail-head"><span class="eyebrow">Team</span></div><div class="scroll">
+  <div class="mate" aria-current="true"><div class="ava" style="background:oklch(78% .11 30)">P</div><div class="who"><div class="name">Pork Chop</div><div class="sub working">2 subagents, 1 job</div></div><span class="dot live"></span></div>
+  <div class="mate"><div class="ava" style="background:oklch(80% .1 240)">J</div><div class="who"><div class="name">Jeeves</div><div class="sub">Idle</div></div></div>
+  <div class="mate"><div class="ava" style="background:oklch(80% .1 300)">E</div><div class="who"><div class="name">Elvis</div><div class="sub">Site copy for 0.49</div></div></div>
+  <div class="mate"><div class="ava" style="background:oklch(82% .1 110)">L</div><div class="who"><div class="name">Lou</div><div class="sub">Idle</div></div></div>
+ </div></nav>
+ <main class="pane"><div class="band"><h2 style="font-family:var(--sans);font-weight:600;font-size:14px">Pork Chop</h2></div>
+  <div class="scroll convo"><div class="stamp">Today 9:40 PM</div><div class="bub me">Push 0.49 once CI is green.</div><div class="bub them">CI is green on Linux and Windows. The last Mac job is still running.</div></div>
+  <div class="composer"><div class="ph">Message</div></div></main>
+ <aside class="pane" id="paneA">
+  <div class="band"><h2 style="font-family:var(--sans);font-weight:600;font-size:14px">Threads</h2><button class="icon-btn" title="Close">✕</button></div>
+  <div class="search">⌕ Search threads and notes</div>
+  <div class="chips" id="chipsA"></div>
+  <div class="scroll" id="listA"></div>
+ </aside>
+ <aside class="pane hidden" id="paneB">
+  <div class="band"><h2 style="font-family:var(--sans);font-weight:600;font-size:14px">Threads</h2><button class="icon-btn" title="Close">✕</button></div>
+  <div class="scroll">
+   <div class="grp"><span>Live · 4</span></div>
+   <div id="liveB"></div>
+   <div class="grp" style="padding-top:16px"><span>History</span></div>
+   <div class="bar2"><div class="search" style="margin:0;flex:1;height:28px">⌕ Search</div><span class="sel" id="kindSel">All kinds ▾</span>
+     <span class="seg2" id="notesB"><button aria-pressed="true" data-m="t">Threads</button><button aria-pressed="false" data-m="n">Notes</button></span></div>
+   <div id="histB"></div>
+  </div>
+ </aside>
+</div>
+<div class="pros">
+ <div class="note" id="noteA"><b>A · One list, filtered</b><ul>
+  <li>Everything is one row type: kind mark, title, one line of state or latest step, time.</li>
+  <li>Opens on <b style="display:inline">Active</b>: Needs you, Live, Today. Earlier, routine runs and read notes fold into one row that expands in place. Counts only on Needs you and Live.</li><li>A kind chip shows all of that kind, live and ended. Search covers everything. The last filter is kept per teammate.</li>
+  <li>Notes (asides) are rows too, linked to the thread they came from. The Notes chip shows only them.</li>
+  <li>Good for: one place, one mental model. Risk: a long day makes a long list, so search and chips carry it.</li></ul></div>
+ <div class="note" id="noteB"><b>B · Live on top, history below</b><ul>
+  <li>Live work (and anything waiting on you) gets cards with a 3-line ticker and Stop / Open.</li>
+  <li>Everything ended goes into a dense one-line history with search, a kind menu, and Threads | Notes.</li>
+  <li>Notes hang off their thread as a count, and open under it; the Notes view is a plain feed.</li>
+  <li>Good for: watching work. Risk: two layouts in one pane; ended things are one tap further.</li></ul></div>
+</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const G={work:"≡",hand:"⇄",sub:"◆",cmd:"$",pair:"◎",call:"☏",job:"↻",note:"✎"};
+const W={work:"Work thread",hand:"Handoff",sub:"Subagent",cmd:"Command",pair:"Pair",call:"Call",job:"Job",note:"Note"};
+const rows=[
+ {k:"hand",t:"Check the 0.49 site copy",s:"Waiting on you: approve the three lines",when:"9:58",g:"ask",notes:1},
+ {k:"sub",t:"Audit side-pane thread rows",s:"Read Dock.tsx",when:"2:14",g:"live",tick:["Search \"subagent\" in ui/src","“The right pane opens a run through…”","Read Dock.tsx"]},
+ {k:"sub",t:"Check ChatGPT model list",s:"Fetch /v1/models · 200",when:"1:12",g:"live",tick:["Read openai-chatgpt.ts","“The token reaches /v1/models.”","Fetch /v1/models · 200"]},
+ {k:"job",t:"Watch CI on release/0.49.0",s:"Run 7 · gh run list",when:"every 5 min",g:"live",tick:["Run 6 · nothing new","Run 7 started","gh run list --branch release/0.49.0"],notes:2},
+ {k:"work",t:"Release notes for 0.49",s:"Working · “Yes, and keep it short.”",when:"9:40",g:"live",tick:["You: Yes, and keep it short.","Read CHANGELOG.md","Writing"]},
+ {k:"note",t:"Linux and Windows are green on 2736d08d. One Mac job left.",src:"from Watch CI on release/0.49.0",when:"9:51",g:"today"},
+ {k:"note",t:"Site copy for 0.49 is drafted; it needs your changelog lines.",src:"from Elvis · Check the 0.49 site copy",when:"9:02",g:"today",read:true},
+ {k:"pair",t:"Pork Chop ↔ Lou",s:"Ended · Agreed the button order for task-71",when:"8:12",g:"today"},
+ {k:"call",t:"Device-code login test",s:"Ended · 2 min",when:"3:26",g:"today"},
+ {k:"cmd",t:"make precheck",s:"Done · all 8 legs pass in 95s",when:"2:58",g:"today",routine:true},
+ {k:"sub",t:"Map browser stream latency",s:"Reported · input to picture is about 26 ms",when:"Fri",g:"earlier"},
+ {k:"job",t:"Remind: QA the ChatGPT login",s:"Ended · posted once",when:"Fri",g:"earlier"},
+ {k:"note",t:"Disk is at 610 GB free after the worktree cleanup.",src:"from Jeeves",when:"Fri",g:"earlier"},
+ {k:"work",t:"Server installer rerun",s:"Closed · both fixes are live on hotline.dev/install",when:"Fri",g:"earlier"},
+];
+// A
+const chipDefs=[["active","Active"],["all","All"],["ask","Needs you"],["live","Live"],["work","Threads"],["sub","Subagents"],["job","Jobs"],["call","Calls"],["pair","Pairs"],["note","Notes"]];
+let fa="active", earlierOpen=false;
+function countA(f){return rows.filter(r=>matchA(r,f)).length}
+function matchA(r,f){if(f==="active")return r.g!=="earlier"&&!r.routine&&!(r.k==="note"&&r.read);if(f==="all")return true;if(f==="ask")return r.g==="ask";if(f==="live")return r.g==="live"||r.g==="ask";if(f==="work")return r.k==="work"||r.k==="hand"||r.k==="cmd";return r.k===f}
+function drawA(){
+ $("#chipsA").innerHTML=chipDefs.map(([f,l])=>`<button class="chip2 ${f==="ask"?"warn":""}" aria-pressed="${fa===f}" data-f="${f}">${l}${f==="ask"||f==="live"?`<span class="n">${countA(f)}</span>`:""}</button>`).join("");
+ for(const b of document.querySelectorAll("#chipsA button"))b.onclick=()=>{fa=b.dataset.f;earlierOpen=false;drawA()};
+ const groups=[["ask","Needs you"],["live","Live"],["today","Today"],["earlier","Earlier"]];
+ let h="";for(const [g,l] of groups){if(fa==="active"&&g==="earlier"&&!earlierOpen){const n=rows.filter(r=>r.g==="earlier"||r.routine||(r.k==="note"&&r.read)).length;h+=`<button class="grp" id="moreA" style="width:100%;cursor:pointer;color:var(--ink-2)"><span>Earlier and routine · ${n}</span><span>Show ›</span></button>`;continue}
+ const rs=rows.filter(r=>r.g===g&&(fa==="active"&&earlierOpen&&g==="earlier"?true:matchA(r,fa)));if(!rs.length)continue;h+=`<div class="grp"><span>${l}</span><span>${rs.length}</span></div>`;
+  for(const r of rs){if(r.k==="note"){h+=`<div class="row aside"><span class="g">✎</span><div><div class="t">${r.t}</div><div class="src">${r.src} ›</div></div><span class="w">${r.when}</span></div>`;continue}
+   h+=`<div class="row ${r.g}"><span class="g" title="${W[r.k]}">${G[r.k]}</span><div><div class="t">${r.t}${r.g==="ask"?'<span class="askpill">Needs you</span>':""}${r.notes?`<span class="badge">✎ ${r.notes}</span>`:""}</div><div class="s" data-tick='${JSON.stringify(r.tick||[])}'>${r.s}</div></div><span class="w">${r.when}${r.g==="live"?'<span class="dot live"></span>':""}</span></div>`}}
+ $("#listA").innerHTML=h||'<div class="grp">Nothing here.</div>';
+ const m=$("#moreA"); if(m) m.onclick=()=>{earlierOpen=true;drawA()};
+}
+// B
+let mb="t";
+function drawB(){
+ $("#liveB").innerHTML=rows.filter(r=>r.g==="live"||r.g==="ask").map(r=>`<div class="livecard ${r.g}"><div class="top"><span class="dot ${r.g==="ask"?"":"live"}" ${r.g==="ask"?'style="background:var(--warn)"':""}></span><span class="t">${r.t}</span><span class="k">${G[r.k]} ${W[r.k]}</span></div>${r.tick?`<div class="tick">${r.tick.slice(-2).map(x=>`<div>${x}</div>`).join("")}</div>`:`<div class="s" style="font-size:12.5px;color:var(--warn);margin-top:5px">${r.s}</div>`}<div class="acts">${r.g==="ask"?'<button class="btn" style="color:var(--on-accent);background:var(--accent);border:0">Approve</button>':""}${r.k==="sub"||r.k==="job"?'<button class="btn">Stop</button>':""}<button class="btn">Open</button></div></div>`).join("");
+ const ended=rows.filter(r=>r.g==="today"||r.g==="earlier");
+ if(mb==="t"){$("#histB").innerHTML=ended.filter(r=>r.k!=="note").map(r=>{const ns=rows.filter(n=>n.k==="note"&&n.src.includes(r.t));return `<div class="hist"><span class="g">${G[r.k]}</span><span class="t">${r.t}</span><span class="o">${r.s.replace(/^\w+ · /,"")}</span><span class="w">${r.when}</span></div>`}).join("");}
+ else{$("#histB").innerHTML=rows.filter(r=>r.k==="note").map(r=>`<div class="hist" style="grid-template-columns:22px 1fr auto"><span class="g">✎</span><span><div style="font-size:13px;color:var(--ink-2);white-space:normal">${r.t}</div><div class="src" style="font:11px var(--mono);color:var(--ink-4);margin-top:2px">${r.src} ›</div></span><span class="w">${r.when}</span></div>`).join("");}
+ for(const b of document.querySelectorAll("#notesB button"))b.onclick=()=>{mb=b.dataset.m;for(const x of document.querySelectorAll("#notesB button"))x.setAttribute("aria-pressed",x===b);drawB()};
+}
+for(const b of document.querySelectorAll("#idea button"))b.onclick=()=>{for(const x of document.querySelectorAll("#idea button"))x.setAttribute("aria-pressed",x===b);$("#paneA").classList.toggle("hidden",b.dataset.i!=="a");$("#paneB").classList.toggle("hidden",b.dataset.i!=="b")};
+drawA();drawB();
+// live ticks in A
+setInterval(()=>{for(const el of document.querySelectorAll("#listA .row.live .s")){const t=JSON.parse(el.dataset.tick||"[]");if(!t.length)continue;const i=((+el.dataset.i||0)+1)%t.length;el.dataset.i=i;el.textContent=t[i]}},1800);
+</script></body></html>

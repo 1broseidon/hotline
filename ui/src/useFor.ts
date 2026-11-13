@@ -337,6 +337,11 @@ export const TURN_BY_TURN = "turn-by-turn";
  */
 const LIVE_NAMES: Record<string, string> = { grok: "Grok Voice", "gpt-live": "GPT-Live", openai: "GPT Realtime" };
 
+/** A live model by the name the person knows it by: "GPT-Live" for `gpt-live`. */
+export function liveName(providerId: string): string {
+	return LIVE_NAMES[providerId] ?? providerId;
+}
+
 export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
 
 /**

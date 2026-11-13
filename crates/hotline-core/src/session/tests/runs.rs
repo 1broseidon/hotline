@@ -228,6 +228,55 @@ async fn a_cancelled_run_stops_its_agent_and_its_line_says_so() {
     assert_eq!(tape(&room, "ada")[0]["status"], "cancelled");
 }
 
+/// The person's Stop in a run's pane ends it cancelled, as its teammate's
+/// cancel does; its roster row says it can be stopped and which model it is
+/// on. A harness's subagent, which nothing here can stop, is refused.
+#[tokio::test]
+async fn a_run_the_person_stops_ends_cancelled_and_a_harness_subagent_is_refused() {
+    let (driver, gate) = held();
+    let agents = Fake::new(driver);
+    let room = room("run-stop", agents.clone());
+    let running = tokio::spawn({
+        let room = room.clone();
+        async move {
+            room.run(spec(&room, "r9", "Wait."), CancellationToken::new())
+                .await
+        }
+    });
+    gate.add_permits(2);
+    until("the run is listed", || !room.subagents("ada").is_empty()).await;
+    let row = room.subagents("ada")[0].clone();
+    assert!(row.stoppable, "a run of Hotline's own can be stopped");
+    assert_eq!(row.model, room.info("ada").model_label);
+
+    room.stop_run("r9").unwrap();
+    let outcome = running.await.unwrap();
+    assert_eq!(outcome.end, RunEnd::Cancelled);
+    assert!(outcome.report.contains("stopped"), "{}", outcome.report);
+    assert_eq!(run_stream(&room, "r9")[0]["status"], "cancelled");
+    let gone = room.stop_run("r9").unwrap_err();
+    assert!(gone.ends_with('.'), "{gone}");
+
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(crate::driver::SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: crate::contract::RunKind::Subagent,
+            title: "Edge cases".to_string(),
+            task: "Find the edge cases.".to_string(),
+        })
+        .unwrap();
+    until("the harness's run is listed", || {
+        !room.subagents("ada").is_empty()
+    })
+    .await;
+    let harness = room.subagents("ada")[0].clone();
+    assert!(!harness.stoppable);
+    let refused = room.stop_run(&harness.run_id).unwrap_err();
+    assert!(refused.contains("harness"), "{refused}");
+}
+
 #[tokio::test]
 async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session() {
     let (driver, _gate) = held();
@@ -244,7 +293,14 @@ async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session()
     tools.call("list_chapters", &json!({})).await.unwrap();
     tools.call("list_teammates", &json!({})).await.unwrap();
     tools.call("list_schedules", &json!({})).await.unwrap();
-    for refused in ["react", "request_human", "message_teammate", "schedule"] {
+    for refused in [
+        "react",
+        "request_human",
+        "message_teammate",
+        "schedule",
+        "activity",
+        "outcome",
+    ] {
         assert_eq!(
             tools.call(refused, &json!({})).await.unwrap_err(),
             format!("A subagent has no tool called '{refused}'.")
@@ -538,6 +594,11 @@ async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
     let listed = room.subagents("ada");
     assert_eq!(listed[0].kind, RunKind::Shell);
     assert_eq!(listed[0].title, "Crawl 12 sites");
+    assert_eq!(
+        listed[0].command.as_deref(),
+        Some("python3 crawl.py sites2 300"),
+        "the roster says what it runs"
+    );
     let run_id = listed[0].run_id.clone();
     assert_eq!(
         serde_json::to_value(&listed[0]).unwrap()["kind"],
@@ -576,6 +637,178 @@ async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
     assert_eq!(stream[2]["text"], "12 sites crawled");
 }
 
+/// A command the harness left running is read as it runs: `process.output`
+/// answers its run's id with the command and the latest of what it wrote,
+/// each piece added and a whole output replacing what came before; its end
+/// keeps the last of it in the run as its one step, and its line says it is
+/// a command, on the tape and at the head of the run.
+#[tokio::test]
+async fn a_background_commands_output_is_read_while_it_runs_and_kept_when_it_ends() {
+    use crate::contract::RunKind;
+    use crate::driver::SubagentReport;
+    let room = room("harness-output", Fake::new(Scripted::new(Vec::new())));
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(SubagentReport::Started {
+            child: "c1".to_string(),
+            kind: RunKind::Shell,
+            title: "make precheck".to_string(),
+            task: "`make precheck`".to_string(),
+        })
+        .unwrap();
+    until("the command is listed", || {
+        !room.subagents("ada").is_empty()
+    })
+    .await;
+    let run_id = room.subagents("ada")[0].run_id.clone();
+    let output = |text: &str, replaces: bool| {
+        reports
+            .send(SubagentReport::Output {
+                child: "c1".to_string(),
+                text: text.to_string(),
+                replaces,
+            })
+            .unwrap();
+    };
+    output("==> secrets\n", false);
+    output("secrets pass\n", false);
+    until("the output is read", || {
+        room.process_output("ada", &run_id)
+            .is_ok_and(|read| read.tail == "==> secrets\nsecrets pass\n")
+    })
+    .await;
+    assert_eq!(
+        room.process_output("ada", &run_id).unwrap().command,
+        "make precheck"
+    );
+    output("all 8 legs pass\n", true);
+    until("a whole output replaces it", || {
+        room.process_output("ada", &run_id)
+            .is_ok_and(|read| read.tail == "all 8 legs pass\n")
+    })
+    .await;
+
+    reports
+        .send(SubagentReport::Ended {
+            child: "c1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the command is off the roster", || {
+        room.subagents("ada").is_empty()
+    })
+    .await;
+    assert!(
+        room.process_output("ada", &run_id).is_err(),
+        "an ended command is read from its run"
+    );
+    let stream = run_stream(&room, &run_id);
+    assert_eq!(kinds(&stream), ["subagent", "user", "tool"]);
+    assert_eq!(stream[2]["status"], "completed");
+    assert_eq!(stream[2]["output"][0]["text"], "all 8 legs pass\n");
+    let raw = room.log.load(&StreamId::Run(run_id.clone()));
+    assert_eq!(raw[0]["kind"], "link");
+    assert_eq!(raw[0]["runKind"], "shell", "its line says it is a command");
+    let tape_line = room
+        .log
+        .load(&StreamId::Tape("ada".to_string()))
+        .into_iter()
+        .find(|line| line["thread"] == run_id.as_str())
+        .unwrap();
+    assert_eq!(tape_line["runKind"], "shell");
+}
+
+/// A run's roster row says what it did last, its latest step or the first
+/// clause of its latest words, and counts each step once however often it is
+/// written; each change tells the roster, so nothing has to ask.
+#[tokio::test]
+async fn a_runs_roster_row_follows_its_latest_step_and_words() {
+    use crate::driver::SubagentReport;
+    let room = room("harness-steps", Fake::new(Scripted::new(Vec::new())));
+    let mut told = room.subscribe_info();
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    let send = |update: Update| {
+        reports
+            .send(SubagentReport::Update {
+                child: "child-1".to_string(),
+                update,
+            })
+            .unwrap();
+    };
+    let row = || room.subagents("ada").first().cloned();
+    reports
+        .send(SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: crate::contract::RunKind::Subagent,
+            title: "Audit the rows".to_string(),
+            task: "Read the dock.".to_string(),
+        })
+        .unwrap();
+    until("the run is listed", || row().is_some()).await;
+    let listed = row().unwrap();
+    assert_eq!(
+        (listed.last_step, listed.steps),
+        (None, 0),
+        "nothing done yet"
+    );
+    assert!(listed.command.is_none());
+
+    while told.try_recv().is_ok() {}
+    send(Update::Message {
+        kind: MessageKind::Agent,
+        id: "m1".to_string(),
+        text: "Starting with the right pane, then the conversation.".to_string(),
+    });
+    until("its words are its latest", || {
+        row().and_then(|run| run.last_step).as_deref()
+            == Some("\u{201c}Starting with the right pane\u{201d}")
+    })
+    .await;
+    assert!(told.try_recv().is_ok(), "the roster was told");
+
+    send(Update::ToolCall {
+        call_id: "c1".to_string(),
+        title: "Read ui/src/components/Dock.tsx".to_string(),
+        kind: "read".to_string(),
+    });
+    until("its step is its latest", || {
+        row().is_some_and(|run| run.last_step.as_deref() == Some("Read Dock.tsx") && run.steps == 1)
+    })
+    .await;
+
+    send(Update::ToolResult {
+        call_id: "c1".to_string(),
+        ok: true,
+        output: "export function Dock".to_string(),
+        images: Vec::new(),
+    });
+    send(Update::Message {
+        kind: MessageKind::Thought,
+        id: "t1".to_string(),
+        text: "Nothing carries a last step yet, so every row says working.".to_string(),
+    });
+    until("its thinking is its latest", || {
+        row().and_then(|run| run.last_step).as_deref()
+            == Some("\u{201c}Nothing carries a last step yet\u{201d}")
+    })
+    .await;
+    assert_eq!(
+        row().unwrap().steps,
+        1,
+        "a step that ends is not a second step"
+    );
+
+    reports
+        .send(SubagentReport::Ended {
+            child: "child-1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the run is off the roster", || row().is_none()).await;
+}
+
 /// A subagent's row on the roster is as it always was: no kind.
 #[test]
 fn a_subagents_roster_row_carries_no_kind() {
@@ -584,8 +817,18 @@ fn a_subagents_roster_row_carries_no_kind() {
         title: "Explorer".into(),
         started_at: 1,
         kind: crate::contract::RunKind::Subagent,
+        last_step: None,
+        steps: 0,
+        command: None,
+        model: None,
+        stoppable: false,
     };
-    assert!(serde_json::to_value(&row).unwrap().get("kind").is_none());
+    let said = serde_json::to_value(&row).unwrap();
+    assert!(said.get("kind").is_none());
+    assert!(
+        said.get("stoppable").is_none(),
+        "a run nothing can stop says nothing of it"
+    );
 }
 
 /// A subagent told its task apart from its announcement, as the RFD tells

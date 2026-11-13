@@ -292,7 +292,9 @@ function PictureViewer({ personaId, item, mine, preview, onClose }: { personaId:
 
 /** How many pictures stay readable after their bubble leaves the screen. */
 const KEPT = 48;
-const pictures = new Map<string, Promise<string>>();
+const pictures = new Map<string, { read: Promise<string>; url?: string }>();
+
+const pictureKey = (personaId: string, eventId: string, index: number, edge?: number) => `${personaId}/${eventId}/${index}/${edge ?? "full"}`;
 
 /**
  * The file's bytes as a URL the page can draw, read a part at a time. A sent
@@ -302,25 +304,30 @@ const pictures = new Map<string, Promise<string>>();
  * tries again.
  */
 function sentUrl(personaId: string, eventId: string, index: number, edge?: number): Promise<string> {
-	const key = `${personaId}/${eventId}/${index}/${edge ?? "full"}`;
+	const key = pictureKey(personaId, eventId, index, edge);
 	const known = pictures.get(key);
 	if (known !== undefined) {
 		pictures.delete(key);
 		pictures.set(key, known);
-		return known;
+		return known.read;
 	}
-	const fetched = readSent(personaId, eventId, index, edge);
-	pictures.set(key, fetched);
-	fetched.catch(() => {
-		if (pictures.get(key) === fetched) pictures.delete(key);
-	});
+	const kept: { read: Promise<string>; url?: string } = { read: readSent(personaId, eventId, index, edge) };
+	pictures.set(key, kept);
+	kept.read.then(
+		(url) => {
+			kept.url = url;
+		},
+		() => {
+			if (pictures.get(key) === kept) pictures.delete(key);
+		},
+	);
 	if (pictures.size > KEPT) {
 		const oldest = pictures.keys().next().value as string;
 		const gone = pictures.get(oldest);
 		pictures.delete(oldest);
-		void gone?.then((url) => URL.revokeObjectURL(url), () => {});
+		void gone?.read.then((url) => URL.revokeObjectURL(url), () => {});
 	}
-	return fetched;
+	return kept.read;
 }
 
 async function readSent(personaId: string, eventId: string, index: number, edge?: number): Promise<string> {
@@ -337,7 +344,9 @@ async function readSent(personaId: string, eventId: string, index: number, edge?
 }
 
 function useSentFile(personaId: string, eventId: string, index: number, edge?: number, ready = true): string | null | undefined {
-	const [url, setUrl] = useState<string | null | undefined>(undefined);
+	// A file already read is drawn in the render that asks for it: a row
+	// that comes back into the page shows its picture, not a placeholder.
+	const [url, setUrl] = useState<string | null | undefined>(() => (ready ? pictures.get(pictureKey(personaId, eventId, index, edge))?.url : undefined));
 	useEffect(() => {
 		if (!ready) return;
 		let gone = false;

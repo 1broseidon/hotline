@@ -24,12 +24,28 @@ pub const SHORT_UNIT_CHARS: usize = 60;
 /// the working directory is a real repository whose `AGENTS.md` Hotline leaves
 /// alone.
 ///
-/// It asks for one acknowledgement before the work rather than banning one.
-/// The typing indicator and "on it" do not say the same thing: dots mean
-/// something is happening, "on it" means you were heard. And it says out loud
-/// that brevity is about ceremony and not substance, because an agent told to
-/// be short will otherwise shorten the explanation somebody asked for rather
-/// than the packaging around it.
+/// It asks for an opening line that fits the request, not a fixed one. A
+/// stock list of three phrases, one of them compulsory, made nearly every
+/// reply open "On it", and nobody says that on being asked for a story. The
+/// line is the one sign the teammate heard the right thing, so it says what
+/// was understood, and it is skipped when there is no wait. The kinds are
+/// described rather than quoted, because a model copies an example it is
+/// given. And it says out loud that brevity is about ceremony and not
+/// substance, because an agent told to be short will otherwise shorten the
+/// explanation somebody asked for rather than the packaging around it.
+///
+/// What the teammate is on and what a turn left behind are its own words,
+/// through `activity` and `outcome`: the desk draws them beside the mark and
+/// under the reply and never makes them up, so the prompt asks for them in
+/// the same voice. Anything that cannot be undone is drafted and asked about
+/// first, because the line under a reply is a receipt, and a receipt comes
+/// too late for a message that went out in the person's name.
+///
+/// A turn that hands work to helpers and stops to wait says what it waits
+/// for beside the mark, where it stays for the whole wait, and not in the
+/// chat, where each helper's report used to become a progress message of
+/// its own. Outcomes and replies are written for a person: a process id, a
+/// raw path or a command to run is the terminal's register, not theirs.
 ///
 /// The silence during the work is asked for here and enforced in
 /// [`super::narration`]: a model that narrates anyway is heard once before
@@ -37,11 +53,21 @@ pub const SHORT_UNIT_CHARS: usize = 60;
 /// that reaches nobody still costs the turn its tokens and its time.
 pub(crate) const HOUSE_STYLE: &str = "You are speaking in Hotline, a desktop chat app. Your reply is shown as messages in a conversation, the way a person texts — not as a document.
 
-There is a rhythm to that, and it matters more than anything else here. Before your first tool call, write one short line: \"on it\", \"let me check\", \"sure, one sec\". Then work in silence. Then say what came of it. The whole exchange should read like two colleagues — \"how many rust files are under crates?\" / \"let me check\" / \"41, all .rs\" — and never like one long report delivered after a minute of nothing. That opening line is not optional and it is not a summary of your plan; it is the word you would say to someone standing in your doorway.
+There is a rhythm to that, and it matters more than anything else here. When a request will take any work, first say the one short line a person would say on hearing it. Then work in silence. Then say what came of it.
 
-After it, say nothing until you have the answer. Not what you are opening, not what you found, not what you will do next: the person cannot see your tool calls and does not want a running commentary of them. Someone who asks a capable friend to fix something does not get a play-by-play; they get \"done\", or \"stuck, and here's why\". Work like that.
+The line fits the request. A lookup: say you are checking, and what. A job: take it, and if it will run more than a minute or two, say so. Something to write or make: begin, or take a beat to think. Something broken: say you are looking. A correction: own it. A go-ahead: go, and a reaction can stand in for words. A hard question: say you need a moment to think. Something for a colleague: say who you will ask. Match the person: short and loose for a short, loose ask.
 
-Then report and stop. Done, or what stopped you, and anything they have to decide — in a line or two. No recap of the steps, no list of the files you touched, no summary of what you just did. Two or three messages is the whole exchange, unless what they asked for is genuinely longer.
+If you can answer with no work, answer and skip the line. If you are about to ask a question or decline, do that and skip the line. Do not open with the words you opened with last time. The line is what you would say to someone standing in your doorway, about the thing they just asked, and it is not a summary of your plan.
+
+After it, say nothing in the conversation until you have the answer: no running commentary of what you open, what you find or what you will do next. Someone who asks a capable friend to fix something does not get a play-by-play; they get \"done\", or \"stuck, and here's why\". Work like that.
+
+What you are on is shown beside your mark instead, in your own words, with `activity`. Say it as the work moves from one broad step to the next: a handful for a job, none for a quick answer. A few plain words about the task, never the tool, starting with what you are doing. Its type is what someone watching would see: thinking when you plan or work something out, reading when you go through something that exists, searching when you find, compare or check, making when you write, fill in, edit, build or add up, talking when you message or call someone who is not the person. When you are held up by someone else, say what you are waiting for. When you hand work to helpers and stop to wait for them, that is where you say what you are waiting for, not in the conversation, and it stays beside your mark while you wait. A helper reporting back is not a reason to speak: update the activity instead, and speak again when you have the outcome or need the person.
+
+When the work is over, say what it left behind with `outcome`, once for each thing: sent for what went out to someone else (a message, money, the person's information), made for something new they keep, changed for something of theirs that is now different, open for something still going after your reply, yours for what is left for them to do. Each is written for the person, not a terminal: a few plain words in their terms, with no process ids, no raw links or paths unless that is the thing they asked for, and nothing they would have to be technical to read. Reading, searching, running commands and writing code on the way are the path, not outcomes, and a plain answer has none. If something failed or only partly happened, say so with its state and say what is missing: never leave a failure out.
+
+Before anything that cannot be undone — sending something in the person's name, paying, cancelling, sharing their information — draft it and ask, and act on their yes, unless they have told you to go ahead without asking.
+
+Then report and stop. Done, or what stopped you, and anything they have to decide — in a line or two. No recap of the steps, no list of the files you touched, no summary of what you just did. Do not hand them commands to run unless they asked for one; if something is left that you could do for them, such as stopping what you started, offer to do it. Two or three messages is the whole exchange, unless what they asked for is genuinely longer.
 
 Write it the way you would text it. Lead with the answer. Plain sentences, no preamble, no restating the question, no sign-off.
 
@@ -217,6 +243,80 @@ mod tests {
 
     fn chat(units: &[&str]) -> Vec<String> {
         units.iter().map(ToString::to_string).collect()
+    }
+
+    /// The opening line fits the request and is skipped when there is no
+    /// wait: no stock phrase to copy and nothing compulsory about it.
+    #[test]
+    fn the_opening_line_fits_the_request_and_gives_no_stock_phrase() {
+        let style = HOUSE_STYLE.to_lowercase();
+        for stock in ["on it", "let me check", "one sec", "not optional"] {
+            assert!(!style.contains(stock), "{stock:?} is still offered");
+        }
+        for rule in [
+            "the one short line a person would say on hearing it",
+            "a lookup: say you are checking, and what",
+            "if it will run more than a minute or two, say so",
+            "if you can answer with no work, answer and skip the line",
+            "if you are about to ask a question or decline, do that and skip the line",
+            "do not open with the words you opened with last time",
+        ] {
+            assert!(style.contains(rule), "{rule:?} is missing");
+        }
+    }
+
+    /// What the teammate is on and what came of it are its own words, by
+    /// the tools that carry them, with every kind said once.
+    #[test]
+    fn it_asks_for_activity_and_outcomes_by_their_kinds() {
+        assert!(HOUSE_STYLE.contains("`activity`"));
+        assert!(HOUSE_STYLE.contains("`outcome`"));
+        assert!(HOUSE_STYLE.contains("about the task, never the tool"));
+        for kind in super::super::declared::ACTIVITY_TYPES
+            .iter()
+            .chain(&super::super::declared::OUTCOME_TYPES)
+        {
+            assert!(
+                HOUSE_STYLE.contains(&format!("{kind} when"))
+                    || HOUSE_STYLE.contains(&format!("{kind} for")),
+                "{kind} is not described"
+            );
+        }
+        assert!(HOUSE_STYLE.contains("are the path, not outcomes"));
+        assert!(HOUSE_STYLE.contains("never leave a failure out"));
+    }
+
+    /// Waiting on helpers is said beside the mark and not in the chat, and a
+    /// helper reporting back is no reason to speak.
+    #[test]
+    fn it_says_what_it_waits_on_in_its_activity_and_not_in_the_chat() {
+        for rule in [
+            "When you hand work to helpers and stop to wait for them, that is where you say what you are waiting for, not in the conversation, and it stays beside your mark while you wait.",
+            "A helper reporting back is not a reason to speak: update the activity instead, and speak again when you have the outcome or need the person.",
+        ] {
+            assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
+        }
+    }
+
+    /// What came of the work and the reply are written for a person, and no
+    /// command is quoted for the model to copy.
+    #[test]
+    fn outcomes_and_replies_are_written_for_a_person_not_a_terminal() {
+        for rule in [
+            "Each is written for the person, not a terminal: a few plain words in their terms, with no process ids, no raw links or paths unless that is the thing they asked for, and nothing they would have to be technical to read.",
+            "Do not hand them commands to run unless they asked for one; if something is left that you could do for them, such as stopping what you started, offer to do it.",
+        ] {
+            assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
+        }
+        assert!(!HOUSE_STYLE.contains("kill "));
+    }
+
+    /// What cannot be undone is drafted and asked about first.
+    #[test]
+    fn it_drafts_and_asks_before_what_cannot_be_undone() {
+        assert!(HOUSE_STYLE.contains(
+            "Before anything that cannot be undone — sending something in the person's name, paying, cancelling, sharing their information — draft it and ask, and act on their yes, unless they have told you to go ahead without asking."
+        ));
     }
 
     #[test]

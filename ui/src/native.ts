@@ -328,8 +328,12 @@ export async function popupMessageMenu(actions: {
 	}
 }
 
+/** Which releases a desk is offered: final ones, or the betas before them too. */
+export type UpdateTrack = "stable" | "beta";
+
 export type UpdateStatus = {
 	current: string;
+	track: UpdateTrack;
 	available: { version: string; notes: string } | null;
 	checkedAt: number | null;
 	phase: "idle" | "checking" | "downloading" | "installing" | "restarting";
@@ -356,13 +360,16 @@ const PREVIEW_NOTES = `### Added
 - An example fix with \`inline code\` and a [link](https://github.com/1broseidon/hotline/releases).
 `;
 
+/** The preview's own track, since a dev build stores none. */
+let previewTrack: UpdateTrack = "stable";
+
 export async function updateStatus(): Promise<UpdateStatus> {
 	if (PREVIEW_UPDATE) return {
-		current: appVersion(), available: { version: PREVIEW_UPDATE, notes: PREVIEW_NOTES }, checkedAt: Math.floor(Date.now() / 1000),
+		current: appVersion(), track: previewTrack, available: { version: PREVIEW_UPDATE, notes: PREVIEW_NOTES }, checkedAt: Math.floor(Date.now() / 1000),
 		phase: "idle", downloaded: 0, total: null, error: null, disabledReason: null,
 	};
 	if (!isDesktop()) return {
-		current: appVersion(), available: null, checkedAt: null, phase: "idle",
+		current: appVersion(), track: "stable", available: null, checkedAt: null, phase: "idle",
 		downloaded: 0, total: null, error: null,
 		disabledReason: "Open the desktop application to check for updates.",
 	};
@@ -390,6 +397,11 @@ export function watchUpdates(onChange: (status: UpdateStatus) => void, onError: 
 }
 
 export async function checkUpdate(): Promise<void> { await invoke("check_update"); }
+/** Moves this desk to a track; the desk checks it before answering. */
+export async function setUpdateTrack(track: UpdateTrack): Promise<void> {
+	if (PREVIEW_UPDATE) { previewTrack = track; return; }
+	await invoke("set_update_track", { track });
+}
 export async function installUpdate(version: string): Promise<void> { await invoke("install_update", { version }); }
 export async function cancelUpdate(): Promise<void> { await invoke("cancel_update"); }
 

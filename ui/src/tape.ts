@@ -50,7 +50,7 @@ export type ThreadDelta = Extract<StreamDelta, { type: "thread_delta" }>;
 
 /** The state with what the store keeps beside it, so a reconnect's snapshot does not lose the pages loaded above it. */
 type Held = ThreadState & {
-	/** Lines loaded above the window by `earlier`, oldest first. */
+	/** Lines loaded above the window by `earlier`, oldest first: the first of `events`, as many as there are here. */
 	older: TranscriptEvent[];
 	olderMore: boolean;
 };
@@ -110,9 +110,19 @@ export function reduceThread(held: Held, fold: Fold): Held {
 		}
 		case "pull":
 			return { ...held, pulling: fold.pulling };
-		case "left":
-			// Kept for the next visit, but what was mid-stream is no longer known.
+		case "left": {
+			// Kept for the next visit, but what was mid-stream is no longer
+			// known. And of its lines, only the window a visit opens on: the
+			// pages loaded above it run to megabytes in a long thread (every
+			// capture of a screen is in them as text), they would be held for
+			// each thread left behind, and coming back opens on the last
+			// lines whatever was loaded. The way up asks the desk for them
+			// again, a page at a time.
+			if (held.older.length > 0) {
+				return { ...held, events: held.events.slice(held.older.length), older: [], olderMore: false, more: true, streaming: [], pulling: null };
+			}
 			return held.streaming.length > 0 || held.pulling !== null ? { ...held, streaming: [], pulling: null } : held;
+		}
 	}
 }
 
@@ -122,6 +132,9 @@ export function reduceThread(held: Held, fold: Fold): Held {
  * A snapshot this long may have more above it; a shorter one is the whole thing.
  */
 const WINDOWED = 200;
+
+/** How long the lines behind one that landed wait to land together: a frame of the screen. */
+export const BURST_MS = 16;
 
 /** How long a thread nobody is showing stays subscribed, so coming back to it draws at once. */
 const LINGER_MS = 60_000;
@@ -140,13 +153,21 @@ export const dmOf = (personaId: string): ThreadId => ({ kind: "dm", key: persona
  * The conversation, the work card beside it and the dock read the same store,
  * so the desk sends the snapshot once and every delta is folded once. When the
  * last reader goes the subscription lingers for a minute, and after that the
- * folded events are kept (up to KEEP threads), so switching back draws what it
- * last showed while the new snapshot is on its way instead of an empty column.
+ * window's folded events are kept (up to KEEP threads), so switching back
+ * draws its last lines while the new snapshot is on its way instead of an
+ * empty column. The pages loaded above the window are let go then.
  *
  * Streaming deltas arrive a word or two at a time, often faster than the
  * screen draws. They are queued and folded once per animation frame, so a
  * reply publishes at most once per frame, and only when whole bubbles or
  * visible thoughts change. The first reply delta also signals writing.
+ *
+ * A written line is folded as it lands, with the words queued before it.
+ * When a turn ends, though, its reply is written down a line a bubble, a
+ * hundred in one burst for a long one, and each publish is a render of
+ * every pane that reads the thread, done before the socket hears its next
+ * frame. So the lines that come within BURST_MS of one that landed wait
+ * that long and land together.
  */
 export class ThreadStore {
 	private held: Held = NOTHING_YET;
@@ -156,8 +177,11 @@ export class ThreadStore {
 	private readers = 0;
 	private unsub: (() => void) | null = null;
 	private linger: ReturnType<typeof setTimeout> | null = null;
-	private queued: ThreadDelta[] = [];
+	/** Words waiting for the frame and lines waiting out a burst, in the order they came. */
+	private queued: Fold[] = [];
 	private frame: number | null = null;
+	/** Set while a line has just landed: the lines behind it wait for this. */
+	private burst: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(
 		private readonly wire: Wire,
@@ -196,7 +220,10 @@ export class ThreadStore {
 	}
 
 	private apply(fold: Fold) {
-		const next = reduceThread(this.held, fold);
+		this.publish(reduceThread(this.held, fold));
+	}
+
+	private publish(next: Held) {
 		if (next === this.held) return;
 		this.held = next;
 		const visible = visibleThread(this.state, next);
@@ -212,9 +239,15 @@ export class ThreadStore {
 				this.apply({ type: "snapshot", items });
 			},
 			event: (item) => {
-				// Deltas queued before this line belong before it.
-				this.drain();
-				this.apply({ type: "event", item });
+				this.queued.push({ type: "event", item });
+				if (this.burst !== null) return;
+				this.flush();
+				// A timer, not a frame: a hidden window draws no frames, and
+				// its lines would wait for as long as it stayed hidden.
+				this.burst = setTimeout(() => {
+					this.burst = null;
+					this.flush();
+				}, BURST_MS);
 			},
 			ephemeral: (delta) => {
 				// A download is drawn on the computer's button, not in the talk.
@@ -224,7 +257,7 @@ export class ThreadStore {
 				}
 				// The window declared `threads2`: this is the only delta it is sent.
 				if (delta.type !== "thread_delta" || !sameThread(delta.thread, this.id)) return;
-				this.queued.push(delta);
+				this.queued.push({ type: "words", deltas: [delta] });
 				this.frame ??= requestAnimationFrame(this.flush);
 			},
 		});
@@ -253,29 +286,29 @@ export class ThreadStore {
 	private close() {
 		this.unsub?.();
 		this.unsub = null;
+		// The lines still waiting are kept for the next visit.
+		this.flush();
 		this.drop();
 		this.apply({ type: "left" });
 	}
 
-	private drain() {
-		if (this.frame !== null) cancelAnimationFrame(this.frame);
-		this.frame = null;
-		this.held = reduceThread(this.held, { type: "words", deltas: this.queued });
-		this.queued = [];
-	}
-
+	/** Folds what is queued, in the order it came, and publishes once. */
 	private flush = () => {
 		if (this.frame !== null) cancelAnimationFrame(this.frame);
 		this.frame = null;
 		if (this.queued.length === 0) return;
-		const deltas = this.queued;
+		const queued = this.queued;
 		this.queued = [];
-		this.apply({ type: "words", deltas });
+		let next = this.held;
+		for (const fold of queued) next = reduceThread(next, fold);
+		this.publish(next);
 	};
 
 	private drop() {
 		if (this.frame !== null) cancelAnimationFrame(this.frame);
 		this.frame = null;
+		if (this.burst !== null) clearTimeout(this.burst);
+		this.burst = null;
 		this.queued = [];
 	}
 }

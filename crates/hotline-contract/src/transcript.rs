@@ -25,6 +25,12 @@ pub enum TranscriptEvent {
         id: String,
         ts: i64,
         text: String,
+        /// On a pair's line that is a handoff or its result: the key of the
+        /// work thread the handoff runs in, so the pair says so and opens it.
+        /// Absent on every other line, and on one written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        handoff_thread: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         attachments: Option<Vec<Attachment>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,6 +58,12 @@ pub enum TranscriptEvent {
         ts: i64,
         /// With a file, the caption, which may be empty.
         text: String,
+        /// On a pair's line that is a handoff or its result: the key of the
+        /// work thread the handoff runs in, so the pair says so and opens it.
+        /// Absent on every other line, and on one written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        handoff_thread: Option<String>,
         /// A file the teammate sent the person with `send_file`: one per
         /// message, read back with `file.read`.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,9 +124,12 @@ pub enum TranscriptEvent {
         /// 0.45.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ended_ts: Option<i64>,
-        /// The web pages a step read or found: a fetch's page, a web
-        /// search's results, each as the step's own output names it. Absent
-        /// on every other step, and on steps written before 0.45.
+        /// The web pages a step opened or found: a fetch's page, a `curl`
+        /// command's, the page the teammate's browser went to (since
+        /// 0.49), a web search's results (`found`, but read when the search
+        /// hands the model their content, as Claude Code's does, since
+        /// 0.49), each as the step's own output names it. Absent on every
+        /// other step, and on steps written before 0.45.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sources: Option<Vec<WebSource>>,
     },
@@ -516,12 +531,63 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         asked_in: Option<String>,
+        /// The words a colleague's handoff or question opened this work
+        /// thread with, as sent, cut to 4,000 characters, for a client to
+        /// say what was asked without opening the thread.
+        /// Absent for any other thread, and on a link written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        request: Option<String>,
+        /// What a run runs: `shell` for a command a harness left running.
+        /// Absent for a subagent and every other kind.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        run_kind: Option<RunKind>,
     },
     /// An aside this thread's teammate left a colleague: written on the
     /// thread it was said from, so the thread's record shows what it said.
     /// A quiet line, never a bubble; clients that do not know the kind skip
     /// it.
     Aside(Aside),
+    /// What the teammate says it is on now, with its `activity` tool: a kind
+    /// that moves the mark and a few words of its own beside it. The newest
+    /// in a turn stands until another replaces it, and none stands once the
+    /// turn has ended; each is kept, because together they head the turn's
+    /// path. `type` is `thinking`, `reading`, `searching`, `making` or
+    /// `talking`; any other word is kept as it came and drawn plainly.
+    /// Clients that do not know the kind skip it.
+    Activity {
+        id: String,
+        ts: i64,
+        r#type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        message: Option<String>,
+    },
+    /// Something a turn left behind, said by the teammate with its `outcome`
+    /// tool: a kind that picks the mark under the reply, and its own words.
+    /// `type` is `sent`, `made`, `changed`, `open` (still going after the
+    /// reply) or `yours` (left for the person to do); any other word is kept
+    /// and drawn plainly. `state` is `failed` or `partial` when it did not
+    /// wholly work. An open one is written again under the same id when the
+    /// teammate closes it: as what it became, or, still `open` with
+    /// `closedAt` set, as ended with nothing left behind. Clients that do not
+    /// know the kind skip it.
+    Outcome {
+        id: String,
+        ts: i64,
+        r#type: String,
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        state: Option<String>,
+        /// The teammate's own name for it, by which an open one is closed.
+        key: String,
+        /// When an open one was closed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        closed_at: Option<i64>,
+    },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.

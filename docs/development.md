@@ -86,6 +86,7 @@ crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the sup
   lib.rs                     the servers settings name, a teammate's grant, the live connections
   tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
   oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
+  oauth/reach.rs             which addresses a server's sign-in may connect to, and the client that holds it to them
 crates/hotline-browser-core/src/ the desk browser as the desk and its browsers share it; on the leaves and the store
   lib.rs                     DeskBrowser and its types, the Gate a page's loads are asked of, a teammate's web data
   pipe.rs                    the JSON lines between `hotline serve` and its browser helper, and the helper's end
@@ -158,7 +159,9 @@ make icons      # every platform's app icon, and the tray marks, from assets/
 A release is a tag `desktop-vX.Y.Z` whose version matches `Cargo.toml` and
 `tauri.conf.json`; `.github/workflows/desktop-release.yml` builds each
 target on its own runner, signs and notarizes the Mac bundles from the
-repository secrets, and publishes one GitHub Release marked latest. A hand
+repository secrets, and publishes one GitHub Release marked latest. A beta
+of it is a tag `desktop-vX.Y.Z-beta.N`, built and signed the same way and
+published as a pre-release ([Update tracks](#update-tracks)). A hand
 run of the workflow builds and keeps artifacts only. `CHANGELOG.md` takes
 an entry per version, and `docs/releases/<version>.md` its release notes.
 
@@ -394,11 +397,13 @@ a separate test signing key, and loopback HTTP fixtures; they never install.
 The first release containing this updater must itself be installed manually
 on copies that predate it.
 
-The public signing key and HTTPS endpoint live in
+The public signing key and the Stable track's HTTPS endpoint live in
 `crates/hotline-app/tauri.conf.json`. The endpoint currently points directly
 to GitHub's `releases/latest/download/latest.json`; a future hosting change can
-serve the same contract from another configured HTTPS endpoint. There is no
-runtime URL or signing-key control in the window.
+serve the same contract from another configured HTTPS endpoint. The Beta
+track's endpoint is a constant in `crates/hotline-app/src/updater.rs`. There
+is no runtime URL or signing-key control in the window: the Track row
+chooses between those two addresses and stores only which.
 
 CI requires `TAURI_SIGNING_PRIVATE_KEY` and optionally
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in repository secrets. This key is separate
@@ -409,14 +414,183 @@ trust the replacement. Never commit the private key or include it in artifacts.
 release CI explicitly enables `createUpdaterArtifacts` and requires signatures.
 
 Each workflow build collects packages and signatures under predictable names.
-After all four build targets pass their checks, `scripts/updater_manifest.py` verifies that
-every expected package/signature exists and writes `updater-X.Y.Z.json` and
-`latest.json`. Notes come from the draft GitHub release. The release becomes
+After every build target passes its checks, `scripts/updater_manifest.py` verifies that
+every expected package/signature exists and writes `updater-X.Y.Z.json` and,
+for a final release, `latest.json`. Notes come from `docs/releases/`. The release becomes
 latest only after all assets are uploaded. Manual workflow runs produce signed
 workflow artifacts without publishing. Published versions cannot be rebuilt;
-ship a new stable `desktop-vX.Y.Z` tag. Windows updater signatures use the
+ship a new `desktop-vX.Y.Z` tag, or the next beta. Windows updater signatures use the
 same required updater key. Authenticode publisher signing is deferred; an
 unsigned installer can still trigger Windows reputation warnings.
+
+### Update tracks
+
+Settings → Updates has a **Track** row. **Stable**, the default, is offered
+final releases. **Beta** is also offered the betas cut from a release branch
+before a final, `X.Y.Z-beta.N`. There is no nightly track.
+
+The choice is the desk's: `<data dir>/update-track.json`, beside
+`updater.json` and the shell's other files, holding `{"track":"beta"}` and
+nothing else. A file that is missing, unreadable or names anything else is
+Stable. Changing the track forgets the offer and the check made on the other
+one and checks the new one at once.
+
+| Track | Manifest it reads | What it is offered |
+| --- | --- | --- |
+| Stable | `https://github.com/1Broseidon/hotline/releases/latest/download/latest.json` | a final release newer than the running version |
+| Beta | `https://raw.githubusercontent.com/1Broseidon/hotline/update-tracks/beta.json` | a final release or a `beta.N` newer than the running version |
+
+Newer means newer by semver, on both tracks, and that one rule gives every
+case. `0.49.0-beta.1` is older than `0.49.0`, so a desk on a beta is offered
+its final, from either track. A desk on Beta is offered each later beta and
+each final, whichever is newest. A desk that goes back to Stable is never
+moved to an older version: on `0.49.0-beta.2` it is offered nothing while
+Stable's newest is `0.48.x`, keeps running the beta, and is offered `0.49.0`
+when that is released. The Track row says so: *Keeps 0.49.0-beta.2 until a
+newer final release*. A desk on Stable is never offered a pre-release even
+if one were served at Stable's address, and Beta takes `beta.N` and no other
+pre-release (`updater::newer`).
+
+The first beta of all has to be installed by hand, from its release page:
+a build from before tracks has no Track row and reads only Stable's address.
+From that build on, betas arrive in the app.
+
+**Where the two manifests live, and why.** Stable's is the `latest.json`
+attached to whichever release GitHub serves as latest. GitHub's latest
+release is "the most recent non-prerelease, non-draft release", and "drafts
+and prereleases cannot be set as latest" (GitHub's REST reference for
+releases), so a beta published as a pre-release never answers at that
+address. Two more things hold even if that did not: a beta is uploaded
+without any `latest.json`, and the workflow publishes it with
+`--latest=false`.
+
+Beta's is one file, `beta.json`, on the branch `update-tracks`, which holds
+that file and nothing else. `scripts/beta_pointer.py` replaces it after each
+release, beta or final, with a copy of that release's own
+`updater-<version>.json`. A branch was chosen over a rolling release that
+holds only the manifest, for three reasons. Replacing a release's file is a
+delete and then an upload, so a desk that checks in between is told the
+manifest is missing, and a run that fails in between leaves it missing;
+moving a branch is one step, and a reader sees the old file or the new one.
+The branch moves only as a fast-forward from the head that was read, so two
+releases finishing together cannot lose one's update. And a release whose
+files change is exactly what "published versions are immutable" says does
+not happen: turning on GitHub's immutable releases for the repository would
+break a rolling release and leaves the branch alone. The cost is a second
+host, `raw.githubusercontent.com`, which caches a file for five minutes, and
+a branch that must not be deleted or protected against the workflow's
+token. If it is deleted, a desk on Beta says the update check failed and
+keeps what it has; the next release makes the branch again.
+
+**What happens in what order, and what a failure leaves.**
+
+| Step | A failure here leaves |
+| --- | --- |
+| The tag is checked: it matches `Cargo.toml` and `tauri.conf.json`, is `X.Y.Z` or `X.Y.Z-beta.N`, and is not already published | nothing built |
+| Each target builds and signs its packages; the server archives build | no release; both manifests as they were |
+| The manifest is generated, which refuses a missing package or signature; a beta is checked to have no `latest.json` | no release; both manifests as they were |
+| A draft release is made and every file uploaded to it | a draft nobody is served; a second run of the workflow finishes it |
+| The draft is published in one call: a final as latest, a beta as a pre-release | before the call, a draft; after it, the whole release. Stable's manifest changes here for a final and not at all for a beta |
+| `beta-track`: the published release's own manifest is fetched back, every package it names is asked for, and the branch is moved forward to it | the release stays published and Beta's manifest stays on the previous release, whole. Run the failed job again (**Re-run failed jobs**); the build is not repeated |
+
+The Beta manifest only ever moves forward by semver. A patch to an older
+line (`0.48.4` while Beta is on `0.49.0-beta.2`) leaves it where it is.
+
+**What each package format does with a beta's version.** The version the
+app reports and the updater compares is always the semver, `0.49.0-beta.1`.
+Two formats sort versions by their own rules and are given the beta their
+way (`scripts/release_version.py`); a final release is written as it is
+everywhere.
+
+| Package | Version it carries for `0.49.0-beta.1` | Why |
+| --- | --- | --- |
+| macOS `.app`, `.dmg` | `0.49.0-beta.1` in `CFBundleShortVersionString` and `CFBundleVersion` | the bundler writes it as it is; nothing on a Mac orders installs by it, and the updater replaces the bundle |
+| Windows NSIS | `0.49.0-beta.1` as the installed version, `0.49.0.0` in the file's numeric version field | the installer compares installed versions by semver, so the final is an upgrade |
+| AppImage | `0.49.0-beta.1`, in its file name | the format has no version order; the updater replaces the file |
+| deb | `0.49.0~beta.1` | dpkg reads `0.49.0-beta.1` as version `0.49.0` at revision `beta.1`, which is newer than `0.49.0`. The workflow rewrites the one `Version:` line (`scripts/deb_version.py`) and signs the package again |
+| rpm | version `0.49.0`, release `0.beta.1` | `-` cannot be in an rpm version, and the bundler refuses one. Release `0.beta.1` sorts before the final's release `1`, so `rpm -U` takes the final as an upgrade. The workflow packs the rpm in a step of its own with that label and signs it again under the semver |
+| Server archive | `0.49.0-beta.1`, in its file name | `hotline update` reads only Stable's manifest and refuses a pre-release for `--version`, so a server gets a beta only when someone unpacks one by hand; it then moves to the final by `hotline update`, which compares by semver |
+
+The rpm mapping must not change in the middle of a release's betas: rpm
+sorts `0.49.0~beta.2` (the form a later bundler writes by itself) before
+`0.49.0-0.beta.1`.
+
+**Release notes for a beta** (`scripts/release_notes.py`). A beta has none
+of its own. `0.49.0-beta.1` shows `docs/releases/0.49.0.md` as it stands at
+the tag, so the notes for the final are started before its first beta and
+each beta shows them as they have grown. Its GitHub Release puts one line
+above them saying it is a beta and how a desk gets one, then the changelog's
+`[0.49.0]` section, or `[Unreleased]` while the branch still files changes
+there, and a comparison with the last final release.
+
+### Cutting a beta
+
+From the release branch, with `make precheck` passing:
+
+1. Start `docs/releases/X.Y.Z.md` if it is not there. The tag is refused
+   without it.
+2. Set the version and bring the lock file along:
+   `python3 scripts/release_version.py X.Y.Z-beta.N --set && cargo update --workspace`.
+   That changes `Cargo.toml`, `crates/hotline-app/tauri.conf.json` and the
+   workspace's own entries in `Cargo.lock`.
+3. Commit it as `Release X.Y.Z-beta.N`, push the branch, and wait for CI on
+   that commit.
+4. Tag that commit `desktop-vX.Y.Z-beta.N` and push the tag. Betas count up
+   from 1 and are never reused: a published version is immutable.
+5. When the workflow finishes, the release page shows a pre-release, the
+   repository's latest release is still the last final one, and `beta.json`
+   on `update-tracks` names the beta. A desk on Beta is offered it at its
+   next check.
+
+The final is the same with `X.Y.Z`: after it, both tracks offer it, and a
+desk still on a beta is moved to it from either track.
+
+### The first dry run
+
+Nothing above has run on GitHub's runners. Before the first beta is tagged,
+run the workflow by hand on the pushed branch (**Actions → desktop-release →
+Run workflow**), twice: once with **version** `0.49.0-beta.1`, and once with
+it empty. A hand run publishes nothing and moves neither manifest. The
+first run must show:
+
+- [ ] Every `build` job is green, with these steps green in it: *The
+      version, and how each package format writes it*; on Linux, *Package a
+      beta's rpm*, *Write a beta's deb for dpkg and sign its Linux packages
+      again* and *The Linux packages say the version their package managers
+      sort*; on macOS, *The Mac bundle says the whole version*.
+- [ ] The Linux step's log shows `Version: 0.49.0~beta.1` from `dpkg-deb
+      --info`, and no error from the rpm line: the rpm says `0.49.0-0.beta.1`.
+- [ ] Mac signing and notarization pass with the version `0.49.0-beta.1`.
+- [ ] Each `desktop-*` artifact holds its packages named
+      `hotline_0.49.0-beta.1_<platform>…`, each updater package with a
+      `.sig` beside it: nine packages and nine signatures in all, and two
+      `.dmg`.
+- [ ] Both `server-*` artifacts hold `hotline-server_0.49.0-beta.1_….tar.gz`.
+- [ ] The `manifest` job is green. Its `release-manifest` artifact holds
+      `updater-0.49.0-beta.1.json`, with `"version": "0.49.0-beta.1"` and
+      nine platforms whose URLs are under
+      `releases/download/desktop-v0.49.0-beta.1/`, and it holds **no**
+      `latest.json`.
+- [ ] `publish` and `beta-track` are skipped. No release, draft or tag was
+      made, and `releases/latest` is unchanged.
+- [ ] On a Mac, the `.dmg` from the artifact installs, opens without a
+      Gatekeeper refusal, and shows `0.49.0-beta.1` in Settings → Updates
+      and in About; the Track row is there and set to Stable.
+- [ ] On Linux, if a machine is to hand: `sudo dpkg -i` of the deb over an
+      installed `0.48.3` upgrades it, and `dpkg -l hotline` shows
+      `0.49.0~beta.1`.
+
+The second run, with no version, builds the checkout's own and must be
+green in every job, with `latest.json` in `release-manifest` identical to
+`updater-<version>.json`: a final release still builds as it did.
+
+What a hand run cannot show, and the first real beta does: that the
+pre-release is published and is not the latest release, that the address
+Stable reads still answers with the last final, and that `beta-track`
+creates `update-tracks` and writes `beta.json`. Check those three by hand
+after the first beta's workflow finishes. If `beta-track` fails, nothing is
+harmed: the beta is published, Stable is untouched, and no desk is on Beta
+yet.
 
 Each build runs formatting, Clippy, the workspace tests, UI type checking and
 manifest tests. Windows and macOS also test a disposable native credential entry.
@@ -730,8 +904,10 @@ The OAuth unit harness in `crates/hotline-core/src/mcp/tests.rs` runs a
 loopback protected-resource and authorization server, through the vault, through metadata discovery, DCR, PKCE callback, token
 refresh and authenticated MCP calls. It also covers restart reuse, denied and
 wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
-sign-out and the protected vault boundary. No real provider account is used by
-the test suite.
+sign-out and the protected vault boundary, and which addresses a sign-in may
+connect to, with DNS answered from a table through `hotline-mcp`'s
+`test-support` feature. No real provider account is used by the test suite,
+and no name is looked up off this computer.
 
 Most of `desk.rs` needs no provider key: it creates a teammate, watches
 the roster view, lists models, adds a credential, lists and marks a peer

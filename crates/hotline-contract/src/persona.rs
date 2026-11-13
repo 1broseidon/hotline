@@ -35,6 +35,19 @@ pub enum AvatarBy {
     Person,
 }
 
+/// A picture the desk can draw for a teammate on this machine, offered for
+/// the person to pick: one of DiceBear's styles and the seed that drew it.
+/// `svg` is the drawing itself, for the window to show as an image; picking
+/// it keeps the same drawing as the teammate's PNG.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct AvatarCandidate {
+    pub style: String,
+    pub seed: String,
+    pub svg: String,
+}
+
 // ---------------------------------------------------------------------------
 // Teammates
 // ---------------------------------------------------------------------------

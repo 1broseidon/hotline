@@ -453,6 +453,7 @@ fn independent(frame: &Value) -> bool {
             | Command::DesksUnlink { .. }
             | Command::FileRead { .. }
             | Command::AvatarRead { .. }
+            | Command::AvatarCandidates { .. }
             | Command::VoiceStatus { .. }
             | Command::VoiceModels {}
             | Command::VoiceTranscribe { .. }

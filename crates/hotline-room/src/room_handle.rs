@@ -80,6 +80,16 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("This room cannot make images.".into())
     }
 
+    /// The person keeps one of the pictures `avatar.candidates` offered.
+    async fn pick_avatar(
+        &self,
+        _persona_id: &str,
+        _style: &str,
+        _seed: &str,
+    ) -> Result<hotline_contract::Avatar, String> {
+        Err("This room cannot keep pictures.".into())
+    }
+
     /// This desk's teammates as a linked desk is shown them: the rows
     /// `list_teammates` gives a local colleague, and nothing more.
     fn federation_roster_entries(&self) -> Vec<hotline_contract::LinkedTeammate> {

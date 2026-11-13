@@ -76,7 +76,7 @@ fn margined() -> Vec<u8> {
     bytes.into_inner()
 }
 
-fn kept(dir: &tempfile::TempDir) -> Vec<String> {
+fn kept_files(dir: &tempfile::TempDir) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir.path().join("data/avatars/ada"))
         .map(|entries| {
             entries
@@ -146,14 +146,14 @@ async fn a_new_picture_replaces_the_old_and_clearing_removes_it() {
         .unwrap();
     let second = avatar(&room).unwrap().hash;
     assert_ne!(first, second);
-    assert_eq!(kept(&dir), vec![format!("{second}.png")]);
+    assert_eq!(kept_files(&dir), vec![format!("{second}.png")]);
 
     tools
         .call("set_avatar", &json!({ "clear": true }))
         .await
         .unwrap();
     assert_eq!(avatar(&room), None);
-    assert_eq!(kept(&dir), [] as [String; 0]);
+    assert_eq!(kept_files(&dir), [] as [String; 0]);
 }
 
 #[tokio::test]
@@ -205,7 +205,7 @@ async fn only_an_image_inside_the_workspace_can_be_a_picture() {
         assert!(error.contains(wanted), "{path}: {error}");
     }
     assert_eq!(avatar(&room), None);
-    assert_eq!(kept(&dir), [] as [String; 0]);
+    assert_eq!(kept_files(&dir), [] as [String; 0]);
 }
 
 #[tokio::test]
@@ -273,4 +273,74 @@ fn a_picture_is_read_only_by_a_genuine_hash() {
         read(dir.path(), "bob", &hash, 0).unwrap_err(),
         "That teammate has no such picture."
     );
+}
+
+#[tokio::test]
+async fn a_picked_picture_is_the_drawing_offered_and_the_persons() {
+    let (dir, room, tools) = room();
+    let offered = drawn::candidates("ada", 3)
+        .into_iter()
+        .find(|candidate| candidate.style == "thumbs")
+        .unwrap();
+
+    let picked = room
+        .pick_avatar("ada", &offered.style, &offered.seed)
+        .await
+        .unwrap();
+
+    assert_eq!(picked.by, AvatarBy::Person);
+    assert_eq!(avatar(&room).unwrap(), picked);
+    let kept = std::fs::read(
+        dir.path()
+            .join(format!("data/avatars/ada/{}.png", picked.hash)),
+    )
+    .unwrap();
+    assert_eq!(kept, drawn::png("thumbs", &offered.seed).unwrap());
+    assert_eq!(hex::encode(Sha256::digest(&kept)), picked.hash);
+    // The teammate leaves it be, as any picture the person chose.
+    let error = tools
+        .call("set_avatar", &json!({ "clear": true }))
+        .await
+        .unwrap_err();
+    assert!(error.contains("The person chose"), "{error}");
+
+    // A style the desk does not draw is refused and changes nothing.
+    let error = room
+        .pick_avatar("ada", "bottts", "ada:0")
+        .await
+        .unwrap_err();
+    assert!(error.contains("does not draw"), "{error}");
+    assert_eq!(avatar(&room).unwrap(), picked);
+    assert_eq!(kept_files(&dir), vec![format!("{}.png", picked.hash)]);
+}
+
+#[tokio::test]
+async fn without_a_provider_setup_draws_the_default_style_as_the_teammates_own() {
+    let (dir, room, _tools) = room();
+    assert!(room.image_generators().is_err());
+    room.can_draw_avatar("ada").unwrap();
+
+    let picture = room.generate_avatar("ada").await.unwrap();
+
+    assert_eq!(picture.by, AvatarBy::Own);
+    assert_eq!(avatar(&room).unwrap(), picture);
+    let kept = std::fs::read(
+        dir.path()
+            .join(format!("data/avatars/ada/{}.png", picture.hash)),
+    )
+    .unwrap();
+    assert_eq!(kept, drawn::png(drawn::DEFAULT, "ada").unwrap());
+    assert!(!room.drawing("ada"));
+}
+
+#[tokio::test]
+async fn setup_never_draws_over_a_picture_the_person_picked() {
+    let (_dir, room, _tools) = room();
+    let picked = room.pick_avatar("ada", "clay", "ada:0").await.unwrap();
+
+    let error = room.can_draw_avatar("ada").unwrap_err();
+    assert!(error.contains("you chose"), "{error}");
+    let error = room.generate_avatar("ada").await.unwrap_err();
+    assert!(error.contains("you chose"), "{error}");
+    assert_eq!(avatar(&room).unwrap(), picked);
 }

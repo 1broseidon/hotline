@@ -265,13 +265,33 @@ pub enum Command {
     },
     /// Draws a picture for a teammate from its name and goal through the
     /// room's image providers, within the spending cap, and puts it on the
-    /// roster: what setup offers when images are available. Answers `null`
-    /// once the drawing has started, since a socket's commands are answered
-    /// in order and a picture takes up to a minute; the roster carries it
-    /// when it lands. Refused at once when no provider can draw or the
-    /// person chose the current picture.
+    /// roster: what setup offers. When no provider can draw, the picture is
+    /// drawn on this machine instead, in the desk's default DiceBear style
+    /// seeded by the teammate's id. Answers `null` once the drawing has
+    /// started, since a socket's commands are answered in order and a
+    /// picture takes up to a minute; the roster carries it when it lands.
+    /// Refused at once when the person chose the current picture.
     #[serde(rename = "avatar.generate")]
     AvatarGenerate { persona_id: String },
+    /// Pictures the desk draws on this machine for the person to choose
+    /// from, one per style, answered as [`AvatarCandidate`]s. The same
+    /// teammate and `round` always answer the same pictures; another round
+    /// answers others.
+    #[serde(rename = "avatar.candidates")]
+    AvatarCandidates {
+        persona_id: String,
+        #[serde(default)]
+        round: u32,
+    },
+    /// Keeps one of those pictures as the teammate's, chosen by the person,
+    /// so the teammate does not replace it. Answers the [`Avatar`]. Refused
+    /// for a style the desk does not draw.
+    #[serde(rename = "avatar.pick")]
+    AvatarPick {
+        persona_id: String,
+        style: String,
+        seed: String,
+    },
     /// Where to notify this phone: the token its push service issued, and
     /// which platform it is for. Sent by the phone after it connects.
     #[serde(rename = "mobile.push_register")]

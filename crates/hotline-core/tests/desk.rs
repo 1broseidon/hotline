@@ -79,6 +79,7 @@ mod desk {
     use super::*;
 
     mod accounts;
+    mod avatars;
     mod capture;
     mod connections;
     mod cookie_asks;

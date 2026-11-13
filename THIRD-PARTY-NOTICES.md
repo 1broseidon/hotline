@@ -35,18 +35,37 @@ license beside a copy. The rest:
 | License | Crates | What it obliges |
 |---|---|---|
 | Apache-2.0 WITH LLVM-exception | rustix, cap-std, wasi, wit-bindgen and their families | As Apache-2.0 |
-| BSD-1-, BSD-2-, BSD-3-Clause | fiat-crypto; zerocopy, serial2; brotli, curve25519-dalek, encoding_rs, subtle, zstd, aws-lc-sys, opusic-sys and others | Keep the copyright and license |
+| BSD-1-, BSD-2-, BSD-3-Clause | fiat-crypto; zerocopy, serial2; brotli, curve25519-dalek, encoding_rs, subtle, zstd, aws-lc-sys, opusic-sys, tiny-skia and others | Keep the copyright and license |
 | ISC | ring, rustls, rustls-webpki, aws-lc-rs, libloading, untrusted | Keep the copyright and license |
 | Zlib | miniz_oxide, zlib-rs, bytemuck, foldhash, the objc2 crates | Do not misrepresent the origin |
 | BSL-1.0 | clipboard-win, error-code | Keep the license with source copies |
 | Unicode-3.0 | the icu crates, unicode-ident, zerovec, yoke, litemap | Keep the copyright and license |
 | bzip2-1.0.6 | libbz2-rs-sys | Keep the copyright and license |
-| 0BSD, CC0-1.0, MIT-0, Unlicense | adler2; dunce, constant_time_eq, ppmd-rust; aws-lc-sys; memchr, walkdir, ignore, the grep crates | Nothing |
+| 0BSD, CC0-1.0, MIT-0, Unlicense | adler2; dunce, constant_time_eq, ppmd-rust; aws-lc-sys, borrow-or-share; memchr, walkdir, ignore, the grep crates | Nothing |
+| MIT AND CC0-1.0, by part | dicebear-styles | See DiceBear's styles |
 | CDLA-Permissive-2.0 | webpki-roots, webpki-root-certs (the Mozilla root certificates, as data) | Keep the license text with the data |
 | MPL-2.0 | cssparser, selectors, dtoa-short, option-ext, symphonia and its codecs | A changed MPL file is published with its source. Hotline changes none |
 
 r-efi also offers LGPL-2.1-or-later, as an alternative to MIT and
 Apache-2.0; the gate passes it on those.
+
+### DiceBear's styles
+
+A teammate's picture drawn on the desk comes from dicebear-core (MIT,
+Florian Körner) and the style definitions in dicebear-styles, both pinned
+release candidates. dicebear-styles declares no license field: its
+`LICENSE.md` puts the code that ships the styles under MIT and gives each
+style its own license, from CC0 1.0 to CC BY 4.0 and the Avataaars and
+Bottts terms. Each style is a cargo feature, and hotline-core enables only
+twelve whose artwork is CC0 1.0 (Clay, Critters, Cutouts, Lorelei, Marbles,
+Moods, Notionists, Open Peeps, Pixel Art, Sprouts, Thumbs, Voxel Bot), so
+a picture needs no credit where it is shown. Lorelei, Notionists and Open
+Peeps are remixes of Lisa Wischofsky's, Zoish's and Pablo Stanley's work,
+each released as CC0 1.0. `deny.toml` reads the crate as `MIT AND CC0-1.0`,
+pinned to this version and its `LICENSE.md`; a test in
+`crates/hotline-core/src/session/avatar/drawn.rs` fails if a style it
+draws names any license but CC0 1.0. Enabling another style means reading
+its row in that file first.
 
 ## Window packages
 

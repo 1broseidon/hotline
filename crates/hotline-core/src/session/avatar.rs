@@ -6,6 +6,13 @@
 //! changed, so a window that has a hash has the picture for good. Setting a
 //! new one removes the old files, and so does clearing. A picture the person
 //! chose is not replaced by the teammate.
+//!
+//! A picture comes from the teammate's workspace (`set_avatar`), from the
+//! room's image provider at setup, or from DiceBear on this machine
+//! ([`drawn`]): at setup when no provider can draw, and whenever the person
+//! picks one in the teammate's pane.
+
+pub(crate) mod drawn;
 
 use super::{Room, generate::read_workspace_image};
 use crate::contract::{Avatar, AvatarBy};
@@ -112,7 +119,8 @@ impl Room {
     }
 
     /// Whether setup's offer can go ahead, answered before the drawing starts
-    /// so a refusal reaches the person rather than a log.
+    /// so a refusal reaches the person rather than a log. Only a picture the
+    /// person chose refuses it: without a provider the picture is drawn here.
     pub(crate) fn can_draw_avatar(&self, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
         if persona
@@ -121,12 +129,14 @@ impl Room {
         {
             return Err("This teammate already has a picture you chose.".into());
         }
-        self.image_generators().map(|_| ())
+        Ok(())
     }
 
     /// The setup screen's offer: a picture drawn from the teammate's name and
-    /// goal, in the house avatar style. It counts as the teammate's own, so
-    /// the teammate may redraw it later; one the person chose is kept.
+    /// goal, in the house avatar style, or, when no provider can draw, one
+    /// drawn on this machine in the default DiceBear style from the
+    /// teammate's id. Either counts as the teammate's own, so the teammate
+    /// may redraw it later; one the person chose is kept.
     pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
         let persona = self.persona(persona_id)?;
         let _drawing = self.start_drawing(persona_id);
@@ -137,9 +147,56 @@ impl Room {
         {
             return Err("This teammate already has a picture you chose.".into());
         }
+        let png = if self.image_generators().is_ok() {
+            self.drawn_by_provider(&persona.name, &persona.goal, persona_id)
+                .await?
+        } else {
+            drawn_here(drawn::DEFAULT, persona_id).await?
+        };
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        if self
+            .persona(persona_id)?
+            .avatar
+            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+        {
+            return Err("This teammate already has a picture you chose.".into());
+        }
+        self.write_avatar(persona_id, Some(png), AvatarBy::Own)?;
+        self.persona(persona_id)?
+            .avatar
+            .ok_or_else(|| "The picture could not be saved.".to_string())
+    }
+
+    /// The person picked one of the pictures [`drawn::candidates`] offered:
+    /// the same drawing is kept, as theirs, so the teammate leaves it be.
+    pub(crate) async fn pick_avatar(
+        &self,
+        persona_id: &str,
+        style: &str,
+        seed: &str,
+    ) -> Result<Avatar, String> {
+        self.persona(persona_id)?;
+        let png = drawn_here(style, seed).await?;
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        self.write_avatar(persona_id, Some(png), AvatarBy::Person)?;
+        self.persona(persona_id)?
+            .avatar
+            .ok_or_else(|| "The picture could not be saved.".to_string())
+    }
+
+    /// The house style's picture of this teammate, from the room's image
+    /// provider, squared as it is kept.
+    async fn drawn_by_provider(
+        &self,
+        name: &str,
+        goal: &str,
+        persona_id: &str,
+    ) -> Result<Vec<u8>, String> {
         let styled = imagegen::styled(
             Some("avatar"),
-            &avatar_subject(&persona.name, &persona.goal),
+            &avatar_subject(name, goal),
             Aspect::Square,
             persona_id,
         )?;
@@ -154,25 +211,12 @@ impl Room {
             .acquire()
             .await
             .map_err(|_| "The picture could not be prepared.".to_string())?;
-        let png = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let _permit = permit;
             square(&drawn.image.bytes)
         })
         .await
-        .map_err(|_| "The picture could not be prepared.".to_string())??;
-        let gate = self.policy_update_lock();
-        let _held = gate.lock().await;
-        if self
-            .persona(persona_id)?
-            .avatar
-            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
-        {
-            return Err("This teammate already has a picture you chose.".into());
-        }
-        self.write_avatar(persona_id, Some(png), AvatarBy::Own)?;
-        self.persona(persona_id)?
-            .avatar
-            .ok_or_else(|| "The picture could not be saved.".to_string())
+        .map_err(|_| "The picture could not be prepared.".to_string())?
     }
 
     fn refuse_over_the_persons_choice(&self, persona_id: &str) -> Result<(), String> {
@@ -218,6 +262,15 @@ impl Room {
         remove_except(root, persona_id, hash.as_deref());
         Ok(hash)
     }
+}
+
+/// A DiceBear picture rasterised off the reactor: a few milliseconds of
+/// work, but work all the same.
+async fn drawn_here(style: &str, seed: &str) -> Result<Vec<u8>, String> {
+    let (style, seed) = (style.to_string(), seed.to_string());
+    tokio::task::spawn_blocking(move || drawn::png(&style, &seed))
+        .await
+        .map_err(|_| "The picture could not be drawn.".to_string())?
 }
 
 /// Who the crew member is: its name and job, which pick the taste decisions

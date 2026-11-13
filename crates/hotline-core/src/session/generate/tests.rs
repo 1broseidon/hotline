@@ -1108,15 +1108,6 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
     assert_eq!(fake.requests.lock().unwrap().len(), 1);
 }
 
-#[tokio::test]
-async fn setup_is_told_at_once_when_no_provider_can_draw() {
-    let (_dir, room, _tools) = room();
-    let error = room.can_draw_avatar("ada").unwrap_err();
-    assert!(error.contains("Connect"), "{error}");
-    install(&room, Fake::new("avatar-image"), None);
-    room.can_draw_avatar("ada").unwrap();
-}
-
 /// The roster shows a picture on its way, and stops showing it however the
 /// drawing ends: each change nudges the roster through the teammate's info.
 #[tokio::test]
@@ -1133,6 +1124,13 @@ async fn a_picture_being_drawn_is_on_the_roster_until_it_ends() {
     assert_eq!(infos.recv().await.unwrap().persona_id, "ada");
 
     // A refused drawing ends the same way.
+    let mut persona = room.persona("ada").unwrap();
+    persona.avatar = Some(crate::contract::Avatar {
+        hash: "a".repeat(64),
+        by: crate::contract::AvatarBy::Person,
+        updated_at: "2026-11-13T00:00:00.000Z".into(),
+    });
+    crate::room::append_persona(room.log(), &persona).unwrap();
     assert!(room.generate_avatar("ada").await.is_err());
     assert!(!room.drawing("ada"));
 }

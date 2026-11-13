@@ -588,6 +588,26 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
+        Command::AvatarCandidates { persona_id, round } => {
+            living(log, &persona_id)?;
+            off_the_reactor(move || {
+                Ok(json!(crate::session::avatar::drawn::candidates(
+                    &persona_id,
+                    round
+                )))
+            })
+            .await
+        }
+        Command::AvatarPick {
+            persona_id,
+            style,
+            seed,
+        } => {
+            living(log, &persona_id)?;
+            room.pick_avatar(&persona_id, &style, &seed)
+                .await
+                .map(|avatar| json!(avatar))
+        }
         Command::ChapterList { persona_id } => {
             let log = log.clone();
             off_the_reactor(move || Ok(json!(chapters::list(&log, &persona_id)))).await

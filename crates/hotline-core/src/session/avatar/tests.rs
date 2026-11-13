@@ -500,10 +500,10 @@ async fn a_picture_without_a_recipe_still_loads_and_a_face_replaces_it() {
         .unwrap();
     assert_eq!(avatar(&room).unwrap().recipe, None);
     tools
-        .answer("make_face", &json!({ "style": "cats" }))
+        .answer("make_face", &json!({ "style": "sprouts" }))
         .await
         .unwrap();
-    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "cats");
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "sprouts");
 }
 
 /// A subagent run and a voice front have neither tool, and a revoked

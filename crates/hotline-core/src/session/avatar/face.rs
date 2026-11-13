@@ -29,41 +29,57 @@ struct Kept {
     /// What it draws, in a few words.
     draws: &'static str,
     person: bool,
-    /// The slot a face the desk seeds at setup takes the teammate's bubble
-    /// colour in. Only creature styles are seeded.
-    seeded_in: Option<&'static str>,
-    /// How much larger than DiceBear's own framing the desk draws every face
-    /// in the style, for one whose features are too small to read in a
-    /// 28 px circle.
-    scale: Option<f64>,
+    /// The slots that wear the teammate's bubble colour, and in which tone:
+    /// what a face the desk seeds at setup is drawn in, and what
+    /// `face_options` suggests. Only creature styles are seeded.
+    wears: &'static [(&'static str, Tone)],
+    /// How the desk frames every face in the style, as DiceBear's `scale`
+    /// and `translateY`, for one whose features DiceBear places too small or
+    /// too low to read in a 28 px circle.
+    framing: Option<(f64, f64)>,
     /// Variants the desk neither offers, nor takes, nor fills from a seed,
     /// by part: ones that do not read as a face where it is shown.
     struck: &'static [(&'static str, &'static [&'static str])],
 }
 
+/// How a slot wears a bubble colour.
+#[derive(Clone, Copy)]
+enum Tone {
+    /// As the window draws the bubble's mark.
+    Mark,
+    /// The same hue lit like a screen's glow.
+    Neon,
+    /// The same hue, dark enough to glow on.
+    Screen,
+}
+
 /// The styles, creatures first. Each reads as a character in a 28 px circle,
 /// and each names its parts' variants (`googly`, `antenna`), so a teammate
 /// can choose them without seeing them first.
-const STYLES: [Kept; 7] = [
+const STYLES: [Kept; 6] = [
     Kept {
         id: "pixelbot",
         definition: dicebear_styles::PIXELBOT,
         draws: "a pixel face glowing on a dark screen",
         person: false,
-        seeded_in: Some("glow"),
-        // At DiceBear's size the face is a few pixels across a mostly empty
-        // screen; at 1.4 it fills the circle without cutting the eyes.
-        scale: Some(1.4),
-        // One-block eyes and a two-block mouth vanish in a 28 px circle.
-        struck: &[("eyes", &["slim"]), ("mouth", &["tiny"])],
+        // In the pastel mark the glow is dim, so it glows in the bubble's hue
+        // on a screen of that hue.
+        wears: &[("glow", Tone::Neon), ("background", Tone::Screen)],
+        // DiceBear's face sits small and low on its screen. At 1.1, raised
+        // 4%, the eyes and mouth sit inside the circle as one face: the
+        // farthest corner of any of them is 48 of the circle's 50.
+        framing: Some((1.1, -4.0)),
+        // One-block eyes and a two-block mouth vanish in a 28 px circle, and
+        // a flat mouth sits so low that the eyes and mouth read apart.
+        struck: &[("eyes", &["slim"]), ("mouth", &["tiny", "flat"])],
     },
     Kept {
         id: "critters",
         definition: dicebear_styles::CRITTERS,
         draws: "a flat, bold monster on a deep ground",
         person: false,
-        seeded_in: Some("body"),
-        scale: None,
+        wears: &[("body", Tone::Mark)],
+        framing: None,
         struck: &[],
     },
     Kept {
@@ -71,8 +87,8 @@ const STYLES: [Kept; 7] = [
         definition: dicebear_styles::MARBLES,
         draws: "a glossy marble with a face, and hair or a hat",
         person: false,
-        seeded_in: Some("sphere"),
-        scale: None,
+        wears: &[("sphere", Tone::Mark)],
+        framing: None,
         struck: &[],
     },
     Kept {
@@ -80,8 +96,8 @@ const STYLES: [Kept; 7] = [
         definition: dicebear_styles::MOODS,
         draws: "a rounded face showing a mood",
         person: false,
-        seeded_in: Some("face"),
-        scale: None,
+        wears: &[("face", Tone::Mark)],
+        framing: None,
         struck: &[],
     },
     Kept {
@@ -89,17 +105,8 @@ const STYLES: [Kept; 7] = [
         definition: dicebear_styles::SPROUTS,
         draws: "a potted plant with a face",
         person: false,
-        seeded_in: Some("pot"),
-        scale: None,
-        struck: &[],
-    },
-    Kept {
-        id: "cats",
-        definition: dicebear_styles::CATS,
-        draws: "a cat sitting in a small scene",
-        person: false,
-        seeded_in: Some("collar"),
-        scale: None,
+        wears: &[("pot", Tone::Mark)],
+        framing: None,
         struck: &[],
     },
     Kept {
@@ -107,8 +114,8 @@ const STYLES: [Kept; 7] = [
         definition: dicebear_styles::OPEN_PEEPS,
         draws: "a hand-drawn person, head and shoulders",
         person: true,
-        seeded_in: None,
-        scale: None,
+        wears: &[],
+        framing: None,
         struck: &[],
     },
 ];
@@ -126,17 +133,82 @@ pub(crate) fn style_ids() -> Vec<&'static str> {
 const MAX_SEED: usize = 200;
 const MAX_NAME: usize = 64;
 
-/// The bubble colours by name, as the window draws a bubble's mark in its
-/// light palette (ui/src/tokens.css, `oklch(72% 0.10 <hue>)`, grey at 0.01).
-const BUBBLE_MARKS: [(&str, &str); 7] = [
-    ("grey", "#a0a5ab"),
-    ("lime", "#a5ab5f"),
-    ("green", "#6db78a"),
-    ("teal", "#48b8bc"),
-    ("blue", "#69acde"),
-    ("violet", "#9e9ce1"),
-    ("pink", "#c78ec4"),
+/// A bubble colour by name, in its three tones.
+pub(crate) struct Bubble {
+    pub(crate) name: &'static str,
+    /// The bubble's mark as the window draws it in its light palette
+    /// (ui/src/tokens.css, `oklch(72% 0.10 <hue>)`).
+    pub(crate) mark: &'static str,
+    /// `oklch(88% 0.15 <hue>)`, as bright as Pixelbot's own glows.
+    neon: &'static str,
+    /// `oklch(26% 0.05 <hue>)`, as dark as Pixelbot's own screens.
+    screen: &'static str,
+}
+
+/// The bubbles, grey first: a cool near-white glow on a slate screen, at
+/// grey's own chroma (0.02 and 0.01).
+const BUBBLES: [Bubble; 7] = [
+    Bubble {
+        name: "grey",
+        mark: "#a0a5ab",
+        neon: "#ced9e5",
+        screen: "#202429",
+    },
+    Bubble {
+        name: "lime",
+        mark: "#a5ab5f",
+        neon: "#d8e263",
+        screen: "#242606",
+    },
+    Bubble {
+        name: "green",
+        mark: "#6db78a",
+        neon: "#7af5ad",
+        screen: "#0b2b1a",
+    },
+    Bubble {
+        name: "teal",
+        mark: "#48b8bc",
+        neon: "#00f5fd",
+        screen: "#002b2d",
+    },
+    Bubble {
+        name: "blue",
+        mark: "#69acde",
+        neon: "#73e3ff",
+        screen: "#0a273a",
+    },
+    Bubble {
+        name: "violet",
+        mark: "#9e9ce1",
+        neon: "#cec8ff",
+        screen: "#22203b",
+    },
+    Bubble {
+        name: "pink",
+        mark: "#c78ec4",
+        neon: "#ffb3ff",
+        screen: "#311b30",
+    },
 ];
+
+impl Bubble {
+    fn tone(&self, tone: Tone) -> &'static str {
+        match tone {
+            Tone::Mark => self.mark,
+            Tone::Neon => self.neon,
+            Tone::Screen => self.screen,
+        }
+    }
+
+    /// How a style wears this bubble, slot by slot.
+    fn worn_by(&self, kept: &Kept) -> BTreeMap<String, String> {
+        kept.wears
+            .iter()
+            .map(|(slot, tone)| ((*slot).to_string(), self.tone(*tone).to_string()))
+            .collect()
+    }
+}
 
 /// One of a style's parts: the variants the desk offers, how often it is
 /// drawn when left to the seed, in percent, and whether some of DiceBear's
@@ -160,7 +232,7 @@ struct Parsed {
     style: Style,
     parts: Vec<Part>,
     slots: Vec<Slot>,
-    scale: Option<f64>,
+    framing: Option<(f64, f64)>,
 }
 
 /// Each style read once: reading one checks it against DiceBear's schema.
@@ -225,7 +297,7 @@ fn parse(kept: &Kept) -> Parsed {
         style,
         parts,
         slots,
-        scale: kept.scale,
+        framing: kept.framing,
     }
 }
 
@@ -364,7 +436,7 @@ fn object<'a>(arguments: &'a Value, key: &str) -> Result<Vec<(&'a String, &'a Va
 }
 
 /// A face: its recipe, the PNG it draws, and the colours the call chose
-/// that nothing drawn uses (a cat's collar colour with no collar).
+/// that nothing drawn uses (a pattern's colour with no pattern).
 pub(crate) struct Face {
     pub(crate) recipe: AvatarRecipe,
     pub(crate) png: Vec<u8>,
@@ -485,8 +557,9 @@ fn draw(
     for (name, color) in colors {
         options.insert(format!("{name}Color"), json!([color]));
     }
-    if let Some(scale) = parsed.scale {
+    if let Some((scale, raised)) = parsed.framing {
         options.insert("scale".into(), json!(scale));
+        options.insert("translateY".into(), json!(raised));
     }
     Avatar::new(&parsed.style, Value::Object(options))
         .map_err(|_| "The face could not be drawn.".to_string())
@@ -522,53 +595,30 @@ pub(crate) fn png(recipe: &AvatarRecipe) -> Result<Vec<u8>, String> {
     pixmap.encode_png().map_err(|_| failed())
 }
 
-/// The face setup gives a teammate at once: a creature style with named
-/// parts picked from its id, in its bubble colour where the style has a
-/// slot for it, the rest from its id. Seeded by the desk, so the teammate
-/// knows to make its own.
+/// The face setup gives a teammate at once: a creature style picked from
+/// its id, wearing its bubble colour, the rest from its id. Seeded by the
+/// desk, so the teammate knows to make its own.
 pub(crate) fn seeded(persona: &Persona) -> Result<Face, String> {
-    let pool: Vec<&Kept> = STYLES
-        .iter()
-        .filter(|kept| kept.seeded_in.is_some())
-        .collect();
+    let pool: Vec<&Kept> = STYLES.iter().filter(|kept| !kept.person).collect();
     let digest = Sha256::digest(persona.id.as_bytes());
     let kept = pool[usize::from(digest[0]) % pool.len()];
-    let (_, color) = bubble(persona);
-    let (_, parsed) = style(kept.id)?;
-    // A slot named for an optional part (a cat's collar) is only drawn with
-    // it, so the part is put on.
-    let parts = parsed
-        .parts
-        .iter()
-        .filter(|part| Some(part.name.as_str()) == kept.seeded_in)
-        .map(|part| {
-            let variant = &part.variants[usize::from(digest[1]) % part.variants.len()];
-            (part.name.clone(), Some(variant.clone()))
-        })
-        .collect();
     let ask = Ask {
         style: kept.id.to_string(),
-        parts,
-        colors: kept
-            .seeded_in
-            .map(|slot| (slot.to_string(), color.to_string()))
-            .into_iter()
-            .collect(),
+        parts: BTreeMap::new(),
+        colors: bubble(persona).worn_by(kept),
         seed: None,
     };
     compose(ask, None, &persona.id, FaceMaker::Desk)
 }
 
-/// The colour a teammate's bubbles are, by name and as `#rrggbb`: the one
-/// the person picked, else its own, from its id as the window works it out
-/// (`ownBubble` in ui/src/bubbles.ts).
-pub(crate) fn bubble(persona: &Persona) -> (&'static str, &'static str) {
-    let named = persona.bubble.as_deref().and_then(|name| {
-        BUBBLE_MARKS
-            .iter()
-            .find(|(bubble, _)| *bubble == name)
-            .copied()
-    });
+/// The colour a teammate's bubbles are: the one the person picked, else its
+/// own, from its id as the window works it out (`ownBubble` in
+/// ui/src/bubbles.ts).
+pub(crate) fn bubble(persona: &Persona) -> &'static Bubble {
+    let named = persona
+        .bubble
+        .as_deref()
+        .and_then(|name| BUBBLES.iter().find(|bubble| bubble.name == name));
     named.unwrap_or_else(|| {
         let mut hash: u64 = 0;
         for unit in persona.id.encode_utf16() {
@@ -577,22 +627,26 @@ pub(crate) fn bubble(persona: &Persona) -> (&'static str, &'static str) {
         // Face hue 0 is gold, which has no bubble of its own: grey. The
         // rest are the bubbles in hue order.
         let index = usize::try_from(hash % 7).expect("less than seven");
-        BUBBLE_MARKS[index]
+        &BUBBLES[index]
     })
 }
 
 /// `face_options` with no style: every style, the teammate's face now, and
 /// its bubble colour.
 pub(crate) fn styles_answer(persona: &Persona) -> Value {
-    let (name, color) = bubble(persona);
+    let bubble = bubble(persona);
     let styles: Vec<Value> = STYLES
         .iter()
         .map(|kept| {
-            json!({
+            let mut entry = json!({
                 "style": kept.id,
                 "draws": kept.draws,
                 "kind": if kept.person { "person" } else { "creature" },
-            })
+            });
+            if !kept.wears.is_empty() {
+                entry["yourColors"] = json!(bubble.worn_by(kept));
+            }
+            entry
         })
         .collect();
     let current = match &persona.avatar {
@@ -605,15 +659,15 @@ pub(crate) fn styles_answer(persona: &Persona) -> Value {
     json!({
         "styles": styles,
         "current": current,
-        "bubble": { "name": name, "hex": color },
-        "note": "Ask with a style for its parts and colours.",
+        "bubble": { "name": bubble.name, "hex": bubble.mark },
+        "note": "Ask with a style for its parts and colours. yourColors is your bubble colour as that style wears it.",
     })
 }
 
 /// `face_options` for one style: its parts with their variants, how often
 /// an optional part is drawn when left to the seed, and its colour slots
 /// with their palettes.
-pub(crate) fn style_answer(id: &str) -> Result<Value, String> {
+pub(crate) fn style_answer(id: &str, persona: &Persona) -> Result<Value, String> {
     let (kept, parsed) = style(id)?;
     let parts: Vec<Value> = parsed
         .parts
@@ -631,14 +685,18 @@ pub(crate) fn style_answer(id: &str) -> Result<Value, String> {
         .iter()
         .map(|slot| json!({ "slot": slot.name, "palette": slot.palette }))
         .collect();
-    Ok(json!({
+    let mut answer = json!({
         "style": kept.id,
         "draws": kept.draws,
         "kind": if kept.person { "person" } else { "creature" },
         "parts": parts,
         "colors": colors,
         "note": "A part you leave out of make_face is filled from the seed; \"none\" leaves it off. drawnPercent is how often an optional part is drawn when left to the seed. A colour takes any #rrggbb, not only its palette; background is transparent unless chosen or given a palette.",
-    }))
+    });
+    if !kept.wears.is_empty() {
+        answer["yourColors"] = json!(bubble(persona).worn_by(kept));
+    }
+    Ok(answer)
 }
 
 #[cfg(test)]

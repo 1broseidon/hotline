@@ -138,7 +138,7 @@ impl Room {
             .map(str::trim)
             .filter(|style| !style.is_empty())
         {
-            Some(style) => face::style_answer(style)?,
+            Some(style) => face::style_answer(style, &persona)?,
             None => face::styles_answer(&persona),
         };
         Ok(answer.to_string())

@@ -131,16 +131,13 @@ fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     assert_eq!(bare.recipe.parts["eyes"].as_deref(), Some("wide"));
 
     // A colour for a part that is left off is said not to be drawn.
-    let collarless = made(
-        json!({ "style": "cats", "parts": { "collar": "none" }, "colors": { "collar": "#48b8bc" } }),
+    let plain = made(
+        json!({ "style": "sprouts", "parts": { "plant": "grass", "pattern": "none" }, "colors": { "bloom": "#48b8bc" } }),
         None,
     );
-    assert_eq!(collarless.recipe.parts["collar"], None);
-    assert!(!collarless.recipe.colors.contains_key("collar"));
-    assert_eq!(
-        collarless.not_drawn,
-        ["the collar colour: nothing drawn uses it"]
-    );
+    assert_eq!(plain.recipe.parts["pattern"], None);
+    assert!(!plain.recipe.colors.contains_key("bloom"));
+    assert_eq!(plain.not_drawn, ["the bloom colour: nothing drawn uses it"]);
 
     let moods = made(json!({ "style": "moods" }), Some(&bare.recipe));
     assert_eq!(moods.recipe.style, "moods");
@@ -223,11 +220,12 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
     assert!(error.len() < 400, "a refusal repeats a bounded name");
 }
 
-/// The desk's face at setup is a creature style with named parts, in the
-/// teammate's bubble colour, the rest from its id, and says the desk made
-/// it.
+/// The desk's face at setup is a creature style wearing the teammate's
+/// bubble colour, the rest from its id, and says the desk made it; every
+/// creature style is in the pool.
 #[test]
-fn a_seeded_face_is_a_named_creature_in_the_bubble_colour() {
+fn a_seeded_face_is_a_creature_in_the_bubble_colour() {
+    let mut drawn = std::collections::BTreeSet::new();
     for id in [
         "ada",
         "grace",
@@ -243,13 +241,29 @@ fn a_seeded_face_is_a_named_creature_in_the_bubble_colour() {
                 .find(|kept| kept.id == face.recipe.style)
                 .unwrap();
             assert!(!kept.person, "{}", kept.id);
-            let slot = kept.seeded_in.unwrap();
-            assert_eq!(face.recipe.colors[slot], bubble(&teammate).1, "{id}");
+            for (slot, color) in bubble(&teammate).worn_by(kept) {
+                assert_eq!(face.recipe.colors[&slot], color, "{id} {slot}");
+            }
+            drawn.insert(kept.id.to_string());
             assert_eq!(face.recipe.made_by, FaceMaker::Desk);
             assert_eq!(face.recipe.seed, id);
             assert_eq!(seeded(&teammate).unwrap().png, face.png);
         }
     }
+    for n in 0..60 {
+        drawn.insert(
+            seeded(&persona(&format!("teammate-{n}"), None))
+                .unwrap()
+                .recipe
+                .style,
+        );
+    }
+    let creatures: std::collections::BTreeSet<String> = STYLES
+        .iter()
+        .filter(|kept| !kept.person)
+        .map(|kept| kept.id.to_string())
+        .collect();
+    assert_eq!(drawn, creatures);
 }
 
 /// A teammate's own bubble is worked out as the window works it out
@@ -257,11 +271,15 @@ fn a_seeded_face_is_a_named_creature_in_the_bubble_colour() {
 #[test]
 fn the_bubble_is_the_windows() {
     // "ada": ((97 * 31 + 100) * 31 + 97) % 7 == 3, the fourth hue: teal.
-    assert_eq!(bubble(&persona("ada", None)), ("teal", "#48b8bc"));
-    assert_eq!(bubble(&persona("ada", Some("pink"))), ("pink", "#c78ec4"));
-    assert_eq!(bubble(&persona("ada", Some("grey"))), ("grey", "#a0a5ab"));
+    let named = |id: &str, picked: Option<&str>| {
+        let bubble = bubble(&persona(id, picked));
+        (bubble.name, bubble.mark)
+    };
+    assert_eq!(named("ada", None), ("teal", "#48b8bc"));
+    assert_eq!(named("ada", Some("pink")), ("pink", "#c78ec4"));
+    assert_eq!(named("ada", Some("grey")), ("grey", "#a0a5ab"));
     // A name the desk does not know is its own again, as in the window.
-    assert_eq!(bubble(&persona("ada", Some("gold"))), ("teal", "#48b8bc"));
+    assert_eq!(named("ada", Some("gold")), ("teal", "#48b8bc"));
 }
 
 /// What `face_options` says is what `make_face` takes: every style it lists
@@ -277,7 +295,7 @@ fn the_options_answer_what_make_face_takes() {
     assert_eq!(listed["current"], "none: people see your initial");
     for style in listed["styles"].as_array().unwrap() {
         let id = style["style"].as_str().unwrap();
-        let answer = style_answer(id).unwrap();
+        let answer = style_answer(id, &persona("ada", None)).unwrap();
         let mut parts = Map::new();
         for part in answer["parts"].as_array().unwrap() {
             let variants = part["variants"].as_array().unwrap();
@@ -306,8 +324,8 @@ fn the_options_answer_what_make_face_takes() {
             assert_eq!(color, "#123456", "{id} {name}");
         }
     }
-    assert!(style_answer("bottts").is_err());
-    let critters = style_answer("critters").unwrap();
+    assert!(style_answer("bottts", &persona("ada", None)).is_err());
+    let critters = style_answer("critters", &persona("ada", None)).unwrap();
     let top = critters["parts"]
         .as_array()
         .unwrap()
@@ -381,7 +399,7 @@ fn a_struck_variant_is_neither_offered_nor_taken_nor_seeded() {
                     "{} has no {part} {variant} to strike",
                     kept.id
                 );
-                let offered = style_answer(kept.id).unwrap();
+                let offered = style_answer(kept.id, &persona("ada", None)).unwrap();
                 let listed = offered["parts"]
                     .as_array()
                     .unwrap()
@@ -424,4 +442,52 @@ fn a_struck_variant_is_neither_offered_nor_taken_nor_seeded() {
         struck_any,
         "pixelbot's unreadable eyes and mouth are struck"
     );
+}
+
+/// Pixelbot glows in the bubble's hue, lit and on a screen of that hue, as
+/// setup draws it and as `face_options` suggests it, and is framed so its
+/// eyes and mouth sit inside the circle.
+#[test]
+fn pixelbot_glows_in_the_bubble_hue_inside_the_circle() {
+    let ada = persona("ada", None);
+    let answer = style_answer("pixelbot", &ada).unwrap();
+    assert_eq!(
+        answer["yourColors"],
+        json!({ "glow": "#00f5fd", "background": "#002b2d" })
+    );
+    let listed = styles_answer(&ada);
+    let pixelbot = listed["styles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|style| style["style"] == "pixelbot")
+        .unwrap();
+    assert_eq!(pixelbot["yourColors"], answer["yourColors"]);
+    let grey = persona("ada", Some("grey"));
+    assert_eq!(
+        style_answer("pixelbot", &grey).unwrap()["yourColors"],
+        json!({ "glow": "#ced9e5", "background": "#202429" })
+    );
+    let open_peeps = style_answer("open-peeps", &ada).unwrap();
+    assert!(open_peeps.get("yourColors").is_none());
+
+    // Every face's lit pixels stay inside the circle the window clips it to.
+    for eyes in ["blocks", "happy", "round", "soft", "tall", "wide"] {
+        for mouth in ["bigSmile", "open", "smile"] {
+            let face = made(
+                json!({ "style": "pixelbot", "parts": { "eyes": eyes, "mouth": mouth }, "colors": { "glow": "#ff0000", "background": "#000000" } }),
+                None,
+            );
+            let picture = image::load_from_memory_with_format(&face.png, image::ImageFormat::Png)
+                .unwrap()
+                .to_rgba8();
+            let centre = f64::from(EDGE) / 2.0;
+            for (x, y, pixel) in picture.enumerate_pixels() {
+                if pixel[0] > 200 && pixel[1] < 80 {
+                    let distance = (f64::from(x) - centre).hypot(f64::from(y) - centre);
+                    assert!(distance < centre, "{eyes} {mouth} lit at {x},{y}");
+                }
+            }
+        }
+    }
 }

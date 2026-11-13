@@ -44,6 +44,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   working" or "3 helpers working", and clears when the last one finishes.
   The same words are the teammate's line in the rail and on the phone, in
   place of the name of the tool it was running.
+- Dragging a pinned teammate's face along the pins moves it. The window
+  cancelled every press on a button so a click would not leave a focus ring
+  behind, and a cancelled press never starts a drag; a teammate's face and
+  row now keep the press and drop the focus when it ends.
 
 ## [0.49.1] - 2026-11-13
 

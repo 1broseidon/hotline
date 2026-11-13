@@ -166,7 +166,7 @@ pub struct LinkedTeammate {
     pub name: String,
     /// idle, working, waiting or stopped; offline while its desk is away.
     pub state: String,
-    /// The tool or task it is doing right now, while it is working.
+    /// The words beside its mark, as its roster row says them.
     #[serde(default)]
     pub activity: Option<String>,
     pub working_on: WorkingOn,

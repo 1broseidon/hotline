@@ -381,8 +381,8 @@ caller gets a card on first contact in each direction; an explicit Whole
 machine Hotline Agent caller does not. ACP mode and Computer access do not imply
 Whole machine authority. `list_teammates` returns each other teammate's
 `personaId` and `name`, plus what the roster already knows about it: `state`
-(`idle`, `working`, `waiting` or `stopped`), the running tool's title as
-`activity`, and `workingOn` (`title` — the open chapter's or the goal's,
+(`idle`, `working`, `waiting` or `stopped`), the words beside its mark as
+`activity` (the roster row's, below), and `workingOn` (`title` — the open chapter's or the goal's,
 whichever there is — and `lastTurnAt`); and who it is and what it can do:
 `goal`; `agent`, the backend by the name a person knows it (Hotline Agent, Claude Code, Codex…); `model` and `effort` when set; and `capabilities`: `computer` (`none`, `attached`, or `in use` by its session now), `webSearch`, `imageGeneration`, `backgroundWork`, `messageTeammates` (`directly` or `after approval`), `reach` (`workspace` or `whole machine`) and `mcpServers`, the granted servers' names. Never a message's text, a working path, a
 server's address or login, or a tool inventory.
@@ -1121,9 +1121,14 @@ and the live sessions. Each row is a `RosterEntry`:
 `preview` is absent for a teammate that has never spoken. `from` is `"me"`
 for a user line and `"them"` for an agent line; only those two kinds
 count. `latest` is that line's `at`, kept beside it so the window can count
-unread without opening every tape. `activity` is the title of the tool
-still running, only while the session is thinking — absent, not null, when
-there is none. `waiting` is true while a card on the tape waits on the
+unread without opening every tape. `activity` is the words beside the
+teammate's mark: while it works (`starting`, or `thinking` and not
+`awaitingSubagents`), the words it last gave `activity` since it read the line
+it is answering, else "Getting started" until the agent has given anything
+back, "Working on it" while a step is in flight, and "Thinking" otherwise;
+while it is not working and helpers of its own are running, the words it last
+gave `activity` in the turn, else "1 helper working" or "N helpers working".
+Absent, not null, otherwise. It never names a tool or a command. `waiting` is true while a card on the tape waits on the
 person — a permission with no decision, or a `request_human` or passkey card
 still pending — so a phone can say who needs the person from one roster; it is
 always written, so `false` is told apart from a desk that predates it.

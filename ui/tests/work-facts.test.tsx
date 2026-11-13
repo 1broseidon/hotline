@@ -184,7 +184,7 @@ describe("the composer's slot while a teammate works (epic-42)", () => {
 		expect(button.title).toBe("Show the path");
 	});
 
-	test("with nothing said, the mark alone: no Working, no words, and its name for a screen reader", async () => {
+	test("the slot adds no words of its own: a mark handed none, as it hangs up, is the mark alone, with its name for a screen reader", async () => {
 		const button = await row({ activity: { phase: "execute", word: "" } });
 		expect(button.querySelector(".glyph")).not.toBeNull();
 		expect(button.querySelector(".composer-work-word")).toBeNull();

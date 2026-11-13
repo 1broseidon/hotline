@@ -658,76 +658,59 @@ async fn search_failures_are_wire_errors_instead_of_empty_results() {
     assert!(!paths::index_path(&root).exists());
 }
 
+/// While the session works, the row always says something: the teammate's
+/// own words when it gave some, else what the desk knows of the turn. A
+/// tool's title is never said.
 #[tokio::test]
-async fn a_tool_in_progress_is_the_rosters_activity_while_the_session_is_thinking() {
+async fn the_rosters_activity_is_the_teammates_words_or_what_the_turn_shows() {
     let quiet = Arc::new(Quiet::new());
     let (_root, log, port) = door_with("roster-activity", quiet.clone());
     let mut socket = desk(port).await;
     let ada = create(&mut socket, 1, "Ada").await;
     let persona_id = ada["id"].as_str().unwrap().to_string();
+    let tape = StreamId::Tape(persona_id.clone());
 
     ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
     heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
 
     quiet.set_info(thinking(&persona_id));
-    let thinking_row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
-    assert_eq!(thinking_row["event"]["session"]["state"], "thinking");
-    assert!(
-        thinking_row["event"].get("activity").is_none(),
-        "{thinking_row}"
-    );
+    let row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(row["event"]["activity"], "Getting started", "{row}");
 
-    log.append(
-        &StreamId::Tape(persona_id.clone()),
-        &json!({
-            "kind": "tool", "id": "t1", "ts": 10, "toolCallId": "c1",
-            "title": "Read main.rs", "status": "in_progress",
-        }),
-    )
-    .unwrap();
-    let running = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
-    assert_eq!(running["event"]["activity"], "Read main.rs");
-
-    log.append(
-        &StreamId::Tape(persona_id.clone()),
-        &json!({
-            "kind": "tool", "id": "t1", "ts": 11, "toolCallId": "c1",
-            "title": "Read main.rs", "status": "completed",
-        }),
-    )
-    .unwrap();
-    let done = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
-    assert!(done["event"].get("activity").is_none(), "{done}");
-
-    log.append(
-        &StreamId::Tape(persona_id.clone()),
-        &json!({
-            "kind": "tool", "id": "t2", "ts": 12, "toolCallId": "c2",
-            "title": "Edit lib.rs", "status": "in_progress",
-        }),
-    )
-    .unwrap();
-    let next = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
-    assert_eq!(next["event"]["activity"], "Edit lib.rs");
-
-    log.append(
-        &StreamId::Tape(persona_id.clone()),
-        &json!({ "kind": "turn", "id": "tu1", "ts": 13, "stopReason": "end_turn" }),
-    )
-    .unwrap();
-    let ended = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
-    assert!(ended["event"].get("activity").is_none(), "{ended}");
-
-    log.append(
-        &StreamId::Tape(persona_id.clone()),
-        &json!({
-            "kind": "tool", "id": "t3", "ts": 14, "toolCallId": "c3",
-            "title": "Run tests", "status": "in_progress",
-        }),
-    )
-    .unwrap();
-    let again = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
-    assert_eq!(again["event"]["activity"], "Run tests");
+    for (line, words) in [
+        (
+            json!({"kind":"user", "id":"u1", "ts":1, "text":"read it", "receipt":"sent"}),
+            "Getting started",
+        ),
+        (
+            json!({"kind":"thought", "id":"th", "ts":2, "text":"The lease first."}),
+            "Thinking",
+        ),
+        (
+            json!({"kind":"tool", "id":"t1", "ts":3, "toolCallId":"c1", "title":"Read main.rs", "status":"in_progress"}),
+            "Working on it",
+        ),
+        (
+            json!({"kind":"tool", "id":"t1", "ts":4, "toolCallId":"c1", "title":"Read main.rs", "status":"completed"}),
+            "Thinking",
+        ),
+        (
+            json!({"kind":"activity", "id":"d", "ts":5, "type":"reading", "message":"Reading the lease"}),
+            "Reading the lease",
+        ),
+        (
+            json!({"kind":"tool", "id":"t2", "ts":6, "toolCallId":"c2", "title":"Edit lib.rs", "status":"in_progress"}),
+            "Reading the lease",
+        ),
+        (
+            json!({"kind":"turn", "id":"tu1", "ts":7, "stopReason":"end_turn"}),
+            "Getting started",
+        ),
+    ] {
+        log.append(&tape, &line).unwrap();
+        let row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+        assert_eq!(row["event"]["activity"], words, "after {line}: {row}");
+    }
 
     quiet.set_info(idle(&persona_id));
     let idle_row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
@@ -785,11 +768,13 @@ async fn live_roster_tools_do_not_read_tails_and_restart_recovers_the_same_row()
     assert_eq!(first["snapshot"][0]["waiting"], true);
     let started = std::time::Instant::now();
     for n in 0..100 {
-        log.append(&tape, &json!({"kind":"tool", "id":"tool", "ts":600+n, "toolCallId":"call", "title":format!("Read {n}"), "status":"in_progress"})).unwrap();
-        let row = roster_frame(&mut socket, |frame| {
-            frame["event"]["activity"] == format!("Read {n}")
-        })
-        .await;
+        let (status, words) = if n % 2 == 0 {
+            ("in_progress", "Working on it")
+        } else {
+            ("completed", "Thinking")
+        };
+        log.append(&tape, &json!({"kind":"tool", "id":"tool", "ts":600+n, "toolCallId":"call", "title":format!("Read {n}"), "status":status})).unwrap();
+        let row = roster_frame(&mut socket, |frame| frame["event"]["activity"] == words).await;
         assert_eq!(row["event"]["preview"], expected);
         assert_eq!(row["event"]["latest"], 500);
         assert_eq!(row["event"]["waiting"], true);

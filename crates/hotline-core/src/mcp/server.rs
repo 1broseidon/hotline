@@ -1672,7 +1672,7 @@ pub(crate) fn roster_row(
     let waiting = wire::waiting_on(&tail);
     LinkedTeammate {
         state: roster_state(&session, waiting).to_string(),
-        activity: wire::activity_on(&tail, &session),
+        activity: wire::activity_on(&tail, &session, &room.subagents(&persona.id)),
         working_on: WorkingOn {
             title: chapter_title(room, &persona),
             last_turn_at: last_turn_at(room, &persona.id),

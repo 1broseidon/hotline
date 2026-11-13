@@ -5,7 +5,7 @@ import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, 
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
-import { type WorkMark, activityOf, waitingOf } from "../activity";
+import { type WorkMark, activityOf } from "../activity";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -106,6 +106,7 @@ export function Transcript({
 	streaming,
 	live,
 	waiting = false,
+	words,
 	cornered = false,
 	workingCalls,
 	workingSides,
@@ -141,9 +142,15 @@ export function Transcript({
 	live: boolean;
 	/**
 	 * The turn is open only for the teammate's subagents (`awaitingSubagents`):
-	 * not live, but the mark stays up, at rest, with what it said it is on.
+	 * not live, and no line stands under its steps until it truly ends.
 	 */
 	waiting?: boolean;
+	/**
+	 * The words beside the mark, from the teammate's roster row (`activity`),
+	 * on its main conversation. Not working, words still there are its helpers
+	 * at work: the mark stays up, at rest, beside them.
+	 */
+	words?: string | undefined;
 	/**
 	 * Something stands at the composer's top right, over the foot of the
 	 * conversation: the last line keeps clear of it as it does of the mark,
@@ -449,10 +456,10 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
-	// The mark says what the teammate says it is on, in its words; the desk adds none of its own.
+	// The mark moves by the tape and says the row's words.
 	const currentActivity = useMemo(
-		() => (live || queued ? activityOf(events, streaming, queued) : waiting ? waitingOf(events) : null),
-		[live, waiting, queued, events, streaming],
+		() => (live || queued ? activityOf(events, streaming, queued, words) : words !== undefined ? { phase: "rest" as const, word: words } : null),
+		[live, queued, events, streaming, words],
 	);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 	const mark: WorkMark | null = activity !== null ? { activity, sleeping } : null;

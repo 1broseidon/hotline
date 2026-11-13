@@ -175,7 +175,8 @@ describe("the path in the pane", () => {
 			...(waiting ? { awaitingSubagents: true } : {}),
 		},
 		waiting: false, drawing: false,
-		...(waiting ? { subagents: [live] } : {}),
+		// As the core says it: the turn held for one helper, with no words of its own.
+		...(waiting ? { subagents: [live], activity: "1 helper working" } : {}),
 	});
 	const listed = (): ThreadSummary[] =>
 		tape.flatMap((event) => (event.kind === "link" && event.threadKind === "run" ? [{ thread: { kind: "run" as const, key: event.thread }, personaId: who.id, title: event.title, state: event.state, startedAt: event.ts, updatedAt: event.ts + 1, working: false, waiting: false, ...(event.end !== undefined ? { end: event.end } : {}), ...(event.runKind !== undefined ? { runKind: event.runKind } : {}) }] : []));
@@ -320,6 +321,7 @@ describe("the path in the pane", () => {
 		// No line under the reply while it waits: the resting mark is the line.
 		expect(container.querySelector(".steps-caption")).toBeNull();
 		await until(() => container.querySelector("button.composer-work") !== null, "the resting mark");
+		expect(container.querySelector("button.composer-work .composer-work-word")?.textContent).toBe("1 helper working");
 		await press(container.querySelector("button.composer-work"));
 		await until(() => container.querySelector(".dock .work-page") !== null, "the path");
 		expect(container.querySelector(".dock .work-page h2")?.textContent).toBe("Waiting");

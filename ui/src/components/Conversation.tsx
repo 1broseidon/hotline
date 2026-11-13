@@ -322,6 +322,7 @@ export function Conversation({
 					streaming={streaming}
 					live={isWorking(session)}
 					waiting={awaitingSubagents(session)}
+					words={entry.activity}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}

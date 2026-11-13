@@ -1260,7 +1260,7 @@ export type LinkedTeammate = { personaId: string, name: string,
  */
 state: string, 
 /**
- * The tool or task it is doing right now, while it is working.
+ * The words beside its mark, as its roster row says them.
  */
 activity: string | null, workingOn: WorkingOn, goal: string, 
 /**
@@ -1866,8 +1866,11 @@ preview?: Preview,
  */
 latest?: number, 
 /**
- * The title of the tool still running on this tape, only while the
- * session is thinking. Absent, not null, when there is none.
+ * The words beside the teammate's mark: its own from `activity`, else
+ * the desk's plain account of the turn ("Getting started", "Thinking",
+ * "Working on it"), and while it waits on its helpers what it said it
+ * waits on or how many are working. Absent, not null, when it neither
+ * works nor has a helper running.
  */
 activity?: string, 
 /**

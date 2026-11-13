@@ -618,11 +618,12 @@ three things in one voice: an opening line that fits the ask (the house style
 in `session/pacing.rs`, skipped when there is no wait), what it is on
 (`activity {type, message?}`) and what came of it (its reply, and
 `outcome {type, message, state?, id?, ended?}` once for each thing left
-behind). The conversation shows only those; the desk never writes the words.
-Each call is an `activity` or `outcome` event on the thread it was made in, so
-they survive a reload and an older client skips them as unknown kinds. The
-composer's mark moves by the declared type and shows its message, and with
-nothing declared it may move by the tool in use but says nothing; under a
+behind). The conversation shows only those, and the desk writes no words in
+the teammate's voice. Each call is an `activity` or `outcome` event on the
+thread it was made in, so they survive a reload and an older client skips them
+as unknown kinds. The composer's mark moves by the declared type and shows its
+message; with nothing declared it moves by the tool in use and says the
+desk's plain account of the turn (below); under a
 reply the line lists the turn's outcomes (failed first) and its time, and is
 the one press into the path, where steps sit under the activity they happened
 during. An open outcome is rewritten in place by the teammate, by its `id`:
@@ -637,11 +638,32 @@ Threads list and the row's accessible name. A turn held open only for its
 subagents still reads as done everywhere (no Interrupt, no beat, a line sent
 goes into the turn), but the mark stays in the composer at rest beside the
 last words the teammate declared in the turn: parking writes no `turn` line,
-so the declaration stands until the turn truly ends or another replaces it.
+so the declaration stands until the turn truly ends or another replaces it,
+through the lines the person sends while it waits.
 The house style asks for that wait to be said with `activity` and not in the
 chat, for no word when a helper reports until there is an outcome, and for
 outcomes and replies written for a person (no process ids, raw paths or
 commands to run unless asked; offer to do it instead).
+
+The bar is never bare while the teammate works (George, 2026-11-13). A
+mark with no words beside it read as broken, most of all through a long wait
+on a helper, and most turns on every harness declare nothing. So the words
+are the roster row's `activity`, worked out once in the core
+(`activity_line` in `wire/roster.rs`) from what the desk already has, never
+from a clock: the teammate's own words from `activity` first; else, while it
+works, "Getting started" until the agent has given anything back (read the
+line, or written a thought, a reply or a step), "Working on it" while a step
+is in flight, and "Thinking" between steps, as it reasons or writes; and while
+the turn is over or held open only for its helpers, the words it last
+declared in the turn, else "1 helper working" or "N helpers working", gone
+when the last helper is. Working is one reading of the session on both sides
+(the core's `working`, the window's `isWorking`), so the header's beat and
+the bar cannot disagree. A line the person sends mid-turn begins its own
+part of the turn only once the agent has read it, so what is said of the
+work still going on is not wiped by a line waiting behind it. The rail, the
+phone's row and `list_teammates` read the same row, so no tool's title or
+command is shown there any more. A thread pane, which has no row, still says
+only what the teammate declared in it.
 
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads

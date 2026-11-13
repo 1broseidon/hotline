@@ -15,8 +15,9 @@ export function awaitingSubagents(session: Pick<SessionInfo, "state" | "awaiting
  * done: its reply is in the chat, nothing works under the conversation, and
  * the composer takes a line as it does between turns (the core steers it into
  * the open turn), while the subagents are counted in the composer's threads.
- * Only the mark knows the difference: it rests in the composer with what the
- * teammate said it is waiting on (`waitingOf`) rather than going to sleep.
+ * Only the mark knows the difference: it rests in the composer beside the
+ * roster row's words, what the teammate said it is waiting on or how many
+ * helpers are working, rather than going to sleep.
  */
 export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagents">): SessionState {
 	return awaitingSubagents(session) ? "ready" : session.state;
@@ -26,7 +27,9 @@ export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagen
  * Whether a teammate is working: the one answer the composer (Interrupt, Esc),
  * the band's beat, the transcript's mark and the work pane all take. A session
  * that is `starting` is working, as the composer already read it; a turn held
- * open only for subagents is not (see `shownState`).
+ * open only for subagents is not (see `shownState`). The core reads the same
+ * two fields the same way (`working` in crates/hotline-core/src/wire/roster.rs)
+ * to give the row its words, so the beat never turns beside a bare mark.
  */
 export function isWorking(session: Pick<SessionInfo, "state" | "awaitingSubagents">): boolean {
 	const state = shownState(session);
@@ -57,15 +60,19 @@ export function processLabel(title: string): string {
  * on with its `activity` tool, a kind and a few words of its own, and the
  * kind moves the mark: thinking, reading, searching, making and talking each
  * have their own movement. Without a declaration the mark may still move by
- * the kind of tool in use, as the protocol labels it, but nothing is said
- * beside it: the words are the teammate's, and the desk never makes them up.
- * Waiting on you, writing the reply and the hang-up stay the desk's own.
+ * the kind of tool in use, as the protocol labels it. The words beside it are
+ * the roster row's `activity`, the core's one reading of the turn
+ * (`activity_line` in crates/hotline-core/src/wire/roster.rs): the
+ * teammate's own words when it gave some, else Getting started, Thinking or
+ * Working on it from what the turn shows, and while it waits on its helpers
+ * what it said it waits on or how many are working. Waiting on you stays the
+ * desk's own.
  */
 export type ActivityPhase = "thinking" | "read" | "search" | "edit" | "execute" | "talking" | "doing" | "blocked" | "writing" | "landed" | "rest";
 
 export type Activity = {
 	phase: ActivityPhase;
-	/** The words beside the mark: the teammate's own, or the desk's for what is its own to say (waiting on you). Never a path or a command. */
+	/** The words beside the mark: the teammate's own, or the desk's plain account of the turn (see above). Never a path or a command. */
 	word: string;
 };
 
@@ -140,37 +147,31 @@ export const LANDED: Activity = { phase: "landed", word: "" };
 export const RESTING: Activity = { phase: "rest", word: "" };
 
 /**
- * The mark while the turn is open only for its subagents: at rest, on the
- * cradle, and beside it the words the teammate last said it is on in this
- * turn, which is what it is waiting for when it said so. "Waiting" is not a
- * kind it can declare, so it has no movement of its own; with nothing
- * declared the toad rests alone, because the desk never makes the words up.
+ * What the tape says is happening in a turn that is running. `said` is the
+ * roster row's words for the teammate's main conversation; a thread pane has
+ * no row, and says only what the teammate declared in it.
  */
-export function waitingOf(events: TranscriptEvent[]): Activity {
-	return { phase: "rest", word: scan(events).declared?.message ?? "" };
-}
-
-/** What the tape says is happening in a turn that is running. */
-export function activityOf(events: TranscriptEvent[], streaming: Streaming[], queued = false): Activity {
+export function activityOf(events: TranscriptEvent[], streaming: Streaming[], queued = false, said?: string): Activity {
 	const latest = scan(events);
 	// Blocked outranks everything: it is the one state where nothing is
 	// happening and nothing will until you answer.
 	if (latest.blocked) return { phase: "blocked", word: "Waiting on you" };
+	const word = said ?? latest.declared?.message ?? "";
 	// Writing outranks what the teammate said it was on: once words are on
 	// their way, they are the headline.
 	// Bubbles still landing to the beat read as writing, whatever produced them.
-	if (queued || streaming.some((one) => one.kind === "agent")) return { phase: "writing", word: "" };
+	if (queued || streaming.some((one) => one.kind === "agent")) return { phase: "writing", word };
 	// What the teammate said it is on stands until it says something else or
 	// the turn ends.
-	if (latest.declared !== undefined) return { phase: declaredPhase(latest.declared.type), word: latest.declared.message ?? "" };
+	if (latest.declared !== undefined) return { phase: declaredPhase(latest.declared.type), word };
 	// The newest call's kind holds until the next call starts. Reads and
 	// listings finish in milliseconds and the gaps between them are the agent
 	// choosing its next step in the same kind of work; a mark that dropped to
 	// Thinking in every gap would show nothing but thinking. `worked` rather
 	// than a truthy kind: plenty of agents send a tool call with no kind at
 	// all, and those are still work.
-	if (latest.worked) return { phase: kindPhase(latest.kind), word: "" };
-	return { phase: "thinking", word: "" };
+	if (latest.worked) return { phase: kindPhase(latest.kind), word };
+	return { phase: "thinking", word };
 }
 
 type Declared = Extract<TranscriptEvent, { kind: "activity" }>;

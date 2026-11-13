@@ -200,8 +200,11 @@ pub struct RosterEntry {
     /// without opening every tape.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest: Option<i64>,
-    /// The title of the tool still running on this tape, only while the
-    /// session is thinking. Absent, not null, when there is none.
+    /// The words beside the teammate's mark: its own from `activity`, else
+    /// the desk's plain account of the turn ("Getting started", "Thinking",
+    /// "Working on it"), and while it waits on its helpers what it said it
+    /// waits on or how many are working. Absent, not null, when it neither
+    /// works nor has a helper running.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity: Option<String>,
     /// A card on this tape is still waiting on the person: a permission with

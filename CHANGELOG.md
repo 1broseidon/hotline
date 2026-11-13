@@ -26,6 +26,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   of its own, without a word in your chat. A generated picture in the crew
   style is still there when you ask the teammate for one.
 
+### Fixed
+
+- The words beside a teammate's mark in the message box are never blank
+  while it works. Its own words still come first; when it has said none,
+  the bar says "Getting started" until its model answers, "Working on it"
+  while a step runs, and "Thinking" between steps. After a reply, while
+  helpers it started are still at work, the bar keeps what it last said it
+  is waiting on, even through messages you send meanwhile, or says "1 helper
+  working" or "3 helpers working", and clears when the last one finishes.
+  The same words are the teammate's line in the rail and on the phone, in
+  place of the name of the tool it was running.
+
 ## [0.49.1] - 2026-11-13
 
 ### Changed

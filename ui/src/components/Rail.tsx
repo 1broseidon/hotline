@@ -297,7 +297,6 @@ function Row({
 }) {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
-	const working = state === "thinking" && entry.activity !== undefined;
 	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
@@ -376,7 +375,7 @@ function Row({
 					)}
 				</span>
 				<span
-					className={`block h-4 truncate text-sm ${unread ? "text-ink-2" : "text-ink-3"} ${working ? "font-mono text-xs leading-4" : ""}`}
+					className={`block h-4 truncate text-sm ${unread ? "text-ink-2" : "text-ink-3"}`}
 				>
 					{line}
 				</span>
@@ -386,7 +385,7 @@ function Row({
 	);
 }
 
-/** What a row says under the name: the tool running, the last line, or the goal. */
+/** What a row says under the name: what it is on while it works, the last line, or the goal. */
 function lineOf(entry: RosterEntry): string {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];

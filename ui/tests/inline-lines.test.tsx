@@ -145,7 +145,7 @@ test("the line under a reply is what the turn left behind, failed first, then th
 	expect(line.textContent).toBe("38s");
 	expect(line.querySelector(".outcome")).toBeNull();
 	expect(line.getAttribute("title")).toBe("Show the path");
-	expect(line.querySelector(".favicon, .favicons, img")).toBeNull();
+	// The sites the turn read stand on the line too, once the desk hands over their icons (tests/line-sources.test.tsx).
 	const outcome = (id: string, ts: number, type: string, message: string, more: object = {}): TranscriptEvent => ({ kind: "outcome", id, ts, type, message, key: id, ...more });
 	await draw(
 		turn([

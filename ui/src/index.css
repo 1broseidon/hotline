@@ -2551,6 +2551,10 @@
 		border-left: 2px solid var(--line);
 		padding-left: 6px;
 	}
+	/* A path opened in place: the pages read, by name, over its steps. */
+	.steps > [aria-label="Sources"] {
+		margin: 4px 0 10px;
+	}
 
 	/* A card in the tape: a permission asked, a hand to a person. Not
 	 * speech, so it is a raised thing, and its title is often a command line

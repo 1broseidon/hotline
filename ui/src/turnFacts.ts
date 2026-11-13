@@ -72,6 +72,27 @@ export function sourcesOf(items: Step[]): Source[] {
 	return [...all.filter((one) => one.found !== true), ...all.filter((one) => one.found === true)];
 }
 
+/** The distinct sites of a turn's sources, in their order: the icons on the line under its reply. */
+export function sitesOf(items: Step[]): string[] {
+	return [...new Set(sourcesOf(items).map((source) => source.site))];
+}
+
+/** How many sites the line under a reply names, as it stacks as many icons. */
+export const SITES_NAMED = 3;
+
+/**
+ * The sites in words, since an icon alone is not a name: the whole of it for
+ * a screen reader ("Sources: cbsnews.com, apnews.com, bbc.com and 4 more")
+ * and a few words for the pointer ("cbsnews.com and 6 more").
+ */
+export function sitesSaid(sites: string[]): { label: string; tip: string } {
+	const named = sites.slice(0, SITES_NAMED);
+	const rest = sites.length - named.length;
+	const list = rest > 0 ? `${named.join(", ")} and ${rest} more` : named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named.join("");
+	const tip = sites.length === 2 ? `${sites[0]} and ${sites[1]}` : sites.length > 2 ? `${sites[0]} and ${sites.length - 1} more` : (sites[0] ?? "");
+	return { label: `Sources: ${list}`, tip };
+}
+
 /** Files changed by the turn's finished steps, each once, its counts summed over its edits. */
 export function filesOf(items: Step[]): FileChange[] {
 	const files = new Map<string, FileChange & { counted: boolean }>();

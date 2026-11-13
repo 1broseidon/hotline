@@ -5,7 +5,8 @@ import type { ToolStep } from "../src/turnFacts";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { Trail, plainTitle, ranOf } = await import("../src/components/transcript/Trail");
+const { Trail, ranOf } = await import("../src/components/transcript/Trail");
+const { plainTitle } = await import("../src/components/transcript/Sources");
 
 const search = (pages: number): Step => ({
 	kind: "tool",

@@ -666,6 +666,22 @@ failed, which started nothing. Hotline's own tools called through an
 agent's MCP client are known the same way, so Codex's `activity` and
 `outcome` are the lines they wrote and not steps.
 
+A reply's sources are back on the line under it (George, 2026-11-12): of
+"how it got there" they are the one part someone who does not code cares
+about, and for an answer of fact they are the evidence. They are not
+outcomes, since nothing was left behind, so they carry no outcome mark and
+sit after the outcomes and before the time, as a stack of the sites' icons
+(three, then "+N" for the other sites) named in words for the pointer and a
+screen reader. Which pages count is what the pane's Sources always counted
+(`sourcesOf` in `ui/src/turnFacts.ts`): the pages the turn's steps recorded
+reading, in order, then the pages its searches listed and it never opened;
+a search's query, a local file and a `file:` page are not sources. The "+N"
+counts sites, where the desk's caption before 0.48 and the phone's count
+pages, because the stack is one icon a site and its words name sites. The
+path lists them first, by name and link, in the pane and where it opens in
+place in a thread. The composer's slot stays the mark and the teammate's
+words: no site icons there.
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

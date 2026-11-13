@@ -291,12 +291,25 @@ transition and animation, and holds the mark still.
   keep down, not the window's to fold: a long reply is a long bubble,
   and the fix is the prompt, not a card. Under a reply is one quiet line
   of what the turn left behind, in the teammate's words — sent, made,
-  changed, still open, yours to do, a failure first in red — then how long
-  it took; a turn that left nothing says only its time. A helper or a
+  changed, still open, yours to do, a failure first in red — then the
+  sites of the web pages it read, then how long it took; a turn that left
+  nothing and read nothing says only its time. The sites are a stack of
+  their icons, the first three overlapping by 2px at 16px, and "+N" for
+  the other sites, in the order first read, pages read before what a
+  search only listed; a local file or a search's query is not a source.
+  They carry no outcome mark, since nothing was left behind; they are
+  there because for an answer of fact they are its evidence. An icon is
+  not a name, so the stack has the sites in words: a tooltip of the first
+  and the count ("cbsnews.com and 5 more") and the full sentence for a
+  screen reader ("Sources: cbsnews.com, apnews.com, bbc.com and 3 more").
+  A site with no icon draws none and is counted in "+N"; with none at all
+  (or link previews off), the first site is named in words. A helper or a
   command the turn started that failed is on that line too, first, in red
   ("Helper failed: Profile group B", "3 helpers failed", "Command failed:
   npm test"), since the conversation has no row for it. Pressed, the line
-  opens the path in the pane: every step, under the teammate's words for
+  opens the path in the pane (in place, in a thread): the pages read
+  first, under Sources, each a card of its site, its title and a press
+  to the page in the browser, then every step, under the teammate's words for
   what it was on, and the helpers and commands the turn started where it
   started them. Helpers started together are one line, "Started 4
   helpers", with how many still run, else how many failed, else how many

@@ -5,19 +5,26 @@ import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
 import { joinThoughts, outputText, stepTitle } from "../../stepText";
 import { failedRuns, markOf, outcomesOf } from "../../outcomes";
 import type { RunLink } from "../../scheduledRuns";
-import { durationText, turnTook } from "../../turnFacts";
+import { durationText, SITES_NAMED, sitesOf, sitesSaid, sourcesOf, turnTook } from "../../turnFacts";
+import { Favicons } from "../Favicon";
+import { Sources } from "./Sources";
 
 /**
  * The line under a reply: what the turn left behind, in the teammate's own
- * words, each marked by how it went (failed first, in red), then how long it
- * took. A helper or a command the turn started that failed is marked failed
+ * words, each marked by how it went (failed first, in red), then the sites
+ * of the web pages it read as a stack of their icons, then how long it took.
+ * A helper or a command the turn started that failed is marked failed
  * there too, first of all: the conversation has no row of its own for one,
- * and a failure is what the person must not miss. A turn that left nothing
- * behind says only its time. It is always the
+ * and a failure is what the person must not miss. The sources are not
+ * outcomes, since nothing was left behind, so they carry no mark; they are
+ * on the line because for an answer of fact they are its evidence, the one
+ * part of the path someone who does not code looks for. A turn that left
+ * nothing behind and read nothing says only its time. It is always the
  * way in: pressed, it opens the path the turn took, in the pane beside a
  * conversation (`onOpenWork`) or in place in a thread or a run, where the
- * live rows show only if you pressed the mark. While the turn is still on it
- * there is no line at all — the mark is the line.
+ * live rows show only if you pressed the mark; either way the path lists
+ * the sources by name first. While the turn is still on it there is no line
+ * at all — the mark is the line.
  */
 export const Steps = memo(function Steps({
 	id,
@@ -39,6 +46,7 @@ export const Steps = memo(function Steps({
 	const open = inPane ? false : live ? shown : toggled;
 	const outcomes = useMemo(() => outcomesOf(items), [items]);
 	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
+	const sites = useMemo(() => sitesOf(items), [items]);
 	const took = useMemo(() => turnTook(items), [items]);
 	const expanded = inPane ? paneOpen === true : open;
 
@@ -62,6 +70,7 @@ export const Steps = memo(function Steps({
 							{outcome.message}
 						</span>
 					))}
+					{sites.length > 0 && <Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} />}
 					<span className="steps-caption-took">
 						{took !== null && took > 0 && durationText(took)}
 						{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
@@ -70,12 +79,19 @@ export const Steps = memo(function Steps({
 			)}
 			{open && (
 				<div className="steps ml-[11px]">
+					<InPlaceSources items={items} />
 					<StepRows items={items} />
 				</div>
 			)}
 		</div>
 	);
 });
+
+/** The path opened in place lists the pages read by name at its top, as the pane's does. */
+function InPlaceSources({ items }: { items: Step[] }) {
+	const sources = useMemo(() => sourcesOf(items), [items]);
+	return sources.length > 0 ? <Sources sources={sources} /> : null;
+}
 
 /**
  * What failed among the helpers and commands a turn started, as the line

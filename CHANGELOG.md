@@ -126,6 +126,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   beside it. A start that failed stays, marked failed. Codex's calls that
   say what a teammate is on and what came of it are those lines in the
   path, not steps named after the tool.
+- The line under a reply shows the sites of the web pages the teammate
+  read for it again, as a small stack of their icons with "+N" for the
+  rest, after what the turn left behind and before how long it took.
+  Hovering it names the first site and how many more, and a screen reader
+  hears the first three by name and how many more. With
+  link previews off, or no icon for any of them, the first site is named
+  in words. The path the line opens lists those pages first, under
+  Sources, each opening in your browser, now also where the path opens
+  in place in a thread.
 
 ### Fixed
 

@@ -11,10 +11,16 @@ teammate exists. This page covers what you can do in it.
 Type in the message box and press <kbd>Enter</kbd>
 (<kbd>Shift</kbd> + <kbd>Enter</kbd> starts a new line).
 
-While the teammate is working, a card floating under the header shows the
-steps of the turn as they happen: the commands it runs, the files it reads,
-the edits it makes, and a **Thinking** row you can open. The teammate's
-mark at the foot of the conversation shows what kind of work it is doing.
+While the teammate is working, its mark in the message box moves with the
+kind of work it is doing, beside the teammate's own words for what it is
+on. Press it to follow the turn's steps in the right-hand pane.
+
+Once the turn is over, a line under the reply says what the turn left
+behind, then the sites of the web pages the teammate read for it, as a
+small stack of their icons, then how long it took. Hover the icons for the
+sites' names. Press the line to open the turn's path: the pages it read
+come first, under **Sources**, each opening in your browser, then its
+steps.
 
 You do not have to wait for it to finish:
 

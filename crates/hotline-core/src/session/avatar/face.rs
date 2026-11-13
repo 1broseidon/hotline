@@ -29,135 +29,87 @@ struct Kept {
     /// What it draws, in a few words.
     draws: &'static str,
     person: bool,
-    /// How its parts' variants are named: `named` (`googly`, `antenna`), or
-    /// numbered (`variant17`), where only the picture says what one is.
-    names: &'static str,
     /// The slot a face the desk seeds at setup takes the teammate's bubble
-    /// colour in. Only creature styles with named parts are seeded.
+    /// colour in. Only creature styles are seeded.
     seeded_in: Option<&'static str>,
+    /// How much larger than DiceBear's own framing the desk draws every face
+    /// in the style, for one whose features are too small to read in a
+    /// 28 px circle.
+    scale: Option<f64>,
+    /// Variants the desk neither offers, nor takes, nor fills from a seed,
+    /// by part: ones that do not read as a face where it is shown.
+    struck: &'static [(&'static str, &'static [&'static str])],
 }
 
-/// The styles, creatures first. Each reads as a character in a 28 px circle.
-const STYLES: [Kept; 15] = [
+/// The styles, creatures first. Each reads as a character in a 28 px circle,
+/// and each names its parts' variants (`googly`, `antenna`), so a teammate
+/// can choose them without seeing them first.
+const STYLES: [Kept; 7] = [
     Kept {
-        id: "clay",
-        definition: dicebear_styles::CLAY,
-        draws: "a soft clay creature on a pale ground",
+        id: "pixelbot",
+        definition: dicebear_styles::PIXELBOT,
+        draws: "a pixel face glowing on a dark screen",
         person: false,
-        names: "named",
-        seeded_in: Some("body"),
+        seeded_in: Some("glow"),
+        // At DiceBear's size the face is a few pixels across a mostly empty
+        // screen; at 1.4 it fills the circle without cutting the eyes.
+        scale: Some(1.4),
+        // One-block eyes and a two-block mouth vanish in a 28 px circle.
+        struck: &[("eyes", &["slim"]), ("mouth", &["tiny"])],
     },
     Kept {
         id: "critters",
         definition: dicebear_styles::CRITTERS,
         draws: "a flat, bold monster on a deep ground",
         person: false,
-        names: "named",
         seeded_in: Some("body"),
-    },
-    Kept {
-        id: "moods",
-        definition: dicebear_styles::MOODS,
-        draws: "a rounded face showing a mood",
-        person: false,
-        names: "named",
-        seeded_in: Some("face"),
-    },
-    Kept {
-        id: "sprouts",
-        definition: dicebear_styles::SPROUTS,
-        draws: "a potted plant with a face",
-        person: false,
-        names: "named",
-        seeded_in: Some("pot"),
-    },
-    Kept {
-        id: "voxel-bot",
-        definition: dicebear_styles::VOXEL_BOT,
-        draws: "a blocky 3D robot",
-        person: false,
-        names: "named",
-        seeded_in: Some("body"),
+        scale: None,
+        struck: &[],
     },
     Kept {
         id: "marbles",
         definition: dicebear_styles::MARBLES,
         draws: "a glossy marble with a face, and hair or a hat",
         person: false,
-        names: "named",
         seeded_in: Some("sphere"),
+        scale: None,
+        struck: &[],
+    },
+    Kept {
+        id: "moods",
+        definition: dicebear_styles::MOODS,
+        draws: "a rounded face showing a mood",
+        person: false,
+        seeded_in: Some("face"),
+        scale: None,
+        struck: &[],
+    },
+    Kept {
+        id: "sprouts",
+        definition: dicebear_styles::SPROUTS,
+        draws: "a potted plant with a face",
+        person: false,
+        seeded_in: Some("pot"),
+        scale: None,
+        struck: &[],
     },
     Kept {
         id: "cats",
         definition: dicebear_styles::CATS,
         draws: "a cat sitting in a small scene",
         person: false,
-        names: "named",
         seeded_in: Some("collar"),
-    },
-    Kept {
-        id: "dogs",
-        definition: dicebear_styles::DOGS,
-        draws: "a dog sitting in a small scene",
-        person: false,
-        names: "named",
-        seeded_in: Some("collar"),
-    },
-    Kept {
-        id: "thumbs",
-        definition: dicebear_styles::THUMBS,
-        draws: "a simple rounded shape with a face",
-        person: false,
-        names: "numbered",
-        seeded_in: None,
+        scale: None,
+        struck: &[],
     },
     Kept {
         id: "open-peeps",
         definition: dicebear_styles::OPEN_PEEPS,
         draws: "a hand-drawn person, head and shoulders",
         person: true,
-        names: "named",
         seeded_in: None,
-    },
-    Kept {
-        id: "voxel-art",
-        definition: dicebear_styles::VOXEL_ART,
-        draws: "a blocky 3D person",
-        person: true,
-        names: "named",
-        seeded_in: None,
-    },
-    Kept {
-        id: "cutouts",
-        definition: dicebear_styles::CUTOUTS,
-        draws: "a face cut from coloured paper",
-        person: true,
-        names: "named",
-        seeded_in: None,
-    },
-    Kept {
-        id: "pixel-art",
-        definition: dicebear_styles::PIXEL_ART,
-        draws: "a pixel-art person",
-        person: true,
-        names: "partly numbered",
-        seeded_in: None,
-    },
-    Kept {
-        id: "lorelei",
-        definition: dicebear_styles::LORELEI,
-        draws: "a head drawn in black line",
-        person: true,
-        names: "numbered",
-        seeded_in: None,
-    },
-    Kept {
-        id: "notionists",
-        definition: dicebear_styles::NOTIONISTS,
-        draws: "a person drawn in black line, to the waist",
-        person: true,
-        names: "numbered",
-        seeded_in: None,
+        scale: None,
+        struck: &[],
     },
 ];
 
@@ -186,15 +138,14 @@ const BUBBLE_MARKS: [(&str, &str); 7] = [
     ("pink", "#c78ec4"),
 ];
 
-/// One of a style's parts: its variants, how often it is drawn when left
-/// to the seed, in percent, and the other part it sits on when only some of
-/// that part's variants hold it (a clay `top` sits on most `body` variants,
-/// not all).
+/// One of a style's parts: the variants the desk offers, how often it is
+/// drawn when left to the seed, in percent, and whether some of DiceBear's
+/// variants are struck, so a seed must be told which it may pick.
 struct Part {
     name: String,
     variants: Vec<String>,
     chance: f64,
-    only_with: Option<(String, Vec<String>)>,
+    narrowed: bool,
 }
 
 /// One of a style's colour slots, with the palette the seed picks from;
@@ -209,30 +160,44 @@ struct Parsed {
     style: Style,
     parts: Vec<Part>,
     slots: Vec<Slot>,
+    scale: Option<f64>,
 }
 
 /// Each style read once: reading one checks it against DiceBear's schema.
 /// Its parts and palettes are read from the definition itself, which the
 /// crate does not expose.
-static PARSED: LazyLock<Vec<Parsed>> =
-    LazyLock::new(|| STYLES.iter().map(|kept| parse(kept.definition)).collect());
+static PARSED: LazyLock<Vec<Parsed>> = LazyLock::new(|| STYLES.iter().map(parse).collect());
 
-fn parse(definition: &str) -> Parsed {
-    let style = Style::from_str(definition).expect("a style shipped in dicebear-styles reads");
+fn parse(kept: &Kept) -> Parsed {
+    let style = Style::from_str(kept.definition).expect("a style shipped in dicebear-styles reads");
     let raw: Value =
-        serde_json::from_str(definition).expect("a style shipped in dicebear-styles is JSON");
-    let components = raw["components"].as_object().cloned().unwrap_or_default();
-    let parts = components
-        .iter()
+        serde_json::from_str(kept.definition).expect("a style shipped in dicebear-styles is JSON");
+    let parts = raw["components"]
+        .as_object()
+        .into_iter()
+        .flatten()
         .filter(|(_, component)| component.get("extends").is_none())
-        .map(|(name, component)| Part {
-            name: name.clone(),
-            variants: component["variants"]
+        .map(|(name, component)| {
+            let struck = kept
+                .struck
+                .iter()
+                .find(|(part, _)| part == name)
+                .map_or(&[][..], |(_, variants)| *variants);
+            let all: Vec<String> = component["variants"]
                 .as_object()
                 .map(|variants| variants.keys().cloned().collect())
-                .unwrap_or_default(),
-            chance: component["probability"].as_f64().unwrap_or(100.0),
-            only_with: only_with(&raw["canvas"], &components, name),
+                .unwrap_or_default();
+            let variants: Vec<String> = all
+                .iter()
+                .filter(|variant| !struck.contains(&variant.as_str()))
+                .cloned()
+                .collect();
+            Part {
+                name: name.clone(),
+                narrowed: variants.len() < all.len(),
+                variants,
+                chance: component["probability"].as_f64().unwrap_or(100.0),
+            }
         })
         .collect();
     let mut slots: Vec<Slot> = raw["colors"]
@@ -260,40 +225,7 @@ fn parse(definition: &str) -> Parsed {
         style,
         parts,
         slots,
-    }
-}
-
-/// The part `name` sits on and that part's variants which hold it, when it
-/// is not on the canvas itself and some of them do not.
-fn only_with(
-    canvas: &Value,
-    components: &Map<String, Value>,
-    name: &str,
-) -> Option<(String, Vec<String>)> {
-    if holds(canvas, name) {
-        return None;
-    }
-    components.iter().find_map(|(parent, component)| {
-        let variants = component["variants"].as_object()?;
-        let holding: Vec<String> = variants
-            .iter()
-            .filter(|(_, variant)| holds(variant, name))
-            .map(|(variant, _)| variant.clone())
-            .collect();
-        (!holding.is_empty() && holding.len() < variants.len()).then(|| (parent.clone(), holding))
-    })
-}
-
-/// Whether a piece of a definition places the component `name`.
-fn holds(piece: &Value, name: &str) -> bool {
-    match piece {
-        Value::Object(fields) => {
-            (fields.get("type").and_then(Value::as_str) == Some("component")
-                && fields.get("name").and_then(Value::as_str) == Some(name))
-                || fields.values().any(|field| holds(field, name))
-        }
-        Value::Array(items) => items.iter().any(|item| holds(item, name)),
-        _ => false,
+        scale: kept.scale,
     }
 }
 
@@ -431,8 +363,8 @@ fn object<'a>(arguments: &'a Value, key: &str) -> Result<Vec<(&'a String, &'a Va
     }
 }
 
-/// A face: its recipe, the PNG it draws, and what the call chose that is
-/// not in the picture, because the part it belongs on is not drawn.
+/// A face: its recipe, the PNG it draws, and the colours the call chose
+/// that nothing drawn uses (a cat's collar colour with no collar).
 pub(crate) struct Face {
     pub(crate) recipe: AvatarRecipe,
     pub(crate) png: Vec<u8>,
@@ -475,9 +407,8 @@ pub(crate) fn compose(
                 .map(|(name, color)| (name.clone(), color.clone())),
         );
     }
-    let asked_parts = ask.parts;
     let asked_colors = ask.colors;
-    parts.extend(asked_parts.clone());
+    parts.extend(ask.parts);
     colors.extend(asked_colors.clone());
     let drawn = draw(parsed, &parts, &colors, &seed)?;
     let resolved = &drawn.to_json()["options"];
@@ -503,19 +434,6 @@ pub(crate) fn compose(
         made_by,
     };
     let mut not_drawn = Vec::new();
-    for (name, variant) in asked_parts {
-        let Some(variant) = variant else { continue };
-        if recipe.parts.get(&name) != Some(&Some(variant.clone())) {
-            let part = parsed.parts.iter().find(|part| part.name == name);
-            let place = part
-                .and_then(|part| part.only_with.as_ref())
-                .map(|(parent, holding)| {
-                    format!(": it shows only with {parent} {}", holding.join(", "))
-                })
-                .unwrap_or_default();
-            not_drawn.push(format!("{name} {variant}{place}"));
-        }
-    }
     for name in asked_colors.keys() {
         if !recipe.colors.contains_key(name) {
             not_drawn.push(format!("the {name} colour: nothing drawn uses it"));
@@ -558,8 +476,17 @@ fn draw(
             }
         }
     }
+    // A part left to the seed picks among the variants not struck.
+    for part in &parsed.parts {
+        if part.narrowed && !parts.contains_key(&part.name) {
+            options.insert(format!("{}Variant", part.name), json!(part.variants));
+        }
+    }
     for (name, color) in colors {
         options.insert(format!("{name}Color"), json!([color]));
+    }
+    if let Some(scale) = parsed.scale {
+        options.insert("scale".into(), json!(scale));
     }
     Avatar::new(&parsed.style, Value::Object(options))
         .map_err(|_| "The face could not be drawn.".to_string())
@@ -665,7 +592,6 @@ pub(crate) fn styles_answer(persona: &Persona) -> Value {
                 "style": kept.id,
                 "draws": kept.draws,
                 "kind": if kept.person { "person" } else { "creature" },
-                "parts": kept.names,
             })
         })
         .collect();
@@ -680,7 +606,7 @@ pub(crate) fn styles_answer(persona: &Persona) -> Value {
         "styles": styles,
         "current": current,
         "bubble": { "name": name, "hex": color },
-        "note": "Ask with a style for its parts and colours. Numbered parts only say what they are once you see the picture make_face returns.",
+        "note": "Ask with a style for its parts and colours.",
     })
 }
 
@@ -697,9 +623,6 @@ pub(crate) fn style_answer(id: &str) -> Result<Value, String> {
             if part.chance < 100.0 {
                 entry["drawnPercent"] = json!(part.chance);
             }
-            if let Some((parent, holding)) = &part.only_with {
-                entry["onlyWith"] = json!({ parent: holding });
-            }
             entry
         })
         .collect();
@@ -714,7 +637,7 @@ pub(crate) fn style_answer(id: &str) -> Result<Value, String> {
         "kind": if kept.person { "person" } else { "creature" },
         "parts": parts,
         "colors": colors,
-        "note": "A part you leave out of make_face is filled from the seed; \"none\" leaves it off. drawnPercent is how often an optional part is drawn when left to the seed; onlyWith names the variants of another part it can sit on. A colour takes any #rrggbb, not only its palette; background is transparent unless chosen or given a palette.",
+        "note": "A part you leave out of make_face is filled from the seed; \"none\" leaves it off. drawnPercent is how often an optional part is drawn when left to the seed. A colour takes any #rrggbb, not only its palette; background is transparent unless chosen or given a palette.",
     }))
 }
 

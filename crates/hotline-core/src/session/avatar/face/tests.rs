@@ -79,21 +79,21 @@ fn every_style_draws_a_square_face_and_a_whole_recipe() {
 #[test]
 fn a_recipe_draws_the_same_face_every_time() {
     let one = made(
-        json!({ "style": "clay", "parts": { "eyes": "googly" } }),
+        json!({ "style": "critters", "parts": { "eyes": "wide" } }),
         None,
     );
     let two = made(
-        json!({ "style": "clay", "parts": { "eyes": "googly" } }),
+        json!({ "style": "critters", "parts": { "eyes": "wide" } }),
         None,
     );
     assert_eq!(one.recipe, two.recipe);
     assert_eq!(one.png, two.png);
     assert_eq!(png(&one.recipe).unwrap(), one.png);
     let other = made(
-        json!({ "style": "clay", "parts": { "eyes": "googly" }, "seed": "grace" }),
+        json!({ "style": "critters", "parts": { "eyes": "wide" }, "seed": "grace" }),
         None,
     );
-    assert_eq!(other.recipe.parts["eyes"].as_deref(), Some("googly"));
+    assert_eq!(other.recipe.parts["eyes"].as_deref(), Some("wide"));
     assert_ne!(other.png, one.png);
 }
 
@@ -102,18 +102,18 @@ fn a_recipe_draws_the_same_face_every_time() {
 #[test]
 fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     let first = made(
-        json!({ "style": "clay", "colors": { "body": "#69ACDE" } }),
+        json!({ "style": "critters", "colors": { "body": "#69ACDE" } }),
         None,
     );
     assert_eq!(first.recipe.colors["body"], "#69acde");
 
     let glasses = made(
-        json!({ "style": "clay", "parts": { "eyes": "googly", "mouth": "grin" } }),
+        json!({ "style": "critters", "parts": { "eyes": "wide", "mouth": "grin" } }),
         Some(&first.recipe),
     );
     for (name, variant) in &glasses.recipe.parts {
         match name.as_str() {
-            "eyes" => assert_eq!(variant.as_deref(), Some("googly")),
+            "eyes" => assert_eq!(variant.as_deref(), Some("wide")),
             "mouth" => assert_eq!(variant.as_deref(), Some("grin")),
             _ => assert_eq!(variant, &first.recipe.parts[name], "{name}"),
         }
@@ -123,24 +123,23 @@ fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     assert_eq!(glasses.recipe.seed, first.recipe.seed);
 
     let bare = made(
-        json!({ "style": "clay", "parts": { "top": "none", "pattern": null } }),
+        json!({ "style": "critters", "parts": { "top": "none", "pattern": null } }),
         Some(&glasses.recipe),
     );
     assert_eq!(bare.recipe.parts["top"], None);
     assert_eq!(bare.recipe.parts["pattern"], None);
-    assert_eq!(bare.recipe.parts["eyes"].as_deref(), Some("googly"));
+    assert_eq!(bare.recipe.parts["eyes"].as_deref(), Some("wide"));
 
-    // A part on a part that has no place for it is said not to be drawn.
-    let flat = made(
-        json!({ "style": "clay", "parts": { "body": "gumdrop", "top": "horns" } }),
-        Some(&bare.recipe),
+    // A colour for a part that is left off is said not to be drawn.
+    let collarless = made(
+        json!({ "style": "cats", "parts": { "collar": "none" }, "colors": { "collar": "#48b8bc" } }),
+        None,
     );
-    assert_eq!(flat.recipe.parts["top"], None);
-    assert_eq!(flat.not_drawn.len(), 1);
-    assert!(
-        flat.not_drawn[0].starts_with("top horns: it shows only with body bell, blob"),
-        "{:?}",
-        flat.not_drawn
+    assert_eq!(collarless.recipe.parts["collar"], None);
+    assert!(!collarless.recipe.colors.contains_key("collar"));
+    assert_eq!(
+        collarless.not_drawn,
+        ["the collar colour: nothing drawn uses it"]
     );
 
     let moods = made(json!({ "style": "moods" }), Some(&bare.recipe));
@@ -150,12 +149,12 @@ fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     assert_eq!(moods.recipe, made(json!({ "style": "moods" }), None).recipe);
 
     let reseeded = made(
-        json!({ "style": "clay", "seed": "grace" }),
+        json!({ "style": "critters", "seed": "grace" }),
         Some(&bare.recipe),
     );
     assert_eq!(
         reseeded.recipe,
-        made(json!({ "style": "clay", "seed": "grace" }), None).recipe
+        made(json!({ "style": "critters", "seed": "grace" }), None).recipe
     );
 }
 
@@ -167,50 +166,50 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
         (json!({}), "needs a `style`"),
         (
             json!({ "style": "bottts" }),
-            "The styles are: clay, critters",
+            "The styles are: pixelbot, critters, marbles",
         ),
         (json!({ "style": "adventurer" }), "no style called"),
         (
-            json!({ "style": "clay", "parts": { "hat": "tall" } }),
-            "Its parts are: body, eyes, mouth, pattern, top",
+            json!({ "style": "critters", "parts": { "hat": "tall" } }),
+            "Its parts are: body, cheeks, eyes, mouth, pattern, top",
         ),
         (
-            json!({ "style": "clay", "parts": { "eyes": "lasers" } }),
-            "Use one of: big, dots",
+            json!({ "style": "critters", "parts": { "eyes": "lasers" } }),
+            "Use one of: angry, bigPupils",
         ),
         (
-            json!({ "style": "clay", "parts": { "eyes": 7 } }),
+            json!({ "style": "critters", "parts": { "eyes": 7 } }),
             "has no variant 7",
         ),
         (
-            json!({ "style": "clay", "parts": ["eyes"] }),
+            json!({ "style": "critters", "parts": ["eyes"] }),
             "is an object",
         ),
         (
-            json!({ "style": "clay", "colors": { "glow": "#ffffff" } }),
+            json!({ "style": "critters", "colors": { "glow": "#ffffff" } }),
             "Its slots are: background, accent, body, ink",
         ),
         (
-            json!({ "style": "clay", "colors": { "body": "red" } }),
+            json!({ "style": "critters", "colors": { "body": "red" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "clay", "colors": { "body": "#12345" } }),
+            json!({ "style": "critters", "colors": { "body": "#12345" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "clay", "colors": { "body": "#gggggg" } }),
+            json!({ "style": "critters", "colors": { "body": "#gggggg" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "clay", "colors": { "body": "69acde" } }),
+            json!({ "style": "critters", "colors": { "body": "69acde" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "clay", "seed": "x".repeat(MAX_SEED + 1) }),
+            json!({ "style": "critters", "seed": "x".repeat(MAX_SEED + 1) }),
             "A seed is",
         ),
-        (json!({ "style": "clay", "seed": " " }), "A seed is"),
+        (json!({ "style": "critters", "seed": " " }), "A seed is"),
     ] {
         let Err(error) = Ask::read(&arguments) else {
             panic!("{arguments} was taken");
@@ -218,7 +217,7 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
         assert!(error.contains(said), "{arguments}: {error}");
     }
     let long = "x".repeat(10_000);
-    let error = Ask::read(&json!({ "style": "clay", "parts": { long: "a" } }))
+    let error = Ask::read(&json!({ "style": "critters", "parts": { long: "a" } }))
         .err()
         .unwrap();
     assert!(error.len() < 400, "a refusal repeats a bounded name");
@@ -243,7 +242,7 @@ fn a_seeded_face_is_a_named_creature_in_the_bubble_colour() {
                 .iter()
                 .find(|kept| kept.id == face.recipe.style)
                 .unwrap();
-            assert!(!kept.person && kept.names == "named", "{}", kept.id);
+            assert!(!kept.person, "{}", kept.id);
             let slot = kept.seeded_in.unwrap();
             assert_eq!(face.recipe.colors[slot], bubble(&teammate).1, "{id}");
             assert_eq!(face.recipe.made_by, FaceMaker::Desk);
@@ -296,12 +295,11 @@ fn the_options_answer_what_make_face_takes() {
             None,
         );
         for (name, variant) in &parts {
-            let drawn = face.recipe.parts[name].as_deref() == variant.as_str();
-            let said = face
-                .not_drawn
-                .iter()
-                .any(|line| line.starts_with(&format!("{name} ")));
-            assert!(drawn != said, "{id} {name}: {:?}", face.not_drawn);
+            assert_eq!(
+                face.recipe.parts[name].as_deref(),
+                variant.as_str(),
+                "{id} {name}"
+            );
         }
         assert!(!face.recipe.colors.is_empty(), "{id}");
         for (name, color) in &face.recipe.colors {
@@ -309,19 +307,14 @@ fn the_options_answer_what_make_face_takes() {
         }
     }
     assert!(style_answer("bottts").is_err());
-    let clay = style_answer("clay").unwrap();
-    let top = clay["parts"]
+    let critters = style_answer("critters").unwrap();
+    let top = critters["parts"]
         .as_array()
         .unwrap()
         .iter()
         .find(|part| part["part"] == "top")
         .unwrap();
-    assert_eq!(top["drawnPercent"], 75.0);
-    assert!(
-        top["onlyWith"]["body"]
-            .as_array()
-            .is_some_and(|holding| !holding.contains(&json!("gumdrop")))
-    );
+    assert_eq!(top["drawnPercent"], 80.0);
 }
 
 /// The definitions read whole: no palette value dropped for not being a
@@ -371,4 +364,64 @@ fn every_style_drawn_is_cc0() {
             kept.id
         );
     }
+}
+
+/// A struck variant is not offered, not taken, and never filled from a seed;
+/// every struck name is one the style has.
+#[test]
+fn a_struck_variant_is_neither_offered_nor_taken_nor_seeded() {
+    let mut struck_any = false;
+    for kept in &STYLES {
+        let raw: Value = serde_json::from_str(kept.definition).unwrap();
+        for (part, variants) in kept.struck {
+            for variant in *variants {
+                struck_any = true;
+                assert!(
+                    raw["components"][*part]["variants"].get(*variant).is_some(),
+                    "{} has no {part} {variant} to strike",
+                    kept.id
+                );
+                let offered = style_answer(kept.id).unwrap();
+                let listed = offered["parts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|entry| entry["part"] == *part)
+                    .unwrap();
+                assert!(
+                    !listed["variants"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&json!(variant))
+                );
+                let refused = Ask::read(&json!({ "style": kept.id, "parts": { *part: variant } }));
+                assert!(refused.is_err(), "{} {part} {variant} was taken", kept.id);
+            }
+        }
+        let (_, parsed) = style(kept.id).unwrap();
+        for seed in (0..200).filter(|_| !kept.struck.is_empty()) {
+            let drawn = draw(
+                parsed,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &format!("seed-{seed}"),
+            )
+            .unwrap()
+            .to_json();
+            for (part, variants) in kept.struck {
+                let chosen = drawn["options"][format!("{part}Variant")]
+                    .as_str()
+                    .unwrap_or_default();
+                assert!(
+                    !variants.contains(&chosen),
+                    "{} seed-{seed} drew {part} {chosen}",
+                    kept.id
+                );
+            }
+        }
+    }
+    assert!(
+        struck_any,
+        "pixelbot's unreadable eyes and mouth are struck"
+    );
 }

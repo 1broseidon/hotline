@@ -301,7 +301,7 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
         .iter()
         .map(|style| style["style"].as_str().unwrap())
         .collect();
-    assert!(styles.contains(&"clay") && styles.contains(&"open-peeps"));
+    assert!(styles.contains(&"critters") && styles.contains(&"open-peeps"));
     assert!(
         listed["styles"]
             .as_array()
@@ -319,14 +319,14 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
     assert_eq!(listed["bubble"]["name"], "teal");
     assert!(listed.get("tags").is_none());
 
-    let clay: Value = serde_json::from_str(
+    let critters: Value = serde_json::from_str(
         &tools
-            .call("face_options", &json!({ "style": "clay" }))
+            .call("face_options", &json!({ "style": "critters" }))
             .await
             .unwrap(),
     )
     .unwrap();
-    let eyes = clay["parts"]
+    let eyes = critters["parts"]
         .as_array()
         .unwrap()
         .iter()
@@ -336,10 +336,10 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
         eyes["variants"]
             .as_array()
             .unwrap()
-            .contains(&json!("googly"))
+            .contains(&json!("wide"))
     );
     assert!(
-        clay["colors"]
+        critters["colors"]
             .as_array()
             .unwrap()
             .iter()
@@ -362,7 +362,7 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     let first = tools
         .answer(
             "make_face",
-            &json!({ "style": "clay", "colors": { "body": "#48b8bc" } }),
+            &json!({ "style": "critters", "colors": { "body": "#48b8bc" } }),
         )
         .await
         .unwrap();
@@ -370,7 +370,7 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     let kept = avatar(&room).unwrap();
     assert_eq!(kept.by, AvatarBy::Own);
     let recipe = kept.recipe.clone().unwrap();
-    assert_eq!(recipe.style, "clay");
+    assert_eq!(recipe.style, "critters");
     assert_eq!(recipe.colors["body"], "#48b8bc");
     assert_eq!(recipe.seed, "ada");
     assert_eq!(recipe.made_by, crate::contract::FaceMaker::Teammate);
@@ -387,7 +387,7 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     tools
         .answer(
             "make_face",
-            &json!({ "style": "clay", "parts": { "mouth": "grin" } }),
+            &json!({ "style": "critters", "parts": { "mouth": "grin" } }),
         )
         .await
         .unwrap();
@@ -419,11 +419,11 @@ async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
     for (arguments, said) in [
         (json!({ "style": "bottts" }), "The styles are"),
         (
-            json!({ "style": "clay", "parts": { "wings": "big" } }),
+            json!({ "style": "critters", "parts": { "wings": "big" } }),
             "Its parts are",
         ),
         (
-            json!({ "style": "clay", "colors": { "body": "teal" } }),
+            json!({ "style": "critters", "colors": { "body": "teal" } }),
             "#rrggbb",
         ),
     ] {
@@ -441,7 +441,7 @@ async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
     let error = tools
-        .call("make_face", &json!({ "style": "clay" }))
+        .call("make_face", &json!({ "style": "critters" }))
         .await
         .unwrap_err();
     assert!(
@@ -500,10 +500,10 @@ async fn a_picture_without_a_recipe_still_loads_and_a_face_replaces_it() {
         .unwrap();
     assert_eq!(avatar(&room).unwrap().recipe, None);
     tools
-        .answer("make_face", &json!({ "style": "dogs" }))
+        .answer("make_face", &json!({ "style": "cats" }))
         .await
         .unwrap();
-    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "dogs");
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "cats");
 }
 
 /// A subagent run and a voice front have neither tool, and a revoked
@@ -512,7 +512,7 @@ async fn a_picture_without_a_recipe_still_loads_and_a_face_replaces_it() {
 #[tokio::test]
 async fn only_the_teammates_own_threads_make_its_face() {
     let (_dir, room, _tools) = room();
-    let face = json!({ "style": "clay" });
+    let face = json!({ "style": "critters" });
     for (tools, who) in [
         (TeammateTools::new(&room, "ada").for_run(), "A subagent"),
         (
@@ -536,5 +536,5 @@ async fn only_the_teammates_own_threads_make_its_face() {
 
     let job = TeammateTools::new(&room, "ada").for_job("job-1");
     job.call("make_face", &face).await.unwrap();
-    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "clay");
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "critters");
 }

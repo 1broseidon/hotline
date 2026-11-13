@@ -143,20 +143,12 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 dicebear-core = "=11.0.0-rc.2"
 dicebear-styles = { version = "=11.0.0-rc.3", default-features = false, features = [
     "cats",
-    "clay",
     "critters",
-    "cutouts",
-    "dogs",
-    "lorelei",
     "marbles",
     "moods",
-    "notionists",
     "open-peeps",
-    "pixel-art",
+    "pixelbot",
     "sprouts",
-    "thumbs",
-    "voxel-art",
-    "voxel-bot",
 ] }
 # DiceBear answers SVG and a kept picture is a PNG. No text or fonts: none of
 # the enabled styles writes text, and a system font lookup is not wanted.

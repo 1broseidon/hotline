@@ -34,10 +34,10 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
     let (ada, tape) = desk.teammate("Ada", driver, false).await;
     let script = [
         "CALL face_options {}",
-        r#"CALL face_options {"style":"clay"}"#,
-        r##"CALL make_face {"style":"clay","parts":{"eyes":"googly"},"colors":{"body":"#48b8bc"}}"##,
-        r#"CALL make_face {"style":"clay","parts":{"mouth":"grin"}}"#,
-        r#"CALL make_face {"style":"clay","colors":{"body":"teal"}}"#,
+        r#"CALL face_options {"style":"critters"}"#,
+        r##"CALL make_face {"style":"critters","parts":{"eyes":"wide"},"colors":{"body":"#48b8bc"}}"##,
+        r#"CALL make_face {"style":"critters","parts":{"mouth":"grin"}}"#,
+        r#"CALL make_face {"style":"critters","colors":{"body":"teal"}}"#,
     ]
     .join("\n");
     let sent = desk
@@ -48,7 +48,7 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
     let results = desk.results(tape).await;
     for sentence in [
         r#""bubble":{"name""#,
-        "googly",
+        "wide",
         r#""madeBy":"teammate""#,
         r#""mouth":"grin""#,
         "must be a #rrggbb hex colour",
@@ -73,12 +73,9 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
     let avatar = persona_on_disk(&desk, &ada)["avatar"].clone();
     assert_eq!(avatar["by"], "self");
     let recipe = &avatar["recipe"];
-    assert_eq!(recipe["style"], "clay");
+    assert_eq!(recipe["style"], "critters");
     assert_eq!(recipe["madeBy"], "teammate");
-    assert_eq!(
-        recipe["parts"]["eyes"], "googly",
-        "the earlier choice stays"
-    );
+    assert_eq!(recipe["parts"]["eyes"], "wide", "the earlier choice stays");
     assert_eq!(recipe["parts"]["mouth"], "grin");
     assert_eq!(
         recipe["colors"]["body"], "#48b8bc",

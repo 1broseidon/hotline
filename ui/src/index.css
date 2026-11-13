@@ -1452,6 +1452,13 @@
 		color: var(--face-ink);
 		user-select: none;
 		overflow: hidden;
+		background: var(--face);
+	}
+	/* A picture with no transparency fills its circle. The disc behind it
+	 * would show only through the circle's antialiased edge, as a thin light
+	 * ring around a dark face, so there is none. */
+	.avatar[data-fills] {
+		background: none;
 	}
 	.avatar-picture {
 		width: 100%;

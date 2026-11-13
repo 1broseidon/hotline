@@ -22,9 +22,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   needs credit.
 - Setup's Picture switch is always offered, and a new teammate starts with a
   face rather than its initial: the desk draws one at once in its bubble
-  colour, and a few seconds later the teammate makes its own on a quiet job
-  of its own, without a word in your chat. A generated picture in the crew
-  style is still there when you ask the teammate for one.
+  colour on a dark ground of the same hue, and a few seconds later the
+  teammate makes its own on a quiet job of its own, without a word in your
+  chat. A generated picture in the crew style is still there when you ask
+  the teammate for one.
 
 ### Fixed
 

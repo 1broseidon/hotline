@@ -408,8 +408,21 @@ fn square(bytes: &[u8]) -> Result<Vec<u8>, String> {
     );
     let resized =
         image::imageops::resize(&canvas, EDGE, EDGE, image::imageops::FilterType::Lanczos3);
+    kept_png(resized)
+}
+
+/// A picture as it is kept: with no alpha channel when every pixel is
+/// opaque, so a window can read from the file itself that it fills its
+/// circle, and draws no colour disc behind it to bleed through the edge.
+fn kept_png(picture: RgbaImage) -> Result<Vec<u8>, String> {
+    let opaque = picture.pixels().all(|pixel| pixel[3] == u8::MAX);
+    let picture = if opaque {
+        DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(picture).to_rgb8())
+    } else {
+        DynamicImage::ImageRgba8(picture)
+    };
     let mut png = Cursor::new(Vec::new());
-    DynamicImage::ImageRgba8(resized)
+    picture
         .write_to(&mut png, ImageFormat::Png)
         .map_err(|_| "The picture could not be encoded.".to_string())?;
     Ok(png.into_inner())

@@ -470,6 +470,19 @@ fn pixelbot_glows_in_the_bubble_hue_inside_the_circle() {
     );
     let open_peeps = style_answer("open-peeps", &ada).unwrap();
     assert!(open_peeps.get("yourColors").is_none());
+    // The other creatures sit on the same dark ground of the bubble's hue.
+    for (style, slot) in [("critters", "body"), ("moods", "face"), ("sprouts", "pot")] {
+        assert_eq!(
+            style_answer(style, &ada).unwrap()["yourColors"],
+            json!({ slot: "#48b8bc", "background": "#002b2d" }),
+            "{style}"
+        );
+        assert_eq!(
+            style_answer(style, &grey).unwrap()["yourColors"]["background"],
+            "#202429",
+            "{style}"
+        );
+    }
 
     // Every face's lit pixels stay inside the circle the window clips it to.
     for eyes in ["blocks", "happy", "round", "soft", "tall", "wide"] {
@@ -490,4 +503,28 @@ fn pixelbot_glows_in_the_bubble_hue_inside_the_circle() {
             }
         }
     }
+}
+
+/// A face that fills its square is kept with no alpha channel, so a window
+/// can tell from the file that no colour disc belongs behind it; one with a
+/// transparent ground keeps its alpha.
+#[test]
+fn a_face_with_a_ground_is_kept_without_an_alpha_channel() {
+    // A PNG's colour type is the byte after its IHDR's size and depth:
+    // 2 is RGB, 6 is RGB with alpha.
+    let colour_type = |png: &[u8]| png[25];
+    for style in ["pixelbot", "critters", "moods", "sprouts"] {
+        let face = seeded(&persona(&format!("{style}-ada"), None)).unwrap();
+        let face = made(json!({ "style": face.recipe.style }), Some(&face.recipe));
+        assert_eq!(colour_type(&face.png), 2, "{style}");
+        let picture = image::load_from_memory(&face.png).unwrap();
+        assert!(!picture.color().has_alpha(), "{style}");
+    }
+    let open = made(json!({ "style": "open-peeps" }), None);
+    assert_eq!(colour_type(&open.png), 6);
+    let grounded = made(
+        json!({ "style": "open-peeps", "colors": { "background": "#202429" } }),
+        None,
+    );
+    assert_eq!(colour_type(&grounded.png), 2);
 }

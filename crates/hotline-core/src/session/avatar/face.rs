@@ -78,7 +78,7 @@ const STYLES: [Kept; 5] = [
         definition: dicebear_styles::CRITTERS,
         draws: "a flat, bold monster on a deep ground",
         person: false,
-        wears: &[("body", Tone::Mark)],
+        wears: &[("body", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
     },
@@ -87,7 +87,7 @@ const STYLES: [Kept; 5] = [
         definition: dicebear_styles::MOODS,
         draws: "a rounded face showing a mood",
         person: false,
-        wears: &[("face", Tone::Mark)],
+        wears: &[("face", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
     },
@@ -96,7 +96,7 @@ const STYLES: [Kept; 5] = [
         definition: dicebear_styles::SPROUTS,
         draws: "a potted plant with a face",
         person: false,
-        wears: &[("pot", Tone::Mark)],
+        wears: &[("pot", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
     },
@@ -132,7 +132,9 @@ pub(crate) struct Bubble {
     pub(crate) mark: &'static str,
     /// `oklch(88% 0.15 <hue>)`, as bright as Pixelbot's own glows.
     neon: &'static str,
-    /// `oklch(26% 0.05 <hue>)`, as dark as Pixelbot's own screens.
+    /// `oklch(26% 0.05 <hue>)`, as dark as Pixelbot's own screens: the
+    /// ground every creature style's face sits on, so no style's own
+    /// saturated ground clashes with the teammate's colour.
     screen: &'static str,
 }
 
@@ -564,7 +566,8 @@ pub(crate) fn svg(recipe: &AvatarRecipe) -> Result<String, String> {
 }
 
 /// The recipe as it is kept: the drawing filling a 512 px square, as a PNG,
-/// transparent wherever the style is.
+/// transparent wherever the style is, and with no alpha channel when no
+/// pixel is.
 pub(crate) fn png(recipe: &AvatarRecipe) -> Result<Vec<u8>, String> {
     let svg = svg(recipe)?;
     let failed = || "The face could not be drawn.".to_string();
@@ -583,7 +586,16 @@ pub(crate) fn png(recipe: &AvatarRecipe) -> Result<Vec<u8>, String> {
     let edge = EDGE as f32;
     let fit = tiny_skia::Transform::from_scale(edge / size.width(), edge / size.height());
     resvg::render(&tree, fit, &mut pixmap.as_mut());
-    pixmap.encode_png().map_err(|_| failed())
+    let straight: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let color = pixel.demultiply();
+            [color.red(), color.green(), color.blue(), color.alpha()]
+        })
+        .collect();
+    let picture = image::RgbaImage::from_raw(EDGE, EDGE, straight).ok_or_else(failed)?;
+    super::kept_png(picture)
 }
 
 /// The face setup gives a teammate at once: a creature style picked from

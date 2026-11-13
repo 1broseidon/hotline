@@ -18,7 +18,8 @@ describe("A teammate's picture", () => {
 		const again = await avatarUrl("ada", "h1", read);
 		expect(again).toBe(first);
 		expect(offsets).toEqual([0, 3]);
-		expect(await (await fetch(first)).text()).toBe("abcdef");
+		expect(await (await fetch(first.url)).text()).toBe("abcdef");
+		expect(first.opaque).toBe(false);
 	});
 
 	test("that could not be read is asked for again next time", async () => {

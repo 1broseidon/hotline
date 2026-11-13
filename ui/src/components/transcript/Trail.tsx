@@ -8,7 +8,7 @@ import type { Glance } from "../../glance";
 import { markOf, type PathEntry, pathGroups, pathLines } from "../../outcomes";
 import { openLink } from "../../native";
 import { joinThoughts, stepTitle } from "../../stepText";
-import { type FileChange, type Source, type ToolStep, durationText, factOf, filesOf, pageOf, sourcesOf, stepTook, toolSteps } from "../../turnFacts";
+import { type FileChange, type Source, type ToolStep, durationText, factOf, filesOf, pageOf, resultsOf, sourcesOf, stepTook, toolSteps } from "../../turnFacts";
 import { Favicon, Favicons } from "../Favicon";
 import { pathOf, plainTitle, Read, Sources } from "./Sources";
 import { StepOutput } from "./Steps";
@@ -271,7 +271,7 @@ function Shape({ items, lines, live, hot }: { items: Step[]; lines: Glance[]; li
 		const gap = step.ts - end;
 		if (gap > THINKING_MS) segments.push({ key: `gap-${step.id}`, grow: gap, tone: "think" });
 		const stop = step.endedTs ?? (step.status === "in_progress" && live ? now : step.ts);
-		const tone = step.status === "failed" ? "failed" : step.status === "in_progress" && live ? "live" : step.sources?.some((page) => page.found === true) ? "web" : "done";
+		const tone = step.status === "failed" ? "failed" : step.status === "in_progress" && live ? "live" : resultsOf(step).length > 0 ? "web" : "done";
 		const line = lineOf.get(step.id);
 		segments.push({ key: step.id, grow: Math.max(stop - step.ts, 1), tone, ...(line !== undefined ? { line } : {}) });
 		end = Math.max(end, stop);
@@ -387,7 +387,7 @@ function Thought({ text }: { text: string }) {
  * did, its page among the turn's sources above.
  */
 function StepDetail({ step, sources }: { step: ToolStep; sources: Source[] }) {
-	const found = step.sources?.filter((page) => page.found === true) ?? [];
+	const found = resultsOf(step);
 	if (found.length > 0) return <SearchRow step={step} found={found.map((page) => sources.find((one) => one.url === page.url) ?? { ...page, site: siteName(page.url) })} sources={sources} />;
 	const page = step.sources?.find((one) => one.found !== true && step.title.includes(one.url)) ?? pageOf(step);
 	if (page != null && step.status !== "failed") return <PageRow step={step} url={page.url} sources={sources} />;

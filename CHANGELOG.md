@@ -142,6 +142,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   its count of results and an eye on those it opened. Pages on this
   computer or the local network (localhost, 127.x, ::1, 0.0.0.0, .local
   names) are not sources, as on the phone.
+- A web search that hands the teammate the pages' content counts those
+  pages as read. Claude Code's own web search does, so a Claude Code turn
+  that answered from its searches alone shows those pages as its sources,
+  on new turns and old ones; Hotline's web search, which hands back only
+  each result's title, address and a short preview, still lists them.
 
 ### Fixed
 

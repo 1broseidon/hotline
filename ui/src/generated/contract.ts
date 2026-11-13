@@ -2736,9 +2736,10 @@ endedTs?: number,
 /**
  * The web pages a step opened or found: a fetch's page, a `curl`
  * command's, the page the teammate's browser went to (since
- * 0.49), a web search's results (`found`), each as the step's own
- * output names it. Absent on every other step, and on steps
- * written before 0.45.
+ * 0.49), a web search's results (`found`, but read when the search
+ * hands the model their content, as Claude Code's does, since
+ * 0.49), each as the step's own output names it. Absent on every
+ * other step, and on steps written before 0.45.
  */
 sources?: Array<WebSource>, } | { "kind": "permission", 
 /**

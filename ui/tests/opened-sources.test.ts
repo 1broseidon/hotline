@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WebSource } from "../src/generated/contract";
-import { localAddress, sourcesOf, type ToolStep } from "../src/turnFacts";
+import { factOf, localAddress, sourcesOf, type ToolStep } from "../src/turnFacts";
 
 // A turn's sources are the pages it opened, never what a search only listed,
 // and never a page on this machine (George, 2026-11-12). Each step here is a
@@ -115,6 +115,44 @@ describe("what a search only listed is not", () => {
 			[results[1]!.url, "Huang resigns: live"],
 			[results[0]!.url, results[0]!.title],
 		]);
+	});
+});
+
+describe("a search whose tool hands the model the pages' content read them", () => {
+	// Claude Code's WebSearch on George's desk (1e615299 l.810): the links, then what it drew from those pages.
+	const claude = (sources: WebSource[]) =>
+		step('Search "open source desktop app run multiple coding agents in parallel Claude Code Codex 2026"', "fetch", "Paseo (https://paseo.sh/)\nOpenAI Codex (https://en.wikipedia.org/wiki/OpenAI_Codex)\nSeveral open-source desktop apps match this query.", { sources });
+	const results = [
+		{ url: "https://paseo.sh/", title: "Paseo" },
+		{ url: "https://en.wikipedia.org/wiki/OpenAI_Codex", title: "OpenAI Codex" },
+	];
+
+	test("Claude Code's results are sources, with their titles, as the desk writes them and as an older tape keeps them", () => {
+		const pages = results.map((page) => [page.url, page.title]);
+		expect(opened([claude(results)])).toEqual(pages);
+		expect(opened([claude(results.map((page) => ({ ...page, found: true })))])).toEqual(pages);
+		expect(factOf([claude(results)], false)).toEqual({ text: "2 results", tone: "quiet" });
+	});
+
+	test("a page both searched and opened is one source, where it was first read", () => {
+		expect(
+			opened([
+				step("Fetch https://en.wikipedia.org/wiki/OpenAI_Codex", "fetch", "# Codex", { sources: [{ url: "https://en.wikipedia.org/wiki/OpenAI_Codex" }] }),
+				claude(results),
+				step("mcp__hotline__browser", "other", "Page: Paseo\nURL: https://paseo.sh/"),
+			]),
+		).toEqual([
+			["https://en.wikipedia.org/wiki/OpenAI_Codex", "OpenAI Codex"],
+			["https://paseo.sh/", "Paseo"],
+		]);
+	});
+
+	test("Hotline's web_search, through Claude Code too, only listed its results (1e615299 l.23)", () => {
+		const hotline = step("mcp__hotline__web_search", "other", "1. Give your agent its own computer\n   https://www.langchain.com/blog/give-your-ai-agent-its-own-computer\n   Give your agent its own computer June 5, 2026…", {
+			sources: [{ url: "https://www.langchain.com/blog/give-your-ai-agent-its-own-computer", title: "Give your agent its own computer", found: true }],
+		});
+		expect(sourcesOf([hotline])).toEqual([]);
+		expect(factOf([hotline], false)).toEqual({ text: "1 result", tone: "quiet" });
 	});
 });
 

@@ -23,9 +23,11 @@ come first, under **Sources**, each opening in your browser, then its
 steps.
 
 A source is a page the teammate actually opened, with a fetch, a command
-or its browser. A web search's results are not sources until it opens
-one: they stay with the search in the path, where opening it lists them
-and marks the ones it went on to read. Pages on your own computer or
+or its browser, or read through a web search that hands it the pages'
+content, as Claude Code's own search does. The results of a search that
+only lists titles and links, as Hotline's does, are not sources until it
+opens one: they stay with the search in the path, where opening it lists
+them and marks the ones it went on to read. Pages on your own computer or
 local network, such as `localhost`, are not counted.
 
 You do not have to wait for it to finish:

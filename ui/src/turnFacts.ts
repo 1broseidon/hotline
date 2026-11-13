@@ -66,8 +66,25 @@ function browsedOf(step: ToolStep): WebSource | null {
 	return { url: page[2]!, ...(title !== "" && title !== "(no title)" ? { title } : {}) };
 }
 
+/**
+ * Claude Code's web search, a fetch titled by its query (the core's
+ * `group_of`). Its tool hands the model what it drew from the pages, so the
+ * results it lists were read, where Hotline's `web_search` only lists them
+ * with a preview (the core's `glance/sources.rs`).
+ */
+function readsItsResults(step: ToolStep): boolean {
+	return (step.toolKind ?? "").toLowerCase() === "fetch" && step.title.startsWith("Search ") && !/\bhttps?:\/\//.test(step.title);
+}
+
+/** A search's results, read or only listed; none for any other step. A step the desk wrote before it knew Claude's were read reads as it records them now. */
+export function resultsOf(step: ToolStep): WebSource[] {
+	if (readsItsResults(step)) return (step.sources ?? []).map(({ found: _, ...page }) => page);
+	return step.sources?.filter((page) => page.found === true) ?? [];
+}
+
 /** The pages a step opened or listed: the desk's record, or for an older step what its title or its answer names. A step that failed opened nothing. */
 function pagesOf(step: ToolStep): WebSource[] {
+	if (readsItsResults(step)) return resultsOf(step);
 	if (step.sources !== undefined) return step.sources;
 	if (step.status === "failed") return [];
 	const page = pageOf(step) ?? browsedOf(step);
@@ -91,10 +108,11 @@ export function localAddress(url: string): boolean {
 
 /**
  * The web pages a turn opened, each once, in the order it first opened them:
- * what its fetches, its commands and its browsers read. Those are its
- * evidence (George, 2026-11-12). What a search only listed is not a source:
- * the search's own line keeps it, with an eye on those opened. A listing
- * still names a page the turn opened without a title of its own.
+ * what its fetches, its commands and its browsers read, and the results of a
+ * search whose tool hands the model the pages' content (Claude Code's).
+ * Those are its evidence (George, 2026-11-12). What a search only listed is
+ * not a source: the search's own line keeps it, with an eye on those opened.
+ * A listing still names a page the turn opened without a title of its own.
  */
 export function sourcesOf(items: Step[]): Source[] {
 	const listed = new Map<string, string>();
@@ -230,10 +248,8 @@ export function factOf(steps: ToolStep[], live: boolean): Fact | null {
 		const counts = files.every((file) => file.added !== undefined);
 		return counts ? { text: linesText(files.reduce((n, file) => n + file.added!, 0), files.reduce((n, file) => n + file.removed!, 0)), tone: "quiet" } : null;
 	}
-	if (steps.some((step) => step.sources?.some((page) => page.found === true))) {
-		const results = steps.reduce((n, step) => n + (step.sources?.filter((page) => page.found === true).length ?? 0), 0);
-		return { text: counted(results, "result", "results"), tone: "quiet" };
-	}
+	const results = steps.reduce((n, step) => n + resultsOf(step).length, 0);
+	if (results > 0) return { text: counted(results, "result", "results"), tone: "quiet" };
 	const passed = steps.map((step) => /\b(\d+) passed\b/.exec(outputOf(step))?.[1]).filter((n) => n !== undefined);
 	if (passed.length > 0 && passed.length === steps.length) return { text: `${passed.reduce((n, one) => n + Number(one), 0)} passed`, tone: "quiet" };
 	if (steps.length > 0 && steps.every((step) => step.endedTs !== undefined)) {

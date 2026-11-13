@@ -48,7 +48,8 @@ const fetched = (url: string, title: string, took: number) =>
 function recorded(): Step[] {
 	at = 0;
 	return [
-		step('Search "release blockers"', "fetch", "Searched the web", {
+		// Hotline's web_search, which only lists what it found (Claude Code's reads it: opened-sources.test.ts).
+		step("web_search: release blockers", "search", "Searched the web", {
 			endedTs: 1400,
 			sources: [
 				{ url: "https://nextjs.org/blog/next-15-4", title: "Next.js 15.4", found: true },

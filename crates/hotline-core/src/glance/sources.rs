@@ -29,18 +29,27 @@ const BROWSERS: &[&str] = &[
 /// them; nothing for any other step. A fetch is the page in its title, with
 /// the page's title when the tool writes it first (`web_fetch` does, then a
 /// blank line); a search is the results its output lists, each `N. title`
-/// over its address (Hotline's `web_search`) or `title (address)` (Claude's),
-/// marked found, since listing a page is not opening it; a browser's step is
-/// the page its answer says it went to. A "title" that is only the site's
-/// name is no title.
+/// over its address (Hotline's `web_search`) or `title (address)` (Claude's);
+/// a browser's step is the page its answer says it went to. A "title" that
+/// is only the site's name is no title.
+///
+/// Whether a search's results were read is the search tool's: Claude Code's
+/// `WebSearch` hands the model what it drew from the pages, an answer
+/// written from them under the links (tape 1e615299, lines 810-895), so its
+/// results are pages read; Hotline's `web_search` hands back each result's
+/// title, address and a search preview of at most 300 characters
+/// (`hotline-websearch`'s `render`), so its results are only found, since
+/// listing a page is not opening it.
 pub fn sources_of(title: &str, kind: &str, output: &str) -> Vec<WebSource> {
     let first = title.split([':', ' ']).next().unwrap_or_default();
-    let searched = group_of(kind, title) == "web"
+    // Claude's web search is a fetch titled by its query.
+    let reads = group_of(kind, title) == "web";
+    let searched = reads
         || [first, kind]
             .iter()
             .any(|name| name.trim_start_matches("mcp__hotline__") == "web_search");
     if searched {
-        return listed(output);
+        return listed(output, !reads);
     }
     if [first, kind]
         .iter()
@@ -108,8 +117,8 @@ fn shown(url: &str, name: &str) -> Option<String> {
 }
 
 /// The results a search's output lists, each once, the first
-/// [`MOST_FOUND`] of them.
-fn listed(output: &str) -> Vec<WebSource> {
+/// [`MOST_FOUND`] of them: `found` when the search only listed them.
+fn listed(output: &str, found_only: bool) -> Vec<WebSource> {
     let mut found: Vec<WebSource> = Vec::new();
     let mut lines = output.lines().peekable();
     while let Some(line) = lines.next() {
@@ -136,7 +145,7 @@ fn listed(output: &str) -> Vec<WebSource> {
             found.push(WebSource {
                 title: shown(&url, &name),
                 url,
-                found: true,
+                found: found_only,
             });
         }
         if found.len() == MOST_FOUND {
@@ -231,6 +240,8 @@ mod tests {
         );
     }
 
+    /// Hotline's `web_search` hands back a title, an address and a search
+    /// preview per result (Goldie, tape 79d12f56, line 153): listed, not read.
     #[test]
     fn a_web_search_names_the_results_its_output_lists() {
         let hotline = "1. How should I care for my goldfish? - RSPCA\n   https://kb.rspca.org.au/goldfish\n   Goldfish are social…\n\n2. Keeping Fish as Pets\n   https://www.rspca.org.uk/fish\n   Goldfish were…\n";
@@ -249,21 +260,35 @@ mod tests {
                 ),
             ]
         );
-        let claude = "apps.apple.com (https://apps.apple.com/us/app/orca-ide/id6766130217)\nMobile companion (https://www.onorca.dev/docs/mobile)\nBased on the search results, here's what I found (with notes)\n";
+    }
+
+    /// Claude Code's `WebSearch` hands the model what it drew from the pages,
+    /// written under their links (tape 1e615299, lines 810 and 812): its
+    /// results are pages read, with their titles.
+    #[test]
+    fn claude_codes_web_search_read_the_pages_it_lists() {
+        let claude = "The best tools to run multiple coding agents in parallel (2026), checked and sourced - Traycer AI (https://traycer.ai/compare/best-parallel-coding-agent-tools)\nOpenAI Codex (https://en.wikipedia.org/wiki/OpenAI_Codex)\ngithub.com (https://github.com/iofficeai/aionui)\nSeveral open-source desktop apps match this query. Most are young projects, and many of the sources are the vendors' own marketing pages, so check claims before relying on them.\n\n- **Traycer** is the most-cited option. Its site describes an MIT-licensed desktop workspace for Mac, Windows, and Linux.\n";
         assert_eq!(
-            sources_of("Search \"Orca app relay\"", "fetch", claude),
+            sources_of(
+                "Search \"open source desktop app run multiple coding agents in parallel Claude Code Codex 2026\"",
+                "fetch",
+                claude
+            ),
             vec![
+                page(
+                    "https://traycer.ai/compare/best-parallel-coding-agent-tools",
+                    Some(
+                        "The best tools to run multiple coding agents in parallel (2026), checked and sourced - Traycer AI"
+                    ),
+                    false
+                ),
+                page(
+                    "https://en.wikipedia.org/wiki/OpenAI_Codex",
+                    Some("OpenAI Codex"),
+                    false
+                ),
                 // A site's name is not a page title.
-                page(
-                    "https://apps.apple.com/us/app/orca-ide/id6766130217",
-                    None,
-                    true
-                ),
-                page(
-                    "https://www.onorca.dev/docs/mobile",
-                    Some("Mobile companion"),
-                    true
-                ),
+                page("https://github.com/iofficeai/aionui", None, false),
             ]
         );
     }

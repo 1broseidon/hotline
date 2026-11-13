@@ -1,8 +1,9 @@
 //! The pages a step opened, through the real core: an ACP child reports its
 //! own steps as Claude Code and Cursor reported them on George's desk
 //! (2026-11-12), and each is written on the tape with the `sources` the
-//! window counts. A page its browser went to is opened, a search's results
-//! are only found, and a click or a failure opened nothing. The scripted
+//! window counts. A page its browser went to is opened, Claude's own web
+//! search read the pages it lists, Hotline's `web_search` only found its
+//! results, and a click or a failure opened nothing. The scripted
 //! desk is `post_to_chat.rs`'s; `STEP <json>` is the fixture's own step.
 
 use super::post_to_chat::{Driver, open};
@@ -20,7 +21,8 @@ async fn an_acp_childs_own_steps_are_written_with_the_pages_they_opened() {
         json!({"title": "mcp__hotline__browser", "kind": "other", "output": "Page: Apple I - Wikipedia\nURL: https://en.wikipedia.org/wiki/Apple_I"}),
         json!({"title": "Fetch https://lapu.ai/blog/desktop-computer-use-agents-compared", "kind": "fetch", "output": "# Desktop AI Agents: Summary by Tool"}),
         json!({"title": "Web Fetch: https://rentamac.io/mac-mini-history/", "kind": "fetch", "output": ""}),
-        json!({"title": "Search \"jensen huang resigns\"", "kind": "fetch", "output": format!("Nvidia CEO resigns - CBS News ({cbs})\n")}),
+        json!({"title": "Search \"jensen huang resigns\"", "kind": "fetch", "output": format!("Nvidia CEO resigns - CBS News ({cbs})\nJensen Huang stepped down as Nvidia's chief executive, the company said.\n")}),
+        json!({"title": "mcp__hotline__web_search", "kind": "other", "output": format!("1. Nvidia CEO resigns - CBS News\n   {cbs}\n   Nvidia's board said Jensen Huang\u{2026}\n\nSearched with Parallel, Exa.")}),
         json!({"title": "mcp__Computer__browser", "kind": "other", "output": "navigated to https://example.com/", "failed": true}),
     ];
     let prompt = steps
@@ -67,6 +69,10 @@ async fn an_acp_childs_own_steps_are_written_with_the_pages_they_opened() {
             ),
             (
                 json!("Search \"jensen huang resigns\""),
+                json!([{"url": cbs, "title": "Nvidia CEO resigns - CBS News"}])
+            ),
+            (
+                json!("mcp__hotline__web_search"),
                 json!([{"url": cbs, "title": "Nvidia CEO resigns - CBS News", "found": true}])
             ),
             (json!("mcp__Computer__browser"), Value::Null),

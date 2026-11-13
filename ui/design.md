@@ -296,8 +296,10 @@ transition and animation, and holds the mark still.
   left nothing and opened nothing says only its time. The sites are a
   stack of their icons, the first three overlapping by 2px at 16px, and
   "+N" for the other sites, in the order first opened. A page is a source
-  when a fetch, a command or the teammate's browser opened it; what a
-  search only listed is not (the search's line keeps it), nor is a page on
+  when a fetch, a command or the teammate's browser opened it, or a
+  search whose tool hands the model the pages' content read it (Claude
+  Code's does); what a search only listed is not (the search's line keeps
+  it, Hotline's `web_search` among them), nor is a page on
   this machine or the local network, a local file or a search's query.
   They carry no outcome mark, since nothing was left behind; they are
   there because for an answer of fact they are its evidence. An icon is

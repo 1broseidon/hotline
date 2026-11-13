@@ -322,3 +322,74 @@ describe("Goldie's news turn: only the pages it opened are its sources", () => {
 		expect(container.querySelector(".trail-head .trail-fact")?.textContent).toBe("6 results");
 	});
 });
+
+/**
+ * Claude Code's turn on George's dev desk, 2026-11-12 (tape 1e615299…, lines
+ * 805-811), its outputs and results cut: two `WebSearch` calls and no fetch.
+ * Its search hands the model what it drew from the pages, an answer written
+ * under the links, so the pages it lists were read. As the tape keeps it, the
+ * desk marked them only found; the desk now writes them as read.
+ */
+const CLAUDE_SEARCH = (asTaped: boolean): TranscriptEvent[] => {
+	const results = (pages: WebSource[]) => pages.map((page) => (asTaped ? { ...page, found: true } : page));
+	return [
+		{ kind: "user", id: "0b7457b7-2a5d-43b6-bf95-cf5583b2266e", ts: 1794521359920, text: "help me identify open source desktop agent tools similar to hotline and let’s make a comparison chart" },
+		{ kind: "agent", id: "7de6302c-2c3a-4de5-8656-692fb3a4b8ca", ts: 1794521362952, text: "I'll scan the field and build the chart. This will take a few minutes." },
+		{
+			kind: "tool", id: "tool:toolu_01GhFEcAdZvawkeobVx2n9Bu", ts: 1794521386350, toolCallId: "toolu_01GhFEcAdZvawkeobVx2n9Bu",
+			title: 'Search "open source desktop app run multiple coding agents in parallel Claude Code Codex 2026"', toolKind: "fetch", status: "completed",
+			output: [{ type: "text", text: "The best tools to run multiple coding agents in parallel (2026), checked and sourced - Traycer AI (https://traycer.ai/compare/best-parallel-coding-agent-tools)\nOpenAI Codex (https://en.wikipedia.org/wiki/OpenAI_Codex)\nPaseo (https://paseo.sh/)\nSeveral open-source desktop apps match this query. Most are young projects, and many of the sources are the vendors' own marketing pages, so check claims before relying on them.\n\n- **Traycer** is the most-cited option. Its site describes an MIT-licensed desktop workspace for Mac, Windows, and Linux…" }],
+			said: { key: "web", one: "Searched the web", many: "Searched the web {n} times", doing: "Searching the web" }, endedTs: 1794521395594,
+			sources: results([
+				{ url: "https://traycer.ai/compare/best-parallel-coding-agent-tools", title: "The best tools to run multiple coding agents in parallel (2026), checked and sourced - Traycer AI" },
+				{ url: "https://en.wikipedia.org/wiki/OpenAI_Codex", title: "OpenAI Codex" },
+				{ url: "https://paseo.sh/", title: "Paseo" },
+			]),
+		},
+		{
+			kind: "tool", id: "tool:toolu_01J4Nnx8tEhaFB2xwN3zyn7E", ts: 1794521386994, toolCallId: "toolu_01J4Nnx8tEhaFB2xwN3zyn7E",
+			title: 'Search "open source multi-agent desktop app "AI workforce" OR "agent team" local-first 2026 github"', toolKind: "fetch", status: "completed",
+			output: [{ type: "text", text: "ai-team · GitHub Topics · GitHub (https://github.com/topics/ai-team)\nCrewAI (https://en.wikipedia.org/wiki/CrewAI)\nThe search turned up several open-source, local-first multi-agent desktop apps. Orkas is the most prominent…" }],
+			said: { key: "web", one: "Searched the web", many: "Searched the web {n} times", doing: "Searching the web" }, endedTs: 1794521398428,
+			sources: results([
+				{ url: "https://github.com/topics/ai-team", title: "ai-team · GitHub Topics · GitHub" },
+				{ url: "https://en.wikipedia.org/wiki/CrewAI", title: "CrewAI" },
+			]),
+		},
+		{ kind: "agent", id: "c1", ts: 1794521400000, text: "Traycer, Paseo and Orkas are the closest." },
+		{ kind: "turn", id: "end", ts: 1794521400001, stopReason: "end_turn" },
+	];
+};
+
+describe("Claude Code's web search read the pages it lists", () => {
+	for (const asTaped of [false, true]) {
+		test(`a turn that only searched shows them on the line and in the Sources group, and each search still says its results (${asTaped ? "as the tape keeps it" : "as the desk writes it now"})`, async () => {
+			for (const site of ["traycer.ai", "en.wikipedia.org", "paseo.sh", "github.com"]) icons[site] = icon(site);
+			await draw(CLAUDE_SEARCH(asTaped));
+			expect([...stack()!.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([icon("traycer.ai"), icon("en.wikipedia.org"), icon("paseo.sh")]);
+			// Four sites read, three drawn: +1, by site, not the five pages.
+			expect(stack()!.querySelector(".favicons-more")?.textContent).toBe("+1");
+			await act(async () => line().click());
+			const sources = container.querySelector('.steps > section[aria-label="Sources"]')!;
+			expect(sources.querySelector(".work-heading")?.textContent).toBe("Sources · 5");
+			const { Trail } = await import("../src/components/transcript/Trail");
+			const steps = CLAUDE_SEARCH(asTaped).filter((event): event is Extract<TranscriptEvent, { kind: "tool" }> => event.kind === "tool");
+			await act(async () => root.render(<Trail items={steps} settled />));
+			const head = container.querySelector(".trail-head")!;
+			expect([head.querySelector(".trail-said")?.textContent, head.querySelector(".trail-fact")?.textContent]).toEqual(["Searched the web 2 times", "5 results"]);
+			await act(async () => (head as HTMLButtonElement).click());
+			const rows = [...container.querySelectorAll<HTMLButtonElement>(".trail-search .trail-row")];
+			expect(rows.map((row) => row.querySelector(".trail-meta")?.textContent?.split(" · ")[0])).toEqual(["3", "2"]);
+			await act(async () => rows[0]!.click());
+			const hits = [...container.querySelectorAll(".trail-hit")];
+			expect(hits.map((hit) => hit.getAttribute("href"))).toEqual(["https://traycer.ai/compare/best-parallel-coding-agent-tools", "https://en.wikipedia.org/wiki/OpenAI_Codex", "https://paseo.sh/"]);
+			// Each was read, so each carries the eye.
+			expect(hits.every((hit) => hit.querySelector(".source-read") !== null)).toBe(true);
+		});
+	}
+
+	test("Hotline's web_search, a title, an address and a preview per result, still only listed them (Goldie, 79d12f56 l.3038)", async () => {
+		await draw(GOLDIE.filter((event) => event.kind !== "tool" || event.title.startsWith("web_search")));
+		expect(stack()).toBeNull();
+	});
+});

@@ -606,8 +606,9 @@ and the phone never keep lists of their own.
 The facts a glance shows beside the words are recorded on the same event when
 the step finishes, never fetched or guessed afterwards: `endedTs` (how long it
 took), `sources` (the web pages a fetch, a `curl` or the teammate's browser
-opened, and those a web search listed, marked `found`, each as the step's own
-output named it, a page title only when the tool wrote one; see
+opened, and a web search's results, marked `found` when the search only
+listed them and not when its tool hands the model their content, each as the
+step's own output named it, a page title only when the tool wrote one; see
 `glance::sources_of`), and on each changed file the lines its diff `added` and
 `removed` (`hotline_support::lines`), counted from the two versions the tool
 showed. A step without one of them shows without that fact.
@@ -682,8 +683,14 @@ new tab at <address>", and the desk's (`browser`, `mcp__hotline__browser`),
 which heads every answer with the page it is on; a click that names no
 address opened nothing that can be told. A step written before the desk
 recorded a browser's page is read for it from its answer, as a fetch's from
-its title. What a search only listed is no source, as it is not evidence for
-the answer: the search's own line keeps it, its count of results ("6
+its title. A search whose tool hands the model the pages' content read them,
+so its results are sources: Claude Code's `WebSearch` (a `fetch` step titled
+`Search "<query>"`) answers with the links and then what it drew from those
+pages, where Hotline's `web_search` hands back each result's title, address
+and a preview of at most 300 characters, a listing. The desk writes Claude's
+results unmarked, and the window reads one an older desk marked `found` the
+same way, by the step's title and kind. What a search only listed is no
+source, as it is not evidence for the answer: the search's own line keeps it, its count of results ("6
 results") and, opened, each result with an eye on those the turn opened; a
 listing's title still names a page opened without one. A page on this
 machine or the local network is not a source: 127.x, `localhost` and

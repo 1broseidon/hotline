@@ -46,6 +46,21 @@ async fn setup_gives_a_seeded_face_and_a_quiet_job_to_make_its_own() {
         )
         .await;
     assert_eq!(read["result"]["mimeType"], "image/png", "{read}");
+    // Every seeded style blinks, so the face comes with its eyes shut, read
+    // the same way at a phone's size; pixelbot's one-row `soft` eyes are the
+    // only ones a blink leaves as they are.
+    if face["recipe"]["parts"]["eyes"] != "soft" {
+        let shut = face["poses"]["shut"]
+            .as_str()
+            .expect("a seeded face blinks");
+        let read = client
+            .call(
+                "avatar.read",
+                json!({ "personaId": persona_id, "hash": shut, "size": 64 }),
+            )
+            .await;
+        assert_eq!(read["result"]["mimeType"], "image/png", "{read}");
+    }
 
     let jobs = client.call("schedule.list", json!({})).await["result"].clone();
     let jobs = jobs.as_array().unwrap();
@@ -60,4 +75,58 @@ async fn setup_gives_a_seeded_face_and_a_quiet_job_to_make_its_own() {
             .starts_with("Make your own face."),
         "{jobs:?}"
     );
+}
+
+/// A face kept before there were poses, on a desk opened by this release,
+/// is on the roster with its eyes-shut picture, which any seat reads by
+/// hash: the desk gives it when it opens, before the window connects.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_face_kept_before_poses_has_one_once_the_desk_opens() {
+    let root = scratch("avatars-poses");
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(4, 4, image::Rgb([0, 43, 45]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let picture = png.into_inner();
+    let hash = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&picture));
+    std::fs::create_dir_all(root.join("avatars/ada")).unwrap();
+    std::fs::write(root.join(format!("avatars/ada/{hash}.png")), &picture).unwrap();
+    let log = hotline_core::log::Log::open(&root);
+    log.append(
+        &hotline_core::log::StreamId::Room,
+        &json!({
+            "kind": "persona", "id": "ada", "name": "Ada", "goal": "", "backendId": "hotline",
+            "cwd": root, "mcpPolicy": { "mode": "none", "serverIds": [] },
+            "sessionCheckpoints": [], "createdAt": 1, "updatedAt": 1,
+            "avatar": {
+                "hash": hash, "by": "self", "updatedAt": "2026-11-01T00:00:00.000Z",
+                "recipe": {
+                    "style": "moods", "parts": {}, "seed": "ada", "madeBy": "teammate",
+                    "colors": { "face": "#48b8bc", "background": "#002b2d" }
+                }
+            }
+        }),
+    )
+    .unwrap();
+    drop(log);
+
+    let mut client = Client::connect(open_at(&root), TOKEN).await;
+    let roster = client.subscribe(json!({ "view": "roster" })).await;
+    let snapshot = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, roster, "snapshot")
+        })
+        .await;
+    let avatar = snapshot["snapshot"][0]["persona"]["avatar"].clone();
+    assert_eq!(avatar["hash"], hash.as_str(), "{avatar}");
+    let shut = avatar["poses"]["shut"]
+        .as_str()
+        .expect("a moods face blinks");
+    let read = client
+        .call(
+            "avatar.read",
+            json!({ "personaId": "ada", "hash": shut, "offset": 0 }),
+        )
+        .await;
+    assert_eq!(read["result"]["mimeType"], "image/png", "{read}");
 }

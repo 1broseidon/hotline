@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+mod shut;
+
 /// One style the desk draws, as a teammate is told of it.
 struct Kept {
     id: &'static str,
@@ -40,6 +42,9 @@ struct Kept {
     /// Variants the desk neither offers, nor takes, nor fills from a seed,
     /// by part: ones that do not read as a face where it is shown.
     struck: &'static [(&'static str, &'static [&'static str])],
+    /// Where in its blink's loop, in percent, the face is held for its
+    /// eyes-shut picture; none for a style that does not blink.
+    shut_at: Option<f64>,
 }
 
 /// How a slot wears a bubble colour.
@@ -72,6 +77,10 @@ const STYLES: [Kept; 4] = [
         // One-block eyes and a two-block mouth vanish in a 28 px circle, and
         // a flat mouth sits so low that the eyes and mouth read apart.
         struck: &[("eyes", &["slim"]), ("mouth", &["tiny", "flat"])],
+        // Its blink takes the rows of the eyes away from the top, one each
+        // 1% of the loop; at 91% only the bottom row is left, which reads as
+        // eyes shut where none at all reads as eyes gone.
+        shut_at: Some(91.0),
     },
     Kept {
         id: "moods",
@@ -81,6 +90,8 @@ const STYLES: [Kept; 4] = [
         wears: &[("face", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
+        // The eyes squashed flattest.
+        shut_at: Some(94.0),
     },
     Kept {
         id: "sprouts",
@@ -90,6 +101,8 @@ const STYLES: [Kept; 4] = [
         wears: &[("pot", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
+        // Inside the span the eyes are held squashed.
+        shut_at: Some(96.0),
     },
     Kept {
         id: "open-peeps",
@@ -99,6 +112,7 @@ const STYLES: [Kept; 4] = [
         wears: &[],
         framing: None,
         struck: &[],
+        shut_at: None,
     },
 ];
 
@@ -432,11 +446,13 @@ fn object<'a>(arguments: &'a Value, key: &str) -> Result<Vec<(&'a String, &'a Va
     }
 }
 
-/// A face: its recipe, the PNG it draws, and the colours the call chose
-/// that nothing drawn uses (a pattern's colour with no pattern).
+/// A face: its recipe, the PNG it draws, the same face with its eyes shut
+/// when its style blinks, and the colours the call chose that nothing drawn
+/// uses (a pattern's colour with no pattern).
 pub(crate) struct Face {
     pub(crate) recipe: AvatarRecipe,
     pub(crate) png: Vec<u8>,
+    pub(crate) shut: Option<Vec<u8>>,
     pub(crate) not_drawn: Vec<String>,
 }
 
@@ -479,7 +495,7 @@ pub(crate) fn compose(
     let asked_colors = ask.colors;
     parts.extend(ask.parts);
     colors.extend(asked_colors.clone());
-    let drawn = draw(parsed, &parts, &colors, &seed)?;
+    let drawn = draw(parsed, &parts, &colors, &seed, false)?;
     let resolved = &drawn.to_json()["options"];
     let recipe = AvatarRecipe {
         style: ask.style,
@@ -509,9 +525,11 @@ pub(crate) fn compose(
         }
     }
     let png = png(&recipe)?;
+    let shut = shut(&recipe, &png);
     Ok(Face {
         recipe,
         png,
+        shut,
         not_drawn,
     })
 }
@@ -525,15 +543,20 @@ fn first(value: &Value) -> Option<String> {
     }
 }
 
-/// DiceBear's drawing of the chosen parts and colours, the rest from `seed`.
+/// DiceBear's drawing of the chosen parts and colours, the rest from `seed`,
+/// with its blink playing when `blinking` and nothing else ever moving.
 fn draw(
     parsed: &Parsed,
     parts: &BTreeMap<String, Option<String>>,
     colors: &BTreeMap<String, String>,
     seed: &str,
+    blinking: bool,
 ) -> Result<Avatar, String> {
     let mut options = Map::new();
     options.insert("seed".into(), json!(seed));
+    if blinking {
+        options.insert("blinkAnimation".into(), json!(true));
+    }
     for (name, variant) in parts {
         match variant {
             Some(variant) => {
@@ -565,7 +588,7 @@ fn draw(
 /// The recipe as SVG.
 pub(crate) fn svg(recipe: &AvatarRecipe) -> Result<String, String> {
     let (_, parsed) = style(&recipe.style)?;
-    let drawn = draw(parsed, &recipe.parts, &recipe.colors, &recipe.seed)?;
+    let drawn = draw(parsed, &recipe.parts, &recipe.colors, &recipe.seed, false)?;
     Ok(drawn.to_svg().to_string())
 }
 
@@ -573,18 +596,37 @@ pub(crate) fn svg(recipe: &AvatarRecipe) -> Result<String, String> {
 /// transparent wherever the style is, and with no alpha channel when no
 /// pixel is.
 pub(crate) fn png(recipe: &AvatarRecipe) -> Result<Vec<u8>, String> {
-    let svg = svg(recipe)?;
-    let failed = || "The face could not be drawn.".to_string();
-    // DiceBear's styles embed no images; refusing any keeps a drawing from
-    // ever reading a file.
-    let options = usvg::Options {
+    picture(&svg(recipe)?)
+}
+
+/// The same face with its eyes shut, kept like its picture: none for a
+/// style that does not blink, a style the desk no longer draws, or eyes a
+/// blink does not change (pixelbot's one-row `soft` eyes).
+pub(crate) fn shut(recipe: &AvatarRecipe, picture_png: &[u8]) -> Option<Vec<u8>> {
+    let (kept, parsed) = style(&recipe.style).ok()?;
+    let at = kept.shut_at?;
+    let drawn = draw(parsed, &recipe.parts, &recipe.colors, &recipe.seed, true).ok()?;
+    let frozen = shut::frozen(drawn.to_svg(), at, &drawing_options())?;
+    let png = picture(&frozen).ok()?;
+    (png != picture_png).then_some(png)
+}
+
+/// DiceBear's styles embed no images; refusing any keeps a drawing from
+/// ever reading a file.
+fn drawing_options() -> usvg::Options<'static> {
+    usvg::Options {
         image_href_resolver: usvg::ImageHrefResolver {
             resolve_data: Box::new(|_, _, _| None),
             resolve_string: Box::new(|_, _| None),
         },
         ..usvg::Options::default()
-    };
-    let tree = usvg::Tree::from_str(&svg, &options).map_err(|_| failed())?;
+    }
+}
+
+/// A drawing as a face is kept: filling a 512 px square, as a PNG.
+fn picture(svg: &str) -> Result<Vec<u8>, String> {
+    let failed = || "The face could not be drawn.".to_string();
+    let tree = usvg::Tree::from_str(svg, &drawing_options()).map_err(|_| failed())?;
     let mut pixmap = tiny_skia::Pixmap::new(EDGE, EDGE).ok_or_else(failed)?;
     let size = tree.size();
     let edge = EDGE as f32;

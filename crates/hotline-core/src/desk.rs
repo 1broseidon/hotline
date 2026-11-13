@@ -274,6 +274,11 @@ impl Desk {
         // A desk from before the lead, with one teammate, gets that one as
         // its lead here, by the rule creating and deleting follow.
         room::settle_lead(&log).map_err(io::Error::other)?;
+        // A face kept before poses gets its eyes-shut picture now, before the
+        // room has a writer of its own. One that cannot is only still.
+        if let Err(error) = crate::session::avatar::give_faces_their_poses(&log) {
+            eprintln!("Faces were not given their poses: {error}");
+        }
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
         // One budget for the desk: voice, the call assistant and teammates'
         // turns all reserve through it, so none can spend what another did.

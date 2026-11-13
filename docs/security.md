@@ -2979,7 +2979,9 @@ an embedded style definition and rasterises it with resvg. Neither tool reads
 a file, starts a process or makes a network call; the style definitions are
 compiled into the binary and resvg is given no way to load an image a
 drawing might name. `make_face` writes one thing, the teammate's own picture,
-which `set_avatar` already lets it write.
+which `set_avatar` already lets it write, with that picture's eyes-shut pose
+beside it when the style blinks: drawn from the same recipe by the same
+renderer, with DiceBear's blink held still, and removed with the picture.
 
 - **Default and old records:** nothing is granted per teammate. The tools are
   on the desk's MCP server and among Hotline Agent's in-process tools in the

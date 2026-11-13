@@ -172,7 +172,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `process.stop` | `{personaId, id}` | none; stops that command, without waking the teammate on its end |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
-| `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
+| `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash` or `avatar.poses.shut`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
 | `avatar.generate` | `{personaId}` | none, once the teammate has a face: setup's Picture. The desk draws one at once, with no image provider and no network, in a creature style picked from the teammate's id (`pixelbot`, `moods` or `sprouts`) wearing its bubble colour on a dark ground of the same hue (Pixelbot glows in the bubble's hue on a screen of that hue), kept as its own (`by: "self"`) with a recipe made by the desk; the roster carries it. Then a quiet one-shot job of the teammate's, five seconds later and without its computer, extra folders or MCP servers, makes its own face with `make_face`, posting nothing to the chat. Refused when the person chose the current picture |
 | `link.preview` | `{url}` | `LinkPreview` `{url, title, site, description?, image?}`, the card for a link written in a message, read by the desk: `site` is the page's address, with the site's own name after a `·` when it adds one; `image` is the page's picture as a `data:` URL the desk fetched once, shrank and keeps, so the window never asks the site. JSON `null` when the page has none, is not one the desk will read, or `linkPreviews` is off. Answered off the read loop, so it holds up nothing behind it |
 | `link.icon` | `{site}` | a site's icon (`https://<site>/favicon.ico`) as a `data:` URL the desk fetched once and keeps; JSON `null` when it has none, `site` is not a bare host, or `linkPreviews` is off. Answered off the read loop |
@@ -814,6 +814,18 @@ PNG is its rendering. A picture from a file, and a record older than faces,
 has no `recipe`. A face in a style the desk no longer draws keeps its
 picture and recipe; `make_face` asked for a change in that style says the
 style is gone and names the styles there are.
+
+A face in a style that blinks (`pixelbot`, `moods`, `sprouts`) also carries
+`poses: {shut}`: the hash of the same face with its eyes shut, at the same
+size, framing and ground, kept beside the picture the same way (no alpha
+channel exactly when the picture has none) and read with `avatar.read` like
+it. It is DiceBear's own blink held at one moment: moods' and sprouts' eyes
+squashed flattest, pixelbot's eyes down to their bottom row. A face that does
+not blink (`open-peeps`, pixelbot's one-row `soft` eyes, a picture from a
+file) has no `poses`. The pose is written and removed with its picture. A
+face kept before poses gets its pose when the desk opens, before any client
+connects. The window shows the shut picture for a moment, again and again,
+while the teammate is working, so its face blinks.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code

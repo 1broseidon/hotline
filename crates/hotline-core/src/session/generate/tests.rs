@@ -1083,6 +1083,7 @@ async fn a_picture_being_drawn_is_on_the_roster_until_it_ends() {
         by: crate::contract::AvatarBy::Person,
         updated_at: "2026-11-13T00:00:00.000Z".into(),
         recipe: None,
+        poses: None,
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
     assert!(room.generate_avatar("ada").await.is_err());

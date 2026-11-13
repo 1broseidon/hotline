@@ -148,12 +148,30 @@ updatedAt: string,
  * absent for a picture from a file or an image provider, and on a
  * record older than faces.
  */
-recipe?: AvatarRecipe, };
+recipe?: AvatarRecipe, 
+/**
+ * Other pictures of the same face, each kept beside it under the
+ * SHA-256 of its own PNG and read with `avatar.read` like the picture.
+ * Absent for a picture that is not a face from a style with poses, and
+ * on a record older than poses.
+ */
+poses?: AvatarPoses, };
 
 /**
  * Who chose the picture. A teammate does not replace one the person chose.
  */
 export type AvatarBy = "self" | "person";
+
+/**
+ * The poses a face drawn from a recipe is kept in besides itself, by hash.
+ */
+export type AvatarPoses = { 
+/**
+ * The same face with its eyes shut, at the same size, framing and
+ * ground: a window shows it for a moment, again and again, while the
+ * teammate is working, so the face blinks.
+ */
+shut: string, };
 
 /**
  * A face drawn on the desk from one of DiceBear's styles: what the kept

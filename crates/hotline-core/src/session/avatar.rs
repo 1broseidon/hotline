@@ -3,9 +3,11 @@
 //! record.
 //!
 //! The desk keeps `avatars/<teammate>/<sha256>.png`, written once and never
-//! changed, so a window that has a hash has the picture for good. Setting a
-//! new one removes the old files, and so does clearing. A picture the person
-//! chose is not replaced by the teammate.
+//! changed, so a window that has a hash has the picture for good. A face
+//! drawn in a style that blinks is also kept with its eyes shut, the same
+//! way, named on the record as its `shut` pose. Setting a new picture
+//! removes the old files, its pose's too, and so does clearing. A picture
+//! the person chose is not replaced by the teammate.
 //!
 //! A picture comes from a file in the teammate's workspace (`set_avatar`),
 //! which `generate_image` may have made, or is a face the desk draws from a
@@ -15,7 +17,7 @@
 pub(crate) mod face;
 
 use super::{Brief, Ends, Report, Room, Trigger, generate::read_workspace_image};
-use crate::contract::{Ability, Avatar, AvatarBy, AvatarRecipe, FaceMaker};
+use crate::contract::{Ability, Avatar, AvatarBy, AvatarPoses, AvatarRecipe, FaceMaker};
 use crate::driver::CapabilityLease;
 use crate::images::DECODERS;
 use crate::mcp::{CallContent, CallImage};
@@ -117,7 +119,7 @@ impl Room {
         let gate = self.policy_update_lock();
         let _held = gate.lock().await;
         self.refuse_over_the_persons_choice(persona_id)?;
-        let hash = self.write_avatar(persona_id, prepared, AvatarBy::Own, None)?;
+        let hash = self.write_avatar(persona_id, prepared, None, AvatarBy::Own, None)?;
         Ok(match hash {
             Some(hash) => json!({ "hash": hash }).to_string(),
             None => "Your picture is cleared; people see your initial again.".to_string(),
@@ -174,6 +176,7 @@ impl Room {
         let hash = self.write_avatar(
             persona_id,
             Some(face.png.clone()),
+            face.shut,
             AvatarBy::Own,
             Some(face.recipe.clone()),
         )?;
@@ -223,7 +226,13 @@ impl Room {
             {
                 return Err("This teammate already has a picture you chose.".into());
             }
-            self.write_avatar(persona_id, Some(face.png), AvatarBy::Own, Some(face.recipe))?;
+            self.write_avatar(
+                persona_id,
+                Some(face.png),
+                face.shut,
+                AvatarBy::Own,
+                Some(face.recipe),
+            )?;
             self.persona(persona_id)?
                 .avatar
                 .ok_or_else(|| "The picture could not be saved.".to_string())?
@@ -264,37 +273,86 @@ impl Room {
         Ok(())
     }
 
-    /// Keeps `png` as the teammate's picture, drawn from `recipe` when it is
-    /// a face, or clears it, and writes the record. The caller holds `policy_update_lock`. Answers the new hash.
+    /// Keeps `png` as the teammate's picture, with `shut` as its eyes-shut
+    /// pose when it is a face that blinks, drawn from `recipe` when it is a
+    /// face, or clears it, and writes the record. The caller holds
+    /// `policy_update_lock`. Answers the new hash.
     fn write_avatar(
         &self,
         persona_id: &str,
         png: Option<Vec<u8>>,
+        shut: Option<Vec<u8>>,
         by: AvatarBy,
         recipe: Option<AvatarRecipe>,
     ) -> Result<Option<String>, String> {
         let root = self.log.root();
         let mut persona = self.persona(persona_id)?;
-        let hash = if let Some(png) = png {
-            let hash = hex::encode(Sha256::digest(&png));
-            store(root, persona_id, &hash, &png)
-                .map_err(|_| "The picture could not be saved.".to_string())?;
-            persona.avatar = Some(Avatar {
-                hash: hash.clone(),
-                by,
-                updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                recipe,
-            });
-            Some(hash)
-        } else {
-            persona.avatar = None;
-            None
+        persona.avatar = match png {
+            Some(png) => {
+                let hash = keep(root, persona_id, &png)?;
+                let poses = match shut {
+                    Some(shut) => Some(AvatarPoses {
+                        shut: keep(root, persona_id, &shut)?,
+                    }),
+                    None => None,
+                };
+                Some(Avatar {
+                    hash,
+                    by,
+                    updated_at: chrono::Utc::now()
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                    recipe,
+                    poses,
+                })
+            }
+            None => None,
         };
         persona.updated_at = super::now_ms();
         crate::room::append_persona(&self.log, &persona)?;
-        remove_except(root, persona_id, hash.as_deref());
-        Ok(hash)
+        remove_except(root, persona_id, persona.avatar.as_ref());
+        Ok(persona.avatar.map(|avatar| avatar.hash))
     }
+}
+
+/// Every face drawn from a recipe in a style that blinks gets its eyes-shut
+/// pose, once, when the desk opens: faces kept before there were poses. Run
+/// before anything else writes the room stream. A face whose pose cannot be
+/// made is left as it is and tried again at the next open.
+pub(crate) fn give_faces_their_poses(log: &crate::log::Log) -> Result<(), String> {
+    let root = log.root();
+    for mut persona in crate::room::roster(log) {
+        let Some(avatar) = persona.avatar.as_mut() else {
+            continue;
+        };
+        let Some(recipe) = avatar.recipe.as_ref() else {
+            continue;
+        };
+        if avatar.poses.is_some() {
+            continue;
+        }
+        let Some(path) = paths::avatar_path(root, &persona.id, &avatar.hash) else {
+            continue;
+        };
+        let Ok(picture) = std::fs::read(&path) else {
+            continue;
+        };
+        let Some(shut) = face::shut(recipe, &picture) else {
+            continue;
+        };
+        avatar.poses = Some(AvatarPoses {
+            shut: keep(root, &persona.id, &shut)?,
+        });
+        crate::room::append_persona(log, &persona)?;
+    }
+    Ok(())
+}
+
+/// Keeps a picture under its hash and answers the hash.
+fn keep(root: &Path, persona_id: &str, png: &[u8]) -> Result<String, String> {
+    let hash = hex::encode(Sha256::digest(png));
+    store(root, persona_id, &hash, png)
+        .map_err(|_| "The picture could not be saved.".to_string())?;
+    Ok(hash)
 }
 
 /// Keeps a picture under its hash, unless it is already there.
@@ -313,14 +371,22 @@ fn store(root: &Path, persona_id: &str, hash: &str, png: &[u8]) -> std::io::Resu
     Ok(())
 }
 
-/// Removes the teammate's kept pictures, all but the one named.
-pub(crate) fn remove_except(root: &Path, persona_id: &str, keep: Option<&str>) {
+/// Removes the teammate's kept pictures, all but `kept`'s picture and its
+/// poses.
+pub(crate) fn remove_except(root: &Path, persona_id: &str, kept: Option<&Avatar>) {
     let Ok(entries) = std::fs::read_dir(paths::avatar_dir(root, persona_id)) else {
         return;
     };
-    let kept = keep.map(|hash| format!("{hash}.png"));
+    let names: Vec<String> = kept
+        .into_iter()
+        .flat_map(|avatar| {
+            std::iter::once(avatar.hash.as_str())
+                .chain(avatar.poses.as_ref().map(|poses| poses.shut.as_str()))
+        })
+        .map(|hash| format!("{hash}.png"))
+        .collect();
     for entry in entries.flatten() {
-        if kept.as_deref().is_none_or(|kept| entry.file_name() != kept) {
+        if !names.iter().any(|name| entry.file_name() == name.as_str()) {
             let _ = std::fs::remove_file(entry.path());
         }
     }

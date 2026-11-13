@@ -29,6 +29,24 @@ pub struct Avatar {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub recipe: Option<AvatarRecipe>,
+    /// Other pictures of the same face, each kept beside it under the
+    /// SHA-256 of its own PNG and read with `avatar.read` like the picture.
+    /// Absent for a picture that is not a face from a style with poses, and
+    /// on a record older than poses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub poses: Option<AvatarPoses>,
+}
+
+/// The poses a face drawn from a recipe is kept in besides itself, by hash.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct AvatarPoses {
+    /// The same face with its eyes shut, at the same size, framing and
+    /// ground: a window shows it for a moment, again and again, while the
+    /// teammate is working, so the face blinks.
+    pub shut: String,
 }
 
 /// Who chose the picture. A teammate does not replace one the person chose.

@@ -426,6 +426,7 @@ fn a_struck_variant_is_neither_offered_nor_taken_nor_seeded() {
                 &BTreeMap::new(),
                 &BTreeMap::new(),
                 &format!("seed-{seed}"),
+                false,
             )
             .unwrap()
             .to_json();
@@ -570,6 +571,7 @@ fn a_face_in_a_style_no_longer_drawn_is_kept_and_named_gone() {
         by: crate::contract::AvatarBy::Own,
         updated_at: "2026-11-13T00:00:00.000Z".into(),
         recipe: Some(clay.clone()),
+        poses: None,
     });
     let listed = styles_answer(&teammate);
     assert_eq!(listed["current"], json!(clay));
@@ -584,4 +586,92 @@ fn a_face_in_a_style_no_longer_drawn_is_kept_and_named_gone() {
             .get("currentStyleGone")
             .is_none()
     );
+}
+
+/// The pixels where two pictures of the same face differ.
+fn changed(one: &[u8], other: &[u8]) -> usize {
+    let one = image::load_from_memory(one).unwrap().to_rgba8();
+    let other = image::load_from_memory(other).unwrap().to_rgba8();
+    one.pixels()
+        .zip(other.pixels())
+        .filter(|(a, b)| a != b)
+        .count()
+}
+
+/// A face in a style that blinks is made with its eyes shut too: the same
+/// square, kept the same way (no alpha channel exactly when its picture has
+/// none), differing only in a small part of it. Open Peeps does not blink,
+/// and neither do pixelbot's one-row `soft` eyes, which its blink leaves as
+/// they are.
+#[test]
+fn a_face_that_blinks_has_an_eyes_shut_picture_kept_like_it() {
+    for style in ["pixelbot", "moods", "sprouts"] {
+        for seed in ["ada", "bert", "cleo", "dov", "eve"] {
+            for colors in [json!({}), json!({ "background": "#002b2d" })] {
+                let face = made(
+                    json!({ "style": style, "seed": seed, "colors": colors }),
+                    None,
+                );
+                if face.recipe.parts["eyes"].as_deref() == Some("soft") {
+                    assert!(face.shut.is_none(), "{style} {seed}");
+                    continue;
+                }
+                let shut = face
+                    .shut
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("{style} {seed}"));
+                assert_eq!(
+                    image::load_from_memory(shut).unwrap().color(),
+                    image::load_from_memory(&face.png).unwrap().color(),
+                    "{style} {seed} {colors}"
+                );
+                let differs = changed(&face.png, shut);
+                assert!(
+                    differs > 0 && differs < (EDGE * EDGE / 10) as usize,
+                    "{style} {seed}: {differs}"
+                );
+            }
+        }
+    }
+    let soft = made(
+        json!({ "style": "pixelbot", "parts": { "eyes": "soft" } }),
+        None,
+    );
+    assert!(soft.shut.is_none());
+    for seed in ["ada", "bert", "cleo"] {
+        let person = made(json!({ "style": "open-peeps", "seed": seed }), None);
+        assert!(person.shut.is_none(), "{seed}");
+    }
+}
+
+/// Pixelbot's eyes shut are one row of pixels: the bottom row of its eyes
+/// stays lit and every row above it goes dark.
+#[test]
+fn pixelbots_eyes_shut_are_one_row() {
+    let face = made(
+        json!({ "style": "pixelbot", "parts": { "eyes": "round" }, "colors": { "glow": "#00f5fd", "background": "#002b2d" } }),
+        None,
+    );
+    let open = image::load_from_memory(&face.png).unwrap().to_rgb8();
+    let shut = image::load_from_memory(face.shut.as_ref().unwrap())
+        .unwrap()
+        .to_rgb8();
+    // Each band of lit pixel rows is one row of blocks, from the top: three
+    // for these eyes, then the mouth's.
+    let bands = |picture: &image::RgbImage| -> Vec<(u32, u32)> {
+        let mut bands: Vec<(u32, u32)> = Vec::new();
+        for y in 0..EDGE {
+            if (0..EDGE).any(|x| picture.get_pixel(x, y)[1] > 200) {
+                match bands.last_mut() {
+                    Some(band) if band.1 + 1 == y => band.1 = y,
+                    _ => bands.push((y, y)),
+                }
+            }
+        }
+        bands
+    };
+    let (open, shut) = (bands(&open), bands(&shut));
+    assert_eq!(shut.len(), open.len() - 2, "{open:?} {shut:?}");
+    assert_eq!(shut[0], open[2], "the eyes' bottom row is the one left");
+    assert_eq!(shut[1..], open[3..], "the mouth is as it was");
 }

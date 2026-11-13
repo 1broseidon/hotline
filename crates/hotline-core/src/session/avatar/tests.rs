@@ -167,6 +167,7 @@ async fn a_picture_the_person_chose_is_left_alone() {
         by: AvatarBy::Person,
         updated_at: "2026-09-30T00:00:00.000Z".into(),
         recipe: None,
+        poses: None,
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
 
@@ -399,7 +400,13 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
         }
     }
     assert_eq!(hat.colors, recipe.colors);
-    assert_eq!(kept_files(&dir).len(), 1, "the old face is gone");
+    let now = avatar(&room).unwrap();
+    let mut kept = vec![
+        format!("{}.png", now.hash),
+        format!("{}.png", now.poses.unwrap().shut),
+    ];
+    kept.sort();
+    assert_eq!(kept_files(&dir), kept, "the old face and its pose are gone");
 
     tools
         .answer("make_face", &json!({ "style": "open-peeps" }))
@@ -438,6 +445,7 @@ async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
         by: AvatarBy::Person,
         updated_at: "2026-11-13T00:00:00.000Z".into(),
         recipe: None,
+        poses: None,
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
     let error = tools
@@ -557,6 +565,7 @@ async fn a_face_in_a_removed_style_stays_until_a_new_one_is_made() {
             seed: "ada".into(),
             made_by: crate::contract::FaceMaker::Teammate,
         }),
+        poses: None,
     };
     persona.avatar = Some(kept.clone());
     crate::room::append_persona(room.log(), &persona).unwrap();
@@ -582,4 +591,87 @@ async fn a_face_in_a_removed_style_stays_until_a_new_one_is_made() {
         .await
         .unwrap();
     assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "moods");
+}
+
+/// A face in a style that blinks is kept with its eyes shut beside it, under
+/// the hash the record names, read like the picture; a face that does not
+/// blink has no pose, and its predecessor's goes with the old picture; and
+/// clearing takes the pose too.
+#[tokio::test]
+async fn a_face_that_blinks_keeps_its_eyes_shut_beside_it() {
+    let (dir, room, tools) = room();
+    tools
+        .answer("make_face", &json!({ "style": "moods" }))
+        .await
+        .unwrap();
+    let moods = avatar(&room).unwrap();
+    let shut = moods.poses.clone().expect("a moods face blinks").shut;
+    assert_ne!(shut, moods.hash);
+    let mut both = vec![format!("{}.png", moods.hash), format!("{shut}.png")];
+    both.sort();
+    assert_eq!(kept_files(&dir), both);
+    let read = super::read(&dir.path().join("data"), "ada", &shut, 0).unwrap();
+    assert_eq!(read.mime_type, "image/png");
+    let bytes = std::fs::read(dir.path().join(format!("data/avatars/ada/{shut}.png"))).unwrap();
+    assert_eq!(hex::encode(Sha256::digest(&bytes)), shut);
+
+    tools
+        .answer("make_face", &json!({ "style": "open-peeps" }))
+        .await
+        .unwrap();
+    let person = avatar(&room).unwrap();
+    assert_eq!(person.poses, None);
+    assert_eq!(kept_files(&dir), vec![format!("{}.png", person.hash)]);
+
+    tools
+        .answer("make_face", &json!({ "style": "sprouts" }))
+        .await
+        .unwrap();
+    assert!(avatar(&room).unwrap().poses.is_some());
+    tools
+        .call("set_avatar", &json!({ "clear": true }))
+        .await
+        .unwrap();
+    assert_eq!(kept_files(&dir), [] as [String; 0]);
+}
+
+/// A face kept before there were poses gets its eyes-shut picture when the
+/// desk opens, the same one making it would have given, once: a second open
+/// writes nothing. A face whose pose is on its record, or that has no
+/// recipe, is left alone.
+#[tokio::test]
+async fn a_face_kept_before_poses_gets_one_when_the_desk_opens() {
+    let (dir, room, tools) = room();
+    tools
+        .answer("make_face", &json!({ "style": "sprouts" }))
+        .await
+        .unwrap();
+    let made = avatar(&room).unwrap();
+    let shut = made.poses.clone().unwrap().shut;
+    let mut before = room.persona("ada").unwrap();
+    before.avatar.as_mut().unwrap().poses = None;
+    crate::room::append_persona(room.log(), &before).unwrap();
+    std::fs::remove_file(dir.path().join(format!("data/avatars/ada/{shut}.png"))).unwrap();
+
+    give_faces_their_poses(room.log()).unwrap();
+    let given = crate::room::roster(room.log())[0].avatar.clone().unwrap();
+    assert_eq!(given, made, "the pose is the one making the face gave");
+    assert!(
+        dir.path()
+            .join(format!("data/avatars/ada/{shut}.png"))
+            .is_file()
+    );
+    let written = room.log().load(&crate::log::StreamId::Room).len();
+    give_faces_their_poses(room.log()).unwrap();
+    assert_eq!(room.log().load(&crate::log::StreamId::Room).len(), written);
+
+    std::fs::write(dir.path().join("workspace/otter.png"), margined()).unwrap();
+    tools
+        .call("set_avatar", &json!({ "path": "otter.png" }))
+        .await
+        .unwrap();
+    let written = room.log().load(&crate::log::StreamId::Room).len();
+    give_faces_their_poses(room.log()).unwrap();
+    assert_eq!(room.log().load(&crate::log::StreamId::Room).len(), written);
+    assert_eq!(avatar(&room).unwrap().poses, None);
 }

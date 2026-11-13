@@ -3,7 +3,9 @@
 //! and one style's parts, makes its face, changes one part of it, is refused
 //! a colour that is not a `#rrggbb`, and switches style. Each face is kept as
 //! the teammate's own picture with its recipe, read back off the disk, and the
-//! picture itself is handed back to the agent with the words.
+//! picture itself is handed back to the agent with the words. A face in a
+//! style that blinks is kept with its eyes shut beside it, read over the wire
+//! by hash, and that pose goes when the face is replaced by one that does not.
 
 use super::post_to_chat::{Desk, Driver, open};
 use hotline_core::log::{Log, StreamId};
@@ -88,6 +90,21 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
             .join(format!("avatars/{ada}/{hash}.png"))
             .is_file()
     );
+    // Sprouts blink, so the face is kept with its eyes shut too, and any
+    // seat reads that picture by its hash as it reads the face.
+    let shut = avatar["poses"]["shut"]
+        .as_str()
+        .expect("a sprouts face blinks");
+    assert_ne!(shut, hash);
+    let read = desk
+        .client
+        .call(
+            "avatar.read",
+            json!({"personaId": ada, "hash": shut, "offset": 0}),
+        )
+        .await;
+    assert_eq!(read["ok"], true, "{read}");
+    assert_eq!(read["result"]["mimeType"], "image/png", "{read}");
 
     let switched = r#"CALL make_face {"style":"open-peeps"}"#;
     let sent = desk
@@ -99,7 +116,17 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
         .await;
     assert_eq!(sent["ok"], true, "{sent}");
     said(&desk.results(tape).await, r#""style":"open-peeps""#);
-    let recipe = persona_on_disk(&desk, &ada)["avatar"]["recipe"].clone();
+    let person = persona_on_disk(&desk, &ada)["avatar"].clone();
+    assert!(person.get("poses").is_none(), "open peeps do not blink");
+    assert!(
+        !desk
+            .root
+            .path()
+            .join(format!("avatars/{ada}/{shut}.png"))
+            .exists(),
+        "the old face's pose went with it"
+    );
+    let recipe = person["recipe"].clone();
     assert_eq!(recipe["style"], "open-peeps");
     assert!(
         recipe["parts"].get("eyes").is_none(),

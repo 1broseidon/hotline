@@ -1,6 +1,7 @@
-import { type DragEvent, type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
+import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, movedTo, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
+import { type DragProps, useRailDrag } from "../railDrag";
 import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
 import { openChatWindow } from "../chatWindow";
 import { platform, popupTeammateMenu } from "../native";
@@ -88,10 +89,9 @@ export function Rail({
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
-	/* The face or row being dragged, and where it would drop among its own
-	 * desk's pins or rows: a pin moves along the pins and a row along the
-	 * list, each on its own desk, and nowhere else. */
-	const [drag, setDrag] = useState<Drag | null>(null);
+	/* A pin moves along its desk's pins and a row along its desk's list (railDrag.ts). */
+	const list = useRef<HTMLDivElement>(null);
+	const dragOf = useRailDrag(list, () => setTip(null));
 	const desks = useDesks();
 	const active = useActiveDesk();
 	const filter = useDeskFilter();
@@ -111,37 +111,6 @@ export function Rail({
 	/* The only teammate on a desk is its lead, and stays it. */
 	const alone = (row: TeamRow) => (onDesk(row) ? entries : (elsewhere[row.deskId] ?? [])).length === 1;
 	const key = (row: TeamRow) => `${row.deskId}/${row.entry.persona.id}`;
-	/* A face or a row as something to drag and a place to drop: `at` is its
-	 * slot among its desk's pins or its place on its desk's list, and
-	 * `onDrop` asks for the dragged teammate to take it. */
-	const dragOf = (row: TeamRow, pinned: boolean, at: number, onDrop: (personaId: string) => void): DragProps => {
-		const mine = drag !== null && drag.deskId === row.deskId && drag.pinned === pinned;
-		return {
-			draggable: true,
-			"data-dragging": (mine && drag.personaId === row.entry.persona.id) || undefined,
-			"data-over": (mine && drag.personaId !== row.entry.persona.id && drag.over === at) || undefined,
-			onDragStart: (event) => {
-				event.dataTransfer.setData("text/plain", row.entry.persona.id);
-				event.dataTransfer.effectAllowed = "move";
-				setTip(null);
-				setDrag({ deskId: row.deskId, personaId: row.entry.persona.id, pinned, over: null });
-			},
-			// Anywhere else is no place to drop it, so the drop is not offered there.
-			onDragOver: (event) => {
-				if (!mine) return;
-				event.preventDefault();
-				event.dataTransfer.dropEffect = "move";
-				if (drag.over !== at) setDrag({ ...drag, over: at });
-			},
-			onDrop: (event) => {
-				if (!mine) return;
-				event.preventDefault();
-				setDrag(null);
-				if (drag.personaId !== row.entry.persona.id) onDrop(drag.personaId);
-			},
-			onDragEnd: () => setDrag(null),
-		};
-	};
 	const showTip: ShowTip = (row, name = "", line = "", face = null) => {
 		if (row === null) {
 			setTip(null);
@@ -159,7 +128,7 @@ export function Rail({
 		>
 			<DeskFilter compact={compact} onAdd={onAddDesk} />
 			{/* Down only: nothing in the list may make it scroll sideways (a busy face's turning ring did, on Windows). */}
-			<div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
+			<div ref={list} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{pinned.length + rest.length === 0 ? (
 					compact || !loaded ? null :
 					<p className="px-2 py-3 text-sm text-ink-3">
@@ -186,7 +155,7 @@ export function Rail({
 											shortcut={index < 9 ? index + 1 : null}
 											active={onDesk(row) && entry.persona.id === selectedId}
 											unread={unread(row)}
-											drag={dragOf(row, true, slot, (personaId) => onPin(personaId, slot, elsewhereId(row)))}
+											drag={dragOf(row.deskId, entry.persona.id, true, slot, (to) => onPin(entry.persona.id, to, elsewhereId(row)))}
 											compact={compact}
 											onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
 											onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
@@ -227,7 +196,7 @@ export function Rail({
 									onPin={() => onPin(entry.persona.id, pins, elsewhereId(row))}
 									onUp={moveTo(nudged(at, -1, ownRows.length))}
 									onDown={moveTo(nudged(at, 1, ownRows.length))}
-									drag={dragOf(row, false, at, (personaId) => onArrange(movedTo(ownRows, personaId, at), elsewhereId(row)))}
+									drag={dragOf(row.deskId, entry.persona.id, false, at, (to) => onArrange(movedTo(ownRows, entry.persona.id, to), elsewhereId(row)))}
 									alone={alone(row)}
 									onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
 									{...(compact ? { onTip: showTip } : {})}
@@ -441,8 +410,7 @@ function lineOf(entry: RosterEntry): string {
  * A pinned teammate: a larger face with the name under it, carrying what its
  * row did — the vital, the unread dot, the busy ring. In the faces-only rail
  * the tiles stack and the name waits on the hover card. Dragged along the
- * row to reorder; the menu's Move left / right does the same for the keyboard
- * and for a window that does not hand the page its drag events.
+ * row to reorder; the menu's Move left / right does the same for the keyboard.
  */
 function PinTile({
 	entry,
@@ -549,19 +517,6 @@ function PinTile({
 		</button>
 	);
 }
-
-/** A pinned face or a row of the list on the move. */
-type Drag = { deskId: string; personaId: string; pinned: boolean; over: number | null };
-/** What makes a face or a row draggable and a place to drop one: spread on its button. */
-type DragProps = {
-	draggable: true;
-	"data-dragging": true | undefined;
-	"data-over": true | undefined;
-	onDragStart(event: DragEvent<HTMLElement>): void;
-	onDragOver(event: DragEvent<HTMLElement>): void;
-	onDrop(event: DragEvent<HTMLElement>): void;
-	onDragEnd(): void;
-};
 
 /** The team lead's star on its face. The row's own name says it to a screen reader. */
 function LeadBadge() {

@@ -45,9 +45,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   The same words are the teammate's line in the rail and on the phone, in
   place of the name of the tool it was running.
 - Dragging a pinned teammate's face along the pins moves it. The window
-  cancelled every press on a button so a click would not leave a focus ring
-  behind, and a cancelled press never starts a drag; a teammate's face and
-  row now keep the press and drop the focus when it ends.
+  keeps drag and drop for files dropped on it, so the page never heard where
+  a face was dropped; a face and a row are now moved by pressing and moving
+  the pointer, with a line where it will land, and Escape puts it back.
 
 ## [0.49.1] - 2026-11-13
 

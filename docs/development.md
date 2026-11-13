@@ -690,7 +690,9 @@ to the top (`arranged` in `ui/src/pins.ts`, the one place that rule lives).
 With several desks in the rail, a row moves only among its own desk's rows,
 and the desks' lists interleave by who is waiting, then who spoke last, each
 keeping its own order. The desk filter shows a desk's rows whole or not at
-all, so a move is always made against the whole of its desk's list. While Settings is open the rail is its
+all, so a move is always made against the whole of its desk's list. Faces and
+rows are dragged with pointer events (`ui/src/railDrag.ts`), not the page's
+drag and drop, which the window keeps for files dropped on it. While Settings is open the rail is its
 sections — General, Providers, Tools, Computer, Updates, Import — with a back key in its band
 where the team's plus was, and the pane shows one section at a time. The
 teammate inspector sits beside the

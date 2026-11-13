@@ -120,6 +120,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
+| `persona.arrange` | `{ids}` | the desk's order of its team, as it now stands — the teammates in the order `ids` names, first to last (`teamOrder` below); an id that is no teammate on the desk, or a repeat, is dropped; an empty list leaves the desk unarranged; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
@@ -440,6 +441,16 @@ ids, repeats dropped, more than three refused). Deleting a teammate takes its
 pin with it, and a stored list that names someone no longer on the team reads
 as if they were not in it. Companion phones cannot read settings, so the
 roster carries each teammate's slot as `pin`.
+
+`teamOrder` is the desk's own order of its team: a list of persona ids, first
+to last, as the person arranged the list under the pins. `persona.arrange` is
+how it is written, the whole list at a time; a patch that names it is held to
+the same rules (a list of ids, repeats dropped). A teammate it does not name
+has no place yet and is listed after those that have one, so a teammate made
+after the list was arranged goes at its end, and a desk that has never been
+arranged lists its team as it always did. Deleting a teammate takes its place
+with it, and a stored list that names someone no longer on the team reads as
+if they were not in it. The roster carries each teammate's place as `place`.
 
 `teamLead` is the desk's lead: one persona id, or absent. `persona.lead` is
 how a person writes it, and a `settings.update` patch that names it is
@@ -1116,6 +1127,7 @@ and the live sessions. Each row is a `RosterEntry`:
   "waiting": false,
   "drawing": false,
   "pin": 0,
+  "place": 2,
   "session": { "personaId": "…", "state": "thinking", … }
 }
 ```
@@ -1136,7 +1148,9 @@ still pending — so a phone can say who needs the person from one roster; it is
 always written, so `false` is told apart from a desk that predates it.
 `drawing` is true while `avatar.generate` draws the teammate's picture. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
-the `pinnedTeammates` setting changes. `lead` is `true` on the desk's lead and
+the `pinnedTeammates` setting changes. `place` is the teammate's 0-based place
+in the desk's order (`teamOrder`), absent when the desk has not placed it; the
+rows whose place moved are sent again when that setting changes. `lead` is `true` on the desk's lead and
 absent on every other row, so a client that predates it reads the row as
 before; the rows that lost and gained it are sent again when `teamLead`
 changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,

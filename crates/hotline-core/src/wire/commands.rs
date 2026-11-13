@@ -18,9 +18,9 @@ use crate::store::{chapters, search};
 use crate::{paths, room};
 use models::{remember_model, set_backend, set_config, set_model, welcome};
 use persona::{
-    MobileDraft, apply_persona_update, create_persona, delete_persona, lead_persona, living,
-    mobile_persona_access, mobile_persona_computer, mobile_persona_create, mobile_persona_patch,
-    pin_persona, set_mode,
+    MobileDraft, apply_persona_update, arrange_personas, create_persona, delete_persona,
+    lead_persona, living, mobile_persona_access, mobile_persona_computer, mobile_persona_create,
+    mobile_persona_patch, pin_persona, set_mode,
 };
 use serde_json::{Map, Value, json};
 use settings::{update_settings, web_search_status};
@@ -274,6 +274,11 @@ pub(crate) async fn run(
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
             pin_persona(log, &id, slot)
+        }
+        Command::PersonaArrange { ids } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            arrange_personas(log, &ids)
         }
         Command::PersonaLead { id } => {
             let gate = room.policy_update_lock();

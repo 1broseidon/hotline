@@ -69,17 +69,8 @@ pub(super) async fn view(
     });
     let mut watched = HashMap::new();
     let mut personas = refresh(&log, &dirty, &mut watched);
-    let mut pins = room::pinned_teammates(&log);
-    let mut lead = room::team_lead(&log);
-    if !send_snapshot(
-        id,
-        &watched,
-        &handle,
-        &sender,
-        &personas,
-        &pins,
-        lead.as_deref(),
-    ) {
+    let mut standing = Standing::read(&log);
+    if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
         return;
     }
 
@@ -93,40 +84,12 @@ pub(super) async fn view(
         tokio::select! {
             event = room_events.recv() => match event {
                 Ok(event) => {
-                    // A pin lives in a setting, not on the teammate, so the
-                    // rows whose slot moved are sent again.
+                    // A pin, a place in the desk's order and the lead live
+                    // in settings, not on the teammate, so the rows whose
+                    // standing moved are sent again.
                     if event.get("kind").and_then(Value::as_str) == Some("setting")
-                        && event.get("id").and_then(Value::as_str) == Some("pinnedTeammates")
+                        && standing.follow(&event, &personas, &dirty)
                     {
-                        let now = room::settled_pins(
-                            event.get("value").filter(|_| event.get("deleted").is_none()),
-                            &personas,
-                        );
-                        for persona_id in pins.iter().chain(&now) {
-                            if pins.iter().position(|pin| pin == persona_id)
-                                != now.iter().position(|pin| pin == persona_id)
-                            {
-                                dirty.mark(persona_id);
-                            }
-                        }
-                        pins = now;
-                        continue;
-                    }
-                    // So does the lead: the row that lost it and the row
-                    // that has it are sent again.
-                    if event.get("kind").and_then(Value::as_str) == Some("setting")
-                        && event.get("id").and_then(Value::as_str) == Some(room::TEAM_LEAD)
-                    {
-                        let now = room::settled_lead(
-                            event.get("value").filter(|_| event.get("deleted").is_none()),
-                            &personas,
-                        );
-                        if now != lead {
-                            for persona_id in lead.iter().chain(&now) {
-                                dirty.mark(persona_id);
-                            }
-                        }
-                        lead = now;
                         continue;
                     }
                     // A pair has no agent of its own: its record moving is
@@ -167,10 +130,9 @@ pub(super) async fn view(
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     personas = refresh(&log, &dirty, &mut watched);
-                    pins = room::pinned_teammates(&log);
-                    lead = room::team_lead(&log);
+                    standing = Standing::read(&log);
                     dirty.take();
-                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
                         return;
                     }
                 }
@@ -193,7 +155,7 @@ pub(super) async fn view(
                     }
                     if lagged {
                         dirty.take();
-                        if !send_snapshot(id, &watched, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                        if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
                             return;
                         }
                     }
@@ -202,7 +164,7 @@ pub(super) async fn view(
                 // must be refreshed when one may have lost its final hint.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     dirty.take();
-                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
                         return;
                     }
                 }
@@ -218,13 +180,74 @@ pub(super) async fn view(
                         continue;
                     };
                     let Some(watch) = watched.get(&persona_id) else { continue; };
-                    let row = shaped(&sender, roster_entry(watch, &handle, persona.clone(), &pins, lead.as_deref()));
+                    let row = shaped(&sender, roster_entry(watch, &handle, persona.clone(), &standing));
                     let row = catalogs(&sender, watch, row, false);
                     if sender.send_roster(id, row).is_err() {
                         return;
                     }
                 }
             },
+        }
+    }
+}
+
+/// What the room's settings say of each row: its pin, its place in the
+/// desk's order, and whether it leads. Read when the view opens and after
+/// lag, and kept by the setting events in between.
+struct Standing {
+    pins: Vec<String>,
+    order: Vec<String>,
+    lead: Option<String>,
+}
+
+impl Standing {
+    fn read(log: &Log) -> Self {
+        Self {
+            pins: room::pinned_teammates(log),
+            order: room::team_order(log),
+            lead: room::team_lead(log),
+        }
+    }
+
+    /// Takes in a setting event, marking each row whose standing it moved.
+    /// False when the setting is none of these.
+    fn follow(&mut self, event: &Value, personas: &[Persona], dirty: &Dirty) -> bool {
+        let value = event
+            .get("value")
+            .filter(|_| event.get("deleted").is_none());
+        match event.get("id").and_then(Value::as_str) {
+            Some("pinnedTeammates") => {
+                let now = room::settled_pins(value, personas);
+                mark_moved(&self.pins, &now, dirty);
+                self.pins = now;
+            }
+            Some(room::TEAM_ORDER) => {
+                let now = room::settled_order(value, personas);
+                mark_moved(&self.order, &now, dirty);
+                self.order = now;
+            }
+            Some(room::TEAM_LEAD) => {
+                let now = room::settled_lead(value, personas);
+                if now != self.lead {
+                    for persona_id in self.lead.iter().chain(&now) {
+                        dirty.mark(persona_id);
+                    }
+                }
+                self.lead = now;
+            }
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// Marks each teammate whose position differs between two lists of ids.
+fn mark_moved(was: &[String], now: &[String], dirty: &Dirty) {
+    for persona_id in was.iter().chain(now) {
+        if was.iter().position(|one| one == persona_id)
+            != now.iter().position(|one| one == persona_id)
+        {
+            dirty.mark(persona_id);
         }
     }
 }
@@ -241,8 +264,7 @@ fn send_snapshot(
     handle: &Arc<dyn RoomHandle>,
     sender: &Outbox,
     personas: &[Persona],
-    pins: &[String],
-    lead: Option<&str>,
+    standing: &Standing,
 ) -> bool {
     let rows: Vec<_> = personas
         .iter()
@@ -252,7 +274,7 @@ fn send_snapshot(
                 .expect("every roster member is watched");
             let row = shaped(
                 sender,
-                roster_entry(watch, handle, persona.clone(), pins, lead),
+                roster_entry(watch, handle, persona.clone(), standing),
             );
             catalogs(sender, watch, row, true)
         })
@@ -371,8 +393,7 @@ fn roster_entry(
     watch: &Watched,
     room: &Arc<dyn RoomHandle>,
     persona: crate::contract::Persona,
-    pins: &[String],
-    lead: Option<&str>,
+    standing: &Standing,
 ) -> Value {
     let state = watch
         .state
@@ -391,11 +412,17 @@ fn roster_entry(
         activity: activity_line(&state.turn, &session, &subagents),
         waiting: state.waiting() || room.threads_waiting(&persona.id),
         drawing: room.drawing(&persona.id),
-        pin: pins
+        pin: standing
+            .pins
             .iter()
             .position(|pin| *pin == persona.id)
             .and_then(|slot| u8::try_from(slot).ok()),
-        lead: lead == Some(persona.id.as_str()),
+        place: standing
+            .order
+            .iter()
+            .position(|one| *one == persona.id)
+            .and_then(|place| u32::try_from(place).ok()),
+        lead: standing.lead.as_deref() == Some(persona.id.as_str()),
         subagents,
         sides: room.sides(&persona.id),
         working_jobs: room.working_jobs(&persona.id),

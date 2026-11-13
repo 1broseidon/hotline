@@ -164,6 +164,52 @@ fn only_a_desk_or_owner_seat_may_pin() {
     assert!(!Seat::Phone.permits(&pin));
 }
 
+/// The desk's order is the owner's to set, as its pins are: a companion
+/// phone is refused through the real handler and the order stays.
+#[tokio::test]
+async fn only_a_desk_or_owner_seat_may_arrange_the_team() {
+    let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let parts = Parts::default();
+    let mut ids = Vec::new();
+    for (id, name) in [(1, "Ada"), (2, "Bob")] {
+        let made = remote_control_answer(
+            Seat::Desk,
+            &quiet,
+            &log,
+            &parts,
+            json!({
+                "id": id, "cmd": "persona.create", "params": { "draft": { "name": name } }
+            }),
+        )
+        .await;
+        ids.push(made["result"]["id"].clone());
+    }
+    let arrange = |id: i64, order: Value| json!({ "id": id, "cmd": "persona.arrange", "params": { "ids": order } });
+    for (id, seat, order) in [
+        (3, Seat::Desk, json!([ids[1], ids[0]])),
+        (4, Seat::Owner, json!([ids[0], ids[1]])),
+    ] {
+        let answer =
+            remote_control_answer(seat, &quiet, &log, &parts, arrange(id, order.clone())).await;
+        assert_eq!(answer["result"], order, "{answer}");
+    }
+    let refused = remote_control_answer(
+        Seat::Phone,
+        &quiet,
+        &log,
+        &parts,
+        arrange(5, json!([ids[1], ids[0]])),
+    )
+    .await;
+    assert_eq!(refused["code"], FORBIDDEN, "{refused}");
+    assert_eq!(
+        room::settings(&log)[room::TEAM_ORDER],
+        json!([ids[0], ids[1]])
+    );
+}
+
 #[tokio::test]
 async fn the_lead_is_set_moved_and_cleared_and_the_roster_rows_carry_it() {
     let (_root, log, port) = door("lead");

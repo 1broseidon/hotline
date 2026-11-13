@@ -223,6 +223,11 @@ pub struct RosterEntry {
     /// the same pins as the desk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<u8>,
+    /// Where this teammate stands in the desk's own order of its team
+    /// (`teamOrder`), 0-based, absent when the desk has not placed it. A
+    /// teammate with no place is listed after those with one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<u32>,
     /// This teammate is the desk's lead. Absent when it is not, so a client
     /// that predates the role reads the row as it always did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

@@ -134,24 +134,31 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
             Ok(json!(settings))
         }
         "pinnedTeammates" => {
-            let ids = value
-                .as_array()
-                .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
-                .filter(|ids| ids.iter().all(|id| !id.is_empty()))
-                .ok_or("Pinned teammates must be a list of teammate ids.")?;
-            let mut unique: Vec<&str> = Vec::new();
-            for id in ids {
-                if !unique.contains(&id) {
-                    unique.push(id);
-                }
-            }
+            let unique = unique_ids(value, "Pinned teammates")?;
             if unique.len() > MAX_PINS {
                 return Err(too_many_pins());
             }
             Ok(json!(unique))
         }
+        TEAM_ORDER => Ok(json!(unique_ids(value, "The team's order")?)),
         _ => Ok(value.clone()),
     }
+}
+
+/// A setting that is a list of teammate ids, each once, in the order given.
+fn unique_ids<'a>(value: &'a Value, what: &str) -> Result<Vec<&'a str>, String> {
+    let ids = value
+        .as_array()
+        .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+        .filter(|ids| ids.iter().all(|id| !id.is_empty()))
+        .ok_or_else(|| format!("{what} must be a list of teammate ids."))?;
+    let mut unique: Vec<&str> = Vec::new();
+    for id in ids {
+        if !unique.contains(&id) {
+            unique.push(id);
+        }
+    }
+    Ok(unique)
 }
 
 /// How many teammates a desk can pin. Three faces fit a phone's header and
@@ -163,21 +170,40 @@ pub fn too_many_pins() -> String {
 }
 
 /// The pinned teammates, in order, out of the `pinnedTeammates` setting's
-/// stored value.
-///
-/// Read leniently and settled against who is on the team, so a stored list
-/// that names a teammate who is gone, repeats one, or runs long (an older
-/// or hand-edited stream) still reads as pins that can be shown.
+/// stored value, read as [`settled_order`] reads and cut at three, so a
+/// stored list that runs long still reads as pins that can be shown.
 pub fn settled_pins(value: Option<&Value>, team: &[Persona]) -> Vec<String> {
-    let mut pins: Vec<String> = Vec::new();
-    for id in value.and_then(Value::as_array).into_iter().flatten() {
-        let Some(id) = id.as_str() else { continue };
-        if team.iter().any(|persona| persona.id == id) && !pins.iter().any(|pin| pin == id) {
-            pins.push(id.to_string());
-        }
-    }
+    let mut pins = settled_order(value, team);
     pins.truncate(MAX_PINS);
     pins
+}
+
+/// The setting holding the desk's own order of its team: the teammates
+/// the person has put in place, first to last. A teammate it does not name
+/// has no place yet, and the window lists it after those that have one.
+pub const TEAM_ORDER: &str = "teamOrder";
+
+/// A stored list of teammate ids, read leniently and settled against who is
+/// on the team, so a list that names a teammate who is gone or repeats one
+/// (an older or hand-edited stream) still reads as one that can be shown.
+pub fn settled_order(value: Option<&Value>, team: &[Persona]) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for id in value.and_then(Value::as_array).into_iter().flatten() {
+        let Some(id) = id.as_str() else { continue };
+        if team.iter().any(|persona| persona.id == id) && !ids.iter().any(|known| known == id) {
+            ids.push(id.to_string());
+        }
+    }
+    ids
+}
+
+/// The desk's order of its team, as it stands.
+pub fn team_order(log: &Log) -> Vec<String> {
+    let events = log.load(&StreamId::Room);
+    settled_order(
+        settings_from_events(&events).get(TEAM_ORDER),
+        &personas(&events),
+    )
 }
 
 /// The desk's pinned teammates, in the order they sit.
@@ -911,6 +937,22 @@ mod tests {
             vec!["b".to_string(), "a".to_string()]
         );
         assert_eq!(settled_pins(None, &team), [] as [String; 0]);
+    }
+
+    #[test]
+    fn the_team_order_is_a_list_of_ids_of_any_length_settled_against_the_team() {
+        assert_eq!(
+            normalize_setting(TEAM_ORDER, &json!(["a", "b", "c", "d", "a"])).unwrap(),
+            json!(["a", "b", "c", "d"])
+        );
+        for bad in [json!("a"), json!([1]), json!([""])] {
+            assert!(normalize_setting(TEAM_ORDER, &bad).is_err(), "{bad}");
+        }
+        let team = [persona("a", "A"), persona("b", "B")];
+        assert_eq!(
+            settled_order(Some(&json!(["x", "b", "b", "a"])), &team),
+            vec!["b".to_string(), "a".to_string()]
+        );
     }
 
     #[test]

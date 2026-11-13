@@ -367,6 +367,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         slot: Option<u8>,
     },
+    /// Puts the desk's teammates in the order `ids` names, first to last:
+    /// the list under the pins, as the window lists it. A teammate the list
+    /// does not name has no place and is listed after those that do; an
+    /// empty list leaves the desk unarranged. Ids of teammates who are not
+    /// on the desk are dropped. Owners only, as `persona.pin`.
+    #[serde(rename = "persona.arrange")]
+    PersonaArrange { ids: Vec<String> },
     /// Makes `id` the desk's lead, moving the role from whoever had it, or
     /// clears the lead when `id` is absent. A desk has at most one. A desk
     /// of one teammate always has that one as lead, so clearing it there is

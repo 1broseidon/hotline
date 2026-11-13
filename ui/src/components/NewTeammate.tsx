@@ -112,7 +112,7 @@ export function NewTeammateForm({
 	const [folders, setFolders] = useState<FolderGrant[]>([]);
 	// A computer is offered only where one can start.
 	const [computerReady, setComputerReady] = useState(false);
-	// A picture is offered only where the room can draw one: the provider that would.
+	// The provider that would draw the picture; without one, the desk draws it itself.
 	const [imagesBy, setImagesBy] = useState<string | null>(null);
 	const [picture, setPicture] = useState(true);
 	const [busy, setBusy] = useState(false);
@@ -168,7 +168,7 @@ export function NewTeammateForm({
 			void wire.command("session.start", { personaId: persona.id }).catch((error: Error) => console.warn("session.start", error.message));
 			// Drawn while they settle in: the initial shows until the roster
 			// brings the picture, and a refusal leaves the initial in place.
-			if (imagesBy !== null && picture) {
+			if (picture) {
 				void wire.command("avatar.generate", { personaId: persona.id }).catch((error: Error) => console.warn("avatar.generate", error.message));
 			}
 		} catch (error) {
@@ -345,13 +345,13 @@ export function NewTeammateForm({
 						<p className="hint">These can always be changed later on the teammate's pane.</p>
 					</Fold>
 				)}
-				{imagesBy !== null && (
-					<label className="nt-fold-row nt-fold-head">
-						<span className="nt-fold-title">Picture</span>
-						<span className="nt-fold-value">{picture ? `Drawn from its name and goal with ${imagesBy}` : "Its initial"}</span>
-						<input type="checkbox" className="switch" checked={picture} disabled={busy} onChange={(event) => setPicture(event.target.checked)} />
-					</label>
-				)}
+				<label className="nt-fold-row nt-fold-head">
+					<span className="nt-fold-title">Picture</span>
+					<span className="nt-fold-value">
+						{!picture ? "Its initial" : imagesBy !== null ? `Drawn from its name and goal with ${imagesBy}` : "Drawn on this device"}
+					</span>
+					<input type="checkbox" className="switch" checked={picture} disabled={busy} onChange={(event) => setPicture(event.target.checked)} />
+				</label>
 			</section>
 
 			{refusal !== null && (

@@ -1,5 +1,7 @@
 import type {
 	Aside,
+	Avatar,
+	AvatarCandidate,
 	BackendChoice,
 	BrowserSnapshot,
 	BrowserView,
@@ -230,6 +232,10 @@ type Results = {
 	/** One part of a teammate's picture, by the hash on its record. */
 	"avatar.read": FileChunk;
 	"avatar.generate": null;
+	/** Pictures the desk draws here, one per style, for the person to pick. */
+	"avatar.candidates": AvatarCandidate[];
+	/** The picked one, kept as the person's. */
+	"avatar.pick": Avatar;
 	"files.browse": {
 		path: string;
 		parent: string | null;

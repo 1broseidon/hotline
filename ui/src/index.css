@@ -3653,6 +3653,27 @@
 	.swatch[data-on] {
 		border-color: var(--ink-2);
 	}
+	/* The pictures a teammate's pane offers, as round keys the way swatches
+	 * are: a ring on hover, the face itself inside. */
+	.picture-choices {
+		display: flex;
+		flex: 1;
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+	.picture-choice {
+		display: grid;
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 50%;
+		transition: border-color var(--dur-press) var(--ease-out);
+	}
+	.picture-choice:hover:not(:disabled) {
+		border-color: var(--line-strong);
+	}
+	.picture-choice:disabled {
+		opacity: 0.6;
+	}
 	/* The form's own keys: the system's buttons, a step taller as a form's footer is. */
 	.nt-submit,
 	.nt-submit ~ .control,

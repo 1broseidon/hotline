@@ -8,6 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate can have a picture with no image provider. Its pane has a
+  Picture row: open it for a dozen pictures drawn on this machine from
+  DiceBear's styles, press one to keep it as yours, or More for another
+  set. Setup's Picture switch is now always offered: with no provider, the
+  new teammate gets a Lorelei picture drawn here, with no network and no
+  cost, which the teammate can replace like one a provider drew. With a
+  provider, setup draws as before. Only the styles whose artwork is CC0 are
+  used, so none needs credit.
+
 ## [0.49.1] - 2026-11-13
 
 ### Changed

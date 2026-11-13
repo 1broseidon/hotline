@@ -22,6 +22,7 @@ import type { ThreadRef } from "./Transcript";
 import { LocalAddresses } from "./teammate/LocalAddresses";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
+import { PictureRow } from "./teammate/PictureRow";
 import { SecretRows } from "./teammate/SecretRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
 import { Threads } from "./teammate/Threads";
@@ -245,6 +246,7 @@ export function Teammate({
 								/>
 							</div>
 						</div>
+						<PictureRow persona={persona} disabled={busy} onRefusal={setRefusal} />
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
 						<div className="group-row">
 							<RowText title="Bubble" />

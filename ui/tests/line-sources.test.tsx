@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { Root } from "react-dom/client";
 import type { TranscriptEvent, WebSource } from "../src/generated/contract";
 import type { Handlers } from "../src/wire";
@@ -84,8 +85,11 @@ const turn = (work: TranscriptEvent[]): TranscriptEvent[] => [
 
 const line = () => container.querySelector<HTMLButtonElement>(".steps-caption")!;
 const stack = () => line().querySelector<HTMLElement>(".favicons");
-/** The line's parts in order, by what each is. */
-const parts = () => [...line().children].map((part) => (part.classList.contains("favicons") ? "sources" : part.classList.contains("outcome") ? "outcome" : part.className));
+/** The line's parts in order, by what each is: the outcomes, then the end it does not break inside, the sources and the time. */
+const parts = () =>
+	[...line().children]
+		.flatMap((part) => (part.classList.contains("steps-caption-end") ? [...part.children] : [part]))
+		.map((part) => (part.classList.contains("steps-caption-sources") ? "sources" : part.classList.contains("outcome") ? "outcome" : part.className));
 
 describe("the line under a reply", () => {
 	test("sources and no outcomes: the stack of the sites read, then the time", async () => {
@@ -180,6 +184,32 @@ describe("the line under a reply", () => {
 		// With none of those and no page read, there is no stack.
 		await draw(turn([search("s1", 500, "storm last night"), local("f1", 1_000, "Read /Users/ana/notes/storm.md", "read")]));
 		expect(stack()).toBeNull();
+	});
+
+	test("the parts run from the left as one line with a dot between each, the time and the chevron straight after the last, and the press hugs it", async () => {
+		const lines = readFileSync(new URL("../src/inline-lines.css", import.meta.url), "utf8");
+		const rule = (selector: string) => lines.match(new RegExp(`\\n\\t${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`))?.[1] ?? "";
+		// One run of text from the left, as wide as its words, wrapping at the column.
+		expect(rule(".steps-caption")).toContain("display: block;");
+		expect(rule(".steps-caption")).toContain("width: fit-content;");
+		expect(rule(".steps-caption")).toContain("text-align: start;");
+		// Nothing pushes the time to the far edge.
+		expect(rule(".steps-caption-took")).not.toContain("margin");
+		// The phone's separator between the parts; the one before the end held by unbreaking spaces, and the end (the icons and the time) unbroken, so the time never stands alone on a row.
+		expect(rule(".steps-caption > :not(:last-child)::after")).toContain('content: " · ";');
+		expect(rule(".steps-caption > :nth-last-child(2)::after")).toContain('content: "\\00a0·\\00a0";');
+		expect(rule(".steps-caption-sources::after")).toContain('content: " · ";');
+		expect(rule(".steps-caption-end")).toContain("white-space: nowrap;");
+		// A stack still asking for its icons draws nothing, and the line skips its part, dot and all.
+		expect(rule(".steps-caption-sources:empty")).toContain("display: none;");
+
+		icons["cbsnews.com"] = icon("cbsnews.com");
+		await draw(turn([read("r1", 1_000, "https://cbsnews.com/storm"), outcome("o1", 2_000, "Storm summary for the family chat")]));
+		// Every part is inside the one button: one press for the whole line.
+		expect(parts()).toEqual(["outcome", "sources", "steps-caption-took"]);
+		expect(line().lastElementChild?.className).toBe("steps-caption-end");
+		// The dots are the stylesheet's, not text in the line.
+		expect(line().textContent).toBe("Storm summary for the family chat1.0s");
 	});
 
 	test("while the turn is still on it there is no line, so no stack", async () => {

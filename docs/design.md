@@ -702,6 +702,22 @@ path lists them first, by name and link, in the pane and where it opens in
 place in a thread. The composer's slot stays the mark and the teammate's
 words: no site icons there.
 
+The line under a reply reads as one run from the left (George, 2026-11-13,
+0.49.1): its outcomes, its sources, then its time and the chevron straight
+after, a dot between each, as the phone's line has it. Before, the time sat
+at the column's far edge, and under a turn with nothing else to say a lone
+"43s ›" stood away from the reply it was about. The press hugs the words,
+as the conversation's other quiet lines do, and the time wraps with the
+words before it rather than alone on a row (`inline-lines.css`).
+
+A teammate that waits on its helpers is one phone notification per ask
+(George, 2026-11-13, 0.49.1). A four-helper job pushed what the teammate
+said as it started them and again as each reported, four or five
+notifications for one question. The push now waits for the turn's true end
+and carries the last thing said in it; a call still hears each line when it
+is said, and a card that needs the person is still pushed at once
+([sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

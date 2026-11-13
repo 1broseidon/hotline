@@ -261,3 +261,95 @@ async fn a_reply_written_as_several_bubbles_is_said_on_the_call_once() {
     );
     calls.end(&id).unwrap();
 }
+
+/// A call hears what the teammate says as its turn starts to wait on its
+/// helpers, when it says it; only the phone waits for the turn's end. A line
+/// the call already said is not pushed again when the turn ends.
+#[tokio::test]
+async fn a_call_hears_the_line_before_a_wait_on_helpers_and_the_phone_is_not_told_it_again() {
+    let turn = vec![
+        Update::ToolCall {
+            call_id: "h1".into(),
+            title: "Check the release".into(),
+            kind: crate::session::jobs::SUBAGENT.into(),
+        },
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "m-start".into(),
+            text: "A helper is checking the release.".into(),
+        },
+        Update::Parked,
+        Update::ToolResult {
+            call_id: "h1".into(),
+            ok: true,
+            output: "Fine.".into(),
+            images: Vec::new(),
+        },
+        Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        },
+    ];
+    let gate = Arc::new(Semaphore::new(0));
+    let room = room(
+        "voice-helpers-wait",
+        Fake::new(Scripted::new(turn).gated(gate.clone())),
+    );
+    pair_a_phone(&room);
+    let fake = Arc::new(crate::voice::tests::Fake::default());
+    let vault = Arc::new(
+        crate::vault::Vault::open_with_store(
+            room.log.root(),
+            room.log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    let calls = crate::voice::Calls::new(
+        room.log.clone(),
+        crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault),
+        Some(crate::voice::tests::with_fake(fake.clone())),
+    );
+    room.set_voice(&calls);
+    room.start("ada").await.unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    calls
+        .start(
+            &id,
+            Arc::new(crate::wire::tests::CoreHandle { room: room.clone() }),
+        )
+        .unwrap();
+    let (_, mut events) = calls.subscribe(&id).unwrap();
+    room.prompt("ada", "check the release", None, None)
+        .await
+        .unwrap();
+
+    gate.add_permits(3);
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if let Ok(crate::contract::VoiceEvent::Delivery { event_id, .. }) = events.recv().await
+                && event_id == "m-start"
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the call hears the line before the wait");
+    assert!(lock(&room.push.sent).is_empty());
+
+    gate.add_permits(2);
+    until("the turn is over", || {
+        tape(&room, "ada")
+            .iter()
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        lock(&room.push.sent).is_empty(),
+        "{:?}",
+        lock(&room.push.sent)
+    );
+    calls.end(&id).unwrap();
+}

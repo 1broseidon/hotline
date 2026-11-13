@@ -346,20 +346,23 @@
 
 	/* ------------------------------------------------------ outcome line
 	 * Under a reply, what the turn left behind in the teammate's own words,
-	 * each with the mark for how it went, then the time it took and the way
-	 * into its path. A turn that left nothing says only its time. */
+	 * each with the mark for how it went, then the sites it read, then the
+	 * time it took and the way into its path. A turn that left nothing says
+	 * only its time. The parts run from the left as one line of text with a
+	 * dot between each, as the phone's line does, so the time and the chevron
+	 * follow the last words and wrap with them instead of standing apart at
+	 * the column's edge. The press hugs the line, as a link row's does; a
+	 * long outcome wraps at the column's width. */
 	.steps-caption {
-		display: flex;
-		width: calc(100% + 6px);
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 3px 14px;
-		margin-left: -6px;
+		display: block;
+		width: fit-content;
+		max-width: calc(100% + 6px);
+		margin-inline-start: -6px;
 		padding: 3px 8px 3px 6px;
 		border-radius: var(--radius-control);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
-		text-align: left;
+		text-align: start;
 		color: var(--ink-2);
 		transition: background var(--dur-press) var(--ease-out);
 	}
@@ -368,20 +371,52 @@
 		background: var(--fill-hover);
 		color: var(--ink-2);
 	}
+	/* Each part is its own run for the bidirectional algorithm, so two
+	 * outcomes written right to left keep their order in the line. */
+	.steps-caption > * {
+		unicode-bidi: isolate;
+	}
+	/* The dot ends the part before it, so a line breaks after a dot and
+	 * never starts with one. The dot before the end is held by unbreaking
+	 * spaces, and the end (the sites' icons and the time) does not break
+	 * inside, so the time goes to a new row with the words before it and
+	 * never stands alone. The end is text in the line, not a box: a box may
+	 * be put on a row of its own whatever holds it to the word before it. */
+	.steps-caption > :not(:last-child)::after {
+		content: " · ";
+		color: var(--ink-4);
+	}
+	.steps-caption > :nth-last-child(2)::after {
+		content: "\00a0·\00a0";
+	}
+	.steps-caption-end {
+		white-space: nowrap;
+	}
+	.steps-caption-sources::after {
+		content: " · ";
+		color: var(--ink-4);
+	}
+	.steps-caption-sources:empty {
+		display: none;
+	}
+	.steps-caption-sources > .favicons {
+		vertical-align: middle;
+	}
 	.steps-caption-took {
-		display: inline-flex;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 6px;
-		margin-left: auto;
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
+	.steps-caption-took svg {
+		display: inline-block;
+		vertical-align: middle;
+	}
+	.steps-caption-took > span + svg {
+		margin-inline-start: 6px;
+	}
 	.steps-caption svg {
 		width: 12px;
 		height: 12px;
-		flex-shrink: 0;
 		color: var(--ink-3);
 		opacity: 0.6;
 		transition: opacity var(--dur-press) var(--ease-out);

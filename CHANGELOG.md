@@ -8,6 +8,28 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-11-13
+
+### Changed
+
+- The line under a reply runs from the left as one line: what the turn left
+  behind, the sites it read, then how long it took and the chevron straight
+  after, with a dot between each, as on the phone. The time no longer sits
+  at the far right of the conversation, away from the reply it is about,
+  and on a narrow window it wraps with the words before it. Pressing it
+  opens the path as before; the press now covers the words, not the whole
+  width.
+
+### Fixed
+
+- A teammate that starts helpers and waits on them sends your phone one
+  notification for the ask, when its turn is over, with the last thing it
+  said. Before, what it said as it started them and again as each reported
+  was a notification of its own, four or five for one ask. A call to the
+  teammate still hears each line as it is said, and a card that needs you,
+  such as a permission, still reaches the phone at once. A turn you stop
+  while it waits sends nothing.
+
 ## [0.49.0] - 2026-11-12
 
 ### Added

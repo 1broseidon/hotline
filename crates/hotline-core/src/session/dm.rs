@@ -204,7 +204,6 @@ impl Occupant for Session {
             room,
             session: self,
             steered: &mut held.steered,
-            from_voice: held.from_voice,
             card: None,
             answering_a_question: held.request.is_some(),
         };
@@ -222,7 +221,8 @@ impl Occupant for Session {
 
     fn end(self: &Arc<Self>, room: &Arc<Room>, held: Hold, driven: Driven) -> Then {
         let session = self;
-        room.send_glance(session, held.from_voice);
+        let finished = !driven.cancelled && driven.stop_reason.as_deref() == Some("end_turn");
+        room.send_glance(session, held.from_voice, finished);
         room.turn_ended(session);
         room.read_plan_after_turn(session);
         if driven.asked {
@@ -286,8 +286,6 @@ struct Heard<'a> {
     room: &'a Room,
     session: &'a Arc<Session>,
     steered: &'a mut Vec<Wired>,
-    /// Whether the line came from a voice, which decides how the reply is said.
-    from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
     /// Whether the turn answers a colleague's question, whose whole reply
@@ -343,9 +341,9 @@ impl Witness for Heard<'_> {
                     room.checkpoint(session);
                 }
             }
-            // A phone hears a turn's reply once the driver is done with the
-            // line ([`Room::send_glance`]), and a question the agent cannot go
-            // on without the moment it is asked.
+            // A phone hears a turn's reply once the turn is over
+            // ([`Room::send_glance`]), and a question the agent cannot go on
+            // without the moment it is asked.
             Update::Message {
                 kind: MessageKind::Agent,
                 id,
@@ -371,20 +369,23 @@ impl Witness for Heard<'_> {
                 *lock(&session.glance) = Some(Glance {
                     event_id: id.clone(),
                     text: versions(text).written.trim().to_string(),
+                    before_wait: false,
                 });
             }
             // The agent has said what it has to say and the turn stays open
-            // only for subagents it started: it reads as done. The reply is
-            // heard now, where a turn's end would have said it. Hotline
-            // Agent hands its commands to the session before it parks, so a
-            // tool still open here is a harness's own, which is work, and the
-            // turn goes on reading as it does.
+            // only for subagents it started: it reads as done. A call hears
+            // the reply now, where a turn's end would have said it; the phone
+            // hears the turn once, at its true end, so a job that waits on
+            // four helpers is one notification and not one per report.
+            // Hotline Agent hands its commands to the session before it
+            // parks, so a tool still open here is a harness's own, which is
+            // work, and the turn goes on reading as it does.
             Update::Parked
                 if in_flight
                     .values()
                     .all(|tool| tool.kind == super::jobs::SUBAGENT) =>
             {
-                room.send_glance(session, self.from_voice);
+                room.hold_glance(session);
                 room.turn_ended(session);
                 room.await_subagents(session, true);
             }

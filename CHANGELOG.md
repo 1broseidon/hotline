@@ -119,6 +119,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - The window calls a subagent a helper everywhere: the Threads list and its
   Kind menu, the message box's threads, the pane's header, Stop's tooltip,
   and the path.
+- A helper or a command started by Claude Code or Codex reads as one by
+  Hotline Agent does: its start says "Started a helper" or "Started a
+  command" in the path, whatever the agent calls its own tool, and once the
+  helper's or the command's own line is there the start is not said again
+  beside it. A start that failed stays, marked failed. Codex's calls that
+  say what a teammate is on and what came of it are those lines in the
+  path, not steps named after the tool.
 
 ### Fixed
 

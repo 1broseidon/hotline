@@ -55,11 +55,22 @@ export type PathEntry =
 	| { kind: "command"; link: RunLink };
 
 /**
- * The step that started a helper, done: the helper's own line in the path
- * stands for it ("Started a helper: …"), so it is not said twice. One that
- * failed started nothing and stays, as does one still on its way.
+ * The steps a run's own line stands for: the start of a helper, done, when
+ * the turn has a helper's line, and the start of a command left running,
+ * done, when it has a command's. The desk says each agent's start in its own
+ * words and group (`subagent`, `command`), whatever the agent called its
+ * tool, so the start is not said twice ("Started a helper: …" beside the
+ * agent's own step for it). One that failed started nothing and stays, as
+ * does one still on its way, and one in a turn with no such line, which
+ * nothing else in the path would stand for.
  */
-const startedHelper = (item: Step): boolean => item.kind === "tool" && item.said?.key === "subagent" && item.status === "completed";
+function standsFor(items: Step[]): (item: Step) => boolean {
+	const links = items.filter(isRunLink);
+	const helpers = links.some((link) => link.runKind !== "shell");
+	const commands = links.some((link) => link.runKind === "shell");
+	return (item) =>
+		item.kind === "tool" && item.status === "completed" && ((helpers && item.said?.key === "subagent") || (commands && item.said?.key === "command"));
+}
 
 /** The helpers and commands a turn started that failed, in the order started. */
 export function failedRuns(items: Step[]): RunLink[] {
@@ -79,6 +90,7 @@ export type PathGroup = { heading: ActivityLine | null; entries: PathEntry[] };
  */
 export function pathGroups(items: Step[], running: boolean): PathGroup[] {
 	const groups: PathGroup[] = [{ heading: null, entries: [] }];
+	const started = standsFor(items);
 	let run: Step[] = [];
 	const flush = (last: boolean) => {
 		if (!last && !run.some((item) => item.kind === "tool")) return;
@@ -100,7 +112,7 @@ export function pathGroups(items: Step[], running: boolean): PathGroup[] {
 			if (item.runKind === "shell") entries.push({ kind: "command", link: item });
 			else if (last?.kind === "helpers") last.links.push(item);
 			else entries.push({ kind: "helpers", links: [item] });
-		} else if (!startedHelper(item)) run.push(item);
+		} else if (!started(item)) run.push(item);
 	}
 	flush(true);
 	return groups.filter((group) => group.heading !== null || group.entries.length > 0);

@@ -655,6 +655,17 @@ conversations in their own right and keep their rows. A subagent is a
 "helper" wherever the person reads it; the code and the wire keep subagent.
 This is a drawing change: the tape and the wire are as they were.
 
+A helper is one concept whatever the agent calls its tool for one (George,
+2026-11-12, task-449). The ACP driver keeps an agent's own launch of a
+subagent under Hotline Agent's kind, `subagent`, from the agent's name for
+the tool and not its title, and the call that sent a command to the
+background as `background`; a glance says them "Started a helper" and
+"Started a command". The path drops such a start, done, when the turn has
+the helper's or the command's own line to stand for it, and keeps one that
+failed, which started nothing. Hotline's own tools called through an
+agent's MCP client are known the same way, so Codex's `activity` and
+`outcome` are the lines they wrote and not steps.
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

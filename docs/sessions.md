@@ -327,6 +327,24 @@ settled as `cancelled` when its session ends or is replaced. An adapter
 that does not take the capability keeps showing subagents as tool calls on
 the teammate's turn.
 
+Under the RFD, Claude's adapter (0.106) and Codex's (2.6) do not show a
+launch that became a subagent session: the announcement is all there is,
+and the run's line in the path is its start. A launch that became none is
+shown, failed. Whatever an agent calls its tool, `translate::own_tool`
+keeps such a call under Hotline Agent's kind, `subagent`, from the agent's
+own name for the tool and never from a title it wrote for a person:
+Claude's `_meta.claudeCode.toolName` `Agent` or `Task`, and Codex's
+collaboration tool `spawnAgent` (`_meta.codex.collaboration.tool` in 1.x;
+the title, with the collaboration input `senderThreadId` and
+`receiverThreadIds`, in 2.x). A call to one of the room's own tools is kept
+as `mcp__hotline__<tool>`, so a glance knows it however it was titled:
+Claude names it so in `toolName`, and Codex marks it
+`_meta.is_mcp_tool_call` with `{ server: "hotline", tool }` as its input and
+titles it `mcp.hotline.<tool>`. A kind found this way stays through the
+call's later updates. `glance::step_said` says a `subagent` step "Started a
+helper" whatever its title or description, so every agent's start reads
+alike and the window knows it by its group.
+
 A command a harness sends to the background is a run of its own too, of
 kind `shell`. Hotline asks for the terminal extension
 (`_meta.terminal_output`), under which Claude's adapter puts a command's
@@ -336,7 +354,10 @@ the terminal left open (`terminal_info` and no `terminal_exit`), and a
 `tool_call_update` carrying only the `terminal_exit` when it ends, often
 after the turn. `Live::backgrounded` reports the first as a run's start and
 `Live::background_ended` the second as its end, failed on a nonzero exit
-code. The roster entry carries the kind, so the key at the composer's
+code. The call that sent the command there is written again, before its
+result, under the kind `background`, which a glance says as "Started a
+command" (group `command`): the run is that call's, by its own id, and the
+command's line in the path stands for the step. The roster entry carries the kind, so the key at the composer's
 corner says `Command` rather than `Subagent`, and stays after the turn
 that started the command ends; the run's link carries it too
 (`runKind: "shell"`), so its line says Command once it has ended. What the

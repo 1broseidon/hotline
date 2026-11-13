@@ -364,15 +364,7 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
             "Running a command",
         ),
     ),
-    (
-        "subagent",
-        label(
-            "subagent",
-            "Started a helper",
-            "Started {n} helpers",
-            "Starting a helper",
-        ),
-    ),
+    ("subagent", STARTED_A_HELPER),
     (
         "inspect_job",
         label(
@@ -517,6 +509,31 @@ const GENERIC_KINDS: &[&str] = &[
 /// The longest description of its own an agent's step is said by.
 const DESCRIPTION_CHARS: usize = 60;
 
+/// The kind of a call that left a command running in the background: an
+/// agent's harness says so of its own shell call (see the ACP driver), and the
+/// step is then the start of the command's run.
+pub const BACKGROUND_COMMAND: &str = "background";
+
+/// How the start of a helper (a subagent) is said, by Hotline Agent's
+/// `subagent` tool or by any agent's own launch of one. Its group is the one
+/// the window knows such a start by: the helper's own line in the path stands
+/// for it.
+const STARTED_A_HELPER: Label = label(
+    "subagent",
+    "Started a helper",
+    "Started {n} helpers",
+    "Starting a helper",
+);
+
+/// How the start of a command left running is said, its group known the same
+/// way by the window.
+const STARTED_A_COMMAND: Label = label(
+    "command",
+    "Started a command",
+    "Started {n} commands",
+    "Starting a command",
+);
+
 fn said(
     key: impl Into<String>,
     one: impl Into<String>,
@@ -540,6 +557,15 @@ fn from_label(label: &Label) -> StepSaid {
 pub fn step_said(title: &str, kind: &str, description: Option<&str>) -> StepSaid {
     let title = title.trim();
     let kind = kind.trim();
+    // A step that started a helper or left a command running is said in the
+    // desk's words whatever the agent titled or described it, so every agent's
+    // start reads alike and the window knows it by its group: the helper's or
+    // the command's own line in the path stands for it.
+    match kind {
+        crate::session::jobs::SUBAGENT => return from_label(&STARTED_A_HELPER),
+        BACKGROUND_COMMAND => return from_label(&STARTED_A_COMMAND),
+        _ => {}
+    }
     // A Hotline tool by its name, written as the title, through the room's MCP
     // server (`mcp__hotline__post_to_chat`), or as the kind of a step whose
     // title says nothing more. A title that carries what was read, edited or
@@ -1053,6 +1079,38 @@ mod tests {
                 "{name} has no count"
             );
         }
+    }
+
+    /// A start of a helper or of a command left running reads in the desk's
+    /// words and under the group the window knows it by, whatever the agent
+    /// titled or described the call: Hotline Agent's `subagent` tool, Claude's
+    /// failed `Agent` launch titled and described by its task (as the
+    /// adapter shows one), Codex's `spawnAgent`, and Claude's background
+    /// `Bash` with its own description.
+    #[test]
+    fn a_start_is_said_in_the_desks_words_whatever_the_agent_wrote() {
+        let helper = ("subagent", "Started a helper");
+        for (title, words) in [
+            ("subagent Open-choice research 1", None),
+            (
+                "Profile agent tools group E",
+                Some("Profile agent tools group E"),
+            ),
+            ("spawnAgent", None),
+        ] {
+            let said = step_said(title, crate::session::jobs::SUBAGENT, words);
+            assert_eq!((said.key.as_str(), said.one.as_str()), helper, "{title}");
+            assert_eq!(said.many, "Started {n} helpers");
+        }
+        let said = step_said(
+            "python3 -m http.server 8766",
+            BACKGROUND_COMMAND,
+            Some("Serve octopus.md on port 8766"),
+        );
+        assert_eq!(
+            (said.key.as_str(), said.one.as_str(), said.many.as_str()),
+            ("command", "Started a command", "Started {n} commands")
+        );
     }
 
     #[test]

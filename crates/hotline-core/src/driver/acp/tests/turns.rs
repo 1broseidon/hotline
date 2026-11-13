@@ -1,28 +1,153 @@
 use super::*;
 
-/// Claude's adapter marks the call that launched a subagent only in
-/// `_meta`; kept as a launch, a turn left open for it reads as done.
+/// A call is kept under the desk's kind when the agent's own name for the
+/// tool behind it says it is the desk's: a subagent's launch, whatever the
+/// agent calls its tool for one, and a tool of the room's MCP server, however
+/// the agent titles it. The shapes are the adapters' own: Claude's 0.106
+/// (`_meta.claudeCode.toolName`; its Hotline tools titled as on Quill's tape
+/// of 2026-11-12, `mcp__hotline__activity`), Codex's 1.12 and 2.6
+/// (`mcp.<server>.<tool>` with `{ server, tool }` in the input; `spawnAgent`
+/// as its collaboration tool). Anything else keeps its ACP kind.
 #[test]
-fn a_call_claude_says_launched_a_subagent_is_kept_as_one() {
-    let meta = |name: &str| {
-        serde_json::json!({"claudeCode": {"toolName": name}})
-            .as_object()
-            .cloned()
-            .unwrap()
-    };
-    assert_eq!(
-        tool_kind(acp::ToolKind::Other, Some(&meta("Agent"))),
-        SUBAGENT_LAUNCH
+fn a_call_is_kept_under_the_desks_kind_by_the_tool_behind_it() {
+    let meta = |value: Value| value.as_object().cloned().unwrap();
+    let claude = |name: &str| meta(serde_json::json!({"claudeCode": {"toolName": name}}));
+    let collaboration = serde_json::json!({
+        "prompt": "Profile group A",
+        "senderThreadId": "thr_root",
+        "receiverThreadIds": ["thr_child"],
+        "agentsStates": {},
+        "model": null,
+        "reasoningEffort": null,
+        "status": "failed",
+    });
+    let codex_mcp = |server: &str, tool: &str| serde_json::json!({"server": server, "tool": tool, "arguments": {"type": "searching"}});
+    let is_mcp = meta(serde_json::json!({"is_mcp_tool_call": true}));
+    /// What the case is, the call's ACP kind, `_meta`, input and title, and
+    /// the kind it is kept under.
+    type Case = (
+        &'static str,
+        acp::ToolKind,
+        Option<acp::Meta>,
+        Option<Value>,
+        &'static str,
+        &'static str,
     );
-    assert_eq!(
-        tool_kind(acp::ToolKind::Think, Some(&meta("Task"))),
-        SUBAGENT_LAUNCH
-    );
-    assert_eq!(
-        tool_kind(acp::ToolKind::Execute, Some(&meta("Bash"))),
-        "execute"
-    );
-    assert_eq!(tool_kind(acp::ToolKind::Read, None), "read");
+    let cases: Vec<Case> = vec![
+        (
+            "Claude's Agent",
+            acp::ToolKind::Other,
+            Some(claude("Agent")),
+            None,
+            "Profile agent tools group A",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Claude's Task",
+            acp::ToolKind::Think,
+            Some(claude("Task")),
+            None,
+            "Task",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Claude's Bash",
+            acp::ToolKind::Execute,
+            Some(claude("Bash")),
+            None,
+            "ls",
+            "execute",
+        ),
+        (
+            "Claude's activity",
+            acp::ToolKind::Other,
+            Some(claude("mcp__hotline__activity")),
+            None,
+            "mcp__hotline__activity",
+            "mcp__hotline__activity",
+        ),
+        (
+            "Claude's other server",
+            acp::ToolKind::Other,
+            Some(claude("mcp__brainfile__list_tasks")),
+            None,
+            "mcp__brainfile__list_tasks",
+            "other",
+        ),
+        (
+            "Codex's outcome",
+            acp::ToolKind::Execute,
+            Some(is_mcp.clone()),
+            Some(codex_mcp("hotline", "outcome")),
+            "mcp.hotline.outcome",
+            "mcp__hotline__outcome",
+        ),
+        (
+            "Codex's other server",
+            acp::ToolKind::Execute,
+            Some(is_mcp),
+            Some(codex_mcp("github", "list_issues")),
+            "mcp.github.list_issues",
+            "execute",
+        ),
+        (
+            "an unmarked server input",
+            acp::ToolKind::Execute,
+            None,
+            Some(codex_mcp("hotline", "outcome")),
+            "hotline outcome",
+            "execute",
+        ),
+        (
+            "Codex 1.x's spawnAgent",
+            acp::ToolKind::Other,
+            Some(meta(
+                serde_json::json!({"codex": {"collaboration": {"tool": "spawnAgent", "senderThreadId": "thr_root", "receiverThreadIds": []}}}),
+            )),
+            Some(collaboration.clone()),
+            "spawnAgent",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Codex 2.x's spawnAgent",
+            acp::ToolKind::Other,
+            None,
+            Some(collaboration.clone()),
+            "spawnAgent",
+            SUBAGENT_LAUNCH,
+        ),
+        (
+            "Codex's sendInput",
+            acp::ToolKind::Other,
+            None,
+            Some(collaboration),
+            "sendInput",
+            "other",
+        ),
+        (
+            "a spawnAgent title alone",
+            acp::ToolKind::Other,
+            None,
+            Some(serde_json::json!({"x": 1})),
+            "spawnAgent",
+            "other",
+        ),
+        (
+            "a plain read",
+            acp::ToolKind::Read,
+            None,
+            None,
+            "Read a.md",
+            "read",
+        ),
+    ];
+    for (case, kind, meta, input, title, kept) in cases {
+        assert_eq!(
+            tool_kind(kind, meta.as_ref(), input.as_ref(), title),
+            kept,
+            "{case}"
+        );
+    }
 }
 fn recovery_agent(
     heard: Heard,
@@ -1334,6 +1459,28 @@ async fn a_standard_clients_signals_show_background_commands_and_rfd_subagents()
         ],
         "a command's output comes from its terminal"
     );
+    // The call that sent the crawl to the background is written again as the
+    // start of its run, before its result, so its step reads "Started a
+    // command" and the run's line stands for it; the foreground `ls` stays
+    // the command it was.
+    let kinds: Vec<(&str, &str)> = turn
+        .iter()
+        .filter_map(|update| match update {
+            Update::ToolCall { call_id, kind, .. } => Some((call_id.as_str(), kind.as_str())),
+            Update::ToolResult { call_id, .. } => Some((call_id.as_str(), "result")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("c1", "execute"),
+            ("c1", super::super::translate::BACKGROUND_COMMAND),
+            ("c1", "result"),
+            ("c2", "execute"),
+            ("c2", "result"),
+        ]
+    );
 
     let mut reported = Vec::new();
     for _ in 0..500 {
@@ -1473,5 +1620,265 @@ fn an_rfd_subagent_update_is_read_as_its_start_or_its_end() {
             "content": [{ "type": "text", "text": "Done." }],
         })),
         None
+    );
+}
+
+/// One turn as the real harnesses send it, from Quill's turn of 2026-11-12
+/// 16:09 in the dev desk (Claude Code through claude-agent-acp 0.106, the
+/// "four helpers" comparison chart: `transcripts/1e615299…/1.jsonl`, lines
+/// 804-843), with Codex 2.6's shapes for the same tools from its adapter's
+/// source, since no Codex turn on the dev desk has called them yet. Claude
+/// says what it is on through `mcp__hotline__activity`, runs a command of its
+/// own, starts four helpers that it announces with the RFD's
+/// `subagent_update` and their prompts as `session_message`s whose id is the
+/// launch's own (the launch call itself is never shown), fails to start a
+/// fifth (the adapter shows that launch, failed, titled by its description),
+/// and says what came of it through `mcp__hotline__outcome`. Codex says what
+/// it is on through `mcp.hotline.activity` and fails a `spawnAgent`.
+fn real_starts_agent() -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("real-starts")
+            .on_receive_request(
+                async move |_request: RawInitialize, responder: Responder<InitializeResponse>, _cx| {
+                    responder.respond(InitializeResponse::new(ProtocolVersion::V1))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: NewSessionRequest,
+                            responder: Responder<NewSessionResponse>,
+                            _cx| {
+                    responder.respond(NewSessionResponse::new(SessionId::new("parent")))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: PromptRequest,
+                            responder: Responder<PromptResponse>,
+                            cx: ConnectionTo<Client>| {
+                    let say = |session: &str, update: Value| {
+                        cx.send_notification(RawSessionUpdate {
+                            session_id: session.to_string(),
+                            update,
+                        })
+                    };
+                    let done = |id: &str, title: &str, kind: &str, meta: Value, input: Value| {
+                        serde_json::json!({
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": id,
+                            "title": title,
+                            "kind": kind,
+                            "status": "completed",
+                            "rawInput": input,
+                            "content": [{ "type": "content", "content": { "type": "text", "text": "Noted." } }],
+                            "_meta": meta,
+                        })
+                    };
+                    let claude = |name: &str| serde_json::json!({ "claudeCode": { "toolName": name } });
+                    say("parent", done(
+                        "toolu_01NdUJc9fnzhTay6TEygqB9Z",
+                        "mcp__hotline__activity",
+                        "other",
+                        claude("mcp__hotline__activity"),
+                        serde_json::json!({ "type": "searching", "message": "Checking each tool's features at the source" }),
+                    ))?;
+                    for (child, launch, group) in [
+                        ("sub-a", "toolu_a", "A"),
+                        ("sub-b", "toolu_b", "B"),
+                        ("sub-c", "toolu_c", "C"),
+                        ("sub-d", "toolu_d", "D"),
+                    ] {
+                        say("parent", serde_json::json!({
+                            "sessionUpdate": "subagent_update",
+                            "sessionId": child,
+                            "title": format!("Profile agent tools group {group}"),
+                            "capabilities": { "cancel": {} },
+                            "state": { "state": "running" },
+                        }))?;
+                        say(child, serde_json::json!({
+                            "sessionUpdate": "session_message",
+                            "messageId": launch,
+                            "senderSessionId": "parent",
+                            "recipientSessionId": child,
+                            "senderMessageId": launch,
+                            "content": [{ "type": "text", "text": format!("Profile group {group}.") }],
+                        }))?;
+                    }
+                    say("parent", done(
+                        "toolu_01Lz9mnJkGDZVxVrVPRq3jNC",
+                        "cd /Users/george/Projects/personal/hotline && git tag --sort=-creatordate | head -2",
+                        "execute",
+                        claude("Bash"),
+                        serde_json::json!({
+                            "command": "cd /Users/george/Projects/personal/hotline && git tag --sort=-creatordate | head -2",
+                            "description": "Check Hotline release and docs for its own row",
+                        }),
+                    ))?;
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "toolu_e",
+                        "title": "Profile agent tools group E",
+                        "kind": "think",
+                        "status": "failed",
+                        "rawInput": { "description": "Profile agent tools group E", "prompt": "Profile group E.", "subagent_type": "general-purpose", "run_in_background": true },
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "Agent type 'general-purpose' is not available." } }],
+                        "_meta": claude("Agent"),
+                    }))?;
+                    say("parent", done(
+                        "toolu_012WrgRKgx1iys2LLvEN3iGX",
+                        "mcp__hotline__outcome",
+                        "other",
+                        claude("mcp__hotline__outcome"),
+                        serde_json::json!({ "type": "made", "message": "Comparison chart of 16 agent tools vs Hotline" }),
+                    ))?;
+                    say("parent", done(
+                        "call_codex_activity",
+                        "mcp.hotline.activity",
+                        "execute",
+                        serde_json::json!({ "is_mcp_tool_call": true }),
+                        serde_json::json!({ "server": "hotline", "tool": "activity", "arguments": { "type": "reading" } }),
+                    ))?;
+                    say("parent", serde_json::json!({
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "call_codex_spawn",
+                        "title": "spawnAgent",
+                        "kind": "other",
+                        "status": "failed",
+                        "rawInput": {
+                            "prompt": "Profile group F.",
+                            "senderThreadId": "thr_root",
+                            "receiverThreadIds": [],
+                            "agentsStates": {},
+                            "model": null,
+                            "reasoningEffort": null,
+                            "status": "failed",
+                        },
+                    }))?;
+                    responder.respond(PromptResponse::new(StopReason::EndTurn))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the real-starts agent ended: {error}");
+        }
+    }
+}
+
+/// Each step reaches the turn under the desk's kind for the tool behind it:
+/// the two Hotline tools Claude calls and the one Codex calls are Hotline's,
+/// so their steps are the lines they wrote and not steps; a launch that
+/// failed is the start of a helper, failed, in the desk's words, from Claude
+/// and from Codex alike; an unrelated command stays the command it is; and
+/// four helpers announced with no launch shown are four runs and no step.
+#[tokio::test(flavor = "multi_thread")]
+async fn real_harnesses_starts_and_declarations_reach_the_turn_under_the_desks_kinds() {
+    use crate::contract::RunKind;
+    let held = room("real-starts-room");
+    let quill = persona(&scratch_cwd(), Vec::new());
+    let driver = ChildAgent::new(
+        scratch("real-starts"),
+        "claude".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "quill"),
+    );
+    tokio::spawn(real_starts_agent());
+    let mut reports = Driver::subscribe_subagents(&driver).unwrap();
+    driver.handshake(&quill, client_transport()).await.unwrap();
+    let mut updates = driver
+        .prompt(
+            "compare the desks".to_string(),
+            Vec::new(),
+            Reach::Workspace,
+        )
+        .await;
+    // Each step as the tape will say it: its kind, and its words from its
+    // title, its kind and the agent's own description of it.
+    let mut steps: Vec<(String, String, String, Option<String>)> = Vec::new();
+    loop {
+        match next(&mut updates).await {
+            Update::ToolCall {
+                call_id,
+                title,
+                kind,
+            } => steps.push((call_id, title, kind, None)),
+            Update::ToolSaid { call_id, words } => {
+                if let Some(step) = steps.iter_mut().find(|step| step.0 == call_id) {
+                    step.3 = Some(words);
+                }
+            }
+            Update::Turn { .. } => break,
+            _ => {}
+        }
+    }
+    let said: Vec<(&str, &str, String, String)> = steps
+        .iter()
+        .map(|(id, title, kind, words)| {
+            let said = crate::glance::step_said(title, kind, words.as_deref());
+            (id.as_str(), kind.as_str(), said.key, said.one)
+        })
+        .collect();
+    let line = |id: &'static str, kind: &'static str, key: &str, one: &str| {
+        (id, kind, key.to_string(), one.to_string())
+    };
+    assert_eq!(
+        said,
+        [
+            line(
+                "toolu_01NdUJc9fnzhTay6TEygqB9Z",
+                "mcp__hotline__activity",
+                "activity",
+                "Said what it is on"
+            ),
+            line(
+                "toolu_01Lz9mnJkGDZVxVrVPRq3jNC",
+                "execute",
+                "own:execute",
+                "Check Hotline release and docs for its own row"
+            ),
+            line("toolu_e", SUBAGENT_LAUNCH, "subagent", "Started a helper"),
+            line(
+                "toolu_012WrgRKgx1iys2LLvEN3iGX",
+                "mcp__hotline__outcome",
+                "outcome",
+                "Said what came of it"
+            ),
+            line(
+                "call_codex_activity",
+                "mcp__hotline__activity",
+                "activity",
+                "Said what it is on"
+            ),
+            line(
+                "call_codex_spawn",
+                SUBAGENT_LAUNCH,
+                "subagent",
+                "Started a helper"
+            ),
+        ]
+    );
+
+    let mut started = Vec::new();
+    for _ in 0..200 {
+        while let Ok(report) = reports.try_recv() {
+            if let SubagentReport::Started { title, kind, .. } = report {
+                started.push((title, kind));
+            }
+        }
+        if started.len() == 4 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        started,
+        ["A", "B", "C", "D"].map(|group| (
+            format!("Profile agent tools group {group}"),
+            RunKind::Subagent
+        ))
     );
 }

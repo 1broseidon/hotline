@@ -699,7 +699,8 @@ has one hook and one view.
   turn open on the tape when it was written, where it was written, so it is
   part of that turn's path (`pathGroups`: helpers one after another are one
   `helpers` entry, "Started 4 helpers", each command a `command` entry, and
-  the completed `subagent` tool step that started one is dropped), and the
+  a completed tool step said in the `subagent` or `command` group is dropped
+  when the turn has a helper's or a command's entry to stand for it), and the
   pane opens it from there with Back to the path (`DockState` holds the
   thread open over the turn's `work`). One written while the DM had no turn
   open, by a work thread's turn, stays a line of its own that nothing draws,

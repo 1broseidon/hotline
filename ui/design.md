@@ -305,7 +305,10 @@ transition and animation, and holds the mark still.
   s"), and each opens that helper's own activity in the pane, with Back to
   the path. One helper alone is "Started a helper: <title>" and opens at
   once; a command is "Started a command: <title>", a line of its own. The
-  step that started a helper is not said again beside it. While the turn
+  step that started a helper or a command is not said again beside its
+  line; whatever the agent calls its own tool for it, the desk says such a
+  start as "Started a helper" or "Started a command", so one that failed,
+  which started nothing and has no line, stays in those words. While the turn
   waits only on its helpers, the resting mark opens the same path, headed
   Waiting. That press is the trust boundary; a transcript that hides the
   path would lie, one that shows it in the conversation is a log.

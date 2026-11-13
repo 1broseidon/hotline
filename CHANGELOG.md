@@ -8,8 +8,23 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-11-12
+
 ### Added
 
+- A teammate says what it is on and what came of it in its own words,
+  through two new tools of Hotline's own, `activity` and `outcome`, on every
+  backend. `activity` is a kind (thinking, reading, searching, making or
+  talking) and a few words, up to 80 characters. `outcome` is one thing the
+  turn left behind, up to 120 characters: sent, made, changed, open (still
+  going after the reply) or yours (left for you to do), marked failed or
+  partial where it did not all happen. An open outcome is updated or closed
+  later by its id, on the thread where it was said, or in the teammate's
+  main conversation from another of its threads, such as a job. Each is a
+  line on the
+  thread it was said in, so it survives a reload, and an older phone skips
+  it. The desk writes none of these words itself, and a helper is offered
+  neither tool.
 - Settings › Updates has a Track. Stable, the default, gets final releases.
   Beta also gets the betas that come before one. A desk that goes back to
   Stable keeps its beta until a newer final release is out, and the row says
@@ -58,23 +73,51 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- The line under a reply is what the turn left behind, in the teammate's
+  words: each outcome with its mark, a failure first and in red, then the
+  sites of the web pages it read, then how long it took. A turn that left
+  nothing and read nothing says only its time. It replaces the count of
+  steps and failures. Pressed, it opens the turn's path in the right-hand
+  pane: every step, grouped under what the teammate said it was on, with
+  each outcome where it was said. A turn held open only for its helpers has
+  no line under it until it ends.
+- While a teammate works, the mark in the message box moves by the kind of
+  work it says it is on, thinking, reading, searching, making or talking,
+  with its own few words beside it and none of the desk's: no word for the
+  tool in use (Reading, Editing, Running) and no step count after the turn. Talking, to anyone
+  but you, is a new movement: the mark puts on a headset and speaks in
+  bursts, then listens and nods. With nothing said, the mark moves alone.
+  Waiting on you stays the desk's to say. Pressing the mark opens the
+  running turn's path in the right-hand pane, as the line under a reply
+  does. While a turn waits only on its helpers, the mark rests in the
+  message box beside the last words the teammate said, until the turn ends.
+- Hotline's house style asks a teammate for the opening line a person would
+  say to this particular request, in place of the stock "On it", and for no
+  opening line when it can answer at once or is about to ask a question or
+  decline. It asks the teammate to say what it is on with `activity` rather
+  than in the chat, to say what it is waiting for there while its helpers
+  work and keep quiet as each reports until there is an outcome, to write
+  outcomes and replies for a person (no process ids, raw paths or commands
+  to run unless asked), and to draft and ask before anything that cannot be
+  undone, such as sending something in your name, paying, cancelling or
+  sharing your information, unless you have said to go ahead.
 - The composer says how many of a teammate's threads are running now, "2
   threads ›" in the accent colour, as the phone does: the same threads the
   Threads list shows under Live, so a helper, a background command, or a
   work thread, handoff, pair, call or job with a turn in flight, and never one
-  at rest or waiting for an answer. It opens a short list over the field: each
-  thread's kind, what it is doing and how long it has run, and a row opens
-  the thread in the pane. Its last row, All threads, opens the Threads list
-  in the pane, with how many things there are new. The chip for each helper
-  at the composer's corner is gone.
-- Working, the threads and Needs you all open inside the message box, which
-  grows up to hold them while the field stays in use: Working now shows the
-  turn's steps there instead of in the right-hand pane. A turn that is over
-  still opens in the pane from its line.
-- The conversation's header no longer has a chip for side threads, and the
-  rail no longer lists a teammate's helpers under it. A side thread is
-  opened from its line in the conversation or from the Threads list, and a
-  running one, like a running helper, is in the message box's threads.
+  at rest or waiting for an answer. A thread between two teammates counts
+  while one of them answers the other, and leaves when the answer is in; the
+  phone's Threads list has these threads too. The count opens a short list
+  inside the message box, which grows up to hold it while the field stays
+  in use: each thread's kind, what it is doing and how long it has run, and
+  a row opens the thread in the pane. Its last row, All threads, opens the
+  Threads list in the pane, with how many things there are new. The chip
+  for each subagent at the composer's corner is gone.
+- The conversation's header no longer has a chip for each live side thread.
+  A side thread is opened from its line in the conversation or from the
+  Threads list, and a running one, like a running helper, is in the message
+  box's threads. The rows the 0.49 betas put under a teammate in the rail
+  for its working subagents are gone too.
 - A long conversation keeps in the page only the lines near the view, a
   gap of their measured height standing in for the rest, so it costs what
   the screen shows of it. With a 2,000-line thread loaded the window uses
@@ -104,9 +147,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   working, Ended subagents, Jobs and Closed groups and the Noted page are
   gone; Threads in the teammate's menu counts the new asides, and an
   ended job's Remove is in its pane's band.
-- A pair's line in the conversation says Pair, and a command left running
-  says Command in the message box's threads and in the pane, instead of
-  Thread, Subagent and Background.
+- A thread's line in the conversation is the job and how it stands, with
+  no word for its kind: a pair reads "Talking with Juno" or "Talked with
+  Juno", a call its name, length and how it ended. The kind is said where
+  you look for detail, in the opened thread's band and the Threads list,
+  where a pair is a Pair and a command left running is a Command, instead
+  of Thread and Background.
 - A helper or a command a teammate starts no longer has a line of its own
   in the conversation, running or finished. While it runs it is in the
   message box's threads. Once the turn is over it is in the turn's path,
@@ -127,8 +173,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   say what a teammate is on and what came of it are those lines in the
   path, not steps named after the tool.
 - The line under a reply shows the sites of the web pages the teammate
-  read for it again, as a small stack of their icons with "+N" for the
-  rest, after what the turn left behind and before how long it took.
+  read for it as a small stack of their icons with "+N" for the other
+  sites, after what the turn left behind and before how long it took.
   Hovering it names the first site and how many more, and a screen reader
   hears the first three by name and how many more. With
   link previews off, or no icon for any of them, the first site is named
@@ -140,7 +186,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and old ones, as a fetch did. A web search's results are no longer
   sources unless it opened them: the search keeps them in the path, with
   its count of results and an eye on those it opened. Pages on this
-  computer or the local network (localhost, 127.x, ::1, 0.0.0.0, .local
+  computer or at a .local name (localhost, 127.x, ::1, 0.0.0.0, .local
   names) are not sources, as on the phone.
 - A web search that hands the teammate the pages' content counts those
   pages as read. Claude Code's own web search does, so a Claude Code turn
@@ -150,11 +196,6 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
-- A thread between two teammates is counted among a teammate's running
-  threads, in the message box and under Live in the Threads list, while one
-  of them answers the other, and leaves them when the answer is in. It never
-  showed there before, because nothing told the window an ask had started.
-  The phone's Threads list has these threads too.
 - A long reply no longer stops the conversation updating as it ends. While a
   reply streams only its own bubble is drawn again, not every line above it.
 - A permission card nobody answers in ten minutes says Expired and has no

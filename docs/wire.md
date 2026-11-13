@@ -1318,8 +1318,10 @@ relay-only server has no hello: it has no wire.
 A phone that registered a token with `mobile.push_register` hears each
 turn's reply and every card that waits on the person as an Expo push
 (`crates/hotline-core/src/push.rs`). A turn is one push however many
-bubbles it took: its last reply, sent once the driver is done with the
-line. A card goes the moment it is asked. Nothing goes while the desk's
+bubbles it took: its last reply, sent once the turn is over, so a turn held
+open for its helpers is heard once, at its end, and not at each wait (see
+[sessions.md](sessions.md#a-turn-left-open-for-its-subagents)). A card goes
+the moment it is asked. Nothing goes while the desk's
 window says the person is at it (`desk.looking`, below). Every push is `mutableContent`, so the
 phone's notification service may rewrite it as the teammate's own message.
 `data` always names `desktopId` and `personaId`. A card raised in one of the

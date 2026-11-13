@@ -411,9 +411,9 @@ A turn can stay open after the agent has said its reply, because a subagent
 it started is still working: Hotline Agent's loop owns the job and waits on
 it, and Claude's adapter does not answer `session/prompt` until its
 background subagents finish and it has said what they found. While nothing
-else is open, that turn reads as done. The reply is chat, not narration; the
-phone and a call hear it then, as they would at a turn's end; and the
-session's `awaitingSubagents` is true while `state` stays `thinking`. So the
+else is open, that turn reads as done. The reply is chat, not narration; a
+call hears it then, as it would at a turn's end; and the session's
+`awaitingSubagents` is true while `state` stays `thinking`. So the
 window's peek says Done, nothing offers Stop, and the desktop toast for a
 finished turn fires; only the mark stays in the composer, at rest, beside
 the last words the teammate gave `activity` in the turn, because the line
@@ -433,6 +433,17 @@ ACP harness's own, which is work, and that turn still reads as working.
 `awaitingSubagents` goes false when the agent works again (a tool call or
 result, a thought, a card), when a line is steered into the turn, and when
 the turn ends. A reply said while waiting lands as any reply does.
+
+The phone hears such a turn once, when it is truly over, and nothing while it
+waits: a teammate that starts four helpers and says a line as each reports is
+one notification, not five. At the park the line is offered to a call alone
+(`Room::hold_glance`); one no call took is kept, and anything the teammate
+says later replaces it. At the turn's end the push carries the last thing it
+said, which is its line from before the wait when it said nothing after
+(`Room::send_glance`). A turn stopped or failed while it waited, a restart's
+cut included, sends nothing: that line promised an answer that is not
+coming, and the conversation says how the turn ended. A card that needs the
+person is pushed the moment it is raised, waiting or not.
 
 Hotline Agent parks whenever its jobs are all it has left
 ([Hotline Agent](#hotline-agent)). An ACP agent parks when it closes a cycle

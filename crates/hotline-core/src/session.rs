@@ -565,6 +565,9 @@ struct Session {
 struct Glance {
     event_id: String,
     text: String,
+    /// Said before the turn last waited on its helpers, with nothing said
+    /// since: a line that holds the person until the answer, not the answer.
+    before_wait: bool,
 }
 
 /// Something a prompt wants stamped on the user line it is about to write,
@@ -1219,12 +1222,24 @@ impl Room {
     }
 
     /// The turn's reply to the phone, one notification however many bubbles
-    /// it took: the report when the agent worked, or the answer that needed
-    /// no tool.
-    fn send_glance(&self, session: &Session, from_voice: bool) {
-        let Some(Glance { event_id, text }) = lock(&session.glance).take() else {
+    /// it took, once the turn is over: the report when the agent worked, the
+    /// answer that needed no tool, or for a turn that waited on its helpers
+    /// and said nothing after, what it said before the wait. A turn that
+    /// was cancelled or failed while it waited sends that line nowhere: it
+    /// told the person to wait for something that is not coming, and the
+    /// conversation already says how the turn ended.
+    fn send_glance(&self, session: &Session, from_voice: bool, finished: bool) {
+        let Some(Glance {
+            event_id,
+            text,
+            before_wait,
+        }) = lock(&session.glance).take()
+        else {
             return;
         };
+        if before_wait && !finished {
+            return;
+        }
         let name = self
             .persona(&session.persona_id)
             .map_or_else(|_| "Hotline".to_string(), |persona| persona.name);
@@ -1241,6 +1256,44 @@ impl Room {
             return;
         }
         self.push.notify(&name, &text, &session.persona_id, None);
+    }
+
+    /// What the teammate said as its turn starts to wait on its helpers: a
+    /// call says it now, as it would any reply, but the phone hears a turn
+    /// once, when it is over ([`Self::send_glance`]). So the line is offered
+    /// to a call alone (`from_voice` false is the one way `delivery` never
+    /// turns into a push), and one no call took is kept for the turn's end,
+    /// marked as said before the wait, until the teammate says something
+    /// newer.
+    fn hold_glance(&self, session: &Session) {
+        let Some((event_id, text)) = lock(&session.glance)
+            .as_ref()
+            .map(|glance| (glance.event_id.clone(), glance.text.clone()))
+        else {
+            return;
+        };
+        let name = self
+            .persona(&session.persona_id)
+            .map_or_else(|_| "Hotline".to_string(), |persona| persona.name);
+        let origin = lock(&session.voice_origin).clone();
+        let said_on_a_call = lock(&self.voice).upgrade().is_some_and(|voice| {
+            voice.delivery(
+                &session.persona_id,
+                &event_id,
+                &name,
+                &text,
+                false,
+                origin.as_ref(),
+            )
+        });
+        // The turn's witness is the one writer of the glance, and it is the
+        // caller, so the line is still the one just offered.
+        let mut glance = lock(&session.glance);
+        if said_on_a_call {
+            *glance = None;
+        } else if let Some(held) = glance.as_mut() {
+            held.before_wait = true;
+        }
     }
 
     pub(crate) fn set_voice(&self, voice: &Arc<crate::voice::Calls>) {

@@ -109,7 +109,6 @@ impl Room {
                 let Some(wire) = claimed else {
                     continue;
                 };
-                let room = room.clone();
                 tokio::spawn(async move {
                     let _working = working;
                     room.run_queue(session, wire).await;

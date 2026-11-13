@@ -1526,7 +1526,7 @@ impl Room {
             let Some(link) = self.link_of(&thread) else {
                 continue;
             };
-            let stream = StreamId::Job(job.id.clone());
+            let stream = StreamId::Job(job.id);
             let mut lines = crate::log::expire_orphaned_permissions(&self.log.load(&stream), now);
             if link.state == ThreadState::Live {
                 lines.push(

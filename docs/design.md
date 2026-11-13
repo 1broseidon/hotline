@@ -605,8 +605,9 @@ and the phone never keep lists of their own.
 
 The facts a glance shows beside the words are recorded on the same event when
 the step finishes, never fetched or guessed afterwards: `endedTs` (how long it
-took), `sources` (the web pages a fetch read or a web search listed, each as
-the step's own output named it, a page title only when the tool wrote one; see
+took), `sources` (the web pages a fetch, a `curl` or the teammate's browser
+opened, and those a web search listed, marked `found`, each as the step's own
+output named it, a page title only when the tool wrote one; see
 `glance::sources_of`), and on each changed file the lines its diff `added` and
 `removed` (`hotline_support::lines`), counted from the two versions the tool
 showed. A step without one of them shows without that fact.
@@ -672,12 +673,24 @@ about, and for an answer of fact they are the evidence. They are not
 outcomes, since nothing was left behind, so they carry no outcome mark and
 sit after the outcomes and before the time, as a stack of the sites' icons
 (three, then "+N" for the other sites) named in words for the pointer and a
-screen reader. Which pages count is what the pane's Sources always counted
-(`sourcesOf` in `ui/src/turnFacts.ts`): the pages the turn's steps recorded
-reading, in order, then the pages its searches listed and it never opened;
-a search's query, a local file and a `file:` page are not sources. The "+N"
-counts sites, where the desk's caption before 0.48 and the phone's count
-pages, because the stack is one icon a site and its words name sites. The
+screen reader. A source is a page the turn opened (George, 2026-11-12;
+`sourcesOf` in `ui/src/turnFacts.ts`), in the order it first opened it: a
+fetch's page, a `curl` or `wget` command's, and a page its browser went to.
+The browser is the computer's (`computer__browser`, `mcp__Computer__browser`
+through an ACP agent), whose answer says "navigated to <address>" or "opened
+new tab at <address>", and the desk's (`browser`, `mcp__hotline__browser`),
+which heads every answer with the page it is on; a click that names no
+address opened nothing that can be told. A step written before the desk
+recorded a browser's page is read for it from its answer, as a fetch's from
+its title. What a search only listed is no source, as it is not evidence for
+the answer: the search's own line keeps it, its count of results ("6
+results") and, opened, each result with an eye on those the turn opened; a
+listing's title still names a page opened without one. A page on this
+machine or the local network is not a source: 127.x, `localhost` and
+`*.localhost`, `::1`, `0.0.0.0` and `*.local`, the phone's rule
+(`localAddress`); nor is a `file:` page, a local file or a search's query.
+The "+N" counts sites, where the desk's caption before 0.48 and the phone's
+count pages, because the stack is one icon a site and its words name sites. The
 path lists them first, by name and link, in the pane and where it opens in
 place in a thread. The composer's slot stays the mark and the teammate's
 words: no site icons there.

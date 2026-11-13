@@ -292,11 +292,13 @@ transition and animation, and holds the mark still.
   and the fix is the prompt, not a card. Under a reply is one quiet line
   of what the turn left behind, in the teammate's words — sent, made,
   changed, still open, yours to do, a failure first in red — then the
-  sites of the web pages it read, then how long it took; a turn that left
-  nothing and read nothing says only its time. The sites are a stack of
-  their icons, the first three overlapping by 2px at 16px, and "+N" for
-  the other sites, in the order first read, pages read before what a
-  search only listed; a local file or a search's query is not a source.
+  sites of the web pages it opened, then how long it took; a turn that
+  left nothing and opened nothing says only its time. The sites are a
+  stack of their icons, the first three overlapping by 2px at 16px, and
+  "+N" for the other sites, in the order first opened. A page is a source
+  when a fetch, a command or the teammate's browser opened it; what a
+  search only listed is not (the search's line keeps it), nor is a page on
+  this machine or the local network, a local file or a search's query.
   They carry no outcome mark, since nothing was left behind; they are
   there because for an answer of fact they are its evidence. An icon is
   not a name, so the stack has the sites in words: a tooltip of the first
@@ -307,11 +309,11 @@ transition and animation, and holds the mark still.
   command the turn started that failed is on that line too, first, in red
   ("Helper failed: Profile group B", "3 helpers failed", "Command failed:
   npm test"), since the conversation has no row for it. Pressed, the line
-  opens the path in the pane (in place, in a thread): the pages read
-  first, under Sources, each a card of its site, its title and a press
-  to the page in the browser, then every step, under the teammate's words for
-  what it was on, and the helpers and commands the turn started where it
-  started them. Helpers started together are one line, "Started 4
+  opens the path in the pane (in place, in a thread): the pages opened
+  first, under Sources, counted in its heading, each a card of its site,
+  its title and a press to the page in the browser, then every step,
+  under the teammate's words for what it was on, and the helpers and
+  commands the turn started where it started them. Helpers started together are one line, "Started 4
   helpers", with how many still run, else how many failed, else how many
   are done at its right; pressed, it unfolds to each helper's title with
   how it ended and how long it took ("Done in 1 min 6 s", "Failed after 4

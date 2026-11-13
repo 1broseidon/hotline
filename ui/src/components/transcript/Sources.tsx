@@ -5,15 +5,16 @@ import type { Source } from "../../turnFacts";
 import { Favicon } from "../Favicon";
 
 /*
- * The web pages a turn read, then those its searches only found, by name,
- * each a press away from the page in the person's browser: the top of a
- * turn's path, in the pane and where it opens in place in a thread.
+ * The web pages a turn opened, by name, each a press away from the page in
+ * the person's browser: the top of a turn's path, in the pane and where it
+ * opens in place in a thread. What a search only listed is the search's,
+ * in its own line of the path.
  */
 
 /** How many sources show before the rest are asked for: a turn most often reads a few. */
 const SOURCES_SHOWN = 4;
 
-/** The pages the turn read, then those it only found: the first few as cards, the rest a press away. */
+/** The pages the turn opened: the first few as cards, the rest a press away. */
 export function Sources({ sources }: { sources: Source[] }) {
 	const [all, setAll] = useState(false);
 	const more = sources.length - SOURCES_SHOWN;
@@ -61,7 +62,7 @@ export function pathOf(url: string): string {
 	}
 }
 
-/** The green eye on a page the agent opened, as against one a search only found. */
+/** The green eye on a search's result the agent opened, as against one it only listed. */
 export function Read() {
 	return (
 		<span className="source-read" title="Read" aria-label="Read">
@@ -70,7 +71,7 @@ export function Read() {
 	);
 }
 
-/** A page the turn read or found: its site's icon and name, and its title, a press away from the page. */
+/** A page the turn opened: its site's icon and name, and its title, a press away from the page. */
 function SourceCard({ source }: { source: Source }) {
 	const title = plainTitle(source.title);
 	const titled = title !== undefined;
@@ -78,7 +79,6 @@ function SourceCard({ source }: { source: Source }) {
 		<a
 			href={source.url}
 			className="source-card"
-			data-found={source.found || undefined}
 			onClick={(click) => {
 				click.preventDefault();
 				void openLink(source.url);
@@ -87,7 +87,6 @@ function SourceCard({ source }: { source: Source }) {
 			<span className="source-site">
 				<Favicon site={source.site} size={16} />
 				<span className="min-w-0 flex-1 truncate">{source.site}</span>
-				{source.found !== true && <Read />}
 			</span>
 			<span className={titled ? "source-title" : "source-title source-path"}>{titled ? title : pathOf(source.url)}</span>
 		</a>

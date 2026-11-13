@@ -135,6 +135,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   in words. The path the line opens lists those pages first, under
   Sources, each opening in your browser, now also where the path opens
   in place in a thread.
+- A reply's sources are the pages the teammate opened. A page it went to
+  in its computer's browser or in its desk browser counts, on new turns
+  and old ones, as a fetch did. A web search's results are no longer
+  sources unless it opened them: the search keeps them in the path, with
+  its count of results and an eye on those it opened. Pages on this
+  computer or the local network (localhost, 127.x, ::1, 0.0.0.0, .local
+  names) are not sources, as on the phone.
 
 ### Fixed
 

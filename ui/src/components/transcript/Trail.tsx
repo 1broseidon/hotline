@@ -17,9 +17,8 @@ import { StepOutput } from "./Steps";
  * A turn's work as the right-hand pane reads it, simple where it can be and
  * rich only where it matters. Its shape first: one thin bar, a segment a
  * step as long as it took, so where the time went shows without reading.
- * Then the web pages it read as cards (the one place an icon earns its
- * room), an eye on those it opened, the files it changed with the lines in
- * and out, and its steps as plain lines in the core's few words, a run of
+ * Then the web pages it opened as cards (the one place an icon earns its
+ * room), the files it changed with the lines in and out, and its steps as plain lines in the core's few words, a run of
  * one kind as one line, with the one fact worth a glance at the right. A
  * line opens to each step as a person reads it: a search as its query and
  * what it found, a page read as its title, a command as what it was for,
@@ -381,11 +380,16 @@ function Thought({ text }: { text: string }) {
 	);
 }
 
-/** A step opened, by what it was: a search, a page read, or a command or anything else. */
+/**
+ * A step opened, by what it was: a search, a page read, or a command or
+ * anything else. A page read is a step whose title names its page (a fetch,
+ * a `curl`); a browser's step is titled by its tool, and opens to what it
+ * did, its page among the turn's sources above.
+ */
 function StepDetail({ step, sources }: { step: ToolStep; sources: Source[] }) {
 	const found = step.sources?.filter((page) => page.found === true) ?? [];
 	if (found.length > 0) return <SearchRow step={step} found={found.map((page) => sources.find((one) => one.url === page.url) ?? { ...page, site: siteName(page.url) })} sources={sources} />;
-	const page = step.sources?.find((one) => one.found !== true) ?? pageOf(step);
+	const page = step.sources?.find((one) => one.found !== true && step.title.includes(one.url)) ?? pageOf(step);
 	if (page != null && step.status !== "failed") return <PageRow step={step} url={page.url} sources={sources} />;
 	return <RunBlock step={step} />;
 }
@@ -408,7 +412,7 @@ function queryOf(title: string): string {
 function SearchRow({ step, found, sources }: { step: ToolStep; found: Source[]; sources: Source[] }) {
 	const [open, setOpen] = useState(false);
 	const took = stepTook(step);
-	const read = new Set(sources.filter((one) => one.found !== true).map((one) => one.url));
+	const read = new Set(sources.map((one) => one.url));
 	return (
 		<div className="trail-search">
 			<button type="button" className="trail-row" aria-expanded={open} onClick={() => setOpen((was) => !was)}>

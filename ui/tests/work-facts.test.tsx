@@ -75,9 +75,10 @@ function before045(): Step[] {
 }
 
 describe("a turn's work in words and counts", () => {
-	test("the summary counts steps, distinct sources, files and failures", async () => {
+	test("the summary counts steps, distinct pages opened, files and failures", async () => {
 		const { summaryOf } = await import("../src/turnFacts");
-		expect(summaryOf(recorded())).toEqual({ steps: 7, sources: 4, files: 2, failed: 1 });
+		// Two pages opened; what the search listed and the turn never opened is not counted.
+		expect(summaryOf(recorded())).toEqual({ steps: 7, sources: 2, files: 2, failed: 1 });
 	});
 
 	test("each line's fact is one the steps recorded: results, lines in and out, tests passed, a time, a timeout", async () => {
@@ -119,12 +120,12 @@ describe("the pane's sections, built from a recorded turn", () => {
 		const { Trail } = await import("../src/components/transcript/Trail");
 		await act(async () => root.render(<Trail items={recorded()} settled />));
 		const headings = [...container.querySelectorAll(".work-heading")].map((one) => one.textContent);
-		expect(headings).toEqual(["Sources · 4", "Files changed · 2", "Steps · 7"]);
+		expect(headings).toEqual(["Sources · 2", "Files changed · 2", "Steps · 7"]);
 		const cards = [...container.querySelectorAll<HTMLAnchorElement>("a.source-card")];
-		expect(cards.map((card) => card.querySelector(".source-site")?.textContent)).toEqual(["nextjs.org", "stackoverflow.com", "github.com", "vercel.com"]);
+		// The pages opened, not github.com and vercel.com, which the search only listed.
+		expect(cards.map((card) => card.querySelector(".source-site")?.textContent)).toEqual(["nextjs.org", "stackoverflow.com"]);
+		// A page's own title over the one its listing gave.
 		expect(cards[0]!.querySelector(".source-title")?.textContent).toBe("Next.js 15.4: Turbopack builds are stable");
-		// A page with no title of its own says where on the site it is.
-		expect(cards[3]!.querySelector(".source-title")?.textContent).toBe("/changelog");
 		const files = [...container.querySelectorAll(".file-row")].map((row) => row.textContent);
 		expect(files).toEqual(["src/upload/Uploader.tsx+18 −4", "src/upload/safari.ts+31 −0"]);
 	});

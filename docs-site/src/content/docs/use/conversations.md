@@ -16,11 +16,17 @@ kind of work it is doing, beside the teammate's own words for what it is
 on. Press it to follow the turn's steps in the right-hand pane.
 
 Once the turn is over, a line under the reply says what the turn left
-behind, then the sites of the web pages the teammate read for it, as a
+behind, then the sites of the web pages the teammate opened for it, as a
 small stack of their icons, then how long it took. Hover the icons for the
-sites' names. Press the line to open the turn's path: the pages it read
+sites' names. Press the line to open the turn's path: the pages it opened
 come first, under **Sources**, each opening in your browser, then its
 steps.
+
+A source is a page the teammate actually opened, with a fetch, a command
+or its browser. A web search's results are not sources until it opens
+one: they stay with the search in the path, where opening it lists them
+and marks the ones it went on to read. Pages on your own computer or
+local network, such as `localhost`, are not counted.
 
 You do not have to wait for it to finish:
 

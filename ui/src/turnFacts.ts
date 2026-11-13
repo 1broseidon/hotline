@@ -3,11 +3,13 @@ import type { Step } from "./scheduledRuns";
 
 /*
  * A turn's work in plain words and counts, read off the steps the tape kept:
- * the web pages it read or found, the files it changed with the lines in and
- * out, how many steps and how many failed, and the one fact worth a glance
- * beside a line ("4 results", "212 passed", "+55 −6", "6.2s"). Nothing is
- * guessed: a step written before the desk recorded a fact simply has none,
- * and the line shows without it. The phone keeps a copy (src/turnFacts.ts).
+ * the web pages it opened, the files it changed with the lines in and out,
+ * how many steps and how many failed, and the one fact worth a glance beside
+ * a line ("4 results", "212 passed", "+55 −6", "6.2s"). Nothing is guessed:
+ * a step written before the desk recorded a fact simply has none, and the
+ * line shows without it, but for the pages a fetch or a browser opened,
+ * which its title or its answer names. The phone keeps a copy
+ * (src/turnFacts.ts).
  */
 
 export type ToolStep = Extract<Step, { kind: "tool" }>;
@@ -42,34 +44,78 @@ export function pageOf(step: ToolStep): WebSource | null {
 	return url !== undefined && siteOf(url) !== null ? { url } : null;
 }
 
-/** The pages a step read or found: the desk's record, or for an older step the page its title names. */
+/** The teammate's browsers, by the names their tools are called: its computer's, and the desk's (the core's `glance/sources.rs`). */
+const BROWSERS = new Set(["computer__browser", "mcp__computer__browser", "browser", "mcp__hotline__browser"]);
+
+/**
+ * The page a browser step opened, from its answer, for a step written before
+ * the desk recorded it: the computer's browser says "navigated to <address>"
+ * or "opened new tab at <address>", and the desk's heads its answer with
+ * "Page: <title>" over "URL: <address>". A click names no address, so it
+ * opened nothing that can be told.
+ */
+function browsedOf(step: ToolStep): WebSource | null {
+	const name = (step.title.split(/[: ]/)[0] ?? "").toLowerCase();
+	if (!BROWSERS.has(name) && !BROWSERS.has((step.toolKind ?? "").toLowerCase())) return null;
+	const text = outputOf(step);
+	const went = /^(?:navigated to|opened new tab at) (\S+)/.exec(text.trimStart())?.[1]?.replace(/;$/, "");
+	if (went !== undefined) return /^https?:\/\//.test(went) && siteOf(went) !== null ? { url: went } : null;
+	const page = /^Page: (.*)\nURL: (https?:\/\/\S+)/m.exec(text);
+	if (page === null || siteOf(page[2]!) === null) return null;
+	const title = page[1]!.trim();
+	return { url: page[2]!, ...(title !== "" && title !== "(no title)" ? { title } : {}) };
+}
+
+/** The pages a step opened or listed: the desk's record, or for an older step what its title or its answer names. A step that failed opened nothing. */
 function pagesOf(step: ToolStep): WebSource[] {
 	if (step.sources !== undefined) return step.sources;
-	const page = pageOf(step);
+	if (step.status === "failed") return [];
+	const page = pageOf(step) ?? browsedOf(step);
 	return page === null ? [] : [page];
 }
 
 /**
- * Every web page of a turn, once: the pages it read first, in the order it
- * read them, then what its searches found and it never opened. A page found
- * and then read is a page read, with whichever title the steps gave it.
+ * Whether an address is this machine or the local network: 127.0.0.1 (all
+ * of 127.x), localhost and *.localhost, ::1, 0.0.0.0, a *.local name. A page
+ * there is something the teammate made or ran, not a source it read. The
+ * phone's rule, word for word (src/turnFacts.ts there); a `file:` address
+ * has no site, so it is never one either.
+ */
+export function localAddress(url: string): boolean {
+	const at = url.trim();
+	if (/^https?:\/\/(?:[^@/?#\s]*@)?\[(?:::1|0*:0*:0*:0*:0*:0*:0*:1)\]/i.test(at)) return true;
+	const host = /^https?:\/\/(?:[^@/?#\s]*@)?([^:/?#\s]+)/i.exec(at)?.[1]?.toLowerCase();
+	if (!host) return false;
+	return host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "0.0.0.0" || /^127\.\d+\.\d+\.\d+$/.test(host);
+}
+
+/**
+ * The web pages a turn opened, each once, in the order it first opened them:
+ * what its fetches, its commands and its browsers read. Those are its
+ * evidence (George, 2026-11-12). What a search only listed is not a source:
+ * the search's own line keeps it, with an eye on those opened. A listing
+ * still names a page the turn opened without a title of its own.
  */
 export function sourcesOf(items: Step[]): Source[] {
-	const pages = new Map<string, Source>();
+	const listed = new Map<string, string>();
+	const opened = new Map<string, Source>();
 	for (const step of toolSteps(items)) {
 		for (const page of pagesOf(step)) {
+			if (page.found === true) {
+				if (page.title !== undefined && !listed.has(page.url)) listed.set(page.url, page.title);
+				continue;
+			}
 			const site = siteOf(page.url);
-			if (site === null) continue;
-			const known = pages.get(page.url);
-			const title = page.title ?? known?.title;
-			if (known !== undefined && (known.found !== true || page.found === true)) continue;
-			// Read after it was found: it moves to the reading order.
-			pages.delete(page.url);
-			pages.set(page.url, { url: page.url, site, ...(title !== undefined ? { title } : {}), ...(page.found === true ? { found: true } : {}) });
+			if (site === null || localAddress(page.url)) continue;
+			const known = opened.get(page.url);
+			if (known === undefined) opened.set(page.url, { url: page.url, site, ...(page.title !== undefined ? { title: page.title } : {}) });
+			else if (known.title === undefined && page.title !== undefined) known.title = page.title;
 		}
 	}
-	const all = [...pages.values()];
-	return [...all.filter((one) => one.found !== true), ...all.filter((one) => one.found === true)];
+	return [...opened.values()].map((source) => {
+		const title = source.title ?? listed.get(source.url);
+		return title === undefined ? source : { ...source, title };
+	});
 }
 
 /** The distinct sites of a turn's sources, in their order: the icons on the line under its reply. */

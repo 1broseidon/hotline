@@ -8,22 +8,19 @@ Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } }
 const { Trail, ranOf } = await import("../src/components/transcript/Trail");
 const { plainTitle } = await import("../src/components/transcript/Sources");
 
-const search = (pages: number): Step => ({
-	kind: "tool",
-	id: "s1",
-	ts: 1,
-	toolCallId: "c1",
-	title: "web_search coding harnesses",
-	status: "completed",
-	sources: Array.from({ length: pages }, (_, at) => ({ url: `https://site${at}.example/page`, title: `Page ${at}`, found: true })),
-});
+/** As many pages opened, one fetch each. */
+const opened = (pages: number): Step[] =>
+	Array.from({ length: pages }, (_, at) => {
+		const url = `https://site${at}.example/page`;
+		return { kind: "tool", id: `f${at}`, ts: 1 + at, toolCallId: `c${at}`, title: `Fetch ${url}`, toolKind: "fetch", status: "completed", sources: [{ url, title: `Page ${at}` }] };
+	});
 
 describe("the pane's sources", () => {
 	test("a few pages are all cards; many show the first four and how many more", () => {
-		const few = renderToStaticMarkup(<Trail items={[search(3)]} settled />);
+		const few = renderToStaticMarkup(<Trail items={opened(3)} settled />);
 		expect(few.match(/class="source-card"/g)?.length).toBe(3);
 		expect(few).not.toContain("source-more");
-		const many = renderToStaticMarkup(<Trail items={[search(29)]} settled />);
+		const many = renderToStaticMarkup(<Trail items={opened(29)} settled />);
 		expect(many).toContain("Sources · 29");
 		expect(many.match(/class="source-card"/g)?.length).toBe(4);
 		expect(many).toContain("Show 25 more");

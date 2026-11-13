@@ -39,6 +39,7 @@ mod call_cards;
 mod call_files;
 mod chapters;
 mod computer;
+pub(crate) mod declared;
 mod dm;
 mod driver_info;
 pub(crate) mod exchanges;

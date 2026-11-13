@@ -1,8 +1,9 @@
+import { declares } from "./activity";
 import { excerptText } from "./excerpt";
 import type { Attachment, TranscriptEvent } from "./generated/contract";
 import { bubbleId, pacedLive } from "./pacing";
 import { wholeBubbles } from "./reveal";
-import type { Block, Step } from "./scheduledRuns";
+import { type Block, type Step, isRunLink } from "./scheduledRuns";
 import type { Streaming } from "./tape";
 
 /**
@@ -73,8 +74,9 @@ function sameWords(a: string, b: string): boolean {
 }
 
 /**
- * The written events as rows. A turn's thoughts and tool calls, wherever they
- * fell between its bubbles, fold into one block of steps that sits under its
+ * The written events as rows. A turn's thoughts and tool calls, and the
+ * helpers and commands it started, wherever they fell between its bubbles,
+ * fold into one block of steps that sits under its
  * last bubble, just above the line that ends it: the work is read as a whole,
  * once the turn has said what it came to. A turn with no end yet (still
  * running) has its block last, `open`. A message from the person ends a turn
@@ -94,8 +96,18 @@ export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 	};
 	for (const event of events) {
 		if (event.kind === "computer_pull") continue;
-		if (event.kind === "thought" || event.kind === "tool") {
+		// The call that said what it was on, or what came of it, is the line it wrote.
+		if (event.kind === "tool" && declares(event)) continue;
+		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || event.kind === "outcome") {
 			group ??= { id: event.id, ts: event.ts, items: [] };
+			group.items.push(event);
+			continue;
+		}
+		// A helper or a command is part of the turn that started it, where it
+		// started. One with no turn open here was started by another thread of
+		// the teammate's (its line is on this tape all the same) and stays a
+		// line of its own, which the conversation does not draw.
+		if (isRunLink(event) && group !== null) {
 			group.items.push(event);
 			continue;
 		}

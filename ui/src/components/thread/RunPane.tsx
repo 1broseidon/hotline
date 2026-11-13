@@ -14,11 +14,13 @@ import { WorkStream } from "./WorkStream";
 
 /*
  * A subagent's run, open in the right-hand pane (docs/design/thread-panes.html,
- * Subagent): read, never spoken in. The band says how it stands, how many
- * steps it has taken and for how long, with Stop while it works when the desk
- * can stop it. Under the head, the task its teammate handed it; then its
- * steps and words in the order they came, following the newest; and, once it
- * has reported, its last words as the result its teammate was sent.
+ * Subagent; desk-threads, George 2026-11-12: a run is activity, not a chat):
+ * read, never spoken in, with no bubbles and no field. The band says how it
+ * stands, how many steps it has taken and for how long, with Stop while it
+ * works when the desk can stop it. Under the head, what its teammate asked of
+ * it; then its Activity, its steps and words in the order they came,
+ * following the newest; and, once it has reported, its last words as its
+ * Result. The foot says whom it reports to.
  */
 
 /** How a run stands, as the band says it. */
@@ -119,7 +121,7 @@ export function RunPane({
 	const now = useSecond(live);
 	const took = startedAt === undefined ? undefined : live ? now - startedAt : (link?.elapsedMs ?? (row === undefined ? undefined : row.updatedAt - startedAt));
 	const endedAt = startedAt !== undefined && took !== undefined ? startedAt + took : row?.updatedAt;
-	const title = run?.title ?? row?.title ?? link?.title ?? open.title ?? "Subagent";
+	const title = run?.title ?? row?.title ?? link?.title ?? open.title ?? "Helper";
 	const [refused, setRefused] = useState<string | null>(null);
 	const [stopping, setStopping] = useState(false);
 	const stop = () => {
@@ -132,10 +134,10 @@ export function RunPane({
 	};
 	const counted = [`${steps} ${steps === 1 ? "step" : "steps"}`, took === undefined ? null : stopwatch(took)].filter((part) => part !== null).join(" · ");
 	const at = endedAt === undefined ? "" : ` at ${clock.format(new Date(endedAt))}`;
-	const foot = live ? `Read only. Reports to ${teammate.name}.` : state === "Done" ? `Reported to ${teammate.name}${at}.` : `${state}${at}.`;
+	const foot = live ? `Reports to ${teammate.name} when it finishes.` : state === "Done" ? `Reported to ${teammate.name}${at}.` : `${state}${at}.`;
 
 	return (
-		<section className="dock-page run-pane" aria-label={`Subagent of ${teammate.name}: ${title}`}>
+		<section className="dock-page run-pane" aria-label={`Helper of ${teammate.name}: ${title}`}>
 			<Band>
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
@@ -143,7 +145,7 @@ export function RunPane({
 				<BandKind kind={threadFamily("run", teammate.name)} live={live} state={state} tone={state === "Failed" ? "failed" : state === "Stopped" ? "quiet" : "done"} />
 				<span className="instrument shrink-0 pr-1">{counted}</span>
 				{live && run?.stoppable === true && (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this subagent" disabled={stopping} onClick={stop}>
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this helper" disabled={stopping} onClick={stop}>
 						Stop
 					</button>
 				)}
@@ -156,16 +158,17 @@ export function RunPane({
 				title={title}
 				meta={[`sent by ${teammate.name}`, run?.model, startedAt !== undefined && startedWords(startedAt)]}
 			/>
-			{task !== undefined && <TaskCard eyebrow="Task" from={{ personaId: teammate.id, name: teammate.name, hash: teammate.avatarHash }} text={task} />}
+			{task !== undefined && <TaskCard eyebrow={`Asked by ${teammate.name}`} text={task} />}
+			<p className="pane-section eyebrow">Activity</p>
 			<WorkStream
 				thread={id}
 				blocks={shown}
 				live={live}
 				worker={{ id: teammate.id, name: teammate.name, hash: teammate.avatarHash }}
 				// Its teammate may tell it more after the task; nothing else speaks in a run.
-				said={(event) => (event.kind === "agent" ? { name: "Subagent", mine: false } : event.kind === "user" ? { name: teammate.name, mine: false } : null)}
+				said={(event) => (event.kind === "agent" ? { name: "Helper", mine: false, plain: true } : event.kind === "user" ? { name: teammate.name, mine: false, plain: true } : null)}
 			>
-				{result !== undefined && <ResultCard eyebrow={`Result · sent to ${teammate.name}`} aside={took === undefined ? undefined : stopwatch(took)} text={result} />}
+				{result !== undefined && <ResultCard eyebrow="Result" aside={took === undefined ? undefined : stopwatch(took)} text={result} />}
 				{shown.length === 0 && result === undefined && !live && <p className="work-empty">Nothing was written.</p>}
 			</WorkStream>
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}

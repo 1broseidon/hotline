@@ -286,6 +286,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// The pairs this teammate is in with a request being answered now, by
+    /// key, for the roster row.
+    fn working_pairs(&self, _persona_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Whether one of this teammate's threads other than its DM has a card
     /// waiting on the person, for the roster row.
     fn threads_waiting(&self, _persona_id: &str) -> bool {

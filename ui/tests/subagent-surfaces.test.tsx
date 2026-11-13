@@ -6,12 +6,13 @@ import type { Wire } from "../src/wire";
 import { installDom } from "./dom";
 
 // task-399: work threads carry a kind label, and live subagents show their
-// latest step in the rail, link rows, chip and thread list.
+// latest step in link rows, the composer's threads panel and thread list. The
+// rail no longer nests them under their teammate (desk-threads, decision 3).
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Dock } = await import("../src/components/Dock");
 const { Rail } = await import("../src/components/Rail");
-const { SubagentChips } = await import("../src/components/Conversation");
+const { liveThreads } = await import("../src/liveThreads");
 const { Transcript } = await import("../src/components/Transcript");
 const { replaceDesks, wireFor } = await import("../src/desks");
 const { endedWords } = await import("../src/dock");
@@ -132,11 +133,13 @@ describe("a work thread's pane", () => {
 });
 
 describe("the rail", () => {
-	async function rail(entries: RosterEntry[], onOpenRun: (personaId: string, run: RunningSubagent) => void, openRun?: string) {
+	// George, 2026-11-12 (desk-threads mockup, decision 3): a teammate's subagents are
+	// no longer nested under it in the rail; the composer's threads count covers them.
+	test("names each teammate once, with nothing nested under one whose subagents are at work", async () => {
 		await act(async () => {
 			root.render(
 				<Rail
-					entries={entries}
+					entries={[entry(pork, [audit, models, crawl]), entry(lou)]}
 					selectedId="pork"
 					seen={{}}
 					connection="open"
@@ -150,70 +153,37 @@ describe("the rail", () => {
 					settings={null}
 					search={null}
 					deskKey={null}
-					onOpenRun={onOpenRun}
-					openRun={openRun}
 				/>,
 			);
 		});
-	}
-
-	test("The rail nests a teammate's live subagents under it, each with its title and latest step; it leaves the rail when it reports", async () => {
-		const opened: [string, string][] = [];
-		await rail([entry(pork, [audit, models, crawl]), entry(lou)], (personaId, run) => opened.push([personaId, run.runId]), "r-audit");
-		const rows = [...container.querySelectorAll("[data-teammate-row], .rail-run")];
-		// Under Pork Chop, before Lou; a command left running is not a subagent.
-		expect(rows.map((row) => row.getAttribute("data-run") ?? row.getAttribute("aria-label"))).toEqual(["Pork Chop", "r-audit", "r-models", "Lou"]);
-		const first = container.querySelector<HTMLButtonElement>('[data-run="r-audit"]')!;
-		expect(first.querySelector(".rail-run-title")?.textContent).toBe("Audit side-pane thread rows");
-		expect(first.querySelector(".rail-run-step")?.textContent).toBe("Read Dock.tsx");
-		expect(first.getAttribute("aria-current")).toBe("true");
-		expect(container.querySelector('[data-run="r-models"] .rail-run-step')?.textContent).toBe("Fetch /v1/models · 200");
-		await act(async () => first.click());
-		expect(opened).toEqual([["pork", "r-audit"]]);
-
-		// Its latest step moves with the roster row.
-		await rail([entry(pork, [{ ...audit, lastStep: "Search \"subagent\" in ui/src" }, models]), entry(lou)], () => {});
-		expect(container.querySelector('[data-run="r-audit"] .rail-run-step')?.textContent).toBe("Search \"subagent\" in ui/src");
-
-		// Reported, it is off the roster row, and off the rail.
-		await rail([entry(pork, [models]), entry(lou)], () => {});
-		expect(container.querySelector('[data-run="r-audit"]')).toBeNull();
-		await rail([entry(pork), entry(lou)], () => {});
-		expect(container.querySelector(".rail-runs")).toBeNull();
+		const rows = [...container.querySelectorAll("[data-teammate-row]")].map((row) => row.getAttribute("aria-label"));
+		expect(rows).toEqual(["Pork Chop", "Lou"]);
+		expect(container.querySelector("[data-run], .rail-runs")).toBeNull();
+		expect(container.textContent).not.toContain("Audit side-pane thread rows");
 	});
 });
 
-describe("a subagent's line and chip", () => {
+describe("a subagent's row at the composer, and none in the conversation", () => {
 	const link = (state: "live" | "closed"): TranscriptEvent => ({
 		kind: "link", id: "link:run:r-audit", ts: 1, thread: "r-audit", threadKind: "run", personaId: "pork", title: "Audit side-pane thread rows", state,
 		...(state === "closed" ? { end: "done" as const, elapsedMs: 214_000 } : {}),
 	});
-	const transcript = (event: TranscriptEvent, subagents?: RunningSubagent[]) => (
-		<Transcript personaId="pork" name="Pork Chop" events={[event]} streaming={[]} live={false} focus={null} subagents={subagents} />
-	);
+	const transcript = (event: TranscriptEvent) => <Transcript personaId="pork" name="Pork Chop" events={[event]} streaming={[]} live={false} focus={null} />;
 
-	test("A subagent's link row and the composer chip show its latest step instead of only \"working\"", async () => {
-		await act(async () => root.render(transcript(link("live"), [audit])));
-		const row = container.querySelector(".link-row");
-		expect(row?.querySelector(".link-row-outcome")?.textContent).toBe("· Read Dock.tsx");
-		expect(row?.getAttribute("aria-label")).toBe("Subagent · Audit side-pane thread rows · Read Dock.tsx. Open it");
-		// Before its first step it works, and once ended it says how it went.
-		await act(async () => root.render(transcript(link("live"), [{ runId: audit.runId, title: audit.title, startedAt: audit.startedAt }])));
-		expect(container.querySelector(".link-row-outcome")?.textContent).toBe("· Working");
+	test("The conversation draws no row for a subagent, working or ended, and the composer's threads panel shows its latest step instead of only \"working\"", async () => {
+		await act(async () => root.render(transcript(link("live"))));
+		expect(container.querySelector(".link-row")).toBeNull();
+		expect(container.textContent).not.toContain("Audit side-pane thread rows");
 		await act(async () => root.render(transcript(link("closed"))));
-		expect(container.querySelector(".link-row-outcome")?.textContent).toBe("· Done in 3 min 34 s");
+		expect(container.querySelector(".link-row")).toBeNull();
+		expect(container.textContent).not.toContain("Done in");
 
-		// One chip names what the subagent did last.
-		await act(async () => root.render(<SubagentChips subagents={[audit]} opened={() => false} onOpenThread={() => {}} />));
-		const chip = container.querySelector<HTMLButtonElement>("button");
-		expect(chip?.textContent).toBe("Subagent · Read Dock.tsx");
-		expect(chip?.getAttribute("aria-label")).toBe("Subagent working: Audit side-pane thread rows, Read Dock.tsx");
-
-		// Several are counted, and the menu says each one's latest step beside its title.
-		await act(async () => root.render(<SubagentChips subagents={[audit, models]} opened={() => false} onOpenThread={() => {}} />));
-		await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
-		const items = [...document.querySelectorAll('[role="menuitem"]')];
-		expect(items.map((item) => item.querySelector(".menu-item-detail")?.textContent)).toEqual(["Read Dock.tsx", "Fetch /v1/models · 200"]);
+		// The composer's threads panel says each one's latest step beside its kind (task-437).
+		const runs = [audit, models];
+		const listedRuns = runs.map((run): ThreadSummary => ({ thread: { kind: "run", key: run.runId }, personaId: "pork", title: run.title, state: "live", startedAt: run.startedAt, updatedAt: run.startedAt, working: false, waiting: false }));
+		const ada = entry(pork, runs);
+		const rows = liveThreads({ listed: listedRuns, roster: [ada], entry: ada, jobs: [], nameOf: () => undefined, now: 10 });
+		expect(rows.map((row) => row.line)).toEqual(["Helper · Fetch /v1/models · 200", "Helper · Read Dock.tsx"]);
 	});
 });
 
@@ -232,7 +202,7 @@ describe("the thread list", () => {
 		const beats = (id: string) => container.querySelector(`[data-thread="${id}"] .dock-dot.beat`) !== null;
 
 		// A working one: its kind, and its latest step, beating.
-		expect(container.querySelector('[data-thread="run:r-models"] .list-mark')?.getAttribute("title")).toBe("Subagent");
+		expect(container.querySelector('[data-thread="run:r-models"] .list-mark')?.getAttribute("title")).toBe("Helper");
 		expect(line("run:r-models")).toBe("Fetch /v1/models · 200");
 		expect(line("run:r-audit")).toBe("Read Dock.tsx");
 		expect(beats("run:r-models")).toBe(true);

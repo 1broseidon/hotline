@@ -327,6 +327,24 @@ settled as `cancelled` when its session ends or is replaced. An adapter
 that does not take the capability keeps showing subagents as tool calls on
 the teammate's turn.
 
+Under the RFD, Claude's adapter (0.106) and Codex's (2.6) do not show a
+launch that became a subagent session: the announcement is all there is,
+and the run's line in the path is its start. A launch that became none is
+shown, failed. Whatever an agent calls its tool, `translate::own_tool`
+keeps such a call under Hotline Agent's kind, `subagent`, from the agent's
+own name for the tool and never from a title it wrote for a person:
+Claude's `_meta.claudeCode.toolName` `Agent` or `Task`, and Codex's
+collaboration tool `spawnAgent` (`_meta.codex.collaboration.tool` in 1.x;
+the title, with the collaboration input `senderThreadId` and
+`receiverThreadIds`, in 2.x). A call to one of the room's own tools is kept
+as `mcp__hotline__<tool>`, so a glance knows it however it was titled:
+Claude names it so in `toolName`, and Codex marks it
+`_meta.is_mcp_tool_call` with `{ server: "hotline", tool }` as its input and
+titles it `mcp.hotline.<tool>`. A kind found this way stays through the
+call's later updates. `glance::step_said` says a `subagent` step "Started a
+helper" whatever its title or description, so every agent's start reads
+alike and the window knows it by its group.
+
 A command a harness sends to the background is a run of its own too, of
 kind `shell`. Hotline asks for the terminal extension
 (`_meta.terminal_output`), under which Claude's adapter puts a command's
@@ -336,7 +354,10 @@ the terminal left open (`terminal_info` and no `terminal_exit`), and a
 `tool_call_update` carrying only the `terminal_exit` when it ends, often
 after the turn. `Live::backgrounded` reports the first as a run's start and
 `Live::background_ended` the second as its end, failed on a nonzero exit
-code. The roster entry carries the kind, so the key at the composer's
+code. The call that sent the command there is written again, before its
+result, under the kind `background`, which a glance says as "Started a
+command" (group `command`): the run is that call's, by its own id, and the
+command's line in the path stands for the step. The roster entry carries the kind, so the key at the composer's
 corner says `Command` rather than `Subagent`, and stays after the turn
 that started the command ends; the run's link carries it too
 (`runKind: "shell"`), so its line says Command once it has ended. What the
@@ -393,8 +414,11 @@ background subagents finish and it has said what they found. While nothing
 else is open, that turn reads as done. The reply is chat, not narration; the
 phone and a call hear it then, as they would at a turn's end; and the
 session's `awaitingSubagents` is true while `state` stays `thinking`. So the
-window shows no work card, its peek says Done, nothing offers Stop, and the
-desktop toast for a finished turn fires. Everything
+window's peek says Done, nothing offers Stop, and the desktop toast for a
+finished turn fires; only the mark stays in the composer, at rest, beside
+the last words the teammate gave `activity` in the turn, because the line
+that said them is still the turn's newest declaration: parking writes no
+`turn` line, so nothing ends it until the turn does. Everything
 that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 
@@ -508,7 +532,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can

@@ -245,7 +245,8 @@ describe("a job's run that posts", () => {
 		);
 		const line = container.querySelector<HTMLButtonElement>('.link-row[data-kind="job"]')!;
 		expect(line.getAttribute("aria-label")).toBe("Job · Watch CI on release/0.49.0 · posted. Open it");
-		expect([".link-row-title", ".link-row-kind", ".link-row-outcome"].map((part) => line.querySelector(part)?.textContent)).toEqual([watch.name, "Job", "· posted"]);
+		expect([".link-row-title", ".link-row-outcome"].map((part) => line.querySelector(part)?.textContent)).toEqual([watch.name, "· posted"]);
+		expect(line.textContent).not.toContain("Job");
 		// The words posted are still the bubble under it.
 		expect(container.querySelector(".speech")?.textContent).toContain("Linux passed (14m).");
 		await act(async () => line.click());

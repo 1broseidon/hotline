@@ -1,7 +1,8 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Activity, isWorking, processLabel, shownState } from "../activity";
-import { sideTitle } from "../links";
+import type { Attachment, ConfigChoice, Persona, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
+import { type Activity, awaitingSubagents, isWorking, processLabel, shownState } from "../activity";
+import { liveThreads } from "../liveThreads";
+import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, ProgressRing, WarningIcon } from "../icons";
@@ -61,7 +62,6 @@ export function Conversation({
 	onOpenProcess,
 	processOpen,
 	threadOpen,
-	paneOpen = false,
 	railOpen = true,
 	dock,
 	models,
@@ -107,8 +107,6 @@ export function Conversation({
 	processOpen: string | undefined;
 	/** Which thread is open in the right-hand pane, if any. */
 	threadOpen: ThreadId | undefined;
-	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
-	paneOpen?: boolean;
 	/** The rail is out with names and names the teammate in its selected row; closed or faces only, the band names it. */
 	railOpen?: boolean;
 	/** The peek: a turn of work as a glance, standing up out of the composer over the conversation. */
@@ -119,10 +117,9 @@ export function Conversation({
 	const state = shownState(session);
 	const people = usePeople(roster);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
-	const subagents = entry.subagents ?? [];
 	/* Beside the state, never part of it: idle with a server up reads idle. */
 	const processes = session.processes ?? [];
-	const cornered = subagents.length > 0 || processes.length > 0;
+	const cornered = processes.length > 0;
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useThread(dmOf(personaId));
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
@@ -203,6 +200,13 @@ export function Conversation({
 	 * at their times; the core never writes them into this conversation. */
 	const asides = useAsides(personaId, entry);
 	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
+	/* What runs in the session, which the composer counts and lists: the Threads list's Live group, from the rows it reads. */
+	const { rows: listed } = useThreadRows(entry);
+	const scheduled = useJobs(personaId);
+	const live = useMemo(
+		() => liveThreads({ listed, roster, entry, jobs: scheduled, nameOf: (id) => nameIn(roster, listed, id), now: Date.now() }),
+		[listed, roster, entry, scheduled],
+	);
 	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
 	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
 	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
@@ -295,7 +299,7 @@ export function Conversation({
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+				onOpenSchedules, onDelete, onOpenThreadList, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
@@ -317,10 +321,10 @@ export function Conversation({
 					events={shown}
 					streaming={streaming}
 					live={isWorking(session)}
+					waiting={awaitingSubagents(session)}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}
-					subagents={entry.subagents}
 					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}
@@ -364,6 +368,7 @@ export function Conversation({
 							? {
 									work: {
 										...mark,
+										// The running turn's path, in the pane: the same press as the line under a reply.
 										open: workOpen === null,
 										onToggle: () => onOpenWork(null),
 									},
@@ -381,19 +386,15 @@ export function Conversation({
 					focused={fresh}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
+					threads={{
+						rows: live,
+						fresh: entry.asidesNew,
+						isOpen: (thread) => opened(thread.open.thread),
+						onOpen: (thread) => onOpenThread(thread.open),
+						onAll: onOpenThreadList,
+					}}
 					{...(cornered
-						? {
-								corner: (
-									<>
-										{subagents.length > 0 && (
-											<SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} />
-										)}
-										{processes.length > 0 && (
-											<ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} />
-										)}
-									</>
-								),
-							}
+						? { corner: <ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} /> }
 						: {})}
 				/>
 			</div>
@@ -404,19 +405,17 @@ export function Conversation({
 /** The header follows room state and controls, independently of streamed body changes. */
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+	onOpenSchedules, onDelete, onOpenThreadList, callBar,
 	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
-	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
-	| "threadOpen" | "paneOpen" | "callBar" | "onProviders" | "railOpen"> & {
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThreadList"
+	| "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
 	setRefused(message: string | null): void;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const sides = entry.sides ?? [];
-	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
 	/* Success is the tape: the marker is superseded in place and the title
@@ -497,41 +496,6 @@ const ConversationBand = memo(function ConversationBand({
 					<span className="min-w-0 flex-1" />
 	
 
-					{/* Side threads still live: a chip each. They are conversations of
-					 * their own rather than this turn's work, so they stay in the band
-					 * when the subagents sit at the composer. They leave the band when
-					 * archived; the conversation's own line keeps what came of each.
-					 * With the pane open they are in its list, and the band has no
-					 * room to name them. */}
-					{paneOpen ? null : sides.length === 1 ? (
-						<button
-							type="button"
-							className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
-							title="Open the side thread"
-							aria-label={`Side thread: ${sideTitle(sides[0]!.title)}`}
-							aria-pressed={opened({ kind: "side", key: sides[0]!.sideId })}
-							onClick={() => onOpenThread({ thread: { kind: "side", key: sides[0]!.sideId }, title: sides[0]!.title })}
-						>
-							<span className="truncate">{narrow ? "Side" : `Side: ${sideTitle(sides[0]!.title)}`}</span>
-							{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-						</button>
-					) : sides.length > 1 ? (
-						<MenuButton
-							className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
-							label={`${sides.length} side threads`}
-							entries={sides.map((side) => ({
-								kind: "item",
-								id: side.sideId,
-								text: sideTitle(side.title),
-								checked: opened({ kind: "side", key: side.sideId }),
-								onSelect: () => onOpenThread({ thread: { kind: "side", key: side.sideId }, title: side.title }),
-							}))}
-						>
-							{`${sides.length} side threads`}
-							{sides.some((side) => side.working) && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-						</MenuButton>
-					) : null}
-	
 					{jobs.length > 0 && !narrow && (
 						<button
 							type="button"
@@ -632,77 +596,9 @@ export function teammateActions({
 	];
 }
 
-/** What the chip calls a run of each kind: a subagent works with a model of its own; a shell run is a command the harness left running, its own kind, never a subagent. */
-const RUN_KIND: Record<NonNullable<RunningSubagent["kind"]>, { word: string; running: string }> = {
-	subagent: { word: "Subagent", running: "Subagent working" },
-	shell: { word: "Command", running: "Command running" },
-};
-
-function runKind(run: RunningSubagent) {
-	return RUN_KIND[run.kind ?? "subagent"];
-}
-
-/**
- * Subagents, and commands the teammate's harness left running in the
- * background, still going, wherever their lines have scrolled to, at the composer's top
- * right: what the teammate left going is beside where you would speak to it,
- * after its turn as during it. One is named with its kind, several are
- * counted with a menu, and each opens its run in the pane. They go when they
- * finish; their runs keep how each went.
- */
-export function SubagentChips({
-	subagents,
-	opened,
-	onOpenThread,
-}: {
-	subagents: RunningSubagent[];
-	/** Whether a run is the one open in the pane. */
-	opened(runId: string): boolean;
-	onOpenThread(thread: ThreadRef): void;
-}) {
-	const open = (run: RunningSubagent) => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title });
-	if (subagents.length === 1) {
-		const run = subagents[0]!;
-		const kind = runKind(run);
-		const subagent = (run.kind ?? "subagent") === "subagent";
-		return (
-			<button
-				type="button"
-				className="control btn btn-sm min-w-0 shrink gap-1.5"
-				title={subagent ? "Open the subagent's run" : "Open the command"}
-				aria-label={`${kind.running}: ${run.title}${run.lastStep === undefined ? "" : `, ${run.lastStep}`}`}
-				aria-pressed={opened(run.runId)}
-				onClick={() => open(run)}
-			>
-				<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-				<span className="truncate">{`${kind.word} · ${run.lastStep ?? run.title}`}</span>
-			</button>
-		);
-	}
-	const allSubagents = subagents.every((run) => (run.kind ?? "subagent") === "subagent");
-	const count = allSubagents ? `${subagents.length} subagents` : `${subagents.length} running`;
-	return (
-		<MenuButton
-			className="control btn btn-sm shrink-0 gap-1.5"
-			label={allSubagents ? `${count} working` : count}
-			entries={subagents.map((run) => ({
-				kind: "item",
-				id: run.runId,
-				text: allSubagents ? run.title : `${runKind(run).word} · ${run.title}`,
-				...(run.lastStep !== undefined ? { detail: run.lastStep } : {}),
-				checked: opened(run.runId),
-				onSelect: () => open(run),
-			}))}
-		>
-			<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-			{count}
-		</MenuButton>
-	);
-}
-
 /**
  * Commands the teammate left running past its turns — a server, a watcher —
- * beside the subagents at the composer's corner. One is named by its short
+ * at the composer's corner. One is named by its short
  * command, several are counted with a menu, and each opens a card with its
  * output and Stop. They are only what the session lists, and go when the
  * process does.

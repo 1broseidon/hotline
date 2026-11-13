@@ -5,7 +5,9 @@
 //! verified row when the tool attached, no MCP rows under a policy of none,
 //! and an absent row — with the error as its reason — when the child could
 //! not start. As a server: `post_to_chat`, on both drivers
-//! (`mcp/post_to_chat.rs`).
+//! (`mcp/post_to_chat.rs`), and `activity` and `outcome` (`mcp/outcomes.rs`).
+//! On the same scripted desk, the pages an ACP child's own steps opened are
+//! written on them (`mcp/sources.rs`).
 
 use crate::common;
 
@@ -755,5 +757,9 @@ fn alive(pid: &str) -> bool {
 // `post_to_chat`'s harness is in `tests/mcp/`: a crate root's own `mod` would
 // look beside it in `tests/`, where Cargo would take each file for a binary of
 // its own.
+#[path = "mcp/outcomes.rs"]
+mod outcomes;
 #[path = "mcp/post_to_chat.rs"]
 mod post_to_chat;
+#[path = "mcp/sources.rs"]
+mod sources;

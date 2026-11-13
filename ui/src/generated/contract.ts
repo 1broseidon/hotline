@@ -1881,6 +1881,13 @@ workingJobs?: Array<string>,
  */
 workingCalls?: Array<string>, 
 /**
+ * The threads between this teammate and another with a request being
+ * answered now, by pair key: the rule `thread.list` reads a pair as live
+ * by, sent again as it changes, since a pair has no agent of its own
+ * for the roster to follow. Absent when there are none.
+ */
+workingPairs?: Array<string>, 
+/**
  * How many asides this teammate has been left that no turn of its has
  * heard yet (`aside.list` lists them). Absent when there are none.
  */
@@ -2727,9 +2734,12 @@ said?: StepSaid,
  */
 endedTs?: number, 
 /**
- * The web pages a step read or found: a fetch's page, a web
- * search's results, each as the step's own output names it. Absent
- * on every other step, and on steps written before 0.45.
+ * The web pages a step opened or found: a fetch's page, a `curl`
+ * command's, the page the teammate's browser went to (since
+ * 0.49), a web search's results (`found`, but read when the search
+ * hands the model their content, as Claude Code's does, since
+ * 0.49), each as the step's own output names it. Absent on every
+ * other step, and on steps written before 0.45.
  */
 sources?: Array<WebSource>, } | { "kind": "permission", 
 /**
@@ -2972,7 +2982,15 @@ request?: string,
  * What a run runs: `shell` for a command a harness left running.
  * Absent for a subagent and every other kind.
  */
-runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "activity", id: string, ts: number, type: string, message?: string, } | { "kind": "outcome", id: string, ts: number, type: string, message: string, state?: string, 
+/**
+ * The teammate's own name for it, by which an open one is closed.
+ */
+key: string, 
+/**
+ * When an open one was closed.
+ */
+closedAt?: number, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

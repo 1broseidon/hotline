@@ -648,6 +648,10 @@ impl RoomHandle for Desk {
         self.room.working_calls(persona_id)
     }
 
+    fn working_pairs(&self, persona_id: &str) -> Vec<String> {
+        self.room.working_pairs(persona_id)
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
     }

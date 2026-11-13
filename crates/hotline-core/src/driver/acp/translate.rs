@@ -143,7 +143,12 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             let line = ToolLine {
                 files: changed_files(call.kind, &call.locations, &call.content),
                 title: clip(&call.title, TITLE_CHARS),
-                kind: tool_kind(call.kind, call.meta.as_ref()),
+                kind: tool_kind(
+                    call.kind,
+                    call.meta.as_ref(),
+                    call.raw_input.as_ref(),
+                    &call.title,
+                ),
                 location: first_location(&call.locations),
             };
             pen.emit(Update::ToolCall {
@@ -237,14 +242,22 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                         .map(|title| clip(title, TITLE_CHARS))
                         .or_else(|| previous.map(|line| line.title.clone()))
                         .unwrap_or_default(),
-                    // A call announced as a subagent's launch stays one,
-                    // whatever kind a later update gives it.
+                    // A call known as one of the desk's own (a subagent's
+                    // launch, a Hotline tool) stays one, whatever kind a
+                    // later update gives it.
                     kind: previous
                         .map(|line| line.kind.clone())
-                        .filter(|kind| kind == SUBAGENT_LAUNCH)
+                        .filter(|kind| is_own_kind(kind))
                         .or_else(|| {
-                            launches_subagent(update.meta.as_ref())
-                                .then(|| SUBAGENT_LAUNCH.to_string())
+                            own_tool(
+                                update.meta.as_ref(),
+                                fields.raw_input.as_ref(),
+                                fields
+                                    .title
+                                    .as_deref()
+                                    .or(previous.map(|line| line.title.as_str()))
+                                    .unwrap_or_default(),
+                            )
                         })
                         .or_else(|| fields.kind.map(kind_of))
                         .or_else(|| previous.map(|line| line.kind.clone()))
@@ -283,9 +296,22 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                         _ => output,
                     };
                     // Its result came, and its terminal stays open: the
-                    // command was sent to the background and runs on.
+                    // command was sent to the background and runs on, as a
+                    // run of its own started by this call. The call is
+                    // written again as that start, so the step reads as the
+                    // desk says it ("Started a command") and the run's line
+                    // in the path stands for it.
                     if ok && terminal.open {
                         live.backgrounded(&call_id, &line.title);
+                        if let Some(known) = lock(pen.tools).get_mut(&call_id) {
+                            known.kind = BACKGROUND_COMMAND.to_string();
+                        }
+                        pen.emit(Update::ToolCall {
+                            call_id: call_id.clone(),
+                            title: line.title.clone(),
+                            kind: BACKGROUND_COMMAND.to_string(),
+                        })
+                        .await;
                     }
                     if ok && !line.files.is_empty() {
                         pen.emit(Update::ToolFiles {
@@ -620,23 +646,95 @@ fn kind_of(kind: acp::ToolKind) -> String {
 /// Agent's: a turn left open only for such calls reads as done.
 pub(super) const SUBAGENT_LAUNCH: &str = crate::session::jobs::SUBAGENT;
 
-/// A call's kind, or a subagent's launch when the agent says so. ACP has no
-/// kind for it; Claude's adapter names the tool behind each call in
-/// `_meta.claudeCode.toolName`, and a subagent is launched by `Agent` (once
-/// `Task`), whose call stays open, kind-less, while the subagent works.
-pub(super) fn tool_kind(kind: acp::ToolKind, meta: Option<&acp::Meta>) -> String {
-    if launches_subagent(meta) {
-        SUBAGENT_LAUNCH.to_string()
-    } else {
-        kind_of(kind)
-    }
+/// The kind a call that left a command running in the background is kept
+/// under once it has: the start of a run, which its own line stands for.
+pub(super) const BACKGROUND_COMMAND: &str = crate::glance::BACKGROUND_COMMAND;
+
+/// The prefix of a Hotline tool's name as an agent calls it through the room's
+/// MCP server, which is how a glance knows the tool whatever the call's title.
+const HOTLINE_TOOL_PREFIX: &str = "mcp__hotline__";
+
+/// A call's kind: the desk's own when the agent's name for the tool behind it
+/// says the call is one of the desk's (see [`own_tool`]), else the ACP kind.
+pub(super) fn tool_kind(
+    kind: acp::ToolKind,
+    meta: Option<&acp::Meta>,
+    input: Option<&Value>,
+    title: &str,
+) -> String {
+    own_tool(meta, input, title).unwrap_or_else(|| kind_of(kind))
 }
 
-fn launches_subagent(meta: Option<&acp::Meta>) -> bool {
-    meta.and_then(|meta| meta.get("claudeCode"))
-        .and_then(|claude| claude.get("toolName"))
-        .and_then(Value::as_str)
-        .is_some_and(|name| matches!(name, "Agent" | "Task"))
+/// Whether a kind is one this module gave a call from what the tool behind
+/// it is, which a later update's ACP kind does not undo.
+fn is_own_kind(kind: &str) -> bool {
+    kind == SUBAGENT_LAUNCH || kind == BACKGROUND_COMMAND || kind.starts_with(HOTLINE_TOOL_PREFIX)
+}
+
+/// The desk's kind for a call, from the agent's own name for the tool behind
+/// it, never from a title the agent writes for a person: a subagent's launch
+/// is the desk's `subagent`, whatever the agent calls it, and a tool of the
+/// room's MCP server is `mcp__hotline__<tool>`. ACP has no field for either,
+/// so each agent's is read where its adapter puts it:
+///
+/// - Claude's adapter names the tool behind every call in
+///   `_meta.claudeCode.toolName`: `Agent` (once `Task`) launches a subagent,
+///   and a Hotline tool is `mcp__hotline__<tool>`. Under the subagents RFD it
+///   shows a launch only when no subagent session came of it (most often a
+///   start that failed).
+/// - Codex's adapter calls a tool of an MCP server `mcp.<server>.<tool>`,
+///   marks the call `_meta.is_mcp_tool_call` and puts `{ server, tool }` in
+///   its input. A subagent is launched by its collaboration tool
+///   `spawnAgent`: named in `_meta.codex.collaboration.tool` (1.x), or as the
+///   call's title with the collaboration input (`senderThreadId`,
+///   `receiverThreadIds`) and no such `_meta` (2.x). A launch that became a
+///   subagent session is not shown.
+pub(super) fn own_tool(
+    meta: Option<&acp::Meta>,
+    input: Option<&Value>,
+    title: &str,
+) -> Option<String> {
+    fn text(value: Option<&Value>) -> Option<&str> {
+        value.and_then(Value::as_str).map(str::trim)
+    }
+    let launch = || Some(SUBAGENT_LAUNCH.to_string());
+    let claude = text(
+        meta.and_then(|meta| meta.get("claudeCode"))
+            .and_then(|claude| claude.get("toolName")),
+    );
+    match claude {
+        Some("Agent" | "Task") => return launch(),
+        Some(name) if name.starts_with(HOTLINE_TOOL_PREFIX) => return Some(name.to_string()),
+        _ => {}
+    }
+    let collaboration = text(
+        meta.and_then(|meta| meta.get("codex"))
+            .and_then(|codex| codex.get("collaboration"))
+            .and_then(|collaboration| collaboration.get("tool")),
+    )
+    .or_else(|| {
+        input
+            .filter(|input| {
+                input.get("senderThreadId").is_some() && input.get("receiverThreadIds").is_some()
+            })
+            .map(|_| title.trim())
+    });
+    if collaboration == Some("spawnAgent") {
+        return launch();
+    }
+    let mcp = meta
+        .and_then(|meta| meta.get("is_mcp_tool_call"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if mcp
+        && text(input.and_then(|input| input.get("server")))
+            == Some(crate::mcp::server::SERVER_NAME)
+    {
+        return text(input.and_then(|input| input.get("tool")))
+            .filter(|tool| !tool.is_empty())
+            .map(|tool| format!("{HOTLINE_TOOL_PREFIX}{tool}"));
+    }
+    None
 }
 
 pub(super) fn stop_reason_of(reason: acp::StopReason) -> String {

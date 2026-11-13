@@ -110,7 +110,8 @@ export function listItems(input: Input): ListItem[] {
 		items.push(jobItem(job, row, input, notes.get(`job:${job.id}`) ?? 0));
 	}
 	const titles = new Map(items.map((item) => [item.id, item.title]));
-	for (const aside of asides) items.push(noteItem(aside, titles, listedFor, nameOf, input.personName));
+	const teammate = nameOf(listedFor) ?? "the teammate";
+	for (const aside of asides) items.push(noteItem(aside, titles, listedFor, teammate, nameOf, input.personName));
 	return items.sort((a, b) => b.at - a.at);
 }
 
@@ -204,18 +205,33 @@ function jobItem(job: ScheduleEntry, row: ThreadSummary | undefined, { now }: In
 	};
 }
 
-function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, nameOf: (personaId: string) => string | undefined, personName: string): ListItem {
+/**
+ * A note as a row of the list, as the thread or source that left it: its
+ * title is where it came from, and its line says who told the teammate what
+ * ("Juno told Pork Chop: the Linux build is red"), or woke it, or told the
+ * person, for a note meant for them.
+ */
+function noteItem(
+	aside: Aside,
+	titles: Map<string, string>,
+	listedFor: string,
+	teammate: string,
+	nameOf: (personaId: string) => string | undefined,
+	personName: string,
+): ListItem {
 	const from = sourceThread(aside);
 	const title = from === undefined ? undefined : titles.get(keyOf(from));
 	// Whose words: the person's own Loop in, a colleague's, or the teammate's own thread's; an outside source by its name.
-	const who = fromThePerson(aside) ? personName || "you" : aside.by === undefined ? sourceName(aside) : aside.by === listedFor ? "" : (nameOf(aside.by) ?? "a teammate");
-	const where = "thread" in aside.from ? (title ?? sourceWords(aside)) : "";
-	const source = [who, where].filter((part) => part !== "").join(" · ");
-	const line = `from ${source}${aside.level === "person" ? " · to you" : ""}`;
+	const who = fromThePerson(aside) ? personName || "You" : aside.by === undefined ? sourceName(aside) : aside.by === listedFor ? "" : (nameOf(aside.by) ?? "A teammate");
+	const where = "thread" in aside.from ? (title ?? sourceWords(aside)) : who;
+	const verb = aside.level === "nudge" ? "woke" : "told";
+	const whom = aside.level === "person" ? "you" : teammate;
+	const said = who === "" || who === where ? `${verb[0]!.toUpperCase()}${verb.slice(1)} ${whom}` : `${who} ${verb} ${whom}`;
+	const line = `${said}: ${aside.text}`;
 	return {
 		id: `note:${aside.id}`,
 		kind: "note",
-		title: aside.text,
+		title: where === "" ? "Aside" : where,
 		line,
 		at: aside.ts,
 		live: false,
@@ -226,7 +242,7 @@ function noteItem(aside: Aside, titles: Map<string, string>, listedFor: string, 
 		counted: title !== undefined,
 		level: aside.level,
 		notes: 0,
-		words: wordsOf(aside.text, line),
+		words: wordsOf(where, line),
 		...(from !== undefined ? { open: title === undefined ? { thread: from } : { thread: from, title } } : {}),
 	};
 }
@@ -280,21 +296,23 @@ export function searched(items: ListItem[], query: string): ListItem[] {
 }
 
 /** The list's groups, in their order, each newest first. */
-export type Groups = { needs: ListItem[]; live: ListItem[]; recent: ListItem[]; earlier: ListItem[] };
+export type Groups = { needs: ListItem[]; live: ListItem[]; fresh: ListItem[]; recent: ListItem[]; earlier: ListItem[] };
 
 /** How far back Recent reaches: a rolling day, so an evening's work is still there after midnight. */
 const RECENT_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Rows into Needs you, Live, Recent (the last 24 hours) and Earlier. Under
- * Active, Earlier is "Earlier and routine": what is older, and with it what
- * is routine and a note already read, however recent.
+ * Rows into Needs you, Live, New (what a thread or source told the teammate
+ * that the person has not read), Recent (the last 24 hours) and Earlier.
+ * Under Active, Earlier is "Earlier and routine": what is older, and with it
+ * what is routine and a note already read, however recent.
  */
 export function grouped(items: ListItem[], now: number, active: boolean): Groups {
-	const groups: Groups = { needs: [], live: [], recent: [], earlier: [] };
+	const groups: Groups = { needs: [], live: [], fresh: [], recent: [], earlier: [] };
 	for (const item of items) {
 		if (item.waiting) groups.needs.push(item);
 		else if (item.live) groups.live.push(item);
+		else if (item.kind === "note" && !item.read) groups.fresh.push(item);
 		else if (item.at >= now - RECENT_MS && !(active && (item.routine || item.read))) groups.recent.push(item);
 		else groups.earlier.push(item);
 	}

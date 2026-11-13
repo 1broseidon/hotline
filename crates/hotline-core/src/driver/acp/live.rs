@@ -454,7 +454,7 @@ impl Live {
             } => {
                 {
                     let mut titles = lock(&self.titles);
-                    if title == "Subagent"
+                    if title == "Helper"
                         && let Some(known) = titles.get(&child)
                     {
                         title.clone_from(known);

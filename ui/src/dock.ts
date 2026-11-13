@@ -14,10 +14,11 @@ export const DOCK_STEP = 16;
 export const DOCK_KEY = "hotline.dock.size";
 /**
  * Escape in the pane: one step back, then out. A thread goes back to the
- * list, and the list closes.
+ * list, or to the turn's path it was opened from, and the list or the path
+ * closes.
  */
 export function dockBack(dock: DockState): DockState | null {
-	if (dock.open !== null) return { open: null };
+	if (dock.open !== null) return dock.work === undefined ? { open: null } : { open: null, work: dock.work };
 	return null;
 }
 
@@ -196,8 +197,8 @@ export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string)
  * Whether a turn of a thread is running, as the roster row of the teammate
  * whose agent it is says. The roster hears a turn start and end first; a list
  * is read at a moment, and in the pane of the teammate who handed a thread
- * over it is not read again when the receiver's turn ends. A pair, which no
- * roster row follows, is the list's word.
+ * over it is not read again when the receiver's turn ends. A pair is on the
+ * rows of both its teammates while one answers the other (`workingPairs`).
  */
 export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, row: ThreadSummary | undefined): boolean {
 	if (owner === undefined) return row?.working === true;
@@ -210,6 +211,8 @@ export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, ro
 			return owner.workingJobs?.includes(thread.key) ?? false;
 		case "call":
 			return owner.workingCalls?.includes(thread.key) ?? false;
+		case "pair":
+			return owner.workingPairs?.includes(thread.key) ?? false;
 		default:
 			return row?.working === true;
 	}

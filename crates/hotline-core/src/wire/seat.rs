@@ -269,8 +269,7 @@ fn federation_command(command: &Command) -> bool {
 /// thread only; a pair raises no card, so there is none there for it to
 /// answer; a job is cancelled, and its firing stopped,
 /// only where `schedule.cancel` is run; and a thread it could not subscribe to it
-/// cannot page. `thread.list` leaves out what it could not read, and pairs for
-/// the same reason `peers.list` is refused.
+/// cannot page. `thread.list` leaves out what it could not read.
 fn phone_thread_command(command: &Command) -> bool {
     match command {
         Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,

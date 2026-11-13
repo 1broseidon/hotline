@@ -126,3 +126,59 @@ async fn a_request_waiting_on_its_card_holds_up_nothing_else_between_the_two() {
         .unwrap();
     done(&room, &handoff).await;
 }
+
+/// A thread between two teammates is live while one answers the other, as
+/// `thread.list` reads it, and both teammates' roster rows say so from the
+/// first moment to the last (George's QA, 2026-11-12: a DM between agents
+/// never showed among the running threads). The pair has no agent of its
+/// own, so the roster row is the only word a window hears when it starts and
+/// when it ends; nothing else on the wire moves for an ask.
+#[tokio::test]
+async fn a_pair_answering_an_ask_is_live_in_the_list_and_on_both_roster_rows() {
+    let log = scratch("pair-answering-roster");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "answer".into(),
+                text: "It is paused.".into(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ]])
+        .gated(gate.clone()),
+    );
+    let room = Room::with_agents(log.clone(), Arc::new(DeskKeys), agents.clone());
+    let key = crate::paths::thread_key("ada", "bob").unwrap();
+    assert_eq!(room.working_pairs("ada"), Vec::<String>::new());
+
+    let id = send(&room, "ask").await;
+    until("bob is answering", || {
+        room.exchange_pair(&key)
+            .is_some_and(|pair| pair.requests[0].phase() == Phase::Running)
+    })
+    .await;
+    let store = crate::thread::ThreadStore::new(&log);
+    let listed = |persona: &str| {
+        store
+            .list(persona)
+            .into_iter()
+            .find(|thread| thread.id == ThreadId::pair(&key))
+            .map(|thread| thread.state)
+    };
+    assert_eq!(listed("ada"), Some(crate::thread::ThreadState::Live));
+    assert_eq!(listed("bob"), Some(crate::thread::ThreadState::Live));
+    assert_eq!(room.working_pairs("ada"), std::slice::from_ref(&key));
+    assert_eq!(room.working_pairs("bob"), std::slice::from_ref(&key));
+
+    gate.add_permits(10);
+    done(&room, &id).await;
+    assert_eq!(listed("ada"), Some(crate::thread::ThreadState::Parked));
+    assert_eq!(room.working_pairs("ada"), Vec::<String>::new());
+    assert_eq!(room.working_pairs("bob"), Vec::<String>::new());
+}

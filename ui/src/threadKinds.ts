@@ -23,7 +23,9 @@ const READ_ONLY = "Read only";
  * teammate whose hands it came from: on a work thread it makes it a
  * handoff, which the person can step in to; on a shell run it is the
  * teammate who left the command running. `run` says what a run is, a
- * subagent unless its roster row says it is a command.
+ * subagent unless its roster row says it is a command. A subagent is a
+ * "Helper" wherever the person reads it (George, 2026-11-12): the word
+ * subagent stays in the code and on the wire.
  */
 export function threadFamily(kind: ThreadKind, opener?: string, run: RunKind = "subagent"): PaneKind {
 	switch (kind) {
@@ -34,7 +36,7 @@ export function threadFamily(kind: ThreadKind, opener?: string, run: RunKind = "
 		case "run":
 			return run === "shell"
 				? { glyph: "$", word: "Command", family: opener === undefined ? "" : `Started by ${opener}`, watching: true }
-				: { glyph: "◆", word: "Subagent", family: READ_ONLY, watching: true };
+				: { glyph: "◆", word: "Helper", family: READ_ONLY, watching: true };
 		case "pair":
 			return { glyph: "◎", word: "Pair", family: READ_ONLY, watching: true };
 		case "call":

@@ -3,14 +3,28 @@ import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
 import { joinThoughts, outputText, stepTitle } from "../../stepText";
-import { durationText, summaryOf, turnTook } from "../../turnFacts";
+import { failedRuns, markOf, outcomesOf } from "../../outcomes";
+import type { RunLink } from "../../scheduledRuns";
+import { durationText, SITES_NAMED, sitesOf, sitesSaid, sourcesOf, turnTook } from "../../turnFacts";
+import { Favicons } from "../Favicon";
+import { Sources } from "./Sources";
 
 /**
- * The machinery between two messages, as one pill: how many steps, how many
- * failed, and how long they took, closed until you open it. While the agent is still on it there is no caption at
- * all — the typing bubble is the caption. In a conversation the caption
- * opens the work in the pane beside it (`onOpen`); in a thread or a run it
- * opens in place, and the live rows show only if you pressed the bubble.
+ * The line under a reply: what the turn left behind, in the teammate's own
+ * words, each marked by how it went (failed first, in red), then the sites
+ * of the web pages it read as a stack of their icons, then how long it took.
+ * A helper or a command the turn started that failed is marked failed
+ * there too, first of all: the conversation has no row of its own for one,
+ * and a failure is what the person must not miss. The sources are not
+ * outcomes, since nothing was left behind, so they carry no mark; they are
+ * on the line because for an answer of fact they are its evidence, the one
+ * part of the path someone who does not code looks for. A turn that left
+ * nothing behind and read nothing says only its time. It is always the
+ * way in: pressed, it opens the path the turn took, in the pane beside a
+ * conversation (`onOpenWork`) or in place in a thread or a run, where the
+ * live rows show only if you pressed the mark; either way the path lists
+ * the sources by name first. While the turn is still on it there is no line
+ * at all — the mark is the line.
  */
 export const Steps = memo(function Steps({
 	id,
@@ -30,9 +44,11 @@ export const Steps = memo(function Steps({
 	const [toggled, setToggled] = useState(false);
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
-	const summary = useMemo(() => summaryOf(items), [items]);
+	const outcomes = useMemo(() => outcomesOf(items), [items]);
+	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
+	const sites = useMemo(() => sitesOf(items), [items]);
 	const took = useMemo(() => turnTook(items), [items]);
-	const said = summary.steps === 0 ? "Thought it through" : `${summary.steps} ${summary.steps === 1 ? "step" : "steps"}`;
+	const expanded = inPane ? paneOpen === true : open;
 
 	return (
 		<div className="my-2">
@@ -40,17 +56,30 @@ export const Steps = memo(function Steps({
 				<button
 					type="button"
 					className="steps-caption"
-					aria-expanded={inPane ? paneOpen === true : open}
+					title={expanded ? "Hide the path" : "Show the path"}
+					aria-expanded={expanded}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
 				>
-					<span className="truncate">{said}</span>
-					{summary.failed > 0 && <span className="steps-caption-failed">· {summary.failed} failed</span>}
-					{took !== null && <span className="steps-caption-took">{durationText(took)}</span>}
-					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+					{failed.map((words) => (
+						<span key={words} className="outcome" data-mark="failed">
+							{words}
+						</span>
+					))}
+					{outcomes.map((outcome) => (
+						<span key={outcome.id} className="outcome" data-mark={markOf(outcome)}>
+							{outcome.message}
+						</span>
+					))}
+					{sites.length > 0 && <Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} />}
+					<span className="steps-caption-took">
+						{took !== null && took > 0 && durationText(took)}
+						{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+					</span>
 				</button>
 			)}
 			{open && (
 				<div className="steps ml-[11px]">
+					<InPlaceSources items={items} />
 					<StepRows items={items} />
 				</div>
 			)}
@@ -58,10 +87,31 @@ export const Steps = memo(function Steps({
 	);
 });
 
+/** The path opened in place lists the pages read by name at its top, as the pane's does. */
+function InPlaceSources({ items }: { items: Step[] }) {
+	const sources = useMemo(() => sourcesOf(items), [items]);
+	return sources.length > 0 ? <Sources sources={sources} /> : null;
+}
+
+/**
+ * What failed among the helpers and commands a turn started, as the line
+ * under the reply says it: "Helper failed: Fetch the READMEs", or "3 helpers
+ * failed" for more than one, and each command by its own name.
+ */
+export function failedWords(runs: RunLink[]): string[] {
+	const helpers = runs.filter((run) => run.runKind !== "shell");
+	const commands = runs.filter((run) => run.runKind === "shell");
+	const said = commands.map((run) => `Command failed: ${run.title}`);
+	if (helpers.length === 1) said.unshift(`Helper failed: ${helpers[0]!.title}`);
+	if (helpers.length > 1) said.unshift(`${helpers.length} helpers failed`);
+	return said;
+}
+
 /**
  * Each step as a row, its detail behind a press: a run of thoughts as one
  * "Thinking" row, since harnesses send thinking in pieces that break
- * mid-sentence, and a tool with its output.
+ * mid-sentence, and a tool with its output. What the teammate said it was on
+ * heads the rows after it, and what it left behind is marked where it said it.
  */
 export function StepRows({
 	items,
@@ -74,7 +124,7 @@ export function StepRows({
 	/** The row to open on arrival, brought into view: the one pressed in the peek. */
 	openId?: string | undefined;
 }) {
-	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | Extract<Step, { kind: "tool" }>)[] = [];
+	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | Exclude<Step, { kind: "thought" }>)[] = [];
 	for (const item of items) {
 		const last = rows[rows.length - 1];
 		if (item.kind === "thought") {
@@ -85,6 +135,20 @@ export function StepRows({
 	return rows.map((row, at) =>
 		row.kind === "thinking" ? (
 			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} startOpen={row.id === openId} />
+		) : row.kind === "activity" ? (
+			row.message !== undefined && (
+				<p key={row.id} className="step-heading" data-step-id={row.id}>
+					{row.message}
+				</p>
+			)
+		) : row.kind === "link" ? (
+			// Only a teammate's own tape holds a helper's line, and that path is
+			// read in the pane (Trail), never in place.
+			null
+		) : row.kind === "outcome" ? (
+			<p key={row.id} className="step-outcome outcome" data-step-id={row.id} data-mark={markOf(row)}>
+				{row.message}
+			</p>
 		) : (
 			<Tool
 				key={row.id}

@@ -49,11 +49,13 @@ function useClock(running: boolean): number {
 
 /**
  * A command a teammate's harness left running, open in the pane
- * (docs/design/thread-panes.html, Command): the command, then what it
- * writes in a terminal as it writes it, read the way a command Hotline
- * Agent left running is read (`useProcessOutput`). Once it ends the band
- * says how, and the terminal keeps the last of its output: the last read
- * while the pane was open, else what the run kept.
+ * (docs/design/thread-panes.html, Command; desk-threads, George 2026-11-12:
+ * activity, not a chat): the command, then its Activity, what it writes in a
+ * terminal as it writes it, read the way a command Hotline Agent left
+ * running is read (`useProcessOutput`), with Stop where the desk can stop
+ * it. Once it ends the band says how, and the terminal keeps the last of its
+ * output: the last read while the pane was open, else what the run kept. The
+ * foot says whose it is.
  */
 export function CommandPane({
 	personaId,
@@ -62,6 +64,7 @@ export function CommandPane({
 	cwd,
 	run,
 	events,
+	onStop,
 	onBack,
 	onClose,
 }: {
@@ -75,6 +78,8 @@ export function CommandPane({
 	run: RunningSubagent | undefined;
 	/** The run's stream, its link included. */
 	events: TranscriptEvent[];
+	/** The person's Stop (`thread.cancel`), offered while the roster says the desk can stop it. */
+	onStop(): Promise<unknown>;
 	onBack(): void;
 	onClose(): void;
 }) {
@@ -88,6 +93,16 @@ export function CommandPane({
 	const state = running ? "Running" : ((link?.end !== undefined ? ENDED[link.end] : undefined) ?? "Ended");
 	const took = running ? (startedAt === undefined ? undefined : now - startedAt) : link?.elapsedMs;
 	const dir = cwd?.split(/[\\/]/).filter((part) => part !== "").at(-1);
+	const [refused, setRefused] = useState<string | null>(null);
+	const [stopping, setStopping] = useState(false);
+	const stop = () => {
+		setRefused(null);
+		setStopping(true);
+		void onStop().catch((error: unknown) => {
+			setStopping(false);
+			setRefused(error instanceof Error ? error.message : String(error));
+		});
+	};
 	return (
 		<section className="dock-page" aria-label={`Command: ${command}`}>
 			<Band>
@@ -96,6 +111,11 @@ export function CommandPane({
 				</button>
 				<BandKind kind={threadFamily("run", owner, "shell")} live={running} state={state.toLowerCase()} tone="quiet" />
 				{took !== undefined && <span className="instrument shrink-0 pr-1">{clockOf(took)}</span>}
+				{running && run.stoppable === true && (
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this command" disabled={stopping} onClick={stop}>
+						Stop
+					</button>
+				)}
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
@@ -103,6 +123,7 @@ export function CommandPane({
 				title={command}
 				meta={[dir !== undefined && `in ${dir}`, startedAt !== undefined && startedWords(startedAt)]}
 			/>
+			<p className="pane-section eyebrow">Activity</p>
 			<p className="pane-command selectable">
 				<span aria-hidden="true" className="pane-command-prompt">
 					$
@@ -114,6 +135,8 @@ export function CommandPane({
 					{output !== "" ? output : <span className="text-ink-3">{running ? (read === null ? "Reading its output." : "Nothing written yet.") : "No output was kept."}</span>}
 				</pre>
 			</LiveStream>
+			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
+			<p className="run-foot">Left running by {owner}.</p>
 		</section>
 	);
 }

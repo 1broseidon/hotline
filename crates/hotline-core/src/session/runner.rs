@@ -890,9 +890,9 @@ impl Room {
             .flatten()
             .find(|listed| listed.row.run_id == run_id)
             .map(|listed| listed.stop.clone())
-            .ok_or_else(|| "That subagent is not running.".to_string())?;
+            .ok_or_else(|| "That helper is not running.".to_string())?;
         let stop = stop.ok_or_else(|| {
-            "That subagent is its harness's, which has no way to stop one run.".to_string()
+            "That helper is its harness's, which has no way to stop one run.".to_string()
         })?;
         stop.cancel();
         Ok(())

@@ -129,6 +129,16 @@ pub(super) async fn view(
                         lead = now;
                         continue;
                     }
+                    // A pair has no agent of its own: its record moving is
+                    // what moves the rows of the two teammates in it.
+                    if event.get("kind").and_then(Value::as_str) == Some("exchange_pair") {
+                        for side in ["a", "b"] {
+                            if let Some(persona_id) = event.get(side).and_then(Value::as_str) {
+                                dirty.mark(persona_id);
+                            }
+                        }
+                        continue;
+                    }
                     if event.get("kind").and_then(Value::as_str) != Some("persona") {
                         continue;
                     }
@@ -391,6 +401,7 @@ fn roster_entry(
         sides: room.sides(&persona.id),
         working_jobs: room.working_jobs(&persona.id),
         working_calls: room.working_calls(&persona.id),
+        working_pairs: room.working_pairs(&persona.id),
         asides: u32::try_from(room.asides_unheard(&persona.id))
             .ok()
             .filter(|unheard| *unheard > 0),

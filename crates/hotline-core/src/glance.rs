@@ -9,7 +9,10 @@
 //! other step from the kinds every ACP agent reports, a connected service's
 //! name, or the program a command runs.
 
-use crate::contract::{StepSaid, WebSource};
+use crate::contract::StepSaid;
+
+mod sources;
+pub use sources::sources_of;
 
 /// How one of Hotline's own tools is said: once, `{n}` times, and while it
 /// runs. Steps in a row with the same group are one line of a glance.
@@ -132,6 +135,27 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
     (
         "react",
         label("react", "Reacted", "Reacted {n} times", "Reacting"),
+    ),
+    // What the teammate says it is on and what it left behind head and mark
+    // the path in the pane; the window draws them there rather than as
+    // steps, and knows their calls by these two groups.
+    (
+        "activity",
+        label(
+            "activity",
+            "Said what it is on",
+            "Said what it is on",
+            "Saying what it is on",
+        ),
+    ),
+    (
+        "outcome",
+        label(
+            "outcome",
+            "Said what came of it",
+            "Said what came of it",
+            "Saying what came of it",
+        ),
     ),
     (
         "post_to_chat",
@@ -343,15 +367,7 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
             "Running a command",
         ),
     ),
-    (
-        "subagent",
-        label(
-            "subagent",
-            "Started a subagent",
-            "Started {n} subagents",
-            "Starting a subagent",
-        ),
-    ),
+    ("subagent", STARTED_A_HELPER),
     (
         "inspect_job",
         label(
@@ -496,6 +512,31 @@ const GENERIC_KINDS: &[&str] = &[
 /// The longest description of its own an agent's step is said by.
 const DESCRIPTION_CHARS: usize = 60;
 
+/// The kind of a call that left a command running in the background: an
+/// agent's harness says so of its own shell call (see the ACP driver), and the
+/// step is then the start of the command's run.
+pub const BACKGROUND_COMMAND: &str = "background";
+
+/// How the start of a helper (a subagent) is said, by Hotline Agent's
+/// `subagent` tool or by any agent's own launch of one. Its group is the one
+/// the window knows such a start by: the helper's own line in the path stands
+/// for it.
+const STARTED_A_HELPER: Label = label(
+    "subagent",
+    "Started a helper",
+    "Started {n} helpers",
+    "Starting a helper",
+);
+
+/// How the start of a command left running is said, its group known the same
+/// way by the window.
+const STARTED_A_COMMAND: Label = label(
+    "command",
+    "Started a command",
+    "Started {n} commands",
+    "Starting a command",
+);
+
 fn said(
     key: impl Into<String>,
     one: impl Into<String>,
@@ -519,6 +560,15 @@ fn from_label(label: &Label) -> StepSaid {
 pub fn step_said(title: &str, kind: &str, description: Option<&str>) -> StepSaid {
     let title = title.trim();
     let kind = kind.trim();
+    // A step that started a helper or left a command running is said in the
+    // desk's words whatever the agent titled or described it, so every agent's
+    // start reads alike and the window knows it by its group: the helper's or
+    // the command's own line in the path stands for it.
+    match kind {
+        crate::session::jobs::SUBAGENT => return from_label(&STARTED_A_HELPER),
+        BACKGROUND_COMMAND => return from_label(&STARTED_A_COMMAND),
+        _ => {}
+    }
     // A Hotline tool by its name, written as the title, through the room's MCP
     // server (`mcp__hotline__post_to_chat`), or as the kind of a step whose
     // title says nothing more. A title that carries what was read, edited or
@@ -650,12 +700,6 @@ pub fn step_said(title: &str, kind: &str, description: Option<&str>) -> StepSaid
     }
 }
 
-/// The most results of one search a step keeps as its sources.
-const MOST_FOUND: usize = 10;
-
-/// The longest page title a source keeps.
-const SOURCE_TITLE_CHARS: usize = 160;
-
 /// The first web address in a step's title: the page a fetch reads.
 fn url_in(title: &str) -> Option<String> {
     title
@@ -670,109 +714,6 @@ fn url_in(title: &str) -> Option<String> {
 pub fn site_of(url: &str) -> Option<String> {
     let host = url::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
     Some(host.strip_prefix("www.").unwrap_or(&host).to_string())
-}
-
-/// The web pages a finished step read or found, as its own output names
-/// them; nothing for any other step. A fetch is the page in its title, with
-/// the page's title when the tool writes it first (`web_fetch` does, then a
-/// blank line); a search is the results its output lists, each `N. title`
-/// over its address (Hotline's `web_search`) or `title (address)` (Claude's).
-/// A "title" that is only the site's name is no title.
-pub fn sources_of(title: &str, kind: &str, output: &str) -> Vec<WebSource> {
-    let shown = |url: &str, name: &str| {
-        let name = name.trim();
-        let site = site_of(url).unwrap_or_default();
-        (!name.is_empty() && !name.eq_ignore_ascii_case(&site) && !name.contains("://"))
-            .then(|| name.chars().take(SOURCE_TITLE_CHARS).collect::<String>())
-    };
-    let first = title.split([':', ' ']).next().unwrap_or_default();
-    let searched = group_of(kind, title) == "web"
-        || [first, kind]
-            .iter()
-            .any(|name| name.trim_start_matches("mcp__hotline__") == "web_search");
-    if searched {
-        let mut found: Vec<WebSource> = Vec::new();
-        let mut lines = output.lines().peekable();
-        while let Some(line) = lines.next() {
-            let line = line.trim();
-            let hit = if let Some((number, name)) = line.split_once(". ")
-                && number.chars().all(|c| c.is_ascii_digit())
-                && !number.is_empty()
-                && let Some(next) = lines.peek()
-                && let Some(url) = url_in(next.trim()).filter(|url| url == next.trim())
-            {
-                lines.next();
-                Some((url, name.to_string()))
-            } else if let Some(open) = line.rfind(" (http")
-                && line.ends_with(')')
-                && let Some(url) = url_in(&line[open + 2..line.len() - 1])
-            {
-                Some((url, line[..open].to_string()))
-            } else {
-                None
-            };
-            if let Some((url, name)) = hit
-                && !found.iter().any(|known| known.url == url)
-            {
-                found.push(WebSource {
-                    title: shown(&url, &name),
-                    url,
-                    found: true,
-                });
-            }
-            if found.len() == MOST_FOUND {
-                break;
-            }
-        }
-        return found;
-    }
-    // A command that fetched a page (`curl` or `wget` with an address) read
-    // it, as a fetch does; `gh api` and the like are an API, not a page.
-    if group_of(kind, title) == "execute" {
-        let command = command_of(title);
-        let fetches = command
-            .split(['|', ';', '&'])
-            .map(str::trim)
-            .filter(|part| {
-                let program = part.split_whitespace().next().unwrap_or_default();
-                matches!(
-                    program.rsplit('/').next().unwrap_or_default(),
-                    "curl" | "wget"
-                )
-            })
-            .filter_map(|part| part.split_whitespace().find_map(url_in));
-        let mut found: Vec<WebSource> = Vec::new();
-        for url in fetches {
-            if !found.iter().any(|known| known.url == url) {
-                found.push(WebSource {
-                    url,
-                    title: None,
-                    found: false,
-                });
-            }
-        }
-        return found;
-    }
-    if group_of(kind, title) != "fetch" {
-        return Vec::new();
-    }
-    let Some(url) = url_in(title) else {
-        return Vec::new();
-    };
-    let named = title.starts_with("web_fetch")
-        && output
-            .lines()
-            .nth(1)
-            .is_some_and(|line| line.trim().is_empty());
-    let page = named
-        .then(|| output.lines().next())
-        .flatten()
-        .and_then(|line| shown(&url, line));
-    vec![WebSource {
-        url,
-        title: page,
-        found: false,
-    }]
 }
 
 /// The kind of step, from the ACP kind or what the title gives away.
@@ -1034,6 +975,38 @@ mod tests {
         }
     }
 
+    /// A start of a helper or of a command left running reads in the desk's
+    /// words and under the group the window knows it by, whatever the agent
+    /// titled or described the call: Hotline Agent's `subagent` tool, Claude's
+    /// failed `Agent` launch titled and described by its task (as the
+    /// adapter shows one), Codex's `spawnAgent`, and Claude's background
+    /// `Bash` with its own description.
+    #[test]
+    fn a_start_is_said_in_the_desks_words_whatever_the_agent_wrote() {
+        let helper = ("subagent", "Started a helper");
+        for (title, words) in [
+            ("subagent Open-choice research 1", None),
+            (
+                "Profile agent tools group E",
+                Some("Profile agent tools group E"),
+            ),
+            ("spawnAgent", None),
+        ] {
+            let said = step_said(title, crate::session::jobs::SUBAGENT, words);
+            assert_eq!((said.key.as_str(), said.one.as_str()), helper, "{title}");
+            assert_eq!(said.many, "Started {n} helpers");
+        }
+        let said = step_said(
+            "python3 -m http.server 8766",
+            BACKGROUND_COMMAND,
+            Some("Serve octopus.md on port 8766"),
+        );
+        assert_eq!(
+            (said.key.as_str(), said.one.as_str(), said.many.as_str()),
+            ("command", "Started a command", "Started {n} commands")
+        );
+    }
+
     #[test]
     fn hotline_tools_are_said_from_the_manifest_however_they_were_called() {
         assert_eq!(one("post_to_chat", "post_to_chat"), "Posted to the chat");
@@ -1120,87 +1093,6 @@ mod tests {
 }
 
 #[cfg(test)]
-mod sources {
-    use super::sources_of;
-    use crate::contract::WebSource;
-
-    fn page(url: &str, title: Option<&str>, found: bool) -> WebSource {
-        WebSource {
-            url: url.into(),
-            title: title.map(str::to_string),
-            found,
-        }
-    }
-
-    #[test]
-    fn a_fetched_page_is_its_address_and_the_title_its_tool_wrote_first() {
-        assert_eq!(
-            sources_of(
-                "web_fetch: https://en.wikipedia.org/wiki/SSX_Tricky",
-                "fetch",
-                "SSX Tricky - Wikipedia\n\n[Jump to content](#bodyContent)\n",
-            ),
-            vec![page(
-                "https://en.wikipedia.org/wiki/SSX_Tricky",
-                Some("SSX Tricky - Wikipedia"),
-                false
-            )]
-        );
-        // Claude's fetch answers with its own summary, which is not the page's title.
-        assert_eq!(
-            sources_of(
-                "Fetch https://www.onorca.dev/docs/mobile",
-                "fetch",
-                "# Orca Relay: What the Documentation Actually Says\n\nBased on…",
-            ),
-            vec![page("https://www.onorca.dev/docs/mobile", None, false)]
-        );
-        // A step that is not the web names no pages, whatever its output says.
-        assert_eq!(
-            sources_of("cat links.txt", "execute", "Docs (https://a.dev/x)"),
-            Vec::new()
-        );
-    }
-
-    #[test]
-    fn a_web_search_names_the_results_its_output_lists() {
-        let hotline = "1. How should I care for my goldfish? - RSPCA\n   https://kb.rspca.org.au/goldfish\n   Goldfish are social…\n\n2. Keeping Fish as Pets\n   https://www.rspca.org.uk/fish\n   Goldfish were…\n";
-        assert_eq!(
-            sources_of("mcp__hotline__web_search: goldfish care", "search", hotline),
-            vec![
-                page(
-                    "https://kb.rspca.org.au/goldfish",
-                    Some("How should I care for my goldfish? - RSPCA"),
-                    true
-                ),
-                page(
-                    "https://www.rspca.org.uk/fish",
-                    Some("Keeping Fish as Pets"),
-                    true
-                ),
-            ]
-        );
-        let claude = "apps.apple.com (https://apps.apple.com/us/app/orca-ide/id6766130217)\nMobile companion (https://www.onorca.dev/docs/mobile)\nBased on the search results, here's what I found (with notes)\n";
-        assert_eq!(
-            sources_of("Search \"Orca app relay\"", "fetch", claude),
-            vec![
-                // A site's name is not a page title.
-                page(
-                    "https://apps.apple.com/us/app/orca-ide/id6766130217",
-                    None,
-                    true
-                ),
-                page(
-                    "https://www.onorca.dev/docs/mobile",
-                    Some("Mobile companion"),
-                    true
-                ),
-            ]
-        );
-    }
-}
-
-#[cfg(test)]
 mod written {
     use crate::contract::{ToolStatus, TranscriptEvent};
     use crate::driver::Update;
@@ -1282,6 +1174,40 @@ mod written {
             super::sources_of("gh api repos/oven-sh/bun/releases/latest", "execute", "{}"),
             Vec::new()
         );
+    }
+
+    /// Goldie's first step in its computer's browser (tape 79d12f56, line
+    /// 3048), as Hotline Agent reports it: the page it went to is on the
+    /// step it writes, and a navigation that failed went nowhere.
+    #[test]
+    fn a_page_the_browser_went_to_is_written_on_its_step_and_a_failed_one_is_not() {
+        let navigate = |ok| {
+            crate::session::events_of_updates(vec![
+                Update::ToolCall {
+                    call_id: "b1".into(),
+                    title: "computer__browser".into(),
+                    kind: "computer__browser".into(),
+                },
+                Update::ToolResult {
+                    call_id: "b1".into(),
+                    ok,
+                    output: "navigated to https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
+                        .into(),
+                    images: Vec::new(),
+                },
+            ])
+        };
+        let sources = |events: &[Vec<TranscriptEvent>]| match &events[1][0] {
+            TranscriptEvent::Tool { sources, .. } => sources.clone(),
+            _ => None,
+        };
+        let opened = sources(&navigate(true)).expect("a source");
+        assert_eq!(
+            opened[0].url,
+            "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
+        );
+        assert!(!opened[0].found);
+        assert_eq!(sources(&navigate(false)), None);
     }
 
     #[test]

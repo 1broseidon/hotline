@@ -4,15 +4,14 @@ import { REST, step, type Bubble, type Cadence } from "../../cadence";
 import type { Block } from "../../scheduledRuns";
 import { type Activity, type ActivityPhase, LANDED, RESTING } from "../../activity";
 import { LANDED_MS } from "../../ui/Glyph";
-import type { Step } from "../../scheduledRuns";
-import { type TurnSummary, summaryOf } from "../../turnFacts";
 
 /**
  * Each kind of work stays on the mark for at least DWELL_MS before the next
  * replaces it, so an agent alternating reads and searches a few times a
  * second shows each as a pose and not as a twitch. Waiting on you and
  * writing take over at once: they are the two you need to see the moment
- * they happen.
+ * they happen. Resting while the turn waits on its subagents is not a kind
+ * of work either, so the turn going quiet, or back to work, shows at once.
  */
 const DWELL_MS = 900;
 
@@ -21,10 +20,12 @@ export function useSteady(activity: Activity | null): Activity | null {
 	const [, wake] = useReducer((n: number) => n + 1, 0);
 	const now = Date.now();
 	const was = shown.current;
-	const work = (one: Activity | null) => one !== null && one.phase !== "blocked" && one.phase !== "writing";
+	const work = (one: Activity | null) => one !== null && one.phase !== "blocked" && one.phase !== "writing" && one.phase !== "rest";
 	const changing = activity?.phase !== was.activity?.phase;
 	const hold = changing && work(activity) && work(was.activity) && now - was.at < DWELL_MS;
 	if (changing && !hold) shown.current = { activity, at: now };
+	// The same kind in new words is the words now, without starting its dwell again.
+	else if (!changing) shown.current = { activity, at: was.at };
 	const dueIn = hold ? DWELL_MS - (now - was.at) : null;
 	useEffect(() => {
 		if (dueIn === null) return;
@@ -75,13 +76,16 @@ export function useSleep(personaId: string, activity: Activity | null): { activi
  * writing keeps the mark for LANDED_MS in the `landed` phase, so the voice
  * line can reel back into the handset and drop onto the cradle; any other
  * ending — a cancel mid-tool, a refusal — lets it go at once, because
- * nothing was said to hang up on. Worked out during render rather than after
- * it, so the mark is never gone for a frame between writing and landing.
+ * nothing was said to hang up on. A turn that stops to wait on its subagents
+ * after a reply hangs up the same way, keeping the words it rests with, and
+ * then rests. Worked out during render rather than after it, so the mark is
+ * never gone for a frame between writing and landing.
  */
 export function useLanding(personaId: string, activity: Activity | null): Activity | null {
 	const last = useRef<ActivityPhase | null>(null);
 	const [landing, setLanding] = useState(false);
-	const phase = activity?.phase ?? null;
+	// Resting while it waits is the far side of a hang-up, as the turn's end is.
+	const phase = activity === null || activity.phase === "rest" ? null : activity.phase;
 	const ended = phase === null && (landing || last.current === "writing");
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what starts it again.
 	useEffect(() => {
@@ -100,41 +104,7 @@ export function useLanding(personaId: string, activity: Activity | null): Activi
 		const timer = window.setTimeout(() => setLanding(false), LANDED_MS);
 		return () => window.clearTimeout(timer);
 	}, [phase]);
-	return activity ?? (ended ? LANDED : null);
-}
-
-/**
- * How long the composer's row says what a turn came to (DONE_MS) once the
- * mark has gone back to sleep, before the row leaves: "12 steps · 4 sources
- * · 3 files · 1 failed". Only after a turn that took steps; worked out during
- * render, as the landing is, so the row is never gone for a frame between.
- */
-const DONE_MS = 6000;
-
-export function useDone(personaId: string, activity: Activity | null, items: Step[] | undefined): TurnSummary | null {
-	const awake = useRef(false);
-	const [holding, setHolding] = useState(false);
-	const off = activity === null;
-	const ended = off && (holding || awake.current);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what starts it again.
-	useEffect(() => {
-		awake.current = false;
-		setHolding(false);
-	}, [personaId]);
-	useEffect(() => {
-		if (!off) {
-			awake.current = true;
-			setHolding(false);
-			return;
-		}
-		if (!awake.current) return;
-		awake.current = false;
-		setHolding(true);
-		const timer = window.setTimeout(() => setHolding(false), DONE_MS);
-		return () => window.clearTimeout(timer);
-	}, [off]);
-	const summary = useMemo(() => (items === undefined ? null : summaryOf(items)), [items]);
-	return ended && summary !== null && summary.steps > 0 ? summary : null;
+	return ended ? { ...LANDED, word: activity?.word ?? "" } : activity;
 }
 
 /**

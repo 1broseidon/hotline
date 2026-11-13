@@ -61,7 +61,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .list-row, .list-fold, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
+	:where(.control, .rail-row, .list-row, .list-fold, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .composer-work, .composer-threads, .window-control, .swatch):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -1802,6 +1802,25 @@
 		transform-box: fill-box;
 		transform-origin: center;
 	}
+	/* Talking: the brow become a headband, earcups that grow from its ends
+	 * about their own middles, and a mic boom cut in the ground's colour. */
+	.glyph .g-band {
+		fill: none;
+		stroke: currentColor;
+		stroke-linecap: round;
+	}
+	.glyph .g-cup {
+		transform-box: fill-box;
+		transform-origin: center;
+	}
+	.glyph .g-boom {
+		fill: none;
+		stroke: var(--canvas);
+		stroke-linecap: round;
+	}
+	.glyph .g-micdot {
+		fill: var(--canvas);
+	}
 	/* On the line: the handset as a stroke, pulled out above the toad into the reply. */
 	.glyph .g-line {
 		fill: none;
@@ -2194,6 +2213,44 @@
 		padding: 0;
 		list-style: none;
 	}
+	/* What the teammate said it was on heads the steps it took meanwhile,
+	 * with when it began; the steps sit under it, set in. */
+	.trail-heading {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		padding: 4px 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.trail-heading-said {
+		min-width: 0;
+		flex: 1;
+		overflow-wrap: anywhere;
+	}
+	.trail-group + .trail-group,
+	.trail-step + .trail-group {
+		margin-top: 6px;
+	}
+	.trail-under {
+		padding-left: 12px;
+	}
+	/* What the turn left behind, where the teammate said so. */
+	.trail-outcome {
+		padding: 4px 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.step-heading,
+	.step-outcome {
+		margin: 0;
+		padding: 4px 8px 2px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
 	.trail-head {
 		display: flex;
 		width: 100%;
@@ -2493,6 +2550,10 @@
 		margin: 4px 0;
 		border-left: 2px solid var(--line);
 		padding-left: 6px;
+	}
+	/* A path opened in place: the pages read, by name, over its steps. */
+	.steps > [aria-label="Sources"] {
+		margin: 4px 0 10px;
 	}
 
 	/* A card in the tape: a permission asked, a hand to a person. Not
@@ -2804,29 +2865,24 @@
 	.composer-work[data-sleeping] {
 		opacity: 0.5;
 	}
+	/* The teammate's own words for what it is on: new words come in from
+	 * the mark's side rather than change in place. */
 	.composer-work-word {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		animation: said-in var(--dur-move) var(--ease-out);
 	}
-	.composer-work-count,
-	.composer-work-failed {
-		margin-left: auto;
-		flex-shrink: 0;
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-3);
-	}
-	.composer-work-count {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-	}
-	.composer-work-failed {
-		color: var(--danger);
-	}
-	.composer-work-count ~ .composer-work-chevron,
-	.composer-work-failed ~ .composer-work-chevron {
-		margin-left: 2px;
+	@keyframes said-in {
+		from {
+			opacity: 0;
+			transform: translateX(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
 	}
 	/* A site's icon, and a few of them overlapping: the pages read. */
 	/* A site's icon sits on a light tile, as browsers show them, so a dark
@@ -2850,9 +2906,6 @@
 	.favicons > .favicon {
 		box-shadow: 0 0 0 1.5px var(--canvas);
 	}
-	.composer .favicons > .favicon {
-		box-shadow: 0 0 0 1.5px var(--pop);
-	}
 	.favicons > .favicon + .favicon {
 		margin-left: -2px;
 	}
@@ -2861,16 +2914,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: var(--ink-3);
-	}
-	/* What the turn came to, as counts: the instrument voice. */
-	.composer-work[data-done] .composer-work-word,
-	.composer-work[data-done] .composer-work-failed {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		letter-spacing: 0.02em;
-	}
-	.composer-work[data-done] .composer-work-word {
-		color: var(--ink-2);
 	}
 	/* The live line of the peek is what is happening now: it reads in full ink. */
 	.work-window .step[data-live] .step-title {
@@ -2885,6 +2928,63 @@
 	}
 	.composer-work[aria-expanded="true"] .composer-work-chevron {
 		transform: none;
+	}
+	/* The threads live in the session, counted at the bottom row's right in
+	 * the person's accent, as the phone's composer has it: "2 threads ›". */
+	.composer-threads {
+		display: flex;
+		flex-shrink: 0;
+		height: 30px;
+		align-items: center;
+		gap: 4px;
+		margin: 0 4px;
+		padding: 0 8px 0 10px;
+		border-radius: 15px;
+		color: var(--accent-ink);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.composer-threads:hover,
+	.composer-threads[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	.composer-threads-chevron {
+		width: 12px;
+		height: 12px;
+	}
+	/* Open, they are the pill's first row, as a card waiting on the person
+	 * is: the Threads list's rows under a count, a long list scrolling. */
+	.composer[data-work] > .composer-threads-panel {
+		order: -2;
+		flex-basis: 100%;
+		max-height: min(40vh, 320px);
+		overflow-y: auto;
+		margin: 0 0 4px;
+		padding: 0 2px 4px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer-threads-panel .list-group {
+		padding-top: 6px;
+	}
+	.composer-threads-panel .list-row[aria-current="true"] {
+		background: var(--fill-hover);
+	}
+	/* The panel's last row, All threads: the full list, in the pane. Quieter
+	 * than a running thread's row; what is new there in the accent. */
+	.composer-threads-all .list-title {
+		font-weight: 400;
+		color: var(--ink-2);
+	}
+	.composer-threads-all .list-mark {
+		color: var(--ink-4);
+	}
+	.composer-threads-all .list-when {
+		gap: 4px;
+		align-items: center;
+		color: var(--accent-ink);
 	}
 	.composer-attach:hover {
 		background: var(--fill-hover);
@@ -4764,53 +4864,34 @@
 	.pane-stream .steps-heading {
 		display: none;
 	}
+	/* A section's name in a watched thread's pane: the Activity over a run's
+	 * steps or a command's output, as the eyebrows of its task and result. */
+	.pane-section {
+		flex-shrink: 0;
+		margin: 4px 16px 0;
+	}
+	/* Words said between a run's steps: a line of its activity under who
+	 * said it, not a bubble, since nobody talks with a run. */
+	.pane-said {
+		margin-top: 10px;
+	}
+	.pane-said-who {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.pane-said-text {
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
 	.run-foot {
 		flex-shrink: 0;
 		padding: 10px 24px;
 		box-shadow: inset 0 var(--hairline) 0 var(--line);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-	}
-	/* A teammate's live subagents, nested under its row in the rail
-	 * (Rail.tsx): each its title over its latest step, on a thread of rule. */
-	.rail-runs {
-		margin: 0 4px 4px 26px;
-		padding-left: 6px;
-		box-shadow: inset var(--hairline) 0 0 var(--line);
-	}
-	.rail-run {
-		display: flex;
-		width: 100%;
-		align-items: flex-start;
-		gap: 8px;
-		padding: 4px 8px;
-		border-radius: var(--radius-control);
-		text-align: left;
-	}
-	.rail-run:hover {
-		background: var(--fill-hover);
-	}
-	.rail-run[aria-current="true"] {
-		background: var(--fill-selected);
-	}
-	.rail-run-title {
-		display: block;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink);
-	}
-	.rail-run-step {
-		display: block;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
 	}
 	/* The Threads list (ThreadList.tsx): the chips that narrow it, a group's
@@ -4912,18 +4993,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	/* A note's words are the row: two lines of them, at the explaining ink. */
-	.list-row[data-kind="note"] .list-title {
-		font-weight: 400;
-		color: var(--ink-2);
-	}
-	.list-row[data-kind="note"] .list-title-text {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		white-space: normal;
-		overflow-wrap: anywhere;
-	}
 	.list-notes {
 		flex-shrink: 0;
 		padding: 0 5px;
@@ -4950,10 +5019,15 @@
 		font-size: var(--text-xs);
 		color: var(--ink-2);
 	}
+	/* A note's row is where it came from over who told the teammate what:
+	 * two lines of the words, at the explaining ink. */
 	.list-row[data-kind="note"] .list-line {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-4);
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		color: var(--ink-2);
 	}
 	/* A row in Needs you: the card's own answers under its line, or Open. */
 	.list-keys {
@@ -5601,6 +5675,7 @@
 	.trail-step[data-status="in_progress"] .trail-said,
 	.ambient-card,
 	.ambient-card[data-sleeping],
+	.composer-work-word,
 	.menu,
 	.rail-tip,
 	.search-panel,

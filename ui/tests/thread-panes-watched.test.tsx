@@ -13,8 +13,8 @@ const { HandoffPane } = await import("../src/components/thread/HandoffPane");
 const { PairPane, pairLines } = await import("../src/components/thread/PairPane");
 const { CommandPane } = await import("../src/components/thread/CommandPane");
 const { LinkRow } = await import("../src/components/transcript/LinkRow");
-const { SubagentChips } = await import("../src/components/Conversation");
-const { linkLine } = await import("../src/links");
+const { liveThreads } = await import("../src/liveThreads");
+const { Transcript } = await import("../src/components/Transcript");
 const { wire } = await import("../src/wire");
 
 class NoResize {
@@ -169,11 +169,11 @@ describe("task-395 a pair's pane", () => {
 		expect(container.querySelector('button[title="Stop the exchange"]')).toBeNull();
 	});
 
-	test("in the conversation that holds it, its link line says Pair, not Thread", async () => {
+	test("in the conversation that holds it, its link line is a pair's, and shows no kind word", async () => {
 		const link: Extract<TranscriptEvent, { kind: "link" }> = { kind: "link", id: "link:pair", ts: 1, thread: key, threadKind: "pair", title: "Lou on grizzly", state: "live" };
 		await render(<LinkRow link={link} owner="poe" people={undefined} onOpen={() => {}} />);
 		expect(container.querySelector(".link-row")?.getAttribute("data-kind")).toBe("pair");
-		expect(text(".link-row-kind")).toBe("Pair");
+		expect(text(".link-row")).toBe("Talking with Lou on grizzlyOpen ›");
 	});
 });
 
@@ -190,9 +190,37 @@ describe("task-396 a command left running", () => {
 		kind: "tool", id: "tool:c1", ts: 9, toolCallId: "c1", title: "make precheck", toolKind: "execute", status: "completed",
 		output: [{ type: "text", text: "precheck: all 8 legs pass in 95s\n" }],
 	};
+	const stops: number[] = [];
 	const pane = (running: RunningSubagent | undefined, events: TranscriptEvent[]) => (
-		<CommandPane personaId="poe" runId={runId} owner="Poe" cwd="/Users/george/Projects/personal/hotline-wt-049" run={running} events={events} onBack={() => {}} onClose={() => {}} />
+		<CommandPane
+			personaId="poe"
+			runId={runId}
+			owner="Poe"
+			cwd="/Users/george/Projects/personal/hotline-wt-049"
+			run={running}
+			events={events}
+			onStop={async () => void stops.push(1)}
+			onBack={() => {}}
+			onClose={() => {}}
+		/>
 	);
+
+	test("reads as activity, not a chat: Activity over its output, no field, Stop only where the desk can stop it, and a foot saying whose it is", async () => {
+		// desk-threads, decision 2 (George, 2026-11-12).
+		output = { command: "make precheck", tail: "restore/full ........ ok\n" };
+		stops.length = 0;
+		await render(pane(run, [link("live")]));
+		expect(text(".pane-section")).toBe("Activity");
+		expect(container.querySelector("textarea, input, .speech")).toBeNull();
+		expect(container.querySelector('button[title="Stop this command"]')).toBeNull();
+		expect(text(".run-foot")).toBe("Left running by Poe.");
+		await render(pane({ ...run, stoppable: true }, [link("live")]));
+		await act(async () => container.querySelector<HTMLButtonElement>('button[title="Stop this command"]')!.click());
+		expect(stops).toEqual([1]);
+		// Ended, there is nothing to stop.
+		await render(pane(undefined, [link("closed")]));
+		expect(container.querySelector('button[title="Stop this command"]')).toBeNull();
+	});
 
 	test('opens as "$ Command" started by the teammate, titled by the command, "in <dir> · started <time>"', async () => {
 		output = { command: "make precheck", tail: "" };
@@ -226,13 +254,15 @@ describe("task-396 a command left running", () => {
 		expect(text(".pane-terminal")).toBe("precheck: all 8 legs pass in 95s\n");
 	});
 
-	test("its link line and composer chip say Command, not Subagent", async () => {
-		const line = link("closed") as Extract<TranscriptEvent, { kind: "link" }>;
-		await render(<LinkRow link={line} owner="poe" people={undefined} onOpen={() => {}} />);
-		expect(container.querySelector(".link-row")?.getAttribute("data-kind")).toBe("command");
-		expect(text(".link-row-kind")).toBe("Command");
-		expect(linkLine(line)).toStartWith("Command · make precheck");
-		await render(<SubagentChips subagents={[run]} opened={() => false} onOpenThread={() => {}} />);
-		expect(container.querySelector('[aria-label="Command running: make precheck"]')?.textContent).toBe("Command · make precheck");
+	test("it has no line in the conversation, and its row at the composer says Command, not Helper", async () => {
+		await render(<Transcript personaId="poe" name="Poe" events={[link("live"), link("closed")]} streaming={[]} live={false} focus={null} />);
+		expect(container.querySelector(".link-row")).toBeNull();
+		expect(container.textContent).not.toContain("make precheck");
+		// Its row in the composer's threads panel (task-437), where the chip was.
+		const poe = { persona: { id: "poe" }, subagents: [run] } as unknown as Parameters<typeof liveThreads>[0]["entry"];
+		const listedRun: ThreadSummary = { thread: { kind: "run", key: runId }, personaId: "poe", title: "make precheck", state: "live", startedAt: run.startedAt, updatedAt: run.startedAt, working: false, waiting: false, runKind: "shell" };
+		const [row] = liveThreads({ listed: [listedRun], roster: [], entry: poe, jobs: [], nameOf: () => undefined, now: Date.now() });
+		expect(row?.kind).toBe("command");
+		expect(row?.line).toBe("Command · make precheck");
 	});
 });

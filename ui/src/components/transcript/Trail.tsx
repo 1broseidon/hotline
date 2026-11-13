@@ -1,26 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolOutput } from "../../generated/contract";
-import type { Step } from "../../scheduledRuns";
-import { ChevronDownIcon, ChevronRightIcon, EyeIcon } from "../../icons";
-import { type Glance, glance } from "../../glance";
+import type { RunLink, Step } from "../../scheduledRuns";
+import { linkFailed, runStatus } from "../../links";
+import type { ThreadRef } from "../Transcript";
+import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
+import type { Glance } from "../../glance";
+import { markOf, type PathEntry, pathGroups, pathLines } from "../../outcomes";
 import { openLink } from "../../native";
 import { joinThoughts, stepTitle } from "../../stepText";
-import { type FileChange, type Source, type ToolStep, durationText, factOf, filesOf, pageOf, sourcesOf, stepTook, toolSteps } from "../../turnFacts";
+import { type FileChange, type Source, type ToolStep, durationText, factOf, filesOf, pageOf, resultsOf, sourcesOf, stepTook, toolSteps } from "../../turnFacts";
 import { Favicon, Favicons } from "../Favicon";
+import { pathOf, plainTitle, Read, Sources } from "./Sources";
 import { StepOutput } from "./Steps";
 
 /*
  * A turn's work as the right-hand pane reads it, simple where it can be and
  * rich only where it matters. Its shape first: one thin bar, a segment a
  * step as long as it took, so where the time went shows without reading.
- * Then the web pages it read as cards (the one place an icon earns its
- * room), an eye on those it opened, the files it changed with the lines in
- * and out, and its steps as plain lines in the core's few words, a run of
+ * Then the web pages it opened as cards (the one place an icon earns its
+ * room), the files it changed with the lines in and out, and its steps as plain lines in the core's few words, a run of
  * one kind as one line, with the one fact worth a glance at the right. A
  * line opens to each step as a person reads it: a search as its query and
  * what it found, a page read as its title, a command as what it was for,
  * the command, and the first lines of its output; a failure stands out in
- * red.
+ * red. The helpers the turn started are one line where it started them,
+ * and each command it left running a line of its own; each opens its own
+ * activity in the pane.
  */
 
 /** Output as a person reads it: no markdown fence around it, and JSON laid out. */
@@ -75,7 +80,7 @@ export function Trail({
  */
 export function TrailHead({ items, settled = false, hot }: { items: Step[]; settled?: boolean; hot: Hot }) {
 	const sources = useMemo(() => sourcesOf(items), [items]);
-	const lines = useMemo(() => glance(items, !settled), [items, settled]);
+	const lines = useMemo(() => pathLines(pathGroups(items, !settled)), [items, settled]);
 	if (toolSteps(items).length === 0 && sources.length === 0) return null;
 	return (
 		<div className="work-sections work-head">
@@ -85,13 +90,45 @@ export function TrailHead({ items, settled = false, hot }: { items: Step[]; sett
 	);
 }
 
-/** What runs long, and so scrolls: the files the turn changed and its steps. */
-export function TrailSteps({ items, settled = false, openId, hot }: { items: Step[]; settled?: boolean; openId?: string | undefined; hot: Hot }) {
+/**
+ * What runs long, and so scrolls: the files the turn changed and its path,
+ * the steps grouped under what the teammate said it was on as each happened,
+ * its words the heading with when it began, what it left behind marked
+ * where it said so, and the helpers and commands it started where it started
+ * them. Steps before it said anything come first, ungrouped.
+ */
+export function TrailSteps({
+	items,
+	settled = false,
+	openId,
+	hot,
+	onOpenThread,
+}: {
+	items: Step[];
+	settled?: boolean;
+	openId?: string | undefined;
+	hot: Hot;
+	/** Opens a helper or a command in the pane; without it their lines only say how they went. */
+	onOpenThread?: ((thread: ThreadRef) => void) | undefined;
+}) {
 	const sources = useMemo(() => sourcesOf(items), [items]);
 	const files = useMemo(() => filesOf(items), [items]);
-	const lines = useMemo(() => glance(items, !settled), [items, settled]);
-	const steps = lines.reduce((n, line) => n + line.steps.length, 0);
-	if (files.length === 0 && lines.length === 0) return null;
+	const groups = useMemo(() => pathGroups(items, !settled), [items, settled]);
+	const steps = pathLines(groups).reduce((n, line) => n + line.steps.length, 0);
+	if (files.length === 0 && groups.length === 0) return null;
+	const start = items[0]?.ts ?? 0;
+	const entry = (one: PathEntry) =>
+		one.kind === "line" ? (
+			<TrailLine key={one.line.id} line={one.line} sources={sources} startOpen={one.line.ids.includes(openId ?? "")} hot={hot} />
+		) : one.kind === "helpers" ? (
+			<HelpersLine key={one.links[0]!.id} links={one.links} onOpen={onOpenThread} />
+		) : one.kind === "command" ? (
+			<RunLine key={one.link.id} link={one.link} said={`Started a command: ${one.link.title}`} onOpen={onOpenThread} />
+		) : (
+			<li key={one.outcome.id} className="trail-outcome outcome" data-step-id={one.outcome.id} data-mark={markOf(one.outcome)}>
+				{one.outcome.message}
+			</li>
+		);
 	return (
 		<div className="work-sections">
 			{files.length > 0 && (
@@ -104,18 +141,103 @@ export function TrailSteps({ items, settled = false, openId, hot }: { items: Ste
 					</ul>
 				</section>
 			)}
-			{lines.length > 0 && (
+			{groups.length > 0 && (
 				<section aria-label="Steps">
 					<h3 className="work-heading steps-heading">Steps{steps > 0 ? ` · ${steps}` : ""}</h3>
 					<ol className="trail">
-						{lines.map((line) => (
-							<TrailLine key={line.id} line={line} sources={sources} startOpen={line.ids.includes(openId ?? "")} hot={hot} />
-						))}
+						{groups.map((group) =>
+							group.heading === null ? (
+								group.entries.map(entry)
+							) : (
+								<li key={group.heading.id} className="trail-group" data-step-id={group.heading.id}>
+									<p className="trail-heading">
+										<span className="trail-heading-said">{group.heading.message}</span>
+										<span className="trail-fact">{sinceStart(group.heading.ts - start)}</span>
+									</p>
+									{group.entries.length > 0 && <ol className="trail trail-under">{group.entries.map(entry)}</ol>}
+								</li>
+							),
+						)}
 					</ol>
 				</section>
 			)}
 		</div>
 	);
+}
+
+/** What opens a helper or a command: its own thread, by its link. */
+const runRef = (link: RunLink): ThreadRef => ({ thread: { kind: "run", key: link.thread }, title: link.title });
+
+/** How a helper or a command stands, as a path line's dot and words read it. */
+function runTone(link: RunLink): "in_progress" | "failed" | "completed" {
+	return link.state !== "closed" ? "in_progress" : linkFailed(link) ? "failed" : "completed";
+}
+
+/**
+ * One line in the path for one helper or command: what was started, and at
+ * the right how it is going or how it ended and after how long. Pressed, it
+ * opens that one's own activity in the pane.
+ */
+function RunLine({ link, said, onOpen }: { link: RunLink; said: string; onOpen: ((thread: ThreadRef) => void) | undefined }) {
+	const tone = runTone(link);
+	return (
+		<li className="trail-step" data-step-id={link.id} data-status={tone}>
+			<button type="button" className="trail-head" disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
+				<span aria-hidden="true" className={`trail-dot ${tone === "in_progress" ? "beat" : ""}`} />
+				<span className="trail-said">{said}</span>
+				<span className="trail-fact" data-tone={tone === "in_progress" ? "live" : tone === "failed" ? "danger" : undefined}>
+					{runStatus(link)}
+				</span>
+				{onOpen !== undefined && <ChevronRightIcon className="trail-chevron" />}
+			</button>
+		</li>
+	);
+}
+
+/**
+ * The helpers a turn started together, as one line: "Started a helper: …"
+ * for one, which opens it, or "Started 4 helpers" for more, which unfolds
+ * to each with how it ended and how long it took, each opening its own
+ * activity. At the right, how many still run, else how many failed, else
+ * that all are done.
+ */
+function HelpersLine({ links, onOpen }: { links: RunLink[]; onOpen: ((thread: ThreadRef) => void) | undefined }) {
+	const [open, setOpen] = useState(false);
+	const one = links.length === 1 ? links[0] : undefined;
+	if (one !== undefined) return <RunLine link={one} said={`Started a helper: ${one.title}`} onOpen={onOpen} />;
+	const running = links.filter((link) => link.state !== "closed").length;
+	const failed = links.filter(linkFailed).length;
+	const status = running > 0 ? "in_progress" : failed > 0 ? "failed" : "completed";
+	const fact = running > 0 ? { text: `${running} running`, tone: "live" } : failed > 0 ? { text: `${failed} failed`, tone: "danger" } : { text: `${links.length} done`, tone: undefined };
+	return (
+		<li className="trail-step" data-step-id={links[0]!.id} data-status={status}>
+			<button type="button" className="trail-head" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+				<span aria-hidden="true" className={`trail-dot ${running > 0 ? "beat" : ""}`} />
+				<span className="trail-said">Started {links.length} helpers</span>
+				<span className="trail-fact" data-tone={fact.tone}>
+					{fact.text}
+				</span>
+				{open ? <ChevronDownIcon className="trail-chevron" /> : <ChevronRightIcon className="trail-chevron" />}
+			</button>
+			{open && (
+				<div className="trail-detail">
+					{links.map((link) => (
+						<button key={link.id} type="button" className="trail-row" data-step-id={link.id} disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
+							<span className="trail-page">{link.title}</span>
+							<span className={linkFailed(link) ? "trail-meta text-danger" : "trail-meta"}>{runStatus(link)}</span>
+							{onOpen !== undefined && <ChevronRightIcon className="shrink-0 text-ink-3" />}
+						</button>
+					))}
+				</div>
+			)}
+		</li>
+	);
+}
+
+/** "0:04", "1:10": how far into the turn something began. */
+function sinceStart(ms: number): string {
+	const seconds = Math.max(0, Math.round(ms / 1000));
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 /** A pause between steps longer than this is the agent thinking, and shows as a gap of its own. */
@@ -149,7 +271,7 @@ function Shape({ items, lines, live, hot }: { items: Step[]; lines: Glance[]; li
 		const gap = step.ts - end;
 		if (gap > THINKING_MS) segments.push({ key: `gap-${step.id}`, grow: gap, tone: "think" });
 		const stop = step.endedTs ?? (step.status === "in_progress" && live ? now : step.ts);
-		const tone = step.status === "failed" ? "failed" : step.status === "in_progress" && live ? "live" : step.sources?.some((page) => page.found === true) ? "web" : "done";
+		const tone = step.status === "failed" ? "failed" : step.status === "in_progress" && live ? "live" : resultsOf(step).length > 0 ? "web" : "done";
 		const line = lineOf.get(step.id);
 		segments.push({ key: step.id, grow: Math.max(stop - step.ts, 1), tone, ...(line !== undefined ? { line } : {}) });
 		end = Math.max(end, stop);
@@ -176,90 +298,6 @@ function Shape({ items, lines, live, hot }: { items: Step[]; lines: Glance[]; li
 				<span>{durationText(total)}</span>
 			</div>
 		</div>
-	);
-}
-
-/** How many sources show before the rest are asked for: a turn most often reads a few. */
-const SOURCES_SHOWN = 4;
-
-/** The pages the turn read, then those it only found: the first few as cards, the rest a press away. */
-function Sources({ sources }: { sources: Source[] }) {
-	const [all, setAll] = useState(false);
-	const more = sources.length - SOURCES_SHOWN;
-	return (
-		<section aria-label="Sources">
-			<h3 className="work-heading">Sources · {sources.length}</h3>
-			<div className="source-grid">
-				{(all ? sources : sources.slice(0, SOURCES_SHOWN)).map((source) => (
-					<SourceCard key={source.url} source={source} />
-				))}
-			</div>
-			{more > 0 && (
-				<button type="button" className="source-more" aria-expanded={all} onClick={() => setAll((was) => !was)}>
-					{all ? "Show fewer" : `Show ${more} more`}
-				</button>
-			)}
-		</section>
-	);
-}
-
-/**
- * A page's title as words: a search result's title can arrive as the page's
- * markdown, a logo's image and link and all, which reads as noise on a card.
- */
-export function plainTitle(title: string | undefined): string | undefined {
-	if (title === undefined) return undefined;
-	const words = title
-		// A link's address may be cut off with the title: to its end, then.
-		.replace(/!\[[^\]]*\](\([^)]*\)?)?/g, "")
-		.replace(/\[([^\]]*)\]\([^)]*\)?/g, "$1")
-		.replace(/[[\]]/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
-	return words === "" ? undefined : words;
-}
-
-/** "/blog/next-15-4" for a page with no title of its own: where on the site it is. */
-function pathOf(url: string): string {
-	try {
-		const at = new URL(url);
-		const path = decodeURIComponent(at.pathname).replace(/\/$/, "");
-		return path === "" ? at.hostname.replace(/^www\./, "") : path;
-	} catch {
-		return url;
-	}
-}
-
-/** The green eye on a page the agent opened, as against one a search only found. */
-function Read() {
-	return (
-		<span className="source-read" title="Read" aria-label="Read">
-			<EyeIcon />
-		</span>
-	);
-}
-
-/** A page the turn read or found: its site's icon and name, and its title, a press away from the page. */
-function SourceCard({ source }: { source: Source }) {
-	const title = plainTitle(source.title);
-	const titled = title !== undefined;
-	return (
-		<a
-			href={source.url}
-			className="source-card"
-			data-found={source.found || undefined}
-			onClick={(click) => {
-				click.preventDefault();
-				void openLink(source.url);
-			}}
-		>
-			<span className="source-site">
-				<Favicon site={source.site} size={16} />
-				<span className="min-w-0 flex-1 truncate">{source.site}</span>
-				{source.found !== true && <Read />}
-			</span>
-			<span className={titled ? "source-title" : "source-title source-path"}>{titled ? title : pathOf(source.url)}</span>
-		</a>
 	);
 }
 
@@ -342,11 +380,16 @@ function Thought({ text }: { text: string }) {
 	);
 }
 
-/** A step opened, by what it was: a search, a page read, or a command or anything else. */
+/**
+ * A step opened, by what it was: a search, a page read, or a command or
+ * anything else. A page read is a step whose title names its page (a fetch,
+ * a `curl`); a browser's step is titled by its tool, and opens to what it
+ * did, its page among the turn's sources above.
+ */
 function StepDetail({ step, sources }: { step: ToolStep; sources: Source[] }) {
-	const found = step.sources?.filter((page) => page.found === true) ?? [];
+	const found = resultsOf(step);
 	if (found.length > 0) return <SearchRow step={step} found={found.map((page) => sources.find((one) => one.url === page.url) ?? { ...page, site: siteName(page.url) })} sources={sources} />;
-	const page = step.sources?.find((one) => one.found !== true) ?? pageOf(step);
+	const page = step.sources?.find((one) => one.found !== true && step.title.includes(one.url)) ?? pageOf(step);
 	if (page != null && step.status !== "failed") return <PageRow step={step} url={page.url} sources={sources} />;
 	return <RunBlock step={step} />;
 }
@@ -369,7 +412,7 @@ function queryOf(title: string): string {
 function SearchRow({ step, found, sources }: { step: ToolStep; found: Source[]; sources: Source[] }) {
 	const [open, setOpen] = useState(false);
 	const took = stepTook(step);
-	const read = new Set(sources.filter((one) => one.found !== true).map((one) => one.url));
+	const read = new Set(sources.map((one) => one.url));
 	return (
 		<div className="trail-search">
 			<button type="button" className="trail-row" aria-expanded={open} onClick={() => setOpen((was) => !was)}>

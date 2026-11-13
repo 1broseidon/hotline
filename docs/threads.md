@@ -409,7 +409,7 @@ Where this differs from the design above:
   have no thread or marker.
 - **The client marker is `call`, additive.** `Link::wire` sends a call's link as
   `TranscriptEvent::Call` (`callId`, `title`, `status`, `durationMs`,
-  `outcome`). The desktop draws a quiet line, "Call · 4 min · Hung up". It has
+  `outcome`). The desktop draws a quiet line, "Weekly recap · 4 min · Hung up". It has
   no Open yet: reading a closed call in the pane waits for the thread view
   (phase 9). The phone drops transcript kinds it does not know (its tape filter
   and renderer have no case for them), so no capability gate was needed.
@@ -600,7 +600,9 @@ Where this differs from the design above:
   are. Moving them is a wire change for the phone to age out of.
 - **The window keeps no hello.** The desk's own socket is sent none, so
   `client.hello` answers the capabilities as well.
-- **A phone's list leaves pairs out**, as `peers.list` is refused it.
+- **A phone's list leaves pairs out**, as `peers.list` is refused it. (Since
+  0.49 it lists them: a DM between teammates is a thread on the phone too,
+  and it already subscribes to and pages one. `peers.list` stays refused.)
 - **Unread and read receipts are still the client's** (`peers.mark_read` stays).
 
 Notes for phase 9:
@@ -684,15 +686,39 @@ has one hook and one view.
   sides or subagents, or a waiting card change, and in between `withLinks` brings
   rows up to what the links say (a thread that closed reads closed at once, one the
   list has not heard of is a row from its link: `rowOfLink`).
-- **Links, not markers.** `Transcript` draws one `link` row for every kind
-  (`LinkRow`, from `linkRow` in `links.ts`: the kind's glyph with a state dot,
-  the title, what came of it; `linkLine` is its accessible name) with an Open
+- **Links, not markers.** `Transcript` draws one `link` row for a work
+  thread, a pair and a call (`LinkRow`, from `linkRow` in `links.ts`: a state
+  dot, the title, what it is doing or what came of it, and no kind word, which
+  stays where the person goes for detail: the opened thread's header and the
+  Threads list; `linkLine`, kind and all, is its accessible name) with an Open
   that opens the thread in the dock; the
   `side`, `subagent` and `call` cases draw nothing, since a `threads2` socket is
-  sent a link even for one written long ago. A `peer` marker and a delivery still
-  open the pair they name, in the dock. The subagent chips at the composer's
-  corner, the band's side chips, the More menu's Threads entry and its Start a
-  side thread all open the dock. That
+  sent a link even for one written long ago. A run's link (a subagent, which
+  the window calls a helper, or a command a harness left running) has no row
+  (George, 2026-11-12, task-448): `toBlocks` folds it into the steps of the
+  turn open on the tape when it was written, where it was written, so it is
+  part of that turn's path (`pathGroups`: helpers one after another are one
+  `helpers` entry, "Started 4 helpers", each command a `command` entry, and
+  a completed tool step said in the `subagent` or `command` group is dropped
+  when the turn has a helper's or a command's entry to stand for it), and the
+  pane opens it from there with Back to the path (`DockState` holds the
+  thread open over the turn's `work`). One written while the DM had no turn
+  open, by a work thread's turn, stays a line of its own that nothing draws,
+  reached from the Threads list. A failed one marks the line under the
+  reply (`failedRuns`). A search hit on a run's link, like one on a step or
+  an outcome, lands on its turn's line under the reply. The tape and the
+  wire are unchanged: the phone still reads each link. A `peer` marker and a delivery still
+  open the pair they name, in the dock. The rows of the composer's threads
+  panel (its "2 threads ›" count is the Threads list's Live group, read from
+  the same `thread.list` rows and roster by the same `listItems` and `filtered`
+  rule: `liveThreads.ts`, `threadRows.ts`; its All threads row opens the
+  list; a pair is live there while the roster rows of both its teammates
+  carry its key in `workingPairs`, which the core sends again whenever the
+  pair's `exchange_pair` record moves, since a pair has no agent of its own
+  to follow), the More menu's Threads entry and its Start a side thread all open
+  the dock. The band's side-thread chips and the rail's nested subagent rows
+  are gone (desk-threads mockup, 2026-11-12): an idle work thread is reached
+  from its link row or the list. That
   last is `thread.open` with no text: the thread opens untitled and idle, and
   the first line said in it names it. There is no `/side` command.
 - **Not done.** `search.thread` hits are chapters and messages with no thread in
@@ -706,7 +732,8 @@ the lease is turned away if its thread was revoked while it waited, a release
 waits for the call in flight, and the lease is held by an agent (`Holder::new`)
 rather than by its thread's key, so a replaced DM agent cannot release its
 replacement's hold (`computer/gate.rs`, `docs/security.md`). A companion's
-`thread.list` leaves out calls as well as pairs (`phone_may_read`). A work
+`thread.list` leaves out calls as well as pairs (`phone_may_read`; pairs
+are listed since 0.49). A work
 thread's delivery is stamped read when its turn begins (`LiveSide::begin`), so
 one saved and never admitted is handed over again after a restart, and a
 colleague's result carries its request through `Line::from` and is checked

@@ -860,10 +860,11 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
         "subagent_spawned" => {
             let task = text("task").unwrap_or_default();
             Some(Announced::Spawned {
+                // Unnamed, it is titled by the person's word for one.
                 title: clip(
                     text("name")
                         .filter(|name| !name.is_empty())
-                        .unwrap_or("Subagent"),
+                        .unwrap_or("Helper"),
                     TITLE_CHARS,
                 ),
                 // The adapter's own prompt is what the subagent was told; the
@@ -906,7 +907,7 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
                         text("title")
                             .filter(|title| !title.is_empty())
                             .or_else(|| text("description").filter(|d| !d.is_empty()))
-                            .unwrap_or("Subagent"),
+                            .unwrap_or("Helper"),
                         TITLE_CHARS,
                     ),
                     // The task comes as the child's own first message.

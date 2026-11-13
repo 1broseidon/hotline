@@ -1600,6 +1600,7 @@ extend; when a change adds a boundary, it adds a row.
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only the reading tools, starts no runs of its own and never reopens the teammate's session; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | Clones: a subagent and a job each reach back into the home thread with `search_thread` and `list_chapters` and read the granted folder, and one the home agent made `without` folders cannot read it; a run is not offered the doors to the person; a job's card is raised on its own thread, not the DM, and the answer comes back to it as a turn; a job's thread is found by `search_thread` after the index is rebuilt; a clone is built with the computer unless it was left out, on the model the home session is on, and on its teammate's own harness, ACP included; a run whose home lease is revoked never starts; a job is offered the home thread's tools but `JOB_WITHOUT`, and `schedule` writes what was left out on the job | `tests/schedule/clones.rs` `a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked`, `a_job_is_a_clone_on_its_own_thread_and_reaches_back_after_a_restart`; `session/tests/runs.rs` `a_run_has_the_computer_unless_the_home_agent_leaves_it_out`, `a_run_is_a_clone_on_its_teammates_own_harness`, `a_run_refuses_a_brief_that_is_a_jobs`; `session/tests/scheduled.rs` `a_jobs_card_is_raised_and_answered_on_its_own_thread`, `a_job_has_the_computer_unless_it_was_made_without_it`; `session/agent.rs` `a_clone_is_narrowed_by_what_the_home_agent_left_out`, `a_clone_is_on_the_model_and_effort_its_home_session_is_on`; `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`; `hotline-store/src/search.rs` `a_rebuild_keeps_what_the_teammates_jobs_said`; `tests/threads/together.rs` `every_thread_reaches_the_chat_through_one_door_on_both_drivers`, `a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart` | Unix for the computer rows |
 | `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a question answered in the target's main conversation may not post, its reply being the chat already, and lands in neither chat; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_question_turn_may_not_post`, `an_acp_question_turn_may_not_post`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
+| `activity` and `outcome`: each writes one line on the calling thread, at once, on Hotline Agent and an ACP child; an unknown kind is kept and said to be shown plainly, an overlong message is refused and lands nowhere; an open outcome is updated, closed or `ended` by its `id` in place, from its thread or a work thread of the same teammate, and an `id` with nothing open is refused; a subagent run is refused both | `tests/mcp/outcomes.rs` `hotline_agent_says_what_it_is_on_and_what_it_left`, `an_acp_child_says_what_it_is_on_and_what_it_left`, `hotline_agent_closes_an_open_outcome_by_its_id`, `an_acp_child_closes_an_open_outcome_by_its_id`; `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session` | — |
 | A receipt cannot move machinery | `session/peers/tests.rs` `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
@@ -2930,6 +2931,44 @@ thread it came from.
   word `quiet` on its line, so its model may say it is staying silent: those
   words land on the job's thread, never in the chat.
 
+## What a teammate says of its work (epic-42)
+
+`activity(type, message?)` and `outcome(type, message, state?, id?, ended?)`
+are two of Hotline's own tools. Each writes one line, as the teammate, on the
+thread the call was made in: what it is on, drawn beside its mark, and what a
+turn left behind, drawn under its reply. They reach nothing outside that
+teammate's own threads.
+
+- **Default and old records:** nothing is granted per teammate and nothing
+  new is stored on a persona. The tools are on the desk's MCP server and among
+  Hotline Agent's in-process tools in every session but a subagent run's and a
+  voice front's. A tape written before them has no such lines and draws as it
+  did; a client that does not know the kinds skips them.
+- **Grant source:** none: the teammate's own session. A subagent run is refused
+  both by name (`RUN_TOOLS`), because it reports to the teammate that launched
+  it and draws nothing; a voice front has neither (`FRONT_TOOLS`).
+- **Enforcement:** `TeammateTools::answer` checks the session's capability
+  lease first, as for every tool, then `Room::declare_activity` and
+  `Room::declare_outcome` (`session/declared.rs`) write through `Threads::write`
+  to the thread the tools were made for, never one named in the arguments.
+  `outcome`'s `id` closes an open outcome only on that thread or the same
+  teammate's main conversation; an `id` on a colleague's thread is never
+  looked for. Words are bounded (80 characters for an activity, 120 for an
+  outcome, 64 for an id), and the desk adds none of its own.
+- **Tests:** `tests/mcp/outcomes.rs`
+  `hotline_agent_says_what_it_is_on_and_what_it_left`,
+  `an_acp_child_says_what_it_is_on_and_what_it_left`,
+  `hotline_agent_closes_an_open_outcome_by_its_id`,
+  `an_acp_child_closes_an_open_outcome_by_its_id`, through the real handler on
+  both drivers, read off the wire and from disk; `session/tests/runs.rs`
+  `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`
+  refuses a run both.
+- **Residual risk:** the words are the model's. A teammate can say it sent
+  something it did not, or leave a failure out: the outcome line is a receipt
+  in the teammate's words, and the path one press away is the check on it. An
+  `ended` or rewritten outcome replaces the line by id, so the earlier words
+  are on disk but no longer drawn.
+
 ## Jobs on their own threads (ADR 0008 §7)
 
 A job's firing is a turn on its own thread, by an agent of the teammate's
@@ -3047,7 +3086,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
-  | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
+  | `thread.list` | only what it may read: no calls | a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page; a pair is listed (since 0.49, George's call that a DM between teammates is a thread on the phone too), as it already subscribes to and pages one, though `peers.list` stays refused it |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |
 
@@ -3063,7 +3102,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   `a_thread_verb_the_kind_has_no_meaning_for_is_refused`,
   `thread_verbs_reach_the_handlers_the_older_commands_did`,
   `thread_list_reads_every_kind_as_one_summary`,
-  `a_companions_thread_list_leaves_out_calls_and_pairs`,
+  `a_companions_thread_list_leaves_out_calls_and_lists_pairs`,
   `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
   `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
   that send each shape; `remote/tests/phone.rs` for the hello a phone is sent;
@@ -3071,8 +3110,8 @@ thread, and reaching back into it with the home agent's own reading tools.
   runs one conversation through the real core for an old and a `threads2` client.
 - **Residual risk:** `thread.list` with no `personaId` reads every teammate's
   threads, titles and last lines in one answer. A companion already reads every
-  tape and work thread by subscribing, so this adds no reach, only one place to
-  read it.
+  tape, work thread and pair by subscribing, so this adds no reach, only one
+  place to read it.
 
 ## One computer, several threads
 

@@ -1,11 +1,11 @@
-import { Fragment, type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
+import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
 import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
 import { openChatWindow } from "../chatWindow";
 import { platform, popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
-import type { RunningSubagent, SessionState } from "../generated/contract";
+import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar, faceOf, initialOf } from "../ui/Avatar";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
@@ -50,8 +50,6 @@ export function Rail({
 	search,
 	deskKey,
 	deskCard,
-	onOpenRun,
-	openRun,
 }: {
 	/** The teammates of the desk on screen. */
 	entries: RosterEntry[];
@@ -84,10 +82,6 @@ export function Rail({
 	deskKey: ReactNode;
 	/** A call to the desk, as a card that grows up out of the dock. */
 	deskCard?: ReactNode;
-	/** Opens a teammate's subagent's run in the right-hand pane, from its line nested under the teammate. */
-	onOpenRun?(personaId: string, run: RunningSubagent): void;
-	/** The run open in the right-hand pane, if one is. */
-	openRun?: string | undefined;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
@@ -188,11 +182,9 @@ export function Rail({
 						{rest.map((row, index) => {
 							const { entry } = row;
 							const pins = pinned.filter((one) => one.deskId === row.deskId).length;
-							// A teammate's subagents at work nest under it, on the desk on screen, where they open.
-							const runs = !compact && onOpenRun !== undefined && onDesk(row) ? workingSubagents(entry) : [];
 							return (
-								<Fragment key={key(row)}>
 								<Row
+									key={key(row)}
 									entry={entry}
 									desk={shownDesk(row)}
 									offline={offline(row)}
@@ -209,10 +201,6 @@ export function Rail({
 									onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
 									{...(compact ? { onTip: showTip } : {})}
 								/>
-								{runs.length > 0 && (
-									<RailRuns runs={runs} openRun={openRun} onOpen={(run) => onOpenRun?.(entry.persona.id, run)} />
-								)}
-								</Fragment>
 							);
 						})}
 					</>
@@ -395,41 +383,6 @@ function Row({
 			</span>
 			)}
 		</button>
-	);
-}
-
-/** A teammate's subagents at work, oldest first: a command its harness left running is not one. */
-function workingSubagents(entry: RosterEntry): RunningSubagent[] {
-	return (entry.subagents ?? []).filter((run) => (run.kind ?? "subagent") === "subagent");
-}
-
-/**
- * A teammate's subagents at work, under its row: each its title over what it
- * did last, opening its run in the pane. A run leaves when it reports, as it
- * leaves the roster.
- */
-function RailRuns({ runs, openRun, onOpen }: { runs: RunningSubagent[]; openRun: string | undefined; onOpen(run: RunningSubagent): void }) {
-	return (
-		<ul className="rail-runs" aria-label="Subagents working">
-			{runs.map((run) => (
-				<li key={run.runId}>
-					<button
-						type="button"
-						className="rail-run"
-						data-run={run.runId}
-						aria-current={openRun === run.runId ? "true" : undefined}
-						aria-label={`Subagent: ${run.title}${run.lastStep === undefined ? "" : `, ${run.lastStep}`}`}
-						onClick={() => onOpen(run)}
-					>
-						<span aria-hidden="true" className="beat mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-						<span className="min-w-0 flex-1">
-							<span className="rail-run-title">{run.title}</span>
-							<span className="rail-run-step">{run.lastStep ?? "Starting"}</span>
-						</span>
-					</button>
-				</li>
-			))}
-		</ul>
 	);
 }
 

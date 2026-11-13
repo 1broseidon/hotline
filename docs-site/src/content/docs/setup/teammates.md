@@ -11,7 +11,7 @@ Hotline's own agent, running inside Hotline on an AI service you
 [connected](/docs/setup/providers/). It has file tools and a shell confined
 to the teammate's folders, Hotline's own tools (asking you for help,
 messaging a colleague, scheduling itself, searching the web, drawing), any
-MCP servers you grant, and subagents it can send off. Pick its model and
+MCP servers you grant, and helpers it can send off. Pick its model and
 reasoning effort beside its name at the head of the conversation.
 
 ## A coding tool you already have

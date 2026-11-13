@@ -38,8 +38,8 @@ handoff note of where things stood. Search
 
 Beside the main conversation, a teammate can have **threads**: side threads
 you start, work handed to it by a colleague, its conversations with other
-teammates, the subagents it runs, and calls. They open in the Threads pane
-on the right. See [Side threads and subagents](/docs/use/side-threads/).
+teammates, the helpers it runs, and calls. They open in the Threads pane
+on the right. See [Side threads and helpers](/docs/use/side-threads/).
 
 ## Reach
 

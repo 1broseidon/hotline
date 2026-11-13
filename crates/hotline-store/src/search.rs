@@ -454,6 +454,22 @@ fn aside_line(event: &Value) -> Option<Value> {
     }))
 }
 
+/// What a turn left behind is found by its words, as the teammate said it;
+/// what it was on along the way is the path, and is not. An open one closed
+/// later is written again under its id, and so found by its newer words.
+fn outcome_line(event: &Value) -> Option<Value> {
+    if event["kind"] != "outcome" {
+        return None;
+    }
+    let message = event["message"].as_str()?;
+    Some(serde_json::json!({
+        "kind": "agent",
+        "id": event["id"],
+        "ts": event["ts"],
+        "text": format!("Outcome: {message}"),
+    }))
+}
+
 fn index_message(
     database: &Connection,
     persona_id: &str,
@@ -463,7 +479,8 @@ fn index_message(
 ) -> rusqlite::Result<()> {
     let synthetic = side_line(event)
         .or_else(|| work_result(event))
-        .or_else(|| aside_line(event));
+        .or_else(|| aside_line(event))
+        .or_else(|| outcome_line(event));
     let replaces = synthetic.is_some();
     let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
@@ -634,7 +651,7 @@ fn jobs_of(log: &Log, persona_id: &str) -> Vec<(ThreadId, StreamId)> {
 fn said_in_thread(event: &Value) -> bool {
     matches!(
         event.get("kind").and_then(Value::as_str),
-        Some("user" | "agent" | "aside")
+        Some("user" | "agent" | "aside" | "outcome")
     ) || event["toolKind"] == "work_result"
 }
 
@@ -811,7 +828,10 @@ impl Indexer {
                 .insert(persona_id.to_string(), id.filter(|_| still_open));
             return stamp(&self.database, self.log.root(), persona_id);
         }
-        if !matches!(kind, "user" | "agent" | "side" | "link" | "aside") {
+        if !matches!(
+            kind,
+            "user" | "agent" | "side" | "link" | "aside" | "outcome"
+        ) {
             return Ok(());
         }
         if !self.open_chapters.contains_key(persona_id) {
@@ -1639,6 +1659,38 @@ mod tests {
             sorted_ids(&search_teammate(&root, "ada", "harbour", None).unwrap()),
             ["result"]
         );
+    }
+
+    /// What a turn left behind is found by its words, and by its newer
+    /// words once an open one is closed; what the teammate was on is not.
+    #[test]
+    fn an_outcome_is_found_by_its_words_and_an_activity_is_not() {
+        let (root, _log, mut indexer) = fixture::indexer("outcomes");
+        let open = json!({"kind":"outcome", "id":"o1", "ts":2, "type":"open", "message":"Waiting on harbour quotes", "key":"quotes"});
+        let doing = json!({"kind":"activity", "id":"a1", "ts":1, "type":"searching", "message":"Finding harbour plumbers"});
+        for event in [&doing, &open] {
+            indexer
+                .index_thread_event("ada", &ThreadId::side("s1"), event)
+                .unwrap();
+        }
+        let found = search_teammate(&root, "ada", "harbour", None).unwrap();
+        assert_eq!(sorted_ids(&found), ["o1"]);
+        assert!(
+            found
+                .to_string()
+                .contains("Outcome: Waiting on harbour quotes")
+        );
+        let closed = json!({"kind":"outcome", "id":"o1", "ts":2, "type":"made", "message":"Three harbour quotes in", "key":"quotes", "closedAt":9});
+        indexer
+            .index_thread_event("ada", &ThreadId::side("s1"), &closed)
+            .unwrap();
+        let found = search_teammate(&root, "ada", "harbour", None).unwrap();
+        assert_eq!(sorted_ids(&found), ["o1"]);
+        assert!(
+            found.to_string().contains("Three harbour quotes in"),
+            "{found}"
+        );
+        assert!(!found.to_string().contains("Waiting on"), "{found}");
     }
 
     #[test]

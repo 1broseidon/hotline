@@ -10,6 +10,7 @@ import { wire } from "../wire";
 import { runEnding, stepRuns } from "./Transcript";
 import { workDetail } from "../turnFacts";
 import { TrailHead, TrailSteps, useHot } from "./transcript/Trail";
+import type { ThreadRef } from "./Transcript";
 
 /**
  * What the card shows: a turn's work, by its caption's id, or the turn
@@ -115,8 +116,12 @@ export function ProcessWork({
 /** The turn just begun, as a place to step to before it has a run of its own. */
 const NOW = { id: "" };
 
-/** A turn's work: the run a caption names, or the latest, and how it stands. */
-function useTurnWork(personaId: string, blockId: string | null, name: string, live: boolean) {
+/**
+ * A turn's work: the run a caption names, or the latest, and how it stands.
+ * `resting` is a turn open only for the helpers it started: its own work is
+ * over and it waits on them, so its path says Waiting, not Working or Done.
+ */
+function useTurnWork(personaId: string, blockId: string | null, name: string, live: boolean, resting: boolean) {
 	const { events, streaming } = useThread(dmOf(personaId));
 	const runs = useMemo(() => stepRuns(events, streaming), [events, streaming]);
 	const latest = runs[runs.length - 1];
@@ -126,7 +131,7 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const run = blockId === null ? (begun ? undefined : latest) : runs.find((one) => one.id === blockId);
 	const running = live && run !== undefined && run.open === true;
 	const waiting = blockId === null && live && run === undefined;
-	const state = running || waiting ? "Working" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
+	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
@@ -137,7 +142,8 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
  * A turn's work as a page of the right-hand pane, flush and full height like
  * a thread: the room to read it, every step opening to say what it did. A
  * line asked for arrives open and in view; otherwise the page follows the
- * newest step.
+ * newest step. A helper or a command the turn started opens from its line
+ * here, in the pane's place, with Back to this turn (`onOpenThread`).
  */
 export function WorkPage({
 	personaId,
@@ -145,6 +151,8 @@ export function WorkPage({
 	stepId,
 	name,
 	live,
+	resting,
+	onOpenThread,
 	onClose,
 }: {
 	personaId: string;
@@ -153,13 +161,17 @@ export function WorkPage({
 	stepId?: string | undefined;
 	name: string;
 	live: boolean;
+	/** The turn is open only for its helpers (`awaitingSubagents`). */
+	resting: boolean;
+	/** Opens a helper or a command from its line, and the turn it was opened from, to come back to. */
+	onOpenThread(thread: ThreadRef, blockId: string): void;
 	onClose(): void;
 }) {
 	/* The turn shown: null follows the latest, rolling on to each new turn
 	 * as it starts; an id holds that turn, and stepping back in time is what
 	 * holds one. Opened on the latest turn's own caption, the pane follows. */
 	const [held, setHeld] = useState<string | null>(blockId);
-	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live);
+	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live, resting);
 	const settledOpen = useRef(false);
 	useEffect(() => {
 		if (settledOpen.current || latest === undefined) return;
@@ -199,7 +211,7 @@ export function WorkPage({
 			{/* The turn's shape and its sources stay put; the steps, which run long, scroll. */}
 			{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={openId === undefined}>
-				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} />}
+				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} onOpenThread={(thread) => onOpenThread(thread, run.id)} />}
 			</FollowWindow>
 		</section>
 	);

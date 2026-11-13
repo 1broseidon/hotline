@@ -293,7 +293,14 @@ async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session()
     tools.call("list_chapters", &json!({})).await.unwrap();
     tools.call("list_teammates", &json!({})).await.unwrap();
     tools.call("list_schedules", &json!({})).await.unwrap();
-    for refused in ["react", "request_human", "message_teammate", "schedule"] {
+    for refused in [
+        "react",
+        "request_human",
+        "message_teammate",
+        "schedule",
+        "activity",
+        "outcome",
+    ] {
         assert_eq!(
             tools.call(refused, &json!({})).await.unwrap_err(),
             format!("A subagent has no tool called '{refused}'.")

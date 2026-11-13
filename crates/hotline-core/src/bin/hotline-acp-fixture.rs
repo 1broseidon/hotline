@@ -9,6 +9,10 @@
 //! calls is answered "On it." A REPLY_JSON line supplies a JSON string as
 //! the answer, so reply-format scenarios need not echo session instructions.
 //! REPORT_TOOLS also emits ACP tool notifications around those MCP calls.
+//! `STEP <json>` anywhere in a line reports one of the agent's own steps, as a harness
+//! reports a tool of its own or of another MCP server: `{"title", "kind",
+//! "output", "failed"?}`, announced and then finished with its output as
+//! the call's content, before any calls.
 //! `CALL ask_permission {"command": "..."}` is the fixture's own: it asks the
 //! person to allow a shell command, as a harness does before running one,
 //! and reports the command as run or failed by the answer it gets.
@@ -16,11 +20,11 @@
 //! exists, as a WAIT_FOR line holds the end of the turn.
 
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
+    AgentCapabilities, Content, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
     McpServer, NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
     PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallContent,
+    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
 use rmcp::ServiceExt;
@@ -100,6 +104,7 @@ async fn main() {
                     // The calls run off the connection's own loop, which has
                     // to stay free to carry the session's other messages.
                     cx.spawn(async move {
+                        report_steps(&said, &replying, &session)?;
                         let reply = answer(&said, desk, &replying, &session).await;
                         if let Some(path) = said
                             .lines()
@@ -196,6 +201,55 @@ fn calls(said: &str) -> Vec<(String, Value)> {
             Some((tool.to_string(), serde_json::from_str(arguments).ok()?))
         })
         .collect()
+}
+
+/// Reports each `STEP <json>` as a step the agent ran itself: the call
+/// announced with its title and kind, then finished with its output.
+fn report_steps(
+    said: &str,
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+) -> Result<(), agent_client_protocol::Error> {
+    for step in said
+        .lines()
+        .filter_map(|line| Some(&line[line.find("STEP ")? + "STEP ".len()..]))
+    {
+        let step: Value = serde_json::from_str(step).expect("STEP is JSON");
+        let text = |field: &str| step[field].as_str().unwrap_or_default().to_string();
+        let kind = match text("kind").as_str() {
+            "fetch" => ToolKind::Fetch,
+            "execute" => ToolKind::Execute,
+            "search" => ToolKind::Search,
+            "read" => ToolKind::Read,
+            _ => ToolKind::Other,
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        connection.send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCall(
+                ToolCall::new(id.clone(), text("title"))
+                    .kind(kind)
+                    .status(ToolCallStatus::InProgress),
+            ),
+        ))?;
+        let status = if step["failed"] == true {
+            ToolCallStatus::Failed
+        } else {
+            ToolCallStatus::Completed
+        };
+        connection.send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                id,
+                ToolCallUpdateFields::new()
+                    .status(status)
+                    .content(vec![ToolCallContent::Content(Content::new(
+                        ContentBlock::Text(TextContent::new(text("output"))),
+                    ))]),
+            )),
+        ))?;
+    }
+    Ok(())
 }
 
 /// Makes the calls the prompt asks for and says what came back.

@@ -38,6 +38,8 @@ export function glance(items: Step[], running: boolean): Glance[] {
 			if (step.text.trim() !== "") thoughts.push(step.text);
 			continue;
 		}
+		// What the teammate said of its work heads and marks the path; it is not a step.
+		if (step.kind !== "tool") continue;
 		const said = saidOf(step);
 		const failed = step.status === "failed";
 		const last = lines[lines.length - 1];

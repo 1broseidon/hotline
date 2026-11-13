@@ -43,7 +43,7 @@ describe("a thread's kind and family", () => {
 	});
 
 	test("a run is a subagent, read only, unless it is a command a teammate left running", () => {
-		expect(threadFamily("run", "Pork Chop")).toEqual({ glyph: "◆", word: "Subagent", family: "Read only", watching: true });
+		expect(threadFamily("run", "Pork Chop")).toEqual({ glyph: "◆", word: "Helper", family: "Read only", watching: true });
 		expect(threadFamily("run", "Pork Chop", "shell")).toEqual({ glyph: "$", word: "Command", family: "Started by Pork Chop", watching: true });
 		expect(threadFamily("run", undefined, "shell").family).toBe("");
 	});

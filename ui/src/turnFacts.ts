@@ -3,11 +3,13 @@ import type { Step } from "./scheduledRuns";
 
 /*
  * A turn's work in plain words and counts, read off the steps the tape kept:
- * the web pages it read or found, the files it changed with the lines in and
- * out, how many steps and how many failed, and the one fact worth a glance
- * beside a line ("4 results", "212 passed", "+55 −6", "6.2s"). Nothing is
- * guessed: a step written before the desk recorded a fact simply has none,
- * and the line shows without it. The phone keeps a copy (src/turnFacts.ts).
+ * the web pages it opened, the files it changed with the lines in and out,
+ * how many steps and how many failed, and the one fact worth a glance beside
+ * a line ("4 results", "212 passed", "+55 −6", "6.2s"). Nothing is guessed:
+ * a step written before the desk recorded a fact simply has none, and the
+ * line shows without it, but for the pages a fetch or a browser opened,
+ * which its title or its answer names. The phone keeps a copy
+ * (src/turnFacts.ts).
  */
 
 export type ToolStep = Extract<Step, { kind: "tool" }>;
@@ -42,41 +44,117 @@ export function pageOf(step: ToolStep): WebSource | null {
 	return url !== undefined && siteOf(url) !== null ? { url } : null;
 }
 
-/** The pages a step read or found: the desk's record, or for an older step the page its title names. */
+/** The teammate's browsers, by the names their tools are called: its computer's, and the desk's (the core's `glance/sources.rs`). */
+const BROWSERS = new Set(["computer__browser", "mcp__computer__browser", "browser", "mcp__hotline__browser"]);
+
+/**
+ * The page a browser step opened, from its answer, for a step written before
+ * the desk recorded it: the computer's browser says "navigated to <address>"
+ * or "opened new tab at <address>", and the desk's heads its answer with
+ * "Page: <title>" over "URL: <address>". A click names no address, so it
+ * opened nothing that can be told.
+ */
+function browsedOf(step: ToolStep): WebSource | null {
+	const name = (step.title.split(/[: ]/)[0] ?? "").toLowerCase();
+	if (!BROWSERS.has(name) && !BROWSERS.has((step.toolKind ?? "").toLowerCase())) return null;
+	const text = outputOf(step);
+	const went = /^(?:navigated to|opened new tab at) (\S+)/.exec(text.trimStart())?.[1]?.replace(/;$/, "");
+	if (went !== undefined) return /^https?:\/\//.test(went) && siteOf(went) !== null ? { url: went } : null;
+	const page = /^Page: (.*)\nURL: (https?:\/\/\S+)/m.exec(text);
+	if (page === null || siteOf(page[2]!) === null) return null;
+	const title = page[1]!.trim();
+	return { url: page[2]!, ...(title !== "" && title !== "(no title)" ? { title } : {}) };
+}
+
+/**
+ * Claude Code's web search, a fetch titled by its query (the core's
+ * `group_of`). Its tool hands the model what it drew from the pages, so the
+ * results it lists were read, where Hotline's `web_search` only lists them
+ * with a preview (the core's `glance/sources.rs`).
+ */
+function readsItsResults(step: ToolStep): boolean {
+	return (step.toolKind ?? "").toLowerCase() === "fetch" && step.title.startsWith("Search ") && !/\bhttps?:\/\//.test(step.title);
+}
+
+/** A search's results, read or only listed; none for any other step. A step the desk wrote before it knew Claude's were read reads as it records them now. */
+export function resultsOf(step: ToolStep): WebSource[] {
+	if (readsItsResults(step)) return (step.sources ?? []).map(({ found: _, ...page }) => page);
+	return step.sources?.filter((page) => page.found === true) ?? [];
+}
+
+/** The pages a step opened or listed: the desk's record, or for an older step what its title or its answer names. A step that failed opened nothing. */
 function pagesOf(step: ToolStep): WebSource[] {
+	if (readsItsResults(step)) return resultsOf(step);
 	if (step.sources !== undefined) return step.sources;
-	const page = pageOf(step);
+	if (step.status === "failed") return [];
+	const page = pageOf(step) ?? browsedOf(step);
 	return page === null ? [] : [page];
 }
 
 /**
- * Every web page of a turn, once: the pages it read first, in the order it
- * read them, then what its searches found and it never opened. A page found
- * and then read is a page read, with whichever title the steps gave it.
+ * Whether an address is this machine or the local network: 127.0.0.1 (all
+ * of 127.x), localhost and *.localhost, ::1, 0.0.0.0, a *.local name. A page
+ * there is something the teammate made or ran, not a source it read. The
+ * phone's rule, word for word (src/turnFacts.ts there); a `file:` address
+ * has no site, so it is never one either.
  */
-export function sourcesOf(items: Step[]): Source[] {
-	const pages = new Map<string, Source>();
-	for (const step of toolSteps(items)) {
-		for (const page of pagesOf(step)) {
-			const site = siteOf(page.url);
-			if (site === null) continue;
-			const known = pages.get(page.url);
-			const title = page.title ?? known?.title;
-			if (known !== undefined && (known.found !== true || page.found === true)) continue;
-			// Read after it was found: it moves to the reading order.
-			pages.delete(page.url);
-			pages.set(page.url, { url: page.url, site, ...(title !== undefined ? { title } : {}), ...(page.found === true ? { found: true } : {}) });
-		}
-	}
-	const all = [...pages.values()];
-	return [...all.filter((one) => one.found !== true), ...all.filter((one) => one.found === true)];
+export function localAddress(url: string): boolean {
+	const at = url.trim();
+	if (/^https?:\/\/(?:[^@/?#\s]*@)?\[(?:::1|0*:0*:0*:0*:0*:0*:0*:1)\]/i.test(at)) return true;
+	const host = /^https?:\/\/(?:[^@/?#\s]*@)?([^:/?#\s]+)/i.exec(at)?.[1]?.toLowerCase();
+	if (!host) return false;
+	return host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "0.0.0.0" || /^127\.\d+\.\d+\.\d+$/.test(host);
 }
 
-/** The sites of the pages read so far, newest last, each once: the composer's favicons. */
-export function sitesRead(items: Step[]): string[] {
-	const sites: string[] = [];
-	for (const source of sourcesOf(items)) if (source.found !== true && !sites.includes(source.site)) sites.push(source.site);
-	return sites;
+/**
+ * The web pages a turn opened, each once, in the order it first opened them:
+ * what its fetches, its commands and its browsers read, and the results of a
+ * search whose tool hands the model the pages' content (Claude Code's).
+ * Those are its evidence (George, 2026-11-12). What a search only listed is
+ * not a source: the search's own line keeps it, with an eye on those opened.
+ * A listing still names a page the turn opened without a title of its own.
+ */
+export function sourcesOf(items: Step[]): Source[] {
+	const listed = new Map<string, string>();
+	const opened = new Map<string, Source>();
+	for (const step of toolSteps(items)) {
+		for (const page of pagesOf(step)) {
+			if (page.found === true) {
+				if (page.title !== undefined && !listed.has(page.url)) listed.set(page.url, page.title);
+				continue;
+			}
+			const site = siteOf(page.url);
+			if (site === null || localAddress(page.url)) continue;
+			const known = opened.get(page.url);
+			if (known === undefined) opened.set(page.url, { url: page.url, site, ...(page.title !== undefined ? { title: page.title } : {}) });
+			else if (known.title === undefined && page.title !== undefined) known.title = page.title;
+		}
+	}
+	return [...opened.values()].map((source) => {
+		const title = source.title ?? listed.get(source.url);
+		return title === undefined ? source : { ...source, title };
+	});
+}
+
+/** The distinct sites of a turn's sources, in their order: the icons on the line under its reply. */
+export function sitesOf(items: Step[]): string[] {
+	return [...new Set(sourcesOf(items).map((source) => source.site))];
+}
+
+/** How many sites the line under a reply names, as it stacks as many icons. */
+export const SITES_NAMED = 3;
+
+/**
+ * The sites in words, since an icon alone is not a name: the whole of it for
+ * a screen reader ("Sources: cbsnews.com, apnews.com, bbc.com and 4 more")
+ * and a few words for the pointer ("cbsnews.com and 6 more").
+ */
+export function sitesSaid(sites: string[]): { label: string; tip: string } {
+	const named = sites.slice(0, SITES_NAMED);
+	const rest = sites.length - named.length;
+	const list = rest > 0 ? `${named.join(", ")} and ${rest} more` : named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named.join("");
+	const tip = sites.length === 2 ? `${sites[0]} and ${sites[1]}` : sites.length > 2 ? `${sites[0]} and ${sites.length - 1} more` : (sites[0] ?? "");
+	return { label: `Sources: ${list}`, tip };
 }
 
 /** Files changed by the turn's finished steps, each once, its counts summed over its edits. */
@@ -112,14 +190,6 @@ export function summaryOf(items: Step[]): TurnSummary {
 
 const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** The summary's parts, failures apart so they can stand out: "12 steps · 4 sources · 3 files", "1 failed". */
-export function summaryWords(summary: TurnSummary): { said: string; failed: string | null } {
-	const parts = [counted(summary.steps, "step", "steps")];
-	if (summary.sources > 0) parts.push(counted(summary.sources, "source", "sources"));
-	if (summary.files > 0) parts.push(counted(summary.files, "file", "files"));
-	return { said: parts.join(" · "), failed: summary.failed > 0 ? `${summary.failed} failed` : null };
-}
-
 /** "+55 −6", with the true minus sign. */
 function linesText(added: number, removed: number): string {
 	return `+${added} −${removed}`;
@@ -140,11 +210,10 @@ export function stepTook(step: ToolStep): string | null {
 	return step.endedTs === undefined ? null : durationText(step.endedTs - step.ts);
 }
 
-/** How long a turn's work took, from its first step to its last step's end; null when its steps carry no ends. */
+/** How long a turn's work took, from the first thing on its path to the last, a step's end included; null for a turn with no path. */
 export function turnTook(items: Step[]): number | null {
-	const steps = toolSteps(items);
-	const ends = steps.flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
-	if (ends.length === 0 || items[0] === undefined) return null;
+	const ends = toolSteps(items).flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
+	if (items[0] === undefined) return null;
 	return Math.max(...ends, ...items.map((item) => item.ts)) - items[0].ts;
 }
 
@@ -179,10 +248,8 @@ export function factOf(steps: ToolStep[], live: boolean): Fact | null {
 		const counts = files.every((file) => file.added !== undefined);
 		return counts ? { text: linesText(files.reduce((n, file) => n + file.added!, 0), files.reduce((n, file) => n + file.removed!, 0)), tone: "quiet" } : null;
 	}
-	if (steps.some((step) => step.sources?.some((page) => page.found === true))) {
-		const results = steps.reduce((n, step) => n + (step.sources?.filter((page) => page.found === true).length ?? 0), 0);
-		return { text: counted(results, "result", "results"), tone: "quiet" };
-	}
+	const results = steps.reduce((n, step) => n + resultsOf(step).length, 0);
+	if (results > 0) return { text: counted(results, "result", "results"), tone: "quiet" };
 	const passed = steps.map((step) => /\b(\d+) passed\b/.exec(outputOf(step))?.[1]).filter((n) => n !== undefined);
 	if (passed.length > 0 && passed.length === steps.length) return { text: `${passed.reduce((n, one) => n + Number(one), 0)} passed`, tone: "quiet" };
 	if (steps.length > 0 && steps.every((step) => step.endedTs !== undefined)) {

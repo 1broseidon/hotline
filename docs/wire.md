@@ -202,7 +202,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), `rosterOptions` ([roster catalog updates](#the-roster-view)), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
-| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
+| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
 | `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a subagent's run it is the person's Stop, which ends the run cancelled and reports that to its teammate (refused for a harness's subagent, which has no way to stop one run); on a job, the firing or line running, and the job keeps its schedule (refused when none runs). Without `interrupt`, as the phone and an older window send it, it is the person's Stop: on a work thread it drops what waited behind the turn and ends for good a colleague's handoff it reaches (the cut turn's, a dropped line's, or one an Interrupt left the thread carrying), whose sender is left one `note` aside and never woken; the thread closes as `stopped` when the handoff's own turn was cut. `interrupt` is the window's Interrupt and Esc: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the turn the person's next line there starts; on the main conversation it is `session.cancel`'s; elsewhere it changes nothing ([Stop and Interrupt](sessions.md#stop-and-interrupt)) |
@@ -1031,7 +1031,7 @@ kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 raises no card), neither
 `thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.loop_in` on a work thread only, `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
-pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
+calls (a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
 
 A call is `voice.*`'s, a run's lifetime is its teammate's, and nobody answers a
@@ -1130,8 +1130,9 @@ before; the rows that lost and gained it are sent again when `teamLead`
 changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
 `awaitingSubagents: true` says it is open only for subagents it started and
-reads as done: the reply is in the conversation and the composer is as it is
-between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
+reads as done: the reply is in the conversation and the composer takes a line
+as it does between turns, with the mark at rest beside what the teammate last
+said it is on (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
 `subagents` lists the runs still going, oldest first, `{runId, title,
 startedAt, kind?, lastStep?, steps?, command?, model?, stoppable?}`: `kind` is `shell` for a
 command a harness left running (with its `command`) and absent for a
@@ -1143,7 +1144,10 @@ and `steps` how many steps it has taken, each absent until there is one;
 row is sent again as each of them changes, so a client never asks. `sides` lists the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
-can be stopped; each is absent when there are none. `asides` is how many
+can be stopped; `workingPairs` the keys of the threads between this teammate
+and another with a request being answered now, the rule `thread.list` reads a
+pair's `working` by, sent again whenever the pair's record moves; each is
+absent when there are none. `asides` is how many
 asides the teammate has been left that no turn of its has heard yet, absent
 when none, and `asidesNew` how many of them the person has not seen among its
 notes; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row

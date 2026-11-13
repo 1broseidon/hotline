@@ -1,5 +1,6 @@
 //! `post_to_chat` through the real core, on both drivers, read off the wire,
-//! and the files `send_file` posts the same way.
+//! and the files `send_file` posts the same way. The scripted desk here is
+//! also `outcomes.rs`'s.
 //!
 //! Each teammate does what its line says: a line `CALL <tool> <json>` is one
 //! call to one of Hotline's own tools, made in order, and the turn's reply is
@@ -22,7 +23,7 @@ const TOKEN: &str = "a-token-only-this-harness-knows";
 const PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy)]
-enum Driver {
+pub(super) enum Driver {
     HotlineAgent,
     Acp,
 }
@@ -112,14 +113,14 @@ fn model(request: &Value) -> String {
 }
 
 /// A desk with the scripted model connected and the fixture in its catalogue.
-struct Desk {
-    client: Client,
-    log: Log,
+pub(super) struct Desk {
+    pub(super) client: Client,
+    pub(super) log: Log,
     workspace: String,
-    _root: TempDir,
+    pub(super) root: TempDir,
 }
 
-async fn open() -> Desk {
+pub(super) async fn open() -> Desk {
     let app = axum::Router::new().route(
         "/v1/chat/completions",
         axum::routing::post(|body: axum::body::Bytes| async move {
@@ -154,13 +155,18 @@ async fn open() -> Desk {
         client,
         log,
         workspace: workspace.to_string_lossy().into_owned(),
-        _root: root,
+        root,
     }
 }
 
 impl Desk {
     /// A running teammate on `driver`, and its tape's subscription.
-    async fn teammate(&mut self, name: &str, driver: Driver, machine: bool) -> (String, i64) {
+    pub(super) async fn teammate(
+        &mut self,
+        name: &str,
+        driver: Driver,
+        machine: bool,
+    ) -> (String, i64) {
         let mut draft = json!({"name":name,"goal":"Keep the harbour.","cwd":self.workspace});
         if matches!(driver, Driver::Acp) {
             draft["backendId"] = json!(acp_fixture::BACKEND);
@@ -187,7 +193,7 @@ impl Desk {
     /// the snapshot the subscription opened with. A turn that ended before
     /// the subscription arrives whole in its snapshot, so the snapshot goes
     /// back to the inbox less the event taken, for the next wait to read.
-    async fn event(&mut self, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
+    pub(super) async fn event(&mut self, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
         let mut frame = self
             .client
             .next_where(PATIENCE, |frame| {
@@ -233,7 +239,7 @@ impl Desk {
     }
 
     /// A turn's `RESULTS`, said or thought.
-    async fn results(&mut self, sub: i64) -> Vec<String> {
+    pub(super) async fn results(&mut self, sub: i64) -> Vec<String> {
         let said = self
             .event(sub, |event| {
                 matches!(event["kind"].as_str(), Some("agent" | "thought"))
@@ -261,7 +267,7 @@ impl Desk {
     }
 }
 
-fn says(lines: &[String], at: usize, sentence: &str) {
+pub(super) fn says(lines: &[String], at: usize, sentence: &str) {
     assert!(
         lines.get(at).is_some_and(|line| line.contains(sentence)),
         "call {at} should say {sentence:?}: {lines:#?}"

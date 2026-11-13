@@ -21,7 +21,7 @@ const CHIPS: { filter: ListFilter; word: string }[] = [
 /** The kinds, under one key so the chips stay one row at the pane's width. */
 const KINDS: { filter: ListFilter; word: string }[] = [
 	{ filter: "threads", word: "Threads" },
-	{ filter: "subagents", word: "Subagents" },
+	{ filter: "subagents", word: "Helpers" },
 	{ filter: "jobs", word: "Jobs" },
 	{ filter: "calls", word: "Calls" },
 	{ filter: "pairs", word: "Pairs" },
@@ -37,7 +37,7 @@ const SPANS: { span: Span; word: string }[] = [
 /**
  * The teammate's Threads list (docs/design/threads-list.html, idea A): its
  * threads, jobs and notes as rows of one shape, narrowed by the chips over
- * it, in the groups Needs you, Live, Recent and Earlier. It opens on the
+ * it, in the groups Needs you, Live, New, Recent and Earlier. It opens on the
  * chip last pressed for the teammate, Active at first, where what is older
  * than a day, routine, or a note already read folds into one row that opens
  * in place. A kind's chip has a Live / Ended switch. Search reads every row,
@@ -206,6 +206,8 @@ export function ThreadList({
 							{groups.needs.map(row)}
 							<Group title="Live" count={groups.live.length} />
 							{groups.live.map(row)}
+							<Group title="New" items={groups.fresh} />
+							{groups.fresh.map(row)}
 							<Group title="Recent" items={groups.recent} />
 							{groups.recent.map(row)}
 							{active && groups.earlier.length > 0 ? (

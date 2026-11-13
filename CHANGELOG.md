@@ -23,14 +23,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A sign-in that shows a code, ChatGPT's and GitHub Copilot's, has a Copy
   beside it, as on the phone, and opening the sign-in page copies the code
   too, so it is pasted there instead of typed.
-- A subagent opened in the right-hand pane shows its work as it happens:
-  the task it was given, its steps and words in the order they came, each
-  step opening to its output, and the result it sent back. The band says
-  Working, Done or Stopped with its step count and time, and a subagent of
+- A helper opened in the right-hand pane reads as its activity, not a
+  chat: what its teammate asked of it, then under Activity its steps and
+  words in the order they came, each step opening to its output, and its
+  Result once it reports. There are no bubbles and no message field; the
+  foot says it reports to its teammate when it finishes. The band says
+  Working, Done or Stopped with its step count and time, and a helper of
   Hotline Agent's has Stop.
-- A teammate's working subagents sit under it in the rail, each with its
-  latest step, until they report. The subagent's line in the conversation,
-  the chip over the composer and the thread list say its latest step too.
+- A helper's row in the composer's threads and in the thread list says its
+  latest step.
 - A call opened in the right-hand pane reads as a transcript: each line
   under who said it, You or the teammate, and the work the teammate went
   off to do folded where it fell, saying what it checked and how many
@@ -50,12 +51,30 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A pair open in the right pane shows its two teammates' lines on two sides,
   each under its face and name, as they talk, with Stop exchange while the
   exchange stands.
-- A command a teammate's harness left running opens in the right pane as a
-  terminal: the command, and its output as it writes it. Once it ends, the
-  last of its output stays.
+- A command a teammate's harness left running opens in the right pane as
+  its activity: the command, and its output in a terminal as it writes it,
+  with Stop where the desk can stop it. Once it ends, the last of its output
+  stays.
 
 ### Changed
 
+- The composer says how many of a teammate's threads are running now, "2
+  threads ›" in the accent colour, as the phone does: the same threads the
+  Threads list shows under Live, so a helper, a background command, or a
+  work thread, handoff, pair, call or job with a turn in flight, and never one
+  at rest or waiting for an answer. It opens a short list over the field: each
+  thread's kind, what it is doing and how long it has run, and a row opens
+  the thread in the pane. Its last row, All threads, opens the Threads list
+  in the pane, with how many things there are new. The chip for each helper
+  at the composer's corner is gone.
+- Working, the threads and Needs you all open inside the message box, which
+  grows up to hold them while the field stays in use: Working now shows the
+  turn's steps there instead of in the right-hand pane. A turn that is over
+  still opens in the pane from its line.
+- The conversation's header no longer has a chip for side threads, and the
+  rail no longer lists a teammate's helpers under it. A side thread is
+  opened from its line in the conversation or from the Threads list, and a
+  running one, like a running helper, is in the message box's threads.
 - A long conversation keeps in the page only the lines near the view, a
   gap of their measured height standing in for the rest, so it costs what
   the screen shows of it. With a 2,000-line thread loaded the window uses
@@ -67,13 +86,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and a line being read stays where it is when one above it draws. A thread
   with a diagram in it loads the diagram library when it opens.
 - The right-hand pane is one list, Threads: every work thread, handoff,
-  subagent, command, pair, call and job, and every aside the teammate was
+  helper, command, pair, call and job, and every aside the teammate was
   left, as rows of one shape, the kind's mark, the title, one line of state,
   latest step or result, and the time. An aside opens the thread it came from,
-  and once read it is counted on that thread's row. It opens on Active: Needs you,
-  Live and Recent (the last 24 hours), with what is earlier and routine runs
+  and once read it is counted on that thread's row. An aside's row is named
+  for where it came from and says who told the teammate what ("Juno told
+  Pork Chop: …"). It opens on Active: Needs you, Live, New (what the teammate
+  was told that you have not read) and Recent (the last 24 hours), with what
+  is earlier and routine runs
   folded into one row that opens in place. Chips narrow it to Needs you, Live
-  or a kind from the Kind menu: Threads, Subagents, Jobs,
+  or a kind from the Kind menu: Threads, Helpers, Jobs,
   Calls, Pairs or From teammates (handoffs and asides), a kind's with a Live /
   Ended switch, search reads every row and aside, and the chip last used is
   kept for each teammate. A thread waiting on you shows the card's question
@@ -83,11 +105,56 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   gone; Threads in the teammate's menu counts the new asides, and an
   ended job's Remove is in its pane's band.
 - A pair's line in the conversation says Pair, and a command left running
-  says Command on its line and its chip, instead of Thread, Subagent and
-  Background.
+  says Command in the message box's threads and in the pane, instead of
+  Thread, Subagent and Background.
+- A helper or a command a teammate starts no longer has a line of its own
+  in the conversation, running or finished. While it runs it is in the
+  message box's threads. Once the turn is over it is in the turn's path,
+  behind the line under the reply: helpers started together are one line,
+  "Started 4 helpers", that unfolds to each one with how it ended and how
+  long it took, and each opens its own activity in the pane, with Back to
+  the path. While the turn waits only on its helpers, the resting mark
+  opens the same path. A helper or a command that failed is marked on the
+  line under the reply.
+- The window calls a subagent a helper everywhere: the Threads list and its
+  Kind menu, the message box's threads, the pane's header, Stop's tooltip,
+  and the path.
+- A helper or a command started by Claude Code or Codex reads as one by
+  Hotline Agent does: its start says "Started a helper" or "Started a
+  command" in the path, whatever the agent calls its own tool, and once the
+  helper's or the command's own line is there the start is not said again
+  beside it. A start that failed stays, marked failed. Codex's calls that
+  say what a teammate is on and what came of it are those lines in the
+  path, not steps named after the tool.
+- The line under a reply shows the sites of the web pages the teammate
+  read for it again, as a small stack of their icons with "+N" for the
+  rest, after what the turn left behind and before how long it took.
+  Hovering it names the first site and how many more, and a screen reader
+  hears the first three by name and how many more. With
+  link previews off, or no icon for any of them, the first site is named
+  in words. The path the line opens lists those pages first, under
+  Sources, each opening in your browser, now also where the path opens
+  in place in a thread.
+- A reply's sources are the pages the teammate opened. A page it went to
+  in its computer's browser or in its desk browser counts, on new turns
+  and old ones, as a fetch did. A web search's results are no longer
+  sources unless it opened them: the search keeps them in the path, with
+  its count of results and an eye on those it opened. Pages on this
+  computer or the local network (localhost, 127.x, ::1, 0.0.0.0, .local
+  names) are not sources, as on the phone.
+- A web search that hands the teammate the pages' content counts those
+  pages as read. Claude Code's own web search does, so a Claude Code turn
+  that answered from its searches alone shows those pages as its sources,
+  on new turns and old ones; Hotline's web search, which hands back only
+  each result's title, address and a short preview, still lists them.
 
 ### Fixed
 
+- A thread between two teammates is counted among a teammate's running
+  threads, in the message box and under Live in the Threads list, while one
+  of them answers the other, and leaves them when the answer is in. It never
+  showed there before, because nothing told the window an ask had started.
+  The phone's Threads list has these threads too.
 - A long reply no longer stops the conversation updating as it ends. While a
   reply streams only its own bubble is drawn again, not every line above it.
 - A permission card nobody answers in ten minutes says Expired and has no

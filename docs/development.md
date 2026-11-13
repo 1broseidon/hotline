@@ -679,7 +679,18 @@ roster as `pin`): they leave the list and sit at the top of the rail as larger
 faces with the name under each, stacked above a hairline in the faces-only
 rail, with the same status, unread and busy marks. They reorder by dragging, or
 Move left / right in the row's context menu, and the Teammate 1–9 chords
-count pins first. While Settings is open the rail is its
+count pins first, then the list in the order it is shown. The list under the
+pins is the desk's own order once anyone arranges it, by dragging a row or
+Move up / down in its menu (`persona.arrange`, stored as the room setting
+`teamOrder` and carried on the roster as `place`); every window of the desk
+shows it. Until then it is the roster's order. A teammate the desk has not
+placed, a new one say, goes after the placed ones, and a placed teammate
+waiting on the person keeps its place and shows its mark rather than moving
+to the top (`arranged` in `ui/src/pins.ts`, the one place that rule lives).
+With several desks in the rail, a row moves only among its own desk's rows,
+and the desks' lists interleave by who is waiting, then who spoke last, each
+keeping its own order. The desk filter shows a desk's rows whole or not at
+all, so a move is always made against the whole of its desk's list. While Settings is open the rail is its
 sections — General, Providers, Tools, Computer, Updates, Import — with a back key in its band
 where the team's plus was, and the pane shows one section at a time. The
 teammate inspector sits beside the

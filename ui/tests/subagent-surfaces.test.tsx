@@ -147,6 +147,7 @@ describe("the rail", () => {
 					onEdit={() => {}}
 					onDelete={() => {}}
 					onPin={() => {}}
+					onArrange={() => {}}
 					onLead={() => {}}
 					onAddDesk={() => {}}
 					onNew={() => {}}

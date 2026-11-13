@@ -77,6 +77,7 @@ async function mountRail() {
 				onEdit={() => {}}
 				onDelete={() => {}}
 				onPin={() => {}}
+				onArrange={() => {}}
 				onLead={() => {}}
 				onAddDesk={() => {}}
 				onNew={() => {}}

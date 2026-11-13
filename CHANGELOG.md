@@ -26,6 +26,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate makes its own on a quiet job of its own, without a word in your
   chat. A generated picture in the crew style is still there when you ask
   the teammate for one.
+- The team list can be put in any order: drag a teammate's row to a new
+  place, or use Move up / Move down in its menu. The order is kept by the
+  desk, so it survives a restart and every window of that desk shows it. A
+  new teammate joins at the end, and a teammate waiting on you keeps its
+  place and shows its mark. A desk nobody has arranged lists its team as
+  before. The phone keeps its own order.
 
 ### Fixed
 

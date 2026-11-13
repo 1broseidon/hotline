@@ -19,7 +19,11 @@ import { Sources } from "./Sources";
  * outcomes, since nothing was left behind, so they carry no mark; they are
  * on the line because for an answer of fact they are its evidence, the one
  * part of the path someone who does not code looks for. A turn that left
- * nothing behind and read nothing says only its time. It is always the
+ * nothing behind and read nothing says only its time. The parts run together
+ * from the left as one short line of text, a dot between each, and the time
+ * and the chevron come straight after the last of them, as on the phone: the
+ * line is about the reply above it, so it sits where the reply does, and the
+ * press hugs it as the conversation's other quiet lines do. It is always the
  * way in: pressed, it opens the path the turn took, in the pane beside a
  * conversation (`onOpenWork`) or in place in a thread or a run, where the
  * live rows show only if you pressed the mark; either way the path lists
@@ -70,10 +74,18 @@ export const Steps = memo(function Steps({
 							{outcome.message}
 						</span>
 					))}
-					{sites.length > 0 && <Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} />}
-					<span className="steps-caption-took">
-						{took !== null && took > 0 && durationText(took)}
-						{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+					{/* The stack and the time are one unbroken end of the line, so the time never stands on a row of its own. */}
+					<span className="steps-caption-end">
+						{/* A span of its own, so a stack still asking for its icons, which draws nothing, leaves an empty part the line skips, dot and all. */}
+						{sites.length > 0 && (
+							<span className="steps-caption-sources">
+								<Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} />
+							</span>
+						)}
+						<span className="steps-caption-took">
+							{took !== null && took > 0 && <span>{durationText(took)}</span>}
+							{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+						</span>
 					</span>
 				</button>
 			)}

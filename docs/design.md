@@ -702,6 +702,14 @@ path lists them first, by name and link, in the pane and where it opens in
 place in a thread. The composer's slot stays the mark and the teammate's
 words: no site icons there.
 
+The line under a reply reads as one run from the left (George, 2026-11-13,
+0.49.1): its outcomes, its sources, then its time and the chevron straight
+after, a dot between each, as the phone's line has it. Before, the time sat
+at the column's far edge, and under a turn with nothing else to say a lone
+"43s ›" stood away from the reply it was about. The press hugs the words,
+as the conversation's other quiet lines do, and the time wraps with the
+words before it rather than alone on a row (`inline-lines.css`).
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

@@ -2,7 +2,7 @@ use super::*;
 use crate::contract::{McpPolicy, PolicyMode, SkillPolicy};
 
 fn ask(arguments: Value) -> Ask {
-    Ask::read(&arguments).unwrap()
+    Ask::read(&arguments, None).unwrap()
 }
 
 fn made(arguments: Value, current: Option<&AvatarRecipe>) -> Face {
@@ -79,18 +79,18 @@ fn every_style_draws_a_square_face_and_a_whole_recipe() {
 #[test]
 fn a_recipe_draws_the_same_face_every_time() {
     let one = made(
-        json!({ "style": "critters", "parts": { "eyes": "wide" } }),
+        json!({ "style": "sprouts", "parts": { "eyes": "wide" } }),
         None,
     );
     let two = made(
-        json!({ "style": "critters", "parts": { "eyes": "wide" } }),
+        json!({ "style": "sprouts", "parts": { "eyes": "wide" } }),
         None,
     );
     assert_eq!(one.recipe, two.recipe);
     assert_eq!(one.png, two.png);
     assert_eq!(png(&one.recipe).unwrap(), one.png);
     let other = made(
-        json!({ "style": "critters", "parts": { "eyes": "wide" }, "seed": "grace" }),
+        json!({ "style": "sprouts", "parts": { "eyes": "wide" }, "seed": "grace" }),
         None,
     );
     assert_eq!(other.recipe.parts["eyes"].as_deref(), Some("wide"));
@@ -102,13 +102,13 @@ fn a_recipe_draws_the_same_face_every_time() {
 #[test]
 fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     let first = made(
-        json!({ "style": "critters", "colors": { "body": "#69ACDE" } }),
+        json!({ "style": "sprouts", "colors": { "pot": "#69ACDE" } }),
         None,
     );
-    assert_eq!(first.recipe.colors["body"], "#69acde");
+    assert_eq!(first.recipe.colors["pot"], "#69acde");
 
     let glasses = made(
-        json!({ "style": "critters", "parts": { "eyes": "wide", "mouth": "grin" } }),
+        json!({ "style": "sprouts", "parts": { "eyes": "wide", "mouth": "grin" } }),
         Some(&first.recipe),
     );
     for (name, variant) in &glasses.recipe.parts {
@@ -123,10 +123,10 @@ fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     assert_eq!(glasses.recipe.seed, first.recipe.seed);
 
     let bare = made(
-        json!({ "style": "critters", "parts": { "top": "none", "pattern": null } }),
+        json!({ "style": "sprouts", "parts": { "cheeks": "none", "pattern": null } }),
         Some(&glasses.recipe),
     );
-    assert_eq!(bare.recipe.parts["top"], None);
+    assert_eq!(bare.recipe.parts["cheeks"], None);
     assert_eq!(bare.recipe.parts["pattern"], None);
     assert_eq!(bare.recipe.parts["eyes"].as_deref(), Some("wide"));
 
@@ -146,12 +146,12 @@ fn the_same_style_keeps_what_is_not_named_and_another_starts_afresh() {
     assert_eq!(moods.recipe, made(json!({ "style": "moods" }), None).recipe);
 
     let reseeded = made(
-        json!({ "style": "critters", "seed": "grace" }),
+        json!({ "style": "sprouts", "seed": "grace" }),
         Some(&bare.recipe),
     );
     assert_eq!(
         reseeded.recipe,
-        made(json!({ "style": "critters", "seed": "grace" }), None).recipe
+        made(json!({ "style": "sprouts", "seed": "grace" }), None).recipe
     );
 }
 
@@ -163,58 +163,58 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
         (json!({}), "needs a `style`"),
         (
             json!({ "style": "bottts" }),
-            "The styles are: pixelbot, critters, moods, sprouts, open-peeps.",
+            "The styles are: pixelbot, moods, sprouts, open-peeps.",
         ),
         (json!({ "style": "adventurer" }), "no style called"),
         (
-            json!({ "style": "critters", "parts": { "hat": "tall" } }),
-            "Its parts are: body, cheeks, eyes, mouth, pattern, top",
+            json!({ "style": "sprouts", "parts": { "hat": "tall" } }),
+            "Its parts are: cheeks, eyes, mouth, pattern, plant, pot",
         ),
         (
-            json!({ "style": "critters", "parts": { "eyes": "lasers" } }),
+            json!({ "style": "sprouts", "parts": { "eyes": "lasers" } }),
             "Use one of: angry, bigPupils",
         ),
         (
-            json!({ "style": "critters", "parts": { "eyes": 7 } }),
+            json!({ "style": "sprouts", "parts": { "eyes": 7 } }),
             "has no variant 7",
         ),
         (
-            json!({ "style": "critters", "parts": ["eyes"] }),
+            json!({ "style": "sprouts", "parts": ["eyes"] }),
             "is an object",
         ),
         (
-            json!({ "style": "critters", "colors": { "glow": "#ffffff" } }),
-            "Its slots are: background, accent, body, ink",
+            json!({ "style": "sprouts", "colors": { "glow": "#ffffff" } }),
+            "Its slots are: background, bloom, ink, plant, pot",
         ),
         (
-            json!({ "style": "critters", "colors": { "body": "red" } }),
+            json!({ "style": "sprouts", "colors": { "pot": "red" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "critters", "colors": { "body": "#12345" } }),
+            json!({ "style": "sprouts", "colors": { "pot": "#12345" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "critters", "colors": { "body": "#gggggg" } }),
+            json!({ "style": "sprouts", "colors": { "pot": "#gggggg" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "critters", "colors": { "body": "69acde" } }),
+            json!({ "style": "sprouts", "colors": { "pot": "69acde" } }),
             "#rrggbb",
         ),
         (
-            json!({ "style": "critters", "seed": "x".repeat(MAX_SEED + 1) }),
+            json!({ "style": "sprouts", "seed": "x".repeat(MAX_SEED + 1) }),
             "A seed is",
         ),
-        (json!({ "style": "critters", "seed": " " }), "A seed is"),
+        (json!({ "style": "sprouts", "seed": " " }), "A seed is"),
     ] {
-        let Err(error) = Ask::read(&arguments) else {
+        let Err(error) = Ask::read(&arguments, None) else {
             panic!("{arguments} was taken");
         };
         assert!(error.contains(said), "{arguments}: {error}");
     }
     let long = "x".repeat(10_000);
-    let error = Ask::read(&json!({ "style": "critters", "parts": { long: "a" } }))
+    let error = Ask::read(&json!({ "style": "sprouts", "parts": { long: "a" } }), None)
         .err()
         .unwrap();
     assert!(error.len() < 400, "a refusal repeats a bounded name");
@@ -325,14 +325,14 @@ fn the_options_answer_what_make_face_takes() {
         }
     }
     assert!(style_answer("bottts", &persona("ada", None)).is_err());
-    let critters = style_answer("critters", &persona("ada", None)).unwrap();
-    let top = critters["parts"]
+    let sprouts = style_answer("sprouts", &persona("ada", None)).unwrap();
+    let pattern = sprouts["parts"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|part| part["part"] == "top")
+        .find(|part| part["part"] == "pattern")
         .unwrap();
-    assert_eq!(top["drawnPercent"], 80.0);
+    assert_eq!(pattern["drawnPercent"], 45.0);
 }
 
 /// The definitions read whole: no palette value dropped for not being a
@@ -412,7 +412,10 @@ fn a_struck_variant_is_neither_offered_nor_taken_nor_seeded() {
                         .unwrap()
                         .contains(&json!(variant))
                 );
-                let refused = Ask::read(&json!({ "style": kept.id, "parts": { *part: variant } }));
+                let refused = Ask::read(
+                    &json!({ "style": kept.id, "parts": { *part: variant } }),
+                    None,
+                );
                 assert!(refused.is_err(), "{} {part} {variant} was taken", kept.id);
             }
         }
@@ -471,7 +474,7 @@ fn pixelbot_glows_in_the_bubble_hue_inside_the_circle() {
     let open_peeps = style_answer("open-peeps", &ada).unwrap();
     assert!(open_peeps.get("yourColors").is_none());
     // The other creatures sit on the same dark ground of the bubble's hue.
-    for (style, slot) in [("critters", "body"), ("moods", "face"), ("sprouts", "pot")] {
+    for (style, slot) in [("moods", "face"), ("sprouts", "pot")] {
         assert_eq!(
             style_answer(style, &ada).unwrap()["yourColors"],
             json!({ slot: "#48b8bc", "background": "#002b2d" }),
@@ -513,7 +516,7 @@ fn a_face_with_a_ground_is_kept_without_an_alpha_channel() {
     // A PNG's colour type is the byte after its IHDR's size and depth:
     // 2 is RGB, 6 is RGB with alpha.
     let colour_type = |png: &[u8]| png[25];
-    for style in ["pixelbot", "critters", "moods", "sprouts"] {
+    for style in ["pixelbot", "moods", "sprouts"] {
         let face = seeded(&persona(&format!("{style}-ada"), None)).unwrap();
         let face = made(json!({ "style": face.recipe.style }), Some(&face.recipe));
         assert_eq!(colour_type(&face.png), 2, "{style}");
@@ -527,4 +530,58 @@ fn a_face_with_a_ground_is_kept_without_an_alpha_channel() {
         None,
     );
     assert_eq!(colour_type(&grounded.png), 2);
+}
+
+/// A face kept in a style the desk no longer draws stays; asked for in that
+/// style, the teammate is told the style is gone and which there are, and
+/// `face_options` says so beside the face it has.
+#[test]
+fn a_face_in_a_style_no_longer_drawn_is_kept_and_named_gone() {
+    let clay = AvatarRecipe {
+        style: "clay".into(),
+        parts: BTreeMap::from([("eyes".to_string(), Some("googly".to_string()))]),
+        colors: BTreeMap::from([("body".to_string(), "#48b8bc".to_string())]),
+        seed: "ada".into(),
+        made_by: FaceMaker::Teammate,
+    };
+    let Err(refused) = Ask::read(
+        &json!({ "style": "clay", "parts": { "eyes": "big" } }),
+        Some(&clay),
+    ) else {
+        panic!("a change in a style no longer drawn was taken");
+    };
+    assert_eq!(
+        refused,
+        "Your face is in the clay style, which Hotline no longer draws. Your picture stays as it is; to change it, make a new face in one of: pixelbot, moods, sprouts, open-peeps."
+    );
+    // Another style is a new face, from nothing the old one kept.
+    let fresh = compose(
+        Ask::read(&json!({ "style": "moods" }), Some(&clay)).unwrap(),
+        Some(&clay),
+        "ada",
+        FaceMaker::Teammate,
+    )
+    .unwrap();
+    assert_eq!(fresh.recipe, made(json!({ "style": "moods" }), None).recipe);
+
+    let mut teammate = persona("ada", None);
+    teammate.avatar = Some(crate::contract::Avatar {
+        hash: "c".repeat(64),
+        by: crate::contract::AvatarBy::Own,
+        updated_at: "2026-11-13T00:00:00.000Z".into(),
+        recipe: Some(clay.clone()),
+    });
+    let listed = styles_answer(&teammate);
+    assert_eq!(listed["current"], json!(clay));
+    assert!(
+        listed["currentStyleGone"]
+            .as_str()
+            .unwrap()
+            .starts_with("Your face is in the clay style")
+    );
+    assert!(
+        styles_answer(&persona("ada", None))
+            .get("currentStyleGone")
+            .is_none()
+    );
 }

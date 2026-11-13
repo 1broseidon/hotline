@@ -50,7 +50,7 @@ pub enum AvatarBy {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct AvatarRecipe {
-    /// The DiceBear style's id, such as `critters` or `open-peeps`.
+    /// The DiceBear style's id, such as `sprouts` or `open-peeps`.
     pub style: String,
     /// Each of the style's parts by its name: the variant drawn, or `null`
     /// for one left out.

@@ -12,7 +12,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 - A teammate makes its own face. Ask it for a face, or for a change to the
   one it has ("give yourself glasses"), and it draws one on this computer
-  from one of five DiceBear styles, four creatures and a hand-drawn person,
+  from one of four DiceBear styles, three creatures and a hand-drawn person,
   with no image provider and no network, from its name, its goal and its
   bubble colour. Asked for a change it keeps its style and changes only
   that; it switches style when you tell it to. It is shown the picture it

@@ -56,7 +56,7 @@ enum Tone {
 /// The styles, creatures first. Each reads as a character in a 28 px circle,
 /// and each names its parts' variants (`googly`, `antenna`), so a teammate
 /// can choose them without seeing them first.
-const STYLES: [Kept; 5] = [
+const STYLES: [Kept; 4] = [
     Kept {
         id: "pixelbot",
         definition: dicebear_styles::PIXELBOT,
@@ -72,15 +72,6 @@ const STYLES: [Kept; 5] = [
         // One-block eyes and a two-block mouth vanish in a 28 px circle, and
         // a flat mouth sits so low that the eyes and mouth read apart.
         struck: &[("eyes", &["slim"]), ("mouth", &["tiny", "flat"])],
-    },
-    Kept {
-        id: "critters",
-        definition: dicebear_styles::CRITTERS,
-        draws: "a flat, bold monster on a deep ground",
-        person: false,
-        wears: &[("body", Tone::Mark), ("background", Tone::Screen)],
-        framing: None,
-        struck: &[],
     },
     Kept {
         id: "moods",
@@ -310,6 +301,16 @@ fn style(id: &str) -> Result<(&'static Kept, &'static Parsed), String> {
         })
 }
 
+/// What a teammate whose face is in a style the desk no longer draws is
+/// told: its picture stays, and a new face takes one of the styles there are.
+fn gone(id: &str) -> String {
+    format!(
+        "Your face is in the {} style, which Hotline no longer draws. Your picture stays as it is; to change it, make a new face in one of: {}.",
+        clipped(id),
+        style_ids().join(", ")
+    )
+}
+
 /// `#rrggbb`, lowercased; nothing else is a colour here.
 fn hex(value: &str) -> Option<String> {
     let digits = value.strip_prefix('#')?;
@@ -334,14 +335,17 @@ impl Ask {
     /// The call's arguments, every name checked against the style, every
     /// colour a `#rrggbb` and every string bounded. A refusal names what is
     /// allowed, so the next call can differ.
-    pub(crate) fn read(arguments: &Value) -> Result<Self, String> {
+    pub(crate) fn read(arguments: &Value, current: Option<&AvatarRecipe>) -> Result<Self, String> {
         let id = arguments
             .get("style")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .ok_or_else(|| "make_face needs a `style`; face_options lists them.".to_string())?;
-        let (kept, parsed) = style(id)?;
+        let (kept, parsed) = style(id).map_err(|refusal| match current {
+            Some(recipe) if recipe.style == id => gone(id),
+            _ => refusal,
+        })?;
         let mut parts = BTreeMap::new();
         for (name, variant) in object(arguments, "parts")? {
             let part = parsed
@@ -652,19 +656,25 @@ pub(crate) fn styles_answer(persona: &Persona) -> Value {
             entry
         })
         .collect();
-    let current = match &persona.avatar {
-        Some(avatar) => match &avatar.recipe {
-            Some(recipe) => json!(recipe),
-            None => json!("a picture that is not a face from these styles"),
-        },
-        None => json!("none: people see your initial"),
+    let recipe = persona
+        .avatar
+        .as_ref()
+        .and_then(|avatar| avatar.recipe.as_ref());
+    let current = match (&persona.avatar, recipe) {
+        (Some(_), Some(recipe)) => json!(recipe),
+        (Some(_), None) => json!("a picture that is not a face from these styles"),
+        (None, _) => json!("none: people see your initial"),
     };
-    json!({
+    let mut answer = json!({
         "styles": styles,
         "current": current,
         "bubble": { "name": bubble.name, "hex": bubble.mark },
         "note": "Ask with a style for its parts and colours. yourColors is your bubble colour as that style wears it.",
-    })
+    });
+    if let Some(recipe) = recipe.filter(|recipe| style(&recipe.style).is_err()) {
+        answer["currentStyleGone"] = json!(gone(&recipe.style));
+    }
+    answer
 }
 
 /// `face_options` for one style: its parts with their variants, how often

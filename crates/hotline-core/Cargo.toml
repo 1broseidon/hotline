@@ -142,7 +142,6 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # nothing has to be credited where a picture is shown; deny.toml says so.
 dicebear-core = "=11.0.0-rc.2"
 dicebear-styles = { version = "=11.0.0-rc.3", default-features = false, features = [
-    "critters",
     "moods",
     "open-peeps",
     "pixelbot",

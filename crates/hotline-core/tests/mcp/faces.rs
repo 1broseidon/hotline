@@ -34,10 +34,10 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
     let (ada, tape) = desk.teammate("Ada", driver, false).await;
     let script = [
         "CALL face_options {}",
-        r#"CALL face_options {"style":"critters"}"#,
-        r##"CALL make_face {"style":"critters","parts":{"eyes":"wide"},"colors":{"body":"#48b8bc"}}"##,
-        r#"CALL make_face {"style":"critters","parts":{"mouth":"grin"}}"#,
-        r#"CALL make_face {"style":"critters","colors":{"body":"teal"}}"#,
+        r#"CALL face_options {"style":"sprouts"}"#,
+        r##"CALL make_face {"style":"sprouts","parts":{"eyes":"wide"},"colors":{"pot":"#48b8bc"}}"##,
+        r#"CALL make_face {"style":"sprouts","parts":{"mouth":"grin"}}"#,
+        r#"CALL make_face {"style":"sprouts","colors":{"pot":"teal"}}"#,
     ]
     .join("\n");
     let sent = desk
@@ -73,12 +73,12 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
     let avatar = persona_on_disk(&desk, &ada)["avatar"].clone();
     assert_eq!(avatar["by"], "self");
     let recipe = &avatar["recipe"];
-    assert_eq!(recipe["style"], "critters");
+    assert_eq!(recipe["style"], "sprouts");
     assert_eq!(recipe["madeBy"], "teammate");
     assert_eq!(recipe["parts"]["eyes"], "wide", "the earlier choice stays");
     assert_eq!(recipe["parts"]["mouth"], "grin");
     assert_eq!(
-        recipe["colors"]["body"], "#48b8bc",
+        recipe["colors"]["pot"], "#48b8bc",
         "the refused colour changed nothing"
     );
     let hash = avatar["hash"].as_str().unwrap();

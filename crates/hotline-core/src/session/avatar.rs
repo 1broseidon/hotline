@@ -153,12 +153,12 @@ impl Room {
         arguments: &Value,
         capability: Option<CapabilityLease>,
     ) -> Result<CallContent, String> {
-        let ask = face::Ask::read(arguments)?;
-        self.refuse_over_the_persons_choice(persona_id)?;
         let current = self
             .persona(persona_id)?
             .avatar
             .and_then(|avatar| avatar.recipe);
+        let ask = face::Ask::read(arguments, current.as_ref())?;
+        self.refuse_over_the_persons_choice(persona_id)?;
         let seed = persona_id.to_string();
         let face = tokio::task::spawn_blocking(move || {
             face::compose(ask, current.as_ref(), &seed, FaceMaker::Teammate)

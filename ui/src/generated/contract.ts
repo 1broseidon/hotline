@@ -164,7 +164,7 @@ export type AvatarBy = "self" | "person";
  */
 export type AvatarRecipe = { 
 /**
- * The DiceBear style's id, such as `critters` or `open-peeps`.
+ * The DiceBear style's id, such as `sprouts` or `open-peeps`.
  */
 style: string, 
 /**

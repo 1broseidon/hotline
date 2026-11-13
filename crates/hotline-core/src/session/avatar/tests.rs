@@ -301,7 +301,7 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
         .iter()
         .map(|style| style["style"].as_str().unwrap())
         .collect();
-    assert!(styles.contains(&"critters") && styles.contains(&"open-peeps"));
+    assert!(styles.contains(&"sprouts") && styles.contains(&"open-peeps"));
     assert!(
         listed["styles"]
             .as_array()
@@ -319,14 +319,14 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
     assert_eq!(listed["bubble"]["name"], "teal");
     assert!(listed.get("tags").is_none());
 
-    let critters: Value = serde_json::from_str(
+    let sprouts: Value = serde_json::from_str(
         &tools
-            .call("face_options", &json!({ "style": "critters" }))
+            .call("face_options", &json!({ "style": "sprouts" }))
             .await
             .unwrap(),
     )
     .unwrap();
-    let eyes = critters["parts"]
+    let eyes = sprouts["parts"]
         .as_array()
         .unwrap()
         .iter()
@@ -339,11 +339,11 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
             .contains(&json!("wide"))
     );
     assert!(
-        critters["colors"]
+        sprouts["colors"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|slot| slot["slot"] == "body")
+            .any(|slot| slot["slot"] == "pot")
     );
 
     let error = tools
@@ -362,7 +362,7 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     let first = tools
         .answer(
             "make_face",
-            &json!({ "style": "critters", "colors": { "body": "#48b8bc" } }),
+            &json!({ "style": "sprouts", "colors": { "pot": "#48b8bc" } }),
         )
         .await
         .unwrap();
@@ -370,8 +370,8 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     let kept = avatar(&room).unwrap();
     assert_eq!(kept.by, AvatarBy::Own);
     let recipe = kept.recipe.clone().unwrap();
-    assert_eq!(recipe.style, "critters");
-    assert_eq!(recipe.colors["body"], "#48b8bc");
+    assert_eq!(recipe.style, "sprouts");
+    assert_eq!(recipe.colors["pot"], "#48b8bc");
     assert_eq!(recipe.seed, "ada");
     assert_eq!(recipe.made_by, crate::contract::FaceMaker::Teammate);
     let said: Value = serde_json::from_str(&first.text).unwrap();
@@ -387,7 +387,7 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     tools
         .answer(
             "make_face",
-            &json!({ "style": "critters", "parts": { "mouth": "grin" } }),
+            &json!({ "style": "sprouts", "parts": { "mouth": "grin" } }),
         )
         .await
         .unwrap();
@@ -407,8 +407,8 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
         .unwrap();
     let person = avatar(&room).unwrap().recipe.unwrap();
     assert_eq!(person.style, "open-peeps");
-    assert!(person.parts.contains_key("head") && !person.parts.contains_key("top"));
-    assert_ne!(person.colors.get("body"), Some(&"#48b8bc".to_string()));
+    assert!(person.parts.contains_key("head") && !person.parts.contains_key("plant"));
+    assert_ne!(person.colors.get("pot"), Some(&"#48b8bc".to_string()));
 }
 
 /// A bad call is refused and changes nothing, and so is any call over a
@@ -419,11 +419,11 @@ async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
     for (arguments, said) in [
         (json!({ "style": "bottts" }), "The styles are"),
         (
-            json!({ "style": "critters", "parts": { "wings": "big" } }),
+            json!({ "style": "sprouts", "parts": { "wings": "big" } }),
             "Its parts are",
         ),
         (
-            json!({ "style": "critters", "colors": { "body": "teal" } }),
+            json!({ "style": "sprouts", "colors": { "pot": "teal" } }),
             "#rrggbb",
         ),
     ] {
@@ -441,7 +441,7 @@ async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
     let error = tools
-        .call("make_face", &json!({ "style": "critters" }))
+        .call("make_face", &json!({ "style": "sprouts" }))
         .await
         .unwrap_err();
     assert!(
@@ -512,7 +512,7 @@ async fn a_picture_without_a_recipe_still_loads_and_a_face_replaces_it() {
 #[tokio::test]
 async fn only_the_teammates_own_threads_make_its_face() {
     let (_dir, room, _tools) = room();
-    let face = json!({ "style": "critters" });
+    let face = json!({ "style": "sprouts" });
     for (tools, who) in [
         (TeammateTools::new(&room, "ada").for_run(), "A subagent"),
         (
@@ -536,5 +536,50 @@ async fn only_the_teammates_own_threads_make_its_face() {
 
     let job = TeammateTools::new(&room, "ada").for_job("job-1");
     job.call("make_face", &face).await.unwrap();
-    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "critters");
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "sprouts");
+}
+
+/// A teammate whose face is in a style the desk no longer draws keeps its
+/// picture: asked for a change in that style it is told the style is gone,
+/// and nothing is written; a face in a style there is replaces it.
+#[tokio::test]
+async fn a_face_in_a_removed_style_stays_until_a_new_one_is_made() {
+    let (_dir, room, tools) = room();
+    let mut persona = room.persona("ada").unwrap();
+    let kept = Avatar {
+        hash: "c".repeat(64),
+        by: AvatarBy::Own,
+        updated_at: "2026-11-13T00:00:00.000Z".into(),
+        recipe: Some(crate::contract::AvatarRecipe {
+            style: "clay".into(),
+            parts: [("eyes".to_string(), Some("googly".to_string()))].into(),
+            colors: [("body".to_string(), "#48b8bc".to_string())].into(),
+            seed: "ada".into(),
+            made_by: crate::contract::FaceMaker::Teammate,
+        }),
+    };
+    persona.avatar = Some(kept.clone());
+    crate::room::append_persona(room.log(), &persona).unwrap();
+
+    let error = tools
+        .call(
+            "make_face",
+            &json!({ "style": "clay", "parts": { "eyes": "big" } }),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        error.starts_with("Your face is in the clay style, which Hotline no longer draws."),
+        "{error}"
+    );
+    assert_eq!(avatar(&room).unwrap(), kept);
+    let listed: Value =
+        serde_json::from_str(&tools.call("face_options", &json!({})).await.unwrap()).unwrap();
+    assert!(listed["currentStyleGone"].is_string(), "{listed}");
+
+    tools
+        .answer("make_face", &json!({ "style": "moods" }))
+        .await
+        .unwrap();
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "moods");
 }

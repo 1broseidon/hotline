@@ -12,20 +12,9 @@ use std::path::{Path, PathBuf};
 pub const BACKEND: &str = "acp-fixture";
 const ARCHIVE: &str = "https://example.invalid/acp-fixture.tar.gz";
 
-/// The fixture's binary. Cargo sets its path at run time on this toolchain;
-/// when it does not, the bin is one directory up from this test's own `deps`.
+/// The fixture's binary.
 fn built() -> PathBuf {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_hotline-acp-fixture") {
-        return PathBuf::from(path);
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| {
-            let name = format!("hotline-acp-fixture{}", std::env::consts::EXE_SUFFIX);
-            Some(exe.parent()?.parent()?.join(name))
-        })
-        .filter(|path| path.exists())
-        .expect("hotline-acp-fixture should have been built with this test")
+    PathBuf::from(env!("CARGO_BIN_EXE_hotline-acp-fixture"))
 }
 
 /// Puts the fixture in `root`'s catalogue, its command on disk.

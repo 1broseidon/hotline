@@ -758,19 +758,19 @@ async fn a_responses_only_copilot_model_takes_the_responses_route() {
 }
 
 fn echo_command() -> String {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_hotline_mcp_echo") {
-        return path;
-    }
     // A unit test is not told where its bins are, only an integration
-    // test is; but it knows where it is itself, and the bins are one
-    // directory up from `deps`, wherever the target directory lives.
+    // test is; but it runs from under the profile directory the bins are
+    // in: from `deps/` before cargo 1.100, `build/<package>/<hash>/out/`
+    // since. The nearest directory up that holds the bin is that one.
+    let name = format!("hotline-mcp-echo{}", std::env::consts::EXE_SUFFIX);
     std::env::current_exe()
         .ok()
         .and_then(|exe| {
-            let name = format!("hotline-mcp-echo{}", std::env::consts::EXE_SUFFIX);
-            Some(exe.parent()?.parent()?.join(name))
+            exe.ancestors()
+                .skip(1)
+                .map(|dir| dir.join(&name))
+                .find(|path| path.is_file())
         })
-        .filter(|path| path.exists())
         .expect("hotline-mcp-echo should have been built with this test")
         .to_string_lossy()
         .into_owned()

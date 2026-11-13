@@ -20,16 +20,14 @@ use crate::common::until;
 
 const STOPPED: &str = "Your browser stopped, and its page with it. Navigate to open a new one.";
 
-/// The helper beside this test's binaries, or where the environment says.
+/// The helper beside this package's bins, or where the environment says.
+/// Cargo names where a bin is, never where the test itself runs from: that
+/// moved from `deps/` to `build/<package>/<hash>/out/` in cargo 1.100.
 fn program() -> PathBuf {
     let path = std::env::var_os("HOTLINE_BROWSER_HELPER").map_or_else(
         || {
-            let exe = std::env::current_exe().unwrap();
-            exe.parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .join("hotline-browser")
+            std::path::Path::new(env!("CARGO_BIN_EXE_hotline-acp-fixture"))
+                .with_file_name("hotline-browser")
         },
         PathBuf::from,
     );

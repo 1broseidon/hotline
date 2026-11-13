@@ -143,7 +143,7 @@ jobs:
       # Forgetting both makes the build unpack the pinned archive again.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       # A manual run can build as a version nobody has tagged, so a beta's
       # packaging is seen on every runner before a beta exists. The version
@@ -378,7 +378,7 @@ jobs:
       # The cache lacks the speech engine's unpacked library; see above.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
       # As in the desktop build: the version goes no further than this runner.
       - name: Build as the version a manual run asked for
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''

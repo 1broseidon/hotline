@@ -44,7 +44,7 @@ jobs:
       # Forgetting both makes the build unpack the pinned archive again.
       - name: Unpack the speech engine again
         shell: bash
-        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys* target/*/*/.fingerprint/sherpa-onnx-sys-*
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |

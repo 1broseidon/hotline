@@ -172,9 +172,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
 | `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
-| `avatar.generate` | `{personaId}` | none, once the drawing has started; the picture is drawn from the teammate's name and goal by the room's image provider, within the Images budget, and the roster carries it when it lands (`drawing` until then). With no provider that can draw, it is drawn on the desk instead, in the default DiceBear style (Lorelei) seeded by the teammate's id, at no cost and with no network. Either is the teammate's own (`by: "self"`). Refused at once when the person chose the current picture |
-| `avatar.candidates` | `{personaId, round?}` | `AvatarCandidate[]`, `{style, seed, svg}`: one picture per DiceBear style the desk draws, drawn on the desk from one seed the teammate and `round` (default 0) make, so the same round answers the same pictures and the next round others. `svg` is for showing as an image, never as markup. The styles are the twelve whose artwork is CC0 1.0 listed in `session/avatar/drawn.rs` |
-| `avatar.pick` | `{personaId, style, seed}` | `Avatar`: the picture that style and seed draw, kept as a 512 px PNG and chosen by the person (`by: "person"`), so the teammate's `set_avatar` and setup's `avatar.generate` leave it be. Refused for a style the desk does not draw or a seed outside 1–200 characters. Owner seat only |
+| `avatar.generate` | `{personaId}` | none, once the teammate has a face: setup's Picture. The desk draws one at once, with no image provider and no network, in a creature style picked from the teammate's id (`clay`, `critters`, `moods`, `sprouts`, `voxel-bot`, `marbles`, `cats` or `dogs`) and in its bubble colour, kept as its own (`by: "self"`) with a recipe made by the desk; the roster carries it. Then a quiet one-shot job of the teammate's, five seconds later and without its computer, extra folders or MCP servers, makes its own face with `make_face`, posting nothing to the chat. Refused when the person chose the current picture |
 | `link.preview` | `{url}` | `LinkPreview` `{url, title, site, description?, image?}`, the card for a link written in a message, read by the desk: `site` is the page's address, with the site's own name after a `·` when it adds one; `image` is the page's picture as a `data:` URL the desk fetched once, shrank and keeps, so the window never asks the site. JSON `null` when the page has none, is not one the desk will read, or `linkPreviews` is off. Answered off the read loop, so it holds up nothing behind it |
 | `link.icon` | `{site}` | a site's icon (`https://<site>/favicon.ico`) as a `data:` URL the desk fetched once and keeps; JSON `null` when it has none, `site` is not a bare host, or `linkPreviews` is off. Answered off the read loop |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
@@ -793,10 +791,14 @@ are optional, and absent from everything the conversation's own turns say.
 A teammate's `avatar` is `{hash, by: "self"|"person", updatedAt}`, and is
 absent when the teammate shows its initial. The picture is kept under
 `avatars/<teammate>/<hash>.png` and never rewritten, so a client may cache it
-by hash for good. A teammate sets its own with the `set_avatar` tool; the
-person picks one the desk draws with `avatar.pick`; `persona.update` accepts
+by hash for good. A teammate sets its own with the `set_avatar` tool, from a
+file, or draws its face with `make_face`; `persona.update` accepts
 `avatar: null` to clear it and nothing else for that field. None of them
-restarts the session.
+restarts the session. A face carries its `recipe`: `{style, parts, colors,
+seed, madeBy: "desk"|"teammate"}`, each of the style's parts by name with
+the variant drawn or `null`, each colour drawn by slot as `#rrggbb`. The
+PNG is its rendering. A picture from a file, and a record older than faces,
+has no `recipe`.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code

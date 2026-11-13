@@ -51,19 +51,19 @@ Apache-2.0; the gate passes it on those.
 
 ### DiceBear's styles
 
-A teammate's picture drawn on the desk comes from dicebear-core (MIT,
+A teammate's face drawn on the desk comes from dicebear-core (MIT,
 Florian Körner) and the style definitions in dicebear-styles, both pinned
 release candidates. dicebear-styles declares no license field: its
 `LICENSE.md` puts the code that ships the styles under MIT and gives each
 style its own license, from CC0 1.0 to CC BY 4.0 and the Avataaars and
 Bottts terms. Each style is a cargo feature, and hotline-core enables only
-twelve whose artwork is CC0 1.0 (Clay, Critters, Cutouts, Lorelei, Marbles,
-Moods, Notionists, Open Peeps, Pixel Art, Sprouts, Thumbs, Voxel Bot), so
-a picture needs no credit where it is shown. Lorelei, Notionists and Open
+fifteen whose artwork is CC0 1.0 (Cats, Clay, Critters, Cutouts, Dogs,
+Lorelei, Marbles, Moods, Notionists, Open Peeps, Pixel Art, Sprouts, Thumbs,
+Voxel Art, Voxel Bot), so a face needs no credit where it is shown. Lorelei, Notionists and Open
 Peeps are remixes of Lisa Wischofsky's, Zoish's and Pablo Stanley's work,
 each released as CC0 1.0. `deny.toml` reads the crate as `MIT AND CC0-1.0`,
 pinned to this version and its `LICENSE.md`; a test in
-`crates/hotline-core/src/session/avatar/drawn.rs` fails if a style it
+`crates/hotline-core/src/session/avatar/face/tests.rs` fails if a style it
 draws names any license but CC0 1.0. Enabling another style means reading
 its row in that file first.
 

@@ -7,25 +7,26 @@
 //! new one removes the old files, and so does clearing. A picture the person
 //! chose is not replaced by the teammate.
 //!
-//! A picture comes from the teammate's workspace (`set_avatar`), from the
-//! room's image provider at setup, or from DiceBear on this machine
-//! ([`drawn`]): at setup when no provider can draw, and whenever the person
-//! picks one in the teammate's pane.
+//! A picture comes from a file in the teammate's workspace (`set_avatar`),
+//! which `generate_image` may have made, or is a face the desk draws from a
+//! recipe ([`face`]): seeded at setup, then made by the teammate itself with
+//! `make_face`.
 
-pub(crate) mod drawn;
+pub(crate) mod face;
 
-use super::{Room, generate::read_workspace_image};
-use crate::contract::{Avatar, AvatarBy};
+use super::{Brief, Ends, Report, Room, Trigger, generate::read_workspace_image};
+use crate::contract::{Ability, Avatar, AvatarBy, AvatarRecipe, FaceMaker};
 use crate::driver::CapabilityLease;
-use crate::imagegen::{self, Aspect, ImageRequest};
 use crate::images::DECODERS;
+use crate::mcp::{CallContent, CallImage};
 use crate::paths;
 use crate::sent;
 use crate::tools::Workspace;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
@@ -36,6 +37,11 @@ const MAX_BYTES: usize = 20 * 1024 * 1024;
 const MAX_SOURCE_EDGE: u32 = 16_000;
 /// Pixels fainter than this count as empty when looking for the subject.
 const SUBJECT_ALPHA: u8 = 8;
+/// What a new teammate's job is told: make its own face, quietly.
+const OWN_FACE: &str = "Make your own face. The desk gave you a placeholder face at setup; replace it with one that is yours. Call face_options, choose a style that suits your name and your goal, and build the face with make_face from your name, your goal and your bubble colour. Look at the picture it returns and adjust it once or twice if it is not you yet. Do not post to the chat or tell the person: your face is on your record as soon as make_face returns.";
+/// How long after setup that job runs: soon, but after the person's first
+/// message has had its turn started.
+const OWN_FACE_AFTER_MS: i64 = 5_000;
 
 /// What `set_avatar` was asked to do: a path wins over anything else sent
 /// with it, because models fill in properties they were told to leave out
@@ -111,32 +117,89 @@ impl Room {
         let gate = self.policy_update_lock();
         let _held = gate.lock().await;
         self.refuse_over_the_persons_choice(persona_id)?;
-        let hash = self.write_avatar(persona_id, prepared, AvatarBy::Own)?;
+        let hash = self.write_avatar(persona_id, prepared, AvatarBy::Own, None)?;
         Ok(match hash {
             Some(hash) => json!({ "hash": hash }).to_string(),
             None => "Your picture is cleared; people see your initial again.".to_string(),
         })
     }
 
-    /// Whether setup's offer can go ahead, answered before the drawing starts
-    /// so a refusal reaches the person rather than a log. Only a picture the
-    /// person chose refuses it: without a provider the picture is drawn here.
-    pub(crate) fn can_draw_avatar(&self, persona_id: &str) -> Result<(), String> {
+    /// The `face_options` tool: the styles, the teammate's face now and its
+    /// bubble colour; or, given a `style`, that style's parts and colours.
+    pub(crate) fn face_options(
+        &self,
+        persona_id: &str,
+        arguments: &Value,
+    ) -> Result<String, String> {
         let persona = self.persona(persona_id)?;
-        if persona
-            .avatar
-            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+        let answer = match arguments
+            .get("style")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|style| !style.is_empty())
         {
-            return Err("This teammate already has a picture you chose.".into());
-        }
-        Ok(())
+            Some(style) => face::style_answer(style)?,
+            None => face::styles_answer(&persona),
+        };
+        Ok(answer.to_string())
     }
 
-    /// The setup screen's offer: a picture drawn from the teammate's name and
-    /// goal, in the house avatar style, or, when no provider can draw, one
-    /// drawn on this machine in the default DiceBear style from the
-    /// teammate's id. Either counts as the teammate's own, so the teammate
-    /// may redraw it later; one the person chose is kept.
+    /// The `make_face` tool: a face drawn from the call and the teammate's
+    /// current recipe, kept as its own picture, and handed back as a
+    /// picture for it to look at.
+    pub(crate) async fn make_face(
+        &self,
+        persona_id: &str,
+        arguments: &Value,
+        capability: Option<CapabilityLease>,
+    ) -> Result<CallContent, String> {
+        let ask = face::Ask::read(arguments)?;
+        self.refuse_over_the_persons_choice(persona_id)?;
+        let current = self
+            .persona(persona_id)?
+            .avatar
+            .and_then(|avatar| avatar.recipe);
+        let seed = persona_id.to_string();
+        let face = tokio::task::spawn_blocking(move || {
+            face::compose(ask, current.as_ref(), &seed, FaceMaker::Teammate)
+        })
+        .await
+        .map_err(|_| "The face could not be drawn.".to_string())??;
+        if let Some(capability) = &capability {
+            capability.check()?;
+        }
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        self.refuse_over_the_persons_choice(persona_id)?;
+        let hash = self.write_avatar(
+            persona_id,
+            Some(face.png.clone()),
+            AvatarBy::Own,
+            Some(face.recipe.clone()),
+        )?;
+        Ok(CallContent {
+            text: {
+                let mut said = json!({
+                    "hash": hash,
+                    "recipe": face.recipe,
+                    "note": "This is your picture now, beside your name wherever the person sees you. Look at it: if it is not you yet, call make_face again with what to change.",
+                });
+                if !face.not_drawn.is_empty() {
+                    said["notDrawn"] = json!(face.not_drawn);
+                }
+                said.to_string()
+            },
+            images: vec![CallImage {
+                data: BASE64.encode(&face.png),
+                mime_type: "image/png".into(),
+            }],
+        })
+    }
+
+    /// The setup screen's offer: a face the desk draws at once from the
+    /// teammate's id and bubble colour, kept as the teammate's own; then a
+    /// quiet job of the teammate's makes one of its own. One the person
+    /// chose is kept.
     pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
         let persona = self.persona(persona_id)?;
         let _drawing = self.start_drawing(persona_id);
@@ -147,76 +210,44 @@ impl Room {
         {
             return Err("This teammate already has a picture you chose.".into());
         }
-        let png = if self.image_generators().is_ok() {
-            self.drawn_by_provider(&persona.name, &persona.goal, persona_id)
-                .await?
-        } else {
-            drawn_here(drawn::DEFAULT, persona_id).await?
-        };
-        let gate = self.policy_update_lock();
-        let _held = gate.lock().await;
-        if self
-            .persona(persona_id)?
-            .avatar
-            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
-        {
-            return Err("This teammate already has a picture you chose.".into());
-        }
-        self.write_avatar(persona_id, Some(png), AvatarBy::Own)?;
-        self.persona(persona_id)?
-            .avatar
-            .ok_or_else(|| "The picture could not be saved.".to_string())
-    }
-
-    /// The person picked one of the pictures [`drawn::candidates`] offered:
-    /// the same drawing is kept, as theirs, so the teammate leaves it be.
-    pub(crate) async fn pick_avatar(
-        &self,
-        persona_id: &str,
-        style: &str,
-        seed: &str,
-    ) -> Result<Avatar, String> {
-        self.persona(persona_id)?;
-        let png = drawn_here(style, seed).await?;
-        let gate = self.policy_update_lock();
-        let _held = gate.lock().await;
-        self.write_avatar(persona_id, Some(png), AvatarBy::Person)?;
-        self.persona(persona_id)?
-            .avatar
-            .ok_or_else(|| "The picture could not be saved.".to_string())
-    }
-
-    /// The house style's picture of this teammate, from the room's image
-    /// provider, squared as it is kept.
-    async fn drawn_by_provider(
-        &self,
-        name: &str,
-        goal: &str,
-        persona_id: &str,
-    ) -> Result<Vec<u8>, String> {
-        let styled = imagegen::styled(
-            Some("avatar"),
-            &avatar_subject(name, goal),
-            Aspect::Square,
-            persona_id,
-        )?;
-        let request = ImageRequest {
-            prompt: styled.prompt,
-            aspect: styled.aspect,
-            transparent: false,
-            references: styled.references,
-        };
-        let drawn = self.draw(&request, None).await?;
-        let permit = DECODERS
-            .acquire()
+        let face = tokio::task::spawn_blocking(move || face::seeded(&persona))
             .await
-            .map_err(|_| "The picture could not be prepared.".to_string())?;
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            square(&drawn.image.bytes)
-        })
-        .await
-        .map_err(|_| "The picture could not be prepared.".to_string())?
+            .map_err(|_| "The face could not be drawn.".to_string())??;
+        let avatar = {
+            let gate = self.policy_update_lock();
+            let _held = gate.lock().await;
+            if self
+                .persona(persona_id)?
+                .avatar
+                .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+            {
+                return Err("This teammate already has a picture you chose.".into());
+            }
+            self.write_avatar(persona_id, Some(face.png), AvatarBy::Own, Some(face.recipe))?;
+            self.persona(persona_id)?
+                .avatar
+                .ok_or_else(|| "The picture could not be saved.".to_string())?
+        };
+        self.ask_for_its_own_face(persona_id);
+        Ok(avatar)
+    }
+
+    /// The teammate makes its own face on a thread of its own, soon after
+    /// setup: a quiet one-shot job, so nothing lands in the person's chat and
+    /// their first message does not wait on it. It has none of the computer,
+    /// the extra folders or the MCP servers, which a face needs none of. A
+    /// job that cannot be made leaves the seeded face, which is a face.
+    fn ask_for_its_own_face(&self, persona_id: &str) {
+        let brief = Brief {
+            task: OWN_FACE.to_string(),
+            trigger: Trigger::At(super::now_ms() + OWN_FACE_AFTER_MS),
+            report: Report::Significant,
+            ends: Ends::default(),
+            without: vec![Ability::Computer, Ability::Folders, Ability::McpServers],
+        };
+        if let Err(error) = self.schedule_create(persona_id, brief, false) {
+            eprintln!("{persona_id} was not asked to make its own face: {error}");
+        }
     }
 
     fn refuse_over_the_persons_choice(&self, persona_id: &str) -> Result<(), String> {
@@ -233,13 +264,14 @@ impl Room {
         Ok(())
     }
 
-    /// Keeps `png` as the teammate's picture, or clears it, and writes the
-    /// record. The caller holds `policy_update_lock`. Answers the new hash.
+    /// Keeps `png` as the teammate's picture, drawn from `recipe` when it is
+    /// a face, or clears it, and writes the record. The caller holds `policy_update_lock`. Answers the new hash.
     fn write_avatar(
         &self,
         persona_id: &str,
         png: Option<Vec<u8>>,
         by: AvatarBy,
+        recipe: Option<AvatarRecipe>,
     ) -> Result<Option<String>, String> {
         let root = self.log.root();
         let mut persona = self.persona(persona_id)?;
@@ -251,6 +283,7 @@ impl Room {
                 hash: hash.clone(),
                 by,
                 updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                recipe,
             });
             Some(hash)
         } else {
@@ -262,29 +295,6 @@ impl Room {
         remove_except(root, persona_id, hash.as_deref());
         Ok(hash)
     }
-}
-
-/// A DiceBear picture rasterised off the reactor: a few milliseconds of
-/// work, but work all the same.
-async fn drawn_here(style: &str, seed: &str) -> Result<Vec<u8>, String> {
-    let (style, seed) = (style.to_string(), seed.to_string());
-    tokio::task::spawn_blocking(move || drawn::png(&style, &seed))
-        .await
-        .map_err(|_| "The picture could not be drawn.".to_string())?
-}
-
-/// Who the crew member is: its name and job, which pick the taste decisions
-/// the house style asks for.
-fn avatar_subject(name: &str, goal: &str) -> String {
-    let goal: String = goal.trim().chars().take(600).collect();
-    let mut subject = format!("a teammate called {}", name.trim());
-    if !goal.is_empty() {
-        let _ = write!(subject, ", whose job is: {goal}");
-    }
-    subject.push_str(
-        ". Pick its taste decisions from these, the few a person would remember it by. If the name is a thing, its colour, skin or a detail echoes that thing.",
-    );
-    subject
 }
 
 /// Keeps a picture under its hash, unless it is already there.

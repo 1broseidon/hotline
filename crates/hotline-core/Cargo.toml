@@ -135,16 +135,18 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-# A teammate's picture without an image provider: DiceBear's styles, drawn on
-# this machine from a seed. Both crates are release candidates, so they are
+# A teammate's face without an image provider: DiceBear's styles, drawn on
+# this machine from a recipe. Both crates are release candidates, so they are
 # pinned exactly. Only styles whose artwork is CC0 1.0 are enabled (each
 # style's licence is in the crate's LICENSE.md and the style's `meta`), so
 # nothing has to be credited where a picture is shown; deny.toml says so.
 dicebear-core = "=11.0.0-rc.2"
 dicebear-styles = { version = "=11.0.0-rc.3", default-features = false, features = [
+    "cats",
     "clay",
     "critters",
     "cutouts",
+    "dogs",
     "lorelei",
     "marbles",
     "moods",
@@ -153,6 +155,7 @@ dicebear-styles = { version = "=11.0.0-rc.3", default-features = false, features
     "pixel-art",
     "sprouts",
     "thumbs",
+    "voxel-art",
     "voxel-bot",
 ] }
 # DiceBear answers SVG and a kept picture is a PNG. No text or fonts: none of

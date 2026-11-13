@@ -166,6 +166,7 @@ async fn a_picture_the_person_chose_is_left_alone() {
         hash: hash.clone(),
         by: AvatarBy::Person,
         updated_at: "2026-09-30T00:00:00.000Z".into(),
+        recipe: None,
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
 
@@ -275,72 +276,265 @@ fn a_picture_is_read_only_by_a_genuine_hash() {
     );
 }
 
+fn decoded(content: &crate::mcp::CallContent) -> RgbaImage {
+    use base64::Engine as _;
+    assert_eq!(content.images.len(), 1);
+    assert_eq!(content.images[0].mime_type, "image/png");
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(&content.images[0].data)
+        .unwrap();
+    image::load_from_memory_with_format(&png, ImageFormat::Png)
+        .unwrap()
+        .to_rgba8()
+}
+
+/// `face_options` lists the styles, the face now and the bubble colour,
+/// and one style's parts and colours, through the real handler.
 #[tokio::test]
-async fn a_picked_picture_is_the_drawing_offered_and_the_persons() {
-    let (dir, room, tools) = room();
-    let offered = drawn::candidates("ada", 3)
-        .into_iter()
-        .find(|candidate| candidate.style == "thumbs")
-        .unwrap();
+async fn face_options_lists_the_styles_and_then_a_styles_parts() {
+    let (_dir, _room, tools) = room();
+    let listed: Value =
+        serde_json::from_str(&tools.call("face_options", &json!({})).await.unwrap()).unwrap();
+    let styles: Vec<&str> = listed["styles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|style| style["style"].as_str().unwrap())
+        .collect();
+    assert!(styles.contains(&"clay") && styles.contains(&"open-peeps"));
+    assert!(
+        listed["styles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|style| style["kind"] == "person")
+    );
+    assert!(
+        listed["styles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|style| style["kind"] == "creature")
+    );
+    assert_eq!(listed["bubble"]["name"], "teal");
+    assert!(listed.get("tags").is_none());
 
-    let picked = room
-        .pick_avatar("ada", &offered.style, &offered.seed)
-        .await
-        .unwrap();
-
-    assert_eq!(picked.by, AvatarBy::Person);
-    assert_eq!(avatar(&room).unwrap(), picked);
-    let kept = std::fs::read(
-        dir.path()
-            .join(format!("data/avatars/ada/{}.png", picked.hash)),
+    let clay: Value = serde_json::from_str(
+        &tools
+            .call("face_options", &json!({ "style": "clay" }))
+            .await
+            .unwrap(),
     )
     .unwrap();
-    assert_eq!(kept, drawn::png("thumbs", &offered.seed).unwrap());
-    assert_eq!(hex::encode(Sha256::digest(&kept)), picked.hash);
-    // The teammate leaves it be, as any picture the person chose.
+    let eyes = clay["parts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|part| part["part"] == "eyes")
+        .unwrap();
+    assert!(
+        eyes["variants"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("googly"))
+    );
+    assert!(
+        clay["colors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|slot| slot["slot"] == "body")
+    );
+
     let error = tools
-        .call("set_avatar", &json!({ "clear": true }))
+        .call("face_options", &json!({ "style": "bottts" }))
         .await
         .unwrap_err();
-    assert!(error.contains("The person chose"), "{error}");
-
-    // A style the desk does not draw is refused and changes nothing.
-    let error = room
-        .pick_avatar("ada", "bottts", "ada:0")
-        .await
-        .unwrap_err();
-    assert!(error.contains("does not draw"), "{error}");
-    assert_eq!(avatar(&room).unwrap(), picked);
-    assert_eq!(kept_files(&dir), vec![format!("{}.png", picked.hash)]);
+    assert!(error.contains("The styles are"), "{error}");
 }
 
+/// `make_face` keeps the face as the teammate's own picture with its recipe
+/// and hands the picture back; asked again in the same style it changes
+/// only what it is told, and a new style starts afresh.
 #[tokio::test]
-async fn without_a_provider_setup_draws_the_default_style_as_the_teammates_own() {
-    let (dir, room, _tools) = room();
-    assert!(room.image_generators().is_err());
-    room.can_draw_avatar("ada").unwrap();
-
-    let picture = room.generate_avatar("ada").await.unwrap();
-
-    assert_eq!(picture.by, AvatarBy::Own);
-    assert_eq!(avatar(&room).unwrap(), picture);
-    let kept = std::fs::read(
+async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
+    let (dir, room, tools) = room();
+    let first = tools
+        .answer(
+            "make_face",
+            &json!({ "style": "clay", "colors": { "body": "#48b8bc" } }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(decoded(&first).dimensions(), (512, 512));
+    let kept = avatar(&room).unwrap();
+    assert_eq!(kept.by, AvatarBy::Own);
+    let recipe = kept.recipe.clone().unwrap();
+    assert_eq!(recipe.style, "clay");
+    assert_eq!(recipe.colors["body"], "#48b8bc");
+    assert_eq!(recipe.seed, "ada");
+    assert_eq!(recipe.made_by, crate::contract::FaceMaker::Teammate);
+    let said: Value = serde_json::from_str(&first.text).unwrap();
+    assert_eq!(said["hash"], kept.hash);
+    assert_eq!(said["recipe"], json!(recipe));
+    let bytes = std::fs::read(
         dir.path()
-            .join(format!("data/avatars/ada/{}.png", picture.hash)),
+            .join(format!("data/avatars/ada/{}.png", kept.hash)),
     )
     .unwrap();
-    assert_eq!(kept, drawn::png(drawn::DEFAULT, "ada").unwrap());
-    assert!(!room.drawing("ada"));
+    assert_eq!(hex::encode(Sha256::digest(&bytes)), kept.hash);
+
+    tools
+        .answer(
+            "make_face",
+            &json!({ "style": "clay", "parts": { "mouth": "grin" } }),
+        )
+        .await
+        .unwrap();
+    let hat = avatar(&room).unwrap().recipe.unwrap();
+    assert_eq!(hat.parts["mouth"].as_deref(), Some("grin"));
+    for (name, variant) in &hat.parts {
+        if name != "mouth" {
+            assert_eq!(variant, &recipe.parts[name], "{name}");
+        }
+    }
+    assert_eq!(hat.colors, recipe.colors);
+    assert_eq!(kept_files(&dir).len(), 1, "the old face is gone");
+
+    tools
+        .answer("make_face", &json!({ "style": "open-peeps" }))
+        .await
+        .unwrap();
+    let person = avatar(&room).unwrap().recipe.unwrap();
+    assert_eq!(person.style, "open-peeps");
+    assert!(person.parts.contains_key("head") && !person.parts.contains_key("top"));
+    assert_ne!(person.colors.get("body"), Some(&"#48b8bc".to_string()));
 }
 
+/// A bad call is refused and changes nothing, and so is any call over a
+/// picture the person chose.
 #[tokio::test]
-async fn setup_never_draws_over_a_picture_the_person_picked() {
-    let (_dir, room, _tools) = room();
-    let picked = room.pick_avatar("ada", "clay", "ada:0").await.unwrap();
+async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
+    let (_dir, room, tools) = room();
+    for (arguments, said) in [
+        (json!({ "style": "bottts" }), "The styles are"),
+        (
+            json!({ "style": "clay", "parts": { "wings": "big" } }),
+            "Its parts are",
+        ),
+        (
+            json!({ "style": "clay", "colors": { "body": "teal" } }),
+            "#rrggbb",
+        ),
+    ] {
+        let error = tools.call("make_face", &arguments).await.unwrap_err();
+        assert!(error.contains(said), "{arguments}: {error}");
+    }
+    assert_eq!(avatar(&room), None);
 
-    let error = room.can_draw_avatar("ada").unwrap_err();
-    assert!(error.contains("you chose"), "{error}");
+    let mut persona = room.persona("ada").unwrap();
+    persona.avatar = Some(Avatar {
+        hash: "a".repeat(64),
+        by: AvatarBy::Person,
+        updated_at: "2026-11-13T00:00:00.000Z".into(),
+        recipe: None,
+    });
+    crate::room::append_persona(room.log(), &persona).unwrap();
+    let error = tools
+        .call("make_face", &json!({ "style": "clay" }))
+        .await
+        .unwrap_err();
+    assert!(
+        error.contains("The person chose your current picture"),
+        "{error}"
+    );
+    assert_eq!(avatar(&room).unwrap().hash, "a".repeat(64));
+}
+
+/// Setup gives a face at once, seeded by the desk in the bubble colour,
+/// and asks the teammate, through a quiet job, to make its own; it never
+/// draws over the person's choice.
+#[tokio::test]
+async fn setup_seeds_a_face_and_asks_the_teammate_for_its_own() {
+    let (_dir, room, _tools) = room();
+    let seeded = room.generate_avatar("ada").await.unwrap();
+    assert_eq!(seeded.by, AvatarBy::Own);
+    let recipe = seeded.recipe.clone().unwrap();
+    assert_eq!(recipe.made_by, crate::contract::FaceMaker::Desk);
+    assert!(
+        recipe.colors.values().any(|color| color == "#48b8bc"),
+        "the bubble colour is in the face: {recipe:?}"
+    );
+    assert_eq!(avatar(&room).unwrap(), seeded);
+    let jobs = room.schedule_list();
+    assert_eq!(jobs.len(), 1);
+    assert!(jobs[0].prompt.starts_with("Make your own face."));
+    assert_eq!(jobs[0].quiet, Some(true));
+    assert_eq!(jobs[0].persona_id, "ada");
+    assert!(!room.drawing("ada"));
+
+    let mut persona = room.persona("ada").unwrap();
+    persona.avatar.as_mut().unwrap().by = AvatarBy::Person;
+    crate::room::append_persona(room.log(), &persona).unwrap();
     let error = room.generate_avatar("ada").await.unwrap_err();
     assert!(error.contains("you chose"), "{error}");
-    assert_eq!(avatar(&room).unwrap(), picked);
+    assert_eq!(room.schedule_list().len(), 1);
+}
+
+/// A record from before faces has no recipe and reads as it did; a face
+/// made over a picture from a file starts afresh.
+#[tokio::test]
+async fn a_picture_without_a_recipe_still_loads_and_a_face_replaces_it() {
+    let old: Avatar = serde_json::from_value(
+        json!({ "hash": "b".repeat(64), "by": "self", "updatedAt": "2026-10-01T00:00:00.000Z" }),
+    )
+    .unwrap();
+    assert_eq!(old.recipe, None);
+    assert!(serde_json::to_value(&old).unwrap().get("recipe").is_none());
+
+    let (dir, room, tools) = room();
+    std::fs::write(dir.path().join("workspace/otter.png"), margined()).unwrap();
+    tools
+        .call("set_avatar", &json!({ "path": "otter.png" }))
+        .await
+        .unwrap();
+    assert_eq!(avatar(&room).unwrap().recipe, None);
+    tools
+        .answer("make_face", &json!({ "style": "dogs" }))
+        .await
+        .unwrap();
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "dogs");
+}
+
+/// A subagent run and a voice front have neither tool, and a revoked
+/// session's tools draw nothing; a job's thread has both, which is how a new
+/// teammate makes its own face.
+#[tokio::test]
+async fn only_the_teammates_own_threads_make_its_face() {
+    let (_dir, room, _tools) = room();
+    let face = json!({ "style": "clay" });
+    for (tools, who) in [
+        (TeammateTools::new(&room, "ada").for_run(), "A subagent"),
+        (
+            TeammateTools::new(&room, "ada").for_front(),
+            "A voice front",
+        ),
+    ] {
+        for name in ["make_face", "face_options"] {
+            let error = tools.call(name, &face).await.unwrap_err();
+            assert!(error.starts_with(who), "{name}: {error}");
+        }
+    }
+    assert_eq!(avatar(&room), None);
+
+    let epoch = crate::driver::CapabilityEpoch::default();
+    let lease = epoch.lease();
+    let revoked = TeammateTools::new(&room, "ada").with_capability(lease.clone());
+    lease.revoke();
+    assert!(revoked.call("make_face", &face).await.is_err());
+    assert_eq!(avatar(&room), None);
+
+    let job = TeammateTools::new(&room, "ada").for_job("job-1");
+    job.call("make_face", &face).await.unwrap();
+    assert_eq!(avatar(&room).unwrap().recipe.unwrap().style, "clay");
 }

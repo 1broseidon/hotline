@@ -337,7 +337,18 @@ async fn answer(
                 } else {
                     "ok"
                 };
-                format!("{tool} {outcome}: {text}")
+                // A picture handed back is counted, so a harness can tell
+                // the child was shown it.
+                let pictures = result
+                    .content
+                    .iter()
+                    .filter(|block| block.as_image().is_some())
+                    .count();
+                if pictures == 0 {
+                    format!("{tool} {outcome}: {text}")
+                } else {
+                    format!("{tool} {outcome} with {pictures} picture: {text}")
+                }
             }
             Err(error) => format!("{tool} failed: {error}"),
         });

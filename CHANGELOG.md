@@ -10,14 +10,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
-- A teammate can have a picture with no image provider. Its pane has a
-  Picture row: open it for a dozen pictures drawn on this machine from
-  DiceBear's styles, press one to keep it as yours, or More for another
-  set. Setup's Picture switch is now always offered: with no provider, the
-  new teammate gets a Lorelei picture drawn here, with no network and no
-  cost, which the teammate can replace like one a provider drew. With a
-  provider, setup draws as before. Only the styles whose artwork is CC0 are
-  used, so none needs credit.
+- A teammate makes its own face. Ask it for a face, or for a change to the
+  one it has ("give yourself glasses"), and it draws one on this computer
+  from one of fifteen DiceBear styles, people and creatures, with no image
+  provider and no network, from its name, its goal and its bubble colour.
+  Asked for a change it keeps its style and changes only that; it switches
+  style when you tell it to. It is shown the picture it made, where its
+  model reads pictures, and can adjust it. Two new tools, `face_options`
+  and `make_face`, do this; a face is kept with the recipe it was drawn
+  from. Only styles whose artwork is CC0 are used, so none needs credit.
+- Setup's Picture switch is always offered, and a new teammate starts with a
+  face rather than its initial: the desk draws one at once in its bubble
+  colour, and a few seconds later the teammate makes its own on a quiet job
+  of its own, without a word in your chat. A generated picture in the crew
+  style is still there when you ask the teammate for one.
 
 ## [0.49.1] - 2026-11-13
 

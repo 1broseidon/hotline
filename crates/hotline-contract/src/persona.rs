@@ -23,6 +23,12 @@ pub struct Avatar {
     pub by: AvatarBy,
     /// When the picture was set, as an ISO timestamp.
     pub updated_at: String,
+    /// What the picture was drawn from, when it is a face the desk drew;
+    /// absent for a picture from a file or an image provider, and on a
+    /// record older than faces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub recipe: Option<AvatarRecipe>,
 }
 
 /// Who chose the picture. A teammate does not replace one the person chose.
@@ -35,17 +41,37 @@ pub enum AvatarBy {
     Person,
 }
 
-/// A picture the desk can draw for a teammate on this machine, offered for
-/// the person to pick: one of DiceBear's styles and the seed that drew it.
-/// `svg` is the drawing itself, for the window to show as an image; picking
-/// it keeps the same drawing as the teammate's PNG.
+/// A face drawn on the desk from one of DiceBear's styles: what the kept
+/// PNG is a rendering of. Every part and colour is the one drawn, resolved
+/// when it was made, so the face does not change when the crate's way of
+/// filling them from the seed does; the seed still places the small offsets
+/// some styles give a part.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
-pub struct AvatarCandidate {
+pub struct AvatarRecipe {
+    /// The DiceBear style's id, such as `clay` or `open-peeps`.
     pub style: String,
+    /// Each of the style's parts by its name: the variant drawn, or `null`
+    /// for one left out.
+    #[ts(type = "Record<string, string | null>")]
+    pub parts: std::collections::BTreeMap<String, Option<String>>,
+    /// Each of the style's colour slots by its name, as `#rrggbb`.
+    #[ts(type = "Record<string, string>")]
+    pub colors: std::collections::BTreeMap<String, String>,
     pub seed: String,
-    pub svg: String,
+    /// Who chose it: the desk, seeded at setup, or the teammate.
+    pub made_by: FaceMaker,
+}
+
+/// Who put a face's recipe together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum FaceMaker {
+    /// Seeded by the desk at setup, before the teammate made its own.
+    Desk,
+    Teammate,
 }
 
 // ---------------------------------------------------------------------------

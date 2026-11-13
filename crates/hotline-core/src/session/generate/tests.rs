@@ -1061,53 +1061,6 @@ async fn acp_mcp_transport_lists_and_executes_the_same_image_tool() {
     client.cancel().await.unwrap();
 }
 
-#[tokio::test]
-async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
-    let (_dir, room, _tools) = room();
-    let mut fake = Fake::new("avatar-image");
-    let opaque = image::RgbaImage::from_pixel(96, 64, image::Rgba([200, 120, 40, 255]));
-    let mut bytes = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(opaque)
-        .write_to(&mut bytes, image::ImageFormat::Png)
-        .unwrap();
-    Arc::get_mut(&mut fake).unwrap().bytes = Some(bytes.into_inner());
-    install(&room, fake.clone(), None);
-
-    let avatar = room.generate_avatar("ada").await.unwrap();
-    assert_eq!(avatar.by, crate::contract::AvatarBy::Own);
-    assert_eq!(
-        room.persona("ada").unwrap().avatar.unwrap().hash,
-        avatar.hash
-    );
-    {
-        let requests = fake.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert!(requests[0].prompt.contains("a teammate called Ada"));
-        assert!(requests[0].prompt.contains("head-and-shoulders bust"));
-        assert!(requests[0].prompt.contains(crate::imagegen::head("ada")));
-        assert_eq!(
-            requests[0].references[0].bytes,
-            include_bytes!("../../imagegen/house-avatar.jpg")
-        );
-        assert!(
-            requests[0]
-                .prompt
-                .contains(crate::imagegen::face("ada").body)
-        );
-        assert_eq!(requests[0].references.len(), 1);
-        assert_eq!(requests[0].aspect, Aspect::Square);
-    }
-    assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);
-
-    // A picture the person chose is theirs: setup never draws over it.
-    let mut persona = room.persona("ada").unwrap();
-    persona.avatar.as_mut().unwrap().by = crate::contract::AvatarBy::Person;
-    crate::room::append_persona(room.log(), &persona).unwrap();
-    let error = room.generate_avatar("ada").await.unwrap_err();
-    assert!(error.contains("you chose"), "{error}");
-    assert_eq!(fake.requests.lock().unwrap().len(), 1);
-}
-
 /// The roster shows a picture on its way, and stops showing it however the
 /// drawing ends: each change nudges the roster through the teammate's info.
 #[tokio::test]
@@ -1129,6 +1082,7 @@ async fn a_picture_being_drawn_is_on_the_roster_until_it_ends() {
         hash: "a".repeat(64),
         by: crate::contract::AvatarBy::Person,
         updated_at: "2026-11-13T00:00:00.000Z".into(),
+        recipe: None,
     });
     crate::room::append_persona(room.log(), &persona).unwrap();
     assert!(room.generate_avatar("ada").await.is_err());

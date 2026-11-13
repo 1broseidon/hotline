@@ -56,7 +56,7 @@ enum Tone {
 /// The styles, creatures first. Each reads as a character in a 28 px circle,
 /// and each names its parts' variants (`googly`, `antenna`), so a teammate
 /// can choose them without seeing them first.
-const STYLES: [Kept; 6] = [
+const STYLES: [Kept; 5] = [
     Kept {
         id: "pixelbot",
         definition: dicebear_styles::PIXELBOT,
@@ -79,15 +79,6 @@ const STYLES: [Kept; 6] = [
         draws: "a flat, bold monster on a deep ground",
         person: false,
         wears: &[("body", Tone::Mark)],
-        framing: None,
-        struck: &[],
-    },
-    Kept {
-        id: "marbles",
-        definition: dicebear_styles::MARBLES,
-        draws: "a glossy marble with a face, and hair or a hat",
-        person: false,
-        wears: &[("sphere", Tone::Mark)],
         framing: None,
         struck: &[],
     },

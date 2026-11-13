@@ -163,7 +163,7 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
         (json!({}), "needs a `style`"),
         (
             json!({ "style": "bottts" }),
-            "The styles are: pixelbot, critters, marbles",
+            "The styles are: pixelbot, critters, moods, sprouts, open-peeps.",
         ),
         (json!({ "style": "adventurer" }), "no style called"),
         (

@@ -36,6 +36,21 @@ export function isWorking(session: Pick<SessionInfo, "state" | "awaitingSubagent
 	return state === "starting" || state === "thinking";
 }
 
+/**
+ * Whether a teammate's face blinks in the team list and the pins: it is
+ * working, no card waits on the person (that wait is a stare, as the mark's
+ * `blocked` is), and its face was kept with its eyes shut (`poses.shut`).
+ * Where a face blinks, its pin's dot holds steady, so one thing moves; a
+ * face with no shut pose keeps the beat.
+ */
+export function faceBlinks(row: {
+	session: Pick<SessionInfo, "state" | "awaitingSubagents">;
+	waiting: boolean;
+	persona: { avatar?: { poses?: { shut: string } | undefined } | undefined };
+}): boolean {
+	return isWorking(row.session) && !row.waiting && row.persona.avatar?.poses !== undefined;
+}
+
 /** The state a thread pane's composer is given for a turn that runs or does not, so it reads `isWorking` too. */
 export function workingState(running: boolean): SessionState {
 	return running ? "thinking" : "ready";

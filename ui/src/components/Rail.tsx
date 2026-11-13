@@ -5,7 +5,7 @@ import { type DragProps, useRailDrag } from "../railDrag";
 import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
 import { openChatWindow } from "../chatWindow";
 import { platform, popupTeammateMenu } from "../native";
-import { shownState } from "../activity";
+import { faceBlinks, shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar, faceOf, initialOf } from "../ui/Avatar";
@@ -306,18 +306,19 @@ function Row({
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
 	const busy = entry.session.state === "starting" || entry.drawing;
+	const blinking = faceBlinks(entry);
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
 	const lead = entry.lead === true;
 	const face = (
 		<span className="relative flex shrink-0">
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} shut={entry.persona.avatar?.poses?.shut} blinking={blinking} busy={busy} />
 			{lead && <LeadBadge />}
 			{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
 			{onTip !== undefined && vital.color !== null && (
 				<span
 					aria-hidden="true"
-					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					className={`rail-face-vital ${vital.beating && !blinking ? "beat" : ""}`}
 					style={{ background: vital.color }}
 				/>
 			)}
@@ -379,7 +380,7 @@ function Row({
 					{vital.color !== null && (
 						<span
 							aria-hidden="true"
-							className={`h-2 w-2 shrink-0 rounded-full ${vital.beating ? "beat" : ""}`}
+							className={`h-2 w-2 shrink-0 rounded-full ${vital.beating && !blinking ? "beat" : ""}`}
 							style={{ background: vital.color }}
 						/>
 					)}
@@ -457,18 +458,19 @@ function PinTile({
 	const { persona } = entry;
 	const vital = VITAL[entry.session.state];
 	const busy = entry.session.state === "starting" || entry.drawing;
+	const blinking = faceBlinks(entry);
 	const line = lineOf(entry);
 	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;
 	const lead = entry.lead === true;
 	const face = (
 		<span className="relative flex">
-			<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} busy={busy} />
+			<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} shut={persona.avatar?.poses?.shut} blinking={blinking} busy={busy} />
 			{lead && <LeadBadge />}
 			{unread && <span aria-hidden="true" className="rail-face-unread" />}
 			{vital.color !== null && (
 				<span
 					aria-hidden="true"
-					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					className={`rail-face-vital ${vital.beating && !blinking ? "beat" : ""}`}
 					style={{ background: vital.color }}
 				/>
 			)}

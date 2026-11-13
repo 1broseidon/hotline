@@ -26,6 +26,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate makes its own on a quiet job of its own, without a word in your
   chat. A generated picture in the crew style is still there when you ask
   the teammate for one.
+- A teammate's face blinks while it works. In the team list and the pins, a
+  face drawn in Pixelbot, Moods or Sprouts shuts its eyes for a moment every
+  few seconds while the teammate is working, each at its own rhythm, and
+  holds still when it is idle, waiting on you or waiting on its helpers. A
+  pinned face that blinks no longer has a beating dot, so one thing moves.
+  Nothing moves with Reduce motion on. Faces made before this blink after the
+  desk next opens; Open Peeps faces and pictures from a file stay still.
 - The team list can be put in any order: drag a teammate's row to a new
   place, or use Move up / Move down in its menu. The order is kept by the
   desk, so it survives a restart and every window of that desk shows it. A

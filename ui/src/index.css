@@ -1461,9 +1461,27 @@
 		background: none;
 	}
 	.avatar-picture {
+		grid-area: 1 / 1;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+	/* A working teammate's face blinks: its eyes-shut picture, laid over it,
+	 * shows for 3% of a loop of 4.4 to 5.6 s, the rhythm and phase its id
+	 * gives (Avatar.tsx). Stepped, so it is drawn twice a blink and not every
+	 * frame, and CSS alone, so no script wakes for it. */
+	.avatar-shut {
+		opacity: 0;
+		animation: face-blink var(--blink-every) step-end var(--blink-phase) infinite;
+	}
+	@keyframes face-blink {
+		0% {
+			opacity: 0;
+		}
+		97%,
+		100% {
+			opacity: 1;
+		}
 	}
 	/* Something on its way to this face: a quarter arc turning around it.
 	 * Stepped like the beat below, twelve positions a turn, so a machine
@@ -1500,10 +1518,11 @@
 	}
 
 	/* A working teammate's mark: it breathes. Nothing else in the window
-	 * moves on its own. It breathes in steps, twelve a cycle: a smooth
-	 * opacity animation repaints every frame, which on a machine drawing
-	 * without a GPU (a VM, a remote desktop, much of Linux) cost about five
-	 * cores for a few dots, all turn long. */
+	 * moves on its own but a working face's blink (.avatar-shut). It
+	 * breathes in steps, twelve a cycle: a smooth opacity animation
+	 * repaints every frame, which on a machine drawing without a GPU (a VM,
+	 * a remote desktop, much of Linux) cost about five cores for a few dots,
+	 * all turn long. */
 	.beat {
 		animation: beat var(--dur-breath) steps(6, jump-none) infinite;
 	}
@@ -5699,7 +5718,8 @@
 	.rail-tip,
 	.search-panel,
 	.row-lit,
-	.avatar-ring {
+	.avatar-ring,
+	.avatar-shut {
 		animation: none;
 	}
 	.voice-meter[data-state="finishing"] .voice-meter-bar {

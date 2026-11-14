@@ -163,7 +163,7 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
         (json!({}), "needs a `style`"),
         (
             json!({ "style": "bottts" }),
-            "The styles are: pixelbot, moods, sprouts, open-peeps.",
+            "The styles are: pixelbot, moods, sprouts.",
         ),
         (json!({ "style": "adventurer" }), "no style called"),
         (
@@ -222,7 +222,7 @@ fn unknown_names_and_bad_colours_are_refused_with_what_would_do() {
 
 /// The desk's face at setup is a creature style wearing the teammate's
 /// bubble colour, the rest from its id, and says the desk made it; every
-/// creature style is in the pool.
+/// style is in the pool.
 #[test]
 fn a_seeded_face_is_a_creature_in_the_bubble_colour() {
     let mut drawn = std::collections::BTreeSet::new();
@@ -240,7 +240,6 @@ fn a_seeded_face_is_a_creature_in_the_bubble_colour() {
                 .iter()
                 .find(|kept| kept.id == face.recipe.style)
                 .unwrap();
-            assert!(!kept.person, "{}", kept.id);
             for (slot, color) in bubble(&teammate).worn_by(kept) {
                 assert_eq!(face.recipe.colors[&slot], color, "{id} {slot}");
             }
@@ -258,12 +257,9 @@ fn a_seeded_face_is_a_creature_in_the_bubble_colour() {
                 .style,
         );
     }
-    let creatures: std::collections::BTreeSet<String> = STYLES
-        .iter()
-        .filter(|kept| !kept.person)
-        .map(|kept| kept.id.to_string())
-        .collect();
-    assert_eq!(drawn, creatures);
+    let styles: std::collections::BTreeSet<String> =
+        STYLES.iter().map(|kept| kept.id.to_string()).collect();
+    assert_eq!(drawn, styles);
 }
 
 /// A teammate's own bubble is worked out as the window works it out
@@ -472,8 +468,6 @@ fn pixelbot_glows_in_the_bubble_hue_inside_the_circle() {
         style_answer("pixelbot", &grey).unwrap()["yourColors"],
         json!({ "glow": "#ced9e5", "background": "#202429" })
     );
-    let open_peeps = style_answer("open-peeps", &ada).unwrap();
-    assert!(open_peeps.get("yourColors").is_none());
     // The other creatures sit on the same dark ground of the bubble's hue.
     for (style, slot) in [("moods", "face"), ("sprouts", "pot")] {
         assert_eq!(
@@ -510,8 +504,8 @@ fn pixelbot_glows_in_the_bubble_hue_inside_the_circle() {
 }
 
 /// A face that fills its square is kept with no alpha channel, so a window
-/// can tell from the file that no colour disc belongs behind it; one with a
-/// transparent ground keeps its alpha.
+/// can tell from the file that no colour disc belongs behind it; a picture
+/// with any transparent pixel keeps its alpha.
 #[test]
 fn a_face_with_a_ground_is_kept_without_an_alpha_channel() {
     // A PNG's colour type is the byte after its IHDR's size and depth:
@@ -524,13 +518,16 @@ fn a_face_with_a_ground_is_kept_without_an_alpha_channel() {
         let picture = image::load_from_memory(&face.png).unwrap();
         assert!(!picture.color().has_alpha(), "{style}");
     }
-    let open = made(json!({ "style": "open-peeps" }), None);
-    assert_eq!(colour_type(&open.png), 6);
-    let grounded = made(
-        json!({ "style": "open-peeps", "colors": { "background": "#202429" } }),
-        None,
+    let mut picture = image::RgbaImage::from_pixel(4, 4, image::Rgba([10, 20, 30, 255]));
+    assert_eq!(
+        colour_type(&crate::session::avatar::kept_png(picture.clone()).unwrap()),
+        2
     );
-    assert_eq!(colour_type(&grounded.png), 2);
+    picture.put_pixel(0, 0, image::Rgba([10, 20, 30, 0]));
+    assert_eq!(
+        colour_type(&crate::session::avatar::kept_png(picture).unwrap()),
+        6
+    );
 }
 
 /// A face kept in a style the desk no longer draws stays; asked for in that
@@ -553,7 +550,7 @@ fn a_face_in_a_style_no_longer_drawn_is_kept_and_named_gone() {
     };
     assert_eq!(
         refused,
-        "Your face is in the clay style, which Hotline no longer draws. Your picture stays as it is; to change it, make a new face in one of: pixelbot, moods, sprouts, open-peeps."
+        "Your face is in the clay style, which Hotline no longer draws. Your picture stays as it is; to change it, make a new face in one of: pixelbot, moods, sprouts."
     );
     // Another style is a new face, from nothing the old one kept.
     let fresh = compose(
@@ -600,9 +597,8 @@ fn changed(one: &[u8], other: &[u8]) -> usize {
 
 /// A face in a style that blinks is made with its eyes shut too: the same
 /// square, kept the same way (no alpha channel exactly when its picture has
-/// none), differing only in a small part of it. Open Peeps does not blink,
-/// and neither do pixelbot's one-row `soft` eyes, which its blink leaves as
-/// they are.
+/// none), differing only in a small part of it. Pixelbot's one-row `soft`
+/// eyes do not blink: its blink leaves them as they are.
 #[test]
 fn a_face_that_blinks_has_an_eyes_shut_picture_kept_like_it() {
     for style in ["pixelbot", "moods", "sprouts"] {
@@ -638,10 +634,6 @@ fn a_face_that_blinks_has_an_eyes_shut_picture_kept_like_it() {
         None,
     );
     assert!(soft.shut.is_none());
-    for seed in ["ada", "bert", "cleo"] {
-        let person = made(json!({ "style": "open-peeps", "seed": seed }), None);
-        assert!(person.shut.is_none(), "{seed}");
-    }
 }
 
 /// Pixelbot's eyes shut are one row of pixels: the bottom row of its eyes

@@ -821,10 +821,10 @@ size, framing and ground, kept beside the picture the same way (no alpha
 channel exactly when the picture has none) and read with `avatar.read` like
 it. It is DiceBear's own blink held at one moment: moods' and sprouts' eyes
 squashed flattest, pixelbot's eyes down to their bottom row. A face that does
-not blink (`open-peeps`, pixelbot's one-row `soft` eyes, a picture from a
-file) has no `poses`. The pose is written and removed with its picture. A
-face kept before poses gets its pose when the desk opens, before any client
-connects. The window shows the shut picture for a moment, again and again,
+not blink (pixelbot's one-row `soft` eyes, a picture from a file, a face in
+a style the desk no longer draws) has no `poses`. The pose is written and
+removed with its picture. A face kept before poses gets its pose when the
+desk opens, before any client connects. The window shows the shut picture for a moment, again and again,
 while the teammate is working, so its face blinks.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.

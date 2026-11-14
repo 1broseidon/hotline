@@ -11,7 +11,7 @@ use serde_json::json;
 pub(super) fn options_descriptor() -> Tool {
     Tool::new(
         FACE_OPTIONS,
-        "The styles your face can be drawn in, each with what it draws and whether it draws a person or a creature; your face now; and your bubble colour by name and hex. With `style`, that style's parts with their variants, how often an optional part is drawn, and its colour slots with their palettes. Read it before make_face.",
+        "The styles your face can be drawn in, each with what it draws; your face now; and your bubble colour by name and hex. With `style`, that style's parts with their variants, how often an optional part is drawn, and its colour slots with their palettes. Read it before make_face.",
         schema(json!({
             "type": "object",
             "properties": {

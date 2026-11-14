@@ -57,9 +57,8 @@ release candidates. dicebear-styles declares no license field: its
 `LICENSE.md` puts the code that ships the styles under MIT and gives each
 style its own license, from CC0 1.0 to CC BY 4.0 and the Avataaars and
 Bottts terms. Each style is a cargo feature, and hotline-core enables only
-four whose artwork is CC0 1.0 (Moods, Open Peeps, Pixelbot, Sprouts), so a
-face needs no credit where it is shown. Open Peeps is a remix
-of Pablo Stanley's work, released as CC0 1.0. `deny.toml` reads the crate as
+three whose artwork is CC0 1.0 (Moods, Pixelbot, Sprouts), so a face needs
+no credit where it is shown. `deny.toml` reads the crate as
 `MIT AND CC0-1.0`, pinned to this version and its `LICENSE.md`; a test in
 `crates/hotline-core/src/session/avatar/face/tests.rs` fails if a style it
 draws names any license but CC0 1.0. Enabling another style means reading

@@ -30,10 +30,9 @@ struct Kept {
     definition: &'static str,
     /// What it draws, in a few words.
     draws: &'static str,
-    person: bool,
     /// The slots that wear the teammate's bubble colour, and in which tone:
     /// what a face the desk seeds at setup is drawn in, and what
-    /// `face_options` suggests. Only creature styles are seeded.
+    /// `face_options` suggests.
     wears: &'static [(&'static str, Tone)],
     /// How the desk frames every face in the style, as DiceBear's `scale`
     /// and `translateY`, for one whose features DiceBear places too small or
@@ -43,8 +42,8 @@ struct Kept {
     /// by part: ones that do not read as a face where it is shown.
     struck: &'static [(&'static str, &'static [&'static str])],
     /// Where in its blink's loop, in percent, the face is held for its
-    /// eyes-shut picture; none for a style that does not blink.
-    shut_at: Option<f64>,
+    /// eyes-shut picture: every style here blinks.
+    shut_at: f64,
 }
 
 /// How a slot wears a bubble colour.
@@ -58,15 +57,14 @@ enum Tone {
     Screen,
 }
 
-/// The styles, creatures first. Each reads as a character in a 28 px circle,
-/// and each names its parts' variants (`googly`, `antenna`), so a teammate
-/// can choose them without seeing them first.
-const STYLES: [Kept; 4] = [
+/// The styles: creatures, each of which blinks. Each reads as a character in
+/// a 28 px circle, and each names its parts' variants (`happy`, `cactus`),
+/// so a teammate can choose them without seeing them first.
+const STYLES: [Kept; 3] = [
     Kept {
         id: "pixelbot",
         definition: dicebear_styles::PIXELBOT,
         draws: "a pixel face glowing on a dark screen",
-        person: false,
         // In the pastel mark the glow is dim, so it glows in the bubble's hue
         // on a screen of that hue.
         wears: &[("glow", Tone::Neon), ("background", Tone::Screen)],
@@ -80,39 +78,27 @@ const STYLES: [Kept; 4] = [
         // Its blink takes the rows of the eyes away from the top, one each
         // 1% of the loop; at 91% only the bottom row is left, which reads as
         // eyes shut where none at all reads as eyes gone.
-        shut_at: Some(91.0),
+        shut_at: 91.0,
     },
     Kept {
         id: "moods",
         definition: dicebear_styles::MOODS,
         draws: "a rounded face showing a mood",
-        person: false,
         wears: &[("face", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
         // The eyes squashed flattest.
-        shut_at: Some(94.0),
+        shut_at: 94.0,
     },
     Kept {
         id: "sprouts",
         definition: dicebear_styles::SPROUTS,
         draws: "a potted plant with a face",
-        person: false,
         wears: &[("pot", Tone::Mark), ("background", Tone::Screen)],
         framing: None,
         struck: &[],
         // Inside the span the eyes are held squashed.
-        shut_at: Some(96.0),
-    },
-    Kept {
-        id: "open-peeps",
-        definition: dicebear_styles::OPEN_PEEPS,
-        draws: "a hand-drawn person, head and shoulders",
-        person: true,
-        wears: &[],
-        framing: None,
-        struck: &[],
-        shut_at: None,
+        shut_at: 96.0,
     },
 ];
 
@@ -138,8 +124,8 @@ pub(crate) struct Bubble {
     /// `oklch(88% 0.15 <hue>)`, as bright as Pixelbot's own glows.
     neon: &'static str,
     /// `oklch(26% 0.05 <hue>)`, as dark as Pixelbot's own screens: the
-    /// ground every creature style's face sits on, so no style's own
-    /// saturated ground clashes with the teammate's colour.
+    /// ground every face sits on, so no style's own saturated ground clashes
+    /// with the teammate's colour.
     screen: &'static str,
 }
 
@@ -600,11 +586,11 @@ pub(crate) fn png(recipe: &AvatarRecipe) -> Result<Vec<u8>, String> {
 }
 
 /// The same face with its eyes shut, kept like its picture: none for a
-/// style that does not blink, a style the desk no longer draws, or eyes a
-/// blink does not change (pixelbot's one-row `soft` eyes).
+/// style the desk no longer draws, or eyes a blink does not change
+/// (pixelbot's one-row `soft` eyes).
 pub(crate) fn shut(recipe: &AvatarRecipe, picture_png: &[u8]) -> Option<Vec<u8>> {
     let (kept, parsed) = style(&recipe.style).ok()?;
-    let at = kept.shut_at?;
+    let at = kept.shut_at;
     let drawn = draw(parsed, &recipe.parts, &recipe.colors, &recipe.seed, true).ok()?;
     let frozen = shut::frozen(drawn.to_svg(), at, &drawing_options())?;
     let png = picture(&frozen).ok()?;
@@ -644,13 +630,11 @@ fn picture(svg: &str) -> Result<Vec<u8>, String> {
     super::kept_png(picture)
 }
 
-/// The face setup gives a teammate at once: a creature style picked from
-/// its id, wearing its bubble colour, the rest from its id. Seeded by the
+/// The face setup gives a teammate at once: a style picked from its id, wearing its bubble colour, the rest from its id. Seeded by the
 /// desk, so the teammate knows to make its own.
 pub(crate) fn seeded(persona: &Persona) -> Result<Face, String> {
-    let pool: Vec<&Kept> = STYLES.iter().filter(|kept| !kept.person).collect();
     let digest = Sha256::digest(persona.id.as_bytes());
-    let kept = pool[usize::from(digest[0]) % pool.len()];
+    let kept = &STYLES[usize::from(digest[0]) % STYLES.len()];
     let ask = Ask {
         style: kept.id.to_string(),
         parts: BTreeMap::new(),
@@ -687,15 +671,11 @@ pub(crate) fn styles_answer(persona: &Persona) -> Value {
     let styles: Vec<Value> = STYLES
         .iter()
         .map(|kept| {
-            let mut entry = json!({
+            json!({
                 "style": kept.id,
                 "draws": kept.draws,
-                "kind": if kept.person { "person" } else { "creature" },
-            });
-            if !kept.wears.is_empty() {
-                entry["yourColors"] = json!(bubble.worn_by(kept));
-            }
-            entry
+                "yourColors": bubble.worn_by(kept),
+            })
         })
         .collect();
     let recipe = persona
@@ -740,18 +720,14 @@ pub(crate) fn style_answer(id: &str, persona: &Persona) -> Result<Value, String>
         .iter()
         .map(|slot| json!({ "slot": slot.name, "palette": slot.palette }))
         .collect();
-    let mut answer = json!({
+    Ok(json!({
         "style": kept.id,
         "draws": kept.draws,
-        "kind": if kept.person { "person" } else { "creature" },
         "parts": parts,
         "colors": colors,
-        "note": "A part you leave out of make_face is filled from the seed; \"none\" leaves it off. drawnPercent is how often an optional part is drawn when left to the seed. A colour takes any #rrggbb, not only its palette; background is transparent unless chosen or given a palette.",
-    });
-    if !kept.wears.is_empty() {
-        answer["yourColors"] = json!(bubble(persona).worn_by(kept));
-    }
-    Ok(answer)
+        "yourColors": bubble(persona).worn_by(kept),
+        "note": "A part you leave out of make_face is filled from the seed; \"none\" leaves it off. drawnPercent is how often an optional part is drawn when left to the seed. A colour takes any #rrggbb, not only its palette.",
+    }))
 }
 
 #[cfg(test)]

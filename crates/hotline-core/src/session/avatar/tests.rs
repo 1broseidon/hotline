@@ -302,20 +302,13 @@ async fn face_options_lists_the_styles_and_then_a_styles_parts() {
         .iter()
         .map(|style| style["style"].as_str().unwrap())
         .collect();
-    assert!(styles.contains(&"sprouts") && styles.contains(&"open-peeps"));
+    assert_eq!(styles, ["pixelbot", "moods", "sprouts"]);
     assert!(
         listed["styles"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|style| style["kind"] == "person")
-    );
-    assert!(
-        listed["styles"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|style| style["kind"] == "creature")
+            .all(|style| style["yourColors"]["background"].is_string())
     );
     assert_eq!(listed["bubble"]["name"], "teal");
     assert!(listed.get("tags").is_none());
@@ -409,13 +402,13 @@ async fn make_face_keeps_a_face_and_changes_only_what_it_is_told() {
     assert_eq!(kept_files(&dir), kept, "the old face and its pose are gone");
 
     tools
-        .answer("make_face", &json!({ "style": "open-peeps" }))
+        .answer("make_face", &json!({ "style": "moods" }))
         .await
         .unwrap();
-    let person = avatar(&room).unwrap().recipe.unwrap();
-    assert_eq!(person.style, "open-peeps");
-    assert!(person.parts.contains_key("head") && !person.parts.contains_key("plant"));
-    assert_ne!(person.colors.get("pot"), Some(&"#48b8bc".to_string()));
+    let moods = avatar(&room).unwrap().recipe.unwrap();
+    assert_eq!(moods.style, "moods");
+    assert!(moods.parts.contains_key("face") && !moods.parts.contains_key("plant"));
+    assert!(!moods.colors.contains_key("pot"));
 }
 
 /// A bad call is refused and changes nothing, and so is any call over a
@@ -559,9 +552,9 @@ async fn a_face_in_a_removed_style_stays_until_a_new_one_is_made() {
         by: AvatarBy::Own,
         updated_at: "2026-11-13T00:00:00.000Z".into(),
         recipe: Some(crate::contract::AvatarRecipe {
-            style: "clay".into(),
-            parts: [("eyes".to_string(), Some("googly".to_string()))].into(),
-            colors: [("body".to_string(), "#48b8bc".to_string())].into(),
+            style: "open-peeps".into(),
+            parts: [("head".to_string(), Some("afro".to_string()))].into(),
+            colors: [("skin".to_string(), "#d08b5b".to_string())].into(),
             seed: "ada".into(),
             made_by: crate::contract::FaceMaker::Teammate,
         }),
@@ -573,12 +566,12 @@ async fn a_face_in_a_removed_style_stays_until_a_new_one_is_made() {
     let error = tools
         .call(
             "make_face",
-            &json!({ "style": "clay", "parts": { "eyes": "big" } }),
+            &json!({ "style": "open-peeps", "parts": { "head": "bun" } }),
         )
         .await
         .unwrap_err();
     assert!(
-        error.starts_with("Your face is in the clay style, which Hotline no longer draws."),
+        error.starts_with("Your face is in the open-peeps style, which Hotline no longer draws."),
         "{error}"
     );
     assert_eq!(avatar(&room).unwrap(), kept);
@@ -616,12 +609,15 @@ async fn a_face_that_blinks_keeps_its_eyes_shut_beside_it() {
     assert_eq!(hex::encode(Sha256::digest(&bytes)), shut);
 
     tools
-        .answer("make_face", &json!({ "style": "open-peeps" }))
+        .answer(
+            "make_face",
+            &json!({ "style": "pixelbot", "parts": { "eyes": "soft" } }),
+        )
         .await
         .unwrap();
-    let person = avatar(&room).unwrap();
-    assert_eq!(person.poses, None);
-    assert_eq!(kept_files(&dir), vec![format!("{}.png", person.hash)]);
+    let still = avatar(&room).unwrap();
+    assert_eq!(still.poses, None, "one-row eyes have nothing to shut");
+    assert_eq!(kept_files(&dir), vec![format!("{}.png", still.hash)]);
 
     tools
         .answer("make_face", &json!({ "style": "sprouts" }))

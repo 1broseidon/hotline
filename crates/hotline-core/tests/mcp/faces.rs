@@ -106,7 +106,7 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
     assert_eq!(read["ok"], true, "{read}");
     assert_eq!(read["result"]["mimeType"], "image/png", "{read}");
 
-    let switched = r#"CALL make_face {"style":"open-peeps"}"#;
+    let switched = r#"CALL make_face {"style":"pixelbot","parts":{"eyes":"soft"}}"#;
     let sent = desk
         .client
         .call(
@@ -115,9 +115,9 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
         )
         .await;
     assert_eq!(sent["ok"], true, "{sent}");
-    said(&desk.results(tape).await, r#""style":"open-peeps""#);
+    said(&desk.results(tape).await, r#""style":"pixelbot""#);
     let person = persona_on_disk(&desk, &ada)["avatar"].clone();
-    assert!(person.get("poses").is_none(), "open peeps do not blink");
+    assert!(person.get("poses").is_none(), "one-row eyes do not blink");
     assert!(
         !desk
             .root
@@ -127,9 +127,9 @@ async fn a_teammate_makes_and_changes_its_own_face(driver: Driver) {
         "the old face's pose went with it"
     );
     let recipe = person["recipe"].clone();
-    assert_eq!(recipe["style"], "open-peeps");
+    assert_eq!(recipe["style"], "pixelbot");
     assert!(
-        recipe["parts"].get("eyes").is_none(),
+        recipe["parts"].get("plant").is_none(),
         "a new style starts afresh"
     );
 }

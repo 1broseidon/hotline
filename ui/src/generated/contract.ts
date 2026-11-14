@@ -182,7 +182,7 @@ shut: string, };
  */
 export type AvatarRecipe = { 
 /**
- * The DiceBear style's id, such as `sprouts` or `open-peeps`.
+ * The DiceBear style's id, such as `sprouts` or `pixelbot`.
  */
 style: string, 
 /**

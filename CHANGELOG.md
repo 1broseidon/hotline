@@ -12,7 +12,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 - A teammate makes its own face. Ask it for a face, or for a change to the
   one it has ("give yourself glasses"), and it draws one on this computer
-  from one of four DiceBear styles, three creatures and a hand-drawn person,
+  from one of three DiceBear creature styles, Pixelbot, Moods and Sprouts,
   with no image provider and no network, from its name, its goal and its
   bubble colour. Asked for a change it keeps its style and changes only
   that; it switches style when you tell it to. It is shown the picture it
@@ -32,7 +32,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   holds still when it is idle, waiting on you or waiting on its helpers. A
   pinned face that blinks no longer has a beating dot, so one thing moves.
   Nothing moves with Reduce motion on. Faces made before this blink after the
-  desk next opens; Open Peeps faces and pictures from a file stay still.
+  desk next opens; pictures from a file stay still.
 - The team list can be put in any order: drag a teammate's row to a new
   place, or use Move up / Move down in its menu. The order is kept by the
   desk, so it survives a restart and every window of that desk shows it. A

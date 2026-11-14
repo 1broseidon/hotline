@@ -667,7 +667,7 @@ only what the teammate declared in it.
 
 A face blinks only while its teammate works (George, 2026-11-13). Motion in
 the window means a true state, so the blink is not decoration: in the team
-list and the pins, a face in a style that blinks shows its eyes-shut picture
+list, the pins and the conversation's header (the model pill's face), a face in a style that blinks shows its eyes-shut picture
 for a moment every few seconds exactly while `isWorking` holds, and is still
 when the teammate is idle, stopped, waiting on its helpers or waiting on the
 person (a card waiting on you is a stare, as the mark stops blinking in
@@ -676,10 +676,13 @@ person (a card waiting on you is a stare, as the mark stops blinking in
 a stepped CSS keyframe, which wakes no script and, measured in WebKit, costs
 a quarter of what DiceBear's own animated SVG does and lets the GPU process
 drop its buffers between blinks. Each face's rhythm and phase come from its
-teammate's id, so faces never blink in step. A pinned face that blinks
-leaves its dot steady, so one thing moves; a face with no pose keeps the
-beat. The conversation's header and the faces in its lines stay still: the
-mark is right there. With Reduce motion on, nothing blinks.
+teammate's id, so faces never blink in step. A face that blinks leaves its
+dot steady, the pin's and the pill's, so one thing moves on the face; a face
+with no pose keeps the beat. The header's face and the composer's mark both
+move while the teammate works (George, 2026-11-13): the face says who is
+working, the mark what it is doing, and the mark is unchanged. The call
+card's face and the faces in the conversation's lines stay still. With
+Reduce motion on, nothing blinks.
 
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads

@@ -973,7 +973,8 @@
 		flex-shrink: 0;
 		margin-left: 1px;
 	}
-	/* The teammate at work: a mint dot on the face's corner, beating. */
+	/* The teammate at work: a mint dot on the face's corner, beating, or
+	 * steady while the face itself blinks (ModelPicker.tsx). */
 	.model-pill-beat {
 		position: absolute;
 		right: -1px;

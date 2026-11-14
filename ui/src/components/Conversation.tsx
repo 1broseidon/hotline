@@ -1,6 +1,6 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Activity, awaitingSubagents, isWorking, processLabel, shownState } from "../activity";
+import { type Activity, awaitingSubagents, faceBlinks, isWorking, processLabel, shownState } from "../activity";
 import { liveThreads } from "../liveThreads";
 import { nameIn, useJobs, useThreadRows } from "../threadRows";
 import { chordGlyph } from "../chords";
@@ -469,11 +469,15 @@ const ConversationBand = memo(function ConversationBand({
 					onDelete,
 		}),
 	];
+	// The face at the top of the conversation blinks by the rail's rule; the
+	// mark beside the composer moves as it always has.
+	const blinking = faceBlinks(entry);
 	const teammate = {
 		name: persona.name,
 		goal: persona.goal,
-		face: (size: number) => <Avatar id={persona.id} name={persona.name} size={size} hash={persona.avatar?.hash} />,
+		face: (size: number) => <Avatar id={persona.id} name={persona.name} size={size} hash={persona.avatar?.hash} shut={persona.avatar?.poses?.shut} blinking={blinking} />,
 		working: isWorking(session),
+		blinking,
 		actions,
 	};
 
@@ -545,7 +549,8 @@ const ConversationBand = memo(function ConversationBand({
 						</button>
 					)}
 					{/* One pill in the corner: the model, its effort and the teammate's
-					 * face, which beats while it works. Its menu is who the teammate
+					 * face, which blinks while it works (a face with no eyes-shut
+					 * picture has a beating dot instead). Its menu is who the teammate
 					 * is, what it runs on, and its actions: Settings, New chapter,
 					 * Threads, Remove. */}
 					<SessionPickers

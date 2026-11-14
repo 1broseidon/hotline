@@ -37,11 +37,12 @@ export function isWorking(session: Pick<SessionInfo, "state" | "awaitingSubagent
 }
 
 /**
- * Whether a teammate's face blinks in the team list and the pins: it is
- * working, no card waits on the person (that wait is a stare, as the mark's
- * `blocked` is), and its face was kept with its eyes shut (`poses.shut`).
- * Where a face blinks, its pin's dot holds steady, so one thing moves; a
- * face with no shut pose keeps the beat.
+ * Whether a teammate's face blinks in the team list, the pins and its
+ * conversation's header: it is working, no card waits on the person (that
+ * wait is a stare, as the mark's `blocked` is), and its face was kept with
+ * its eyes shut (`poses.shut`). Where a face blinks, the dot beside it holds
+ * steady, so one thing moves on the face; a face with no shut pose keeps the
+ * beat.
  */
 export function faceBlinks(row: {
 	session: Pick<SessionInfo, "state" | "awaitingSubagents">;

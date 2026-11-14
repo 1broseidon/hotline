@@ -168,3 +168,12 @@ test("a pinned face that blinks has a steady dot, and one with no eyes-shut pict
 		await teardown();
 	}
 });
+
+test("the conversation's header face blinks by the rail's rule, and the composer's mark is left as it was", async () => {
+	const { readFileSync } = await import("node:fs");
+	const conversation = readFileSync(new URL("../src/components/Conversation.tsx", import.meta.url), "utf8");
+	expect(conversation).toContain("const blinking = faceBlinks(entry);");
+	expect(conversation).toMatch(/face: \(size: number\) => <Avatar [^>]*shut=\{persona\.avatar\?\.poses\?\.shut\} blinking=\{blinking\}/);
+	// The call card's face and the faces in the conversation's lines do not blink.
+	expect(conversation.match(/blinking=\{/g)).toHaveLength(1);
+});

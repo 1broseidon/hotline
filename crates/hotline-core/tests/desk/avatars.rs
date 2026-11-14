@@ -2,11 +2,11 @@ use super::*;
 
 /// Setup's Picture: `avatar.generate` gives a new teammate a face at once,
 /// drawn on the desk with no image provider and kept as its own with the
-/// recipe it was seeded from, and leaves the teammate a quiet one-shot job
-/// to make its own face, which posts nothing to the chat. All of it over the
-/// wire the window uses.
+/// recipe it was seeded from, and makes no job: no model turn is spent on a
+/// face until the person asks the teammate for one. All of it over the wire
+/// the window uses.
 #[tokio::test(flavor = "multi_thread")]
-async fn setup_gives_a_seeded_face_and_a_quiet_job_to_make_its_own() {
+async fn setup_gives_a_seeded_face_and_no_job() {
     let (root, port) = open("avatars").await;
     let mut client = Client::connect(port, TOKEN).await;
     let roster = client.subscribe(json!({ "view": "roster" })).await;
@@ -63,18 +63,7 @@ async fn setup_gives_a_seeded_face_and_a_quiet_job_to_make_its_own() {
     }
 
     let jobs = client.call("schedule.list", json!({})).await["result"].clone();
-    let jobs = jobs.as_array().unwrap();
-    assert_eq!(jobs.len(), 1, "{jobs:?}");
-    assert_eq!(jobs[0]["personaId"], persona_id.as_str());
-    assert_eq!(jobs[0]["kind"], "schedule");
-    assert_eq!(jobs[0]["quiet"], true);
-    assert!(
-        jobs[0]["prompt"]
-            .as_str()
-            .unwrap()
-            .starts_with("Make your own face."),
-        "{jobs:?}"
-    );
+    assert_eq!(jobs, json!([]), "{jobs}");
 }
 
 /// A face kept before there were poses, on a desk opened by this release,

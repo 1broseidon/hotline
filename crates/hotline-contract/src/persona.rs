@@ -87,7 +87,7 @@ pub struct AvatarRecipe {
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum FaceMaker {
-    /// Seeded by the desk at setup, before the teammate made its own.
+    /// Seeded by the desk at setup.
     Desk,
     Teammate,
 }

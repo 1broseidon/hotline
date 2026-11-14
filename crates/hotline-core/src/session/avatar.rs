@@ -11,13 +11,13 @@
 //!
 //! A picture comes from a file in the teammate's workspace (`set_avatar`),
 //! which `generate_image` may have made, or is a face the desk draws from a
-//! recipe ([`face`]): seeded at setup, then made by the teammate itself with
-//! `make_face`.
+//! recipe ([`face`]): seeded at setup, and made by the teammate itself with
+//! `make_face` when the person asks it for one.
 
 pub(crate) mod face;
 
-use super::{Brief, Ends, Report, Room, Trigger, generate::read_workspace_image};
-use crate::contract::{Ability, Avatar, AvatarBy, AvatarPoses, AvatarRecipe, FaceMaker};
+use super::{Room, generate::read_workspace_image};
+use crate::contract::{Avatar, AvatarBy, AvatarPoses, AvatarRecipe, FaceMaker};
 use crate::driver::CapabilityLease;
 use crate::images::DECODERS;
 use crate::mcp::{CallContent, CallImage};
@@ -39,11 +39,6 @@ const MAX_BYTES: usize = 20 * 1024 * 1024;
 const MAX_SOURCE_EDGE: u32 = 16_000;
 /// Pixels fainter than this count as empty when looking for the subject.
 const SUBJECT_ALPHA: u8 = 8;
-/// What a new teammate's job is told: make its own face, quietly.
-const OWN_FACE: &str = "Make your own face. The desk gave you a placeholder face at setup; replace it with one that is yours. Call face_options, choose a style that suits your name and your goal, and build the face with make_face from your name, your goal and your bubble colour. Look at the picture it returns and adjust it once or twice if it is not you yet. Do not post to the chat or tell the person: your face is on your record as soon as make_face returns.";
-/// How long after setup that job runs: soon, but after the person's first
-/// message has had its turn started.
-const OWN_FACE_AFTER_MS: i64 = 5_000;
 
 /// What `set_avatar` was asked to do: a path wins over anything else sent
 /// with it, because models fill in properties they were told to leave out
@@ -200,9 +195,9 @@ impl Room {
     }
 
     /// The setup screen's offer: a face the desk draws at once from the
-    /// teammate's id and bubble colour, kept as the teammate's own; then a
-    /// quiet job of the teammate's makes one of its own. One the person
-    /// chose is kept.
+    /// teammate's id and bubble colour, kept as the teammate's own, and
+    /// nothing more: no model turn is spent on a face until the person asks
+    /// the teammate for one. One the person chose is kept.
     pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
         let persona = self.persona(persona_id)?;
         let _drawing = self.start_drawing(persona_id);
@@ -237,26 +232,7 @@ impl Room {
                 .avatar
                 .ok_or_else(|| "The picture could not be saved.".to_string())?
         };
-        self.ask_for_its_own_face(persona_id);
         Ok(avatar)
-    }
-
-    /// The teammate makes its own face on a thread of its own, soon after
-    /// setup: a quiet one-shot job, so nothing lands in the person's chat and
-    /// their first message does not wait on it. It has none of the computer,
-    /// the extra folders or the MCP servers, which a face needs none of. A
-    /// job that cannot be made leaves the seeded face, which is a face.
-    fn ask_for_its_own_face(&self, persona_id: &str) {
-        let brief = Brief {
-            task: OWN_FACE.to_string(),
-            trigger: Trigger::At(super::now_ms() + OWN_FACE_AFTER_MS),
-            report: Report::Significant,
-            ends: Ends::default(),
-            without: vec![Ability::Computer, Ability::Folders, Ability::McpServers],
-        };
-        if let Err(error) = self.schedule_create(persona_id, brief, false) {
-            eprintln!("{persona_id} was not asked to make its own face: {error}");
-        }
     }
 
     fn refuse_over_the_persons_choice(&self, persona_id: &str) -> Result<(), String> {

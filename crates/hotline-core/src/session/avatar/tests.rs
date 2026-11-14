@@ -453,10 +453,10 @@ async fn make_face_refuses_unknown_names_bad_colours_and_the_persons_choice() {
 }
 
 /// Setup gives a face at once, seeded by the desk in the bubble colour,
-/// and asks the teammate, through a quiet job, to make its own; it never
-/// draws over the person's choice.
+/// and nothing more: no job, so no model turn is spent on a face the person
+/// did not ask for. It never draws over the person's choice.
 #[tokio::test]
-async fn setup_seeds_a_face_and_asks_the_teammate_for_its_own() {
+async fn setup_seeds_a_face_and_makes_no_job() {
     let (_dir, room, _tools) = room();
     let seeded = room.generate_avatar("ada").await.unwrap();
     assert_eq!(seeded.by, AvatarBy::Own);
@@ -467,11 +467,7 @@ async fn setup_seeds_a_face_and_asks_the_teammate_for_its_own() {
         "the bubble colour is in the face: {recipe:?}"
     );
     assert_eq!(avatar(&room).unwrap(), seeded);
-    let jobs = room.schedule_list();
-    assert_eq!(jobs.len(), 1);
-    assert!(jobs[0].prompt.starts_with("Make your own face."));
-    assert_eq!(jobs[0].quiet, Some(true));
-    assert_eq!(jobs[0].persona_id, "ada");
+    assert_eq!(room.schedule_list(), Vec::new());
     assert!(!room.drawing("ada"));
 
     let mut persona = room.persona("ada").unwrap();
@@ -479,7 +475,7 @@ async fn setup_seeds_a_face_and_asks_the_teammate_for_its_own() {
     crate::room::append_persona(room.log(), &persona).unwrap();
     let error = room.generate_avatar("ada").await.unwrap_err();
     assert!(error.contains("you chose"), "{error}");
-    assert_eq!(room.schedule_list().len(), 1);
+    assert_eq!(room.schedule_list(), Vec::new());
 }
 
 /// A record from before faces has no recipe and reads as it did; a face
@@ -508,8 +504,8 @@ async fn a_picture_without_a_recipe_still_loads_and_a_face_replaces_it() {
 }
 
 /// A subagent run and a voice front have neither tool, and a revoked
-/// session's tools draw nothing; a job's thread has both, which is how a new
-/// teammate makes its own face.
+/// session's tools draw nothing; a job's thread has both, as one of the
+/// teammate's own threads.
 #[tokio::test]
 async fn only_the_teammates_own_threads_make_its_face() {
     let (_dir, room, _tools) = room();

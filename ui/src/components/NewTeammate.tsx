@@ -160,8 +160,8 @@ export function NewTeammateForm({
 			// the conversation, as an error notice and a session to retry.
 			onCreated(persona.id);
 			void wire.command("session.start", { personaId: persona.id }).catch((error: Error) => console.warn("session.start", error.message));
-			// A face the desk draws at once, which the teammate then replaces
-			// with one it makes itself; a refusal leaves the initial in place.
+			// A face the desk draws at once from the teammate's id, the same
+			// face every time; a refusal leaves the initial in place.
 			if (picture) {
 				void wire.command("avatar.generate", { personaId: persona.id }).catch((error: Error) => console.warn("avatar.generate", error.message));
 			}
@@ -341,7 +341,7 @@ export function NewTeammateForm({
 				)}
 				<label className="nt-fold-row nt-fold-head">
 					<span className="nt-fold-title">Picture</span>
-					<span className="nt-fold-value">{picture ? "A face it makes itself" : "Its initial"}</span>
+					<span className="nt-fold-value">{picture ? "A drawn face" : "Its initial"}</span>
 					<input type="checkbox" className="switch" checked={picture} disabled={busy} onChange={(event) => setPicture(event.target.checked)} />
 				</label>
 			</section>

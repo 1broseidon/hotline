@@ -19,13 +19,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   made, where its model reads pictures, and can adjust it. Two new tools,
   `face_options` and `make_face`, do this; a face is kept with the recipe
   it was drawn from. Only styles whose artwork is CC0 are used, so none
-  needs credit.
+  needs credit. A teammate that can also make images asks you first
+  whether you want a drawn face or a picture made by an image model,
+  unless you already said; one that cannot just draws.
 - Setup's Picture switch is always offered, and a new teammate starts with a
-  face rather than its initial: the desk draws one at once in its bubble
-  colour on a dark ground of the same hue, and a few seconds later the
-  teammate makes its own on a quiet job of its own, without a word in your
-  chat. A generated picture in the crew style is still there when you ask
-  the teammate for one.
+  drawn face rather than its initial: the desk draws one at once in its
+  bubble colour on a dark ground of the same hue, the same face every time
+  for the same teammate, and no model turn is spent on it.
 - A teammate's face blinks while it works. In the team list, the pins and
   the face at the top of its conversation, a face drawn in Pixelbot, Moods
   or Sprouts shuts its eyes for a moment every few seconds while the

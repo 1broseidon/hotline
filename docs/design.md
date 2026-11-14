@@ -684,6 +684,16 @@ working, the mark what it is doing, and the mark is unchanged. The call
 card's face and the faces in the conversation's lines stay still. With
 Reduce motion on, nothing blinks.
 
+A face is drawn, and a model spends nothing on it until the person asks
+(George, 2026-11-14). Setup's Picture is the desk's seeded face, the same
+for the same teammate, and nothing follows it: the quiet job that had the
+teammate compose its own face a few seconds later is gone, because it spent
+a turn nobody asked for. Asked for a new picture without saying which kind,
+a teammate that has `generate_image` asks in its reply whether the person
+wants a drawn face or one made by an image model (`ask_question` is yes/no,
+so it is no card); one without the tool draws and does not mention the
+other. A change to the drawn face, or a kind named, is not a question.
+
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads
 count while it ran, was pushed up as the person kept talking, and stood

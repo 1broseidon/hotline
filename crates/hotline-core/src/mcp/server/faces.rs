@@ -25,7 +25,7 @@ pub(super) fn options_descriptor() -> Tool {
 pub(super) fn make_descriptor() -> Tool {
     Tool::new(
         MAKE_FACE,
-        "Draw your own face and make it your picture. Build it from your name, your goal and your bubble colour (face_options gives the styles, their parts, and that colour as each style wears it). Name a style, and the parts and colours you choose; the rest is filled from a seed. Asked for a change, keep your style and name only what changes: in the same style everything you do not name stays as it is. Switch style only when the person tells you to; a new style or a new seed starts afresh. Change your picture only when the person asks, or at setup. Returns the picture for you to look at; call again to adjust it. If the person chose your current picture, this refuses.",
+        "Draw your own face and make it your picture. Build it from your name, your goal and your bubble colour (face_options gives the styles, their parts, and that colour as each style wears it). Name a style, and the parts and colours you choose; the rest is filled from a seed. Asked for a change, keep your style and name only what changes: in the same style everything you do not name stays as it is. Switch style only when the person tells you to; a new style or a new seed starts afresh. Change your picture only when the person asks. Asked for a new picture without saying which kind, if you have generate_image, first ask the person whether they want a drawn face or a picture made by an image model. Returns the picture for you to look at; call again to adjust it. If the person chose your current picture, this refuses.",
         schema(json!({
             "type": "object",
             "properties": {

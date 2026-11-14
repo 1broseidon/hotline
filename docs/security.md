@@ -2991,12 +2991,9 @@ renderer, with DiceBear's blink held still, and removed with the picture.
   neither (`RUN_TOOLS`), because it reports to the teammate that launched it;
   a voice front has neither (`FRONT_TOOLS`).
 - **Setup:** `avatar.generate`, the owner's setup command, draws a face at
-  once from the teammate's id and bubble colour, and makes the teammate a
-  quiet one-shot job, operator-made as the person's Picture switch is, whose
-  task is to make its own face with these tools. The job is narrowed
-  (`without`: computer, folders, MCP servers), so its turn has no more than
-  the face needs, and posts nothing unless it calls `post_to_chat`. It costs
-  one model turn on the teammate's own model.
+  once from the teammate's id and bubble colour, on the desk, and does
+  nothing more: it makes no job and starts no turn, so no model sees or
+  spends anything on a face the person did not ask for.
 - **Enforcement:** `TeammateTools::answer` checks the session's capability
   lease first, as for every tool; `Room::make_face`
   (`session/avatar.rs`) checks it again after drawing, refuses over a
@@ -3015,11 +3012,13 @@ renderer, with DiceBear's blink held still, and removed with the picture.
   front and a revoked lease and lets a job through,
   `make_face_refuses_unknown_names_bad_colours_and_the_persons_choice`;
   `tests/desk/avatars.rs`
-  `setup_gives_a_seeded_face_and_a_quiet_job_to_make_its_own` over the wire.
+  `setup_gives_a_seeded_face_and_no_job` over the wire, and
+  `session/avatar/tests.rs` `setup_seeds_a_face_and_makes_no_job`.
 - **Residual risk:** the face is the model's choice within the style; it can
-  draw itself as anything a style draws. The setup job is one model turn the
-  person did not type, made when they leave Picture on; it shows in the
-  teammate's jobs, and cancelling it there stops it. The pictures handed
+  draw itself as anything a style draws. That it changes its picture only
+  when the person asks, and first asks which kind when it can also generate
+  one, is what its tools and preamble tell it, not something the core
+  enforces; either way it writes only its own picture. The pictures handed
   back to the model enter its context like a browser screenshot.
 
 ## Jobs on their own threads (ADR 0008 §7)

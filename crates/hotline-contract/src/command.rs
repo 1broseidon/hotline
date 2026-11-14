@@ -265,9 +265,9 @@ pub enum Command {
     },
     /// Gives a new teammate a face at setup, when the person left Picture on:
     /// one the desk draws at once from the teammate's id and bubble colour,
-    /// in a creature style, and puts on the roster; then a quiet one-shot
-    /// job of the teammate's makes its own with `make_face`, posting
-    /// nothing to the chat. Answers `null` once the seeded face is kept.
+    /// in a creature style, and puts on the roster. No job is made and no
+    /// model turn is spent: the teammate draws a face of its own only when
+    /// the person asks it to. Answers `null` once the seeded face is kept.
     /// Refused when the person chose the current picture.
     #[serde(rename = "avatar.generate")]
     AvatarGenerate { persona_id: String },

@@ -874,6 +874,14 @@ impl Room {
                 }
                 _ => {}
             }
+            if sorting.sort == Some(Sort::Taken)
+                && item.request.is_some()
+                && sorting.in_thread != Some(false)
+            {
+                return Err(format!(
+                    "{named} is already taken into a work thread: its result comes back by itself."
+                ));
+            }
             if sorting.in_thread.is_some() && sorting.sort != Some(Sort::Taken) {
                 return Err(format!("{named}: `in_thread` goes with state taken."));
             }
@@ -945,7 +953,11 @@ impl Room {
         body: String,
         count: bool,
     ) -> Result<InboxItem, String> {
-        let title = title_of(&format!("Re: {}", original.title))?;
+        let title = if original.title.starts_with("Re: ") {
+            original.title.clone()
+        } else {
+            title_of(&format!("Re: {}", original.title))?
+        };
         let mut reply = item(
             from,
             said_in,

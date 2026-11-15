@@ -492,6 +492,15 @@ async fn taking_work_opens_a_work_thread_seeded_with_what_was_combined_into_it_a
         1,
         "{sorted}"
     );
+    let again = tool(
+        &room,
+        "bob",
+        "update_inbox",
+        json!({"items": [{"id": main, "state": "taken"}]}),
+    )
+    .await
+    .unwrap_err();
+    assert!(again.contains("already taken"), "taken once: {again}");
     until("the work is done", || {
         item(&room, "bob", &main).state == InboxState::Closed
     })

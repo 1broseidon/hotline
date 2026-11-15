@@ -6,19 +6,15 @@
 //! granted, so every rule that reads a persona reads one that has no reach,
 //! no tools and no standing grant of its own here.
 //!
-//! Messages cross in the exchange queue that local messages use. On the
-//! sender's desk a request to a linked teammate is forwarded over the link
-//! when it is first taken up, and waits as running until the answer comes
-//! back the same way; on the recipient's desk it is queued like any other,
-//! under the recipient's `allowedSenders` and the person's first-contact card,
-//! and its result is sent back instead of being delivered to a tape. Asides
-//! cross as their own delivery to a desk that says it takes them
-//! (`asides/across.rs`).
+//! Teammates reach each other through their inbox (`session/inbox.rs`),
+//! which does not cross a link yet: `send` refuses a linked teammate, and a
+//! message or an aside a linked desk sends here is refused at the door. What
+//! still crosses is the roster, and the answer to a request an older version
+//! forwarded before the inbox.
 
-use super::exchanges::{Intent, Outgoing};
-use super::{Room, TEAMMATE_MESSAGE_MAX, lock};
+use super::{Room, lock};
 use crate::contract::Persona;
-use crate::contract::{LinkedDelivery, LinkedFile, LinkedTeammate, Profile};
+use crate::contract::{LinkedDelivery, LinkedTeammate, Profile};
 use crate::linked::{self, CallError, Known, Record};
 use crate::room;
 use serde_json::{Value, json};
@@ -27,6 +23,8 @@ use std::sync::Arc;
 /// The most of an answer that crosses back over a link, in characters and
 /// in bytes as JSON escapes it, so its frame fits in the link's 1 MiB.
 const REPLY_MAX: usize = 200_000;
+/// What a linked desk is told when it sends this desk a message or an aside.
+const INBOX_ONLY: &str = "This desk's teammates are reached through their inbox, which does not cross a link yet: nothing was delivered.";
 const REPLY_BYTES: usize = 768 * 1024;
 
 /// An answer cut to what crosses a link, on the side that sends it as on the
@@ -277,17 +275,20 @@ impl Room {
     }
 
     /// A linked desk's frame for the exchange queue: a request for one of
-    /// this desk's teammates, the answer to one of theirs, or an aside.
+    /// this desk's teammates, the answer to one of theirs, or an aside. A
+    /// request and an aside are refused: this desk's teammates are reached
+    /// through their inbox, which does not cross a link yet
+    /// (`docs/design/agent-inbox.md`). The answer to a request this desk
+    /// sent before the inbox is still settled.
     pub(crate) fn federation_deliver(
         self: &Arc<Self>,
         desk_id: &str,
         delivery: LinkedDelivery,
     ) -> Result<Value, String> {
-        let record =
-            linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
+        linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
         match delivery {
-            request @ LinkedDelivery::Request { .. } => {
-                self.receive_linked_request(&record, request)
+            LinkedDelivery::Request { .. } | LinkedDelivery::Aside { .. } => {
+                Err(INBOX_ONLY.to_string())
             }
             LinkedDelivery::Result {
                 request_id,
@@ -303,123 +304,6 @@ impl Room {
                 }
                 Ok(Value::Null)
             }
-            aside @ LinkedDelivery::Aside { .. } => self.receive_linked_aside(&record, aside),
-        }
-    }
-
-    /// Queues a linked teammate's message for one of this desk's, exactly as
-    /// a local colleague's would be: the recipient's grants and the person's
-    /// card decide whether it is worked on, here, when it is taken up. Its
-    /// sender must be on the roster its desk published here — which that desk
-    /// sends before any message — so a desk cannot make up senders faster
-    /// than it publishes them.
-    fn receive_linked_request(
-        self: &Arc<Self>,
-        record: &Record,
-        request: LinkedDelivery,
-    ) -> Result<Value, String> {
-        let LinkedDelivery::Request {
-            request_id,
-            from_persona_id,
-            to,
-            message,
-            intent,
-            continues,
-            about,
-            files,
-        } = request
-        else {
-            return Err("That is not a message for a teammate.".into());
-        };
-        let intent = match intent.as_str() {
-            "ask" => Intent::Ask,
-            "handoff" => Intent::Handoff,
-            _ => return Err("intent must be ask or handoff".into()),
-        };
-        if !linked::valid_persona_id(&request_id) || !linked::valid_persona_id(&from_persona_id) {
-            return Err("That message does not say plainly who sent it.".into());
-        }
-        // The thread a handoff continues, or an ask is answered in, and the
-        // handoff a question back is about, are named by a request's id, or
-        // the thread by this desk's own name for it, and looked up in this
-        // desk's own record of the pair.
-        if continues
-            .as_deref()
-            .is_some_and(|id| !linked::valid_persona_id(id.strip_prefix("side:").unwrap_or(id)))
-        {
-            return Err("A work thread is named by a request's id or as side:<id>.".into());
-        }
-        if about.as_deref().is_some_and(|id| {
-            intent != Intent::Ask || continues.is_some() || !linked::valid_persona_id(id)
-        }) {
-            return Err("Only an ask names the handoff it is about, by a request's id.".into());
-        }
-        let files = super::files_between::from_link(&files)?;
-        let from = linked::qualified(&record.desk_id, &from_persona_id);
-        self.participant(&from).map_err(|_| {
-            "That teammate is not on the roster its desk published here.".to_string()
-        })?;
-        let message = message.trim();
-        if message.is_empty() || message.chars().count() > TEAMMATE_MESSAGE_MAX {
-            return Err(format!(
-                "A message to a teammate is 1 to {TEAMMATE_MESSAGE_MAX} characters."
-            ));
-        }
-        let target = self
-            .persona(&to)
-            .map_err(|_| "There is no such teammate on this desk.".to_string())?;
-        let outgoing = Outgoing {
-            to: &target.id,
-            message,
-            intent,
-            thread: continues.as_deref(),
-            files: None,
-        };
-        self.accept_linked_request(&request_id, &from, &outgoing, about, &files)?;
-        Ok(json!({"accepted": true}))
-    }
-
-    /// Sends a request this desk's teammate made to a linked teammate, with
-    /// the handoff a question back is `about` and its `files`. Not yet sent
-    /// while the link is down, so it waits queued; refused, it fails with the
-    /// other desk's sentence.
-    pub(super) async fn forward_linked(
-        &self,
-        request_id: &str,
-        from: &str,
-        outgoing: &Outgoing<'_>,
-        about: Option<&str>,
-        files: Vec<LinkedFile>,
-    ) -> Result<bool, String> {
-        let (desk_id, persona_id) =
-            linked::split(outgoing.to).ok_or("That teammate is not on a linked desk.")?;
-        let caller = self.persona(from)?;
-        let delivery = LinkedDelivery::Request {
-            request_id: request_id.to_string(),
-            from_persona_id: caller.id,
-            to: persona_id.to_string(),
-            message: outgoing.message.to_string(),
-            intent: match outgoing.intent {
-                Intent::Ask => "ask",
-                Intent::Handoff => "handoff",
-            }
-            .to_string(),
-            continues: outgoing.thread.map(str::to_string),
-            about: about.map(str::to_string),
-            files,
-        };
-        match self
-            .links
-            .call(
-                desk_id,
-                "federation.deliver",
-                json!({ "delivery": delivery }),
-            )
-            .await
-        {
-            Ok(_) => Ok(true),
-            Err(CallError::Offline) => Ok(false),
-            Err(CallError::Refused(error)) => Err(error),
         }
     }
 

@@ -310,13 +310,19 @@ pub trait RoomHandle: Send + Sync + 'static {
         0
     }
 
+    /// How many open items in this teammate's inbox it has not read, for
+    /// the roster row.
+    fn inbox_unread(&self, _persona_id: &str) -> usize {
+        0
+    }
+
     /// The person has seen this teammate's asides.
     fn asides_seen(&self, _persona_id: &str) -> Result<(), String> {
         Err("Asides are unavailable on this room.".to_string())
     }
 
-    /// Loops a colleague into a work thread: a nudge aside, and one answer
-    /// written in the thread.
+    /// Loops a colleague into a work thread: an item in its inbox, whose
+    /// answer is heard in the thread.
     async fn side_loop_in(&self, _side_id: &str, _persona_id: &str) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
     }

@@ -1,35 +1,26 @@
 //! Files between teammates (`docs/design/thread-awareness.md` §3).
 //!
-//! A message or an aside may carry files. The sender's are read where its
-//! read tools find them, by the check `send_file` makes
+//! An inbox item may carry files. The sender's are read where its read
+//! tools find them, by the check `send_file` makes
 //! ([`super::files::from_workspace`]): its working directory and the folders
 //! granted it, or anywhere under whole-machine reach. They are read when the
-//! teammate sends them, and a message's are held on the desk
-//! (`files-between/<request id>/`) until the message is let in, once the
-//! grant an ask needs allows it; an aside's go as it is left, past the same
-//! grant. Then each is copied into the recipient's working directory under
-//! `inbox/<sender>/`, never over a file there, and the message or the aside
-//! says where. To a teammate on a linked desk they cross the link inside the
-//! message's or aside's one frame, so together they are at most
-//! [`LINKED_FILES_MAX`]; the desk there checks, holds and copies them the
-//! same way. Nothing new is approved: a file goes only where the message or
-//! aside carrying it may.
+//! teammate sends them, and land as the item does: at once when the two may
+//! already reach each other, else held on the desk (`files-between/<key>/`)
+//! until the person's first-contact card lets the item in. Then each is
+//! copied into the recipient's working directory under `inbox/<sender>/`,
+//! never over a file there, and the item says where. An inbound source's
+//! files arrive the same way. Nothing new is approved: a file goes only where
+//! the item carrying it may.
 
 use super::Room;
-use crate::contract::{LinkedFile, Persona, Reach};
+use crate::contract::Reach;
 use crate::driver::CapabilityLease;
 use crate::tools::Workspace;
-use base64::{Engine, engine::general_purpose::STANDARD};
 use std::path::{Path, PathBuf};
 
 /// The most a message's or an aside's files come to together on one desk:
 /// what `send_file` sends the person.
 pub(crate) const FILES_MAX: u64 = crate::sent::MAX_BYTES;
-
-/// The most they come to across a link. They cross in the frame of the
-/// message or aside they ride on, and a link's frame is 1 MiB: this much,
-/// grown by a third as base64, leaves room for the longest message.
-pub(crate) const LINKED_FILES_MAX: u64 = 512 * 1024;
 
 /// The most files one message or aside carries.
 pub(crate) const FILES_COUNT_MAX: usize = 10;
@@ -39,26 +30,6 @@ const HELD: &str = "files-between";
 
 /// The folder of the recipient's working directory they are copied into.
 const INBOX: &str = "inbox";
-
-/// Files read for a message, held on the desk under `key` until the message
-/// is queued, and then under its request id ([`Held::file_under`]).
-pub(crate) struct Held {
-    key: String,
-    pub(crate) names: Vec<String>,
-}
-
-impl Held {
-    /// Moves the held files under the request that carries them.
-    pub(crate) fn file_under(&self, root: &Path, id: &str) -> Result<(), String> {
-        std::fs::rename(held_dir(root, &self.key), held_dir(root, id))
-            .map_err(|error| format!("The files could not be kept for the message: {error}"))
-    }
-
-    /// Lets go of files a message that was never queued would have carried.
-    pub(crate) fn discard(&self, root: &Path) {
-        let _ = std::fs::remove_dir_all(held_dir(root, &self.key));
-    }
-}
 
 fn held_dir(root: &Path, id: &str) -> PathBuf {
     root.join(HELD).join(id)
@@ -110,71 +81,22 @@ pub(super) fn files_line(sender: &str, paths: &[PathBuf]) -> String {
     )
 }
 
-/// Files a linked desk sent, decoded and checked: as many, as large and as
-/// plainly named as this desk would send.
-pub(super) fn from_link(files: &[LinkedFile]) -> Result<Vec<(String, Vec<u8>)>, String> {
-    if files.len() > FILES_COUNT_MAX {
-        return Err(format!(
-            "At most {FILES_COUNT_MAX} files go with one message."
-        ));
-    }
-    let mut taken: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut total = 0u64;
-    for file in files {
-        if !plain_name(&file.name) || taken.iter().any(|(name, _)| *name == file.name) {
-            return Err("Each file needs a plain name of its own.".into());
-        }
-        let bytes = STANDARD
-            .decode(&file.data)
-            .map_err(|_| format!("{} is not base64.", file.name))?;
-        total += bytes.len() as u64;
-        if total > LINKED_FILES_MAX {
-            return Err(over_the_link());
-        }
-        taken.push((file.name.clone(), bytes));
-    }
-    Ok(taken)
-}
-
-/// Files as they cross a link.
-pub(super) fn to_link(files: Vec<(String, Vec<u8>)>) -> Vec<LinkedFile> {
-    files
-        .into_iter()
-        .map(|(name, bytes)| LinkedFile {
-            name,
-            data: STANDARD.encode(bytes),
-        })
-        .collect()
-}
-
-fn over_the_link() -> String {
-    format!(
-        "Files to a teammate on a linked desk come to at most {} together, and these come to more. Send fewer or smaller files, or put them where both desks can reach.",
-        crate::sent::size_text(LINKED_FILES_MAX)
-    )
-}
-
 impl Room {
-    /// Reads the files `from` asks to send `to`, at `paths`, as `send_file`
+    /// Reads the files `from` asks to send, at `paths`, as `send_file`
     /// reads one, and answers each by name with its bytes. Refused, with
     /// why: a path its read tools cannot reach, more than
     /// [`FILES_COUNT_MAX`] files, two of one name, and files that come to
-    /// more than [`FILES_MAX`], or [`LINKED_FILES_MAX`] to a teammate on a
-    /// linked desk.
+    /// more than [`FILES_MAX`].
     pub(crate) async fn take_files(
         &self,
         from: &str,
-        to: &Persona,
         paths: &[String],
         capability: Option<CapabilityLease>,
     ) -> Result<Vec<(String, Vec<u8>)>, String> {
         if paths.len() > FILES_COUNT_MAX {
-            return Err(format!(
-                "At most {FILES_COUNT_MAX} files go with one message or aside."
-            ));
+            return Err(format!("At most {FILES_COUNT_MAX} files go with one item."));
         }
         let persona = self.persona(from)?;
-        let linked = to.node.is_some();
         let mut taken: Vec<(String, Vec<u8>)> = Vec::new();
         let mut total = 0u64;
         for path in paths {
@@ -193,9 +115,6 @@ impl Room {
                 ));
             }
             total += file.bytes.len() as u64;
-            if linked && total > LINKED_FILES_MAX {
-                return Err(over_the_link());
-            }
             if total > FILES_MAX {
                 return Err(format!(
                     "Files to a teammate come to at most {} together, and these come to more.",
@@ -205,25 +124,6 @@ impl Room {
             taken.push((file.name, file.bytes));
         }
         Ok(taken)
-    }
-
-    /// Reads the files a message carries and holds them on the desk until it
-    /// is queued. None when it carries none.
-    pub(crate) async fn hold_files(
-        &self,
-        from: &str,
-        to: &str,
-        paths: &[String],
-        capability: Option<CapabilityLease>,
-    ) -> Result<Option<Held>, String> {
-        if paths.is_empty() {
-            return Ok(None);
-        }
-        let to = self.teammate_named(to)?;
-        let files = self.take_files(from, &to, paths, capability).await?;
-        let key = format!("held-{}", super::new_id());
-        let names = self.hold(&key, &files)?;
-        Ok(Some(Held { key, names }))
     }
 
     /// Holds files under `id`, and answers their names.
@@ -419,36 +319,6 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_linked_desks_files_are_checked_as_this_desk_sends_them() {
-        let file = |name: &str, bytes: &[u8]| LinkedFile {
-            name: name.into(),
-            data: STANDARD.encode(bytes),
-        };
-        let taken = from_link(&[file("q3.csv", b"a,b")]).unwrap();
-        assert_eq!(taken, [("q3.csv".to_string(), b"a,b".to_vec())]);
-        for bad in ["../q3.csv", "a/b", "..", "", "a\\b", "a\nb"] {
-            assert!(from_link(&[file(bad, b"x")]).is_err(), "{bad:?}");
-        }
-        assert!(from_link(&[file("a", b"x"), file("a", b"y")]).is_err());
-        let half = vec![0u8; LINKED_FILES_MAX as usize / 2 + 1];
-        assert_eq!(
-            from_link(&[file("a", &half), file("b", &half)]).unwrap_err(),
-            over_the_link()
-        );
-        let many: Vec<LinkedFile> = (0..=FILES_COUNT_MAX)
-            .map(|n| file(&format!("{n}"), b"x"))
-            .collect();
-        assert!(from_link(&many).is_err());
-        assert!(
-            from_link(&[LinkedFile {
-                name: "a".into(),
-                data: "not base64!".into()
-            }])
-            .is_err()
-        );
-    }
 
     #[test]
     fn a_senders_files_land_in_a_folder_of_its_own_under_inbox() {

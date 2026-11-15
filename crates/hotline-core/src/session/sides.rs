@@ -363,19 +363,12 @@ impl Occupant for LiveSide {
         if let Some(id) = &line.delivery {
             self.heard(room, id);
         }
-        // Where the teammate's other threads stand, and what they left it about
-        // this one, open the line. A line that only woke it to hear asides is
-        // spent once a turn before it has.
-        let told: Vec<String> = line
-            .from
-            .as_ref()
-            .filter(|from| from.kind == ThreadKind::Side)
-            .and_then(|from| from.request.as_deref())
-            .map(super::asides::result_aside)
-            .into_iter()
-            .collect();
-        let asides = room.hear_asides(&self.persona_id, &self.thread, &told);
-        if asides.is_empty() && line.wake {
+        // Where the teammate's other threads stand, and what came into its
+        // inbox or was left it about this one, open the line. A line that only
+        // woke it is spent once a turn before it has heard what woke it.
+        let asides = room.hear_asides(&self.persona_id, &self.thread);
+        let inbox = room.inbox_told(&self.persona_id, &self.thread);
+        if asides.is_empty() && !inbox.news && line.wake {
             return Begin::Skip;
         }
         // What an Interrupt left the thread carrying goes on in the next line
@@ -391,9 +384,13 @@ impl Occupant for LiveSide {
             *lock(&self.request) = Some(carried);
         }
         self.tell_steered(&mut line);
-        if let Some(index) =
-            room.thread_index(&self.persona_id, &self.thread, &asides, Some(&self.indexed))
-        {
+        if let Some(index) = room.thread_index(
+            &self.persona_id,
+            &self.thread,
+            &asides,
+            inbox.text.as_deref(),
+            Some(&self.indexed),
+        ) {
             line.text = format!("{index}\n\n{}", line.text);
         }
         // Nothing refuses the turn from here: the result it hears is spent.
@@ -499,12 +496,8 @@ impl Occupant for LiveSide {
         if request.is_some() && cut == Some(Cut::Interrupt) {
             // Cut for the person to say something: what the turn was doing
             // stays running on its record, held by no turn, and goes on in
-            // the turn their line starts. Its sender is left a note of what
-            // the cut turn had said, as of any turn that is not the result;
-            // cut for a follow-up, it is that follow-up's turn that is told.
-            if !side.steered(&driven) {
-                room.note_turn(&side.id, false, &driven);
-            }
+            // the turn their line starts.
+            side.steered(&driven);
         } else if let Some(request) = request {
             // A handoff's result is what the teammate said when it was done.
             // The thread closes with it unless the turn stopped to wait for
@@ -520,9 +513,8 @@ impl Occupant for LiveSide {
             });
             match room.finish_request(&request, &driven, cut) {
                 // A turn that stopped to wait on the person is not the
-                // result: its sender is left a note, and the result follows.
-                Finished::Waiting => room.note_turn(&side.id, true, &driven),
-                Finished::Answered(false) => {}
+                // result: the result follows the answer.
+                Finished::Waiting | Finished::Answered(false) => {}
                 // Nor does it close while it still carries other work.
                 Finished::Result | Finished::Gone | Finished::Answered(true) => {
                     if lock(&side.turns).waiting.is_empty()
@@ -538,14 +530,9 @@ impl Occupant for LiveSide {
                     }
                 }
             }
-        } else {
-            // Any other turn of a thread a colleague handed over leaves that
-            // colleague a note of what it came to.
-            room.note_turn(&side.id, false, &driven);
-            if let Some(summary) = said_so {
-                room.finish_side(side, End::Agent, Some(summary));
-                return Then::Stop;
-            }
+        } else if let Some(summary) = said_so {
+            room.finish_side(side, End::Agent, Some(summary));
+            return Then::Stop;
         }
         Then::Next
     }

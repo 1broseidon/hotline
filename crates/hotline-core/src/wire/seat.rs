@@ -151,6 +151,9 @@ impl Seat {
                     // reads as they read its threads, and marks as read.
                     | Command::AsideList { .. }
                     | Command::AsideSeen { .. }
+                    // A teammate's inbox, read as its threads are read.
+                    | Command::InboxList { .. }
+                    | Command::InboxItem { .. }
                     // The desk's inbound sources, to read, and to mute or
                     // unmute one: quieting a grant is the person's anywhere,
                     // while adding one, widening it or removing it stays at
@@ -246,6 +249,7 @@ impl Seat {
                                 | Target::Side(_)
                                 | Target::View(ViewName::Roster)
                                 | Target::Schedules(_)
+                                | Target::Inbox(_)
                         ),
                     }
             }

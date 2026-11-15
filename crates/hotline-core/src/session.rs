@@ -48,6 +48,7 @@ pub(crate) mod files_between;
 pub(crate) mod generate;
 mod harness_updates;
 mod inbound;
+pub(crate) mod inbox;
 mod index;
 mod job_thread;
 pub(crate) mod jobs;
@@ -63,7 +64,7 @@ mod person_name;
 mod plan;
 mod post;
 mod preamble;
-pub(crate) use asides::{ASIDE_CHARS, Leaving};
+pub(crate) use asides::ASIDE_CHARS;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
 
@@ -773,6 +774,12 @@ pub struct Room {
     /// hour is counted and one more aside kept, or a wake counted on its
     /// brake (`session/inbound.rs`).
     asides_lock: Mutex<()>,
+    /// Held while an inbox item is read and written again, so two changes
+    /// to one item never lose each other (`session/inbox.rs`).
+    inbox_lock: Mutex<()>,
+    /// The threads waiting out the inbox's gather delay, by teammate and
+    /// thread, so items that land together wake a thread once.
+    inbox_gathers: Mutex<HashSet<String>>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
     /// Requests being taken up on a task of their own, by id: each may wait
@@ -970,6 +977,8 @@ impl Room {
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
             asides_lock: Mutex::new(()),
+            inbox_lock: Mutex::new(()),
+            inbox_gathers: Mutex::default(),
             exchange_workers: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
             exchange_admitting: Mutex::new(HashSet::default()),

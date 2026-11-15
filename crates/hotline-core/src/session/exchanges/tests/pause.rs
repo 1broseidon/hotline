@@ -1,18 +1,32 @@
 use super::*;
 use serde_json::Value;
 
-async fn send_between(room: &Arc<Room>, from: &str, to: &str, intent: &str) -> String {
-    let answer = TeammateTools::new(room, from)
+/// `from` sends `to` an item that wants work, and `to` takes it at once:
+/// the request the work runs as.
+async fn send_between(room: &Arc<Room>, from: &str, to: &str) -> String {
+    let sent = TeammateTools::new(room, from)
         .call(
-            "message_teammate",
-            &json!({"to":to, "message":"continue the exchange", "intent":intent}),
+            "send",
+            &json!({"to":[to], "title":"continue the exchange", "wants":"work"}),
         )
         .await
         .unwrap();
-    serde_json::from_str::<Value>(&answer).unwrap()["requestId"]
+    let item = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
         .as_str()
         .unwrap()
-        .into()
+        .to_string();
+    TeammateTools::new(room, to)
+        .call(
+            "update_inbox",
+            &json!({"items":[{"id": item, "state": "taken"}]}),
+        )
+        .await
+        .unwrap();
+    crate::store::inbox::of(&room.log, to)
+        .into_iter()
+        .find(|kept| kept.id == item)
+        .and_then(|kept| kept.request)
+        .unwrap()
 }
 
 fn cards(room: &Room, whose: &str) -> Vec<Value> {
@@ -23,22 +37,22 @@ fn cards(room: &Room, whose: &str) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue() {
+async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_it() {
     let (room, _) = setup("successive-exchange-pauses");
     room.allow_sender("bob", "ada").unwrap();
     room.allow_sender("ada", "bob").unwrap();
     let mut completed = Vec::new();
     let mut previous_ids = Vec::new();
     for cycle in 0..3 {
-        // The preceding resume has already delivered the first request of
-        // this cycle. Alternate both direction and intent through real tools.
-        for i in 0..if cycle == 0 { 6 } else { 5 } {
-            let (from, to, intent) = if i % 2 == 0 {
-                ("ada", "bob", "ask")
+        // Each item and each result counts: six pieces of work, both ways,
+        // reach the cap.
+        for i in 0..6 {
+            let (from, to) = if i % 2 == 0 {
+                ("ada", "bob")
             } else {
-                ("bob", "ada", "handoff")
+                ("bob", "ada")
             };
-            let id = send_between(&room, from, to, intent).await;
+            let id = send_between(&room, from, to).await;
             done(&room, &id).await;
             completed.push(id);
         }
@@ -60,20 +74,12 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue(
             assert!(!previous_ids.contains(&card["id"]));
             current.push(card.clone());
         }
-
-        // Nothing is lost or run while paused; resuming from either tape
-        // releases the same queue. On the third pause the person stops it.
-        let queued = send_between(&room, "ada", "bob", "handoff").await;
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        assert_eq!(
-            room.exchange_pair("ada~bob")
-                .unwrap()
-                .requests
-                .last()
-                .unwrap()
-                .phase(),
-            Phase::Queued
-        );
+        // Nothing is sent while paused.
+        let refused = TeammateTools::new(&room, "ada")
+            .call("send", &json!({"to":["bob"], "title":"held"}))
+            .await
+            .unwrap_err();
+        assert!(refused.contains("paused"), "{refused}");
         let mut updates = [
             room.log.subscribe(&StreamId::Tape("ada".into())),
             room.log.subscribe(&StreamId::Tape("bob".into())),
@@ -105,46 +111,13 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue(
             );
             previous_ids.push(before["id"].clone());
         }
-        if cycle < 2 {
-            done(&room, &queued).await;
-            completed.push(queued);
-            assert_eq!(room.exchange_pair("ada~bob").unwrap().exchanges, 2);
-        } else {
-            room.resume_exchange("ada", "bob").unwrap();
-            until("no exchange worker is left", || {
-                lock(&room.exchange_workers).is_empty()
-            })
-            .await;
-            let pair = room.exchange_pair("ada~bob").unwrap();
-            let stopped = pair.requests.iter().find(|r| r.id == queued).unwrap();
-            assert_eq!(stopped.phase(), Phase::Stopped);
-            assert!(stopped.failed());
-            assert!(
-                room.tape("bob")
-                    .iter()
-                    .all(|v| v["cause"]["requestId"] != queued)
-            );
-            assert!(
-                room.tape("ada")
-                    .iter()
-                    .any(|v| v["id"] == format!("exchange-ended:{queued}"))
-            );
-            for whose in ["ada", "bob"] {
-                assert_eq!(cards(&room, whose).last().unwrap()["status"], "stopped");
-            }
-        }
+        assert_eq!(room.exchange_pair("ada~bob").unwrap().exchanges, 0);
     }
     for id in completed {
         let pair = room.exchange_pair("ada~bob").unwrap();
         let request = pair.requests.iter().find(|r| r.id == id).unwrap();
         assert_eq!(request.phase(), Phase::Done);
-        assert_eq!(
-            room.tape(&request.from)
-                .iter()
-                .filter(|v| v["cause"]["requestId"] == id)
-                .count(),
-            1
-        );
+        assert!(result(&room, &id).is_some(), "{id} came back");
     }
 }
 

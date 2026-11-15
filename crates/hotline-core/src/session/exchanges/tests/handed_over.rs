@@ -54,12 +54,9 @@ fn said_in(room: &Room, thread: &str) -> Vec<serde_json::Value> {
     room.log.load(&StreamId::Side(thread.to_string()))
 }
 
-/// What reached Ada of the request `id`: its results on her tape.
+/// What reached Ada of the request `id`: its result in her inbox.
 fn heard_by_ada(room: &Room, id: &str) -> Vec<serde_json::Value> {
-    room.tape("ada")
-        .into_iter()
-        .filter(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id)
-        .collect()
+    result(room, id).into_iter().collect()
 }
 
 /// Typing in the thread of a handoff that waits on a card is answering the
@@ -235,10 +232,9 @@ pub(super) fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
     ]
 }
 
-/// A handed-over thread's link says its handoff ended when, and only when,
+/// A taken item's thread's link says its handoff ended when, and only when,
 /// Stop exchange, a revocation or an unlink ends it: not while it stands, a
-/// finished handoff the person goes on with included, and no more once a new
-/// handoff into it stands.
+/// finished handoff the person goes on with included.
 #[tokio::test]
 async fn a_threads_link_says_its_handoff_ended_when_and_only_when_it_does() {
     let (room, _) = setup("link-says-ended");
@@ -278,21 +274,6 @@ async fn a_threads_link_says_its_handoff_ended_when_and_only_when_it_does() {
         says_ended(&room, &thread),
         [true; 3],
         "and kept as it parks"
-    );
-    let listed = room.handoff_threads_for("ada", "bob");
-    assert!(listed.is_empty(), "{listed:?}");
-
-    room.resume_exchange("ada", "bob").unwrap();
-    let again = hand_off(&room, "ada", "bob", "Work again.", Some(&handoff))
-        .await
-        .unwrap();
-    let again = again["requestId"].as_str().unwrap().to_string();
-    done(&room, &again).await;
-    assert_eq!(work_thread(&room, &again), thread);
-    assert_eq!(
-        says_ended(&room, &thread),
-        [false; 3],
-        "a new handoff stands"
     );
 }
 

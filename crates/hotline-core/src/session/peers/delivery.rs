@@ -8,30 +8,6 @@ use crate::driver::HOTLINE_BACKEND_ID;
 use crate::session::{new_id, now_ms};
 
 impl Room {
-    /// Who is sending to whom, and the message trimmed, or why not.
-    pub(in crate::session) fn checked<'m>(
-        &self,
-        from: &str,
-        to: &str,
-        message: &'m str,
-    ) -> Result<(Persona, Persona, &'m str), String> {
-        let caller = self.participant(from)?;
-        let target = self.teammate_named(to)?;
-        if caller.id == target.id {
-            return Err("A teammate cannot message itself.".to_string());
-        }
-        let message = message.trim();
-        if message.is_empty() {
-            return Err("A message to a teammate cannot be empty.".to_string());
-        }
-        if message.chars().count() > TEAMMATE_MESSAGE_MAX {
-            return Err(format!(
-                "A message to a teammate is at most {TEAMMATE_MESSAGE_MAX} characters."
-            ));
-        }
-        Ok((caller, target, message))
-    }
-
     /// Checks the directional collaboration policy before anything is handed
     /// to the recipient. A Whole machine Hotline Agent caller has implicit
     /// authority; every workspace caller needs either the recipient's stable
@@ -238,6 +214,15 @@ impl Room {
             let _ = wait.sender.send(CollaborationDecision::Deny);
         }
         self.settle_invalid_collaboration();
+    }
+
+    /// The person stopped two teammates' exchange: a first-contact card up
+    /// between them is expired with it, and what waited on it is denied.
+    pub(in crate::session) fn settle_pair_collaboration(&self, a: &str, b: &str) {
+        for wait in self.peers.settle_pair_waits(a, b) {
+            self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+            let _ = wait.sender.send(CollaborationDecision::Deny);
+        }
     }
 
     pub(in crate::session) fn settle_invalid_collaboration(&self) {

@@ -718,7 +718,7 @@ fn only_a_subject_that_names_the_teammate_is_dropped() {
     }
 }
 
-/// While the turn of a thread a colleague handed it is running, the
+/// While the turn of a thread working an item it took is running, the
 /// teammate's main conversation is told it is at that work now, for whom.
 #[tokio::test]
 async fn a_handed_over_thread_at_work_is_the_teammates_own_work_under_way() {
@@ -729,13 +729,24 @@ async fn a_handed_over_thread_at_work_is_the_teammates_own_work_under_way() {
     let agents = Fake::new(replies().gated(gate.clone()));
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
     room.allow_sender("bob", "ada").unwrap();
-    crate::mcp::server::TeammateTools::new(&room, "ada")
+    let sent = crate::mcp::server::TeammateTools::new(&room, "ada")
         .call(
-            "message_teammate",
+            "send",
             &json!({
-                "to": "bob", "intent": "handoff",
+                "to": ["bob"], "wants": "work", "title": "Build the Gull Point visitor page",
                 "message": "Hi Bob, it's Ada. Please build the Gull Point visitor page.",
             }),
+        )
+        .await
+        .unwrap();
+    let item = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["sent"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    crate::mcp::server::TeammateTools::new(&room, "bob")
+        .call(
+            "update_inbox",
+            &json!({"items": [{"id": item, "state": "taken"}]}),
         )
         .await
         .unwrap();
@@ -745,9 +756,7 @@ async fn a_handed_over_thread_at_work_is_the_teammates_own_work_under_way() {
         .index_of("bob", &ThreadId::dm("bob"), now_ms())
         .render("Bob", None, now_ms());
     assert!(
-        index.contains(
-            "\nyou're doing \"Please build the Gull Point visitor page.\" for Ada (working now"
-        ),
+        index.contains("\nyou're doing \"Build the Gull Point visitor page\" for Ada (working now"),
         "{index}"
     );
     assert!(index.contains(") · side:"), "{index}");

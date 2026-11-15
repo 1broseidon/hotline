@@ -720,6 +720,10 @@ pub(crate) async fn run(
             room.asides_seen(&persona_id)?;
             Ok(Value::Null)
         }
+        Command::InboxList { persona_id } => {
+            super::inbox::read(log, &persona_id).map(|view| json!(view))
+        }
+        Command::InboxItem { id } => super::inbox::item(log, &id).map(|item| json!(item)),
         Command::ThreadLoopIn { thread, persona_id } => {
             threads::loop_in(room, &thread, &persona_id).await
         }

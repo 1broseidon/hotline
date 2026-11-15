@@ -1,7 +1,7 @@
 //! What Hotline keeps on disk and what it rebuilds from it: the log of
 //! append-only streams and the tapes and threads in it, the files teammates
 //! send the person, the line a thread leaves on its parent, the asides a
-//! teammate has been left, and, beside the
+//! teammate has been left, the items in its inbox, and, beside the
 //! tape, the search index over every tape and two views of one tape — its
 //! chapters and its last line. The index and the views are not records; every
 //! one is rebuilt from the log.
@@ -15,6 +15,7 @@
 
 pub mod asides;
 pub mod chapters;
+pub mod inbox;
 pub mod link;
 pub mod log;
 pub mod previews;

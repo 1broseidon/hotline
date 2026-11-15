@@ -125,6 +125,9 @@ pub enum Target {
     /// whenever it changes. The way a phone reads them, since the room stream
     /// that holds them is the desk's alone.
     Schedules(String),
+    /// One teammate's inbox, by persona id, as an `InboxView`: the whole of
+    /// it on opening and again whenever an item it holds or sent changes.
+    Inbox(String),
 }
 
 /// One of a teammate's jobs as the schedules view shows it: what a person
@@ -262,6 +265,10 @@ pub struct RosterEntry {
     /// (`aside.seen` marks them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asides_new: Option<u32>,
+    /// How many open items in this teammate's inbox it has not read yet
+    /// (`inbox.list` lists them). Absent when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbox: Option<u32>,
     pub session: SessionInfo,
 }
 

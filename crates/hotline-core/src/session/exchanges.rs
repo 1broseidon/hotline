@@ -1,5 +1,9 @@
 //! Durable automatic exchanges. A pair record is the queue and the brake in
 //! one append: accepting a message never relies on a task surviving the desk.
+//!
+//! Teammates reach each other through the inbox (`session/inbox.rs`); what
+//! runs here is the work a receiver took from it into a thread of its own
+//! (`exchanges/inbox.rs`), and the brake every item counts on.
 use super::runner::Driven;
 use super::sides::{HandoffStart, Start};
 use super::turns::RequestLine;
@@ -11,12 +15,10 @@ use crate::contract::{
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::CapabilityLease;
 use crate::linked;
-use crate::log::{StreamId, thread};
-use crate::paths::{thread_key, thread_participants};
+use crate::log::StreamId;
+use crate::paths::thread_key;
 use crate::thread::Opener;
-use across::linked_thread;
 use asides::{answer_of, last_message, said_last};
-use place::Place;
 use questions::Route;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -24,6 +26,13 @@ use std::sync::Arc;
 pub(super) use stops::{Cut, Steer, cut_short, steered_text};
 
 pub(crate) const EXCHANGE_CAP: i64 = 12;
+/// What an ask from before the inbox, still open when this version starts,
+/// comes back to its sender as.
+const ASKED_BEFORE_THE_INBOX: &str = "Hotline now takes teammates' messages through the inbox, and this ask from before it was never answered. Send it again with `send` if you still need it.";
+/// What a request is. Every request made now is a `Handoff`: work a
+/// receiver took from its inbox. An `Ask` is a question from before the
+/// inbox, read so its record loads, and ended when this version starts
+/// ([`Room::reconcile_exchanges`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Intent {
@@ -98,8 +107,6 @@ enum Owed {
 enum Event {
     /// Let in: handed to the conversation that works it.
     Admitted,
-    /// Forwarded to a linked desk, which has it from now.
-    Forwarded,
     /// A turn took it up.
     Begun,
     /// A person's answer carries a waiting handoff on.
@@ -220,9 +227,6 @@ struct Request {
     /// answer comes back there while the job lives.
     reply_job: Option<String>,
     lead_call: Option<ThreadId>,
-    /// For a handoff into a thread an earlier one opened: the id of the
-    /// handoff that opened it, which is the thread's name to its sender.
-    continues: Option<String>,
     /// For a handoff: it no longer stands, whatever its phase. Stop
     /// exchange, a revocation or the end of the link released it, and its
     /// thread's link says so (`handoffEnded`). Read as [`Request::stands`].
@@ -242,10 +246,10 @@ struct Request {
     /// let in (`session/files_between.rs`): then they are copied into the
     /// recipient's workspace, or sent over the link to a linked recipient.
     files: Vec<String>,
-    /// For a handoff from a teammate on a linked desk: the notes its work
-    /// thread has left that teammate and not yet sent its desk
-    /// (`exchanges/across.rs`).
-    crossing: Vec<crate::contract::Aside>,
+    /// The inbox items it carries, the one taken first: what its result
+    /// answers (`exchanges/inbox.rs`). Empty on a request from before the
+    /// inbox.
+    items: Vec<String>,
 }
 /// A request as the room log keeps it: the flags older versions wrote, which
 /// [`State`] reads from and is written back to, so a record written by any
@@ -287,8 +291,6 @@ struct Record {
     returned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     lead_call: Option<ThreadId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    continues: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     released: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -303,14 +305,14 @@ struct Record {
     files: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     stopped_by_person: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    crossing: Vec<crate::contract::Aside>,
     /// Its answer was being delivered when the record was saved.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     sending: bool,
     /// It stopped while its answer was being delivered.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     answering: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    items: Vec<String>,
 }
 impl From<Record> for Request {
     fn from(r: Record) -> Self {
@@ -355,13 +357,12 @@ impl From<Record> for Request {
             reply_thread: r.reply_thread,
             reply_job: r.reply_job,
             lead_call: r.lead_call,
-            continues: r.continues,
             released: r.released,
             about: r.about,
             own_thread: r.own_thread,
             looped_in: r.looped_in,
             files: r.files,
-            crossing: r.crossing,
+            items: r.items,
         }
     }
 }
@@ -404,7 +405,6 @@ impl From<Request> for Record {
             reply_job: r.reply_job,
             returned: stop.is_some_and(|s| s.owed != Owed::Desk),
             lead_call: r.lead_call,
-            continues: r.continues,
             released: r.released,
             about: r.about,
             own_thread: r.own_thread,
@@ -412,9 +412,9 @@ impl From<Request> for Record {
             looped_in: r.looped_in,
             files: r.files,
             stopped_by_person: stop.is_some_and(|s| s.by_person),
-            crossing: r.crossing,
             sending,
             answering: stop.is_some_and(|s| s.answering),
+            items: r.items,
         }
     }
 }
@@ -502,7 +502,6 @@ impl Request {
         let phase = self.phase();
         let next = match (self.state, event) {
             (Queued, Event::Admitted) => Running { begun: false },
-            (Queued, Event::Forwarded) => Running { begun: true },
             (Running { .. }, Event::Begun) => Running { begun: true },
             (WaitingHuman, Event::Resumed) => Running { begun: true },
             (Running { .. }, Event::Finished { waiting, failed }) => {
@@ -628,8 +627,6 @@ impl Request {
             return false;
         }
         self.released = true;
-        // What its thread had still to tell a linked sender goes with it.
-        self.crossing.clear();
         ended.extend(self.thread.clone());
         true
     }
@@ -638,7 +635,6 @@ impl Event {
     fn name(&self) -> &'static str {
         match self {
             Event::Admitted => "admitted",
-            Event::Forwarded => "forwarded",
             Event::Begun => "begun",
             Event::Resumed => "resumed",
             Event::Finished { .. } => "finished",
@@ -654,19 +650,6 @@ impl Event {
             Event::Ended(_) => "ended",
         }
     }
-}
-/// What a teammate sends a colleague, as `message_teammate` takes it.
-pub(crate) struct Outgoing<'a> {
-    /// The colleague, by name or id.
-    pub to: &'a str,
-    pub message: &'a str,
-    pub intent: Intent,
-    /// The work thread a handoff continues, or an ask is answered in, named
-    /// by the id of a handoff that ran there, or for a recipient on a linked
-    /// desk as that desk names it (`deskId/side:<id>`).
-    pub thread: Option<&'a str>,
-    /// Files held for it (`Room::hold_files`), by name, under its id.
-    pub files: Option<&'a crate::session::files_between::Held>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct HumanGate {
@@ -718,6 +701,11 @@ impl Room {
     ) -> Result<(), String> {
         a.check()?;
         b.check()?;
+        // Work taken from the inbox was allowed when its item was sent: the
+        // receiver took it up itself.
+        if !request.items.is_empty() {
+            return Ok(());
+        }
         // While it stands, the delegation is the grant for its thread's
         // questions back to the teammate that handed it over; the person's
         // Loop in… is the grant for the one it asks.
@@ -776,124 +764,6 @@ impl Room {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
-    /// Accepts what `message_teammate` sends into the pair's durable queue,
-    /// from the thread it was said in, which is where its answer comes back.
-    pub(crate) fn send_intent(
-        self: &Arc<Self>,
-        from: &str,
-        outgoing: &Outgoing<'_>,
-        capability: Option<CapabilityLease>,
-        sent_from: &ThreadId,
-    ) -> Result<peers::Sent, String> {
-        let sent = self.queue_request(from, outgoing, capability, sent_from, false);
-        if let (Err(_), Some(held)) = (&sent, outgoing.files) {
-            held.discard(self.log.root());
-        }
-        sent
-    }
-    /// Queues a request, as `send_intent` does; `looped_in` marks the ask the
-    /// person's Loop in… makes, which is its own grant.
-    fn queue_request(
-        self: &Arc<Self>,
-        from: &str,
-        outgoing: &Outgoing<'_>,
-        capability: Option<CapabilityLease>,
-        sent_from: &ThreadId,
-        looped_in: bool,
-    ) -> Result<peers::Sent, String> {
-        let _working = self.working()?;
-        let intent = outgoing.intent;
-        let (caller, target, message) = self.checked(from, outgoing.to, outgoing.message)?;
-        let key = thread_key(&caller.id, &target.id).ok_or("Invalid teammate pair")?;
-        let id = new_id();
-        // The request holds each teammate's lasting authority, not the
-        // conversation's it was sent from, so the chapter or firing that sent
-        // it may end before it does. Taken before the sender's own lease is
-        // checked: one still current now was current as it was taken.
-        let leases = (
-            self.request_lease(&caller.id),
-            self.request_lease(&target.id),
-        );
-        if let Some(capability) = &capability {
-            capability.check()?;
-        }
-        let continues = {
-            let _guard = lock(&self.exchange_lock);
-            let mut pair = self.exchange_pair(&key).unwrap_or(Pair {
-                id: key.clone(),
-                a: caller.id.clone(),
-                b: target.id.clone(),
-                exchanges: 0,
-                paused: false,
-                requests: vec![],
-            });
-            let continues = match outgoing.thread.map(str::trim) {
-                None => None,
-                Some(named) => Some(
-                    pair.thread_named(named, &caller.id, &target.id)
-                        .or_else(|| linked_thread(named, &target))
-                        .ok_or_else(|| {
-                            format!(
-                                "{named} is not a handoff you sent {}. Leave `thread` out to {}.",
-                                target.name,
-                                match intent {
-                                    Intent::Ask => "ask without one",
-                                    Intent::Handoff => "open a new work thread",
-                                }
-                            )
-                        })?,
-                ),
-            };
-            let about = (intent == Intent::Ask && continues.is_none())
-                .then(|| self.asked_back_about(sent_from, &target.id))
-                .flatten();
-            pair.requests.push(Request {
-                id: id.clone(),
-                from: caller.id,
-                to: target.id,
-                message: message.to_string(),
-                intent,
-                state: State::Queued,
-                reply: String::new(),
-                answer: String::new(),
-                request_counted: false,
-                human_actions: vec![],
-                thread: None,
-                reply_thread: matches!(sent_from.kind, ThreadKind::Side | ThreadKind::Call)
-                    .then(|| sent_from.key.clone()),
-                reply_job: (sent_from.kind == ThreadKind::Job).then(|| sent_from.key.clone()),
-                lead_call: (intent == Intent::Handoff
-                    && target.node.is_none()
-                    && self.lead_call(from, sent_from))
-                .then(|| sent_from.clone()),
-                continues: continues.clone(),
-                released: false,
-                about,
-                own_thread: false,
-                looped_in,
-                files: outgoing
-                    .files
-                    .map(|held| held.names.clone())
-                    .unwrap_or_default(),
-                crossing: Vec::new(),
-            });
-            if let Some(held) = outgoing.files {
-                held.file_under(self.log.root(), &id)?;
-            }
-            self.save_pair(&pair)?;
-            if intent == Intent::Ask {
-                self.gate_on_ask(sent_from, &id);
-            }
-            lock(&self.exchange_leases).insert(id.clone(), leases);
-            continues
-        };
-        self.wake_exchange(&key);
-        Ok(peers::Sent {
-            to: target.name,
-            thread: (intent == Intent::Handoff).then(|| continues.unwrap_or_else(|| id.clone())),
-            request_id: id,
-        })
-    }
     pub fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
         self.change_exchange(a, b, false)
     }
@@ -906,10 +776,19 @@ impl Room {
         let key = thread_key(a, b)
             .filter(|_| a != b)
             .ok_or("Choose two different teammates")?;
+        if stop {
+            // An item still held for the first-contact card goes with it.
+            self.settle_pair_collaboration(a, b);
+        }
         let _guard = lock(&self.exchange_lock);
-        let mut pair = self
-            .exchange_pair(&key)
-            .ok_or("There is no exchange for this pair")?;
+        let Some(mut pair) = self.exchange_pair(&key) else {
+            // A stop with nothing counted yet has settled all there was.
+            return if stop {
+                Ok(())
+            } else {
+                Err("There is no exchange for this pair".into())
+            };
+        };
         let mut ended = Vec::new();
         if stop {
             let mut stopped = Vec::new();
@@ -1149,6 +1028,7 @@ impl Room {
         }
         next.reply = reply.into();
         next.release(ended);
+        self.inbox_work_dropped(&next, &next.reply);
         *request = next;
         true
     }
@@ -1248,66 +1128,57 @@ impl Room {
                     "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
                 )
             });
-        let finished = {
-            let _guard = lock(&self.exchange_lock);
-            let found = self.exchange_pairs().into_iter().find_map(|pair| {
-                let index = pair.requests.iter().position(|r| r.id == id)?;
-                Some((pair, index))
-            });
-            let Some((mut pair, index)) = found else {
-                return Finished::Gone;
-            };
-            let request = &mut pair.requests[index];
-            let ask = request.intent == Intent::Ask;
-            if !matches!(request.state, State::Running { .. }) {
-                // A stopped ask's turn ends as an answer nobody is owed: its
-                // own thread still closes, and a thread it was only a line in
-                // goes on.
-                return if ask {
-                    Finished::Answered(request.own_thread)
-                } else {
-                    Finished::Gone
-                };
-            }
-            let ended = stops::ended_without_a_result(ask, cut);
-            let mut reply = driven.replies.join("\n\n");
-            if failed && reply.is_empty() {
-                reply = ended.to_string();
-            } else if failed && ask {
-                reply = format!("{reply}\n\n{ended}");
-            }
-            // Only a cleanly completed turn establishes a safe suspension point.
-            // A crash or a failed turn is uncertain even if it posted a card.
-            let waiting = !ask && !failed && request.human_actions.iter().any(|g| !g.consumed);
-            if let Err(error) = request.advance(Event::Finished { waiting, failed }) {
-                eprintln!("save a request's result: {}", String::from(error));
-                return Finished::Gone;
-            }
-            request.reply = reply;
-            request.answer = if failed {
-                String::new()
-            } else if ask {
-                answer_of(driven)
-            } else {
-                last_message(driven)
-            };
-            let finished = match (ask, waiting) {
-                (true, _) => Finished::Answered(request.own_thread),
-                (false, true) => Finished::Waiting,
-                (false, false) => Finished::Result,
-            };
-            let answered = (ask && request.own_thread && !failed).then(|| request.clone());
-            if let Err(error) = self.save_pair(&pair) {
-                eprintln!("save a request's result: {error}");
-            }
-            (finished, answered)
+        let _guard = lock(&self.exchange_lock);
+        let found = self.exchange_pairs().into_iter().find_map(|pair| {
+            let index = pair.requests.iter().position(|r| r.id == id)?;
+            Some((pair, index))
+        });
+        let Some((mut pair, index)) = found else {
+            return Finished::Gone;
         };
-        // A work thread that answered while the main conversation was busy
-        // tells that conversation what it said on its behalf.
-        if let (_, Some(answered)) = &finished {
-            self.answered_for_main(answered);
+        let request = &mut pair.requests[index];
+        let ask = request.intent == Intent::Ask;
+        if !matches!(request.state, State::Running { .. }) {
+            // A stopped ask's turn ends as an answer nobody is owed: its
+            // own thread still closes, and a thread it was only a line in
+            // goes on.
+            return if ask {
+                Finished::Answered(request.own_thread)
+            } else {
+                Finished::Gone
+            };
         }
-        finished.0
+        let ended = stops::ended_without_a_result(ask, cut);
+        let mut reply = driven.replies.join("\n\n");
+        if failed && reply.is_empty() {
+            reply = ended.to_string();
+        } else if failed && ask {
+            reply = format!("{reply}\n\n{ended}");
+        }
+        // Only a cleanly completed turn establishes a safe suspension point.
+        // A crash or a failed turn is uncertain even if it posted a card.
+        let waiting = !ask && !failed && request.human_actions.iter().any(|g| !g.consumed);
+        if let Err(error) = request.advance(Event::Finished { waiting, failed }) {
+            eprintln!("save a request's result: {}", String::from(error));
+            return Finished::Gone;
+        }
+        request.reply = reply;
+        request.answer = if failed {
+            String::new()
+        } else if ask {
+            answer_of(driven)
+        } else {
+            last_message(driven)
+        };
+        let finished = match (ask, waiting) {
+            (true, _) => Finished::Answered(request.own_thread),
+            (false, true) => Finished::Waiting,
+            (false, false) => Finished::Result,
+        };
+        if let Err(error) = self.save_pair(&pair) {
+            eprintln!("save a request's result: {error}");
+        }
+        finished
     }
     /// Keep routing in the pair record, not the lifetime of the asking turn:
     /// a request the person was asked in a handoff's thread is a gate the
@@ -1503,6 +1374,19 @@ impl Room {
                         let _ = request.advance(Event::Answered { failed: true });
                         request.reply = "Hotline was updated while this handoff waited on the person. Work may have started; inspect before retrying.".into();
                     }
+                    // An ask from before the inbox has nothing left to answer
+                    // it here: its sender is told to send it again.
+                    if request.intent == Intent::Ask
+                        && matches!(
+                            request.phase(),
+                            Phase::Queued | Phase::Running | Phase::WaitingHuman
+                        )
+                        && !linked::is_linked(&request.to)
+                    {
+                        let _ = request.advance(Event::Answered { failed: true });
+                        request.reply = ASKED_BEFORE_THE_INBOX.into();
+                        continue;
+                    }
                     // A request forwarded to a linked desk is that desk's to
                     // finish; its answer comes back over the link.
                     if request.phase() != Phase::Running || linked::is_linked(&request.to) {
@@ -1532,13 +1416,14 @@ impl Room {
                 }
             }
         }
-        let carried: Vec<String> = self
+        let mut carried: Vec<String> = self
             .exchange_pairs()
             .into_iter()
             .flat_map(|pair| pair.requests)
             .filter(|r| !r.files.is_empty() && !matches!(r.phase(), Phase::Done | Phase::Stopped))
             .map(|r| r.id)
             .collect();
+        carried.extend(self.inbox_held_keys());
         self.sweep_held(&carried);
     }
     pub(super) fn recover_queued_exchanges(self: &Arc<Self>) {
@@ -1570,7 +1455,6 @@ impl Room {
                         pair.requests.iter().all(|r| {
                             matches!(r.phase(), Phase::Done | Phase::Stopped)
                                 && !Self::owes_answer(r)
-                                && r.crossing.is_empty()
                         })
                     }) {
                         lock(&room.exchange_workers).remove(&key);
@@ -1586,11 +1470,6 @@ impl Room {
         let Some(pair) = self.exchange_pair(key) else {
             return Ok(());
         };
-        // What a thread here still has to tell a sender on a linked desk
-        // goes before anything that ends its handoff.
-        for request in pair.requests.iter().filter(|r| !r.crossing.is_empty()) {
-            self.send_crossing(key, &request.id).await;
-        }
         // A sender whose request was stopped here, on a linked desk or in a
         // work thread or job that asked, hears so first.
         if let Some(owed) = pair.requests.iter().find(|r| Self::owes_answer(r)).cloned() {
@@ -1662,29 +1541,13 @@ impl Room {
             return Ok(());
         }
         match request.phase() {
-            Phase::Queued if linked::is_linked(&request.to) => {
-                self.forward_queued(key, &request).await?;
-            }
             // One being taken up is its task's until it has been handed over.
             Phase::Queued if lock(&self.exchange_admitting).contains(&request.id) => {}
             Phase::Queued => {
-                // A handoff works in a thread, and so does an ask that names
-                // one or was handed to one before a restart.
-                let in_thread = request.intent == Intent::Handoff
-                    || request.continues.is_some()
-                    || request.thread.is_some();
-                let thread = if in_thread {
-                    match pair.place(&request) {
-                        Ok(Place::New) => None,
-                        Ok(Place::In(thread)) => Some(thread),
-                        Ok(Place::Later) => return Ok(()),
-                        Err(error) => {
-                            return self.set_exchange_reply(key, &request.id, error, true);
-                        }
-                    }
-                } else {
-                    None
-                };
+                // A handoff works in a thread: its own, or the one it was
+                // handed to before a restart.
+                let in_thread = request.intent == Intent::Handoff || request.thread.is_some();
+                let thread = request.thread.clone();
                 // What works in a thread waits its turn for a place on its
                 // recipient: a teammate that has as many threads live as it
                 // may, every one of them mid-turn, takes it up when one has
@@ -1731,20 +1594,8 @@ impl Room {
                         .as_deref()
                         .is_none_or(|thread| self.sides.get(thread).is_none())
                 {
-                    let thread = match pair.place(&request) {
-                        Ok(Place::New) => None,
-                        Ok(Place::In(thread)) => Some(thread),
-                        Ok(Place::Later) => return Ok(()),
-                        Err(error) => {
-                            return self.set_exchange_reply(key, &request.id, error, true);
-                        }
-                    };
-                    self.hand_over_request(key, &request, thread).await?;
-                } else if self.dropped_by_a_swap(&request) {
-                    // A chapter's swap took this question off its main
-                    // conversation's queue: the session that replaced it
-                    // answers it.
-                    self.hand_over_request(key, &request, None).await?;
+                    self.hand_over_request(key, &request, request.thread.clone())
+                        .await?;
                 }
             }
             Phase::WaitingHuman => {
@@ -1826,7 +1677,17 @@ impl Room {
                         // Its answer arrived, or it did not and the stop that
                         // landed meanwhile is to be told after all.
                         let moved = match (r.phase(), landed) {
-                            (Phase::Reply | Phase::Stopped, true) => r.advance(Event::Delivered),
+                            (Phase::Reply | Phase::Stopped, true) => {
+                                r.advance(Event::Delivered).and_then(|()| {
+                                    // In its sender's inbox it is theirs: there
+                                    // is nothing left to stop.
+                                    if r.phase() == Phase::Done && !linked::is_linked(&r.from) {
+                                        r.advance(Event::Heard)
+                                    } else {
+                                        Ok(())
+                                    }
+                                })
+                            }
                             (Phase::Stopped, false) => {
                                 let moved = r.advance(Event::Undelivered);
                                 told = Some(r.clone());
@@ -1854,29 +1715,14 @@ impl Room {
         Ok(())
     }
     /// Hands a request's reply to its sender, and says whether it reached
-    /// them: a linked desk down does not, and is tried again.
-    async fn deliver_reply(self: &Arc<Self>, key: &str, request: &Request) -> Result<bool, String> {
-        let (id, cause, from, text) = self.answer_delivery(key, request)?;
-        // The pair's thread keeps the answer beside the question: one
-        // never handed over has none there.
-        if self
-            .log
-            .load(&StreamId::Pair(key.into()))
-            .iter()
-            .any(|line| line["id"] == request.id.as_str())
-        {
-            self.exchange_thread_line(
-                key,
-                &request.to,
-                &format!("result:{}", request.id),
-                &request.reply,
-                request
-                    .thread
-                    .as_deref()
-                    .filter(|_| request.intent == Intent::Handoff),
-            )?;
-        }
-        self.nudge_handoff_result(key, request);
+    /// them: a linked desk down does not, and is tried again. On this desk
+    /// it is an item in the sender's inbox that answers the one taken
+    /// (`exchanges/inbox.rs`).
+    async fn deliver_reply(
+        self: &Arc<Self>,
+        _key: &str,
+        request: &Request,
+    ) -> Result<bool, String> {
         if linked::is_linked(&request.from) {
             // Answering a linked teammate: the answer goes back over
             // the link, and waits saved while the link is down.
@@ -1890,19 +1736,7 @@ impl Room {
                 )
                 .await);
         }
-        match self.route_of(request) {
-            Route::Job(job) => {
-                self.deliver_into_job(&job, &id, cause, from, text, None)?;
-            }
-            Route::Work(thread) => {
-                let carried = self.carried_on(request);
-                self.deliver_into_work(&thread, &id, cause, from, text, carried)
-                    .await?;
-            }
-            Route::Dm(sender) => {
-                self.deliver_identified(&sender, &id, cause, text).await?;
-            }
-        }
+        self.reply_into_inbox(request)?;
         Ok(true)
     }
     pub(super) fn set_exchange_reply(
@@ -1933,32 +1767,6 @@ impl Room {
         }
         self.save_pair(&pair)
     }
-    fn exchange_thread_line(
-        &self,
-        key: &str,
-        from: &str,
-        id: &str,
-        text: &str,
-        handoff_thread: Option<&str>,
-    ) -> Result<(), String> {
-        thread::ensure(self.log.root(), key).map_err(|e| e.to_string())?;
-        let kind = if thread_participants(key).is_some_and(|(a, _)| a == from) {
-            "user"
-        } else {
-            "agent"
-        };
-        let stream = StreamId::Pair(key.into());
-        if self.log.load(&stream).iter().any(|v| v["id"] == id) {
-            return Ok(());
-        }
-        let mut line = json!({"kind":kind,"id":id,"ts":now_ms(),"text":text,"receipt":"sent"});
-        if let Some(thread) = handoff_thread {
-            line["handoffThread"] = thread.into();
-        }
-        // Through the shared write path, so both teammates' searches find it.
-        self.threads().write(&ThreadId::pair(key), from, &line);
-        Ok(())
-    }
 }
 
 mod across;
@@ -1966,6 +1774,7 @@ mod asides;
 mod ended;
 mod gates;
 mod handover;
+mod inbox;
 mod loop_in;
 mod place;
 mod questions;

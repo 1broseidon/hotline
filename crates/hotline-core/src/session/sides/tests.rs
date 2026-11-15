@@ -476,7 +476,13 @@ async fn a_side_threads_tools_are_its_own_set() {
         .collect();
     assert!(names.contains(&"archive_thread".to_string()), "{names:?}");
     assert!(!names.contains(&"new_chapter".to_string()), "{names:?}");
-    for full in ["schedule", "send_file", "message_teammate", "request_human"] {
+    for full in [
+        "schedule",
+        "send_file",
+        "send",
+        "update_inbox",
+        "request_human",
+    ] {
         assert!(names.contains(&full.to_string()), "{full}: {names:?}");
     }
     // The main session's tools never offer it.

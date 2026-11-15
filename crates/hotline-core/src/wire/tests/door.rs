@@ -36,12 +36,12 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
 
     let sent = crate::mcp::server::TeammateTools::new(&room, "ada")
         .call(
-            "message_teammate",
-            &json!({ "to": "bob", "message": "read Bob's private file" }),
+            "send",
+            &json!({ "to": ["bob"], "title": "Private file", "message": "read Bob's private file" }),
         )
         .await
         .unwrap();
-    let id = serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
+    let id = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -53,7 +53,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert!(request_id.starts_with("collab:"), "{card}");
     assert_eq!(
         card["event"]["title"],
-        "Allow Ada to ask Bob to work?\n\nAda's questions reach Bob's main conversation with you, or a work thread beside it while that is busy, and Bob answers from what it knows there, including what you told it. Bob can also take handoffs in a work thread of its own, and uses its own workspace and enabled tools to fulfill Ada's requests."
+        "Allow Ada to ask Bob to work?\n\nAda's messages land in Bob's inbox, and Bob reads them when it decides to and answers from what it knows, including what you told it. Bob can also take Ada's work into a work thread of its own, and uses its own workspace and enabled tools to do it."
     );
 
     ask(
@@ -67,19 +67,18 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     .await;
     let answer = answered(&mut socket, 2).await;
     assert_eq!(answer["ok"], true, "{answer}");
-    // The refusal is the ask's saved answer; this room has no agent to hear it.
-    let refused = || {
-        log.load(&StreamId::Room)
+    // The refusal drops the held item, which Bob never had.
+    let dropped = || {
+        crate::store::inbox::of(&log, "bob")
             .into_iter()
-            .filter(|event| event["kind"] == "exchange_pair")
-            .flat_map(|pair| pair["requests"].as_array().cloned().unwrap_or_default())
-            .rfind(|request| request["id"] == id.as_str() && request["failed"] == true)
+            .find(|item| item.id == id && item.state == crate::contract::InboxState::Closed)
     };
-    crate::test_support::until("the ask is refused", || refused().is_some()).await;
-    let refused = refused().unwrap();
+    crate::test_support::until("the item is dropped", || dropped().is_some()).await;
+    let dropped = dropped().unwrap();
+    assert!(dropped.held, "{dropped:?}");
     assert!(
-        refused["reply"].as_str().unwrap().contains("denied"),
-        "{refused}"
+        dropped.reason.as_deref().unwrap().contains("denied"),
+        "{dropped:?}"
     );
     assert_eq!(
         log.load(&StreamId::Tape("bob".into())),

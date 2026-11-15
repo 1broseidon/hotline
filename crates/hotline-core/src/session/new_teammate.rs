@@ -114,7 +114,7 @@ impl Room {
             }),
         )?;
         Ok(format!(
-            "{asked} {name} does not exist until the person says yes, so do not say it does. On yes, {name} is on the team and message_teammate reaches it by that name; on no, or if the card expires, no teammate is made."
+            "{asked} {name} does not exist until the person says yes, so do not say it does. On yes, {name} is on the team and send reaches it by that name; on no, or if the card expires, no teammate is made."
         ))
     }
 

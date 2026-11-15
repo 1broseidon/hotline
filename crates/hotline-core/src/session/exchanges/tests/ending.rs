@@ -1,6 +1,5 @@
 //! How a request ends: at the door of a turn that refuses it, by a stop that
 //! lands while its answer is on its way, and as an old record read it.
-use super::questions::request;
 use super::*;
 use crate::contract::{DeliveryFrom, ThreadId};
 use crate::session::Wired;
@@ -70,41 +69,27 @@ async fn a_result_refused_at_the_door_is_not_consumed() {
     assert!(room.begin_exchange_result("unheard"));
 }
 
-/// A stop that lands while a request's answer is on its way to the sender
-/// does not also send the sender a "stopped" notice.
+/// A result in its sender's inbox is theirs: a stop of the exchange after it
+/// lands does not also tell the sender it was stopped.
 #[tokio::test]
-async fn a_stop_while_the_answer_is_on_its_way_does_not_also_tell_the_sender_it_stopped() {
-    let (room, agents) = controlled("stop-during-delivery");
-    agents.drivers["ada"].startup.forget_permits(100);
+async fn a_stop_after_the_answer_landed_does_not_also_tell_the_sender_it_stopped() {
+    let (room, agents) = controlled("stop-after-delivery");
     room.allow_sender("bob", "ada").unwrap();
-    let id = send(&room, "ask").await;
+    let id = send(&room, "handoff").await;
     agents.drivers["bob"].updates.add_permits(2);
-    until("the answer is counted and on its way", || {
-        room.exchange_pair("ada~bob").is_some_and(|p| {
-            p.requests.iter().any(|r| {
-                r.id == id
-                    && r.phase() == Phase::Reply
-                    && matches!(r.state, State::Reply { counted: true, .. })
-            })
-        })
-    })
-    .await;
+    done(&room, &id).await;
+    assert!(result(&room, &id).is_some());
     room.stop_exchange("ada", "bob").unwrap();
-    agents.drivers["ada"].startup.add_permits(100);
     agents.drivers["ada"].updates.add_permits(10);
     until("no exchange worker is left", || {
         lock(&room.exchange_workers).is_empty()
     })
     .await;
-    let tape = room.tape("ada");
-    let answered = tape
-        .iter()
-        .any(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id.as_str());
-    let stopped = tape
-        .iter()
-        .any(|v| v["id"] == format!("exchange-ended:{id}"));
+    assert_eq!(request(&room, "ada~bob", &id).phase(), Phase::Done);
     assert!(
-        !(answered && stopped),
+        room.tape("ada")
+            .iter()
+            .all(|v| v["id"] != format!("exchange-ended:{id}")),
         "the sender heard the answer and that it was stopped"
     );
 }

@@ -668,6 +668,10 @@ impl RoomHandle for Desk {
         self.room.mark_asides_seen(persona_id)
     }
 
+    fn inbox_unread(&self, persona_id: &str) -> usize {
+        self.room.inbox_unread(persona_id)
+    }
+
     async fn side_loop_in(&self, side_id: &str, persona_id: &str) -> Result<(), String> {
         self.room.loop_in(side_id, persona_id).await
     }

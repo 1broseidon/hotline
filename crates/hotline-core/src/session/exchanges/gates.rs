@@ -11,38 +11,6 @@ use super::*;
 use crate::session::turns::Line;
 
 impl Room {
-    /// Makes a question asked from inside a handoff's turn a gate the
-    /// handoff's result waits behind. Called under the exchange lock once the
-    /// question is saved: a crash between the two leaves the handoff waiting
-    /// on nothing, never on a question that does not exist.
-    pub(super) fn gate_on_ask(&self, sent_from: &ThreadId, ask_id: &str) {
-        if sent_from.kind != ThreadKind::Side {
-            return;
-        }
-        let Some(handoff) = self
-            .sides
-            .get(&sent_from.key)
-            .and_then(|side| side.request())
-        else {
-            return;
-        };
-        for mut pair in self.exchange_pairs() {
-            let Some(request) = pair.requests.iter_mut().find(|r| {
-                r.id == handoff && r.intent == Intent::Handoff && r.phase() == Phase::Running
-            }) else {
-                continue;
-            };
-            request.human_actions.push(HumanGate {
-                id: ask_id.into(),
-                consumed: false,
-            });
-            if let Err(error) = self.save_pair(&pair) {
-                eprintln!("gate a handoff on its question: {error}");
-            }
-            return;
-        }
-    }
-
     /// A request's answer as its sender hears it: the delivery's id, its
     /// cause, where it came from and what it says. A stopped request's
     /// failure is not its result: it has an id of its own and names no
@@ -183,7 +151,7 @@ impl Room {
                     .await
             }
             Route::Job(job_id) => self.deliver_into_job(&job_id, &id, cause, from, text, None),
-            Route::Dm(_) => Err("The thread that asked has ended.".into()),
+            Route::Dm => Err("The thread that asked has ended.".into()),
         };
         {
             let _guard = lock(&self.exchange_lock);

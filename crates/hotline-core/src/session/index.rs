@@ -7,8 +7,9 @@
 //! with carries a short index of the teammate's threads: those working or
 //! open, those waiting on the person, those that ended in the last day
 //! (chapters of the main conversation among them), and how many older ones
-//! `search_thread` can find. The asides a turn hears are in the same block,
-//! through [`super::asides::render`], so they are told once.
+//! `search_thread` can find. The inbox section (`session/inbox/heard.rs`) and
+//! the asides a turn hears are in the same block, through
+//! [`super::asides::render`], so they are told once.
 //!
 //! A job's firing and a subagent's run are narrower work: they are told their
 //! parent thread's line and the asides about them, nothing more.
@@ -89,7 +90,7 @@ pub(super) type Seen = Mutex<Option<Index>>;
 
 /// How much of a long key the index shows. A thread's key is a UUID, and a
 /// pair's two of them; the first characters tell a teammate's threads apart,
-/// and `read_thread` and `aside` take the short form.
+/// and `read_thread` and `send`'s `about` take the short form.
 const KEY_CHARS: usize = 8;
 
 /// A thread's key as the index shows it: a long part cut to [`KEY_CHARS`],
@@ -600,7 +601,8 @@ fn ts_of(events: &[Value]) -> Option<i64> {
 
 impl Room {
     /// The block a turn of `persona_id`'s in `thread` opens with: the index of
-    /// its other threads and the asides it hears now, or one line saying
+    /// its other threads, its inbox section (`inbox/heard.rs`) and the
+    /// asides it hears now, or one line saying
     /// nothing moved since the turn before it, or nothing when there is
     /// nothing to tell. `seen` is what the agent in this thread was last told,
     /// kept by the thread for as long as that agent lasts; a kind that has
@@ -610,6 +612,7 @@ impl Room {
         persona_id: &str,
         thread: &ThreadId,
         asides: &[(String, Aside)],
+        inbox: Option<&str>,
         seen: Option<&Seen>,
     ) -> Option<String> {
         let now = now_ms();
@@ -627,7 +630,7 @@ impl Room {
             Some(Some(before)) => before.fingerprint() != index.fingerprint(),
             _ => true,
         };
-        if asides.is_empty() && (index.is_empty() || !moved) {
+        if asides.is_empty() && inbox.is_none() && (index.is_empty() || !moved) {
             return (!index.is_empty()).then(|| timed(now, UNCHANGED));
         }
         let name = self
@@ -650,7 +653,7 @@ impl Room {
             now,
             &format!(
                 "(Thread index:\n{}\n{OVER}",
-                [listed, told]
+                [listed, inbox.map(str::to_string), told]
                     .into_iter()
                     .flatten()
                     .collect::<Vec<_>>()

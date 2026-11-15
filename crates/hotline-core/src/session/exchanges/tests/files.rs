@@ -1,8 +1,7 @@
 //! Files between teammates on one desk: read where the sender's read tools
 //! find them, copied into the recipient's working directory under
-//! `inbox/<sender>/` once what carries them is let in, and named in the
-//! message or the aside; refused, with why, outside the sender's reach or
-//! over the cap.
+//! `inbox/<sender>/` once the item carrying them is let in, and named in
+//! the item; refused, with why, outside the sender's reach or over the cap.
 
 use super::*;
 use tempfile::TempDir;
@@ -41,69 +40,77 @@ fn collaboration_card(room: &Room) -> Option<serde_json::Value> {
     })
 }
 
-/// Ada asks Bob with a file. Nothing lands while the person's first-contact
+/// The item Bob has by its id.
+fn kept(room: &Room, id: &str) -> crate::contract::InboxItem {
+    crate::store::inbox::of(&room.log, "bob")
+        .into_iter()
+        .find(|item| item.id == id)
+        .unwrap()
+}
+
+/// Ada sends Bob a file. Nothing lands while the person's first-contact
 /// card waits; once they allow it, the file is in Bob's working directory
-/// under `inbox/ada/`, the question Bob is asked says where, and the desk
-/// holds nothing more of it.
+/// under `inbox/ada/`, the item says where, and the desk holds nothing more
+/// of it.
 #[tokio::test]
-async fn a_message_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
-    let (room, agents, ada, bob) = apart("files-message");
+async fn an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
+    let (room, _agents, ada, bob) = apart("files-message");
     std::fs::write(ada.path().join("q3.csv"), "quarter,total\nq3,12").unwrap();
     let sent = call(
         &room,
-        "message_teammate",
-        json!({"to": "bob", "message": "The Q3 numbers.", "files": ["q3.csv"]}),
+        "send",
+        json!({"to": ["bob"], "title": "Q3", "message": "The Q3 numbers.", "files": ["q3.csv"]}),
     )
     .await
     .unwrap();
-    let id = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["requestId"]
+    let id = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["sent"][0]["id"]
         .as_str()
         .unwrap()
         .to_string();
     until("the person's card", || collaboration_card(&room).is_some()).await;
     let landed = bob.path().join("inbox/ada/q3.csv");
     assert!(!landed.exists(), "nothing lands before the grant");
-    assert!(room.log.root().join("files-between").join(&id).exists());
+    let held = room
+        .log
+        .root()
+        .join("files-between")
+        .join(format!("inbox-{id}"));
+    assert!(held.exists());
     let card = collaboration_card(&room).unwrap();
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_session")
         .await
         .unwrap();
-    done(&room, &id).await;
+    until("it lands", || !kept(&room, &id).held).await;
     assert_eq!(
         std::fs::read_to_string(&landed).unwrap(),
         "quarter,total\nq3,12"
     );
-    let asked = agents
-        .prompts()
-        .into_iter()
-        .find(|prompt| prompt.contains("The Q3 numbers."))
-        .expect("Bob was asked");
-    assert!(
-        asked.contains("Files from Ada, now in your working directory: inbox/ada/q3.csv"),
-        "{asked}"
+    assert_eq!(
+        kept(&room, &id).body,
+        "The Q3 numbers.\n\nFiles from Ada, now in your working directory: inbox/ada/q3.csv"
     );
-    assert!(!room.log.root().join("files-between").join(&id).exists());
+    assert!(!held.exists());
 }
 
-/// An aside's files land as it is left, past the same grant, and the aside
-/// says where; a second file of the same name never overwrites the first.
+/// An item between two who may already reach each other lands its files as
+/// it is sent; a second file of the same name never overwrites the first.
 #[tokio::test]
-async fn an_aside_carries_files_into_the_recipients_inbox_and_names_where() {
+async fn an_allowed_items_files_land_at_once_and_never_over_another() {
     let (room, _agents, ada, bob) = apart("files-aside");
     room.allow_sender("bob", "ada").unwrap();
     std::fs::write(ada.path().join("q3.csv"), "first").unwrap();
     call(
         &room,
-        "aside",
-        json!({"to": "bob", "text": "The numbers are in.", "files": ["q3.csv"]}),
+        "send",
+        json!({"to": ["bob"], "title": "Numbers", "message": "The numbers are in.", "files": ["q3.csv"]}),
     )
     .await
     .unwrap();
     std::fs::write(ada.path().join("q3.csv"), "second").unwrap();
-    call(
+    let sent = call(
         &room,
-        "aside",
-        json!({"to": "bob", "text": "Corrected.", "files": ["q3.csv"]}),
+        "send",
+        json!({"to": ["bob"], "title": "Corrected", "message": "Corrected.", "files": ["q3.csv"]}),
     )
     .await
     .unwrap();
@@ -115,16 +122,18 @@ async fn an_aside_carries_files_into_the_recipients_inbox_and_names_where() {
         std::fs::read_to_string(bob.path().join("inbox/ada/q3 (2).csv")).unwrap(),
         "second"
     );
-    let left = crate::store::asides::of(&room.log, "bob");
+    let id = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["sent"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(
-        left[1].text,
+        kept(&room, &id).body,
         "Corrected.\n\nFiles from Ada, now in your working directory: inbox/ada/q3 (2).csv"
     );
 }
 
 /// What the sender's read tools cannot reach is refused, and so is more
-/// than the cap together; each says why, and nothing is queued, kept or
-/// copied.
+/// than the cap together; each says why, and nothing is kept or copied.
 #[tokio::test]
 async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reason() {
     let (room, _agents, ada, bob) = apart("files-refused");
@@ -138,16 +147,8 @@ async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reas
     ] {
         let refused = call(
             &room,
-            "message_teammate",
-            json!({"to": "bob", "message": "Look.", "files": [path]}),
-        )
-        .await
-        .unwrap_err();
-        assert_ne!(refused, "");
-        let refused = call(
-            &room,
-            "aside",
-            json!({"to": "bob", "text": "Look.", "files": [path]}),
+            "send",
+            json!({"to": ["bob"], "title": "Look", "files": [path]}),
         )
         .await
         .unwrap_err();
@@ -158,8 +159,8 @@ async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reas
     std::fs::write(ada.path().join("b.bin"), vec![0u8; half]).unwrap();
     let refused = call(
         &room,
-        "message_teammate",
-        json!({"to": "bob", "message": "Both halves.", "files": ["a.bin", "b.bin"]}),
+        "send",
+        json!({"to": ["bob"], "title": "Both halves", "files": ["a.bin", "b.bin"]}),
     )
     .await
     .unwrap_err();
@@ -173,18 +174,17 @@ async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reas
     assert!(
         call(
             &room,
-            "aside",
-            json!({"to": "bob", "text": "All of them.", "files": too_many}),
+            "send",
+            json!({"to": ["bob"], "title": "All of them", "files": too_many}),
         )
         .await
         .unwrap_err()
         .starts_with("At most 10 files")
     );
     assert!(
-        room.exchange_pair("ada~bob").is_none(),
-        "nothing was queued"
+        crate::store::inbox::of(&room.log, "bob").is_empty(),
+        "nothing was kept"
     );
-    assert_eq!(crate::store::asides::of(&room.log, "bob").len(), 0);
     assert!(!bob.path().join("inbox").exists());
     assert!(
         std::fs::read_dir(room.log.root().join("files-between"))

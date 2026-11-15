@@ -207,21 +207,30 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         ),
     ),
     (
-        "message_teammate",
+        "send",
         label(
             "colleague",
-            "Messaged a teammate",
-            "Messaged teammates {n} times",
-            "Messaging a teammate",
+            "Sent a teammate an item",
+            "Sent teammates {n} items",
+            "Sending a teammate an item",
         ),
     ),
     (
-        "aside",
+        "read_inbox",
         label(
             "colleague",
-            "Left a teammate an aside",
-            "Left teammates {n} asides",
-            "Leaving a teammate an aside",
+            "Read its inbox",
+            "Read its inbox {n} times",
+            "Reading its inbox",
+        ),
+    ),
+    (
+        "update_inbox",
+        label(
+            "colleague",
+            "Sorted its inbox",
+            "Sorted its inbox {n} times",
+            "Sorting its inbox",
         ),
     ),
     (

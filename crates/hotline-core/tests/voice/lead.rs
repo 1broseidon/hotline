@@ -78,7 +78,7 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
     })
     .await;
     assert_eq!(config.voice, "ara");
-    assert!(config.tools.iter().any(|t| t.name == "message_teammate"));
+    assert!(config.tools.iter().any(|t| t.name == "send"));
     desk.events
         .send(Ok(RealtimeEvent::Heard("Who is on the team?".into())))
         .await
@@ -106,11 +106,11 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         .unwrap();
     let sent = tool(
         &mut desk,
-        "message_teammate",
-        json!({"to":"Mack","message":words,"intent":"handoff"}),
+        "send",
+        json!({"to":["Mack"],"title":"The zebra scheduler","message":words,"wants":"work"}),
     )
     .await;
-    assert!(sent.contains("\"sent\":true"), "{sent}");
+    assert!(sent.contains("\"sent\":[{"), "{sent}");
     assert!(sent.contains("Mack"));
     desk.events
         .send(Ok(RealtimeEvent::Saying("Mack has it.".into())))
@@ -122,17 +122,20 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         .unwrap();
     common::until("the named work", || !requests.lock().unwrap().is_empty()).await;
     assert_eq!(desk.dispatcher_calls.load(Ordering::SeqCst), 0);
-    let room = desk.log.load(&hotline_core::log::StreamId::Room);
-    let request = room
-        .iter()
-        .filter(|e| e["kind"] == "exchange_pair")
-        .flat_map(|e| e["requests"].as_array().unwrap())
-        .find(|r| r["message"] == words)
-        .unwrap();
-    assert_eq!(request["from"], team[0]);
-    assert_eq!(request["to"], team[1]);
-    assert_eq!(request["intent"], "handoff");
-    assert_eq!(request["lead_call"]["key"], call);
+    let item = desk
+        .log
+        .load(&hotline_core::log::StreamId::Inbox(team[1].clone()))
+        .into_iter()
+        .find(|item| item["body"] == words)
+        .expect("the named work is in Mack's inbox");
+    assert_eq!(item["from"], team[0]);
+    assert_eq!(item["to"], team[1]);
+    assert_eq!(item["wants"], "work");
+    assert_eq!(item["fromThread"]["key"], call);
+    assert!(
+        item["held"].is_null(),
+        "the call's grant lets it in: {item}"
+    );
     assert!(
         !desk
             .log
@@ -153,8 +156,8 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
     );
     let refused = tool(
         &mut desk,
-        "message_teammate",
-        json!({"to":"Mack","message":"a question","intent":"ask"}),
+        "send",
+        json!({"to":["Mack"],"title":"A question","message":"a question"}),
     )
     .await;
     assert!(refused.contains("only hand named work"), "{refused}");
@@ -169,8 +172,8 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
     assert_eq!(changed["ok"], true);
     let refused = tool(
         &mut desk,
-        "message_teammate",
-        json!({"to":"Mack","message":"do more","intent":"handoff"}),
+        "send",
+        json!({"to":["Mack"],"title":"More","message":"do more","wants":"work"}),
     )
     .await;
     assert!(refused.contains("no tool"), "{refused}");
@@ -209,12 +212,12 @@ async fn a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant() {
             .unwrap()
             .tools
             .iter()
-            .any(|t| t.name == "message_teammate")
+            .any(|t| t.name == "send")
     );
     let refused = tool(
         &mut desk,
-        "message_teammate",
-        json!({"to":"Mack","message":"work","intent":"handoff"}),
+        "send",
+        json!({"to":["Mack"],"title":"Work","message":"work","wants":"work"}),
     )
     .await;
     assert!(refused.contains("no tool"), "{refused}");
@@ -269,7 +272,7 @@ async fn a_no_lead_front_knows_the_person_and_roster() {
     for text in ["George", "Ada", "Mack"] {
         assert!(config.instructions.contains(text), "{text}");
     }
-    assert!(!config.tools.iter().any(|t| t.name == "message_teammate"));
+    assert!(!config.tools.iter().any(|t| t.name == "send"));
     answer(
         &mut desk.socket,
         5,

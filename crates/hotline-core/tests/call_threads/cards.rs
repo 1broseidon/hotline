@@ -359,8 +359,8 @@ async fn spoken_collaboration_approval_is_only_for_this_session() {
         let (bob, _) = desk.teammate("Bob", Driver::HotlineAgent, false).await;
         let (call, _, thread) = desk.call_on(&ada, None).await;
         let prompt = format!(
-            "CALL message_teammate {}",
-            json!({"to":bob,"message":"Check the harbour","intent":"ask"})
+            "CALL send {}",
+            json!({"to":[bob],"title":"The harbour","message":"Check the harbour"})
         );
         if from_call {
             desk.say(&call, 1, &prompt).await;

@@ -33,7 +33,7 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
-use super::asides::{result_aside, result_of};
+use super::asides::result_of;
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
@@ -145,24 +145,24 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         } else {
-            // Colleagues' results that came back together are one turn: the
-            // ones queued behind this result are heard with it.
-            let mut told: Vec<String> = result_of(&wired).map(result_aside).into_iter().collect();
+            // Results that came back together are one turn: the ones queued
+            // behind this result are heard with it.
+            let is_result = result_of(&wired).is_some();
             let mut text = wired.text;
-            if !told.is_empty() {
+            if is_result {
                 for behind in room.results_behind(session) {
-                    told.extend(result_of(&behind).map(result_aside));
                     if let Some(said) = behind.said {
                         lock(&session.unread).push(said);
                     }
                     text = format!("{text}\n\n{}", behind.text);
                 }
             }
-            // Where the teammate's other threads stand, and what they left it,
-            // open the line. A line that only woke it to hear asides is spent
-            // once a turn before it has.
-            let asides = room.hear_asides(&session.persona_id, &session.thread(), &told);
-            if asides.is_empty() && wired.wake {
+            // Where the teammate's other threads stand, what came into its
+            // inbox and what it was left, open the line. A line that only woke
+            // it is spent once a turn before it has heard what woke it.
+            let asides = room.hear_asides(&session.persona_id, &session.thread());
+            let inbox = room.inbox_told(&session.persona_id, &session.thread());
+            if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;
             }
             // Which sites it holds the person's cookies for, when that changed.
@@ -171,6 +171,7 @@ impl Occupant for Session {
                 &session.persona_id,
                 &session.thread(),
                 &asides,
+                inbox.text.as_deref(),
                 Some(&session.indexed),
             ) {
                 text = format!("{index}\n\n{text}");

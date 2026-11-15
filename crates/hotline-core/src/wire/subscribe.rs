@@ -136,6 +136,21 @@ pub(super) fn subscribe(
             subscriptions.insert(id, tokio::spawn(view));
             return Ok(());
         }
+        // As the schedules view: read before the acknowledgement, with the
+        // changes it follows subscribed to first.
+        Target::Inbox(persona_id) => {
+            let infos = room.subscribe_info();
+            let shown = super::inbox::read(log, &persona_id)
+                .map_err(|error| Refused::because(UNKNOWN_TEAMMATE, error))?;
+            reply(sender, id, Ok(Value::Null));
+            if !send(sender, json!({ "sub": id, "snapshot": shown })) {
+                return Ok(());
+            }
+            let view =
+                super::inbox::view(id, persona_id, log.clone(), infos, shown, sender.clone());
+            subscriptions.insert(id, tokio::spawn(view));
+            return Ok(());
+        }
         Target::View(ViewName::Roster) => {
             reply(sender, id, Ok(Value::Null));
             let room_events = log.subscribe(&StreamId::Room);

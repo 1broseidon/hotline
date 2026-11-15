@@ -549,6 +549,29 @@ pub enum TranscriptEvent {
     /// A quiet line, never a bubble; clients that do not know the kind skip
     /// it.
     Aside(Aside),
+    /// An item this thread's teammate sent a colleague's inbox, written on
+    /// the thread it was sent from. `item` is the item's id: its live state
+    /// is the receiver's (`inbox.item`). A quiet row, never a bubble;
+    /// clients that do not know the kind skip it.
+    InboxSent {
+        id: String,
+        ts: i64,
+        item: String,
+        /// The teammate it went to.
+        to: String,
+        title: String,
+    },
+    /// The teammate sorted its inbox with `update_inbox`, written on its main
+    /// conversation each time it does: the items in the order it means to
+    /// work them, each with the state it moved to, and how many items are
+    /// open and unread after it. Clients that do not know the kind skip it.
+    InboxSorted {
+        id: String,
+        ts: i64,
+        entries: Vec<InboxSortedEntry>,
+        open: u32,
+        unread: u32,
+    },
     /// What the teammate says it is on now, with its `activity` tool: a kind
     /// that moves the mark and a few words of its own beside it. The newest
     /// in a turn stands until another replaces it, and none stands once the

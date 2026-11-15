@@ -155,8 +155,8 @@ async fn hanging_up_removes_the_leads_handoff_tool_from_an_existing_handle() {
     let error = reach
         .tools
         .call(
-            "message_teammate",
-            &json!({"to":"anyone","message":"work","intent":"handoff"}),
+            "send",
+            &json!({"to":["anyone"],"title":"Work","message":"work","wants":"work"}),
         )
         .await
         .unwrap_err();

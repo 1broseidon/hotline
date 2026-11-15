@@ -94,6 +94,7 @@ impl Room {
     /// so an answer that landed as the desk went down is still heard, once.
     pub(in crate::session) async fn recover_exchanges(self: &Arc<Self>) {
         self.recover_queued_exchanges();
+        self.recover_inbox();
         for persona in room::roster(&self.log) {
             let tape = self.tape(&persona.id);
             for (id, _ts, cause, text) in unheard(&tape) {

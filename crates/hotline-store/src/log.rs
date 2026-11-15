@@ -31,6 +31,9 @@
 //! - [`StreamId::Asides`] is what other threads have left one teammate, in
 //!   `asides/<id>.jsonl`: one line per aside, rewritten once a turn has
 //!   heard it. Not a conversation, and no thread's stream.
+//! - [`StreamId::Inbox`] is the items sent to one teammate, in
+//!   `inbox/<id>.jsonl`: one line per item, rewritten each time its state
+//!   changes. Not a conversation either.
 //!
 //! [`Log`] is the only door to all of them, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
@@ -79,6 +82,7 @@ pub enum StreamId {
     Call(String),
     Job(String),
     Asides(String),
+    Inbox(String),
 }
 
 impl StreamId {
@@ -614,6 +618,13 @@ impl Log {
                 fs::create_dir_all(hotline_support::paths::asides_dir(&self.root))?;
                 Ok((file, 1))
             }
+            StreamId::Inbox(persona_id) => {
+                let file = hotline_support::paths::inbox_path(&self.root, persona_id).ok_or_else(
+                    || io::Error::other(format!("Invalid teammate id: {persona_id}")),
+                )?;
+                fs::create_dir_all(hotline_support::paths::inbox_dir(&self.root))?;
+                Ok((file, 1))
+            }
         }
     }
 
@@ -642,6 +653,11 @@ impl Log {
                 .collect(),
             StreamId::Asides(persona_id) => {
                 hotline_support::paths::asides_path(&self.root, persona_id)
+                    .into_iter()
+                    .collect()
+            }
+            StreamId::Inbox(persona_id) => {
+                hotline_support::paths::inbox_path(&self.root, persona_id)
                     .into_iter()
                     .collect()
             }

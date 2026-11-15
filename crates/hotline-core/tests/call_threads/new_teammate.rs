@@ -157,12 +157,12 @@ async fn the_leads_card_makes_the_teammate_only_on_yes_with_the_rooms_defaults()
             .client
             .call(
                 "session.prompt",
-                json!({"personaId":ada,"text":r#"CALL message_teammate {"to":"Rae","message":"Welcome aboard."}"#}),
+                json!({"personaId":ada,"text":r#"CALL send {"to":["Rae"],"title":"Welcome","message":"Welcome aboard."}"#}),
             )
             .await;
         assert_eq!(sent["ok"], true, "{sent}");
-        let result = result_of(&mut desk, tape, "message_teammate").await;
-        assert!(result.contains(r#""sent":true,"to":"Rae""#), "{result}");
+        let result = result_of(&mut desk, tape, "send").await;
+        assert!(result.contains(r#""to":"Rae""#), "{result}");
     }
 }
 

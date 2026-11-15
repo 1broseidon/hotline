@@ -345,24 +345,6 @@ impl Room {
         } else {
             None
         };
-        // A thread opened to answer a colleague's question while the main
-        // conversation was busy answers for it, so it is seeded with what that
-        // conversation would know of its other threads too: the asides the
-        // teammate was left lately. The thread index opens each of its turns.
-        let asker = self
-            .link_of(&thread)
-            .and_then(|link| link.asked_in)
-            .and_then(|key| {
-                let (a, b) = crate::paths::thread_participants(&key)?;
-                self.participant(if a == view.id { b } else { a }).ok()
-            });
-        let context = match (&asker, self.recent_asides(&view.id)) {
-            (Some(_), Some(asides)) => Some(match context {
-                Some(context) => format!("{context}\n\n{asides}"),
-                None => asides,
-            }),
-            _ => context,
-        };
         // The DM's context is one chapter: it hears what was said in the
         // chapter it is joining, and the wake block tells it about the one that
         // closed before it, which is the whole of what a fresh context knows of
@@ -398,10 +380,9 @@ impl Room {
         );
 
         let opener = opener.and_then(|opener| self.participant(&opener.persona_id).ok());
-        let opened_by = match (&asker, &opener) {
-            (Some(asker), _) => OpenedBy::Question(asker),
-            (None, Some(opener)) => OpenedBy::Handoff(opener),
-            (None, None) => OpenedBy::Person,
+        let opened_by = match &opener {
+            Some(opener) => OpenedBy::Handoff(opener),
+            None => OpenedBy::Person,
         };
         let stored = self.stored_secrets();
         let told_name = self.person_name();
@@ -426,7 +407,7 @@ impl Room {
                 preamble.push_str(&super::person_name::name_sentence(name));
             }
             if self.lead_call(&view.id, &thread) {
-                preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use message_teammate, intent handoff, with the person's words unchanged and say who has it. Do not stop or reassign another teammate's work.");
+                preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use send with wants work, the person's words unchanged as the message and a short title, and say whose inbox it is in. Do not stop or reassign another teammate's work.");
             }
             self.agents.agent(
                 view,

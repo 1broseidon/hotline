@@ -2,16 +2,14 @@
 //! (`docs/design/thread-awareness.md`, decision 5). There are no threads of
 //! three, so the colleague joins it for one answer.
 //!
-//! The colleague is left a `nudge` aside from the thread, "Ada looped you
-//! in.", which the thread's own record draws as the quiet "Quill was looped
-//! in" line and the colleague's Noted page lists. The thread then asks the
-//! colleague, once, what it can add: a question from the thread's teammate
-//! with the thread's last lines, answered where the colleague's memory is, as
-//! any question is (its main conversation when idle, which the question
-//! wakes, else a work thread of its own at once), and the answer is written
-//! back in the thread under the colleague's name, for the thread's teammate
-//! to take on. The person's act is the grant: no card asks it. The pair's
-//! brake still counts the question and its answer.
+//! The colleague is sent an item from the thread, in its inbox like any
+//! other (`session/inbox.rs`): a question from the thread's teammate with the
+//! thread's last lines, which the colleague reads and answers when it sorts
+//! its inbox. Its answer is an item in the thread's teammate's inbox, heard
+//! in the thread while it is live, for the teammate to take on. The thread's
+//! own record draws the quiet "Quill was looped in" line from a looped-in
+//! aside written there. The person's act is the grant: no card asks it. The
+//! pair's brake still counts the item and its answer.
 
 use super::*;
 use crate::contract::{Aside, AsideLevel, AsideSource};
@@ -53,33 +51,34 @@ impl Room {
         let lines = self.log.load(&StreamId::Side(side_id.to_string()));
         let message = format!(
             "{person} looped you into {owner}'s work thread \"{title}\" for what you know. \
-             Answer once, in a few lines: your reply is written in that thread under your name, \
+             Answer once, in a few lines, with update_inbox: your answer is heard in that thread, \
              and {owner} takes it on from there. Its last lines:\n\n{tail}",
             owner = owner.name,
             tail = tail(&lines, &owner.name),
         );
-        let outgoing = Outgoing {
-            to: &colleague.id,
-            message: &message,
-            intent: Intent::Ask,
-            thread: None,
-            files: None,
-        };
-        self.queue_request(&owner.id, &outgoing, None, &thread, true)?;
-        self.keep_aside(&Aside {
-            id: new_id(),
-            ts: now_ms(),
-            to: colleague.id,
-            from: AsideSource::Thread(thread),
-            by: Some(owner.id),
-            text: format!("{person} looped you in."),
-            about: None,
-            level: AsideLevel::Nudge,
-            heard: None,
-            seen: None,
-            looped_in: true,
-            source_name: None,
-        })
+        let title = format!("{person} looped you into {}'s \"{title}\"", owner.name);
+        self.loop_in_item(&owner, &colleague, &thread, &title, message)?;
+        // The thread's own record of it, which draws the quiet line. It is
+        // not kept as an aside of the colleague's: the item is what it hears.
+        self.threads().write(
+            &thread,
+            &owner.id,
+            &TranscriptEvent::Aside(Aside {
+                id: new_id(),
+                ts: now_ms(),
+                to: colleague.id,
+                from: AsideSource::Thread(thread.clone()),
+                by: Some(owner.id.clone()),
+                text: format!("{person} looped you in."),
+                about: None,
+                level: AsideLevel::Note,
+                heard: None,
+                seen: None,
+                looped_in: true,
+                source_name: None,
+            }),
+        );
+        Ok(())
     }
 }
 

@@ -425,6 +425,17 @@ pub fn asides_path(root: &Path, persona_id: &str) -> Option<PathBuf> {
     valid_persona_id(persona_id).then(|| asides_dir(root).join(format!("{persona_id}.jsonl")))
 }
 
+/// Where each teammate's inbox is kept, one file per teammate.
+pub fn inbox_dir(root: &Path) -> PathBuf {
+    root.join("inbox")
+}
+
+/// The file the items sent to a teammate are written to, named by the
+/// teammate's id.
+pub fn inbox_path(root: &Path, persona_id: &str) -> Option<PathBuf> {
+    valid_persona_id(persona_id).then(|| inbox_dir(root).join(format!("{persona_id}.jsonl")))
+}
+
 /// Where jobs keep their threads, one file per job.
 pub fn jobs_dir(root: &Path) -> PathBuf {
     root.join("jobs")

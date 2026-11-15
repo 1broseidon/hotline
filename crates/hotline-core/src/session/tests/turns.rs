@@ -799,31 +799,47 @@ async fn aborted_and_revoked_handoffs_return_failure_not_success() {
         ]]));
         let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
         room.allow_sender("bob", "ada").unwrap();
-        let result = crate::mcp::server::TeammateTools::new(&room, "ada")
+        let sent = crate::mcp::server::TeammateTools::new(&room, "ada")
             .call(
-                "message_teammate",
-                &json!({
-                    "to": "bob", "message": "Do the work", "intent": "handoff"
-                }),
+                "send",
+                &json!({"to": ["bob"], "title": "Do the work", "wants": "work"}),
             )
             .await
             .unwrap();
-        let receipt: Value = serde_json::from_str(&result).unwrap();
-        let request_id = receipt["requestId"].as_str().unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let item = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        crate::mcp::server::TeammateTools::new(&room, "bob")
+            .call(
+                "update_inbox",
+                &json!({"items": [{"id": item, "state": "taken"}]}),
+            )
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let Some(event) = room.tape("ada").into_iter().find(|event| {
-                    event["kind"] == "delivery" && event["cause"]["requestId"] == request_id
-                }) {
-                    break event;
+                if let Some(reply) = crate::store::inbox::of(&room.log, "ada")
+                    .into_iter()
+                    .find(|reply| reply.reply_to.as_deref() == Some(item.as_str()))
+                {
+                    break reply;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
         .unwrap();
-        assert_eq!(result["cause"]["status"], "failed", "{reason}: {result}");
-        assert_eq!(result["text"], "Only partly done");
+        assert_eq!(reply.body, "Only partly done", "{reason}");
+        let taken = crate::store::inbox::of(&room.log, "bob")
+            .into_iter()
+            .find(|kept| kept.id == item)
+            .unwrap();
+        assert_eq!(
+            taken.outcome,
+            Some(crate::contract::InboxOutcome::Dropped),
+            "{reason}: a failure is not done"
+        );
     }
 }
 

@@ -982,6 +982,12 @@ const Row = memo(function Row({
 		case "aside":
 			return <AsideLine aside={event} personaId={personaId} here={thread} people={people} onOpenThread={onOpenThread} />;
 
+		/* An item sent and an inbox sorted: the window does not draw the
+		 * inbox yet, so the conversation shows nothing for them. */
+		case "inbox_sent":
+		case "inbox_sorted":
+			return null;
+
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;
 

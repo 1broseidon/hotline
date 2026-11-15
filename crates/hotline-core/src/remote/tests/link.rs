@@ -4,7 +4,7 @@
 use super::*;
 use crate::driver::{MessageKind, Update};
 use crate::linked::DeskLinkState;
-use crate::log::{Log, StreamId};
+use crate::log::Log;
 use crate::mcp::server::TeammateTools;
 use crate::session::Room;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona};
@@ -109,64 +109,17 @@ fn knows(desk: &Linked, name: &str) -> bool {
         })
 }
 
-fn tape(desk: &Linked, persona_id: &str) -> Vec<Value> {
-    desk.log.load(&StreamId::Tape(persona_id.to_string()))
-}
-
-fn card(desk: &Linked, persona_id: &str) -> Option<String> {
-    tape(desk, persona_id)
-        .into_iter()
-        .find(|event| {
-            event["kind"] == "permission"
-                && event["requestId"]
-                    .as_str()
-                    .is_some_and(|id| id.starts_with("collab:"))
-                && event.get("decision").is_none()
-        })
-        .map(|event| event["requestId"].as_str().unwrap().to_string())
-}
-
-fn answer(desk: &Linked, persona_id: &str, request_id: &str) -> Option<Value> {
-    tape(desk, persona_id)
-        .into_iter()
-        .find(|event| event["kind"] == "delivery" && event["cause"]["requestId"] == request_id)
-}
-
-async fn message(room: &Arc<Room>, from: &str, to: &str) -> String {
-    let sent = TeammateTools::new(room, from)
-        .call(
-            "message_teammate",
-            &json!({"to": to, "message": "Check the CI runners.", "intent": "ask"}),
-        )
+/// What `send` says when it is asked to reach a teammate on a linked desk:
+/// the inbox crosses no link yet.
+async fn refused_across(room: &Arc<Room>, from: &str, to: &str) -> String {
+    TeammateTools::new(room, from)
+        .call("send", &json!({"to": [to], "title": "CI runners"}))
         .await
-        .unwrap();
-    serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string()
-}
-
-/// Asks, approves on the recipient's desk, and waits for the answer back.
-async fn ask(from: &Linked, sender: &str, to: &Linked, recipient: &str, name: &str) -> Value {
-    let id = message(&from.room, sender, name).await;
-    until("the card on the recipient's desk", || {
-        card(to, recipient).is_some()
-    })
-    .await;
-    let request = card(to, recipient).unwrap();
-    to.room
-        .answer_permission(recipient, &request, "allow_session")
-        .await
-        .unwrap();
-    until("the answer back on the sender's desk", || {
-        answer(from, sender, &id).is_some()
-    })
-    .await;
-    answer(from, sender, &id).unwrap()
+        .unwrap_err()
 }
 
 #[tokio::test]
-async fn a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways() {
+async fn a_link_made_over_the_owner_seat_carries_rosters_both_ways_and_no_inbox_item() {
     let laptop = desk("clementine", "Clementine").await;
     let grizzly = desk("lou", "Lou").await;
     connect(&laptop, &grizzly).await;
@@ -209,15 +162,15 @@ async fn a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways(
         Some(true)
     );
 
-    let lou = ask(&laptop, "clementine", &grizzly, "lou", "Lou").await;
-    assert_eq!(lou["cause"]["personaId"], format!("{grizzly_id}/lou"));
-    assert_eq!(lou["text"], "teammate says 0");
-    // The channel the laptop dialed carries grizzly's messages too.
-    let clementine = ask(&grizzly, "lou", &laptop, "clementine", "Clementine").await;
-    assert_eq!(
-        clementine["cause"]["personaId"],
-        format!("{laptop_id}/clementine")
-    );
+    // Either side's teammate is known by name across the link, and `send`
+    // refuses it as linked rather than as unknown.
+    for (desk, from, to) in [
+        (&laptop, "clementine", "Lou"),
+        (&grizzly, "lou", "Clementine"),
+    ] {
+        let refused = refused_across(&desk.room, from, to).await;
+        assert!(refused.contains("linked desk"), "{refused}");
+    }
 
     // Linked again over the owner seat — say the laptop ended it while
     // grizzly could not hear — the old link's grants do not carry over.
@@ -255,22 +208,12 @@ async fn a_link_outlasts_either_desk_going_away_and_ends_on_both_from_either_sid
     laptop.remote.link(&grizzly_id).await.unwrap();
     until("connected", || knows(&laptop, "Lou")).await;
 
-    // Grizzly goes away; a message waits for it and crosses when it is back.
+    // Grizzly goes away and comes back: the link is dialed again.
     grizzly.remote.configure(false, network::ALL).await.unwrap();
     until("offline", || state(&laptop) == Some(DeskLinkState::Offline)).await;
-    let waiting = message(&laptop.room, "clementine", "Lou").await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(card(&grizzly, "lou").is_none());
     grizzly.remote.configure(true, network::ALL).await.unwrap();
-    until("the message crossed", || card(&grizzly, "lou").is_some()).await;
-    let request = card(&grizzly, "lou").unwrap();
-    grizzly
-        .room
-        .answer_permission("lou", &request, "allow_session")
-        .await
-        .unwrap();
-    until("answered", || {
-        answer(&laptop, "clementine", &waiting).is_some()
+    until("connected again", || {
+        state(&laptop) == Some(DeskLinkState::Connected)
     })
     .await;
 
@@ -475,8 +418,8 @@ async fn a_desk_reachable_only_through_its_relay_is_linked_through_it() {
         knows(&laptop, "Lou") && knows(&home, "Clementine")
     })
     .await;
-    let lou = ask(&laptop, "clementine", &home, "lou", "Lou").await;
-    assert_eq!(lou["text"], "teammate says 0");
+    let refused = refused_across(&laptop.room, "clementine", "Lou").await;
+    assert!(refused.contains("linked desk"), "{refused}");
 }
 
 #[tokio::test]

@@ -400,40 +400,6 @@ async fn a_work_thread_posts_once_a_turn_and_wakes_its_home(driver: Driver) {
     );
 }
 
-/// A colleague's question is answered by the target's main conversation,
-/// whose reply is already the chat: a post from that turn is refused, and
-/// lands in neither the target's chat nor the asker's.
-async fn a_question_turn_may_not_post(driver: Driver) {
-    let mut desk = open().await;
-    // A Whole machine Hotline Agent asks without a first-contact card.
-    let (ada, ada_tape) = desk.teammate("Ada", Driver::HotlineAgent, true).await;
-    let (bob, bob_tape) = desk.teammate("Bob", driver, false).await;
-
-    let ask = json!({
-        "to": "Bob",
-        "intent": "ask",
-        "message": "About the crane:\nCALL post_to_chat {\"text\":\"Ada asked me about the crane.\"}",
-    });
-    let sent = desk
-        .client
-        .call(
-            "session.prompt",
-            json!({"personaId": ada, "text": format!("CALL message_teammate {ask}")}),
-        )
-        .await;
-    assert_eq!(sent["ok"], true, "{sent}");
-    says(&desk.results(ada_tape).await, 0, "requestId");
-    says(&desk.results(bob_tape).await, 0, "already the chat");
-    for whose in [&ada, &bob] {
-        assert!(
-            desk.chat(whose)
-                .iter()
-                .all(|event| event["text"] != "Ada asked me about the crane."),
-            "a refused post lands nowhere"
-        );
-    }
-}
-
 /// A file sent from a work thread lands in the chat stamped from the
 /// thread, which keeps a line naming it. It is not the turn's post: the
 /// thread may still post once.
@@ -567,14 +533,4 @@ async fn hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_acp_work_thread_posts_once_a_turn_and_wakes_its_home() {
     a_work_thread_posts_once_a_turn_and_wakes_its_home(Driver::Acp).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_hotline_agent_question_turn_may_not_post() {
-    a_question_turn_may_not_post(Driver::HotlineAgent).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_acp_question_turn_may_not_post() {
-    a_question_turn_may_not_post(Driver::Acp).await;
 }

@@ -30,6 +30,7 @@ use std::sync::{Arc, Weak};
 pub(crate) mod commands;
 mod door;
 mod files;
+mod inbox;
 mod phone;
 mod queue;
 mod relay_door;

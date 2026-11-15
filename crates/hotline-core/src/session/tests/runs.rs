@@ -296,7 +296,8 @@ async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session()
     for refused in [
         "react",
         "request_human",
-        "message_teammate",
+        "send",
+        "update_inbox",
         "schedule",
         "activity",
         "outcome",

@@ -1,14 +1,11 @@
-//! The person's Stop and Interrupt of a turn doing a colleague's work. Stop
-//! ends a handoff for good and tells its sender once, by a note aside that
-//! wakes nothing; Interrupt only cuts the turn, and the person's next line
-//! carries the work on. An answer either cuts fails to its asker in the
-//! person's own words, and only Stop says not to ask again. A sender's
-//! follow-up into its running handoff steers it.
+//! The person's Stop and Interrupt of a turn doing work taken from the
+//! inbox. Stop ends the handoff for good and closes its item as dropped,
+//! which its sender is told once and which wakes nothing; Interrupt only
+//! cuts the turn, and the person's next line carries the work on.
 
 use super::handed_over::says_ended;
-use super::questions::{answer_to, request, turn};
 use super::*;
-use crate::contract::{Aside, AsideLevel, AsideSource, End};
+use crate::contract::End;
 use crate::session::peers::{
     ANSWER_INTERRUPTED_BY_THE_PERSON, ANSWER_STOPPED_BY_THE_PERSON, HANDOFF_STOPPED_BY_THE_PERSON,
     STOPPED_BY_THE_PERSON, delivery_wire,
@@ -89,11 +86,13 @@ fn said(room: &Room, thread: &str, text: &str) -> bool {
         .any(|v| v["kind"] == "agent" && v["text"] == text)
 }
 
-/// The asides Ada was left that say the person stopped her handoff.
-fn stopped_notes(room: &Room) -> Vec<Aside> {
-    crate::store::asides::of(&room.log, "ada")
+/// Why each of Ada's items the person's Stop dropped was dropped.
+fn stopped_notes(room: &Room) -> Vec<String> {
+    crate::store::inbox::of(&room.log, "bob")
         .into_iter()
-        .filter(|aside| aside.text.contains(HANDOFF_STOPPED_BY_THE_PERSON))
+        .filter(|item| item.outcome == Some(crate::contract::InboxOutcome::Dropped))
+        .filter_map(|item| item.reason)
+        .filter(|reason| reason.contains(HANDOFF_STOPPED_BY_THE_PERSON))
         .collect()
 }
 
@@ -118,14 +117,13 @@ async fn ada_hears_once(room: &Arc<Room>, ada: &Fake, said: &str) {
     assert!(!told("and now?").unwrap().contains(said));
 }
 
-/// The person's Stop on the turn of Ada's handoff ends it for good: it is
-/// stopped and released, its thread closes as stopped, nothing is delivered
-/// and nothing wakes Ada, who is left one note with what Bob had said and
-/// the person's word, heard once with her next line. Continued, the thread
+/// The person's Stop on the turn of the work Bob took from Ada ends it for
+/// good: it is stopped and released, its thread closes as stopped, nothing
+/// is delivered and nothing wakes Ada, whose item closes as dropped with
+/// what Bob had said and the person's word, heard once with her next line. Continued, the thread
 /// is the person's, and the stopped work never runs again.
 #[tokio::test]
-async fn the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_sender_once_by_a_note()
-{
+async fn the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_sender_once() {
     let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
     let gate = Arc::new(Semaphore::new(0));
     let bob = Fake::new(
@@ -157,19 +155,21 @@ async fn the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_send
         (stopped.phase(), stopped.failed(), stopped.released),
         (Phase::Stopped, true, true)
     );
-    assert_eq!(stopped.reply, HANDOFF_STOPPED_BY_THE_PERSON);
+    assert_eq!(
+        stopped.reply,
+        format!("Running the long command.\n\n{HANDOFF_STOPPED_BY_THE_PERSON}")
+    );
     assert_eq!(
         room.link_of(&ThreadId::side(&thread)).unwrap().state,
         ThreadState::Closed(End::Stopped)
     );
     assert_eq!(says_ended(&room, &thread), [true; 3]);
     let notes = stopped_notes(&room);
-    assert_eq!(notes.len(), 1, "{notes:?}");
-    assert_eq!(notes[0].level, AsideLevel::Note);
-    assert_eq!(notes[0].from, AsideSource::Thread(ThreadId::side(&thread)));
     assert_eq!(
-        notes[0].text,
-        format!("Running the long command.\n\n{HANDOFF_STOPPED_BY_THE_PERSON}")
+        notes,
+        [format!(
+            "Running the long command.\n\n{HANDOFF_STOPPED_BY_THE_PERSON}"
+        )]
     );
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(answer_to(&room, &handoff).is_none(), "no result or failure");
@@ -227,9 +227,7 @@ async fn the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_run
         (stopped.phase(), stopped.begun(), stopped.released),
         (Phase::Stopped, false, true)
     );
-    let notes = stopped_notes(&room);
-    assert_eq!(notes.len(), 1, "{notes:?}");
-    assert_eq!(notes[0].text, HANDOFF_STOPPED_BY_THE_PERSON);
+    assert_eq!(stopped_notes(&room), [HANDOFF_STOPPED_BY_THE_PERSON]);
     assert_eq!(says_ended(&room, &thread), [true; 3]);
     start.add_permits(1);
     until("the thread's agent is up and idle", || {
@@ -316,8 +314,8 @@ async fn the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_
 }
 
 /// The person's Interrupt only cuts the handoff's turn: the handoff goes on
-/// running on its record, nothing ends and nothing wakes Ada, who is left
-/// the cut turn's words as any turn's note. Parked meanwhile, the thread
+/// running on its record, nothing ends and nothing wakes Ada, whose item
+/// stays taken. Parked meanwhile, the thread
 /// keeps it, and the person's next line there carries it to its result.
 #[tokio::test]
 async fn the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_carries_it_on() {
@@ -357,11 +355,14 @@ async fn the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_car
     );
     assert_eq!(says_ended(&room, &thread), [false; 3]);
     assert!(stopped_notes(&room).is_empty(), "an Interrupt is no stop");
-    let notes = crate::store::asides::of(&room.log, "ada");
-    assert_eq!(notes.len(), 1, "{notes:?}");
-    assert_eq!(
-        (notes[0].level, notes[0].text.as_str()),
-        (AsideLevel::Note, "Painting it red.")
+    assert!(
+        crate::store::asides::of(&room.log, "ada").is_empty(),
+        "and no note of the turn"
+    );
+    assert!(
+        crate::store::inbox::of(&room.log, "bob")
+            .iter()
+            .all(|item| item.state == crate::contract::InboxState::Taken)
     );
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(answer_to(&room, &handoff).is_none());
@@ -388,244 +389,6 @@ async fn the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_car
     assert_eq!(
         room.link_of(&ThreadId::side(&thread)).unwrap().state,
         ThreadState::Closed(End::Agent)
-    );
-}
-
-/// The requests of Ada's that have come back to her, by id.
-fn results(room: &Room, ids: &[&str]) -> Vec<String> {
-    room.tape("ada")
-        .into_iter()
-        .filter(|v| v["kind"] == "delivery")
-        .filter_map(|v| v["cause"]["requestId"].as_str().map(str::to_string))
-        .filter(|id| ids.contains(&id.as_str()))
-        .collect()
-}
-
-/// Ada's change, sent into the thread while Bob's turn on her handoff runs,
-/// steers it: the turn is cut as an Interrupt cuts it, and the next turn is
-/// the change, told what the cut turn had said, carrying the same work on.
-/// Ada hears one result, the change's, and no note of the cut pass; the
-/// handoff it took over is settled without one, and the thread closes.
-#[tokio::test]
-async fn a_follow_up_into_a_running_handoff_steers_it_and_its_sender_hears_one_result() {
-    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
-    let gate = Arc::new(Semaphore::new(0));
-    let bob = Fake::new(
-        Scripted::turns(vec![
-            turn(
-                "first",
-                "Writing it with winter hours from 1 December.",
-                "end_turn",
-            ),
-            turn(
-                "second",
-                "Saved, with winter hours from 15 December.",
-                "end_turn",
-            ),
-        ])
-        .on_cancel(cancelled())
-        .gated(gate.clone()),
-    );
-    let room = apart("a-follow-up-steers", &bob, &ada);
-    room.start("ada").await.unwrap();
-    let first = hand_off(&room, "ada", "bob", "Write the winter-hours notice.", None)
-        .await
-        .unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
-    let thread = work_thread(&room, &first);
-    gate.add_permits(1);
-    until("bob has said what he is doing", || {
-        said(
-            &room,
-            &thread,
-            "Writing it with winter hours from 1 December.",
-        )
-    })
-    .await;
-
-    let change = "One change: winter hours start 15 December.";
-    let follow_up = hand_off(&room, "ada", "bob", change, Some(&first))
-        .await
-        .unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    until("the change's turn has begun", || bob.prompts().len() == 2).await;
-    assert_eq!(bob.cancel_count(), 1, "the turn in flight was cut");
-    let told = &bob.told()[1];
-    assert!(
-        told.contains("Your last turn here was cut for the line below"),
-        "{told}"
-    );
-    assert!(
-        told.contains("That turn had said: \"Writing it with winter hours from 1 December.\""),
-        "{told}"
-    );
-    assert!(told.contains(change), "{told}");
-    gate.add_permits(2);
-    done(&room, &follow_up).await;
-
-    assert_eq!(
-        results(&room, &[&first, &follow_up]),
-        std::slice::from_ref(&follow_up),
-        "one result, the change's"
-    );
-    assert_eq!(
-        answer_to(&room, &follow_up).unwrap()["text"],
-        "Saved, with winter hours from 15 December."
-    );
-    let taken_over = request(&room, "ada~bob", &first);
-    assert_eq!(
-        (taken_over.phase(), taken_over.heard(), taken_over.failed()),
-        (Phase::Done, true, false)
-    );
-    assert!(
-        crate::store::asides::of(&room.log, "ada")
-            .iter()
-            .all(|aside| !aside.text.contains("1 December")),
-        "nothing of the cut pass reaches ada"
-    );
-    until("the result closes the thread", || {
-        !room.work_is_open(&thread)
-    })
-    .await;
-    assert_eq!(
-        room.link_of(&ThreadId::side(&thread)).unwrap().state,
-        ThreadState::Closed(End::Agent)
-    );
-}
-
-/// Ada's change, sent into the thread while Bob's turn on her handoff runs,
-/// joins that turn when Bob's agent takes input mid-turn: nothing is cut or
-/// run again, the turn carries the change on, and Ada hears one result, the
-/// change's, with the handoff it took over settled.
-#[tokio::test]
-async fn a_follow_up_into_a_running_handoff_joins_its_turn_when_the_agent_takes_input() {
-    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
-    let gate = Arc::new(Semaphore::new(0));
-    let mut work = turn(
-        "first",
-        "Writing it with winter hours from 1 December.",
-        "end_turn",
-    );
-    work.insert(
-        1,
-        Update::Message {
-            kind: MessageKind::Agent,
-            id: "second".into(),
-            text: "Saved, with winter hours from 15 December.".into(),
-        },
-    );
-    let bob = Fake::new(
-        Scripted::new(work)
-            .on_cancel(cancelled())
-            .gated(gate.clone())
-            .consuming(),
-    );
-    let room = apart("a-follow-up-joins", &bob, &ada);
-    room.start("ada").await.unwrap();
-    let first = hand_off(&room, "ada", "bob", "Write the winter-hours notice.", None)
-        .await
-        .unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
-    let thread = work_thread(&room, &first);
-    gate.add_permits(1);
-    until("bob has said what he is doing", || {
-        said(
-            &room,
-            &thread,
-            "Writing it with winter hours from 1 December.",
-        )
-    })
-    .await;
-
-    let change = "One change: winter hours start 15 December.";
-    let follow_up = hand_off(&room, "ada", "bob", change, Some(&first))
-        .await
-        .unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    until("the change joined the turn", || {
-        bob.steered().iter().any(|line| line.contains(change))
-    })
-    .await;
-    assert_eq!(bob.cancel_count(), 0, "the turn in flight was not cut");
-    gate.add_permits(5);
-    done(&room, &follow_up).await;
-    assert_eq!(bob.prompts().len(), 1, "nothing ran again");
-    assert_eq!(
-        results(&room, &[&first, &follow_up]),
-        std::slice::from_ref(&follow_up),
-        "one result, the change's"
-    );
-    let result = answer_to(&room, &follow_up).unwrap()["text"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        result.ends_with("Saved, with winter hours from 15 December."),
-        "{result}"
-    );
-    let taken_over = request(&room, "ada~bob", &first);
-    assert_eq!(
-        (taken_over.phase(), taken_over.heard(), taken_over.failed()),
-        (Phase::Done, true, false)
-    );
-    until("the result closes the thread", || {
-        !room.work_is_open(&thread)
-    })
-    .await;
-}
-
-/// A follow-up into a thread whose turn is not running cuts nothing: the
-/// first turn ran to its own end and result, and the follow-up runs as its
-/// own turn, with its own result, as before.
-#[tokio::test]
-async fn a_follow_up_into_an_idle_thread_interrupts_nothing() {
-    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
-    let bob = Fake::new(Scripted::turns(vec![
-        turn("first", "Written, from 1 December.", "end_turn"),
-        turn("second", "Changed to 15 December.", "end_turn"),
-    ]));
-    let room = apart("an-idle-follow-up", &bob, &ada);
-    room.start("ada").await.unwrap();
-    let first = hand_off(&room, "ada", "bob", "Write the winter-hours notice.", None)
-        .await
-        .unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    done(&room, &first).await;
-    let thread = work_thread(&room, &first);
-    until("bob's turn is over", || {
-        !room.work_thread_working(&ThreadId::side(&thread))
-    })
-    .await;
-
-    let follow_up = hand_off(&room, "ada", "bob", "Make it 15 December.", Some(&first))
-        .await
-        .unwrap()["requestId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    done(&room, &follow_up).await;
-    assert!(!bob.told()[1].contains("was cut"), "{}", bob.told()[1]);
-    assert!(bob.prompts()[1].starts_with("Ada handed work to you (\"Make it 15 December.\")"));
-    assert_eq!(
-        results(&room, &[&first, &follow_up]),
-        [first.clone(), follow_up.clone()]
-    );
-    assert_eq!(
-        answer_to(&room, &first).unwrap()["text"],
-        "Written, from 1 December.",
-        "the first turn ran to its own end"
     );
 }
 
@@ -657,9 +420,7 @@ async fn the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried
     let stopped = request(&room, "ada~bob", &handoff);
     assert_eq!((stopped.phase(), stopped.released), (Phase::Stopped, true));
     assert_eq!(room.carried_into(&thread, None), Vec::<String>::new());
-    let notes = stopped_notes(&room);
-    assert_eq!(notes.len(), 1, "{notes:?}");
-    assert_eq!(notes[0].text, HANDOFF_STOPPED_BY_THE_PERSON);
+    assert_eq!(stopped_notes(&room), [HANDOFF_STOPPED_BY_THE_PERSON]);
     assert_eq!(says_ended(&room, &thread), [true; 3]);
     assert!(room.work_is_open(&thread), "the thread goes on");
 
@@ -672,90 +433,6 @@ async fn the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried
     assert_eq!(request(&room, "ada~bob", &handoff).phase(), Phase::Stopped);
     assert!(answer_to(&room, &handoff).is_none(), "no result for it");
     assert!(ada.prompts().is_empty(), "nothing woke ada");
-}
-
-/// The person's Stop or Interrupt of the turn of Bob's main conversation
-/// answering Ada's question fails it to her, as any failed answer reaches
-/// its asker, with what Bob had said and the person's word: the Stop says
-/// not to ask again, the Interrupt that she may, and neither is followed by
-/// "send it again".
-#[tokio::test]
-async fn the_persons_stop_or_interrupt_of_a_main_conversations_answer_fails_it_in_their_words() {
-    for (cut, sentence, never) in [
-        (Cut::Stop, ANSWER_STOPPED_BY_THE_PERSON, "Ask it again"),
-        (
-            Cut::Interrupt,
-            ANSWER_INTERRUPTED_BY_THE_PERSON,
-            "Do not ask it again",
-        ),
-    ] {
-        let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
-        let gate = Arc::new(Semaphore::new(0));
-        let bob = Fake::new(
-            Scripted::new(turn("colour", "Looking at the colours.", "end_turn"))
-                .on_cancel(cancelled())
-                .gated(gate.clone()),
-        );
-        let room = apart(&format!("cuts-an-answer-{cut:?}"), &bob, &ada);
-        let ask = send(&room, "ask").await;
-        until("bob's main conversation is answering", || {
-            bob.prompts().len() == 1 && room.mid_turn("bob")
-        })
-        .await;
-        gate.add_permits(1);
-        until("bob has said what he is doing", || {
-            room.tape("bob").iter().any(|v| v["kind"] == "agent")
-        })
-        .await;
-        match cut {
-            Cut::Stop => room.cancel("bob").unwrap(),
-            Cut::Interrupt => room.interrupt("bob").unwrap(),
-        }
-        done(&room, &ask).await;
-
-        let failure = answer_to(&room, &ask).expect("the asker is told");
-        assert_eq!(failure["cause"]["status"], "failed", "{cut:?}");
-        assert_eq!(
-            failure["text"],
-            format!("Looking at the colours.\n\n{sentence}"),
-            "{cut:?}"
-        );
-        let cause: DeliveryCause = serde_json::from_value(failure["cause"].clone()).unwrap();
-        let heard = delivery_wire(&cause, failure["text"].as_str().unwrap());
-        assert!(heard.ends_with(sentence), "{heard}");
-        assert!(!heard.contains("Send it again"), "{heard}");
-        assert!(!heard.contains(never), "{heard}");
-        assert!(!heard.contains("inspect before retrying"), "{heard}");
-    }
-}
-
-/// A restart whose drain runs out cuts the turn of Bob's main conversation
-/// answering Ada's question: that is not the person's word, so the answer
-/// ends as one whose turn ended without a result, to look at before asking
-/// again.
-#[tokio::test]
-async fn a_restart_cutting_a_main_conversations_answer_is_not_the_persons_stop() {
-    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
-    let gate = Arc::new(Semaphore::new(0));
-    let bob = Fake::new(
-        Scripted::new(turn("colour", "Looking at the colours.", "end_turn"))
-            .on_cancel(cancelled())
-            .gated(gate),
-    );
-    let room = apart("restart-cuts-an-answer", &bob, &ada);
-    let ask = send(&room, "ask").await;
-    until("bob's main conversation is answering", || {
-        bob.prompts().len() == 1 && room.mid_turn("bob")
-    })
-    .await;
-    room.stop_for_restart(Duration::from_millis(100)).await;
-
-    let cut = request(&room, "ada~bob", &ask);
-    assert!(cut.failed());
-    assert_eq!(
-        cut.reply,
-        "The turn answering this question ended without a result; inspect before retrying."
-    );
 }
 
 /// The person's word ends what a failure says, after whatever the cut turn

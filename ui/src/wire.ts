@@ -26,6 +26,8 @@ import type {
 	CapabilityOptions,
 	ImagesStatus,
 	InboundSource,
+	InboxItemDetail,
+	InboxView,
 	LinkPreview,
 	LoginPrompt,
 	LoginStatus,
@@ -282,7 +284,11 @@ type Results = {
 	"aside.list": Aside[];
 	/** The person has seen them: the row's `asidesNew` goes. */
 	"aside.seen": null;
-	/** The colleague has its nudge, and its one answer is on its way. */
+	/** A teammate's inbox: open, closed, what it sent, and its unread count. */
+	"inbox.list": InboxView;
+	/** One item with its receipts, and the items that answer it. */
+	"inbox.item": InboxItemDetail;
+	/** The colleague has an item in its inbox, and its answer is heard in the thread. */
 	"thread.loop_in": null;
 	/** The desk's inbound sources, oldest first. */
 	"inbound.list": InboundSource[];

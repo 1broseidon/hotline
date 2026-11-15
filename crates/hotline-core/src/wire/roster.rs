@@ -408,6 +408,9 @@ fn roster_entry(
         asides_new: u32::try_from(room.asides_unseen(&persona.id))
             .ok()
             .filter(|unseen| *unseen > 0),
+        inbox: u32::try_from(room.inbox_unread(&persona.id))
+            .ok()
+            .filter(|unread| *unread > 0),
         session,
         preview,
         latest,

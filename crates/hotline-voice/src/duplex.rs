@@ -412,11 +412,8 @@ impl Calls {
             .map(|tools| tools.definitions())
             .unwrap_or_default();
         let mut instructions = self.front_instructions(persona.as_ref(), &desk_definitions);
-        if desk_definitions
-            .iter()
-            .any(|tool| tool.name == "message_teammate")
-        {
-            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. Keep the spoken answer short: names and what each teammate is working on, or idle. Do not recite models, tools or machine reach unless the person asks for those details. When the person names a teammate to do work, use message_teammate with intent handoff and their words unchanged. Say who has it after acceptance. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
+        if desk_definitions.iter().any(|tool| tool.name == "send") {
+            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. Keep the spoken answer short: names and what each teammate is working on, or idle. Do not recite models, tools or machine reach unless the person asks for those details. When the person names a teammate to do work, use send with wants work, a short title and their words unchanged as the message. Say whose inbox it is in once it is sent. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
         }
         let config = RealtimeConfig {
             instructions: self.front_context(&id, &instructions, None),

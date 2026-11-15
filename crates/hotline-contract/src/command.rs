@@ -1127,8 +1127,20 @@ pub enum Command {
     /// hearing of them is its own and does not change.
     #[serde(rename = "aside.seen")]
     AsideSeen { persona_id: String },
-    /// Loops a colleague into a work thread: it is left a nudge aside from
-    /// the thread, and may answer once there, under its own name.
+    /// A teammate's inbox, as an `InboxView`: its open items, its closed
+    /// ones and the items it sent others, newest first, and how many open
+    /// ones it has not read. The `{"inbox": "<personaId>"}` subscription
+    /// sends the same, again whenever it changes.
+    #[serde(rename = "inbox.list")]
+    InboxList { persona_id: String },
+    /// One inbox item by id, wherever it is kept, as an `InboxItemDetail`:
+    /// the item with its receipts and the work thread it started, and the
+    /// items that answer it.
+    #[serde(rename = "inbox.item")]
+    InboxItem { id: String },
+    /// Loops a colleague into a work thread: an item from the thread's
+    /// teammate lands in the colleague's inbox, and its answer is heard back
+    /// in the thread.
     #[serde(rename = "thread.loop_in")]
     ThreadLoopIn {
         thread: ThreadId,

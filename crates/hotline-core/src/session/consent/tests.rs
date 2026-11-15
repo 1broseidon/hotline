@@ -222,14 +222,36 @@ fn room_on(log: crate::log::Log) -> Arc<Room> {
     )
 }
 
+/// Ada sends Bob an item that wants work, and Bob takes it into a work
+/// thread as soon as it lands.
 async fn hand_off(room: &Arc<Room>) {
-    TeammateTools::new(room, "ada")
+    let sent = TeammateTools::new(room, "ada")
         .call(
-            "message_teammate",
-            &json!({"to": "bob", "message": "Build it.", "intent": "handoff"}),
+            "send",
+            &json!({"to": ["bob"], "title": "Build it", "message": "Build it.", "wants": "work"}),
         )
         .await
         .unwrap();
+    let id = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let room = room.clone();
+    tokio::spawn(async move {
+        let landed = || {
+            crate::store::inbox::received(&room.log, "bob")
+                .iter()
+                .any(|item| item.id == id)
+        };
+        until("the item lands", landed).await;
+        TeammateTools::new(&room, "bob")
+            .call(
+                "update_inbox",
+                &json!({"items": [{"id": id, "state": "taken"}]}),
+            )
+            .await
+            .unwrap();
+    });
 }
 
 /// The first-contact card waiting on Ada's tape, if one is.
@@ -239,12 +261,12 @@ fn open_card(room: &Room) -> Option<Value> {
         .find(|event| event["kind"] == "permission" && event.get("decision").is_none())
 }
 
-/// Whether Ada has heard the handoff's result, which only a handoff that ran
+/// Whether the work's result is in Ada's inbox, which only work that landed
 /// without a card has by now.
 fn result_heard(room: &Room) -> bool {
-    room.tape("ada")
+    crate::store::inbox::of(&room.log, "ada")
         .iter()
-        .any(|event| event["kind"] == "delivery" && event["cause"]["status"] == "done")
+        .any(|reply| reply.reply_to.is_some())
 }
 
 /// An Always grant cleared because Bob's access grew asks again, and the

@@ -80,10 +80,10 @@ impl Room {
         };
         self.hand_over_request(key, &request, thread).await
     }
-    /// Hands a handoff to a work thread on the teammate it was handed to, and
+    /// Hands a handoff to a work thread on the teammate that took it, and
     /// its result is the reply the thread gives when it has done the work.
-    /// `thread` is the one it continues, or its own from before a restart;
-    /// without one, it opens a thread with the handoff as its first message.
+    /// `thread` is its own from before a restart; without one, it opens a
+    /// thread with the handoff as its first message.
     pub(super) async fn dispatch_handoff(
         self: &Arc<Self>,
         key: &str,
@@ -92,18 +92,12 @@ impl Room {
     ) -> Result<(), String> {
         let caller = self.participant(&request.from)?;
         let side_id = thread.unwrap_or_else(new_id);
-        self.exchange_thread_line(
-            key,
-            &request.from,
-            &request.id,
-            &request.message,
-            Some(&side_id),
-        )?;
         let handoff = HandoffStart {
             key: key.to_string(),
             request: request.id.clone(),
         };
         self.set_request_thread(key, &request.id, &side_id)?;
+        self.inbox_work_started(request, &side_id);
         // A handoff stands again in a thread whose earlier one was released.
         self.mark_handoffs(std::slice::from_ref(&side_id));
         // A thread that has run before comes back with what was said in it.

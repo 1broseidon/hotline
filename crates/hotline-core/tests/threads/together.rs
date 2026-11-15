@@ -797,3 +797,53 @@ async fn a_turn_the_inbox_woke_reaches_the_person_only_by_its_one_post() {
         "the person's line joined the quiet turn, which answered them instead"
     );
 }
+
+/// `read_inbox` reaches past what is open, over the wire: Bob lists what he
+/// closed, with how it ended, and Ada lists what she sent, each with whom it
+/// went to and where it stands now.
+#[tokio::test(flavor = "multi_thread")]
+async fn read_inbox_lists_closed_items_and_what_was_sent_with_where_each_stands() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let noted = desk
+        .send(
+            &ada,
+            json!({"to": ["Bob"], "title": "Logo colours", "wants": "nothing"}),
+        )
+        .await;
+    desk.send(&ada, json!({"to": ["Bob"], "title": "Crane permit"}))
+        .await;
+    let close = json!({"items": [{"id": noted, "state": "closed", "outcome": "noted"}]});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": format!("CALL update_inbox {close}\nCALL read_inbox {}", json!({"list": "closed"}))}),
+    )
+    .await;
+    let closed = desk.results(StreamId::Tape(bob.clone()), 0).await;
+    assert!(
+        closed.contains(r#""title":"Logo colours""#) && closed.contains(r#""outcome":"noted""#),
+        "{closed}"
+    );
+    assert!(
+        !closed.contains("Crane permit"),
+        "only what closed: {closed}"
+    );
+
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL read_inbox {}", json!({"list": "sent"}))}),
+    )
+    .await;
+    let sent = desk.results(StreamId::Tape(ada.clone()), 2).await;
+    let at = |title: &str| {
+        sent.find(title)
+            .unwrap_or_else(|| panic!("{title}: {sent}"))
+    };
+    assert!(
+        at("Crane permit") < at("Logo colours"),
+        "newest first: {sent}"
+    );
+    assert!(sent.contains(r#""to":"Bob""#), "{sent}");
+    assert!(sent.contains(r#""state":"closed""#), "{sent}");
+}

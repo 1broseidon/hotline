@@ -46,9 +46,13 @@ These are George's, and the prototype's acceptance criteria.
   with each item's id. `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency.
 - **`read_inbox`** without `ids` lists the open items, newest first: id, title,
-  sender, `wants`, `waiting`, state and age, never the words. With `ids` (any
-  unique prefix of four characters or more) it returns them whole and marks
-  them seen.
+  sender, `wants`, `waiting`, state and how long it has been in it, and age,
+  never the words. `list` (`open` by default) may say `closed`, the closed
+  items with each one's outcome, or `sent`, the items the teammate sent
+  others, each with whom it went to and where it stands now, so a sender sees
+  "seen, not yet taken"; each the newest 20, with how many older ones there
+  are. With `ids` (any unique prefix of four characters or more) it returns
+  them whole and marks them seen.
 - **`update_inbox`** `items`, a list in the order the receiver means to work
   them. Each entry names an item and sets `state`: `taken`, `later` (with a
   `reason`), `closed` (with an `outcome`: `done`, `noted` or `dropped`) or

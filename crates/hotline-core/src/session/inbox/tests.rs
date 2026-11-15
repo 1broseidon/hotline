@@ -374,6 +374,77 @@ async fn read_inbox_lists_open_items_without_their_words_and_reading_marks_them_
 }
 
 #[tokio::test]
+async fn read_inbox_lists_closed_items_and_what_was_sent_newest_first_with_where_each_stands() {
+    let (room, _) = room("inbox-read-lists");
+    let done = send(&room, "ada", "bob", "Done one", json!({})).await;
+    let seen = send(&room, "ada", "bob", "Seen one", json!({"wants": "work"})).await;
+    tool(&room, "bob", "read_inbox", json!({"ids": [short(&seen)]}))
+        .await
+        .unwrap();
+    tool(
+        &room,
+        "bob",
+        "update_inbox",
+        json!({"items": [{"id": short(&done), "state": "closed", "outcome": "noted"}]}),
+    )
+    .await
+    .unwrap();
+
+    let open = tool(&room, "bob", "read_inbox", json!({})).await.unwrap();
+    let open: Vec<&str> = open["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["title"].as_str())
+        .collect();
+    assert_eq!(open, ["Seen one"], "the default is unchanged");
+
+    let closed = tool(&room, "bob", "read_inbox", json!({"list": "closed"}))
+        .await
+        .unwrap();
+    assert_eq!(closed["items"].as_array().unwrap().len(), 1, "{closed}");
+    assert_eq!(closed["items"][0]["title"], "Done one");
+    assert_eq!(closed["items"][0]["outcome"], "noted");
+    assert_eq!(closed["items"][0]["from"], "Ada");
+    assert!(!closed.to_string().contains("the words of"), "{closed}");
+
+    let sent = tool(&room, "ada", "read_inbox", json!({"list": "sent"}))
+        .await
+        .unwrap();
+    let rows = sent["items"].as_array().unwrap();
+    assert_eq!(rows[0]["title"], "Seen one", "newest first: {sent}");
+    assert_eq!(rows[0]["to"], "Bob");
+    assert_eq!(rows[0]["state"], "seen", "read, not yet taken: {sent}");
+    assert!(rows[0]["since"].is_string(), "{sent}");
+    assert!(rows[0].get("from").is_none(), "{sent}");
+    assert_eq!(rows[1]["state"], "closed");
+    assert_eq!(rows[1]["outcome"], "noted");
+
+    // More than the list shows, kept as sent ones are (the brake would
+    // pause twelve sends in a row).
+    let ada = room.persona("ada").unwrap();
+    for n in 0..LISTED {
+        let mut more = super::item(
+            &ada,
+            &ThreadId::dm("ada"),
+            "bob",
+            format!("More {n}"),
+            String::new(),
+            InboxWants::Nothing,
+        );
+        moved(&mut more, InboxState::New, None, None, None);
+        room.keep_item(&more).unwrap();
+    }
+    let sent = tool(&room, "ada", "read_inbox", json!({"list": "sent"}))
+        .await
+        .unwrap();
+    assert_eq!(sent["items"].as_array().unwrap().len(), LISTED);
+    assert_eq!(sent["older"], 2, "{sent}");
+    let wrong = tool(&room, "ada", "read_inbox", json!({"list": "everything"})).await;
+    assert!(wrong.is_err_and(|error| error.contains("open, closed or sent")));
+}
+
+#[tokio::test]
 async fn update_inbox_sorts_several_items_in_one_call_in_the_order_given_or_none() {
     let (room, _) = room("inbox-sort");
     let later = send(

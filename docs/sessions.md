@@ -1489,8 +1489,10 @@ mid-turn notice into a turn the person started changes nothing, and a work
 thread or a call the inbox wakes is told the words reach the person, as
 before.
 
-**Sorting.** `read_inbox` lists open items without their words, or reads the
-ones named whole and marks them `seen`. `update_inbox` sorts several in one
+**Sorting.** `read_inbox` lists open items without their words, or, with
+`list`, the newest 20 closed ones (with their outcome) or the newest 20 the
+teammate sent (with whom each went to and where it stands now, and since
+when), or reads the ones named whole and marks them `seen`. `update_inbox` sorts several in one
 call, in the order the receiver means to work them: `taken`, `later` with a
 reason, `closed` with an outcome (`done`, `noted`, `dropped`), `combined`
 into another item, or an `answer`, which replies and closes the item as done.

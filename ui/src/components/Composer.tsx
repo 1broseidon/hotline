@@ -1,6 +1,6 @@
 import { type KeyboardEvent as KeyEvent, type PointerEvent as ButtonPointerEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { Attachment, SessionState } from "../generated/contract";
+import type { Attachment, InboxItem, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
 import { ArrowUpIcon, ChevronDownIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
@@ -26,6 +26,7 @@ import { useDeskModelOffer } from "../voice/desk";
 import { setHearOnThisMac } from "../voice/hearing";
 import type { LiveThread } from "../liveThreads";
 import { ThreadsKey, ThreadsPanel } from "./LiveThreads";
+import { InboxKey, InboxPanel } from "./InboxKey";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -72,6 +73,7 @@ export function Composer({
 	stopOnCard = false,
 	work,
 	threads,
+	inbox,
 	focused = false,
 	embedded = false,
 }: {
@@ -120,6 +122,19 @@ export function Composer({
 				onAll(): void;
 		  }
 		| undefined;
+	/**
+	 * What the teammate has not read in its inbox: counted beside the threads
+	 * ("2 unread"), and listed in the same panel's place while open, with a
+	 * last row to the whole inbox in the pane. Absent at zero.
+	 */
+	inbox?:
+		| {
+				items: readonly InboxItem[];
+				nameOf(personaId: string): string | undefined;
+				onOpen(itemId: string): void;
+				onAll(): void;
+		  }
+		| undefined;
 	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
 	focused?: boolean;
 	/**
@@ -147,12 +162,18 @@ export function Composer({
 	const working = isWorking({ state });
 	const shell = useRef<HTMLDivElement>(null);
 	const threadsKey = useRef<HTMLButtonElement>(null);
+	const inboxKey = useRef<HTMLButtonElement>(null);
 	const panelId = useId();
 	const threadRows = threads?.rows ?? [];
-	const [threadsWanted, setThreadsWanted] = useState(false);
-	// With none left running it closes, and does not come back by itself for the next one.
-	const threadsOpen = threadsWanted && threadRows.length > 0;
-	if (threadsWanted && threadRows.length === 0) setThreadsWanted(false);
+	const unreadRows = inbox?.items ?? [];
+	// The pill's first row holds one panel at a time: the threads running, or what the teammate has not read.
+	const [wanted, setWanted] = useState<"threads" | "inbox" | null>(null);
+	// With none left it closes, and does not come back by itself for the next one.
+	const threadsOpen = wanted === "threads" && threadRows.length > 0;
+	const inboxOpen = wanted === "inbox" && unreadRows.length > 0;
+	const panelOpen = threadsOpen || inboxOpen;
+	if (wanted !== null && !panelOpen) setWanted(null);
+	const openKey = inboxOpen ? inboxKey : threadsKey;
 	const firstRow = (last = false) => {
 		const rows = document.getElementById(panelId)?.querySelectorAll<HTMLElement>(".list-row");
 		rows?.[last ? rows.length - 1 : 0]?.focus();
@@ -160,7 +181,7 @@ export function Composer({
 	// Opened from the keyboard, focus goes to its first row once it is drawn.
 	const [focusRow, setFocusRow] = useState(false);
 	useEffect(() => {
-		if (!threadsOpen || !focusRow) return;
+		if (!panelOpen || !focusRow) return;
 		setFocusRow(false);
 		firstRow();
 	});
@@ -169,17 +190,17 @@ export function Composer({
 	// count, unless it is in the field, where the person is typing. A press
 	// outside the composer closes it too, and leaves focus where it landed.
 	useEffect(() => {
-		if (!threadsOpen) return;
+		if (!panelOpen) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape" || event.defaultPrevented || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
 			event.preventDefault();
 			event.stopImmediatePropagation();
-			setThreadsWanted(false);
-			if (document.activeElement !== area.current) threadsKey.current?.focus();
+			setWanted(null);
+			if (document.activeElement !== area.current) openKey.current?.focus();
 		};
 		const away = (event: MouseEvent) => {
 			if (shell.current?.contains(event.target as Node | null)) return;
-			setThreadsWanted(false);
+			setWanted(null);
 		};
 		window.addEventListener("keydown", onKey, true);
 		document.addEventListener("mousedown", away, true);
@@ -187,22 +208,22 @@ export function Composer({
 			window.removeEventListener("keydown", onKey, true);
 			document.removeEventListener("mousedown", away, true);
 		};
-	}, [threadsOpen]);
-	const toggleThreads = (keyboard: boolean) => {
-		if (threadsOpen) {
-			setThreadsWanted(false);
+	}, [panelOpen, openKey]);
+	const toggle = (which: "threads" | "inbox") => (keyboard: boolean) => {
+		if (wanted === which && panelOpen) {
+			setWanted(null);
 			return;
 		}
-		setThreadsWanted(true);
+		setWanted(which);
 		if (keyboard) setFocusRow(true);
 	};
 	const keyArrows = (event: KeyEvent<HTMLButtonElement>) => {
-		if (!threadsOpen || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+		if (!panelOpen || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
 		event.preventDefault();
 		// The panel stands above the count: up reaches its nearest row.
 		firstRow(event.key === "ArrowUp");
 	};
-	const twoRows = work !== undefined || threadRows.length > 0;
+	const twoRows = work !== undefined || threadRows.length > 0 || unreadRows.length > 0;
 	const blocked = work?.activity.phase === "blocked";
 	useEffect(() => {
 		if (focused) area.current?.focus();
@@ -388,7 +409,7 @@ export function Composer({
 	// down even when the field is not focused — and it does so before the
 	// conversation's listener puts the quote down.
 	useEffect(() => {
-		if (attachments.length === 0 || dictating || threadsOpen) return;
+		if (attachments.length === 0 || dictating || panelOpen) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape" || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
 			event.preventDefault();
@@ -397,7 +418,7 @@ export function Composer({
 		};
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
-	}, [attachments.length, dictating, threadsOpen]);
+	}, [attachments.length, dictating, panelOpen]);
 
 	const submit = () => {
 		countdown.cancel();
@@ -458,14 +479,29 @@ export function Composer({
 							fresh={threads.fresh}
 							isOpen={threads.isOpen}
 							onOpen={(thread) => {
-								setThreadsWanted(false);
+								setWanted(null);
 								threads.onOpen(thread);
 							}}
 							onAll={() => {
-								setThreadsWanted(false);
+								setWanted(null);
 								threads.onAll();
 							}}
 							onEdge={() => threadsKey.current?.focus()}
+						/>
+					) : inboxOpen && inbox !== undefined ? (
+						<InboxPanel
+							id={panelId}
+							items={unreadRows}
+							nameOf={inbox.nameOf}
+							onOpen={(item) => {
+								setWanted(null);
+								inbox.onOpen(item.id);
+							}}
+							onAll={() => {
+								setWanted(null);
+								inbox.onAll();
+							}}
+							onEdge={() => inboxKey.current?.focus()}
 						/>
 					) : (
 						(work === undefined || work.open) && twoRows && above
@@ -485,8 +521,8 @@ export function Composer({
 							onClick={() => {
 								// What the row opens takes the pill's first row from the threads;
 								// already open under them, it is shown rather than folded.
-								setThreadsWanted(false);
-								if (!(threadsOpen && work.open)) work.onToggle();
+								setWanted(null);
+								if (!(panelOpen && work.open)) work.onToggle();
 							}}
 						>
 							<Glyph phase={work.activity.phase} />
@@ -612,7 +648,8 @@ export function Composer({
 							</p>
 						)}
 					</div>
-					<ThreadsKey count={threadRows.length} open={threadsOpen} panelId={panelId} keyRef={threadsKey} onToggle={toggleThreads} onKeyDown={keyArrows} />
+					<InboxKey count={unreadRows.length} open={inboxOpen} panelId={panelId} keyRef={inboxKey} onToggle={toggle("inbox")} onKeyDown={keyArrows} />
+					<ThreadsKey count={threadRows.length} open={threadsOpen} panelId={panelId} keyRef={threadsKey} onToggle={toggle("threads")} onKeyDown={keyArrows} />
 					{working && !stopOnCard && (
 						<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
 							<StopIcon />

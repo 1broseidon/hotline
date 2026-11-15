@@ -362,6 +362,7 @@ export type Commands = {
  * was never written down — a streaming delta — and `removed` is a tombstone.
  */
 export type Handlers<Item, Ephemeral = never> = {
+	/** The whole of what is watched: a list, or for a view sent whole (`{"inbox": id}`) the one object, as it came. */
 	snapshot(items: Item[]): void;
 	event(item: Item): void;
 	ephemeral?(frame: Ephemeral): void;
@@ -612,9 +613,10 @@ export class Wire {
 			const sub = this.live.get(frame["sub"]);
 			if (!sub) return;
 			if ("snapshot" in frame) {
-				const items = frame["snapshot"] as unknown[];
+				const items = frame["snapshot"];
 				sub.rosterCatalogs?.clear();
-				sub.handlers.snapshot(items.map((item) => restoreRosterCatalogs(sub, item)));
+				// A view sent whole (an inbox) is one object, not a list: it is handed on as it came.
+				sub.handlers.snapshot(Array.isArray(items) ? items.map((item) => restoreRosterCatalogs(sub, item)) : (items as unknown[]));
 			} else if ("event" in frame) sub.handlers.event(restoreRosterCatalogs(sub, frame["event"]));
 			else if ("ephemeral" in frame) sub.handlers.ephemeral?.(frame["ephemeral"]);
 			else if ("removed" in frame) {

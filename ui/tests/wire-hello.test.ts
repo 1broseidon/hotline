@@ -136,3 +136,16 @@ test("roster catalog patches are retained per subscription and snapshots replace
 	expect(rows.at(-1)!["session"]).toEqual({ models, slashCommands });
 	wire.close();
 });
+
+test("a view sent whole, an inbox, is handed on as the one object it is, each time it comes", async () => {
+	const { wire, socket, hello } = dial();
+	await socket.answer({ id: hello["id"], ok: true, result: { capabilities: ["threads2"] } });
+	const views: unknown[] = [];
+	wire.subscribe({ inbox: "juno" }, { snapshot: (view) => views.push(view), event: () => {} });
+	const sub = socket.sent.at(-1)!["id"];
+	const view = { personaId: "juno", open: [], closed: [], sent: [], unread: 0 };
+	await socket.answer({ sub, snapshot: view });
+	await socket.answer({ sub, snapshot: { ...view, unread: 2 } });
+	expect(views).toEqual([view, { ...view, unread: 2 }]);
+	wire.close();
+});

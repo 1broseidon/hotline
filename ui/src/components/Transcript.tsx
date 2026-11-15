@@ -1,7 +1,8 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
+import { itemsOf, useInbox } from "../inbox";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
@@ -43,6 +44,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
+import { InboxRows, InboxSentRow, InboxSortedCard } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -115,6 +117,7 @@ export function Transcript({
 	onRetryMessage,
 	onOpenThread,
 	onOpenThreads,
+	onOpenInboxItem,
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
@@ -168,6 +171,8 @@ export function Transcript({
 	 * handed it rather than a line each.
 	 */
 	onOpenThreads?(): void;
+	/** Opens an inbox item in the right-hand pane: a message the teammate sent, or one it sorted. */
+	onOpenInboxItem?: ((itemId: string) => void) | undefined;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
 	/**
@@ -231,6 +236,10 @@ export function Transcript({
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
 	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
+	/* The items this teammate sent or sorted, live from its own inbox: watched only once the tape has one. */
+	const sendsMail = useMemo(() => events.some((event) => event.kind === "inbox_sent" || event.kind === "inbox_sorted"), [events]);
+	const inboxView = useInbox(sendsMail ? personaId : undefined);
+	const inboxRows = useMemo(() => ({ items: itemsOf(inboxView), onOpen: onOpenInboxItem }), [inboxView, onOpenInboxItem]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -478,7 +487,7 @@ export function Transcript({
 	// its row is handed what it was handed before and is not drawn again.
 	const drawnBefore = useRef<Block[]>([]);
 	const blocks = useMemo(() => {
-		const drawn = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(
+		const drawn = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(groupInbox(
 			arrived.filter(
 				(block) =>
 					!(
@@ -491,7 +500,7 @@ export function Transcript({
 							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
 					),
 			),
-		))));
+		)))));
 		drawnBefore.current = drawn;
 		return drawn;
 	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
@@ -569,6 +578,8 @@ export function Transcript({
 				{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
 				{block.kind === "scheduled" ? (
 					<ScheduledGroup name={block.name} runs={block.runs} />
+				) : block.kind === "inbox" ? (
+					<InboxSentRow title={block.title} sent={block.sent} people={people} />
 				) : block.kind === "calls" ? (
 					<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
 				) : block.kind === "steps" ? (
@@ -656,6 +667,7 @@ export function Transcript({
 
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col">
+		<InboxRows.Provider value={inboxRows}>
 		<Scroll scrollerRef={scroller} programmatic={pinning}>
 			{/* `justify-end` rests a short conversation on the composer rather
 			    than stranding it at the top of an empty pane. The room at the
@@ -695,6 +707,7 @@ export function Transcript({
 				<div className="tape-room" style={{ height: whole }} />
 			</div>
 		</Scroll>
+		</InboxRows.Provider>
 		{activity !== null && onMark === undefined && (
 			<div className="ambient">
 				<div className="mx-auto w-full max-w-[46rem] px-6">
@@ -982,11 +995,13 @@ const Row = memo(function Row({
 		case "aside":
 			return <AsideLine aside={event} personaId={personaId} here={thread} people={people} onOpenThread={onOpenThread} />;
 
-		/* An item sent and an inbox sorted: the window does not draw the
-		 * inbox yet, so the conversation shows nothing for them. */
+		/* Items sent are drawn as their block (groupInbox), one row per send. */
 		case "inbox_sent":
-		case "inbox_sorted":
 			return null;
+
+		/* The receiver's sort of what it read: one card, or a row for one item. */
+		case "inbox_sorted":
+			return <InboxSortedCard event={event} people={people} />;
 
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;

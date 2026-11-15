@@ -302,6 +302,8 @@ function Row({
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
 	const lead = entry.lead === true;
+	/* What the teammate has not read in its inbox: its own unread, not the person's. */
+	const inbox = entry.inbox ?? 0;
 	const face = (
 		<span className="relative flex shrink-0">
 			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
@@ -322,7 +324,7 @@ function Row({
 			data-teammate-row
 			data-offline={offline || undefined}
 			aria-current={active ? "true" : undefined}
-			aria-label={`${named}${lead ? ", team lead" : ""}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
+			aria-label={`${named}${lead ? ", team lead" : ""}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${inbox > 0 ? `, ${inbox} unread in its inbox` : ""}${offline ? ", unreachable" : ""}`}
 			className="rail-row group relative"
 			onClick={onSelect}
 			{...(onTip !== undefined
@@ -359,6 +361,11 @@ function Row({
 						{entry.persona.name}
 						{desk !== undefined && <span className="rail-desk">{desk}</span>}
 					</span>
+					{inbox > 0 && (
+						<span className="rail-inbox" title="Unread in its inbox" aria-hidden="true">
+							{inbox > 9 ? "9+" : inbox}
+						</span>
+					)}
 					{shortcut !== null && (
 						<kbd
 							aria-hidden="true"

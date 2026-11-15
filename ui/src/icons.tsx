@@ -254,6 +254,14 @@ export const ClockIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/** A teammate's inbox: a tray, what was sent to it and what it sent. */
+export const InboxIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M2.75 9.25 4.5 4.25a1 1 0 0 1 .94-.75h5.12a1 1 0 0 1 .94.75l1.75 5v2.5a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1z" />
+		<path d="M2.75 9.25h2.9a2.35 2.35 0 0 0 4.7 0h2.9" />
+	</Icon>
+);
+
 export const ReplyIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<path d="M6.5 4L3 7.5 6.5 11M3.25 7.5h5.5A4.25 4.25 0 0 1 13 11.75V12.5" />

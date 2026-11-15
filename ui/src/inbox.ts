@@ -1,0 +1,321 @@
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import type { InboxItem, InboxItemDetail, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
+import { wire } from "./wire";
+
+/*
+ * The inbox on the desk (docs/design/agent-inbox.md, "On the desk"): what a
+ * teammate sent and where each item stands, how a receiver sorted what it
+ * read, and its inbox as the pane lists it. Teammates act on items; the
+ * person reads them. Nothing here sends, sorts or answers anything.
+ */
+
+/** An `inbox_sent` line: one item a teammate sent, on the thread it was sent from. */
+export type InboxSent = Extract<TranscriptEvent, { kind: "inbox_sent" }>;
+
+/** An `inbox_sorted` line: the receiver's sort of what it read, on its main conversation. */
+export type InboxSorted = Extract<TranscriptEvent, { kind: "inbox_sorted" }>;
+
+/* ------------------------------------------------------------ the wire */
+
+type Watch = { view: InboxView | undefined; listeners: Set<() => void>; stop: () => void };
+
+/** One subscription per teammate's inbox, however many rows, chips and panes read it. */
+const watched = new Map<string, Watch>();
+
+function watchInbox(personaId: string, listener: () => void): () => void {
+	let watch = watched.get(personaId);
+	if (watch === undefined) {
+		const made: Watch = { view: undefined, listeners: new Set(), stop: () => {} };
+		const tell = () => {
+			for (const one of made.listeners) one();
+		};
+		watched.set(personaId, made);
+		// The view is sent whole each time, as the snapshot: what it holds is replaced, never added to.
+		made.stop = wire.subscribe<InboxView>(
+			{ inbox: personaId },
+			{
+				snapshot: (view) => {
+					made.view = view as unknown as InboxView;
+					tell();
+				},
+				event: () => {},
+				removed: () => {
+					made.view = undefined;
+					tell();
+				},
+			},
+		);
+		watch = made;
+	}
+	const kept = watch;
+	kept.listeners.add(listener);
+	return () => {
+		kept.listeners.delete(listener);
+		if (kept.listeners.size > 0) return;
+		kept.stop();
+		if (watched.get(personaId) === kept) watched.delete(personaId);
+	};
+}
+
+const NOTHING = () => () => {};
+
+/** A teammate's inbox as the desk keeps it now: undefined until the first snapshot lands, or for nobody. */
+export function useInbox(personaId: string | undefined): InboxView | undefined {
+	// Made once per teammate: a new one each render would end the subscription and start it again.
+	const subscribe = useCallback((listener: () => void) => (personaId === undefined ? NOTHING() : watchInbox(personaId, listener)), [personaId]);
+	const read = () => (personaId === undefined ? undefined : watched.get(personaId)?.view);
+	return useSyncExternalStore(subscribe, read, read);
+}
+
+/**
+ * One item with its replies (`inbox.item`), read again whenever its
+ * receiver's inbox moves: a receipt, its work thread, or a reply it sent.
+ */
+export function useInboxItem(id: string): { detail: InboxItemDetail | undefined; error: string | null } {
+	const [detail, setDetail] = useState<InboxItemDetail | undefined>(undefined);
+	const [error, setError] = useState<string | null>(null);
+	const view = useInbox(detail?.item.id === id ? detail.item.to : undefined);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the receiver's view moving is what says the item may have.
+	useEffect(() => {
+		let current = true;
+		void wire
+			.command("inbox.item", { id })
+			.then((next) => {
+				if (!current) return;
+				setDetail(next);
+				setError(null);
+			})
+			.catch((failed: unknown) => current && setError(failed instanceof Error ? failed.message : String(failed)));
+		return () => {
+			current = false;
+		};
+	}, [id, view]);
+	return { detail: detail?.item.id === id ? detail : undefined, error };
+}
+
+/** Every item a view knows, by id: what the teammate holds, open and closed, and what it sent. */
+export function itemsOf(view: InboxView | undefined): ReadonlyMap<string, InboxItem> {
+	const items = new Map<string, InboxItem>();
+	if (view === undefined) return items;
+	for (const item of [...view.sent, ...view.closed, ...view.open]) items.set(item.id, item);
+	return items;
+}
+
+/* ----------------------------------------------------------- the words */
+
+/** How an item ended, as one word. */
+export function outcomeWord(outcome: InboxOutcome | undefined): string {
+	switch (outcome) {
+		case "done":
+			return "Done";
+		case "noted":
+			return "Noted";
+		case "dropped":
+			return "Dropped";
+		case "combined":
+			return "Combined";
+		default:
+			return "Closed";
+	}
+}
+
+/** Where an item stands, as its sender's row and the pane say it. */
+export function stateWord(item: InboxItem): string {
+	if (item.held) return "Awaiting approval";
+	switch (item.state) {
+		case "new":
+			return "Sent";
+		case "noticed":
+			return "Noticed";
+		case "seen":
+			return "Seen";
+		case "taken":
+			return "Taken";
+		case "later":
+			return "For later";
+		case "closed":
+			return outcomeWord(item.outcome);
+	}
+}
+
+/** What the sender wants of it, as the pane's facts say it. */
+export function wantsWords(wants: InboxWants): string {
+	switch (wants) {
+		case "answer":
+			return "wants an answer";
+		case "work":
+			return "wants work done";
+		case "nothing":
+			return "wants nothing back";
+	}
+}
+
+/** "2 unread", the composer's chip and the menu's count. */
+export const unreadWords = (count: number): string => `${count > 9 ? "9+" : String(count)} unread`;
+
+/**
+ * Whether the receiver has read the item's words: it was seen, or sorted
+ * after being seen. One closed straight from its title, or dropped while
+ * held, never was.
+ */
+export function wasSeen(item: InboxItem): boolean {
+	if (item.held) return false;
+	if (item.state === "seen" || item.state === "taken" || item.state === "later") return true;
+	return item.receipts.some((receipt) => receipt.state === "seen" || receipt.state === "taken" || receipt.state === "later");
+}
+
+/* ---------------------------------------------------- the sender's rows */
+
+/** Items sent together: one or more `inbox_sent` lines with the same title, side by side on the tape. */
+export type SentGroup = { title: string; sent: InboxSent[] };
+
+/** Recipients by name, three at most and the rest counted: "Juno, Ivy, Huck +2". */
+export function toWords(ids: readonly string[], nameOf: (personaId: string) => string | undefined): string {
+	const names = ids.map((id) => nameOf(id) ?? "a teammate");
+	return names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
+}
+
+/**
+ * Where items sent together stand, from the sender's own view: one item's
+ * state word; for several, the word they share, else how many of them were
+ * seen ("2 of 3 seen"). Nothing while none of them is known yet.
+ */
+export function sentState(group: SentGroup, items: ReadonlyMap<string, InboxItem>): string | undefined {
+	const known = group.sent.flatMap((one) => {
+		const item = items.get(one.item);
+		return item === undefined ? [] : [item];
+	});
+	if (known.length === 0) return undefined;
+	if (group.sent.length === 1) return stateWord(known[0]!);
+	const words = known.map(stateWord);
+	if (known.length === group.sent.length && words.every((word) => word === words[0])) return words[0];
+	return `${known.filter(wasSeen).length} of ${group.sent.length} seen`;
+}
+
+/* ----------------------------------------------------- the sorting card */
+
+/** One entry of a sort as the card draws it. */
+export type SortedRow = {
+	entry: InboxSortedEntry;
+	/** Its place in the order of work: taken and later entries only. */
+	number?: number;
+	/** How deep it is folded: 1 under the entry it was combined into. */
+	depth: number;
+	word: string;
+	/** Taken is said in the accent. */
+	taken: boolean;
+};
+
+/** An entry's state word at the right of its row. */
+export function sortedWord(entry: InboxSortedEntry): string {
+	if (entry.state === "taken") return "Taken";
+	if (entry.state === "later") return "Later";
+	if (entry.state === "closed") return entry.answered === true ? "Answered" : outcomeWord(entry.outcome);
+	return entry.state.charAt(0).toUpperCase() + entry.state.slice(1);
+}
+
+/**
+ * The entries in the order the receiver gave them, each combined one moved
+ * under the entry it was folded into and indented one step; taken and later
+ * entries numbered in that order, the closed ones not. An entry combined
+ * into one not in this sort stands where it was given.
+ */
+export function sortedRows(entries: readonly InboxSortedEntry[]): SortedRow[] {
+	const ids = new Set(entries.map((entry) => entry.item));
+	const parentOf = (entry: InboxSortedEntry): string | undefined =>
+		entry.state === "closed" && entry.outcome === "combined" && entry.into !== undefined && entry.into !== entry.item && ids.has(entry.into) ? entry.into : undefined;
+	const rows: SortedRow[] = [];
+	const placed = new Set<string>();
+	let number = 0;
+	const place = (entry: InboxSortedEntry, depth: number) => {
+		if (placed.has(entry.item)) return;
+		placed.add(entry.item);
+		const numbered = entry.state === "taken" || entry.state === "later";
+		rows.push({ entry, ...(numbered ? { number: ++number } : {}), depth, word: sortedWord(entry), taken: entry.state === "taken" });
+		for (const child of entries) if (parentOf(child) === entry.item) place(child, depth + 1);
+	};
+	for (const entry of entries) if (parentOf(entry) === undefined) place(entry, 0);
+	// Folded into each other in a ring: none had a place, so each stands where it was given.
+	for (const entry of entries) place(entry, 0);
+	return rows;
+}
+
+/** The card's count: "1 taken · 1 for later · 2 closed", nothing for none. */
+export function sortedCounts(entries: readonly InboxSortedEntry[]): string {
+	const taken = entries.filter((entry) => entry.state === "taken").length;
+	const later = entries.filter((entry) => entry.state === "later").length;
+	const closed = entries.filter((entry) => entry.state === "closed").length;
+	return [taken > 0 && `${taken} taken`, later > 0 && `${later} for later`, closed > 0 && `${closed} closed`].filter((part): part is string => part !== false).join(" · ");
+}
+
+/** "Read 4 messages", the card's heading. */
+export const readWords = (count: number): string => `Read ${count} ${count === 1 ? "message" : "messages"}`;
+
+/* ------------------------------------------------------------ the pane */
+
+/** The pane's three segments. */
+export type InboxSegment = "open" | "closed" | "sent";
+
+/** What is open, as the pane groups it: not yet sorted (new, noticed, seen), taken, for later; each newest first. */
+export function openGroups(view: InboxView): { unread: InboxItem[]; taken: InboxItem[]; later: InboxItem[] } {
+	return {
+		unread: view.open.filter((item) => item.state === "new" || item.state === "noticed" || item.state === "seen"),
+		taken: view.open.filter((item) => item.state === "taken"),
+		later: view.open.filter((item) => item.state === "later"),
+	};
+}
+
+/** What the teammate has not read, newest first: the composer's tray. */
+export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.open ?? []).filter((item) => item.state === "new" || item.state === "noticed");
+
+/** The open count as the pane heads it: "2 unread · 1 taken · 1 for later". */
+export function openCounts(view: InboxView): string {
+	const { taken, later } = openGroups(view);
+	return [view.unread > 0 && `${view.unread} unread`, taken.length > 0 && `${taken.length} taken`, later.length > 0 && `${later.length} for later`]
+		.filter((part): part is string => part !== false)
+		.join(" · ");
+}
+
+/** When an item last moved: its newest receipt, or when it was sent. */
+export const movedAt = (item: InboxItem): number => item.receipts.at(-1)?.at ?? item.ts;
+
+/** One line of an item's receipts: when, the state's word, and why where it says. */
+export type ReceiptRow = { at: number; word: string; detail?: string };
+
+/** A receipt's state as a word. */
+function receiptWord(receipt: InboxReceipt): string {
+	switch (receipt.state) {
+		case "new":
+			return "Allowed";
+		case "noticed":
+			return "Noticed";
+		case "seen":
+			return "Seen";
+		case "taken":
+			return "Taken";
+		case "later":
+			return "Later";
+		case "closed":
+			return outcomeWord(receipt.outcome);
+	}
+}
+
+/**
+ * An item's history as the pane's timeline: sent, then every receipt with
+ * its time, a later's reason, a close's outcome and why, and what a
+ * combined one was folded into. Landing in the inbox is the send itself;
+ * landing long after it is the person's first-contact card letting it in.
+ */
+export function receiptRows(item: InboxItem, titleOf: (id: string) => string | undefined = () => undefined): ReceiptRow[] {
+	const rows: ReceiptRow[] = [{ at: item.ts, word: "Sent" }];
+	for (const receipt of item.receipts) {
+		if (receipt.state === "new" && receipt.at - item.ts < LET_IN_AFTER) continue;
+		const into = receipt.into === undefined ? undefined : `into ${titleOf(receipt.into) ?? "another message"}`;
+		const detail = receipt.reason ?? into;
+		rows.push({ at: receipt.at, word: receiptWord(receipt), ...(detail !== undefined && detail !== "" ? { detail } : {}) });
+	}
+	return rows;
+}
+
+/** A first receipt this long after the send was the first-contact card's yes, not the send. */
+const LET_IN_AFTER = 5_000;

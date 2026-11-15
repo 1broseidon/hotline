@@ -12,6 +12,7 @@ import { sends, unlanded, useReturned, useSends } from "../sends";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { useAsides, withAsides } from "../asides";
+import { unreadItems, unreadWords, useInbox } from "../inbox";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -57,6 +58,8 @@ export function Conversation({
 	onDelete,
 	onOpenThread,
 	onOpenThreadList,
+	onOpenInbox,
+	onOpenInboxItem,
 	onOpenWork,
 	workOpen,
 	onOpenProcess,
@@ -97,6 +100,10 @@ export function Conversation({
 	onOpenThread(thread: ThreadRef): void;
 	/** Opens the right-hand pane on this teammate's list of threads. */
 	onOpenThreadList(): void;
+	/** Opens the right-hand pane on this teammate's inbox. */
+	onOpenInbox(): void;
+	/** Opens one inbox item in the right-hand pane. */
+	onOpenInboxItem(itemId: string): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
@@ -207,6 +214,9 @@ export function Conversation({
 		() => liveThreads({ listed, roster, entry, jobs: scheduled, nameOf: (id) => nameIn(roster, listed, id), now: Date.now() }),
 		[listed, roster, entry, scheduled],
 	);
+	/* What the teammate has not read in its inbox, for the composer's chip and its tray. */
+	const inbox = useInbox(personaId);
+	const unread = useMemo(() => unreadItems(inbox), [inbox]);
 	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
 	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
 	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
@@ -299,7 +309,7 @@ export function Conversation({
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-				onOpenSchedules, onDelete, onOpenThreadList, callBar,
+				onOpenSchedules, onDelete, onOpenThreadList, onOpenInbox, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
@@ -335,6 +345,7 @@ export function Conversation({
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={onOpenThread}
 					onOpenThreads={onOpenThreadList}
+					onOpenInboxItem={onOpenInboxItem}
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 					onProviders={onProviders}
@@ -393,6 +404,7 @@ export function Conversation({
 						onOpen: (thread) => onOpenThread(thread.open),
 						onAll: onOpenThreadList,
 					}}
+					inbox={{ items: unread, nameOf: (id) => nameIn(roster, listed, id), onOpen: onOpenInboxItem, onAll: onOpenInbox }}
 					{...(cornered
 						? { corner: <ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} /> }
 						: {})}
@@ -405,10 +417,10 @@ export function Conversation({
 /** The header follows room state and controls, independently of streamed body changes. */
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-	onOpenSchedules, onDelete, onOpenThreadList, callBar,
+	onOpenSchedules, onDelete, onOpenThreadList, onOpenInbox, callBar,
 	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
-	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThreadList"
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThreadList" | "onOpenInbox"
 	| "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
@@ -462,9 +474,11 @@ const ConversationBand = memo(function ConversationBand({
 			inspectorOpen,
 			chapterBusy,
 			unseen: entry.asidesNew ?? 0,
+			unread: entry.inbox ?? 0,
 			onToggleInspector,
 			onStartChapter: startChapter,
 			onOpenThreadList,
+			onOpenInbox,
 					onDelete,
 		}),
 	];
@@ -573,17 +587,23 @@ export function teammateActions({
 	inspectorOpen,
 	chapterBusy,
 	unseen,
+	unread = 0,
 	onToggleInspector,
 	onStartChapter,
 	onOpenThreadList,
+	onOpenInbox,
 	onDelete,
 }: {
 	inspectorOpen: boolean;
 	chapterBusy: boolean;
 	unseen: number;
+	/** How many items in the teammate's inbox it has not read. */
+	unread?: number;
 	onToggleInspector(): void;
 	onStartChapter(): void;
 	onOpenThreadList(): void;
+	/** The teammate's inbox in the pane; left out where there is no pane for it. */
+	onOpenInbox?: (() => void) | undefined;
 	onDelete(): void;
 }): MenuEntry[] {
 	return [
@@ -591,6 +611,8 @@ export function teammateActions({
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: onStartChapter },
 		// Asides are rows of the list, so its new ones are counted here.
 		{ kind: "item", id: "side-list", text: "Threads", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenThreadList },
+		// The inbox beside it, with how many items the teammate has not read.
+		...(onOpenInbox !== undefined ? [{ kind: "item" as const, id: "inbox", text: "Inbox", ...(unread > 0 ? { detail: unreadWords(unread) } : {}), onSelect: onOpenInbox }] : []),
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];

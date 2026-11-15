@@ -209,8 +209,52 @@ arriving here, and files crossing a link.
   in a job's thread (a reply to something a job sent is heard in the main
   conversation).
 - **Relevance**: no score or gate decides which items notify.
-- **The window.** It does not draw the inbox yet: the contract below is what
-  it will read.
+
+## On the desk
+
+The window draws the inbox from the contract below (task-456). The person
+reads; the teammates act: nothing on the desk sends, sorts or answers an
+item, and no chat opens between teammates.
+
+- **Sent rows.** Each `inbox_sent` on a thread is a quiet row like a thread's
+  link: the tray, the title in bold, whom it went to and where it stands now
+  ("To Juno · Taken"). The items one `send` made to several teammates under
+  one title stand side by side on the tape and are one row ("To Juno, Ivy,
+  Huck · 2 of 3 seen", or the word they all share). The state is read live
+  from the sender's `{"inbox"}` subscription, not from the line. A press
+  opens the item in the right-hand pane (`ui/src/inbox.ts`,
+  `components/transcript/InboxLines.tsx`).
+- **The sorting card.** Each `inbox_sorted` on the receiver's main
+  conversation is one raised card: "Read 4 messages", the time, and the
+  counts (taken, for later, closed); then the entries in the order given,
+  taken and later ones numbered, a combined one set in under the one it was
+  folded into, a noted or dropped one marked "–". Each says its title, its
+  sender ("waiting" where the item says the sender stopped for it), any
+  reason, and its state at the right, Taken in the accent. A sort of one
+  item is a quiet row instead. A press opens the item.
+- **The item pane.** Its title; from whom to whom, what it wants, and
+  whether the sender waits; the words; Receipts, a timeline of sent,
+  noticed, seen, taken, later with its reason, closed with its outcome (and
+  "Allowed" when the first-contact card let a held item in); the work thread
+  taking it started, which opens that thread's pane (beside the receiver's
+  conversation when the open teammate's Threads list does not hold it); the
+  item it answers and the items that answer it. A held item says it waits on
+  the first-contact card. Back goes where it was opened from.
+- **The inbox pane.** Open (Unread: new, noticed and seen; Taken; For
+  later), Closed and Sent, newest first, under a line of the open counts. An
+  unsorted item whose sender waits counts how long in amber. It opens from
+  the teammate's menu (Inbox, beside Threads, with "N unread") and from the
+  composer's tray.
+- **The composer and the rail.** While the open teammate has unread items,
+  the composer's bottom row has "N unread" with the tray, beside "N threads"
+  and in its style; it opens a tray of them (title, sender, amber age when
+  the sender waits) with a last row to the whole inbox. A rail row shows the
+  teammate's `inbox` count while it is above zero.
+- **What was removed.** The teammate pane's Threads section, which listed a
+  teammate's conversations with colleagues. Old pair threads and colleague
+  asides still on disk keep rendering where they always did (the Threads
+  list's Pairs and From teammates, `PairPane`, `AsideLine`), and inbound
+  sources' and Loop in's asides still draw as asides.
 
 ## Contract
 

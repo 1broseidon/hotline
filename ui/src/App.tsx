@@ -307,6 +307,17 @@ export function App() {
         } else openDock({ open });
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
+	/* The teammate's inbox, or one item of it, in the thread's place. */
+	const openInbox = useCallback(() => openDock({ open: null, inbox: {} }), [openDock]);
+	const openInboxItem = useCallback((item: string) => openDock({ open: null, inbox: { item } }), [openDock]);
+	/* A thread of another teammate's, opened from an item: beside that teammate's conversation. */
+	const openTeammateThread = useCallback(
+		(personaId: string, open: ThreadRef) => {
+			select(personaId);
+			openDock({ open });
+		},
+		[select, openDock],
+	);
 
 	/* A turn that is over is read in the right-hand pane: its caption opens
 	 * it there, and pressed again with that turn open, closes it. The turn
@@ -672,6 +683,8 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
+							onOpenInbox={openInbox}
+							onOpenInboxItem={openInboxItem}
 							onOpenWork={toggleSelectedWork}
 							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
@@ -721,6 +734,7 @@ export function App() {
 							onWidth={setDockWidth}
 							overlay={dockOverlay}
 							onOpenTeammate={select}
+							onOpenTeammateThread={openTeammateThread}
 						/>
 					)}
 					{/* What floats over the window runs down its right edge: a new version, at the bottom. */}

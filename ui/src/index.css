@@ -2955,6 +2955,19 @@
 		width: 12px;
 		height: 12px;
 	}
+	/* What the teammate has not read in its inbox, beside the threads and in
+	 * their style, led by the tray: "2 unread". */
+	.composer-inbox {
+		gap: 6px;
+		padding: 0 10px;
+	}
+	.composer-inbox-mark {
+		width: 14px;
+		height: 14px;
+	}
+	.composer-inbox-ring {
+		color: var(--accent-ink);
+	}
 	/* Open, they are the pill's first row, as a card waiting on the person
 	 * is: the Threads list's rows under a count, a long list scrolling. */
 	.composer[data-work] > .composer-threads-panel {
@@ -4098,6 +4111,21 @@
 	/* With more than one desk in the rail, each name says its desk, quietly
 	 * after it. A desk that can't be reached keeps its teammates listed, as
 	 * they last were, dimmed. */
+	/* How many items the teammate has not read in its inbox: its own
+	 * unread, so a quiet mint count, not the person's dot. */
+	.rail-inbox {
+		flex-shrink: 0;
+		min-width: 18px;
+		padding: 0 5px;
+		border-radius: 8px;
+		background: var(--accent-soft);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 16px;
+		font-variant-numeric: tabular-nums;
+		text-align: center;
+		color: var(--accent-ink);
+	}
 	.rail-desk {
 		margin-left: 6px;
 		font-weight: 400;
@@ -5054,6 +5082,51 @@
 		line-height: var(--text-xs--line-height);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-4);
+	}
+	/* How long a sender has waited on an item not yet sorted: amber, as what waits is. */
+	.list-when[data-waiting] {
+		color: var(--warn-ink);
+	}
+	/* An inbox item not yet read: its ring in the accent. */
+	.list-row[data-inbox][data-state="new"] .list-mark,
+	.list-row[data-inbox][data-state="noticed"] .list-mark {
+		color: var(--accent-ink);
+	}
+	/* An item's receipts in its pane: the time, the state, and why. */
+	.inbox-receipts {
+		flex-shrink: 0;
+		padding: 2px 16px 8px;
+	}
+	.inbox-receipts li {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		padding: 3px 8px;
+	}
+	.inbox-receipt-at {
+		min-width: 6ch;
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+		color: var(--ink-4);
+	}
+	.inbox-receipt-word {
+		flex-shrink: 0;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 500;
+		color: var(--ink);
+	}
+	.inbox-receipt-detail {
+		min-width: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+		overflow-wrap: anywhere;
 	}
 	.list-when .dock-dot {
 		width: 6px;

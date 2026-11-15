@@ -44,6 +44,8 @@ import { CommandPane, runLink } from "./thread/CommandPane";
 import { CallPane } from "./thread/CallPane";
 import { JobPane } from "./thread/JobPane";
 import { startedWords, threadFamily } from "../threadKinds";
+import { type InboxSegment, useInbox } from "../inbox";
+import { InboxItemPane, InboxList } from "./InboxPane";
 
 /**
  * What the right-hand pane shows: the list, one thread open in it, or a
@@ -54,6 +56,10 @@ import { startedWords, threadFamily } from "../threadKinds";
 export type DockState = {
 	open: ThreadRef | null;
 	work?: { personaId: string; blockId: string | null; stepId?: string };
+	/** The teammate's inbox, on a segment, or one item of it (`item`): in the thread's place. */
+	inbox?: { item?: string; segment?: InboxSegment };
+	/** The page it was opened from, which Back goes to: an item opened from a thread, a thread from an item. */
+	from?: DockState;
 };
 
 /**
@@ -74,12 +80,15 @@ export function Dock({
 	onWidth,
 	overlay,
 	onOpenTeammate,
+	onOpenTeammateThread,
 }: {
 	state: DockState;
 	onState(next: DockState): void;
 	onClose(): void;
 	/** Opens a teammate's conversation: where a handoff is steered, with whoever handed it over. */
 	onOpenTeammate(personaId: string): void;
+	/** Opens another teammate's conversation with one of its threads in the pane; without it, the thread opens here. */
+	onOpenTeammateThread?: ((personaId: string, open: ThreadRef) => void) | undefined;
 	/** Whose threads the pane lists; none when nobody is open. */
 	entry: RosterEntry | null;
 	roster: RosterEntry[];
@@ -114,15 +123,49 @@ export function Dock({
 	const work = state.work !== undefined && entry !== null && entry.persona.id === state.work.personaId ? state.work : undefined;
 	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));
 	const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
-	// Back from a thread opened from a turn's path is the path; from any other, the list.
-	const back: DockState = work === undefined ? { open: null } : { open: null, work };
-	const path = at === null ? work : undefined;
+	// Back from a page opened from another is that page; from a thread opened from a turn's path, the path; from any other, the list.
+	const back: DockState = state.from ?? (work === undefined ? { open: null } : { open: null, work });
+	const path = at === null && state.inbox === undefined ? work : undefined;
+	const inbox = state.inbox;
+	const inboxView = useInbox(inbox !== undefined ? entry?.persona.id : undefined);
+	const workingIds = (entry?.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
+	const working = useMemo(() => new Set(workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
+	/* An item opened from a thread, a list or another item comes back to where it was opened. */
+	const openItem = useCallback((item: string) => onState({ open: null, inbox: { item }, from: state }), [onState, state]);
+	/* The work thread an item started is its receiver's: in the pane here when this teammate's list holds it, else beside the receiver's conversation. */
+	const openWork = (owner: string, thread: ThreadId, title: string) => {
+		if (onOpenTeammateThread === undefined || owner === entry?.persona.id || rows.some((one) => sameThread(one.thread, thread))) onState({ open: { thread, title }, from: state });
+		else onOpenTeammateThread(owner, { thread, title });
+	};
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label={path !== undefined ? "Work" : "Threads"}>
-				{path !== undefined && entry !== null ? (
+			<aside ref={root} className="dock" aria-label={path !== undefined ? "Work" : inbox !== undefined ? "Inbox" : "Threads"}>
+				{inbox !== undefined && entry !== null ? (
+					inbox.item !== undefined ? (
+						<InboxItemPane
+							key={inbox.item}
+							itemId={inbox.item}
+							people={people}
+							onBack={() => onState(state.from ?? { open: null, inbox: {} })}
+							onClose={onClose}
+							onOpenItem={openItem}
+							onOpenThread={openWork}
+						/>
+					) : (
+						<InboxList
+							name={entry.persona.name}
+							view={inboxView}
+							segment={inbox.segment ?? "open"}
+							people={people}
+							working={working}
+							onSegment={(segment) => onState({ open: null, inbox: { segment } })}
+							onOpenItem={(item) => onState({ open: null, inbox: { item }, from: { open: null, inbox: { ...inbox } } })}
+							onClose={onClose}
+						/>
+					)
+				) : path !== undefined && entry !== null ? (
 					<WorkPage
 						key={`${path.blockId ?? "now"}:${path.stepId ?? ""}`}
 						personaId={path.personaId}
@@ -135,7 +178,7 @@ export function Dock({
 						onClose={onClose}
 					/>
 				) : at === null && <DockBand onClose={onClose} />}
-				{path !== undefined ? null : at === null ? (
+				{path !== undefined || inbox !== undefined ? null : at === null ? (
 					<ThreadList
 						key={entry?.persona.id ?? ""}
 						entry={entry}
@@ -165,6 +208,7 @@ export function Dock({
 							roster={roster}
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
+							onOpenInboxItem={openItem}
 							onBack={() => onState(back)}
 							onClose={onClose}
 							onOpenTeammate={onOpenTeammate}
@@ -228,6 +272,7 @@ function ThreadView({
 	roster,
 	onChanged,
 	onOpen,
+	onOpenInboxItem,
 	onBack,
 	onClose,
 	onOpenTeammate,
@@ -245,6 +290,8 @@ function ThreadView({
 	/** The thread was archived or continued: the list reads itself again. */
 	onChanged(): void;
 	onOpen(open: ThreadRef): void;
+	/** Opens an item the thread sent in the pane, with Back here. */
+	onOpenInboxItem(itemId: string): void;
 	onBack(): void;
 	onClose(): void;
 	onOpenTeammate(personaId: string): void;
@@ -395,6 +442,7 @@ function ThreadView({
 						more={more}
 						onEarlier={earlier}
 						onOpenThread={onOpen}
+						onOpenInboxItem={onOpenInboxItem}
 					/>
 				)}
 			</div>

@@ -39,7 +39,10 @@ export type Block =
 	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] }
-	| { kind: "sent"; id: string; ts: number; messages: AgentEvent[]; files: { eventId: string; index: number; file: Attachment }[] };
+	| { kind: "sent"; id: string; ts: number; messages: AgentEvent[]; files: { eventId: string; index: number; file: Attachment }[] }
+	| { kind: "inbox"; id: string; ts: number; title: string; sent: InboxSentEvent[] };
+
+type InboxSentEvent = Extract<TranscriptEvent, { kind: "inbox_sent" }>;
 
 function scheduledOf(block: Block): ScheduledEvent | undefined {
 	if (block.kind !== "event" || block.event.kind !== "user" || block.event.scheduled === undefined) return undefined;
@@ -151,4 +154,32 @@ export function groupSent(blocks: Block[]): Block[] {
 			return { kind: "sent", id: messages[0]!.id, ts: newest.ts, messages, files };
 		},
 	);
+}
+
+function inboxSent(block: Block): InboxSentEvent | undefined {
+	return block.kind === "event" && block.event.kind === "inbox_sent" ? block.event : undefined;
+}
+
+/**
+ * Every item a teammate sent, as one row each `send`: the items one `send`
+ * made, to several teammates under one title, stand side by side on the
+ * tape, and are one block, named by the first. Anything between two of them,
+ * even a turn's end, makes them two rows.
+ */
+export function groupInbox(blocks: Block[]): Block[] {
+	const out: Block[] = [];
+	for (const block of blocks) {
+		const sent = inboxSent(block);
+		if (sent === undefined) {
+			out.push(block);
+			continue;
+		}
+		const last = out[out.length - 1];
+		if (last?.kind === "inbox" && last.title === sent.title && !last.sent.some((one) => one.to === sent.to)) {
+			out[out.length - 1] = { ...last, ts: sent.ts, sent: [...last.sent, sent] };
+			continue;
+		}
+		out.push({ kind: "inbox", id: sent.id, ts: sent.ts, title: sent.title, sent: [sent] });
+	}
+	return out;
 }

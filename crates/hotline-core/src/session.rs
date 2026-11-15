@@ -636,6 +636,10 @@ struct Wired {
     /// The line only wakes the agent to hear the asides left for it, and is
     /// skipped at the door when a turn before it has heard them.
     wake: bool,
+    /// The turn this line begins is quiet: the inbox woke the main
+    /// conversation, so nobody reads its words and only `post_to_chat`
+    /// reaches the person ([`post`]).
+    quiet: bool,
     /// The colleague's question this line's turn answers.
     request: Option<turns::RequestLine>,
 }
@@ -664,6 +668,7 @@ impl Wired {
             unprompted: None,
             retry: false,
             wake: false,
+            quiet: false,
             request: None,
         }
     }

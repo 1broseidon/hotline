@@ -129,6 +129,7 @@ impl Room {
                     unprompted: None,
                     retry: false,
                     wake: false,
+                    quiet: false,
                     request: None,
                 },
                 attachments,

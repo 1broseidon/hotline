@@ -250,7 +250,7 @@ async fn items_that_land_together_wake_an_idle_receiver_once_with_titles_never_b
     );
     assert!(heard.contains("<hotline_inbox>"), "fenced as data: {heard}");
     assert!(!heard.contains("the words of"), "never a body: {heard}");
-    assert!(heard.contains(heard::WAKE_LINE), "{heard}");
+    assert!(heard.contains(heard::QUIET_WAKE_LINE), "{heard}");
     for item in items(&room, "bob") {
         assert_eq!(item.state, InboxState::Noticed);
         assert!(item.offered.is_some());
@@ -830,3 +830,5 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
     .unwrap();
     assert_eq!(team["sent"].as_array().unwrap().len(), 1, "{team}");
 }
+
+mod quiet;

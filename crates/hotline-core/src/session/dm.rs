@@ -29,6 +29,12 @@
 //! - **Posting.** Its turn is open for `post_to_chat`, which refuses it: its
 //!   reply is already the chat ([`super::post`]). A job's firing is a turn of
 //!   its own thread, never the DM's ([`super::job_thread`]).
+//! - **A quiet turn.** A turn the inbox woke (`Wired::quiet`) is read by
+//!   nobody: while it stays quiet the witness writes what the agent says as
+//!   thinking, the path under the turn, streams it as thinking, and tells no
+//!   call and no phone; the turn may post once, as a quiet job's may. The
+//!   person's own line steered into it ends the quiet, and the rest of the
+//!   turn is a reply to them.
 //!
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
@@ -56,6 +62,8 @@ pub(super) struct Hold {
     steered: Vec<Wired>,
     /// The colleague's question this turn answers.
     request: Option<String>,
+    /// The inbox woke the turn: nobody reads it until the person speaks.
+    quiet: bool,
 }
 
 impl Occupant for Session {
@@ -134,6 +142,7 @@ impl Occupant for Session {
             lock(&session.unread).push(said);
         }
         let from_voice = wired.spoken;
+        let quiet = wired.quiet;
         let source = if let Some(unprompted) = &wired.unprompted {
             let Some(updates) = lock(&unprompted.0).take() else {
                 return Begin::Skip;
@@ -195,12 +204,16 @@ impl Occupant for Session {
             from_voice,
             steered: Vec::new(),
             request,
+            quiet,
         })
     }
 
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut Hold) -> Driven {
         let source = held.source.take().expect("a turn is taken once");
         let _posting = room.open_posting(&self.thread(), None);
+        if held.quiet {
+            room.set_quiet(&self.thread(), true);
+        }
         let mut heard = Heard {
             room,
             session: self,
@@ -302,6 +315,12 @@ impl Heard<'_> {
             .clone()
             .filter(|origin| origin.direct)
     }
+
+    /// Whether nobody reads what the agent says now: the inbox woke the
+    /// turn and the person has not spoken into it.
+    fn quiet(&self) -> bool {
+        self.room.is_quiet(&self.session.thread())
+    }
 }
 
 impl Witness for Heard<'_> {
@@ -345,11 +364,13 @@ impl Witness for Heard<'_> {
             // A phone hears a turn's reply once the turn is over
             // ([`Room::send_glance`]), and a question the agent cannot go on
             // without the moment it is asked.
+            // A quiet turn's words are its path: no call says them and no
+            // phone is told them.
             Update::Message {
                 kind: MessageKind::Agent,
                 id,
                 text,
-            } if !text.trim().is_empty() => {
+            } if !text.trim().is_empty() && !self.quiet() => {
                 // narration::Voice has committed this as an acknowledgement or
                 // report. On a call to this teammate it is said now rather than
                 // when tool work ends: the words already said as it streamed
@@ -408,6 +429,8 @@ impl Witness for Heard<'_> {
     }
 
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
+        // A quiet turn's words stream as the thinking they are written as.
+        let muted = muted || self.quiet();
         // Words the window types as they come are said as they come, from
         // what the agent wrote, tags and all; a message that may yet turn out
         // to be narration waits to be whole.
@@ -436,6 +459,14 @@ impl Witness for Heard<'_> {
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {
         let card = if asked { self.card.take() } else { None };
+        // A quiet turn's words are no reply: they are kept as thinking, the
+        // path under the turn, which no rail, phone or call takes as one.
+        let event = match event {
+            TranscriptEvent::Agent { id, ts, text, .. } if self.quiet() => {
+                TranscriptEvent::Thought { id, ts, text }
+            }
+            event => event,
+        };
         self.room.append(self.session, event);
         if let Some((title, waiting)) = card {
             self.room.push.notify(
@@ -482,6 +513,11 @@ impl Room {
             if let Some(said) = wire.said.clone() {
                 lock(&session.unread).push(said);
             }
+        }
+        // A line that is more than an inbox notice is the person's: a quiet
+        // turn they have spoken into answers them out loud from here on.
+        if taken.iter().any(|wire| !wire.wake) {
+            self.set_quiet(&session.thread(), false);
         }
         steered_inputs.extend(taken);
         // A turn that was only waiting on its subagents has a line to

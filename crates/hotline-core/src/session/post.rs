@@ -16,6 +16,13 @@
 //! turn's modality ([`Room::post_to_chat`]). Every turn of a thread's agent
 //! opens a [`Posting`] while it runs, and a call that lands outside one is
 //! refused.
+//!
+//! A turn of the main conversation that the inbox woke is quiet by
+//! construction, as a quiet job is: nobody reads its words, so while it is
+//! quiet ([`Room::is_quiet`]) the DM's witness writes what the agent says as
+//! thinking, tells no phone and no call, and the turn may post once, as a
+//! job's may. The person's own line steered into it ends the quiet, and the
+//! rest of the turn answers them out loud (`session/dm.rs`).
 
 use super::{Room, Wired, lock, new_id, now_ms, timed};
 use crate::contract::{
@@ -40,6 +47,9 @@ pub(super) struct Posting {
     pub(super) credential_sites: std::collections::HashSet<String>,
     /// The job whose thread the turn is on: its posts carry the job's stamp.
     job: Option<ScheduledRun>,
+    /// A main conversation's turn that nobody reads: the inbox woke it, and
+    /// the person has not spoken into it. Its one post is its way to them.
+    quiet: bool,
     posted: bool,
     /// Voice detached while this turn was running; report once it finishes.
     pub(super) detached: bool,
@@ -53,6 +63,7 @@ pub(super) enum Turn {
     /// None is.
     Closed,
     /// The DM's own turn, which the person reads: its reply is the chat.
+    /// A quiet one is not.
     Loud,
     /// A turn whose one post has just been taken, with the job when it is a
     /// job's.
@@ -108,6 +119,7 @@ impl Room {
             Posting {
                 credential_sites: std::collections::HashSet::new(),
                 job,
+                quiet: false,
                 posted: false,
                 detached: false,
                 file_sent: false,
@@ -124,7 +136,8 @@ impl Room {
     /// gate, then [`Room::post`].
     ///
     /// Any thread of the teammate's may post but two. The DM's own turn is
-    /// refused, because its reply is already the chat. A subagent run is
+    /// refused, because its reply is already the chat, unless it is quiet:
+    /// the inbox woke it and nobody reads its words. A subagent run is
     /// refused, because it reports to the agent that launched it, which
     /// decides what the person hears; a job, a subagent on a schedule that
     /// the person asked for, posts. One post a turn, and so one wake; the post goes to
@@ -175,13 +188,14 @@ impl Room {
     }
 
     /// Takes the one post of the turn in flight on `thread`, unless it is
-    /// the DM's own turn, which posts nothing. A second is refused.
+    /// the DM's own turn the person reads, which posts nothing. A second is
+    /// refused.
     pub(super) fn take_post(&self, thread: &ThreadId) -> Result<Turn, String> {
         let mut posting = lock(&self.posting);
         let Some(turn) = posting.get_mut(thread) else {
             return Ok(Turn::Closed);
         };
-        if thread.kind == ThreadKind::Dm {
+        if thread.kind == ThreadKind::Dm && !turn.quiet {
             return Ok(Turn::Loud);
         }
         if turn.posted {
@@ -195,6 +209,22 @@ impl Room {
     pub(super) fn give_post_back(&self, thread: &ThreadId) {
         if let Some(turn) = lock(&self.posting).get_mut(thread) {
             turn.posted = false;
+        }
+    }
+
+    /// Whether the turn in flight on `thread` is quiet: nobody reads its
+    /// words, and only its one post reaches the person.
+    pub(super) fn is_quiet(&self, thread: &ThreadId) -> bool {
+        lock(&self.posting)
+            .get(thread)
+            .is_some_and(|turn| turn.quiet)
+    }
+
+    /// Makes the turn in flight on `thread` quiet, or loud again once the
+    /// person has spoken into it. Nothing for a thread with no turn open.
+    pub(super) fn set_quiet(&self, thread: &ThreadId, quiet: bool) {
+        if let Some(turn) = lock(&self.posting).get_mut(thread) {
+            turn.quiet = quiet;
         }
     }
 

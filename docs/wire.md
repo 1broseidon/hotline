@@ -1092,7 +1092,12 @@ sent from, whose live state is the receiver's; each `update_inbox` is an
 `{kind: "inbox_sorted", id, ts, entries, open, unread}` line on the
 receiver's main conversation, `entries` being `InboxSortedEntry {item, title,
 from, state, reason?, outcome?, into?, answered?}` in the order given. A
-client that does not know either kind skips it.
+client that does not know either kind skips it. A turn of the main
+conversation that the inbox woke while the teammate was idle is quiet: what
+the agent says in it is written as `thought` lines, the turn's path, and
+streams as `thought` deltas, so it moves no preview and pushes nothing; its
+one `post_to_chat` is an ordinary `agent` line. Once the person's line joins
+the turn, the rest of it is a reply as any is.
 
 ## Asides
 

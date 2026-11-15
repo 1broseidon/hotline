@@ -9,9 +9,10 @@
 //! handed: each `CALL <tool> <json>` is one call to one of Hotline's tools,
 //! made in order, and the turn's reply is `RESULTS` with what each came back
 //! with, or what follows `SAY`. The first line with `STALL` holds its first
-//! answer back for [`STALL`], and every line with `HOLD` holds its own. Bob is
-//! on ACP, the fixture child playing the same `CALL` lines over the desk's MCP
-//! server.
+//! answer back for [`STALL`], and every line with `HOLD` holds its own. A line
+//! that only woke its teammate for its inbox plays what the test set as
+//! [`Desk::on_wake`]. Bob is on ACP, the fixture child playing the same `CALL`
+//! lines over the desk's MCP server.
 
 use crate::common::{self, Client, acp_fixture, until};
 use hotline_core::log::{Log, StreamId};
@@ -65,9 +66,17 @@ fn text_of(message: &Value) -> String {
     }
 }
 
+/// What a line that woke a teammate for its inbox says, whichever thread it
+/// woke.
+const WOKEN: &str = "came into your inbox while you were idle";
+
 /// Ada's model: see the module. A subagent's report or the person's answer
 /// coming back is Hotline's data, not a script, so it is never run again.
-async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
+async fn model(
+    request: Value,
+    heard: Arc<Mutex<Vec<String>>>,
+    on_wake: Arc<Mutex<String>>,
+) -> String {
     let messages = request["messages"].as_array().cloned().unwrap_or_default();
     let Some(asked_at) = messages
         .iter()
@@ -75,7 +84,10 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
     else {
         return said("On it.");
     };
-    let asked = common::asked(&text_of(&messages[asked_at]));
+    let mut asked = common::asked(&text_of(&messages[asked_at]));
+    if asked.contains(WOKEN) {
+        asked = format!("{asked}\n{}", on_wake.lock().unwrap());
+    }
     let answered: Vec<String> = messages[asked_at + 1..]
         .iter()
         .filter(|message| message["role"] == "tool")
@@ -132,19 +144,21 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
     said(&words)
 }
 
-/// The model endpoint, and every line it has been handed.
-async fn endpoint() -> (String, Arc<Mutex<Vec<String>>>) {
+/// The model endpoint, every line it has been handed, and what it plays on
+/// a line that woke a teammate for its inbox.
+async fn endpoint() -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<String>>) {
     let heard: Arc<Mutex<Vec<String>>> = Arc::default();
-    let kept = heard.clone();
+    let on_wake: Arc<Mutex<String>> = Arc::default();
+    let (kept, woken) = (heard.clone(), on_wake.clone());
     let app = axum::Router::new().route(
         "/v1/chat/completions",
         axum::routing::post(move |body: axum::body::Bytes| {
-            let heard = kept.clone();
+            let (heard, on_wake) = (kept.clone(), woken.clone());
             async move {
                 let request: Value = serde_json::from_slice(&body).unwrap_or_default();
                 (
                     [("Content-Type", "text/event-stream")],
-                    model(request, heard).await,
+                    model(request, heard, on_wake).await,
                 )
             }
         }),
@@ -152,7 +166,7 @@ async fn endpoint() -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (base, heard)
+    (base, heard, on_wake)
 }
 
 struct Desk {
@@ -160,6 +174,7 @@ struct Desk {
     log: Log,
     workspace: String,
     heard: Arc<Mutex<Vec<String>>>,
+    on_wake: Arc<Mutex<String>>,
     _roots: Vec<TempDir>,
 }
 
@@ -176,7 +191,7 @@ async fn door(root: &Path) -> (Client, Log) {
 }
 
 async fn open() -> Desk {
-    let (base, heard) = endpoint().await;
+    let (base, heard, on_wake) = endpoint().await;
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -195,6 +210,7 @@ async fn open() -> Desk {
         log,
         workspace: workspace.to_string_lossy().into_owned(),
         heard,
+        on_wake,
         _roots: vec![root],
     }
 }
@@ -296,6 +312,22 @@ impl Desk {
 
     fn job_thread(&self, job_id: &str) -> Vec<Value> {
         self.log.load(&StreamId::Job(job_id.to_string()))
+    }
+
+    /// What the model plays from here on when a line woke a teammate for
+    /// its inbox: `CALL` and `SAY` lines, as a person's line would carry.
+    fn on_wake(&self, script: &str) {
+        *self.on_wake.lock().unwrap() = script.to_string();
+    }
+
+    /// The kinds of the lines on `persona_id`'s tape that say `text`.
+    fn kinds_saying(&self, persona_id: &str, text: &str) -> Vec<String> {
+        self.log
+            .load(&StreamId::Tape(persona_id.to_string()))
+            .into_iter()
+            .filter(|event| event["text"] == text)
+            .filter_map(|event| event["kind"].as_str().map(str::to_string))
+            .collect()
     }
 }
 
@@ -460,6 +492,7 @@ async fn a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart() {
         log,
         workspace: first.workspace.clone(),
         heard: first.heard.clone(),
+        on_wake: first.on_wake.clone(),
         _roots: vec![second],
     };
 
@@ -672,5 +705,95 @@ async fn an_item_crosses_the_wire_from_send_to_sort_and_its_answer_comes_back() 
         ada_inbox["open"][0]["replyTo"],
         item.as_str(),
         "{ada_inbox}"
+    );
+}
+
+/// Bob's main conversation, woken by his inbox while he is idle, is quiet
+/// over the wire: nothing he says there is a reply, but thinking on his tape
+/// under the sort's line; his one post is an ordinary message in the chat and
+/// what his roster row shows, and a second is refused. When the person writes
+/// into such a turn, it answers them out loud.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_the_inbox_woke_reaches_the_person_only_by_its_one_post() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": "SAY Morning."}),
+    )
+    .await;
+    desk.posted(&bob, "Morning.").await;
+
+    let item = desk
+        .send(
+            &ada,
+            json!({"to": ["Bob"], "title": "Crane permit", "message": "Is it signed?"}),
+        )
+        .await;
+    let answer = json!({"items": [{"id": item, "answer": "Not yet: it is the person's to sign."}]});
+    let post = "Ada needs the crane permit: it is yours to sign.";
+    desk.on_wake(&format!(
+        "CALL update_inbox {answer}\nCALL post_to_chat {}\nCALL post_to_chat {}",
+        json!({"text": post}),
+        json!({"text": "Again."}),
+    ));
+    let closing = desk.results(StreamId::Tape(bob.clone()), 0).await;
+    assert!(closing.contains("Posted to the chat."), "{closing}");
+    assert!(closing.contains("Already posted"), "{closing}");
+    assert_eq!(
+        desk.kinds_saying(&bob, &closing),
+        ["thought"],
+        "the turn's words are its path"
+    );
+    let tape = desk.log.load(&StreamId::Tape(bob.clone()));
+    assert!(
+        tape.iter().any(|event| event["kind"] == "inbox_sorted"),
+        "the sort is on the conversation"
+    );
+    let replies: Vec<&str> = tape
+        .iter()
+        .filter(|event| event["kind"] == "agent")
+        .filter_map(|event| event["text"].as_str())
+        .collect();
+    assert_eq!(replies, ["Morning.", post], "the post and nothing else");
+    let posted = desk.posted(&bob, post).await;
+    assert!(posted.get("from").is_none(), "{posted}");
+
+    let roster = desk.client.subscribe(json!({"view": "roster"})).await;
+    let rows = desk
+        .client
+        .next_where(common::ANSWER, |frame| {
+            frame["sub"] == roster && frame["snapshot"].is_array()
+        })
+        .await;
+    let row = rows["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["persona"]["id"] == bob.as_str())
+        .cloned()
+        .unwrap();
+    assert_eq!(row["preview"]["text"], post, "{row}");
+
+    // The person writes while the next quiet turn is still thinking: it
+    // answers them.
+    desk.send(
+        &ada,
+        json!({"to": ["Bob"], "title": "Logo colours", "wants": "nothing"}),
+    )
+    .await;
+    desk.on_wake("HOLD SAY Sorted.");
+    until("Bob is woken again", || desk.heard(WOKEN).len() == 2).await;
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": "SAY Here now."}),
+    )
+    .await;
+    desk.posted(&bob, "Here now.").await;
+    assert_eq!(desk.kinds_saying(&bob, "Here now."), ["agent"]);
+    assert!(
+        desk.kinds_saying(&bob, "Sorted.").is_empty(),
+        "the person's line joined the quiet turn, which answered them instead"
     );
 }

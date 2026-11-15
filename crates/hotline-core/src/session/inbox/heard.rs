@@ -6,7 +6,9 @@
 //!
 //! - **Idle.** An item that lands while that thread is idle wakes it once, a
 //!   gather delay later ([`gather_delay`], `HOTLINE_INBOX_GATHER_MS`, 4 s
-//!   by default), so items that land together are heard in one turn.
+//!   by default), so items that land together are heard in one turn. The
+//!   main conversation's turn it wakes is quiet ([`QUIET_WAKE_LINE`]):
+//!   nobody reads its words, and only `post_to_chat` reaches the person.
 //! - **Busy.** An item that lands while a turn runs starts nothing. When the
 //!   gather delay is up the turn in flight in the main conversation is handed
 //!   a one-line notice of the new titles, if its driver takes a line mid-turn
@@ -34,7 +36,14 @@ use std::time::Duration;
 /// lone one behaves as a message. A test's own room gathers faster.
 const GATHER_MS: u64 = if cfg!(test) { 150 } else { 4_000 };
 
-/// What a turn woken only by its inbox is told after the index.
+/// What a main conversation woken only by its inbox is told after the
+/// index. The turn is quiet, as a quiet job's firing is, and its line says
+/// who reads it as that firing's does: nobody, so the person hears only its
+/// one post.
+pub(super) const QUIET_WAKE_LINE: &str = "quiet inbox · New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. Nobody reads what you say in this turn, the person included: they hear only what you post with `post_to_chat`, once this turn. Post when an item's outcome is theirs to know: a result they asked you to get, a decision that is theirs to make, or a problem. A colleague's question you answered, or an item you sorted, is not.";
+
+/// What a work thread or a call woken only by its inbox is told after the
+/// index: the person reads it.
 pub(super) const WAKE_LINE: &str = "New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. What you say here reaches the person, so if nothing needs them, say so in a line.";
 
 /// How long an item waits for others before it wakes an idle receiver.
@@ -150,9 +159,11 @@ impl Room {
                 let Ok(working) = self.lease() else {
                     return;
                 };
+                // The turn it wakes is quiet: nobody reads it.
                 let woken = Wired {
                     wake: true,
-                    ..Wired::words(timed(now_ms(), WAKE_LINE))
+                    quiet: true,
+                    ..Wired::words(timed(now_ms(), QUIET_WAKE_LINE))
                 };
                 let fresh: Vec<&InboxItem> = waiting
                     .iter()

@@ -567,8 +567,9 @@ An agent asks for that door with `post_to_chat(text, wake?)`, one of
 Hotline's own tools, which Hotline Agent calls in process and an ACP child
 over the desk's MCP server, so a quiet job on either driver can be heard. It
 is listed in every session but a subagent run's and gated by the handler,
-not the model: a work thread, a pair and a job may post, once a turn;
-the DM's own turn and a subagent run may not; `wake` hands the post to
+not the model: a work thread, a pair and a job may post, once a turn, and so
+may the DM's quiet turn, one its inbox woke that the person has not written
+into; the DM's own turn and a subagent run may not; `wake` hands the post to
 the DM on a turn of its own when an arm needs the home agent to act. The
 rows are in [security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
 It replaces the quiet run's `tell_person`, which only Hotline Agent offered,
@@ -1206,7 +1207,10 @@ its own, started by its sort and never by the sender, and answers and
 results come back as items in the sender's inbox; the sender is told at its
 next turn what became of each item. Nothing scores items or gates which
 notify, so raw behaviour can be watched, and no chat opens between the two.
-The inbox does not cross a link yet.
+The turn of the main conversation that an idle receiver's inbox wakes is
+quiet by construction, as a quiet job is: its words are the path under the
+turn, not a reply, and only its one `post_to_chat` reaches the person, until
+the person writes into it. The inbox does not cross a link yet.
 
 One directional collaboration approval covers every item, checked when it is
 sent; an item that wants work needs the informed consent a handoff needed,

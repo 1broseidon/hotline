@@ -1467,6 +1467,28 @@ An item is offered once and marked `noticed`; the count stays. Items left
 unread that no turn's start was offered wake the thread when its turn ends,
 by the same rule, so an item wakes its receiver at most once.
 
+**The quiet turn.** The turn of the main conversation that the inbox wakes
+while it is idle is quiet, as a quiet job's firing is, and by construction
+rather than by asking the model (`Wired::quiet`, kept for the turn on its
+`Posting`, `session/post.rs`). Its line begins `quiet inbox` and says who
+reads it: nobody, the person included, who hears only what it posts with
+`post_to_chat`, once that turn, and when to post (an outcome the person asked
+for, a decision that is theirs, a problem; not a colleague's question it
+answered). While the turn is quiet the main conversation's witness
+(`session/dm.rs`) writes what the agent says as `thought` lines, the path
+under the turn, and streams it as thinking, so its words are kept and read
+under the turn on the desk but are no reply: the rail's preview and unread
+count, which read `user` and `agent` lines, do not move, no call says them,
+and no phone is pushed them. Its one post, or one file or image
+(`send_file`, `generate_image`), is the turn's one post under
+`post_to_chat`'s gate, an ordinary message in the chat that lights the rail
+and pushes. The turn runs in the main conversation's own session, with its
+context. The person's own line steered into it ends the quiet: from there it
+answers them out loud, and its post is refused as any loud turn's is. A
+mid-turn notice into a turn the person started changes nothing, and a work
+thread or a call the inbox wakes is told the words reach the person, as
+before.
+
 **Sorting.** `read_inbox` lists open items without their words, or reads the
 ones named whole and marks them `seen`. `update_inbox` sorts several in one
 call, in the order the receiver means to work them: `taken`, `later` with a

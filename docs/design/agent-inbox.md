@@ -58,7 +58,8 @@ These are George's, and the prototype's acceptance criteria.
   by default for an item that wants work, false otherwise. Every entry is
   checked before any moves, so one mistake changes nothing.
 
-`list_teammates`, `post_to_chat` and the rest are unchanged. The lead's voice
+`list_teammates` and the rest are unchanged; `post_to_chat` also takes the
+one post of a quiet turn of the main conversation (below). The lead's voice
 front on a desk call has `send` in place of `message_teammate`, for named
 work only, by the call's grant.
 
@@ -106,6 +107,19 @@ about that thread), else the receiver's main conversation.
   turn. A teammate that is not running is started for it, as one was for a
   colleague's question. The wake line carries titles, senders and waiting
   marks, never bodies.
+- **The quiet turn.** The turn of the main conversation that the inbox wakes
+  is quiet, as a quiet job's firing is ("I think like scheduled tasks it can
+  run quiet and escalate to the user when needed"). Its line begins `quiet
+  inbox` and says who reads it: nobody; the person hears only what it posts
+  with `post_to_chat`, once that turn, which it should when an item's outcome
+  is theirs (a result they asked it to get, a decision that is theirs, a
+  problem) and not for a colleague's question it simply answered. Its words
+  are written as thinking, the path under the turn: no bubble, no unread on
+  the rail, no notification or push, nothing a call says. Its post is an
+  ordinary message from the teammate. It runs in the main conversation's own
+  session and context, never a thread or a clone of its own. The person's
+  line steered into it ends the quiet, and the turn answers them; a work
+  thread or a call the inbox wakes is not quiet.
 - **Busy.** An item that lands mid-turn starts no turn and no work thread.
   When the gather delay is up, the turn in flight in the main conversation is
   handed the one-line notice, steered into it as the person's mid-turn line

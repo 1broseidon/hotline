@@ -1074,15 +1074,19 @@ teammates the same `send` made an item for; it is absent on an item sent to
 one, and on one kept before it was recorded. `state` is `new`, `noticed` (its
 title was put in front of the receiver), `seen` (its words were read),
 `taken`, `later` (with `reason`) or `closed` (with `outcome`: `done`,
-`noted`, `dropped`, or `combined` with `combinedInto`). `receipts` is every
+`noted`, `dropped`, `combined` with `combinedInto`, or `expired`, which only
+the desk sets, three days after an item arrived and was left open). `receipts` is every
 state it has been in with its time. `replyTo` names the item it answers,
 `about` the receiver's thread it is heard in, `work` the work thread taking it
 started and `request` the exchange request that work runs as. `held: true`
 marks one the person's first-contact card has yet to allow, which its
 receiver cannot read (it is not in `open` and not counted), with `files` the
 names it carries meanwhile; a no closes it `dropped`. `loopedIn: true` marks
-the person's Loop in…. `offered` and `senderTold` are the core's own marks of
-what turns have been told.
+the person's Loop in…. `notice: "expired"` marks Hotline's own notice to a
+sender that its item expired (a reply to it; its `from` is the receiver it is
+about, and a window names it as from Hotline); only the desk sets it.
+`offered`, `senderTold` and `offerAgain` (when a pick-up offers it next) are
+the core's own marks of what turns have been told.
 
 `inbox.list` and the `{"inbox": "<personaId>"}` subscription answer the
 teammate's `InboxView`: the subscription sends it as its snapshot and again,

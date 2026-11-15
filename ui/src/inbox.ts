@@ -138,9 +138,19 @@ export function outcomeWord(outcome: InboxOutcome | undefined): string {
 			return "Dropped";
 		case "combined":
 			return "Combined";
+		case "expired":
+			return "Expired";
 		default:
 			return "Closed";
 	}
+}
+
+/**
+ * Who an item is from, as the desk says it: Hotline for the desk's own
+ * notice (an expired item's, marked in its data), else its sender's name.
+ */
+export function senderWords(item: InboxItem, nameOf: (personaId: string) => string | undefined): string {
+	return item.notice !== undefined ? "Hotline" : (nameOf(item.from) ?? "A teammate");
 }
 
 /** Where an item stands, as its sender's row and the pane say it. */

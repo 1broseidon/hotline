@@ -227,6 +227,34 @@ describe("task-456 the pane", () => {
 	});
 });
 
+describe("an item that expired", () => {
+	test("says Expired wherever an outcome is worded: its state, its sort's row and its receipts", () => {
+		const sentAt = NOW - 3 * 86_400_000;
+		const expired = item("x", {
+			ts: sentAt,
+			state: "closed",
+			outcome: "expired",
+			reason: "Not picked up in 3 days.",
+			receipts: [
+				{ state: "new", at: sentAt },
+				{ state: "later", at: sentAt + 60_000, reason: "after the release" },
+				{ state: "closed", at: NOW, outcome: "expired", reason: "Not picked up in 3 days." },
+			],
+		});
+		expect(inbox.outcomeWord("expired")).toBe("Expired");
+		expect(inbox.stateWord(expired)).toBe("Expired");
+		expect(inbox.sortedWord({ item: "x", title: "Title x", from: "chop", state: "closed", outcome: "expired" })).toBe("Expired");
+		expect(inbox.receiptRows(expired).at(-1)).toEqual({ at: NOW, word: "Expired", detail: "Not picked up in 3 days." });
+	});
+
+	test("Hotline's notice of it is from Hotline, by its mark and not its words", () => {
+		const notice = item("n", { from: "juno", to: "chop", title: "Expired: Title x", wants: "nothing", replyTo: "x", notice: "expired" });
+		expect(inbox.senderWords(notice, nameOf)).toBe("Hotline");
+		// A teammate's own title that says "Expired" is still the teammate's.
+		expect(inbox.senderWords(item("f", { title: "Expired: Title x" }), nameOf)).toBe("Pork Chop");
+	});
+});
+
 let act: typeof import("react").act;
 let root: Root | null;
 let container: HTMLDivElement;

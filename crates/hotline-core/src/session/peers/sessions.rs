@@ -118,9 +118,10 @@ impl Room {
                 }
             }
         }
-        // With all that handed on, what each teammate set aside in its inbox
-        // is offered to it once.
-        self.pick_up_at_start();
+        // With all that handed on, what expired while the desk was closed
+        // closes, what each teammate set aside in its inbox is offered to it
+        // once, and the inbox's clock starts.
+        self.inbox_at_start();
     }
 
     /// What follows every sweep: temporary grants whose leases have gone are

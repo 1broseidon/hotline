@@ -78,7 +78,9 @@ impl InboxState {
 /// How a closed item ended: `done` (answered, or its work came back),
 /// `noted` (read, nothing to do), `dropped` (not done, with a reason: the
 /// receiver's, or the person's Stop of its work), `combined` (folded into
-/// another item, `into`, and done with it).
+/// another item, `into`, and done with it), `expired` (left open or for later
+/// too long after it arrived: Hotline closed it, and told its sender; never a
+/// teammate's sort).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -87,6 +89,7 @@ pub enum InboxOutcome {
     Noted,
     Dropped,
     Combined,
+    Expired,
 }
 
 impl InboxOutcome {
@@ -96,14 +99,31 @@ impl InboxOutcome {
             Self::Noted => "noted",
             Self::Dropped => "dropped",
             Self::Combined => "combined",
+            Self::Expired => "expired",
         }
     }
 
     pub fn parse(name: &str) -> Option<Self> {
-        [Self::Done, Self::Noted, Self::Dropped, Self::Combined]
-            .into_iter()
-            .find(|outcome| outcome.name() == name)
+        [
+            Self::Done,
+            Self::Noted,
+            Self::Dropped,
+            Self::Combined,
+            Self::Expired,
+        ]
+        .into_iter()
+        .find(|outcome| outcome.name() == name)
     }
+}
+
+/// What Hotline's own notice in a teammate's inbox is about: never a
+/// teammate's words, and never set by a teammate's tool. `expired`: an item
+/// the teammate sent was closed as expired in its receiver's inbox.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum InboxNotice {
+    Expired,
 }
 
 /// One change of an item's state, when it happened, and why.
@@ -205,6 +225,14 @@ pub struct InboxItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub looped_in: bool,
+    /// Hotline's own notice, not a teammate's words: what it is about. Its
+    /// `from` is the teammate it is about; only the desk sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<InboxNotice>,
+    /// When a pick-up offers it again while it is still set aside: an hour
+    /// after a pick-up first offered it, then a day after each offer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer_again: Option<i64>,
 }
 
 /// A teammate's inbox as the window draws it (`inbox.list`, and the

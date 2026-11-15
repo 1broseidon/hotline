@@ -55,7 +55,8 @@ pub fn unread(log: &Log, persona_id: &str) -> usize {
 }
 
 /// The items `persona_id` sent, out of the inboxes of `teammates`, oldest
-/// first.
+/// first. Hotline's own notices, which name the teammate they are about as
+/// their sender, are not among them: it sent none of them.
 pub fn sent_by<'a>(
     log: &Log,
     persona_id: &str,
@@ -65,7 +66,7 @@ pub fn sent_by<'a>(
         .into_iter()
         .filter(|teammate| *teammate != persona_id)
         .flat_map(|teammate| of(log, teammate))
-        .filter(|item| item.from == persona_id)
+        .filter(|item| item.from == persona_id && item.notice.is_none())
         .collect();
     sent.sort_by_key(|item| item.ts);
     sent

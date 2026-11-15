@@ -10,7 +10,7 @@ use tokio::sync::Semaphore;
 
 /// The pick-ups bob was told: his items are Ada's, and a pick-up of Ada's
 /// own, of a reply from him, is not his.
-fn picked_up(agents: &Fake) -> Vec<String> {
+pub(super) fn picked_up(agents: &Fake) -> Vec<String> {
     agents
         .told()
         .into_iter()
@@ -18,7 +18,7 @@ fn picked_up(agents: &Fake) -> Vec<String> {
         .collect()
 }
 
-fn kinds_of(room: &Room, persona_id: &str, text: &str) -> Vec<String> {
+pub(super) fn kinds_of(room: &Room, persona_id: &str, text: &str) -> Vec<String> {
     room.tape(persona_id)
         .into_iter()
         .filter(|event| event["text"] == text)
@@ -26,26 +26,26 @@ fn kinds_of(room: &Room, persona_id: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
-async fn idle(session: &Session) {
+pub(super) async fn idle(session: &Session) {
     until("idle", || !lock(&session.turns).running).await;
 }
 
 /// The person's turn, held at its first update by the gate.
-async fn persons_turn(room: &Arc<Room>, agents: &Fake, text: &str) {
+pub(super) async fn persons_turn(room: &Arc<Room>, agents: &Fake, text: &str) {
     let before = agents.prompts().len();
     room.prompt("bob", text, None, None).await.unwrap();
     until("the person's turn", || agents.prompts().len() == before + 1).await;
 }
 
 /// Bob sorts, as his model would with `update_inbox`.
-async fn sort(room: &Arc<Room>, entries: Value) -> Value {
+pub(super) async fn sort(room: &Arc<Room>, entries: Value) -> Value {
     tool(room, "bob", "update_inbox", json!({ "items": entries }))
         .await
         .unwrap()
 }
 
 /// Bob, gated, at rest.
-async fn gated(name: &str) -> (Arc<Room>, Arc<Fake>, Arc<Semaphore>, Arc<Session>) {
+pub(super) async fn gated(name: &str) -> (Arc<Room>, Arc<Fake>, Arc<Semaphore>, Arc<Session>) {
     let gate = Arc::new(Semaphore::new(0));
     let (room, agents) = room_on(name, replies().gated(gate.clone()).consuming());
     let session = at_rest(&room, "bob").await;
@@ -53,7 +53,7 @@ async fn gated(name: &str) -> (Arc<Room>, Arc<Fake>, Arc<Semaphore>, Arc<Session
 }
 
 /// One gated turn says its line and ends: two updates.
-const A_TURN: usize = 2;
+pub(super) const A_TURN: usize = 2;
 
 #[test]
 fn a_pick_up_is_armed_only_by_a_turn_that_may_and_goes_stale_once_another_turn_begins() {
@@ -325,7 +325,13 @@ async fn a_stopped_turn_is_followed_by_no_pick_up() {
 
 /// An item `from` sent `to`, kept as `state` without waking anyone: what a
 /// desk that stopped left behind.
-fn left_behind(room: &Room, from: &str, to: &str, title: &str, later: Option<&str>) -> String {
+pub(super) fn left_behind(
+    room: &Room,
+    from: &str,
+    to: &str,
+    title: &str,
+    later: Option<&str>,
+) -> String {
     let sender = room.persona(from).unwrap();
     let mut kept = crate::session::inbox::item(
         &sender,
@@ -351,7 +357,7 @@ fn left_behind(room: &Room, from: &str, to: &str, title: &str, later: Option<&st
 }
 
 /// The pick-ups told to the teammate whose items `from` sent.
-fn picked_up_from(agents: &Fake, from: &str) -> Vec<String> {
+pub(super) fn picked_up_from(agents: &Fake, from: &str) -> Vec<String> {
     agents
         .told()
         .into_iter()
@@ -360,7 +366,7 @@ fn picked_up_from(agents: &Fake, from: &str) -> Vec<String> {
 }
 
 /// The desk opens on the data a stopped one left.
-fn reopened(room: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {
+pub(super) fn reopened(room: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {
     let log = room.log.clone();
     drop(room);
     let agents = Fake::new(replies());

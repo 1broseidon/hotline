@@ -4,7 +4,7 @@ import { asideTime } from "../asides";
 import type { Person } from "../avatars";
 import { stopwatch } from "../dock";
 import { ArrowLeftIcon } from "../icons";
-import { alsoSentWords, type InboxSegment, itemsOf, movedAt, openCounts, openGroups, outcomeWord, receiptRows, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
+import { alsoSentWords, type InboxSegment, itemsOf, movedAt, openCounts, openGroups, outcomeWord, receiptRows, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -151,7 +151,7 @@ function ItemRow({
 	const line = sent
 		? `To ${toWords([item.to], nameOf)} · ${stateWord(item)}`
 		: [
-				nameOf(item.from) ?? "A teammate",
+				senderWords(item, nameOf),
 				waiting && "waiting",
 				item.state === "seen" && "read",
 				item.state === "closed" && outcomeWord(item.outcome),
@@ -229,7 +229,7 @@ export function InboxItemPane({
 					<PaneHead
 						kind={INBOX_KIND}
 						title={item.title}
-						meta={[`${nameOf(item.from)} to ${nameOf(item.to)}`, alsoSentWords(item, (id) => people.get(id)?.name), wantsWords(item.wants), item.waiting === true && `${nameOf(item.from)} is waiting`]}
+						meta={[`${senderWords(item, nameOf)} to ${nameOf(item.to)}`, alsoSentWords(item, (id) => people.get(id)?.name), wantsWords(item.wants), item.waiting === true && `${nameOf(item.from)} is waiting`]}
 					/>
 					{item.held === true && <p className="dock-note">Held for the first-contact card.</p>}
 					{item.body.trim() !== "" && <TaskCard eyebrow="Message" text={item.body} />}
@@ -274,7 +274,7 @@ export function InboxItemPane({
 							<h4 className="pane-section eyebrow">Replies</h4>
 							<div className="px-2 pb-3">
 								{detail!.replies.map((reply) => (
-									<LinkedItem key={reply.id} title={reply.title} line={`${nameOf(reply.from)} · ${asideTime(reply.ts)}`} onOpen={() => onOpenItem(reply.id)} />
+									<LinkedItem key={reply.id} title={reply.title} line={`${senderWords(reply, nameOf)} · ${asideTime(reply.ts)}`} onOpen={() => onOpenItem(reply.id)} />
 								))}
 							</div>
 						</>

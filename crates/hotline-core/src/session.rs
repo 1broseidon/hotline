@@ -797,9 +797,10 @@ pub struct Room {
     /// test can act inside the wait (`session/inbox/pick_up.rs`).
     #[cfg(test)]
     pick_up_delay: Mutex<Option<std::time::Duration>>,
-    /// Whether the desk's opening has offered teammates what they set aside
-    /// (`session/inbox/pick_up.rs`): once per room.
-    picked_up_at_start: std::sync::atomic::AtomicBool,
+    /// Whether the inbox's start has run (`session/inbox/clock.rs`): what
+    /// expired while the desk was closed, what was set aside offered once,
+    /// and the clock started. Once per room.
+    inbox_started: std::sync::atomic::AtomicBool,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
     /// Requests being taken up on a task of their own, by id: each may wait
@@ -1001,7 +1002,7 @@ impl Room {
             inbox_gathers: Mutex::default(),
             #[cfg(test)]
             pick_up_delay: Mutex::new(None),
-            picked_up_at_start: std::sync::atomic::AtomicBool::new(false),
+            inbox_started: std::sync::atomic::AtomicBool::new(false),
             exchange_workers: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
             exchange_admitting: Mutex::new(HashSet::default()),

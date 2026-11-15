@@ -55,8 +55,10 @@ These are George's, and the prototype's acceptance criteria.
   them whole and marks them seen.
 - **`update_inbox`** `items`, a list in the order the receiver means to work
   them. Each entry names an item and sets `state`: `taken`, `later` (with a
-  `reason`), `closed` (with an `outcome`: `done`, `noted` or `dropped`) or
-  `combined` (with `into`, the item it folds into). An entry may carry an
+  `reason`), `closed` (with an `outcome`: `done`, `noted` or `dropped`;
+  `expired` is Hotline's and refused) or `combined` (with `into`, the item it
+  folds into). An entry may not answer Hotline's notice or take it into a
+  thread: there is no colleague behind it. An entry may carry an
   `answer`, which replies and closes the item as done. `in_thread` (with
   `taken`) says whether the work runs in a work thread of the receiver's: true
   by default for an item that wants work, false otherwise. Every entry is
@@ -76,12 +78,15 @@ on an item kept before it was recorded), the title, the
 words (`body`, with where any files landed), `wants`, `waiting`, `replyTo`,
 `about`, its `state`, and every state it has been in with its time
 (`receipts`). Once taken into a thread it names the thread (`work`) and the
-exchange request the work runs as (`request`).
+exchange request the work runs as (`request`). Once a pick-up has offered it
+it carries when it is offered again (`offerAgain`), and Hotline's own notice
+carries what it is about (`notice`).
 
 ```
 new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (done | noted | dropped | combined)
   │        │          │        ▲
   └────────┴──────────┴──▶ later ──┘
+  └────────┴──────────┴──────┴──▶ closed (expired: three days open, by Hotline)
 ```
 
 - `new`: it landed. `noticed`: its title was put in front of the receiver,
@@ -91,8 +96,12 @@ new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (done | no
   `combined` the item folded into) are the receiver's sort. A `later` item can
   be taken or closed afterwards; a closed one is over. A `later` item heard in
   the main conversation, and one there the receiver was shown and left
-  unsorted (`noticed` or `seen`), is offered to it again once, quietly, when
-  the conversation is next idle after a turn (the pick-up, below).
+  unsorted (`noticed` or `seen`), is offered to it again, quietly, when the
+  conversation is next idle after a turn, an hour later, then daily (the
+  pick-up, below).
+- `expired` is Hotline's outcome, never a sort: an item still open (`new`,
+  `noticed`, `seen` or `later`) three days after it arrived closes by itself
+  (the clock, below). A `taken` or held item never expires.
 - An item that the person's first-contact card has yet to allow is kept
   `held`: the receiver cannot read it, and it does not count as unread. A yes
   lets it in as `new`; a no, an expiry or the person's Stop exchange closes it
@@ -181,7 +190,42 @@ about that thread), else the receiver's main conversation.
     had no turn since the desk opened (a turn it had offers by its own end,
     and a never-offered item's wake wins), once per launch, and its turn arms
     nothing: a teammate that defers again waits for its next turn.
+  - **Again, on the items' own time** (`inbox/clock.rs`). Each item a
+    pick-up offers carries when it is offered next, `offerAgain`: an hour
+    after its first pick-up, then a day after each. When that time has come
+    and the main conversation is idle with nothing queued, one quiet pick-up
+    turn offers every item that is due (one not yet due waits). A busy
+    conversation is offered it by the pick-up that follows its turn, which
+    counts as that offer, so it is never offered twice for one time. The
+    times are the items', not a turn's, so the no-loop rule stands: a
+    pick-up's turn arms nothing. A teammate not running is not started for a
+    timed offer; a desk that was closed when one came due makes it at start,
+    by the pick-up at start, which counts as the offer.
   - Work threads and calls have no pick-up.
+- **Expiry** (`inbox/clock.rs`). An item still open three days after it
+  arrived (when it was let in, for one the first-contact card held) closes
+  as `closed`, outcome `expired`, with its receipt and the reason "Not picked
+  up in 3 days.", so its sender's row and `read_inbox list: sent` and the
+  receiver's closed list and the desk's panes say Expired, and the sender is
+  told at its next turn as of any move. The sender also gets one item back,
+  Hotline's notice: a reply to the expired item (`replyTo`), `wants:
+  nothing`, `notice: expired`, from the receiver it is about but shown to
+  teammates as from Hotline, titled `Expired: <title>`, whose words are the
+  desk's ("This is Hotline's notice, not Bob's words…") and give the
+  receiver's last reason for later. It lands as any item does, so an idle
+  sender is woken quietly and decides whether the person needs to know. The
+  receiver is not woken. A notice can expire too, and an expired notice sends
+  none. Notices count on no brake: they are no teammate's message, and they
+  are not among what the receiver sent.
+- **The clock** looks when the desk opens (after the room has handed on what
+  it resumes: what expired while it was closed closes first, then the pick-up
+  at start) and then every 30 seconds.
+- **Switches.** `HOTLINE_INBOX_GATHER_MS` (4000), `HOTLINE_INBOX_MIDTURN`
+  (on), `HOTLINE_INBOX_OFFER_AGAIN_MS` (3600000, an hour after the first
+  pick-up), `HOTLINE_INBOX_OFFER_EVERY_MS` (86400000, a day after each later
+  offer), `HOTLINE_INBOX_EXPIRE_MS` (259200000, three days since it arrived).
+  A unit test's room uses 150 ms, a minute, two minutes and five minutes, and
+  reads the clock at a time it chooses.
 
 ## Taking work, answers and results
 
@@ -303,12 +347,15 @@ item, and no chat opens between teammates.
 - **The item pane.** Its title; from whom to whom, whom else the send
   reached ("also sent to Quill"), what it wants, and whether the sender
   waits; the words; Receipts, a timeline of sent,
-  noticed, seen, taken, later with its reason, closed with its outcome (and
+  noticed, seen, taken, later with its reason, closed with its outcome
+  (Expired, with "Not picked up in 3 days.", for one that expired; and
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's
   conversation when the open teammate's Threads list does not hold it); the
   item it answers and the items that answer it. A held item says it waits on
-  the first-contact card. Back goes where it was opened from.
+  the first-contact card. Hotline's notice is from Hotline, by its mark,
+  wherever an item's sender is named (the pane, its rows, the composer's
+  tray). Back goes where it was opened from.
 - **The inbox pane.** Open (Unread: new, noticed and seen; Taken; For
   later), Closed and Sent, newest first, under a line of the open counts. An
   unsorted item whose sender waits counts how long in amber. It opens from
@@ -341,7 +388,9 @@ Types (`crates/hotline-contract/src/inbox.rs`, generated into
 
 - `InboxItem` as above; `InboxReceipt {state, at, reason?, outcome?, into?}`;
   `InboxState` `new | noticed | seen | taken | later | closed`; `InboxOutcome`
-  `done | noted | dropped | combined`; `InboxWants` `answer | work | nothing`.
+  `done | noted | dropped | combined | expired`; `InboxNotice` `expired`;
+  `InboxWants` `answer | work | nothing`. `InboxItem.notice?` marks Hotline's
+  own notice, `InboxItem.offerAgain?` is when a pick-up offers it next.
 - `InboxView {personaId, open, closed, sent, unread}`: open and closed newest
   first, what the teammate sent others newest first, and its unread count.
 - `InboxItemDetail {item, replies}`: the item with its receipts and its `work`

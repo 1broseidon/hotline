@@ -271,7 +271,7 @@ impl Room {
                 format!(
                     "\"{}\" from {}{}",
                     item.title,
-                    self.name_of(&item.from),
+                    self.sender_of(item),
                     if item.waiting {
                         " (waiting on you)"
                     } else {
@@ -379,7 +379,7 @@ impl Room {
         format!(
             "\"{}\" · from {}{waiting} · wants {} · {}{answers} · {}",
             item.title,
-            self.name_of(&item.from),
+            self.sender_of(item),
             item.wants.name(),
             since(now - item.ts),
             short(&item.id)

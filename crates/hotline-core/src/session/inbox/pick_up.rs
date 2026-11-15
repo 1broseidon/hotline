@@ -24,9 +24,14 @@
 //!   follow a turn something else started. A turn the person stopped or
 //!   interrupted, a cancelled or failed one, arms nothing either, and the
 //!   person's Stop while one waits disarms it.
+//! - **Again, on its own time.** Each item a pick-up offers is marked with
+//!   when it is offered next (`offer_again`: an hour after its first
+//!   pick-up, then a day after each); the clock (`clock.rs`) offers what has
+//!   come due in the same quiet turn ([`Due::Timed`]), and expires what stays
+//!   open three days.
 //! - **Nothing fires** for a teammate that is not running, was removed, or
 //!   whose room is closing; work threads and calls have no pick-up.
-//! - **When the desk opens** ([`Room::pick_up_at_start`]), once the room has
+//! - **When the desk opens** ([`Room::inbox_at_start`]), once the room has
 //!   handed on what it resumes, each teammate with items set aside is offered
 //!   them in the same quiet turn, started for it as the new-item wake starts
 //!   one: a gather delay apart, one teammate after another, so a launch does
@@ -36,6 +41,7 @@
 //!   nothing. Items no turn has been offered are left to their own wake at
 //!   start (`Room::recover_inbox`).
 
+use super::clock;
 use super::heard::{gather_delay, nobody_reads, since};
 use super::{Room, kept, lock, now_ms, short};
 use crate::contract::{InboxItem, InboxState, ThreadId};
@@ -50,7 +56,7 @@ use std::time::Duration;
 pub(super) const PICK_UP_LINE: (&str, &str) = (
     "quiet inbox · You are idle now. These items in your inbox are still open: while you worked you set them aside for later, or were shown them and left them unsorted.",
     concat!(
-        "Pick up what is ready now: read, take, answer or close it with `update_inbox`, and leave for later, with why, what still waits on something. This is the one time they are offered on their own: what you leave open now comes up again only after your next turn that something else starts, or when the desk next opens. ",
+        "Pick up what is ready now: read, take, answer or close it with `update_inbox`, and leave for later, with why, what still waits on something. What you leave open now is offered again an hour after its first offer like this, then daily, and three days after it arrived it closes as expired and its sender is told. ",
         nobody_reads!()
     ),
 );
@@ -63,6 +69,9 @@ enum Due {
     After(u64),
     /// The desk opened: due while the conversation has had no turn.
     AtStart,
+    /// Items whose own time to be offered again (`offer_again`) has come by
+    /// this time (`clock.rs`): due while the conversation is idle.
+    Timed(i64),
 }
 
 /// Whether the main conversation's last turn may be followed by a pick-up,
@@ -106,6 +115,7 @@ impl PickUp {
         match due {
             Due::After(turn) => self.armed == Some(turn),
             Due::AtStart => self.ended == 0,
+            Due::Timed(_) => true,
         }
     }
 }
@@ -165,14 +175,9 @@ impl Room {
 
     /// The desk has opened and handed on what it resumes: each teammate
     /// whose main conversation has items set aside is offered them once, a
-    /// gather delay apart, one after another. Once per room.
-    pub(in crate::session) fn pick_up_at_start(self: &Arc<Self>) {
-        if self
-            .picked_up_at_start
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            return;
-        }
+    /// gather delay apart, one after another ([`Room::inbox_at_start`], once
+    /// per room).
+    pub(super) fn pick_up_at_start(self: &Arc<Self>) {
         let mut after = Duration::ZERO;
         for persona in crate::room::roster(&self.log) {
             if self.set_aside(&persona.id).is_empty() {
@@ -194,9 +199,30 @@ impl Room {
         self.offer_set_aside(persona_id, Due::After(turn)).await;
     }
 
+    /// The items a pick-up that is `due` offers: what is set aside, or for
+    /// a timed one, what of it has come due.
+    fn offered_by(&self, persona_id: &str, due: Due) -> Vec<InboxItem> {
+        let items = self.set_aside(persona_id);
+        match due {
+            Due::Timed(now) => items
+                .into_iter()
+                .filter(|item| item.offer_again.is_some_and(|at| at <= now))
+                .collect(),
+            Due::After(_) | Due::AtStart => items,
+        }
+    }
+
+    /// What set aside has come due to be offered again by `now`
+    /// (`clock.rs`): one quiet turn offers it all.
+    pub(in crate::session) async fn offer_again(self: &Arc<Self>, persona_id: &str, now: i64) {
+        self.offer_set_aside(persona_id, Due::Timed(now)).await;
+    }
+
     /// One quiet turn offers what `persona_id` set aside, if the
     /// conversation is idle, nothing is queued and `due` still holds. Only
-    /// the pick-up at start starts a teammate that is not running.
+    /// the pick-up at start starts a teammate that is not running. Each item
+    /// it offers is due to be offered again an hour after its first pick-up,
+    /// then a day after each.
     async fn offer_set_aside(self: &Arc<Self>, persona_id: &str, due: Due) {
         if self.closing() || self.persona(persona_id).is_err() {
             return;
@@ -207,7 +233,7 @@ impl Room {
                 .unoffered(persona_id, &ThreadId::dm(persona_id))
                 .is_empty()
         };
-        if unoffered(self) || self.set_aside(persona_id).is_empty() {
+        if unoffered(self) || self.offered_by(persona_id, due).is_empty() {
             return;
         }
         if matches!(due, Due::AtStart)
@@ -222,14 +248,7 @@ impl Room {
         if !session.answering(self) || unoffered(self) {
             return;
         }
-        // Items no turn has been offered wake it by their own rule.
-        if !self
-            .unoffered(persona_id, &ThreadId::dm(persona_id))
-            .is_empty()
-        {
-            return;
-        }
-        let items = self.set_aside(persona_id);
+        let items = self.offered_by(persona_id, due);
         if items.is_empty() {
             return;
         }
@@ -253,6 +272,23 @@ impl Room {
             }
         };
         if let Some(line) = claimed {
+            let offered_at = match due {
+                Due::Timed(now) => now,
+                Due::After(_) | Due::AtStart => now_ms(),
+            };
+            for item in &items {
+                self.change_item(persona_id, &item.id, |kept| {
+                    kept.offer_again = Some(
+                        offered_at
+                            + if kept.offer_again.is_none() {
+                                clock::again_after_first()
+                            } else {
+                                clock::again_every()
+                            },
+                    );
+                    true
+                });
+            }
             let room = self.clone();
             tokio::spawn(async move {
                 let _working = working;
@@ -302,7 +338,7 @@ impl Room {
         format!(
             "\"{}\" · from {}{waiting} · wants {} · {}{answers} · {stands} · {}",
             item.title,
-            self.name_of(&item.from),
+            self.sender_of(item),
             item.wants.name(),
             since(now - item.ts),
             short(&item.id)

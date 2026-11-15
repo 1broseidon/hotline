@@ -1163,3 +1163,201 @@ async fn a_desk_that_opens_offers_what_was_left_for_later_once() {
     );
     assert!(desk.heard(WOKEN).is_empty(), "{:?}", desk.heard(WOKEN));
 }
+
+/// One item Bob left for later, as a stopped desk kept it.
+fn left_for_later(
+    id: &str,
+    from: &str,
+    to: &str,
+    title: &str,
+    ts: i64,
+    offer_again: Option<i64>,
+) -> Value {
+    let mut item = json!({
+        "kind": "inbox_item", "id": id, "ts": ts, "from": from,
+        "fromThread": {"kind": "dm", "key": from}, "to": to, "title": title,
+        "body": format!("About {title}."), "wants": "answer", "state": "later",
+        "reason": "after the research",
+        "receipts": [
+            {"state": "new", "at": ts},
+            {"state": "later", "at": ts, "reason": "after the research"},
+        ],
+        "offered": ts, "senderTold": 0,
+    });
+    if let Some(at) = offer_again {
+        item["offerAgain"] = json!(at);
+    }
+    item
+}
+
+/// A desk that opens with one item of Bob's open three days and one due to
+/// be offered again closes the first as expired, once, with its receipt;
+/// Ada, its sender, gets Hotline's marked notice and is woken quietly by it;
+/// Bob is offered the other once and not the expired one; nothing more
+/// follows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_desk_that_opens_with_overdue_items_expires_one_once_and_offers_the_other_once() {
+    let mut first = open().await;
+    let ada = first.teammate("Ada", false).await;
+    let bob = first.teammate("Bob", false).await;
+    let second = tempfile::tempdir().unwrap();
+    std::fs::copy(
+        first.log.root().join("room.jsonl"),
+        second.path().join("room.jsonl"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(second.path().join("inbox")).unwrap();
+    let old = "0ld00000-0000-4000-8000-000000000001";
+    let due = "due00000-0000-4000-8000-000000000002";
+    let kept = [
+        left_for_later(
+            old,
+            &ada,
+            &bob,
+            "Old crane",
+            now() - 3 * 86_400_000 - 60_000,
+            None,
+        ),
+        left_for_later(
+            due,
+            &ada,
+            &bob,
+            "Keyboards",
+            now() - 7_200_000,
+            Some(now() - 60_000),
+        ),
+    ];
+    std::fs::write(
+        second.path().join("inbox").join(format!("{bob}.jsonl")),
+        kept.iter()
+            .map(|item| format!("{item}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    let (client, log) = door(second.path()).await;
+    let mut desk = Desk {
+        client,
+        log,
+        workspace: first.workspace.clone(),
+        heard: first.heard.clone(),
+        scripts: first.scripts.clone(),
+        _roots: vec![second],
+    };
+    desk.on_pick_up("SAY Not yet.");
+    let bobs = |desk: &Desk| -> Vec<String> {
+        desk.heard(PICKED_UP)
+            .into_iter()
+            .filter(|line| line.contains("from Ada"))
+            .collect()
+    };
+    until("Bob is offered what is still open", || {
+        bobs(&desk).len() == 1
+    })
+    .await;
+    let line = &bobs(&desk)[0];
+    assert!(line.contains("\"Keyboards\""), "{line}");
+    assert!(!line.contains("Old crane"), "not what expired: {line}");
+    let detail = desk.ok("inbox.item", json!({"id": old})).await;
+    assert_eq!(detail["item"]["state"], "closed", "{detail}");
+    assert_eq!(detail["item"]["outcome"], "expired", "{detail}");
+    assert_eq!(
+        detail["item"]["receipts"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["outcome"],
+        "expired"
+    );
+    let adas = desk.ok("inbox.list", json!({"personaId": ada})).await;
+    let notices: Vec<&Value> = adas["open"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(adas["closed"].as_array().unwrap())
+        .filter(|item| item["notice"] == "expired")
+        .collect();
+    assert_eq!(notices.len(), 1, "{adas}");
+    assert_eq!(notices[0]["replyTo"], old);
+    assert_eq!(notices[0]["wants"], "nothing");
+    assert!(
+        notices[0]["body"]
+            .as_str()
+            .unwrap()
+            .starts_with("This is Hotline's notice, not Bob's words."),
+        "{}",
+        notices[0]
+    );
+    // The line that woke her is the inbox's quiet one, and the notice was
+    // in its index, offered to that turn.
+    let notice = notices[0]["id"].as_str().unwrap().to_string();
+    until("Ada is woken by it, quietly", || {
+        !desk.heard(WOKEN).is_empty()
+            && desk
+                .item(&ada, &notice)
+                .is_some_and(|item| item["offered"].is_i64())
+    })
+    .await;
+    assert!(
+        desk.heard(WOKEN)[0].contains("quiet inbox · "),
+        "{:?}",
+        desk.heard(WOKEN)
+    );
+    tokio::time::sleep(GATHER * 2 + Duration::from_secs(1)).await;
+    assert_eq!(bobs(&desk).len(), 1, "{:?}", bobs(&desk));
+    assert_eq!(
+        desk.ok("inbox.list", json!({"personaId": ada})).await["open"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(
+                desk.ok("inbox.list", json!({"personaId": ada})).await["closed"]
+                    .as_array()
+                    .unwrap()
+            )
+            .filter(|item| item["notice"] == "expired")
+            .count(),
+        1,
+        "one notice"
+    );
+    assert!(
+        desk.chat(&ada).is_empty(),
+        "nothing reached the person's chat"
+    );
+}
+
+/// Over the wire, a teammate cannot close an item as expired, and nothing
+/// it sends carries Hotline's mark.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_teammate_cannot_set_expired_or_forge_hotlines_notice() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let item = desk
+        .send(&ada, json!({"to": ["Bob"], "title": "Keyboards"}))
+        .await;
+    let expire = json!({"items": [{"id": item, "state": "closed", "outcome": "expired"}]});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": format!("CALL update_inbox {expire}")}),
+    )
+    .await;
+    let refused = desk.results(StreamId::Tape(bob.clone()), 0).await;
+    assert!(refused.contains("done, noted or dropped"), "{refused}");
+    assert_ne!(desk.state_of(&item).await, "closed");
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL send {}", json!({"to": ["Bob"], "title": "Expired: Keyboards", "notice": "expired"}))}),
+    )
+    .await;
+    desk.results(StreamId::Tape(ada.clone()), 1).await;
+    let listed = desk.ok("inbox.list", json!({"personaId": bob})).await;
+    assert!(
+        listed["open"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(listed["closed"].as_array().unwrap())
+            .all(|item| item.get("notice").is_none()),
+        "{listed}"
+    );
+}

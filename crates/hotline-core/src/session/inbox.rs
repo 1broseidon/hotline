@@ -37,6 +37,7 @@ use crate::store::inbox as kept;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+mod clock;
 mod heard;
 mod pick_up;
 
@@ -49,6 +50,9 @@ pub(crate) const TITLE_CHARS: usize = 80;
 /// How much of an item's id the index and the notices show. Any part of an
 /// id that names one item alone is taken wherever an id is.
 const SHORT_ID: usize = 8;
+
+/// Who Hotline's own notices are from, as a teammate is told it.
+const HOTLINE: &str = "Hotline";
 
 /// What `to` may say for every teammate on this desk but the sender.
 const TEAM: [&str; 3] = ["team", "everyone", "all"];
@@ -200,7 +204,11 @@ impl Sorting {
                     Some("closed") => {
                         let outcome = text("outcome")
                             .and_then(|outcome| InboxOutcome::parse(&outcome))
-                            .filter(|outcome| *outcome != InboxOutcome::Combined)
+                            // `combined` has its own state, and `expired` is
+                            // Hotline's, never a teammate's.
+                            .filter(|outcome| {
+                                !matches!(outcome, InboxOutcome::Combined | InboxOutcome::Expired)
+                            })
                             .ok_or("A closed item needs an `outcome`: done, noted or dropped.")?;
                         Some(Sort::Closed(outcome))
                     }
@@ -302,6 +310,8 @@ fn item(
         offered: None,
         sender_told: 0,
         looped_in: false,
+        notice: None,
+        offer_again: None,
     }
 }
 
@@ -733,7 +743,7 @@ impl Room {
         let mut shown = json!({
             "id": short(&item.id),
             "title": item.title,
-            "from": self.name_of(&item.from),
+            "from": self.sender_of(item),
             "wants": item.wants.name(),
             "state": item.state.name(),
             "age": heard::since(now - item.ts),
@@ -768,6 +778,9 @@ impl Room {
         if let Some(reply_to) = &item.reply_to {
             shown["replyTo"] = json!(short(reply_to));
         }
+        if let Some(notice) = item.notice {
+            shown["notice"] = json!(notice);
+        }
         if let Some(about) = &item.about {
             shown["about"] = json!(super::index::short(about));
         }
@@ -775,6 +788,16 @@ impl Room {
             shown["work"] = json!(super::index::short(work));
         }
         shown
+    }
+
+    /// Who an item is from, as a teammate is told it: Hotline for the desk's
+    /// own notice, else the sender's name.
+    pub(super) fn sender_of(&self, item: &InboxItem) -> String {
+        if item.notice.is_some() {
+            HOTLINE.to_string()
+        } else {
+            self.name_of(&item.from)
+        }
     }
 
     /// A teammate by the name it is shown by, or its id when it is gone.
@@ -805,6 +828,15 @@ impl Room {
         }
         let resolved = self.resolve_sortings(persona_id, sortings)?;
         for (item, sorting) in &resolved {
+            if item.notice.is_some()
+                && (sorting.answer.is_some() || sorting.in_thread == Some(true))
+            {
+                return Err(format!(
+                    "{}: that is Hotline's notice, not a colleague's message, so there is nobody to answer or hand work to. Close it, or send {} a new item. Nothing was sorted.",
+                    short(&item.id),
+                    self.name_of(&item.from)
+                ));
+            }
             if sorting.answer.is_some()
                 && let Some(key) = thread_key(&me.id, &item.from)
                 && self.brake_holds(&key)

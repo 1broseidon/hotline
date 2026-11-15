@@ -3,7 +3,7 @@ import type { InboxItem } from "../generated/contract";
 import { asideTime } from "../asides";
 import { stopwatch } from "../dock";
 import { ChevronRightIcon, InboxIcon } from "../icons";
-import { unreadWords } from "../inbox";
+import { senderWords, unreadWords } from "../inbox";
 
 /**
  * The composer's count of what the teammate has not read in its inbox,
@@ -88,7 +88,7 @@ export function InboxPanel({
 			<ul>
 				{items.map((item) => {
 					const waiting = item.waiting === true;
-					const from = nameOf(item.from) ?? "A teammate";
+					const from = senderWords(item, nameOf);
 					const when = waiting ? stopwatch(now - item.ts) : asideTime(item.ts, now);
 					return (
 						<li key={item.id}>

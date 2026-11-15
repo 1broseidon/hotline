@@ -1492,6 +1492,29 @@ is not running, while its conversation is idle, nothing is queued and it has
 had no turn yet; never-offered items still wake by their own rule
 (`recover_inbox`), which wins.
 
+**The clock** (`inbox/clock.rs`). A pick-up marks each item it offers with
+when it is offered next (`offerAgain`): an hour after its first pick-up
+(`HOTLINE_INBOX_OFFER_AGAIN_MS`), then a day after each
+(`HOTLINE_INBOX_OFFER_EVERY_MS`). `Room::inbox_at_start`, which
+`recover_exchanges` ends with, closes what expired while the desk was closed,
+runs the pick-up at start, and starts a task that reads the clock every 30
+seconds (`Room::inbox_due`): what has expired closes, and each teammate whose
+main conversation is idle with nothing queued is offered, in one quiet
+pick-up turn (`Due::Timed`), every set-aside item whose time has come. A busy
+conversation is offered it by its turn's own pick-up, which marks it anew, so
+nothing is offered twice for one time; a teammate not running is not started
+for it. An item still open (`new`, `noticed`, `seen`, `later`) three days
+after it arrived (`HOTLINE_INBOX_EXPIRE_MS`) closes as `expired`, with its
+receipt; `taken` and held items never do. Its sender gets one item back,
+Hotline's notice (`notice: expired`, `replyTo` the item, `wants: nothing`,
+from the receiver, shown to teammates as from Hotline, the desk's words with
+the receiver's last reason for later), which lands as any item and so wakes
+an idle sender quietly; the receiver is not woken. An expired notice sends
+no notice. Only the clock sets the mark or the outcome: `update_inbox`
+refuses `expired` and will not answer a notice or take it into a thread, and
+`send` and answers build items with no mark. Notices count on no brake and
+are not among the receiver's sent items (`store::inbox::sent_by`).
+
 **The quiet turn.** The turn of the main conversation that the inbox wakes
 while it is idle is quiet, as a quiet job's firing is, and by construction
 rather than by asking the model (`Wired::quiet`, kept for the turn on its
@@ -1515,7 +1538,7 @@ thread or a call the inbox wakes is told the words reach the person, as
 before.
 
 **Sorting.** `read_inbox` lists open items without their words, or, with
-`list`, the newest 20 closed ones (with their outcome) or the newest 20 the
+`list`, the newest 20 closed ones (with their outcome, `expired` among them) or the newest 20 the
 teammate sent (with whom each went to and where it stands now, and since
 when), or reads the ones named whole and marks them `seen`. `update_inbox` sorts several in one
 call, in the order the receiver means to work them: `taken`, `later` with a

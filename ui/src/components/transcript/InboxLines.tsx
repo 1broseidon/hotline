@@ -1,9 +1,9 @@
-import { type CSSProperties, createContext, useContext } from "react";
+import { createContext, useContext } from "react";
 import type { InboxItem } from "../../generated/contract";
-import { asideTime } from "../../asides";
 import type { Person } from "../../avatars";
-import { InboxIcon } from "../../icons";
-import { type InboxSent, type InboxSorted, readWords, sentState, sortedCounts, sortedRows, toWords } from "../../inbox";
+import { ChevronRightIcon, InboxIcon } from "../../icons";
+import { type InboxSent, type InboxSorted, readWords, sentState, sortedWord, toWords } from "../../inbox";
+import { FoldLine } from "./Trail";
 
 /**
  * What the inbox rows of a conversation read: every item the teammate's own
@@ -60,91 +60,42 @@ export function InboxSentRow({ title, sent, people }: { title: string; sent: Inb
 }
 
 /**
- * The receiver's sort of what it read, on its main conversation: one card,
- * "Read 4 messages" with the time and the counts, then each entry in the
- * order given, taken and later ones numbered, one combined into another
- * indented under it. Each says its title, its sender (waiting, when the item
- * says the sender stopped for it), and its state at the right, with the
- * reason a later or a drop gave. A sort of one item is a quiet row instead.
- * A press opens the item in the pane.
+ * The receiver's sort of what it read, on its main conversation: one quiet
+ * line among the turn's, "Read 3 messages", drawn as a path line is
+ * (Trail.tsx's FoldLine). Pressed, it unfolds to a row per item in the order
+ * given: its title, its sender and a later's reason in the muted ink, and
+ * what became of it at the right ("Answered", "Later", "Noted"). A press on
+ * a row opens the item in the pane.
  */
-export function InboxSortedCard({ event, people }: { event: InboxSorted; people: ReadonlyMap<string, Person> | undefined }) {
-	const { items, onOpen } = useContext(InboxRows);
+export function InboxSortedLine({ event, people }: { event: InboxSorted; people: ReadonlyMap<string, Person> | undefined }) {
+	const { onOpen } = useContext(InboxRows);
 	const nameOf = (id: string) => people?.get(id)?.name ?? "A teammate";
-	const rows = sortedRows(event.entries);
-	if (rows.length === 1) {
-		const { entry, word } = rows[0]!;
-		const said = `· From ${nameOf(entry.from)} · ${word}${entry.reason !== undefined && entry.reason !== "" ? `: ${entry.reason}` : ""}`;
-		const words = (
-			<>
-				<InboxIcon className="inbox-row-mark" />
-				<span className="link-row-words">
-					<span className="link-row-title">{entry.title}</span>
-					<span className="link-row-outcome">{said}</span>
-				</span>
-			</>
-		);
-		return onOpen === undefined ? (
-			<p className="link-row" data-kind="inbox-sorted">
-				{words}
-			</p>
-		) : (
-			<button type="button" className="link-row" data-kind="inbox-sorted" aria-label={`Read: ${entry.title} ${said}. Open it`} onClick={() => onOpen(entry.item)}>
-				{words}
-				<span className="link-row-open">Open ›</span>
-			</button>
-		);
-	}
-	const counts = sortedCounts(event.entries);
 	return (
-		<section className="inbox-sorted" aria-label={`${readWords(rows.length)}, ${counts}`}>
-			<header className="inbox-sorted-head">
-				<span className="inbox-sorted-title">
-					<InboxIcon />
-					{readWords(rows.length)}
-				</span>
-				<span>{asideTime(event.ts)}</span>
-				<span className="inbox-sorted-counts">{counts}</span>
-			</header>
-			<ol>
-				{rows.map((row) => {
-					const { entry } = row;
-					const waiting = items.get(entry.item)?.waiting === true;
-					const line = [nameOf(entry.from), waiting && "waiting", entry.reason].filter((part): part is string => typeof part === "string" && part !== "").join(" · ");
-					const body = (
-						<>
-							<span className="list-mark" aria-hidden="true">
-								{row.number ?? (row.depth > 0 ? "" : "–")}
-							</span>
-							<span className="min-w-0 flex-1">
-								<span className="list-title">
-									<span className="list-title-text">{entry.title}</span>
-								</span>
-								<span className="list-line">{line}</span>
-							</span>
-							<span className="list-when" data-taken={row.taken || undefined}>
-								{row.word}
-							</span>
-						</>
-					);
+		<ol className="trail my-2" data-kind="inbox-sorted">
+			<FoldLine id={event.id} said={readWords(event.entries.length)}>
+				{event.entries.map((entry) => {
+					const muted = [nameOf(entry.from), entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
+					const word = sortedWord(entry);
 					return (
-						<li key={entry.item} data-depth={row.depth || undefined} style={row.depth > 0 ? ({ "--depth": row.depth } as CSSProperties) : undefined}>
-							{onOpen === undefined ? (
-								<div className="list-row">{body}</div>
-							) : (
-								<button
-									type="button"
-									className="list-row"
-									aria-label={`${row.number !== undefined ? `${row.number}. ` : ""}${entry.title}, ${line}, ${row.word}`}
-									onClick={() => onOpen(entry.item)}
-								>
-									{body}
-								</button>
-							)}
-						</li>
+						<button
+							key={entry.item}
+							type="button"
+							className="trail-row"
+							data-inbox={entry.item}
+							aria-label={`${entry.title}, ${muted}, ${word}${onOpen !== undefined ? ". Open it" : ""}`}
+							disabled={onOpen === undefined}
+							onClick={() => onOpen?.(entry.item)}
+						>
+							<span className="trail-page">
+								{entry.title}
+								<span className="text-ink-3"> · {muted}</span>
+							</span>
+							<span className="trail-meta">{word}</span>
+							{onOpen !== undefined && <ChevronRightIcon className="shrink-0 text-ink-3" />}
+						</button>
 					);
 				})}
-			</ol>
-		</section>
+			</FoldLine>
+		</ol>
 	);
 }

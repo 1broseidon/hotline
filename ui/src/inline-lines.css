@@ -876,74 +876,18 @@
 	}
 
 	/* ---------------------------------------------------------- inbox
-	 * An item a teammate sent, or a sort of one, as a link row: the tray in
-	 * the accent where the dot stands, the title in the ink, and where it
-	 * stands now. */
+	 * An item a teammate sent, as a link row: the tray in the accent where
+	 * the dot stands, the title in the ink, and where it stands now. */
 	.inbox-row-mark {
 		width: 14px;
 		height: 14px;
 		flex-shrink: 0;
 		color: var(--accent-ink);
 	}
-	.link-row[data-kind^="inbox"] .link-row-title,
+	.link-row[data-kind="inbox"] .link-row-title,
 	.link-row[data-inbox] .link-row-title {
 		font-weight: 600;
 		color: var(--ink);
-	}
-	/* A sort of several items: one raised card, its heading in the
-	 * instrument face, then the entries in the receiver's order, a combined
-	 * one set in under the one it was folded into. */
-	.inbox-sorted {
-		margin: 8px 0;
-		padding: 4px 4px 4px;
-		border-radius: var(--radius-card);
-		background: var(--raised);
-		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
-	}
-	.inbox-sorted-head {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 6px 8px 4px;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		letter-spacing: 0.04em;
-		color: var(--ink-3);
-		white-space: nowrap;
-	}
-	.inbox-sorted-title {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		color: var(--accent-ink);
-	}
-	.inbox-sorted-title svg {
-		width: 14px;
-		height: 14px;
-	}
-	.inbox-sorted-counts {
-		min-width: 0;
-		margin-left: auto;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.inbox-sorted .list-mark {
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-	}
-	.inbox-sorted li[data-depth] .list-row {
-		padding-left: calc(8px + var(--depth, 1) * 24px);
-	}
-	.inbox-sorted li[data-depth] .list-title {
-		font-weight: 400;
-		color: var(--ink-2);
-	}
-	.inbox-sorted .list-when {
-		color: var(--ink-3);
-	}
-	.inbox-sorted .list-when[data-taken] {
-		color: var(--accent-ink);
 	}
 }
 

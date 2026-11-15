@@ -244,20 +244,24 @@ item, and no chat opens between teammates.
   from the sender's `{"inbox"}` subscription, not from the line. A press
   opens the item in the right-hand pane (`ui/src/inbox.ts`,
   `components/transcript/InboxLines.tsx`).
-- **The sorting card.** Each `inbox_sorted` on the receiver's main
-  conversation is one raised card: "Read 4 messages", the time, and the
-  counts (taken, for later, closed); then the entries in the order given,
-  taken and later ones numbered, a combined one set in under the one it was
-  folded into, a noted or dropped one marked "–". Each says its title, its
-  sender ("waiting" where the item says the sender stopped for it), any
-  reason, and its state at the right, Taken in the accent. A sort of one
-  item is a quiet row instead. A press opens the item.
+- **The sort's line.** Each `inbox_sorted` on the receiver's main
+  conversation is one quiet line where it fell, "Read 3 messages" ("Read 1
+  message"), drawn as a line of a turn's path is (the dot, the words, the
+  chevron; `FoldLine` in `components/transcript/Trail.tsx`, which the
+  path's "Started 4 helpers" line also is). Pressed, it unfolds to a plain
+  row per item in the order given: its title, its sender and a later's
+  reason in the muted ink, and what became of it at the right (Taken,
+  Later, Answered, Noted, Dropped, Combined). No card, header, counts or
+  numbering. A press on a row opens the item. Work a sort took is its own
+  work-thread row (below).
 - **A quiet turn.** The turn the inbox woke draws as path, not as a reply:
-  its sorting card (or row) and its sent rows where they fell, its tool rows
-  and its words, as thinking, in the turn's collapsed steps under them, the
-  line any turn's steps have, and no bubble unless it posted. A turn that
-  ends without a new line in the chat posts no desktop toast
-  (`ui/src/notify.ts`).
+  its sort's line and its sent rows where they fell, its tool rows and its
+  words, as thinking, in the turn's collapsed steps under them, the line any
+  turn's steps have, and no bubble unless it posted. A sort in the middle of
+  a turn the person started is the same one line where it fell, above the
+  reply; it does not split the turn's steps, which stay one run under the
+  reply. A turn that ends without a new line in the chat posts no desktop
+  toast (`ui/src/notify.ts`).
 - **The item pane.** Its title; from whom to whom, whom else the send
   reached ("also sent to Quill"), what it wants, and whether the sender
   waits; the words; Receipts, a timeline of sent,

@@ -222,21 +222,9 @@ export function sentState(group: SentGroup, items: ReadonlyMap<string, InboxItem
 	return `${known.filter(wasSeen).length} of ${group.sent.length} seen`;
 }
 
-/* ----------------------------------------------------- the sorting card */
+/* ------------------------------------------------------- the sort's line */
 
-/** One entry of a sort as the card draws it. */
-export type SortedRow = {
-	entry: InboxSortedEntry;
-	/** Its place in the order of work: taken and later entries only. */
-	number?: number;
-	/** How deep it is folded: 1 under the entry it was combined into. */
-	depth: number;
-	word: string;
-	/** Taken is said in the accent. */
-	taken: boolean;
-};
-
-/** An entry's state word at the right of its row. */
+/** What became of an entry of a sort, in a word, at the right of its row. */
 export function sortedWord(entry: InboxSortedEntry): string {
 	if (entry.state === "taken") return "Taken";
 	if (entry.state === "later") return "Later";
@@ -244,41 +232,7 @@ export function sortedWord(entry: InboxSortedEntry): string {
 	return entry.state.charAt(0).toUpperCase() + entry.state.slice(1);
 }
 
-/**
- * The entries in the order the receiver gave them, each combined one moved
- * under the entry it was folded into and indented one step; taken and later
- * entries numbered in that order, the closed ones not. An entry combined
- * into one not in this sort stands where it was given.
- */
-export function sortedRows(entries: readonly InboxSortedEntry[]): SortedRow[] {
-	const ids = new Set(entries.map((entry) => entry.item));
-	const parentOf = (entry: InboxSortedEntry): string | undefined =>
-		entry.state === "closed" && entry.outcome === "combined" && entry.into !== undefined && entry.into !== entry.item && ids.has(entry.into) ? entry.into : undefined;
-	const rows: SortedRow[] = [];
-	const placed = new Set<string>();
-	let number = 0;
-	const place = (entry: InboxSortedEntry, depth: number) => {
-		if (placed.has(entry.item)) return;
-		placed.add(entry.item);
-		const numbered = entry.state === "taken" || entry.state === "later";
-		rows.push({ entry, ...(numbered ? { number: ++number } : {}), depth, word: sortedWord(entry), taken: entry.state === "taken" });
-		for (const child of entries) if (parentOf(child) === entry.item) place(child, depth + 1);
-	};
-	for (const entry of entries) if (parentOf(entry) === undefined) place(entry, 0);
-	// Folded into each other in a ring: none had a place, so each stands where it was given.
-	for (const entry of entries) place(entry, 0);
-	return rows;
-}
-
-/** The card's count: "1 taken · 1 for later · 2 closed", nothing for none. */
-export function sortedCounts(entries: readonly InboxSortedEntry[]): string {
-	const taken = entries.filter((entry) => entry.state === "taken").length;
-	const later = entries.filter((entry) => entry.state === "later").length;
-	const closed = entries.filter((entry) => entry.state === "closed").length;
-	return [taken > 0 && `${taken} taken`, later > 0 && `${later} for later`, closed > 0 && `${closed} closed`].filter((part): part is string => part !== false).join(" · ");
-}
-
-/** "Read 4 messages", the card's heading. */
+/** "Read 3 messages", "Read 1 message": the sort's line in the conversation. */
 export const readWords = (count: number): string => `Read ${count} ${count === 1 ? "message" : "messages"}`;
 
 /* ------------------------------------------------------------ the pane */

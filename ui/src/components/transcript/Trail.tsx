@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ToolOutput } from "../../generated/contract";
 import type { RunLink, Step } from "../../scheduledRuns";
 import { linkFailed, runStatus } from "../../links";
@@ -202,7 +202,6 @@ function RunLine({ link, said, onOpen }: { link: RunLink; said: string; onOpen: 
  * that all are done.
  */
 function HelpersLine({ links, onOpen }: { links: RunLink[]; onOpen: ((thread: ThreadRef) => void) | undefined }) {
-	const [open, setOpen] = useState(false);
 	const one = links.length === 1 ? links[0] : undefined;
 	if (one !== undefined) return <RunLine link={one} said={`Started a helper: ${one.title}`} onOpen={onOpen} />;
 	const running = links.filter((link) => link.state !== "closed").length;
@@ -210,26 +209,51 @@ function HelpersLine({ links, onOpen }: { links: RunLink[]; onOpen: ((thread: Th
 	const status = running > 0 ? "in_progress" : failed > 0 ? "failed" : "completed";
 	const fact = running > 0 ? { text: `${running} running`, tone: "live" } : failed > 0 ? { text: `${failed} failed`, tone: "danger" } : { text: `${links.length} done`, tone: undefined };
 	return (
-		<li className="trail-step" data-step-id={links[0]!.id} data-status={status}>
+		<FoldLine id={links[0]!.id} said={`Started ${links.length} helpers`} status={status} fact={fact}>
+			{links.map((link) => (
+				<button key={link.id} type="button" className="trail-row" data-step-id={link.id} disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
+					<span className="trail-page">{link.title}</span>
+					<span className={linkFailed(link) ? "trail-meta text-danger" : "trail-meta"}>{runStatus(link)}</span>
+					{onOpen !== undefined && <ChevronRightIcon className="shrink-0 text-ink-3" />}
+				</button>
+			))}
+		</FoldLine>
+	);
+}
+
+/**
+ * A path line that stands for several things and unfolds to a row for each:
+ * its dot, what it says, the fact at the right, and pressed, its rows under
+ * it. The helpers a turn started are one; the conversation's line for a sort
+ * of the inbox is another (InboxLines.tsx).
+ */
+export function FoldLine({
+	id,
+	said,
+	status = "completed",
+	fact,
+	children,
+}: {
+	id: string;
+	said: string;
+	status?: "in_progress" | "failed" | "completed";
+	fact?: { text: string; tone: string | undefined } | undefined;
+	children: ReactNode;
+}) {
+	const [open, setOpen] = useState(false);
+	return (
+		<li className="trail-step" data-step-id={id} data-status={status}>
 			<button type="button" className="trail-head" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-				<span aria-hidden="true" className={`trail-dot ${running > 0 ? "beat" : ""}`} />
-				<span className="trail-said">Started {links.length} helpers</span>
-				<span className="trail-fact" data-tone={fact.tone}>
-					{fact.text}
-				</span>
+				<span aria-hidden="true" className={`trail-dot ${status === "in_progress" ? "beat" : ""}`} />
+				<span className="trail-said">{said}</span>
+				{fact !== undefined && (
+					<span className="trail-fact" data-tone={fact.tone}>
+						{fact.text}
+					</span>
+				)}
 				{open ? <ChevronDownIcon className="trail-chevron" /> : <ChevronRightIcon className="trail-chevron" />}
 			</button>
-			{open && (
-				<div className="trail-detail">
-					{links.map((link) => (
-						<button key={link.id} type="button" className="trail-row" data-step-id={link.id} disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
-							<span className="trail-page">{link.title}</span>
-							<span className={linkFailed(link) ? "trail-meta text-danger" : "trail-meta"}>{runStatus(link)}</span>
-							{onOpen !== undefined && <ChevronRightIcon className="shrink-0 text-ink-3" />}
-						</button>
-					))}
-				</div>
-			)}
+			{open && <div className="trail-detail">{children}</div>}
 		</li>
 	);
 }

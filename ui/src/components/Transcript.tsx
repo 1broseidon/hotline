@@ -44,7 +44,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
-import { InboxRows, InboxSentRow, InboxSortedCard } from "./transcript/InboxLines";
+import { InboxRows, InboxSentRow, InboxSortedLine } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -1015,9 +1015,9 @@ const Row = memo(function Row({
 		case "inbox_sent":
 			return null;
 
-		/* The receiver's sort of what it read: one card, or a row for one item. */
+		/* The receiver's sort of what it read: one quiet line that unfolds to the items. */
 		case "inbox_sorted":
-			return <InboxSortedCard event={event} people={people} />;
+			return <InboxSortedLine event={event} people={people} />;
 
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;

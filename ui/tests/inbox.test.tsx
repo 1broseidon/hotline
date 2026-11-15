@@ -7,7 +7,7 @@ import { installDom } from "./dom";
 
 // task-456: the desk draws the inbox (docs/design/agent-inbox.md, "On the
 // desk"). A sender's conversation has one quiet row per send, live from its
-// inbox; a receiver's has one card per sort; the composer counts what the
+// inbox; a receiver's has one quiet line per sort; the composer counts what the
 // teammate has not read; the pane lists its inbox and opens one item with
 // its receipts. The person reads; nothing here sends or sorts.
 
@@ -93,33 +93,23 @@ describe("task-456 the sender's rows", () => {
 	});
 });
 
-describe("task-456 the sorting card", () => {
+describe("task-456 the sort's line", () => {
 	const entry = (id: string, more: Partial<InboxSortedEntry>): InboxSortedEntry => ({ item: id, title: `Title ${id}`, from: "chop", state: "taken", ...more });
-	const sort = [
-		entry("build", { state: "taken" }),
-		entry("notes", { state: "later", reason: "after the build is green", from: "ivy" }),
-		entry("thursday", { state: "closed", outcome: "noted" }),
-		entry("red", { state: "closed", outcome: "combined", into: "build", from: "huck" }),
-		entry("wipe", { state: "closed", outcome: "done", answered: true, from: "huck" }),
-	];
 
-	test("keeps the receiver's order, numbers what was taken or left for later, and sets a combined one in under the one it was folded into", () => {
-		const rows = inbox.sortedRows(sort);
-		expect(rows.map((row) => [row.entry.item, row.number ?? null, row.depth, row.word])).toEqual([
-			["build", 1, 0, "Taken"],
-			["red", null, 1, "Combined"],
-			["notes", 2, 0, "Later"],
-			["thursday", null, 0, "Noted"],
-			["wipe", null, 0, "Answered"],
-		]);
-		expect(rows.filter((row) => row.taken).map((row) => row.entry.item)).toEqual(["build"]);
-		expect(inbox.sortedCounts(sort)).toBe("1 taken · 1 for later · 3 closed");
-		expect(inbox.readWords(5)).toBe("Read 5 messages");
-		// Combined into one not in this sort, it stands where it was given.
-		expect(inbox.sortedRows([entry("a", { state: "closed", outcome: "combined", into: "elsewhere" })]).map((row) => row.depth)).toEqual([0]);
-		// Folded into each other, each still has a row.
-		expect(inbox.sortedRows([entry("a", { state: "closed", outcome: "combined", into: "b" }), entry("b", { state: "closed", outcome: "combined", into: "a" })])).toHaveLength(2);
-		expect(inbox.sortedWord(entry("x", { state: "closed" }))).toBe("Closed");
+	test("says how many it read, and what became of each in a word", () => {
+		expect(inbox.readWords(3)).toBe("Read 3 messages");
+		expect(inbox.readWords(1)).toBe("Read 1 message");
+		expect(
+			[
+				entry("build", { state: "taken" }),
+				entry("notes", { state: "later", reason: "after the build is green" }),
+				entry("thursday", { state: "closed", outcome: "noted" }),
+				entry("red", { state: "closed", outcome: "combined", into: "build" }),
+				entry("wipe", { state: "closed", outcome: "done", answered: true }),
+				entry("spam", { state: "closed", outcome: "dropped" }),
+				entry("x", { state: "closed" }),
+			].map(inbox.sortedWord),
+		).toEqual(["Taken", "Later", "Noted", "Combined", "Answered", "Dropped", "Closed"]);
 	});
 });
 
@@ -135,7 +125,7 @@ describe("a turn the inbox woke is drawn as path", () => {
 	const tool = (id: string, title: string): TranscriptEvent => ({ kind: "tool", id, ts: NOW, toolCallId: id, title, status: "completed" });
 	const thought = (id: string, text: string): TranscriptEvent => ({ kind: "thought", id, ts: NOW, text });
 
-	test("its sorting card stays, its tools and words fold into the turn's steps, and no bubble follows", async () => {
+	test("its sort's line stays, its tools and words fold into the turn's steps, and no bubble follows", async () => {
 		const { toBlocks } = await import("../src/transcriptFolds");
 		const drawn = groupInbox(
 			toBlocks([
@@ -166,6 +156,27 @@ describe("a turn the inbox woke is drawn as path", () => {
 			]),
 		);
 		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["inbox_sorted", "agent", "steps", "turn"]);
+	});
+
+	test("a sort in the middle of a turn the person started is one line where it fell, and the turn's steps stay one run under the reply", async () => {
+		const { toBlocks } = await import("../src/transcriptFolds");
+		const drawn = groupInbox(
+			toBlocks([
+				{ kind: "user", id: "u1", ts: NOW, text: "What changed in Postgres 18 for logical replication?" },
+				tool("t1", "web_search: postgres 18 logical replication"),
+				tool("t2", "read_inbox"),
+				sent("r1", "huck", "Re: Is the staging database safe to wipe?"),
+				tool("t3", "update_inbox"),
+				sortedLine,
+				tool("t4", "Fetch https://www.postgresql.org/docs/18/release-18.html"),
+				said("a1", "Yes, mostly."),
+				ended("e1"),
+			]),
+		);
+		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["user", "inbox", "inbox_sorted", "agent", "steps", "turn"]);
+		const steps = drawn.filter((block) => block.kind === "steps");
+		expect(steps).toHaveLength(1);
+		expect(steps[0]?.kind === "steps" && steps[0].items.map((one) => one.id)).toEqual(["t1", "t2", "t3", "t4"]);
 	});
 });
 
@@ -264,49 +275,58 @@ describe("task-456 drawn", () => {
 		expect(opened).toEqual(["i1"]);
 	});
 
-	test("the sorting card draws the order, the numbers, the indent, waiting, and opens an item", async () => {
-		const { InboxRows, InboxSortedCard } = await import("../src/components/transcript/InboxLines");
+	test("a sort is one quiet line that unfolds to a row per item, each opening it", async () => {
+		const { InboxRows, InboxSortedLine } = await import("../src/components/transcript/InboxLines");
 		const opened: string[] = [];
 		const event = {
 			kind: "inbox_sorted" as const,
 			id: "sorted-1",
 			ts: NOW,
-			open: 2,
+			open: 1,
 			unread: 0,
 			entries: [
-				{ item: "build", title: "Rerun the Linux build", from: "chop", state: "taken" as const },
-				{ item: "notes", title: "Storage numbers", from: "ivy", state: "later" as const, reason: "after the build is green" },
-				{ item: "thursday", title: "Release moves to Thursday", from: "chop", state: "closed" as const, outcome: "noted" as const },
-				{ item: "red", title: "Linux build is red", from: "huck", state: "closed" as const, outcome: "combined" as const, into: "build" },
+				{ item: "thursday", title: "Release moves to Thursday", from: "ivy", state: "closed" as const, outcome: "noted" as const },
+				{ item: "wipe", title: "Is the staging database safe to wipe?", from: "huck", state: "closed" as const, outcome: "done" as const, answered: true },
+				{ item: "notes", title: "Storage numbers", from: "chop", state: "later" as const, reason: "after this research" },
 			],
 		};
 		await act(async () =>
 			root!.render(
-				<InboxRows.Provider value={{ work: new Set(), items: new Map([["build", item("build", { waiting: true, state: "taken" })]]), onOpen: (id) => opened.push(id) }}>
-					<InboxSortedCard event={event} people={people} />
+				<InboxRows.Provider value={{ work: new Set(), items: new Map(), onOpen: (id) => opened.push(id) }}>
+					<InboxSortedLine event={event} people={people} />
 				</InboxRows.Provider>,
 			),
 		);
-		const head = container.querySelector(".inbox-sorted-head")!;
-		expect(head.textContent).toContain("Read 4 messages");
-		expect(head.textContent).toContain("1 taken · 1 for later · 2 closed");
-		const entries = [...container.querySelectorAll<HTMLLIElement>(".inbox-sorted li")];
-		expect(entries.map((one) => one.querySelector(".list-title-text")?.textContent)).toEqual(["Rerun the Linux build", "Linux build is red", "Storage numbers", "Release moves to Thursday"]);
-		expect(entries.map((one) => one.querySelector(".list-mark")?.textContent)).toEqual(["1", "", "2", "–"]);
-		expect(entries.map((one) => one.dataset["depth"] ?? null)).toEqual([null, "1", null, null]);
-		expect(entries[0]?.querySelector(".list-line")?.textContent).toBe("Pork Chop · waiting");
-		expect(entries[0]?.querySelector(".list-when")?.hasAttribute("data-taken")).toBe(true);
-		expect(entries[2]?.querySelector(".list-line")?.textContent).toBe("Ivy · after the build is green");
-		await press(entries[1]!.querySelector("button")!);
-		expect(opened).toEqual(["red"]);
+		// A path line, not a card: no header, no counts, no rows until it is pressed.
+		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-sorted] .trail-step > .trail-head")!;
+		expect(line.querySelector(".trail-said")?.textContent).toBe("Read 3 messages");
+		expect(line.getAttribute("aria-expanded")).toBe("false");
+		expect(container.querySelector(".trail-fact")).toBeNull();
+		expect(container.querySelectorAll(".trail-row")).toHaveLength(0);
+		await press(line);
+		expect(line.getAttribute("aria-expanded")).toBe("true");
+		const rows = [...container.querySelectorAll<HTMLButtonElement>(".trail-detail > .trail-row")];
+		expect(rows.map((row) => row.dataset["inbox"])).toEqual(["thursday", "wipe", "notes"]);
+		expect(rows.map((row) => row.querySelector(".trail-page")?.firstChild?.textContent)).toEqual(["Release moves to Thursday", "Is the staging database safe to wipe?", "Storage numbers"]);
+		// The sender, and a later's reason, in the muted ink; what became of it at the right.
+		expect(rows.map((row) => row.querySelector(".trail-page .text-ink-3")?.textContent)).toEqual([" · Ivy", " · Huck", " · Pork Chop · after this research"]);
+		expect(rows.map((row) => row.querySelector(".trail-meta")?.textContent)).toEqual(["Noted", "Answered", "Later"]);
+		await press(rows[1]!);
+		expect(opened).toEqual(["wipe"]);
+		await press(line);
+		expect(container.querySelectorAll(".trail-row")).toHaveLength(0);
 	});
 
-	test("a sort of one item is a quiet row, not a card", async () => {
-		const { InboxSortedCard } = await import("../src/components/transcript/InboxLines");
+	test("a sort of one item says so in the singular, and its row does nothing where nothing opens it", async () => {
+		const { InboxSortedLine } = await import("../src/components/transcript/InboxLines");
 		const event = { kind: "inbox_sorted" as const, id: "s", ts: NOW, open: 0, unread: 0, entries: [{ item: "x", title: "Nightly deploy is paused", from: "huck", state: "closed" as const, outcome: "noted" as const }] };
-		await act(async () => root!.render(<InboxSortedCard event={event} people={people} />));
-		expect(container.querySelector(".inbox-sorted")).toBeNull();
-		expect(container.querySelector(".link-row[data-kind=inbox-sorted]")?.textContent).toBe("Nightly deploy is paused· From Huck · Noted");
+		await act(async () => root!.render(<InboxSortedLine event={event} people={people} />));
+		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-sorted] .trail-head")!;
+		expect(line.textContent).toBe("Read 1 message");
+		await press(line);
+		const row = container.querySelector<HTMLButtonElement>(".trail-row")!;
+		expect(row.textContent).toBe("Nightly deploy is paused · HuckNoted");
+		expect(row.disabled).toBe(true);
 	});
 
 	test("the composer counts what the teammate has not read only while there is some, and its tray opens an item or the whole inbox", async () => {

@@ -2330,6 +2330,22 @@
 	.trail-head[aria-expanded="true"] .trail-chevron {
 		opacity: 1;
 	}
+	/* The inbox sort's line in the conversation (InboxLines.tsx) sits as the
+	 * conversation's quiet lines do: its dot where a link row's is, the press
+	 * hugging its words, and its chevron in sight, as the steps caption under
+	 * a reply has it; there it is one line on its own, not one of a column. */
+	.trail[data-kind="inbox-sorted"] {
+		margin-inline-start: -6px;
+	}
+	.trail[data-kind="inbox-sorted"] > .trail-step > .trail-head {
+		width: fit-content;
+	}
+	.trail[data-kind="inbox-sorted"] .trail-chevron {
+		opacity: 0.6;
+	}
+	.trail[data-kind="inbox-sorted"] .trail-head:is(:hover, :focus-visible, [aria-expanded="true"]) .trail-chevron {
+		opacity: 1;
+	}
 	/* Opened: the thinking before it, then each step as a person reads it. */
 	.trail-detail {
 		display: flex;

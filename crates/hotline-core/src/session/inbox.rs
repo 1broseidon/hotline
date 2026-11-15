@@ -278,6 +278,7 @@ fn item(
         from: from.id.clone(),
         from_thread: from_thread.clone(),
         to: to.to_string(),
+        also_to: Vec::new(),
         title,
         body,
         wants,
@@ -377,6 +378,12 @@ impl Room {
                 sending.wants,
             );
             new.waiting = sending.waiting;
+            // Each receiver is told who else this send reached.
+            new.also_to = targets
+                .iter()
+                .filter(|other| other.id != target.id)
+                .map(|other| other.id.clone())
+                .collect();
             new.reply_to.clone_from(&reply_to);
             new.about.clone_from(&about);
             let granted = lead
@@ -728,6 +735,14 @@ impl Room {
         });
         if item.waiting {
             shown["waiting"] = json!(true);
+        }
+        if !item.also_to.is_empty() {
+            shown["alsoTo"] = json!(
+                item.also_to
+                    .iter()
+                    .map(|other| self.name_of(other))
+                    .collect::<Vec<_>>()
+            );
         }
         if let Some(moved) = item
             .receipts

@@ -46,8 +46,8 @@ These are George's, and the prototype's acceptance criteria.
   with each item's id. `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency.
 - **`read_inbox`** without `ids` lists the open items, newest first: id, title,
-  sender, `wants`, `waiting`, state and how long it has been in it, and age,
-  never the words. `list` (`open` by default) may say `closed`, the closed
+  sender, `wants`, `waiting`, who else the send reached (`alsoTo`), state and
+  how long it has been in it, and age, never the words. `list` (`open` by default) may say `closed`, the closed
   items with each one's outcome, or `sent`, the items the teammate sent
   others, each with whom it went to and where it stands now, so a sender sees
   "seen, not yet taken"; each the newest 20, with how many older ones there
@@ -70,7 +70,9 @@ work only, by the call's grant.
 ## An item and its states
 
 An item (`InboxItem`) has an id, when it was sent, who sent it and from which
-of its threads (`from`, `fromThread`), whom it is for (`to`), the title, the
+of its threads (`from`, `fromThread`), whom it is for (`to`) and whom else
+the same `send` made an item for (`alsoTo`, absent when it went to one and
+on an item kept before it was recorded), the title, the
 words (`body`, with where any files landed), `wants`, `waiting`, `replyTo`,
 `about`, its `state`, and every state it has been in with its time
 (`receipts`). Once taken into a thread it names the thread (`work`) and the
@@ -256,8 +258,9 @@ item, and no chat opens between teammates.
   line any turn's steps have, and no bubble unless it posted. A turn that
   ends without a new line in the chat posts no desktop toast
   (`ui/src/notify.ts`).
-- **The item pane.** Its title; from whom to whom, what it wants, and
-  whether the sender waits; the words; Receipts, a timeline of sent,
+- **The item pane.** Its title; from whom to whom, whom else the send
+  reached ("also sent to Quill"), what it wants, and whether the sender
+  waits; the words; Receipts, a timeline of sent,
   noticed, seen, taken, later with its reason, closed with its outcome (and
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's

@@ -199,6 +199,12 @@ export function toWords(ids: readonly string[], nameOf: (personaId: string) => s
 	return names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
 }
 
+/** Who else the send that made an item reached, as its pane's head says it: "also sent to Ivy, Huck". */
+export function alsoSentWords(item: InboxItem, nameOf: (personaId: string) => string | undefined): string | undefined {
+	const others = item.alsoTo ?? [];
+	return others.length === 0 ? undefined : `also sent to ${toWords(others, nameOf)}`;
+}
+
 /**
  * Where items sent together stand, from the sender's own view: one item's
  * state word; for several, the word they share, else how many of them were

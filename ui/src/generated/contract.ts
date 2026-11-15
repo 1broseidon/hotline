@@ -1137,6 +1137,12 @@ fromThread: ThreadId,
  */
 to: string, 
 /**
+ * The other teammates the same `send` made an item for, each its own:
+ * who else got it, by id. Absent on an item sent to one teammate, and on
+ * one kept before it was recorded.
+ */
+alsoTo?: Array<string>, 
+/**
  * The sender's short title: what the receiver is shown before reading.
  */
 title: string, 

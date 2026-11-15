@@ -423,6 +423,18 @@ describe("task-456 drawn", () => {
 		expect(opened.at(-1)).toBe("r");
 	});
 
+	test("an item's pane says who else the send reached, and nothing for one sent to one", async () => {
+		const { InboxItemPane } = await import("../src/components/InboxPane");
+		const shared = item("shared", { alsoTo: ["ivy", "huck"], title: "Release moves to Thursday" });
+		const alone = item("alone");
+		spyOn(wire, "command").mockImplementation((async (_cmd: string, params: { id: string }) => ({ item: params.id === "shared" ? shared : alone, replies: [] })) as typeof wire.command);
+		const draw = (itemId: string) => act(async () => root!.render(<InboxItemPane key={itemId} itemId={itemId} people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
+		await draw("shared");
+		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · also sent to Ivy, Huck · wants an answer");
+		await draw("alone");
+		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · wants an answer");
+	});
+
 	test("the receiver's conversation draws the work its sort started as a work-thread row, while an old handoff keeps its line", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const juno = view({ open: [item("i-build", { state: "taken", work: { kind: "side", key: "s-build" } })] });

@@ -1069,7 +1069,9 @@ again under its id as it moves:
 ```
 
 `wants` is `answer`, `work` or `nothing`; `waiting` is present when the
-sender has stopped until it is answered. `state` is `new`, `noticed` (its
+sender has stopped until it is answered. `alsoTo` names, by id, the other
+teammates the same `send` made an item for; it is absent on an item sent to
+one, and on one kept before it was recorded. `state` is `new`, `noticed` (its
 title was put in front of the receiver), `seen` (its words were read),
 `taken`, `later` (with `reason`) or `closed` (with `outcome`: `done`,
 `noted`, `dropped`, or `combined` with `combinedInto`). `receipts` is every

@@ -847,3 +847,32 @@ async fn read_inbox_lists_closed_items_and_what_was_sent_with_where_each_stands(
     assert!(sent.contains(r#""to":"Bob""#), "{sent}");
     assert!(sent.contains(r#""state":"closed""#), "{sent}");
 }
+
+/// One `send` to two colleagues makes an item each, and each says who else
+/// got it: on the item kept and read over the wire, and in `read_inbox`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_item_sent_to_several_says_who_else_got_it() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let cy = desk.teammate("Cy", false).await;
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL send {}", json!({"to": ["Bob", "Cy"], "title": "Release moves to Thursday", "wants": "nothing"}))}),
+    )
+    .await;
+    desk.results(StreamId::Tape(ada.clone()), 0).await;
+    let to_bob = desk.ok("inbox.list", json!({"personaId": bob})).await["open"][0].clone();
+    assert_eq!(to_bob["alsoTo"], json!([cy]), "{to_bob}");
+    let to_cy = desk.ok("inbox.list", json!({"personaId": cy})).await["open"][0].clone();
+    assert_eq!(to_cy["alsoTo"], json!([bob]), "{to_cy}");
+    let detail = desk.ok("inbox.item", json!({"id": to_bob["id"]})).await;
+    assert_eq!(detail["item"]["alsoTo"], json!([cy]), "{detail}");
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": "CALL read_inbox {}"}),
+    )
+    .await;
+    let listed = desk.results(StreamId::Tape(bob.clone()), 0).await;
+    assert!(listed.contains(r#""alsoTo":["Cy"]"#), "{listed}");
+}

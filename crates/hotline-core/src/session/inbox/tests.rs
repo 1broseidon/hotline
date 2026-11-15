@@ -374,6 +374,46 @@ async fn read_inbox_lists_open_items_without_their_words_and_reading_marks_them_
 }
 
 #[tokio::test]
+async fn an_item_one_send_made_for_several_says_who_else_got_it_and_an_old_one_still_loads() {
+    let (room, _) = room("inbox-also-to");
+    enrol(&room.log, &named("cy", "Cy", Some(Reach::Machine)));
+    room.allow_sender("cy", "ada").unwrap();
+    let sent = tool(
+        &room,
+        "ada",
+        "send",
+        json!({"to": ["Bob", "Cy"], "title": "Release moves to Thursday", "wants": "nothing"}),
+    )
+    .await
+    .unwrap();
+    let id = |n: usize| sent["sent"][n]["id"].as_str().unwrap().to_string();
+    assert_eq!(item(&room, "bob", &id(0)).also_to, ["cy"]);
+    assert_eq!(item(&room, "cy", &id(1)).also_to, ["bob"]);
+    let listed = tool(&room, "bob", "read_inbox", json!({})).await.unwrap();
+    assert_eq!(listed["items"][0]["alsoTo"], json!(["Cy"]), "{listed}");
+    let read = tool(&room, "cy", "read_inbox", json!({"ids": [short(&id(1))]}))
+        .await
+        .unwrap();
+    assert_eq!(read["items"][0]["alsoTo"], json!(["Bob"]), "{read}");
+
+    // One to a single teammate says nothing of it; one kept before the
+    // field was recorded reads as that.
+    let alone = send(&room, "ada", "bob", "Alone", json!({})).await;
+    assert_eq!(item(&room, "bob", &alone).also_to, Vec::<String>::new());
+    let line = kept::line(&item(&room, "bob", &alone));
+    assert!(line.get("alsoTo").is_none(), "{line}");
+    let mut old = line;
+    old["id"] = json!("old-item-0000");
+    room.log
+        .append(&StreamId::Inbox("bob".to_string()), &old)
+        .unwrap();
+    assert_eq!(
+        item(&room, "bob", "old-item-0000").also_to,
+        Vec::<String>::new()
+    );
+}
+
+#[tokio::test]
 async fn read_inbox_lists_closed_items_and_what_was_sent_newest_first_with_where_each_stands() {
     let (room, _) = room("inbox-read-lists");
     let done = send(&room, "ada", "bob", "Done one", json!({})).await;

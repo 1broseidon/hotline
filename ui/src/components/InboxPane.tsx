@@ -4,7 +4,7 @@ import { asideTime } from "../asides";
 import type { Person } from "../avatars";
 import { stopwatch } from "../dock";
 import { ArrowLeftIcon } from "../icons";
-import { type InboxSegment, itemsOf, movedAt, openCounts, openGroups, outcomeWord, receiptRows, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
+import { alsoSentWords, type InboxSegment, itemsOf, movedAt, openCounts, openGroups, outcomeWord, receiptRows, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -229,7 +229,7 @@ export function InboxItemPane({
 					<PaneHead
 						kind={INBOX_KIND}
 						title={item.title}
-						meta={[`${nameOf(item.from)} to ${nameOf(item.to)}`, wantsWords(item.wants), item.waiting === true && `${nameOf(item.from)} is waiting`]}
+						meta={[`${nameOf(item.from)} to ${nameOf(item.to)}`, alsoSentWords(item, (id) => people.get(id)?.name), wantsWords(item.wants), item.waiting === true && `${nameOf(item.from)} is waiting`]}
 					/>
 					{item.held === true && <p className="dock-note">Held for the first-contact card.</p>}
 					{item.body.trim() !== "" && <TaskCard eyebrow="Message" text={item.body} />}

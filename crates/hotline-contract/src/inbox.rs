@@ -140,6 +140,12 @@ pub struct InboxItem {
     pub from_thread: ThreadId,
     /// The teammate it is for.
     pub to: String,
+    /// The other teammates the same `send` made an item for, each its own:
+    /// who else got it, by id. Absent on an item sent to one teammate, and on
+    /// one kept before it was recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub also_to: Vec<String>,
     /// The sender's short title: what the receiver is shown before reading.
     pub title: String,
     /// The sender's words, and where any files it carried landed.

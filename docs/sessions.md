@@ -1441,8 +1441,10 @@ teammate's own. `message_teammate` and a colleague's `aside` are gone.
 and whether the sender is `waiting`; optionally `about` (a thread of the
 receiver's, where it is heard while that thread is live), `reply_to` (an item
 in the sender's own inbox) and `files`. It returns at once with each item's
-id and writes an `inbox_sent` row on the thread it was said in. Each item is
-kept on the receiver's own stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),
+id and writes an `inbox_sent` row on the thread it was said in. One `send`
+to several makes an item each, and each names the others in `alsoTo`, which
+`read_inbox` and the item's pane say. Each item is kept on the receiver's own
+stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),
 written again under its id at each change with the change's time in its
 `receipts`. A teammate on a linked desk is refused; so is the sender itself.
 The grant is checked as it is sent (Teammate collaboration, above): an item

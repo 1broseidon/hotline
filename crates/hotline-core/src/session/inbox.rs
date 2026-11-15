@@ -12,7 +12,9 @@
 //! colleague is told titles, never bodies, and decides itself what to read,
 //! what to take, what to combine and what to leave: an idle one is woken a
 //! gather delay after an item lands, once for everything that landed
-//! together; a busy one is given a one-line notice (`inbox/heard.rs`).
+//! together; a busy one is given a one-line notice (`inbox/heard.rs`). What it
+//! leaves for later, or was shown and left unsorted, is offered to it once
+//! more, quietly, when its main conversation goes idle (`inbox/pick_up.rs`).
 //! `read_inbox` reads; `update_inbox` sorts several at once. An answer, or
 //! the result of a work thread a taken item started (`exchanges/inbox.rs`),
 //! is an item in the sender's own inbox that names the one it answers.
@@ -36,6 +38,9 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 mod heard;
+mod pick_up;
+
+pub(in crate::session) use pick_up::PickUp;
 
 /// The most a title says: a line someone reads before deciding whether to
 /// open the item.

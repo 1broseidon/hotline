@@ -198,6 +198,7 @@ impl Room {
             turns: Mutex::new(Turns::default()),
             rebuild_for_sign_in: std::sync::atomic::AtomicBool::new(false),
             cut: Mutex::new(None),
+            pick_up: Mutex::default(),
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),

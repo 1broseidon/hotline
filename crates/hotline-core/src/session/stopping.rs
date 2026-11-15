@@ -306,6 +306,7 @@ impl Room {
                 retry: false,
                 wake: false,
                 quiet: false,
+                pick_up: false,
                 request: None,
             },
         );

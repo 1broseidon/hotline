@@ -130,6 +130,7 @@ impl Room {
                     retry: false,
                     wake: false,
                     quiet: false,
+                    pick_up: false,
                     request: None,
                 },
                 attachments,
@@ -506,6 +507,8 @@ impl Room {
     pub(super) fn cut_turn(&self, session: &Session, how: Cut) {
         let persona_id = session.persona_id.as_str();
         let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
+        // The person said stop: nothing set aside is offered again after it.
+        lock(&session.pick_up).disarm();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();

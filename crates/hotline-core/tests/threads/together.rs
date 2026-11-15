@@ -11,7 +11,8 @@
 //! with, or what follows `SAY`. The first line with `STALL` holds its first
 //! answer back for [`STALL`], and every line with `HOLD` holds its own. A line
 //! that only woke its teammate for its inbox plays what the test set as
-//! [`Desk::on_wake`]. Bob is on ACP, the fixture child playing the same `CALL`
+//! [`Desk::on_wake`], and one that offered it again what it set aside plays
+//! [`Desk::on_pick_up`]. Bob is on ACP, the fixture child playing the same `CALL`
 //! lines over the desk's MCP server.
 
 use crate::common::{self, Client, acp_fixture, until};
@@ -70,13 +71,16 @@ fn text_of(message: &Value) -> String {
 /// woke.
 const WOKEN: &str = "came into your inbox while you were idle";
 
+/// What a line that offered a teammate again the items it set aside says.
+const PICKED_UP: &str = "You are idle now. These items in your inbox are still open";
+
+/// The inbox's gather delay on a desk that sets none
+/// (`HOTLINE_INBOX_GATHER_MS`), which a pick-up waits as well.
+const GATHER: Duration = Duration::from_secs(4);
+
 /// Ada's model: see the module. A subagent's report or the person's answer
 /// coming back is Hotline's data, not a script, so it is never run again.
-async fn model(
-    request: Value,
-    heard: Arc<Mutex<Vec<String>>>,
-    on_wake: Arc<Mutex<String>>,
-) -> String {
+async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>, scripts: Scripts) -> String {
     let messages = request["messages"].as_array().cloned().unwrap_or_default();
     let Some(asked_at) = messages
         .iter()
@@ -86,7 +90,10 @@ async fn model(
     };
     let mut asked = common::asked(&text_of(&messages[asked_at]));
     if asked.contains(WOKEN) {
-        asked = format!("{asked}\n{}", on_wake.lock().unwrap());
+        asked = format!("{asked}\n{}", scripts.on_wake.lock().unwrap());
+    }
+    if asked.contains(PICKED_UP) {
+        asked = format!("{asked}\n{}", scripts.on_pick_up.lock().unwrap());
     }
     let answered: Vec<String> = messages[asked_at + 1..]
         .iter()
@@ -144,21 +151,29 @@ async fn model(
     said(&words)
 }
 
+/// What the model plays on a line the inbox started: one that woke a
+/// teammate for new items, and one that offered it what it set aside.
+#[derive(Clone, Default)]
+struct Scripts {
+    on_wake: Arc<Mutex<String>>,
+    on_pick_up: Arc<Mutex<String>>,
+}
+
 /// The model endpoint, every line it has been handed, and what it plays on
-/// a line that woke a teammate for its inbox.
-async fn endpoint() -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<String>>) {
+/// a line the inbox started.
+async fn endpoint() -> (String, Arc<Mutex<Vec<String>>>, Scripts) {
     let heard: Arc<Mutex<Vec<String>>> = Arc::default();
-    let on_wake: Arc<Mutex<String>> = Arc::default();
-    let (kept, woken) = (heard.clone(), on_wake.clone());
+    let scripts = Scripts::default();
+    let (kept, played) = (heard.clone(), scripts.clone());
     let app = axum::Router::new().route(
         "/v1/chat/completions",
         axum::routing::post(move |body: axum::body::Bytes| {
-            let (heard, on_wake) = (kept.clone(), woken.clone());
+            let (heard, scripts) = (kept.clone(), played.clone());
             async move {
                 let request: Value = serde_json::from_slice(&body).unwrap_or_default();
                 (
                     [("Content-Type", "text/event-stream")],
-                    model(request, heard, on_wake).await,
+                    model(request, heard, scripts).await,
                 )
             }
         }),
@@ -166,7 +181,7 @@ async fn endpoint() -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<String>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (base, heard, on_wake)
+    (base, heard, scripts)
 }
 
 struct Desk {
@@ -174,7 +189,7 @@ struct Desk {
     log: Log,
     workspace: String,
     heard: Arc<Mutex<Vec<String>>>,
-    on_wake: Arc<Mutex<String>>,
+    scripts: Scripts,
     _roots: Vec<TempDir>,
 }
 
@@ -191,7 +206,7 @@ async fn door(root: &Path) -> (Client, Log) {
 }
 
 async fn open() -> Desk {
-    let (base, heard, on_wake) = endpoint().await;
+    let (base, heard, scripts) = endpoint().await;
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -210,7 +225,7 @@ async fn open() -> Desk {
         log,
         workspace: workspace.to_string_lossy().into_owned(),
         heard,
-        on_wake,
+        scripts,
         _roots: vec![root],
     }
 }
@@ -317,7 +332,34 @@ impl Desk {
     /// What the model plays from here on when a line woke a teammate for
     /// its inbox: `CALL` and `SAY` lines, as a person's line would carry.
     fn on_wake(&self, script: &str) {
-        *self.on_wake.lock().unwrap() = script.to_string();
+        *self.scripts.on_wake.lock().unwrap() = script.to_string();
+    }
+
+    /// What the model plays from here on when a line offered a teammate
+    /// again the items it set aside.
+    fn on_pick_up(&self, script: &str) {
+        *self.scripts.on_pick_up.lock().unwrap() = script.to_string();
+    }
+
+    /// Where an item stands, as `inbox.item` reads it.
+    async fn state_of(&mut self, id: &str) -> String {
+        let detail = self.ok("inbox.item", json!({"id": id})).await;
+        detail["item"]["state"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// The line on `persona_id`'s tape that says `text`, once it is there.
+    async fn line_saying(&self, persona_id: &str, text: &str) -> Value {
+        let found = || {
+            self.log
+                .load(&StreamId::Tape(persona_id.to_string()))
+                .into_iter()
+                .find(|event| event["text"] == text)
+        };
+        until(&format!("{text:?} is on the tape"), || found().is_some()).await;
+        found().unwrap()
     }
 
     /// The kinds of the lines on `persona_id`'s tape that say `text`.
@@ -492,7 +534,7 @@ async fn a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart() {
         log,
         workspace: first.workspace.clone(),
         heard: first.heard.clone(),
-        on_wake: first.on_wake.clone(),
+        scripts: first.scripts.clone(),
         _roots: vec![second],
     };
 
@@ -875,4 +917,172 @@ async fn an_item_sent_to_several_says_who_else_got_it() {
     .await;
     let listed = desk.results(StreamId::Tape(bob.clone()), 0).await;
     assert!(listed.contains(r#""alsoTo":["Cy"]"#), "{listed}");
+}
+
+/// Huck's story over the wire: Bob, at the person's work, leaves Ada's item
+/// for later with why. Idle once that turn ends, he is offered it once, in a
+/// quiet turn whose line gives his reason; he leaves it again, and nothing
+/// more comes until the person's next turn, after which he is offered it
+/// once more and takes it into work.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_item_left_for_later_is_offered_once_when_idle_and_a_teammate_that_defers_again_settles()
+{
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let item = desk
+        .send(
+            &ada,
+            json!({"to": ["Bob"], "title": "Keyboards", "message": "Which keyboards should we buy?"}),
+        )
+        .await;
+    let later = |reason: &str| json!({"items": [{"id": item, "state": "later", "reason": reason}]});
+    desk.on_pick_up(&format!(
+        "CALL update_inbox {}\nSAY Still later.",
+        later("Still on the research.")
+    ));
+    // The person's line starts a turn before the item's own wake is due.
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": format!(
+            "CALL update_inbox {}\nSAY Research done.",
+            later("Finishing the deep research first; keyboards are a separate task.")
+        )}),
+    )
+    .await;
+    desk.posted(&bob, "Research done.").await;
+    assert!(desk.heard(WOKEN).is_empty(), "{:?}", desk.heard(WOKEN));
+
+    until("one pick-up once Bob is idle", || {
+        desk.heard(PICKED_UP).len() == 1
+    })
+    .await;
+    let line = &desk.heard(PICKED_UP)[0];
+    assert!(line.contains("quiet inbox · "), "{line}");
+    assert!(line.contains("\"Keyboards\" · from Ada"), "{line}");
+    assert!(
+        line.contains("for later")
+            && line.contains(": Finishing the deep research first; keyboards are a separate task."),
+        "with the reason he gave: {line}"
+    );
+    desk.line_saying(&bob, "Still later.").await;
+    assert_eq!(
+        desk.kinds_saying(&bob, "Still later."),
+        ["thought"],
+        "the pick-up is quiet"
+    );
+    tokio::time::sleep(GATHER * 2 + Duration::from_secs(1)).await;
+    assert_eq!(desk.heard(PICKED_UP).len(), 1, "settled after one");
+    assert_eq!(desk.state_of(&item).await, "later");
+
+    let take = json!({"items": [{"id": item, "state": "taken", "in_thread": true}]});
+    desk.on_pick_up(&format!("CALL update_inbox {take}"));
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": "SAY Anything else?"}),
+    )
+    .await;
+    desk.posted(&bob, "Anything else?").await;
+    until("the next pick-up follows the person's turn", || {
+        desk.heard(PICKED_UP).len() == 2
+    })
+    .await;
+    // Taking it marks the item taken at once, and names its work thread
+    // once the thread has opened: that is what is waited for.
+    let mut detail = Value::Null;
+    for _ in 0..600 {
+        detail = desk.ok("inbox.item", json!({"id": item})).await;
+        if detail["item"]["work"].is_object() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        detail["item"]["work"].is_object(),
+        "taken into a work thread: {detail}"
+    );
+    assert!(
+        matches!(detail["item"]["state"].as_str(), Some("taken" | "closed")),
+        "{detail}"
+    );
+}
+
+/// The person's line in the gather delay wins over the pick-up the turn
+/// before it armed: that one does nothing, and the pick-up that comes is
+/// the person's turn's, the whole delay after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_persons_line_in_the_gather_delay_wins_over_the_pick_up() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let item = desk
+        .send(&ada, json!({"to": ["Bob"], "title": "Keyboards"}))
+        .await;
+    let later = json!({"items": [{"id": item, "state": "later", "reason": "after this"}]});
+    desk.on_pick_up("SAY Picked up.");
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": format!("CALL update_inbox {later}\nSAY Later, then.")}),
+    )
+    .await;
+    desk.posted(&bob, "Later, then.").await;
+    // Held for most of the delay, so the first turn's pick-up comes due
+    // just after this turn ends.
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": "HOLD SAY Here."}),
+    )
+    .await;
+    let here = desk.posted(&bob, "Here.").await;
+    let picked = desk.line_saying(&bob, "Picked up.").await;
+    assert_eq!(picked["kind"], "thought");
+    let waited = picked["ts"].as_i64().unwrap() - here["ts"].as_i64().unwrap();
+    assert!(
+        waited >= i64::try_from(GATHER.as_millis()).unwrap(),
+        "the pick-up followed the person's turn by the delay, not the turn before: {waited} ms"
+    );
+    tokio::time::sleep(GATHER * 2 + Duration::from_secs(1)).await;
+    assert_eq!(
+        desk.heard(PICKED_UP).len(),
+        1,
+        "{:?}",
+        desk.heard(PICKED_UP)
+    );
+}
+
+/// A turn the person stopped is followed by no pick-up, and neither is the
+/// turn before it whose pick-up it took the place of.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_the_person_stopped_is_followed_by_no_pick_up() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let bob = desk.teammate("Bob", false).await;
+    let item = desk
+        .send(&ada, json!({"to": ["Bob"], "title": "Keyboards"}))
+        .await;
+    let later = json!({"items": [{"id": item, "state": "later", "reason": "after this"}]});
+    desk.on_pick_up("SAY Picked up.");
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": format!("CALL update_inbox {later}\nSAY Later, then.")}),
+    )
+    .await;
+    desk.posted(&bob, "Later, then.").await;
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": bob, "text": "HOLD SAY Never said."}),
+    )
+    .await;
+    until("the held turn reached the model", || {
+        !desk.heard("Never said.").is_empty()
+    })
+    .await;
+    desk.ok("session.cancel", json!({"personaId": bob})).await;
+    tokio::time::sleep(GATHER * 2 + Duration::from_secs(1)).await;
+    assert!(
+        desk.heard(PICKED_UP).is_empty(),
+        "{:?}",
+        desk.heard(PICKED_UP)
+    );
+    assert_eq!(desk.state_of(&item).await, "later");
 }

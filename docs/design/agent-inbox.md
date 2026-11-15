@@ -89,7 +89,10 @@ new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (done | no
   its words.
 - `taken`, `later` (with the reason) and `closed` (with the outcome, and for
   `combined` the item folded into) are the receiver's sort. A `later` item can
-  be taken or closed afterwards; a closed one is over.
+  be taken or closed afterwards; a closed one is over. A `later` item heard in
+  the main conversation, and one there the receiver was shown and left
+  unsorted (`noticed` or `seen`), is offered to it again once, quietly, when
+  the conversation is next idle after a turn (the pick-up, below).
 - An item that the person's first-contact card has yet to allow is kept
   `held`: the receiver cannot read it, and it does not count as unread. A yes
   lets it in as `new`; a no, an expiry or the person's Stop exchange closes it
@@ -99,7 +102,9 @@ Items are kept on the receiver's own stream, `inbox/<personaId>.jsonl`
 (`StreamId::Inbox`), one line per item, written again under its id at each
 change: the fold is the whole state, and a restart reads it back as it was.
 At start-up a held item waits on its card again, and an item no turn has been
-offered wakes its receiver.
+offered wakes its receiver. Nothing set aside is offered at start-up: a desk
+that opens is not a turn that ended, and waking every teammate on every launch
+is a cost nobody asked for; it is offered after the teammate's next turn.
 
 ## When an item reaches the receiver
 
@@ -142,8 +147,30 @@ about that thread), else the receiver's main conversation.
   as data (`hotline_inbox`).
 - **At a turn's end.** Items still unread that no turn's start was offered,
   because they landed mid-turn, wake the idle thread as above. An item wakes
-  its receiver at most once: one offered and left unread waits for the
-  receiver to come back to it.
+  its receiver once as new; what the main conversation was shown and left
+  open waits for the pick-up.
+- **The pick-up** (`inbox/pick_up.rs`). When a turn of the main conversation
+  ends and the conversation is idle, and items heard there are open that the
+  teammate has not finished sorting (`later`, or offered or read and left
+  unsorted; not `taken`, not `closed`), it gets one quiet inbox turn, by the
+  same mechanism and with the same quietness and `post_to_chat` gate as the
+  quiet turn above. It comes the gather delay after the turn ended, and only
+  if the conversation is still idle with nothing queued and no turn has begun
+  or ended since: anything that starts a turn first (the person's line, a new
+  item's own wake, a post) wins, has the items in its index, and arms its own
+  pick-up when it ends. Items no turn has been offered yet are left to their
+  own wake. Its line begins `quiet inbox`, says the teammate is idle now and
+  these are items it set aside, and lists them as the index does (title,
+  sender, `waiting on you`, what it wants, age, short id) with where each
+  stands and each `later` one's reason, fenced as data.
+  - **No loops.** A turn the pick-up started arms no pick-up when it ends,
+    whatever it leaves open: the next can only follow a turn something else
+    started. A teammate that answers `later` every time settles after one.
+  - A turn the person stopped or interrupted, or one cancelled or failed, arms
+    none, and the person's Stop while one waits disarms it. A teammate with
+    nothing open, one not running or removed, and a room that is closing get
+    nothing. The arming is the live session's, so a restart offers nothing.
+  - Work threads and calls have no pick-up.
 
 ## Taking work, answers and results
 

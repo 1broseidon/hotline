@@ -237,7 +237,12 @@ async fn items_that_land_together_wake_an_idle_receiver_once_with_titles_never_b
     .await;
     until("bob woke", || agents.told().len() == 1).await;
     tokio::time::sleep(heard::gather_delay() * 3).await;
-    assert_eq!(agents.told().len(), 1, "one wake for both");
+    let woken = agents
+        .told()
+        .iter()
+        .filter(|told| told.contains(heard::QUIET_WAKE_LINE))
+        .count();
+    assert_eq!(woken, 1, "one wake for both: {:?}", agents.told());
     let heard = &agents.told()[0];
     assert!(heard.contains("NEW 2"), "{heard}");
     assert!(
@@ -316,7 +321,12 @@ async fn a_driver_that_takes_no_line_mid_turn_hears_the_notice_after_its_turn() 
     gate.add_permits(100);
     until("the next turn", || agents.told().len() == 2).await;
     tokio::time::sleep(heard::gather_delay() * 3).await;
-    assert_eq!(agents.told().len(), 2, "heard once: {:?}", agents.told());
+    let noticed = agents
+        .told()
+        .iter()
+        .filter(|told| told.contains("1 new message in your inbox"))
+        .count();
+    assert_eq!(noticed, 1, "heard once: {:?}", agents.told());
     assert!(
         agents.told()[1].contains("\"Deploy notes\""),
         "{}",
@@ -942,4 +952,5 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
     assert_eq!(team["sent"].as_array().unwrap().len(), 1, "{team}");
 }
 
+mod pick_up;
 mod quiet;

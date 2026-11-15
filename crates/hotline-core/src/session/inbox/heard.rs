@@ -21,8 +21,9 @@
 //!   teammate sent are told there too, once each time they move.
 //! - **At a turn's end.** Items still unread that no turn's start has been
 //!   offered, because they landed mid-turn, wake the idle thread as above.
-//!   An item wakes its receiver at most once: one offered and left unread
-//!   waits for the receiver to come back to it.
+//!   An item wakes its receiver once as new. What the main conversation was
+//!   shown and left open, `later` or unsorted, is offered once more, quietly,
+//!   when it goes idle after a turn something else started (`pick_up.rs`).
 
 use super::{Room, kept, lock, moved, now_ms, short};
 use crate::contract::{InboxItem, InboxState, ThreadId, ThreadKind};
@@ -36,11 +37,23 @@ use std::time::Duration;
 /// lone one behaves as a message. A test's own room gathers faster.
 const GATHER_MS: u64 = if cfg!(test) { 150 } else { 4_000 };
 
+/// Who reads a quiet turn of the main conversation, and when it posts: the
+/// end of the line of every turn the inbox starts there.
+macro_rules! nobody_reads {
+    () => {
+        "Nobody reads what you say in this turn, the person included: they hear only what you post with `post_to_chat`, once this turn. Post when an item's outcome is theirs to know: a result they asked you to get, a decision that is theirs to make, or a problem. A colleague's question you answered, or an item you sorted, is not."
+    };
+}
+pub(super) use nobody_reads;
+
 /// What a main conversation woken only by its inbox is told after the
 /// index. The turn is quiet, as a quiet job's firing is, and its line says
 /// who reads it as that firing's does: nobody, so the person hears only its
 /// one post.
-pub(super) const QUIET_WAKE_LINE: &str = "quiet inbox · New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. Nobody reads what you say in this turn, the person included: they hear only what you post with `post_to_chat`, once this turn. Post when an item's outcome is theirs to know: a result they asked you to get, a decision that is theirs to make, or a problem. A colleague's question you answered, or an item you sorted, is not.";
+pub(super) const QUIET_WAKE_LINE: &str = concat!(
+    "quiet inbox · New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. ",
+    nobody_reads!()
+);
 
 /// What a work thread or a call woken only by its inbox is told after the
 /// index: the person reads it.
@@ -127,7 +140,7 @@ impl Room {
 
     /// The unread items heard in `thread` that no turn's start has been
     /// offered yet, oldest first.
-    fn unoffered(&self, persona_id: &str, thread: &ThreadId) -> Vec<InboxItem> {
+    pub(super) fn unoffered(&self, persona_id: &str, thread: &ThreadId) -> Vec<InboxItem> {
         kept::received(&self.log, persona_id)
             .into_iter()
             .filter(|item| {
@@ -275,10 +288,14 @@ impl Room {
     }
 
     /// A turn of `persona_id`'s in `thread` has ended, and the thread is
-    /// idle: what landed during it and was never offered to a turn wakes it.
+    /// idle: what landed during it and was never offered to a turn wakes it,
+    /// and when nothing did, the main conversation is offered what it set
+    /// aside ([`super::pick_up`]).
     pub(in crate::session) fn inbox_rewake(self: &Arc<Self>, persona_id: &str, thread: &ThreadId) {
         if !self.unoffered(persona_id, thread).is_empty() {
             self.gather(persona_id, thread.clone());
+        } else if thread.kind == ThreadKind::Dm {
+            self.arm_pick_up(persona_id);
         }
     }
 

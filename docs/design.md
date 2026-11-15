@@ -568,8 +568,8 @@ Hotline's own tools, which Hotline Agent calls in process and an ACP child
 over the desk's MCP server, so a quiet job on either driver can be heard. It
 is listed in every session but a subagent run's and gated by the handler,
 not the model: a work thread, a pair and a job may post, once a turn, and so
-may the DM's quiet turn, one its inbox woke that the person has not written
-into; the DM's own turn and a subagent run may not; `wake` hands the post to
+may the DM's quiet turn, one its inbox woke (for new items, or to offer
+what it set aside) that the person has not written into; the DM's own turn and a subagent run may not; `wake` hands the post to
 the DM on a turn of its own when an arm needs the home agent to act. The
 rows are in [security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
 It replaces the quiet run's `tell_person`, which only Hotline Agent offered,
@@ -1202,7 +1202,9 @@ messages were each handled blind to the others. `send(to, title, message,
 wants, waiting)` returns at once; the receiver is told titles, never bodies,
 woken once a gather delay after an item lands when idle, given a one-line
 notice when busy, and decides itself what to read, take, combine or leave
-with `read_inbox` and `update_inbox`. Work it takes runs in a work thread of
+with `read_inbox` and `update_inbox`. What it left for later, or was shown
+and left unsorted, is offered to it once more, in a quiet turn, when its main
+conversation goes idle after a turn something other than that offer started. Work it takes runs in a work thread of
 its own, started by its sort and never by the sender, and answers and
 results come back as items in the sender's inbox; the sender is told at its
 next turn what became of each item. Nothing scores items or gates which

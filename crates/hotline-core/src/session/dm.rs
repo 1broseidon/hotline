@@ -35,6 +35,10 @@
 //!   call and no phone; the turn may post once, as a quiet job's may. The
 //!   person's own line steered into it ends the quiet, and the rest of the
 //!   turn is a reply to them.
+//! - **The pick-up.** A turn's end arms one quiet turn offering what the
+//!   teammate set aside in its inbox, once the conversation is idle
+//!   ([`super::inbox::PickUp`]); the beginning of any turn spends it, and the
+//!   end of a pick-up's own turn, or of one the person stopped, arms nothing.
 //!
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
@@ -64,6 +68,9 @@ pub(super) struct Hold {
     request: Option<String>,
     /// The inbox woke the turn: nobody reads it until the person speaks.
     quiet: bool,
+    /// The turn is a pick-up of what the teammate set aside, which no other
+    /// pick-up follows.
+    pick_up: bool,
 }
 
 impl Occupant for Session {
@@ -143,6 +150,11 @@ impl Occupant for Session {
         }
         let from_voice = wired.spoken;
         let quiet = wired.quiet;
+        let pick_up = wired.pick_up;
+        // A pick-up whose items were all sorted meanwhile has nothing to offer.
+        if pick_up && room.set_aside(&session.persona_id).is_empty() {
+            return Begin::Skip;
+        }
         let source = if let Some(unprompted) = &wired.unprompted {
             let Some(updates) = lock(&unprompted.0).take() else {
                 return Begin::Skip;
@@ -198,6 +210,9 @@ impl Occupant for Session {
         }
         // The person's Stop or Interrupt from here on is this turn's.
         lock(&session.cut).take();
+        // This turn hears the inbox in its index: a pick-up the last one
+        // armed is spent.
+        lock(&session.pick_up).began();
         Begin::Go(Hold {
             source: Some(source),
             reach,
@@ -205,6 +220,7 @@ impl Occupant for Session {
             steered: Vec::new(),
             request,
             quiet,
+            pick_up,
         })
     }
 
@@ -276,6 +292,14 @@ impl Occupant for Session {
             }
         }
         let cut = lock(&session.cut).take();
+        // Whether the conversation, once idle, may be offered what it set
+        // aside: never after a pick-up's own turn, so pick-ups cannot chain,
+        // and never after a turn the person stopped or that did not finish.
+        let may_pick_up = !held.pick_up
+            && cut.is_none()
+            && !super::exchanges::cut_short(&driven)
+            && driven.failure.is_none();
+        lock(&session.pick_up).ended(may_pick_up);
         if let Some(request) = &held.request {
             room.finish_request(request, &driven, cut);
         }

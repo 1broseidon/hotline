@@ -522,6 +522,9 @@ struct Session {
     /// The person's Stop or Interrupt of the turn in flight, which decides
     /// what becomes of a colleague's question it was answering.
     cut: Mutex<Option<exchanges::Cut>>,
+    /// Whether the turn that ended last may be followed by one quiet wake
+    /// for the inbox items the teammate set aside (`session/inbox/pick_up.rs`).
+    pick_up: Mutex<inbox::PickUp>,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
@@ -640,6 +643,10 @@ struct Wired {
     /// conversation, so nobody reads its words and only `post_to_chat`
     /// reaches the person ([`post`]).
     quiet: bool,
+    /// The line offers again the items the teammate set aside, once its
+    /// main conversation went idle ([`inbox::PickUp`]): the turn it begins
+    /// is followed by no other such line, whatever it leaves open.
+    pick_up: bool,
     /// The colleague's question this line's turn answers.
     request: Option<turns::RequestLine>,
 }
@@ -669,6 +676,7 @@ impl Wired {
             retry: false,
             wake: false,
             quiet: false,
+            pick_up: false,
             request: None,
         }
     }
@@ -785,6 +793,10 @@ pub struct Room {
     /// The threads waiting out the inbox's gather delay, by teammate and
     /// thread, so items that land together wake a thread once.
     inbox_gathers: Mutex<HashSet<String>>,
+    /// How long a test's pick-up waits in place of the gather delay, so a
+    /// test can act inside the wait (`session/inbox/pick_up.rs`).
+    #[cfg(test)]
+    pick_up_delay: Mutex<Option<std::time::Duration>>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
     /// Requests being taken up on a task of their own, by id: each may wait
@@ -984,6 +996,8 @@ impl Room {
             asides_lock: Mutex::new(()),
             inbox_lock: Mutex::new(()),
             inbox_gathers: Mutex::default(),
+            #[cfg(test)]
+            pick_up_delay: Mutex::new(None),
             exchange_workers: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
             exchange_admitting: Mutex::new(HashSet::default()),

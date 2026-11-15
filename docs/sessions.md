@@ -1467,7 +1467,23 @@ offered to a turn (title, sender, `waiting on you`, what it wants, age, short
 id), and what moved among the items the teammate sent (`SENT · what moved`).
 An item is offered once and marked `noticed`; the count stays. Items left
 unread that no turn's start was offered wake the thread when its turn ends,
-by the same rule, so an item wakes its receiver at most once.
+by the same rule, so an item wakes its receiver once as new.
+
+**The pick-up** (`inbox/pick_up.rs`). What the main conversation set aside
+is offered to it again once, when it goes idle: when one of its turns ends
+and items heard there are `later`, or were offered or read and left unsorted,
+the gather delay later one quiet inbox turn starts (`Wired::pick_up`, quiet as
+below) whose line says the teammate is idle now and lists those items as the
+index does, each `later` one with its reason, fenced as data. It starts only
+if the conversation is still idle with nothing queued and its turn is still
+the last one (`PickUp`, on the live `Session`: a count of turns ended and
+the one that armed it); a line that starts a turn first wins and arms its own
+pick-up at its end, and items never offered are left to their own wake. The
+DM's `end` arms it (`session/dm.rs`) except after a pick-up's own turn, so
+pick-ups never chain, and after a turn the person stopped or interrupted
+(`Session::cut`), one cancelled or one that failed; `cut_turn` disarms a
+waiting one. Nothing fires for a teammate not running or removed or while
+the room closes, nothing at start-up, and work threads and calls have none.
 
 **The quiet turn.** The turn of the main conversation that the inbox wakes
 while it is idle is quiet, as a quiet job's firing is, and by construction

@@ -85,7 +85,7 @@ const { faceHue } = await import("../src/ui/Avatar");
 async function mount(who: Persona) {
 	await act(async () => {
 		root.render(
-			<Teammate persona={who} session={session} jobs={[]} roster={[]} focusSchedules={false} onClose={() => {}} onDeleted={() => {}} onOpenThread={() => {}} />,
+			<Teammate persona={who} session={session} jobs={[]} roster={[]} focusSchedules={false} onClose={() => {}} onDeleted={() => {}} />,
 		);
 	});
 }

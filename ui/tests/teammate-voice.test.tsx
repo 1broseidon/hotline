@@ -80,7 +80,7 @@ afterEach(async () => {
 async function mount(who: Persona, info: SessionInfo) {
 	await act(async () => {
 		root.render(
-			<Teammate persona={who} session={info} jobs={[]} roster={[]} focusSchedules={false} onClose={() => {}} onDeleted={() => {}} onOpenThread={() => {}} />,
+			<Teammate persona={who} session={info} jobs={[]} roster={[]} focusSchedules={false} onClose={() => {}} onDeleted={() => {}} />,
 		);
 	});
 }

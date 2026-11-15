@@ -717,7 +717,8 @@ has one hook and one view.
 - **Not done.** `search.thread` hits are chapters and messages with no thread in
   them, so there is nothing to open: search stays on the tape. `park` is a verb the
   window does not offer (a thread parks itself, and saying something unparks it).
-  The inspector's Threads list is still `peers.list`, opening a pair in the dock.
+  (The inspector's Threads list of pairs was removed with the inbox, task-456:
+  old pairs are in the pane's Threads list.)
   `xthread:` and `exchange-paused:` are still markers, as phase 8 left them.
 
 **Review fixes** (after the phase 9 review). Computer calls: a call queued for

@@ -104,7 +104,7 @@ function Pane({ row }: { row: RosterEntry }) {
 	return <>
 		<SessionPickers key={`picker-${row.persona.id}`} entry={row} models={[{ id: "model", name: "Model" }, { id: "other", name: "Other" }]} onSaid={noop} />
 		<Teammate key={row.persona.id} persona={row.persona} session={row.session} jobs={[]} roster={[row]}
-			focusSchedules={false} onClose={noop} onDeleted={noop} onOpenThread={noop} />
+			focusSchedules={false} onClose={noop} onDeleted={noop} />
 	</>;
 }
 async function show(row: RosterEntry, desk = "local") {

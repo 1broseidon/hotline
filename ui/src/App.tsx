@@ -707,7 +707,6 @@ export function App() {
 									setSelectedId(null);
 									setInspector(false);
 								}}
-								onOpenThread={openThread}
 							/>
 						)}
 					</>

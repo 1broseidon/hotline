@@ -18,13 +18,11 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { Schedules } from "./Schedules";
-import type { ThreadRef } from "./Transcript";
 import { LocalAddresses } from "./teammate/LocalAddresses";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
 import { SecretRows } from "./teammate/SecretRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
-import { Threads } from "./teammate/Threads";
 import { ToolLedger } from "./teammate/ToolLedger";
 
 // The pane's rows live in ./teammate by concern; what other components take from here is re-exported.
@@ -56,7 +54,6 @@ export function Teammate({
 	focusSchedules,
 	onClose,
 	onDeleted,
-	onOpenThread,
 }: {
 	persona: Persona;
 	session: SessionInfo;
@@ -65,7 +62,6 @@ export function Teammate({
 	focusSchedules: boolean;
 	onClose(): void;
 	onDeleted(): void;
-	onOpenThread(thread: ThreadRef): void;
 }) {
 	const servers = useRoomSettings().mcpServers;
 	const [name, setName] = useState(persona.name);
@@ -407,8 +403,6 @@ export function Teammate({
 						backgroundWork={persona.backgroundWork}
 						focus={focusSchedules}
 					/>
-
-					<Threads personaId={persona.id} roster={roster} onOpen={onOpenThread} />
 
 					<div className="flex items-center gap-1 border-t border-line pt-3">
 						<button type="button" className="control btn-danger -ml-2.5" disabled={busy} onClick={() => void remove()}>

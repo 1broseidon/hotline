@@ -79,7 +79,7 @@ afterEach(async () => {
 async function mount(info: SessionInfo) {
 	await act(async () => {
 		root.render(
-			<Teammate persona={goldie} session={info} jobs={[]} roster={[]} focusSchedules={false} onClose={() => {}} onDeleted={() => {}} onOpenThread={() => {}} />,
+			<Teammate persona={goldie} session={info} jobs={[]} roster={[]} focusSchedules={false} onClose={() => {}} onDeleted={() => {}} />,
 		);
 	});
 }

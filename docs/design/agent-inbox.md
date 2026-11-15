@@ -246,6 +246,12 @@ item, and no chat opens between teammates.
   sender ("waiting" where the item says the sender stopped for it), any
   reason, and its state at the right, Taken in the accent. A sort of one
   item is a quiet row instead. A press opens the item.
+- **A quiet turn.** The turn the inbox woke draws as path, not as a reply:
+  its sorting card (or row) and its sent rows where they fell, its tool rows
+  and its words, as thinking, in the turn's collapsed steps under them, the
+  line any turn's steps have, and no bubble unless it posted. A turn that
+  ends without a new line in the chat posts no desktop toast
+  (`ui/src/notify.ts`).
 - **The item pane.** Its title; from whom to whom, what it wants, and
   whether the sender waits; the words; Receipts, a timeline of sent,
   noticed, seen, taken, later with its reason, closed with its outcome (and

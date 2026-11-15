@@ -17,6 +17,8 @@ import type { RosterEntry } from "./wire";
 /** Last state seen per desk and teammate, so a transition can be recognised as one. */
 const lastState = new Map<string, SessionState>();
 const lastPost = new Map<string, number | undefined>();
+/** The roster's `latest` as each teammate's turn began: a turn that ends with it unmoved put nothing in the chat. */
+const turnFrom = new Map<string, number | undefined>();
 
 /**
  * A roster fold just arrived. Notify only on thinking → ready or thinking →
@@ -42,6 +44,7 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 		lastState.set(key, state);
 		const posted = lastPost.has(key) && entry.preview?.posted === true && lastPost.get(key) !== entry.latest;
 		lastPost.set(key, entry.latest);
+		if (state === "thinking" && previous !== "thinking") turnFrom.set(key, entry.latest);
 		if (!posted && previous !== "thinking") continue;
 		if (!posted && state !== "ready" && state !== "error") continue;
 		// Focus means the desk on screen is being looked at; a desk off screen
@@ -50,6 +53,9 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 		// A turn that ended on the person's own line said nothing to them:
 		// a quiet schedule that found nothing stays quiet here too.
 		if (state === "ready" && entry.preview?.from === "me") continue;
+		// Nor did one that put no new line in the chat: a turn its inbox woke is
+		// quiet, its words the path under it, and only its post is for you.
+		if (state === "ready" && !posted && turnFrom.has(key) && turnFrom.get(key) === entry.latest) continue;
 		const title = desk.name === undefined ? entry.persona.name : `${entry.persona.name} · ${desk.name}`;
 		const target = desk.name === undefined ? entry.persona.id : `${desk.id}/${entry.persona.id}`;
 		void postToast(target, title, lastLine(entry));
@@ -58,6 +64,7 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 	for (const key of lastState.keys()) {
 		if (key.startsWith(scope) && !live.has(key)) lastState.delete(key);
 		if (key.startsWith(scope) && !live.has(key)) lastPost.delete(key);
+		if (key.startsWith(scope) && !live.has(key)) turnFrom.delete(key);
 	}
 }
 

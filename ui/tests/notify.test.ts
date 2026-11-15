@@ -32,3 +32,34 @@ test("a thread post notifies without a home turn, once, and snapshots stay quiet
 		await restore.teardown();
 	}
 });
+
+test("a turn that put no new line in the chat posts no toast, and one that did posts its line", async () => {
+	const restore = installDom();
+	const toast = spyOn(native, "postToast").mockResolvedValue(undefined);
+	const focus = spyOn(document, "hasFocus").mockReturnValue(false);
+	const entry = (state: "ready" | "thinking", at: number, text: string): RosterEntry =>
+		({
+			persona: { id: "quiet-turns", name: "Bob" },
+			session: { state },
+			latest: at,
+			preview: { from: "them", text, at },
+		}) as unknown as RosterEntry;
+	try {
+		noticeRoster([entry("ready", 1, "Morning.")]);
+		// The inbox woke Bob: he sorted it and said nothing to the person.
+		noticeRoster([entry("thinking", 1, "Morning.")]);
+		noticeRoster([entry("ready", 1, "Morning.")]);
+		expect(toast).not.toHaveBeenCalled();
+		// The next quiet turn posted.
+		noticeRoster([entry("thinking", 1, "Morning.")]);
+		noticeRoster([entry("thinking", 2, "Ada needs the crane permit signed.")]);
+		noticeRoster([entry("ready", 2, "Ada needs the crane permit signed.")]);
+		expect(toast).toHaveBeenCalledTimes(1);
+		expect(toast).toHaveBeenCalledWith("quiet-turns", "Bob", "Ada needs the crane permit signed.");
+	} finally {
+		noticeRoster([]);
+		toast.mockRestore();
+		focus.mockRestore();
+		await restore.teardown();
+	}
+});

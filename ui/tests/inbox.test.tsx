@@ -123,6 +123,52 @@ describe("task-456 the sorting card", () => {
 	});
 });
 
+describe("a turn the inbox woke is drawn as path", () => {
+	const sortedLine: TranscriptEvent = {
+		kind: "inbox_sorted",
+		id: "inbox-sorted:1",
+		ts: NOW,
+		open: 0,
+		unread: 0,
+		entries: [{ item: "i1", title: "Test message", from: "chop", state: "closed", outcome: "done", answered: true }],
+	};
+	const tool = (id: string, title: string): TranscriptEvent => ({ kind: "tool", id, ts: NOW, toolCallId: id, title, status: "completed" });
+	const thought = (id: string, text: string): TranscriptEvent => ({ kind: "thought", id, ts: NOW, text });
+
+	test("its sorting card stays, its tools and words fold into the turn's steps, and no bubble follows", async () => {
+		const { toBlocks } = await import("../src/transcriptFolds");
+		const drawn = groupInbox(
+			toBlocks([
+				tool("t1", "read_inbox"),
+				tool("t2", "update_inbox"),
+				sent("r1", "chop", "Re: Test message"),
+				sortedLine,
+				thought("w1", "Pork Chop's test message arrived; I confirmed receipt."),
+				ended("e1"),
+			]),
+		);
+		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["inbox", "inbox_sorted", "steps", "turn"]);
+		const steps = drawn.find((block) => block.kind === "steps");
+		expect(steps?.kind === "steps" && steps.items.map((one) => one.kind)).toEqual(["tool", "tool", "thought"]);
+		expect(drawn.some((block) => block.kind === "event" && block.event.kind === "agent")).toBe(false);
+	});
+
+	test("what it posted is the one bubble, with the turn's steps under it", async () => {
+		const { toBlocks } = await import("../src/transcriptFolds");
+		const drawn = groupInbox(
+			toBlocks([
+				tool("t1", "update_inbox"),
+				sortedLine,
+				tool("t2", "post_to_chat"),
+				said("p1", "Pork Chop needs the crane permit signed: it is yours to sign."),
+				thought("w1", "Sorted it and told the person."),
+				ended("e1"),
+			]),
+		);
+		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["inbox_sorted", "agent", "steps", "turn"]);
+	});
+});
+
 describe("task-456 the pane", () => {
 	test("groups what is open: not yet sorted, taken, for later; with the counts at its head", () => {
 		const shown = view({

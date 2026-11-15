@@ -50,16 +50,18 @@ export type LiveInput = {
 	jobs: ScheduleEntry[];
 	nameOf(personaId: string): string | undefined;
 	now: number;
+	/** Work threads taking an inbox item started, by key: listed as work threads. */
+	inboxWork?: ReadonlySet<string> | undefined;
 };
 
 const NO_RUNS: RunningSubagent[] = [];
 
 /** The Threads list's Live group for the teammate, newest first, as rows of the panel. */
-export function liveThreads({ listed, roster, entry, jobs, nameOf, now }: LiveInput): LiveThread[] {
+export function liveThreads({ listed, roster, entry, jobs, nameOf, now, inboxWork }: LiveInput): LiveThread[] {
 	const listedFor = entry.persona.id;
 	const rows = withTurns(listed, [...roster], listedFor);
 	// The list's own rows and its Live chip's rule; asides are never live.
-	const items = filtered(listItems({ rows, runs: entry.subagents ?? NO_RUNS, jobs, asides: [], listedFor, nameOf, personName: "", now }), "live");
+	const items = filtered(listItems({ rows, runs: entry.subagents ?? NO_RUNS, jobs, asides: [], listedFor, nameOf, personName: "", now, inboxWork }), "live");
 	return items.flatMap((item) => {
 		if (item.open === undefined) return [];
 		const word = markOf(item.kind).word;

@@ -1,8 +1,8 @@
 import { ErrorCard } from "./ErrorCard";
-import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
 import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
-import { itemsOf, useInbox } from "../inbox";
+import { inboxWork, itemsOf, useInbox } from "../inbox";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
@@ -237,9 +237,15 @@ export function Transcript({
 	const reacted = useMemo(() => foldReactions(events), [events]);
 	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
 	/* The items this teammate sent or sorted, live from its own inbox: watched only once the tape has one. */
-	const sendsMail = useMemo(() => events.some((event) => event.kind === "inbox_sent" || event.kind === "inbox_sorted"), [events]);
+	const sendsMail = useMemo(
+		() => events.some((event) => event.kind === "inbox_sent" || event.kind === "inbox_sorted" || (event.kind === "link" && event.openerId !== undefined)),
+		[events],
+	);
 	const inboxView = useInbox(sendsMail ? personaId : undefined);
-	const inboxRows = useMemo(() => ({ items: itemsOf(inboxView), onOpen: onOpenInboxItem }), [inboxView, onOpenInboxItem]);
+	const inboxRows = useMemo(() => {
+		const items = itemsOf(inboxView);
+		return { items, work: inboxWork(items), onOpen: onOpenInboxItem };
+	}, [inboxView, onOpenInboxItem]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -497,14 +503,21 @@ export function Transcript({
 							reacted.lines.has(block.event.id) ||
 							(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
 							isRunLink(block.event) ||
-							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
+							// Work taking an inbox item started is a work thread with a row of its own, not a handoff.
+							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId) && !inboxRows.work.has(block.event.thread)))
 					),
 			),
 		)))));
 		drawnBefore.current = drawn;
 		return drawn;
-	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
-	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId, workingSides ?? []), [onOpenThreads, events, personaId, workingSides]);
+	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId, inboxRows.work]);
+	const underway = useMemo(
+		() =>
+			onOpenThreads === undefined
+				? { count: 0, from: [] }
+				: handoffsUnderway(events.filter((event) => !(event.kind === "link" && inboxRows.work.has(event.thread))), personaId, workingSides ?? []),
+		[onOpenThreads, events, personaId, workingSides, inboxRows.work],
+	);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -617,7 +630,10 @@ export function Transcript({
 						thread={rowThread}
 						ownerName={name}
 						event={event}
-						working={event.kind === "link" && event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)}
+						working={
+							event.kind === "link" &&
+							((event.threadKind === "call" && (workingCalls?.includes(event.thread) ?? false)) || (event.threadKind === "side" && (workingSides?.includes(event.thread) ?? false)))
+						}
 						loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
 						quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
 						top={run.top}
@@ -983,7 +999,7 @@ const Row = memo(function Row({
 		 * row that fills in as the thread goes, and opens it in the right-hand
 		 * pane. */
 		case "link":
-			return <LinkRow link={event} owner={personaId} people={people} working={working} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
+			return <ThreadLink link={event} owner={personaId} people={people} working={working} onOpen={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })} />;
 
 		/* The markers links replaced. The window declares `threads2`, so the
 		 * desk sends it a link for each, even for one written long ago. */
@@ -1012,6 +1028,12 @@ const Row = memo(function Row({
 			return null;
 	}
 });
+
+/** A thread's link row, said as a work thread when taking an inbox item started it (InboxRows' `work`). */
+function ThreadLink(props: Omit<Parameters<typeof LinkRow>[0], "inboxWork">) {
+	const { work } = useContext(InboxRows);
+	return <LinkRow {...props} inboxWork={props.link.threadKind === "side" && work.has(props.link.thread)} />;
+}
 
 /** What opens a thread from a line: the thread, and what the line knew about it. */
 export type ThreadRef = {

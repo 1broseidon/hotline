@@ -245,6 +245,15 @@ item, and no chat opens between teammates.
   unsorted item whose sender waits counts how long in amber. It opens from
   the teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.
+- **Work an item started.** The desk opens a taken item's work thread with
+  the item's sender as its opener, as a handoff was. The window tells the two
+  apart by the inbox views (`item.work`): such a thread is a work thread
+  everywhere. On the receiver's conversation it is a link row with the live
+  dot, its title and "Work thread · Running" (or Open, Parked, or what came
+  of it), and on the sender's "Work thread · Juno · Running"; the Threads
+  list and the composer's count list it as a work thread; its pane is the
+  work thread's, with the item's words over it as its Message. A handoff from
+  before the inbox keeps its old line and pane.
 - **The composer and the rail.** While the open teammate has unread items,
   the composer's bottom row has "N unread" with the tray, beside "N threads"
   and in its style; it opens a tray of them (title, sender, amber age when

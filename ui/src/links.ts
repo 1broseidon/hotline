@@ -177,3 +177,25 @@ export function linkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string
 		}
 	}
 }
+
+/**
+ * A work thread a teammate opened by taking an inbox item, as its row says
+ * it: a work thread like any other, not a handoff, with whose it is on
+ * another teammate's tape ("Work thread · Juno · Running"). Live, it is
+ * Running while a turn of it runs and Open between; parked and ended, as any
+ * work thread's row says them.
+ */
+export function inboxWorkRow(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): LinkRowFacts {
+	const { openerId: _id, openerName: _name, ...plain } = link;
+	const base = linkRow(plain, owner, people);
+	const whose = link.personaId !== undefined && link.personaId !== owner ? people?.get(link.personaId)?.name : undefined;
+	const state = link.state === "live" ? (working ? "Running" : "Open") : base.outcome;
+	return { ...base, outcome: ["Work thread", ...(whose !== undefined ? [whose] : []), state].join(" · ") };
+}
+
+/** Its one sentence, the row's accessible name: "Work thread · Rerun the Linux build · Running". */
+export function inboxWorkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): string {
+	const facts = inboxWorkRow(link, owner, people, working);
+	const [kind, ...rest] = facts.outcome.split(" · ");
+	return [kind, facts.title, ...rest].join(" · ");
+}

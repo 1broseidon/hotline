@@ -54,6 +54,7 @@ export function ThreadList({
 	loaded,
 	nameOf,
 	opened,
+	inboxWork,
 	onOpen,
 }: {
 	entry: RosterEntry | null;
@@ -66,6 +67,8 @@ export function ThreadList({
 	nameOf(personaId: string): string | undefined;
 	/** The row a thread was last opened from. */
 	opened: RefObject<string | null>;
+	/** Work threads taking an inbox item started, by key: listed as work threads, not handoffs. */
+	inboxWork?: ReadonlySet<string> | undefined;
 	onOpen(open: ThreadRef): void;
 }) {
 	const root = useRef<HTMLDivElement>(null);
@@ -90,8 +93,8 @@ export function ThreadList({
 			const { seen: _seen, ...unread } = aside;
 			return unread;
 		});
-		return listItems({ rows, runs, jobs, asides: read, listedFor: personaId ?? "", nameOf, personName, now });
-	}, [rows, runs, jobs, asides, personaId, nameOf, personName, now]);
+		return listItems({ rows, runs, jobs, asides: read, listedFor: personaId ?? "", nameOf, personName, now, inboxWork });
+	}, [rows, runs, jobs, asides, personaId, nameOf, personName, now, inboxWork]);
 	const [query, setQuery] = useState("");
 	const [span, setSpan] = useState<Span>("all");
 	/* Earlier and routine, opened in place; a chip pressed folds it again, and its switch starts at All. */

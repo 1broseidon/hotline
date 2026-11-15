@@ -36,7 +36,7 @@ import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
 import { ThreadList } from "./ThreadList";
 import { LoopIn } from "./LoopIn";
-import { BandKind, PaneHead } from "./thread/Pane";
+import { BandKind, PaneHead, TaskCard } from "./thread/Pane";
 import { RunPane } from "./thread/RunPane";
 import { HandoffPane } from "./thread/HandoffPane";
 import { PairPane } from "./thread/PairPane";
@@ -44,7 +44,7 @@ import { CommandPane, runLink } from "./thread/CommandPane";
 import { CallPane } from "./thread/CallPane";
 import { JobPane } from "./thread/JobPane";
 import { startedWords, threadFamily } from "../threadKinds";
-import { type InboxSegment, useInbox } from "../inbox";
+import { type InboxSegment, useInbox, useInboxWork } from "../inbox";
 import { InboxItemPane, InboxList } from "./InboxPane";
 
 /**
@@ -127,6 +127,8 @@ export function Dock({
 	const back: DockState = state.from ?? (work === undefined ? { open: null } : { open: null, work });
 	const path = at === null && state.inbox === undefined ? work : undefined;
 	const inbox = state.inbox;
+	/* Work taking an inbox item started: a work thread in the list and in its pane, never a handoff. */
+	const inboxWork = useInboxWork(entry?.persona.id);
 	const inboxView = useInbox(inbox !== undefined ? entry?.persona.id : undefined);
 	const workingIds = (entry?.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
 	const working = useMemo(() => new Set(workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
@@ -188,6 +190,7 @@ export function Dock({
 						loaded={list !== undefined}
 						nameOf={nameOf}
 						opened={opened}
+						inboxWork={inboxWork}
 						onOpen={(open) => onState({ open })}
 					/>
 				) : (
@@ -209,6 +212,7 @@ export function Dock({
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
 							onOpenInboxItem={openItem}
+							fromInbox={at.thread.kind === "side" && inboxWork.has(at.thread.key)}
 							onBack={() => onState(back)}
 							onClose={onClose}
 							onOpenTeammate={onOpenTeammate}
@@ -273,6 +277,7 @@ function ThreadView({
 	onChanged,
 	onOpen,
 	onOpenInboxItem,
+	fromInbox = false,
 	onBack,
 	onClose,
 	onOpenTeammate,
@@ -292,6 +297,8 @@ function ThreadView({
 	onOpen(open: ThreadRef): void;
 	/** Opens an item the thread sent in the pane, with Back here. */
 	onOpenInboxItem(itemId: string): void;
+	/** Taking an inbox item started it: the work thread's own pane, with the item's words over it, not a handoff's. */
+	fromInbox?: boolean;
 	onBack(): void;
 	onClose(): void;
 	onOpenTeammate(personaId: string): void;
@@ -300,11 +307,13 @@ function ThreadView({
 	const { events, streaming, more, earlier, prompt, cancel, interrupt, close, resume } = useThread(id);
 	const state = row?.state ?? "live";
 	// A teammate's handoff is the two teammates' work: the person speaks in it, and only its result ends it.
-	const opener = openerOf(row);
+	// Work taking an inbox item started names its sender as opener, as a handoff did; it is drawn as a work thread.
+	const sender = openerOf(row);
+	const opener = fromInbox ? undefined : sender;
 	// Opened from the pane of whoever handed it over, a handoff is still the receiver's: its lines and its bar name them.
 	const ownerId = threadOwnerId(row, teammate.id);
 	const self = ownerId === teammate.id ? teammate : { id: ownerId, name: nameOf(ownerId) ?? "a teammate", avatarHash: people.get(ownerId)?.hash };
-	const powers = powersOf(id.kind, state, opener !== undefined);
+	const powers = powersOf(id.kind, state, sender !== undefined);
 	const closed = state === "closed";
 	const parked = state === "parked";
 	const turning = working && !closed;
@@ -318,7 +327,12 @@ function ThreadView({
 	const runKind = id.kind === "run" ? (listedRun?.kind ?? runLink(events)?.runKind) : undefined;
 	const kind = threadFamily(id.kind, id.kind === "run" ? self.name : opener?.name, runKind);
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
-	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
+	// Taken from an inbox, the item's words that seeded it stand over the thread as its message, not as a line in it.
+	const lines = useMemo(
+		() => events.filter((event) => event.kind !== "link" && !(fromInbox && event.kind === "delivery" && event.cause.kind === "handoff")),
+		[events, fromInbox],
+	);
+	const seeded = fromInbox ? events.find((event): event is Extract<typeof event, { kind: "delivery" }> => event.kind === "delivery" && event.cause.kind === "handoff") : undefined;
 	// A pair draws the asides its two teammates left each other: each teammate's are read from what it was left.
 	const leftSelf = useAsides(id.kind === "pair" ? self.id : undefined, ownerEntry ?? null);
 	const leftOther = useAsides(id.kind === "pair" ? other : undefined, roster.find((one) => one.persona.id === other) ?? null);
@@ -392,7 +406,7 @@ function ThreadView({
 					<ArrowLeftIcon />
 				</button>
 				<BandKind kind={kind} live={turning} state={turning ? "working" : state} tone={row?.end === "failed" ? "failed" : "quiet"} />
-                {id.kind === "side" && !closed && opener === undefined && (
+                {id.kind === "side" && !closed && sender === undefined && (
                     <button type="button" className="control btn-quiet px-2 text-sm" title="Call this thread" onClick={() => void startCall(undefined, { personaId: self.id, name: self.name, thread: id }).catch(refuse)}>Call</button>
                 )}
 				{powers.resume && (
@@ -425,6 +439,9 @@ function ThreadView({
 				}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
+				{seeded !== undefined && sender !== undefined && (
+					<TaskCard eyebrow="Message" from={{ personaId: sender.personaId, name: sender.name, hash: people.get(sender.personaId)?.hash }} text={seeded.text} />
+				)}
 				{opener !== undefined ? (
 					<HandoffPane thread={id} events={lines} streaming={streaming} live={turning} receiver={{ id: self.id, name: self.name, hash: self.avatarHash }} sender={opener} people={people} />
 				) : (

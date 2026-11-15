@@ -204,7 +204,7 @@ describe("task-456 drawn", () => {
 		const draw = (items: InboxItem[]) =>
 			act(async () =>
 				root!.render(
-					<InboxRows.Provider value={{ items: new Map(items.map((one) => [one.id, one])), onOpen: (id) => opened.push(id) }}>
+					<InboxRows.Provider value={{ work: new Set(), items: new Map(items.map((one) => [one.id, one])), onOpen: (id) => opened.push(id) }}>
 						<InboxSentRow title="Release" sent={members} people={people} />
 					</InboxRows.Provider>,
 				),
@@ -236,7 +236,7 @@ describe("task-456 drawn", () => {
 		};
 		await act(async () =>
 			root!.render(
-				<InboxRows.Provider value={{ items: new Map([["build", item("build", { waiting: true, state: "taken" })]]), onOpen: (id) => opened.push(id) }}>
+				<InboxRows.Provider value={{ work: new Set(), items: new Map([["build", item("build", { waiting: true, state: "taken" })]]), onOpen: (id) => opened.push(id) }}>
 					<InboxSortedCard event={event} people={people} />
 				</InboxRows.Provider>,
 			),
@@ -377,12 +377,77 @@ describe("task-456 drawn", () => {
 		expect(opened.at(-1)).toBe("r");
 	});
 
+	test("the receiver's conversation draws the work its sort started as a work-thread row, while an old handoff keeps its line", async () => {
+		const { Transcript } = await import("../src/components/Transcript");
+		const juno = view({ open: [item("i-build", { state: "taken", work: { kind: "side", key: "s-build" } })] });
+		spyOn(wire, "subscribe").mockImplementation(((target: { inbox?: string }, handlers: { snapshot(items: unknown): void }) => {
+			if (target.inbox === "juno") handlers.snapshot(juno);
+			return () => {};
+		}) as typeof wire.subscribe);
+		const opened: string[] = [];
+		const events: TranscriptEvent[] = [
+			{ kind: "inbox_sorted", id: "sorted", ts: NOW - 2_000, open: 1, unread: 0, entries: [{ item: "i-build", title: "Rerun the Linux build", from: "chop", state: "taken" }] },
+			{ kind: "link", id: "link:side:s-build", ts: NOW - 1_000, thread: "s-build", threadKind: "side", personaId: "juno", title: "Rerun the Linux build", state: "live", openerId: "chop", openerName: "Pork Chop" },
+			{ kind: "link", id: "link:side:s-old", ts: NOW, thread: "s-old", threadKind: "side", personaId: "juno", title: "Old handoff", state: "live", openerId: "huck", openerName: "Huck" },
+		];
+		await act(async () =>
+			root!.render(
+				<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} workingSides={["s-build", "s-old"]} onOpenThreads={() => {}} onOpenThread={(open) => opened.push(`${open.thread.kind}:${open.thread.key}`)} />,
+			),
+		);
+		const row = container.querySelector<HTMLButtonElement>(".link-row[data-inbox]");
+		expect(row?.querySelector(".link-row-title")?.textContent).toBe("Rerun the Linux build");
+		expect(row?.querySelector(".link-row-outcome")?.textContent).toBe("· Work thread · Running");
+		expect(row?.getAttribute("aria-label")).toBe("Work thread · Rerun the Linux build · Running. Open it");
+		expect(row?.querySelector(".link-row-dot")?.getAttribute("data-tone")).toBe("live");
+		await press(row!);
+		expect(opened).toEqual(["side:s-build"]);
+		// The handoff from before the inbox keeps its one line; this work is not in it.
+		expect(container.textContent).toContain("Working on a handoff from Huck");
+		expect(container.textContent).not.toContain("handoff from Pork Chop");
+		expect(container.querySelectorAll(".link-row[data-kind=thread]")).toHaveLength(1);
+	});
+
 	test("a held item says it waits on the first-contact card", async () => {
 		const { InboxItemPane } = await import("../src/components/InboxPane");
 		spyOn(wire, "command").mockImplementation((async () => ({ item: item("h", { held: true, receipts: [] }), replies: [] })) as unknown as typeof wire.command);
 		await act(async () => root!.render(<InboxItemPane itemId="h" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
 		expect(container.textContent).toContain("Held for the first-contact card.");
 		expect([...container.querySelectorAll(".inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent"]);
+	});
+});
+
+describe("task-456 work an inbox item started is a work thread, not a handoff", () => {
+	const started = (more: Partial<Extract<TranscriptEvent, { kind: "link" }>> = {}): Extract<TranscriptEvent, { kind: "link" }> => ({
+		kind: "link", id: "link:side:s-build", ts: NOW, thread: "s-build", threadKind: "side", personaId: "juno", title: "Rerun the Linux build", state: "live", openerId: "chop", openerName: "Pork Chop", ...more,
+	});
+	const peopleNames = new Map([...people].map(([id, one]) => [id, one]));
+
+	test("its row says its kind and state, on the receiver's tape and with whose it is on the sender's", async () => {
+		const { inboxWorkLine, inboxWorkRow } = await import("../src/links");
+		expect(inboxWorkRow(started(), "juno", peopleNames, true)).toEqual({ kind: "thread", title: "Rerun the Linux build", outcome: "Work thread · Running", tone: "live" });
+		expect(inboxWorkRow(started(), "juno", peopleNames, false).outcome).toBe("Work thread · Open");
+		expect(inboxWorkRow(started(), "chop", peopleNames, true).outcome).toBe("Work thread · Juno · Running");
+		expect(inboxWorkRow(started({ state: "closed", outcome: "It was the runner" }), "juno", peopleNames).outcome).toBe("Work thread · It was the runner");
+		expect(inboxWorkRow(started({ state: "parked" }), "juno", peopleNames).outcome).toBe("Work thread · Parked");
+		expect(inboxWorkLine(started(), "juno", peopleNames, true)).toBe("Work thread · Rerun the Linux build · Running");
+		expect(inbox.inboxWork(new Map([["b", item("b", { state: "taken", work: { kind: "side", key: "s-build" } })], ["n", item("n")]]))).toEqual(new Set(["s-build"]));
+	});
+
+	test("the Threads list and the composer's count list it as a work thread", async () => {
+		const { listItems, markOf } = await import("../src/threadList");
+		const { liveThreads } = await import("../src/liveThreads");
+		const row = { thread: { kind: "side" as const, key: "s-build" }, personaId: "juno", title: "Rerun the Linux build", state: "live" as const, startedAt: NOW - 60_000, updatedAt: NOW, working: true, waiting: false, opener: { personaId: "chop", name: "Pork Chop" } };
+		const old = { ...row, thread: { kind: "side" as const, key: "s-old" }, title: "Old handoff", opener: { personaId: "huck", name: "Huck" } };
+		const items = listItems({ rows: [row, old], runs: [], jobs: [], asides: [], listedFor: "juno", nameOf, personName: "", now: NOW, inboxWork: new Set(["s-build"]) });
+		expect(items.map((one) => [one.id, one.kind, markOf(one.kind).word])).toEqual([
+			["side:s-build", "work", "Work thread"],
+			["side:s-old", "handoff", "Handoff"],
+		]);
+		const juno = { persona: { id: "juno", name: "Juno" }, session: { personaId: "juno", state: "thinking" }, sides: [{ sideId: "s-build", title: "Rerun the Linux build", startedAt: NOW - 60_000, working: true }] } as unknown as import("../src/wire").RosterEntry;
+		const live = liveThreads({ listed: [row], roster: [juno], entry: juno, jobs: [], nameOf, now: NOW, inboxWork: new Set(["s-build"]) });
+		expect(live.map((one) => one.line)).toEqual(["Work thread from Pork Chop · Working"]);
+		expect(live.some((one) => /handoff|handed/i.test(one.line))).toBe(false);
 	});
 });
 

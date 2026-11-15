@@ -12,7 +12,7 @@ import { sends, unlanded, useReturned, useSends } from "../sends";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { useAsides, withAsides } from "../asides";
-import { unreadItems, unreadWords, useInbox } from "../inbox";
+import { unreadItems, unreadWords, useInbox, useInboxWork } from "../inbox";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -207,18 +207,21 @@ export function Conversation({
 	 * at their times; the core never writes them into this conversation. */
 	const asides = useAsides(personaId, entry);
 	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
+	/* Work taking an inbox item started: a work thread wherever it is listed, never a handoff. */
+	const work = useInboxWork(personaId);
 	/* What runs in the session, which the composer counts and lists: the Threads list's Live group, from the rows it reads. */
 	const { rows: listed } = useThreadRows(entry);
 	const scheduled = useJobs(personaId);
 	const live = useMemo(
-		() => liveThreads({ listed, roster, entry, jobs: scheduled, nameOf: (id) => nameIn(roster, listed, id), now: Date.now() }),
-		[listed, roster, entry, scheduled],
+		() => liveThreads({ listed, roster, entry, jobs: scheduled, nameOf: (id) => nameIn(roster, listed, id), now: Date.now(), inboxWork: work }),
+		[listed, roster, entry, scheduled, work],
 	);
 	/* What the teammate has not read in its inbox, for the composer's chip and its tray. */
 	const inbox = useInbox(personaId);
 	const unread = useMemo(() => unreadItems(inbox), [inbox]);
 	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
-	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
+	// Every teammate's: work a sent item started runs in its receiver's thread, and the sender's row says so too.
+	const workingIds = roster.flatMap((one) => (one.sides ?? []).filter((side) => side.working).map((side) => side.sideId)).join(" ");
 	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */

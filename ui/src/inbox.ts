@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { InboxItem, InboxItemDetail, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
 import { wire } from "./wire";
 
@@ -35,7 +35,7 @@ function watchInbox(personaId: string, listener: () => void): () => void {
 			{ inbox: personaId },
 			{
 				snapshot: (view) => {
-					made.view = view as unknown as InboxView;
+					made.view = isView(view) ? view : undefined;
 					tell();
 				},
 				event: () => {},
@@ -55,6 +55,12 @@ function watchInbox(personaId: string, listener: () => void): () => void {
 		kept.stop();
 		if (watched.get(personaId) === kept) watched.delete(personaId);
 	};
+}
+
+/** What came is a view: a desk that does not keep inboxes answers something else, which is read as none. */
+function isView(value: unknown): value is InboxView {
+	const view = value as Partial<InboxView> | null;
+	return typeof view === "object" && view !== null && Array.isArray(view.open) && Array.isArray(view.closed) && Array.isArray(view.sent);
 }
 
 const NOTHING = () => () => {};
@@ -99,6 +105,24 @@ export function itemsOf(view: InboxView | undefined): ReadonlyMap<string, InboxI
 	if (view === undefined) return items;
 	for (const item of [...view.sent, ...view.closed, ...view.open]) items.set(item.id, item);
 	return items;
+}
+
+/**
+ * The work threads taking an item started, by key, out of what a view knows:
+ * the receiver's own (open and closed) and those its sent items started.
+ * The desk opens such a thread with the item's sender as its opener, as a
+ * handoff was; this is how the window tells it from a handoff of old.
+ */
+export function inboxWork(items: ReadonlyMap<string, InboxItem>): ReadonlySet<string> {
+	const keys = new Set<string>();
+	for (const item of items.values()) if (item.work?.kind === "side") keys.add(item.work.key);
+	return keys;
+}
+
+/** The same, for a teammate: live from its inbox. */
+export function useInboxWork(personaId: string | undefined): ReadonlySet<string> {
+	const view = useInbox(personaId);
+	return useMemo(() => inboxWork(itemsOf(view)), [view]);
 }
 
 /* ----------------------------------------------------------- the words */

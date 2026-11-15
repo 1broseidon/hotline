@@ -1,6 +1,6 @@
 import type { Person } from "../../avatars";
 import type { LinkEvent } from "../../dock";
-import { linkLine, linkRow } from "../../links";
+import { inboxWorkLine, inboxWorkRow, linkLine, linkRow } from "../../links";
 
 /**
  * Every way out of the conversation into a thread it holds, a work thread, a
@@ -18,17 +18,21 @@ export function LinkRow({
 	owner,
 	people,
 	working = false,
+	inboxWork = false,
 	onOpen,
 }: {
 	link: LinkEvent;
 	owner: string;
 	people: ReadonlyMap<string, Person> | undefined;
 	working?: boolean;
+	/** A work thread taking an inbox item started: said as a work thread, never a handoff (`inboxWorkRow`). */
+	inboxWork?: boolean;
 	onOpen(): void;
 }) {
-	const facts = linkRow(link, owner, people, working);
+	const facts = inboxWork ? inboxWorkRow(link, owner, people, working) : linkRow(link, owner, people, working);
+	const line = inboxWork ? inboxWorkLine(link, owner, people, working) : linkLine(link, owner, people, working);
 	return (
-		<button type="button" className="link-row" data-kind={facts.kind} aria-label={`${linkLine(link, owner, people, working)}. Open it`} onClick={onOpen}>
+		<button type="button" className="link-row" data-kind={facts.kind} data-inbox={inboxWork || undefined} aria-label={`${line}. Open it`} onClick={onOpen}>
 			<span className={`link-row-dot ${facts.tone === "live" ? "beat" : ""}`} data-tone={facts.tone} />
 			<span className="link-row-words">
 				<span className="link-row-title">{facts.title}</span>

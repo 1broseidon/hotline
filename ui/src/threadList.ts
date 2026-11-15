@@ -84,6 +84,8 @@ type Input = {
 	/** What the person is called, for a note of their own Loop in. */
 	personName: string;
 	now: number;
+	/** Work threads taking an inbox item started, by key: work threads, not handoffs, though the desk names an opener. */
+	inboxWork?: ReadonlySet<string> | undefined;
 };
 
 const keyOf = (thread: ThreadId) => `${thread.kind}:${thread.key}`;
@@ -115,9 +117,9 @@ export function listItems(input: Input): ListItem[] {
 	return items.sort((a, b) => b.at - a.at);
 }
 
-function threadItem(row: ThreadSummary, { runs, listedFor, nameOf }: Input, notes: number): ListItem {
+function threadItem(row: ThreadSummary, { runs, listedFor, nameOf, inboxWork }: Input, notes: number): ListItem {
 	const run = row.thread.kind === "run" ? runs.find((one) => one.runId === row.thread.key) : undefined;
-	const kind = kindOf(row, run);
+	const kind = row.thread.kind === "side" && inboxWork?.has(row.thread.key) === true ? "work" : kindOf(row, run);
 	const title = rowTitle(row, listedFor, nameOf);
 	const ended = row.state === "closed";
 	const live = !ended && (row.working || run !== undefined);

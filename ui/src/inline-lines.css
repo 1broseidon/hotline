@@ -885,7 +885,8 @@
 		flex-shrink: 0;
 		color: var(--accent-ink);
 	}
-	.link-row[data-kind^="inbox"] .link-row-title {
+	.link-row[data-kind^="inbox"] .link-row-title,
+	.link-row[data-inbox] .link-row-title {
 		font-weight: 600;
 		color: var(--ink);
 	}

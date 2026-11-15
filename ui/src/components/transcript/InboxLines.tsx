@@ -11,9 +11,14 @@ import { type InboxSent, type InboxSorted, readWords, sentState, sortedCounts, s
  * subscription, and what a press on a row opens. The rows are memoized
  * against their lines; this is how they hear an item move.
  */
-export type InboxRowsContext = { items: ReadonlyMap<string, InboxItem>; onOpen?: ((itemId: string) => void) | undefined };
+export type InboxRowsContext = {
+	items: ReadonlyMap<string, InboxItem>;
+	/** The work threads taking one of those items started, by key: drawn as work threads, not handoffs. */
+	work: ReadonlySet<string>;
+	onOpen?: ((itemId: string) => void) | undefined;
+};
 
-export const InboxRows = createContext<InboxRowsContext>({ items: new Map() });
+export const InboxRows = createContext<InboxRowsContext>({ items: new Map(), work: new Set() });
 
 /**
  * Items a teammate sent, as one quiet row in the conversation they were sent

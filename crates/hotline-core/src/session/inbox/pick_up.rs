@@ -26,8 +26,15 @@
 //!   person's Stop while one waits disarms it.
 //! - **Nothing fires** for a teammate that is not running, was removed, or
 //!   whose room is closing; work threads and calls have no pick-up.
-//! - **A restart** offers nothing: the arming is the live session's, and a
-//!   desk that opens is not a turn that ended.
+//! - **When the desk opens** ([`Room::pick_up_at_start`]), once the room has
+//!   handed on what it resumes, each teammate with items set aside is offered
+//!   them in the same quiet turn, started for it as the new-item wake starts
+//!   one: a gather delay apart, one teammate after another, so a launch does
+//!   not start them all at once. It is offered once per launch, only while the
+//!   conversation is idle with nothing queued and has had no turn yet (a turn
+//!   it had offers by its own end), and like every pick-up its turn arms
+//!   nothing. Items no turn has been offered are left to their own wake at
+//!   start (`Room::recover_inbox`).
 
 use super::heard::{gather_delay, nobody_reads, since};
 use super::{Room, kept, lock, now_ms, short};
@@ -43,10 +50,20 @@ use std::time::Duration;
 pub(super) const PICK_UP_LINE: (&str, &str) = (
     "quiet inbox · You are idle now. These items in your inbox are still open: while you worked you set them aside for later, or were shown them and left them unsorted.",
     concat!(
-        "Pick up what is ready now: read, take, answer or close it with `update_inbox`, and leave for later, with why, what still waits on something. This is the one time they are offered on their own: what you leave open now comes up again only after your next turn that something else starts. ",
+        "Pick up what is ready now: read, take, answer or close it with `update_inbox`, and leave for later, with why, what still waits on something. This is the one time they are offered on their own: what you leave open now comes up again only after your next turn that something else starts, or when the desk next opens. ",
         nobody_reads!()
     ),
 );
+
+/// Which pick-up is due: the one a turn's end armed, or the one a desk that
+/// opens offers.
+#[derive(Clone, Copy, Debug)]
+enum Due {
+    /// Armed by the end of this turn, by its number.
+    After(u64),
+    /// The desk opened: due while the conversation has had no turn.
+    AtStart,
+}
 
 /// Whether the main conversation's last turn may be followed by a pick-up,
 /// kept on its live session.
@@ -81,6 +98,15 @@ impl PickUp {
     /// The turn a waiting pick-up follows.
     pub(in crate::session) fn armed(&self) -> Option<u64> {
         self.armed
+    }
+
+    /// Whether `due` may still be offered: the turn that armed it is still
+    /// the last one, or, at start, no turn has ended.
+    fn holds(&self, due: Due) -> bool {
+        match due {
+            Due::After(turn) => self.armed == Some(turn),
+            Due::AtStart => self.ended == 0,
+        }
     }
 }
 
@@ -123,7 +149,7 @@ impl Room {
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
             if let Some(room) = room.upgrade() {
-                room.pick_up(&persona_id, turn);
+                room.pick_up(&persona_id, turn).await;
             }
         });
     }
@@ -137,18 +163,63 @@ impl Room {
         gather_delay()
     }
 
-    /// The pick-up armed by `persona_id`'s turn number `turn` is due: one
-    /// quiet turn offers what it set aside, if the conversation is still
-    /// idle, nothing is queued and no turn has begun or ended since.
-    pub(in crate::session) fn pick_up(self: &Arc<Self>, persona_id: &str, turn: u64) {
+    /// The desk has opened and handed on what it resumes: each teammate
+    /// whose main conversation has items set aside is offered them once, a
+    /// gather delay apart, one after another. Once per room.
+    pub(in crate::session) fn pick_up_at_start(self: &Arc<Self>) {
+        if self
+            .picked_up_at_start
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return;
+        }
+        let mut after = Duration::ZERO;
+        for persona in crate::room::roster(&self.log) {
+            if self.set_aside(&persona.id).is_empty() {
+                continue;
+            }
+            after += self.pick_up_delay();
+            let room = Arc::downgrade(self);
+            tokio::spawn(async move {
+                tokio::time::sleep(after).await;
+                if let Some(room) = room.upgrade() {
+                    room.offer_set_aside(&persona.id, Due::AtStart).await;
+                }
+            });
+        }
+    }
+
+    /// The pick-up armed by `persona_id`'s turn number `turn` is due.
+    pub(in crate::session) async fn pick_up(self: &Arc<Self>, persona_id: &str, turn: u64) {
+        self.offer_set_aside(persona_id, Due::After(turn)).await;
+    }
+
+    /// One quiet turn offers what `persona_id` set aside, if the
+    /// conversation is idle, nothing is queued and `due` still holds. Only
+    /// the pick-up at start starts a teammate that is not running.
+    async fn offer_set_aside(self: &Arc<Self>, persona_id: &str, due: Due) {
         if self.closing() || self.persona(persona_id).is_err() {
             return;
         }
-        // A teammate that is not running is not started for it.
+        // Items no turn has been offered wake it by their own rule.
+        let unoffered = |room: &Self| {
+            !room
+                .unoffered(persona_id, &ThreadId::dm(persona_id))
+                .is_empty()
+        };
+        if unoffered(self) || self.set_aside(persona_id).is_empty() {
+            return;
+        }
+        if matches!(due, Due::AtStart)
+            && self.session(persona_id).is_err()
+            && self.start(persona_id).await.is_err()
+        {
+            return;
+        }
         let Ok(session) = self.session(persona_id) else {
             return;
         };
-        if !session.answering(self) {
+        if !session.answering(self) || unoffered(self) {
             return;
         }
         // Items no turn has been offered wake it by their own rule.
@@ -174,7 +245,7 @@ impl Room {
             let mut turns = lock(&session.turns);
             let mut pick_up = lock(&session.pick_up);
             let idle = !turns.running && turns.waiting.is_empty();
-            if idle && pick_up.armed() == Some(turn) && lock(&session.cut).is_none() {
+            if idle && pick_up.holds(due) && lock(&session.cut).is_none() {
                 pick_up.disarm();
                 turns.claim(line)
             } else {

@@ -101,10 +101,10 @@ new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (done | no
 Items are kept on the receiver's own stream, `inbox/<personaId>.jsonl`
 (`StreamId::Inbox`), one line per item, written again under its id at each
 change: the fold is the whole state, and a restart reads it back as it was.
-At start-up a held item waits on its card again, and an item no turn has been
-offered wakes its receiver. Nothing set aside is offered at start-up: a desk
-that opens is not a turn that ended, and waking every teammate on every launch
-is a cost nobody asked for; it is offered after the teammate's next turn.
+At start-up a held item waits on its card again, an item no turn has been
+offered wakes its receiver, and what a teammate set aside is offered to it
+once (the pick-up at start, below), so a `later` item does not sit until the
+person next writes.
 
 ## When an item reaches the receiver
 
@@ -169,7 +169,18 @@ about that thread), else the receiver's main conversation.
   - A turn the person stopped or interrupted, or one cancelled or failed, arms
     none, and the person's Stop while one waits disarms it. A teammate with
     nothing open, one not running or removed, and a room that is closing get
-    nothing. The arming is the live session's, so a restart offers nothing.
+    nothing.
+  - **When the desk opens**, once the room has handed on what it resumes
+    (kept lines, job deliveries, deliveries never read, never-offered items'
+    wakes; `recover_exchanges`, a few seconds after start), each teammate
+    whose main conversation has items set aside is offered them once in the
+    same quiet pick-up turn, started for it if it is not running, as the
+    new-item wake starts one. Teammates are offered a gather delay apart,
+    one after another, so a launch never starts them all at once. It is
+    offered only while the conversation is idle with nothing queued and has
+    had no turn since the desk opened (a turn it had offers by its own end,
+    and a never-offered item's wake wins), once per launch, and its turn arms
+    nothing: a teammate that defers again waits for its next turn.
   - Work threads and calls have no pick-up.
 
 ## Taking work, answers and results

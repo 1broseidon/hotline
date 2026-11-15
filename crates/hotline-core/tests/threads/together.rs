@@ -1086,3 +1086,80 @@ async fn a_turn_the_person_stopped_is_followed_by_no_pick_up() {
     );
     assert_eq!(desk.state_of(&item).await, "later");
 }
+
+/// The desk restarts with Bob's item still left for later: once it has
+/// opened, Bob, idle and not running, is started and offered it once, in a
+/// quiet turn with his reason, without the person writing to him first; he
+/// leaves it again, and the open desk offers nothing more.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_desk_that_opens_offers_what_was_left_for_later_once() {
+    let mut first = open().await;
+    let ada = first.teammate("Ada", false).await;
+    let bob = first.teammate("Bob", false).await;
+    let item = first
+        .send(&ada, json!({"to": ["Bob"], "title": "Keyboards"}))
+        .await;
+    let later = |reason: &str| json!({"items": [{"id": item, "state": "later", "reason": reason}]});
+    first.on_pick_up(&format!(
+        "CALL update_inbox {}\nSAY Still later.",
+        later("Still on the research.")
+    ));
+    first
+        .ok(
+            "session.prompt",
+            json!({"personaId": bob, "text": format!(
+                "CALL update_inbox {}\nSAY Research done.",
+                later("Finishing the research first.")
+            )}),
+        )
+        .await;
+    first.posted(&bob, "Research done.").await;
+    first.line_saying(&bob, "Still later.").await;
+    assert_eq!(first.heard(PICKED_UP).len(), 1);
+
+    // The desk stops and opens again on what it kept.
+    let second = tempfile::tempdir().unwrap();
+    std::fs::copy(
+        first.log.root().join("room.jsonl"),
+        second.path().join("room.jsonl"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(second.path().join("inbox")).unwrap();
+    for kept in std::fs::read_dir(first.log.root().join("inbox")).unwrap() {
+        let kept = kept.unwrap();
+        std::fs::copy(
+            kept.path(),
+            second.path().join("inbox").join(kept.file_name()),
+        )
+        .unwrap();
+    }
+    let (client, log) = door(second.path()).await;
+    let desk = Desk {
+        client,
+        log,
+        workspace: first.workspace.clone(),
+        heard: first.heard.clone(),
+        scripts: first.scripts.clone(),
+        _roots: vec![second],
+    };
+    desk.on_pick_up("SAY Not yet.");
+    until("Bob is offered it once the desk has opened", || {
+        desk.heard(PICKED_UP).len() == 2
+    })
+    .await;
+    let line = &desk.heard(PICKED_UP)[1];
+    assert!(
+        line.contains("\"Keyboards\" · from Ada") && line.contains(": Still on the research."),
+        "{line}"
+    );
+    desk.line_saying(&bob, "Not yet.").await;
+    assert_eq!(desk.kinds_saying(&bob, "Not yet."), ["thought"], "quiet");
+    tokio::time::sleep(GATHER * 2 + Duration::from_secs(1)).await;
+    assert_eq!(
+        desk.heard(PICKED_UP).len(),
+        2,
+        "{:?}",
+        desk.heard(PICKED_UP)
+    );
+    assert!(desk.heard(WOKEN).is_empty(), "{:?}", desk.heard(WOKEN));
+}

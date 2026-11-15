@@ -254,7 +254,7 @@ async fn the_persons_line_in_the_gather_delay_wins_and_the_pick_up_follows_its_t
 
     persons_turn(&room, &agents, "one more thing").await;
     assert_eq!(lock(&session.pick_up).armed(), None, "the turn began");
-    room.pick_up("bob", first);
+    room.pick_up("bob", first).await;
     assert_eq!(
         agents.told().len(),
         2,
@@ -269,11 +269,11 @@ async fn the_persons_line_in_the_gather_delay_wins_and_the_pick_up_follows_its_t
     idle(&session).await;
     let second = lock(&session.pick_up).armed().expect("armed again");
     assert_ne!(first, second);
-    room.pick_up("bob", first);
+    room.pick_up("bob", first).await;
     assert!(!lock(&session.turns).running, "the first is stale");
     assert_eq!(picked_up(&agents), [] as [String; 0]);
 
-    room.pick_up("bob", second);
+    room.pick_up("bob", second).await;
     until("the person's turn's pick-up", || {
         picked_up(&agents).len() == 1
     })
@@ -318,42 +318,122 @@ async fn a_stopped_turn_is_followed_by_no_pick_up() {
     idle(&session).await;
     let armed = lock(&session.pick_up).armed().expect("armed");
     room.cancel("bob").unwrap();
-    room.pick_up("bob", armed);
+    room.pick_up("bob", armed).await;
     assert!(!lock(&session.turns).running);
     assert!(picked_up(&agents).is_empty(), "{:?}", agents.told());
 }
 
-/// A desk that opens is not a turn that ended: what was left for later
-/// waits for the teammate's next turn.
-#[tokio::test]
-async fn a_desk_that_opens_offers_nothing_set_aside() {
-    let (room, _) = room("pick-up-restart");
-    let ada = room.persona("ada").unwrap();
+/// An item `from` sent `to`, kept as `state` without waking anyone: what a
+/// desk that stopped left behind.
+fn left_behind(room: &Room, from: &str, to: &str, title: &str, later: Option<&str>) -> String {
+    let sender = room.persona(from).unwrap();
     let mut kept = crate::session::inbox::item(
-        &ada,
-        &ThreadId::dm("ada"),
-        "bob",
-        "Keyboards".into(),
+        &sender,
+        &ThreadId::dm(from),
+        to,
+        title.into(),
         String::new(),
-        InboxWants::Work,
+        InboxWants::Answer,
     );
     moved(&mut kept, InboxState::New, None, None, None);
-    kept.offered = Some(now_ms());
-    moved(
-        &mut kept,
-        InboxState::Later,
-        Some("after this".into()),
-        None,
-        None,
-    );
+    if let Some(reason) = later {
+        kept.offered = Some(now_ms());
+        moved(
+            &mut kept,
+            InboxState::Later,
+            Some(reason.into()),
+            None,
+            None,
+        );
+    }
     room.keep_item(&kept).unwrap();
+    kept.id
+}
+
+/// The pick-ups told to the teammate whose items `from` sent.
+fn picked_up_from(agents: &Fake, from: &str) -> Vec<String> {
+    agents
+        .told()
+        .into_iter()
+        .filter(|told| told.contains(PICK_UP_LINE.0) && told.contains(&format!("from {from}")))
+        .collect()
+}
+
+/// The desk opens on the data a stopped one left.
+fn reopened(room: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {
     let log = room.log.clone();
     drop(room);
     let agents = Fake::new(replies());
-    let reopened = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
-    reopened.recover_inbox();
-    at_rest(&reopened, "bob").await;
-    tokio::time::sleep(heard::gather_delay() * 3).await;
-    assert!(agents.told().is_empty(), "{:?}", agents.told());
-    assert_eq!(reopened.set_aside("bob").len(), 1);
+    (
+        Room::with_agents(log, Arc::new(DeskKeys), agents.clone()),
+        agents,
+    )
+}
+
+/// A desk that opens offers each teammate what it left for later, once, in a
+/// quiet turn it starts the teammate for, without waiting for another turn;
+/// the turn arms nothing, so an idle stretch after it offers nothing more,
+/// and a second look at start offers nothing again.
+#[tokio::test]
+async fn a_desk_that_opens_offers_what_was_set_aside_once_quietly_and_nothing_more() {
+    let (room, _) = room("pick-up-restart");
+    left_behind(&room, "ada", "bob", "Keyboards", Some("after the research"));
+    left_behind(&room, "bob", "ada", "Monitors", Some("after the release"));
+    let (room, agents) = reopened(room);
+    room.recover_exchanges().await;
+    until("each teammate is offered its own", || {
+        picked_up_from(&agents, "Ada").len() == 1 && picked_up_from(&agents, "Bob").len() == 1
+    })
+    .await;
+    let bobs = &picked_up_from(&agents, "Ada")[0];
+    assert!(
+        bobs.contains("\"Keyboards\" · from Ada") && bobs.contains(": after the research"),
+        "{bobs}"
+    );
+    let bob = room.session("bob").unwrap();
+    let ada = room.session("ada").unwrap();
+    idle(&bob).await;
+    idle(&ada).await;
+    assert!(
+        room.tape("bob")
+            .iter()
+            .chain(room.tape("ada").iter())
+            .all(|event| event["kind"] != "agent"),
+        "both quiet"
+    );
+    assert_eq!(lock(&bob.pick_up).armed(), None, "its turn armed nothing");
+
+    room.recover_exchanges().await;
+    tokio::time::sleep(heard::gather_delay() * 4).await;
+    assert_eq!(agents.told().len(), 2, "{:?}", agents.told());
+    assert_eq!(room.set_aside("bob").len(), 1, "still for later");
+}
+
+/// An item no turn was offered still wakes its receiver at start by its own
+/// wake, which wins over the pick-up; what is set aside is offered once, by
+/// the pick-up that wake's turn arms.
+#[tokio::test]
+async fn at_start_an_item_never_offered_wakes_by_its_own_wake_and_the_pick_up_follows_that_turn() {
+    let (room, _) = room("pick-up-restart-unoffered");
+    left_behind(&room, "ada", "bob", "Keyboards", Some("after the research"));
+    left_behind(&room, "ada", "bob", "Crane permit", None);
+    let (room, agents) = reopened(room);
+    room.recover_exchanges().await;
+    until("the new item's wake, then one pick-up", || {
+        agents.told().len() == 2
+    })
+    .await;
+    assert!(
+        agents.told()[0].contains(heard::QUIET_WAKE_LINE),
+        "{}",
+        agents.told()[0]
+    );
+    assert!(
+        agents.told()[1].contains(PICK_UP_LINE.0),
+        "{}",
+        agents.told()[1]
+    );
+    idle(&room.session("bob").unwrap()).await;
+    tokio::time::sleep(heard::gather_delay() * 4).await;
+    assert_eq!(agents.told().len(), 2, "{:?}", agents.told());
 }

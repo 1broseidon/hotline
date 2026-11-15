@@ -92,6 +92,8 @@ impl Room {
     ///
     /// A delivery on a tape that the agent never read is handed to it again,
     /// so an answer that landed as the desk went down is still heard, once.
+    /// Inbox items no turn was offered wake their receivers, and what each
+    /// teammate set aside is offered to it once (`inbox/pick_up.rs`).
     pub(in crate::session) async fn recover_exchanges(self: &Arc<Self>) {
         self.recover_queued_exchanges();
         self.recover_inbox();
@@ -116,6 +118,9 @@ impl Room {
                 }
             }
         }
+        // With all that handed on, what each teammate set aside in its inbox
+        // is offered to it once.
+        self.pick_up_at_start();
     }
 
     /// What follows every sweep: temporary grants whose leases have gone are

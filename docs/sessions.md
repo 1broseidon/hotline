@@ -1483,7 +1483,14 @@ DM's `end` arms it (`session/dm.rs`) except after a pick-up's own turn, so
 pick-ups never chain, and after a turn the person stopped or interrupted
 (`Session::cut`), one cancelled or one that failed; `cut_turn` disarms a
 waiting one. Nothing fires for a teammate not running or removed or while
-the room closes, nothing at start-up, and work threads and calls have none.
+the room closes, and work threads and calls have none. When the desk opens,
+`recover_exchanges` (the idle sweep's first look, after the kept lines and
+job deliveries are handed on) ends with `Room::pick_up_at_start`: once per
+room, each teammate with items set aside is offered them in the same quiet
+pick-up turn, a gather delay apart one after another, started for it if it
+is not running, while its conversation is idle, nothing is queued and it has
+had no turn yet; never-offered items still wake by their own rule
+(`recover_inbox`), which wins.
 
 **The quiet turn.** The turn of the main conversation that the inbox wakes
 while it is idle is quiet, as a quiet job's firing is, and by construction
@@ -2298,7 +2305,9 @@ restart.
 ### Idle sweep
 
 One task for the whole room, a few seconds after the desk opens and then
-every minute. A chapter that has gone quiet for longer than
+every minute. Its first look also hands on what a restart left undone
+(`recover_exchanges`): deliveries never read, inbox items never offered, and
+then the inbox's pick-up at start ([The inbox](#the-inbox)). A chapter that has gone quiet for longer than
 `chapterIdleHours` (default 8, clamped to 1–336) is closed as `idle`, dated
 from the last message, not from when the sweep noticed. A chapter that went
 stale while Hotline was closed is closed before anyone comes back to read it.

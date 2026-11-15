@@ -1,6 +1,10 @@
 # ADR 0003: Linked desks trust each other's keys, not each other's owners
 
 - Status: Accepted
+- Amended on `proto/agent-inbox` (task-455): teammates reach each other
+  through their inbox ([agent-inbox.md](../design/agent-inbox.md)), which
+  does not cross a link yet, so cross-desk messaging below is refused there;
+  rosters still cross.
 - Date: 2026-10-13
 - Design: [design.md § Linked desks](../design.md#linked-desks),
   [security.md § Linked desks](../security.md#linked-desks-bro-177-adr-0003),

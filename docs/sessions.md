@@ -543,7 +543,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `send`, `read_inbox`, `update_inbox`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -1381,9 +1381,9 @@ nothing deletes them while the conversation they belong to is kept.
 
 ## Teammate collaboration
 
-`message_teammate` is authority to ask another teammate to use its own
-workspace and enabled tools, so the room checks collaboration before handing a
-question or a handoff to the recipient. A Hotline Agent caller with explicit Whole
+`send` is authority to ask another teammate to use its own workspace and
+enabled tools, so the room checks collaboration before an item lands in the
+recipient's inbox ([The inbox](#the-inbox)). A Hotline Agent caller with explicit Whole
 machine reach has that authority implicitly. A workspace caller needs a
 first-contact operator decision for each caller and recipient direction,
 regardless of whether the two teammates happen to have the same tools. ACP
@@ -1391,15 +1391,16 @@ trust or mode labels and the separate Computer capability do not count as
 Whole machine reach.
 
 The card says `Allow <caller> to ask <recipient> to work?` and explains that
-the caller's questions reach the recipient's main conversation with the
-person, or a work thread beside it while that is busy, and are answered from
-what it knows there, and that the recipient can take handoffs and use its
-workspace and enabled tools to fulfill the caller's requests. `Allow this
+the caller's messages land in the recipient's inbox, which it reads when it
+decides to and answers from what it knows, and that the recipient can take
+the caller's work into a work thread of its own and use its workspace and
+enabled tools to do it. `Allow this
 session` binds a temporary grant to both live capability leases. It expires
 when either session or chapter is replaced, or when the room restarts.
 `Always allow <caller>` appends the caller's stable id to the recipient's
 `allowedSenders` list and records, in a `collaboration_informed` room event,
-that the person was shown what a handoff means; a handoff needs both. The
+that the person was shown what a handoff means; an item that wants work
+needs both. The
 recipient's settings show that list as `Accept requests from <caller>` and
 removing one revokes active and queued delegated work. New and imported
 records have an empty list.
@@ -1427,139 +1428,117 @@ Pending approvals expire after ten minutes or when the requesting call is
 cancelled. They also settle when a participant stops, a policy changes, or the
 room closes. One pending first-contact decision is held per direction.
 
+## The inbox
+
+Teammates reach each other one way: an item in the colleague's inbox
+(`session/inbox.rs`; the design, its rules, states and contract, is
+[agent-inbox.md](design/agent-inbox.md)). `send` is the only tool that
+reaches a colleague; `read_inbox` and `update_inbox` read and sort the
+teammate's own. `message_teammate` and a colleague's `aside` are gone.
+
+**Sending.** `send` names one teammate, several or `team`, a one-line
+`title`, the `message`, what it `wants` back (`answer`, `work`, `nothing`)
+and whether the sender is `waiting`; optionally `about` (a thread of the
+receiver's, where it is heard while that thread is live), `reply_to` (an item
+in the sender's own inbox) and `files`. It returns at once with each item's
+id and writes an `inbox_sent` row on the thread it was said in. Each item is
+kept on the receiver's own stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),
+written again under its id at each change with the change's time in its
+`receipts`. A teammate on a linked desk is refused; so is the sender itself.
+The grant is checked as it is sent (Teammate collaboration, above): an item
+the person has yet to allow is kept `held`, unreadable to the receiver, until
+the card is answered, and dropped unseen on a no. Every item and every reply
+counts on the pair's twelve, and nothing is sent between two that are paused.
+
+**Reaching the receiver** (`inbox/heard.rs`). An item is heard in the
+receiver's thread it is `about` while that is live, else its main
+conversation. An idle thread is woken once, `HOTLINE_INBOX_GATHER_MS` (4 s)
+after the first item lands, for everything that landed meanwhile, by a line
+that only wakes it (a teammate not running is started for it). A main
+conversation mid-turn is handed a one-line notice of the new titles when the
+gather delay is up, steered into the turn as the person's mid-turn line is
+(`HOTLINE_INBOX_MIDTURN=0` turns it off; a driver that cannot steer hears it
+as its next line), and starts no turn and no thread for them. Every turn of
+the main conversation, a work thread or a call opens with an `INBOX` section
+in its [thread index](#the-thread-index): the counts, each new item not yet
+offered to a turn (title, sender, `waiting on you`, what it wants, age, short
+id), and what moved among the items the teammate sent (`SENT · what moved`).
+An item is offered once and marked `noticed`; the count stays. Items left
+unread that no turn's start was offered wake the thread when its turn ends,
+by the same rule, so an item wakes its receiver at most once.
+
+**Sorting.** `read_inbox` lists open items without their words, or reads the
+ones named whole and marks them `seen`. `update_inbox` sorts several in one
+call, in the order the receiver means to work them: `taken`, `later` with a
+reason, `closed` with an outcome (`done`, `noted`, `dropped`), `combined`
+into another item, or an `answer`, which replies and closes the item as done.
+Every entry is checked before any moves. Each call writes an `inbox_sorted`
+line on the receiver's main conversation.
+
+**Taking work** (`exchanges/inbox.rs`). Taking an item into a thread
+(`in_thread`, true by default for an item that wants work) makes an exchange
+request from its sender to the receiver carrying it and the items combined
+into it, which runs as a handoff always did ([Ask or hand off](#ask-or-hand-off)):
+a work thread of the receiver's seeded with their titles, senders and words,
+the place limit, cards, the person's Stop and Interrupt, restarts. The
+receiver starts it, never the sender, and it asks no card of its own. Its
+result is an item in each sender's inbox that answers the one taken, which
+closes as done, or dropped when the work failed or the person stopped it.
+
 ## Asides
 
 An aside informs a teammate without messaging it or the person
 (`session/asides.rs`; the design is
-[thread-awareness.md](design/thread-awareness.md) §2). It is an `Aside`
-(`{id, ts, to, from, by?, text, about?, level, heard?, seen?, loopedIn?}`):
-`from` is the thread it was said in, or an inbound source (below), `by` the
-colleague whose words it is, `about` the recipient's thread it is heard in. It is kept on the recipient's own stream, `asides/<id>.jsonl`
-(`StreamId::Asides`), indexed under the recipient for `search_thread` with the
-thread it came from, and written as an `aside` event on the thread it was said
-in, so the sender's record shows it. It is never on the recipient's tape, and
-never a message in the person's chat: the window draws the recipient's asides
-into its main conversation from `aside.list`, as quiet lines, and lists them as
-note rows in its Threads list. Showing them there marks them `seen` (`aside.seen`,
-`Room::mark_asides_seen`, under the lock hearing takes), which is the person's
-reading and leaves `heard` alone; the roster row counts the unseen.
+[thread-awareness.md](design/thread-awareness.md) §2). A teammate no longer
+leaves a colleague one: what leaves asides is an [inbound source](#inbound-sources)
+(below), and one a colleague left before the inbox is still heard. It is an
+`Aside` (`{id, ts, to, from, by?, text, about?, level, heard?, seen?,
+loopedIn?}`): `from` is the thread it was said in, or an inbound source,
+`about` the recipient's thread it is heard in. It is kept on the recipient's
+own stream, `asides/<id>.jsonl` (`StreamId::Asides`), indexed under the
+recipient for `search_thread`. It is never on the recipient's tape, and never
+a message in the person's chat: the window draws the recipient's asides into
+its main conversation from `aside.list`, as quiet lines, and lists them as
+note rows in its Threads list. Showing them there marks them `seen`
+(`aside.seen`, `Room::mark_asides_seen`, under the lock hearing takes), which
+is the person's reading and leaves `heard` alone; the roster row counts the
+unseen.
 
 **Heard at the next turn.** As a turn of the DM, a work thread or a job
 begins, `Room::hear_asides` takes the recipient's unheard asides for that
 thread (those `about` it, and in the DM those about nothing or about a thread
-that no longer takes turns: a closed work thread, an ended job, a pair, a call
-or a run), and they are said in the [thread index](#the-thread-index) the
-line opens with, one line each fenced as data: "Ada, in pair:ada~bob: the
-numbers are in" (`render`). Each is rewritten as `heard`, so it is told once. A
-retried turn and work the agent took up by itself hear none.
+that no longer takes turns), and they are said in the [thread
+index](#the-thread-index) the line opens with, one line each fenced as data
+(`render`). Each is rewritten as `heard`, so it is told once.
 
 **Levels.** A `note` waits. A `nudge` also wakes the thread it is heard in
-when that thread is idle (the DM's or a live work thread's queue is claimed
-under its lock for a line that only wakes it, and a turn before it that heard
-them makes it a skip), so nudges that arrive together wake it once; a job is
-not woken. It wakes nothing when its `about` thread no longer takes turns,
-when the thread is mid-turn or the teammate not running, or when the two
-teammates are at their brake, and then it is heard with whatever comes next.
-Each wake counts one toward the pair's twelve (`count_wake`) and can pause
-them. A `person` aside also raises a `request_human` card on the recipient's
-DM, which says who it is from.
-
-**Who may.** The `aside` tool (`message_teammate`'s neighbour) passes the
-same `authorize_collaboration` an ask does: `allowedSenders`, the first-contact
-card, implicit for a Whole machine Hotline Agent. Its `about` must name a
-thread of the recipient's own.
-
-**Across a link** (`session/asides/across.rs`, `exchanges/across.rs`). An
-aside to a teammate on a linked desk crosses as the link's `aside` delivery,
-only to a desk whose roster said it takes asides (`features` on its
-`federation.roster`, [wire.md](wire.md#linked-desks)) and only
-while the channel is open: otherwise nothing is left and the sender is told
-why ("…'s desk is older and does not take asides", "…is not connected now").
-The receiving desk decides it as an ask from that sender: its `allowedSenders`
-or a grant the person gave it for the session, never implicit, and never a
-first-contact card, since an aside asks nothing and a desk must not raise
-cards by leaving them; refused, the sender hears "Clementine on laptop has not
-been allowed to ask Lou here". It is kept there under `deskId:id` so the same
-aside sent again is the one kept, `by` the sender's qualified id and `from`
-the thread it was said in as the sending desk names it, with `desk` set
-(`deskId/side:<id>`); its `about` is resolved there among the recipient's own
-threads. The sender keeps the line on the thread it was said in, as for a
-local colleague. Its level means there what it means here.
-
-**Threads named across a link.** A `ThreadId` carries an optional `desk`: a
-thread on a linked desk, by that desk's kind and key, written
-`deskId/side:<id>`. Only that desk resolves it. A teammate learns one from an
-aside that came from there, and may pass it as `about` to `aside` or as
-`thread` to `message_teammate` for a teammate on that desk; `message_teammate`
-sends it on as `continues: "side:<id>"`, which the receiving desk looks up among
-the handoffs that sender made there and refuses when none opened it. The
-window opens no thread for an aside that came from another desk.
-
-**A handed-over thread informs its opener.** Each turn of a work thread a
-colleague handed over that is not the handoff's result (a turn that stopped
-to wait on the person, a turn the person's line started, one a colleague's
-answer started) leaves the opener a note in the colleague's own words: the
-turn's last message, the answer it came to after whatever it said on the way,
-as plain words cut at a word to 200 characters (`text::gist`, since markdown
-drawn in a quiet line reads as noise), and, when it waits, on what
-(`session/exchanges/asides.rs` `Room::waiting_on`): "Waiting on the person:"
-and the card's own words, the reason of a card the turn raised, or, for a
-question the person must first allow, "Allow Mack to ask Clementine to work?
-The card is in Mack's main conversation.", since grants are per teammate and
-that is where it is raised; a question whose pair has paused at twelve waits
-on that pause first, whatever the asker may do, so it names the card that is
-up, "Let Mack and Clementine keep going? They paused at 12 messages.", in the
-same conversation; a question a colleague is answering is "Waiting on a
-colleague's answer.". A turn that waits only on questions to the opener
-leaves no note, since they reach it themselves. It is heard in the conversation the
-result goes back to. The result still returns as a delivery, and leaves a
-nudge beside it (`result:<request>`), the answer the result's turn ended on
-said the same way (the request keeps it as `answer`, beside the whole
-`reply` that goes back, and the delivery's `cause` carries it as `answer` for
-the quiet line a window draws of it), which the delivery's own turn hears
-without saying again. The delivery is the wake: results queued behind a busy
-conversation are taken into one turn when it is free (`results_behind`), and
-the reply is counted on the brake as it always was. Notes and the nudge ride on
-the handoff, so they stop when it no longer stands. A sender on a linked desk
-has no conversation here: each note is kept on the handoff's record
-(`crossing`) and the pair's worker sends it that desk as an `aside` delivery
-with the handoff's `requestId`, before anything that ends the handoff. They
-wait while the link is down or its roster has not said what the other desk
-takes; a desk that does not take asides is sent none, and they are dropped,
-while the result still goes; a release (Stop exchange, revocation, the
-person's Stop or End thread, the link's end) drops what was still to go. That
-desk keeps one only for a handoff it sent that teammate there and that still
-stands, as a `note` whatever level it says, about the conversation the result
-will go to, and leaves the result's nudge itself.
+when that thread is idle (its queue is claimed under its lock for a line that
+only wakes it, and a turn before it that heard them makes it a skip), so
+nudges that arrive together wake it once; one that lands mid-turn wakes the
+thread when that turn ends (`rewake`). A `person` aside also raises a
+`request_human` card on the recipient's DM, which says who it is from.
 
 **The person's acts on a work thread** (decision 5;
 `session/exchanges/loop_in.rs`, `ended.rs`). *Loop in…* (`thread.loop_in`)
-brings a colleague into an open work thread for one answer, since there are no
-threads of three. The colleague is left a `nudge` aside from the thread with
-`loopedIn`, `by` the thread's teammate, "Ada looped you in." (the person's
-name, else "The person"), which the thread draws as "Quill was looped in". It
-is the person's act, so it is from them: the colleague hears it under the
-person's name (else "The person"), and the window says "from Ada" (else "from
-you") and lists it as a note from the person's name, never
-the thread's teammate's. The
-thread then asks the colleague once: an ask from the thread's teammate, sent
-from the thread, carrying the thread's title and its last eight lines, and
-marked `looped_in` so the person's act is its grant (`authorize_exchange`
-asks no card). It is answered where the colleague's memory is, as any
-question is (its idle main conversation, which the question wakes, else a work
-thread of its own at once), and the answer comes back into the thread as a
-delivery under the colleague's name, which the thread's teammate takes up in a
-turn of its own. The pair's brake counts the question and the answer. *End
-thread* is the person's `thread.close` on a work thread, live or parked; on one
-a teammate handed over it is also one of the ends phase 1 names: each handoff
-into it is released, one whose work had not come back is stopped with no
-result and no failure handed anywhere, the link says `handoffEnded`, and the
-opener is left one `note` aside, "Ada ended this thread, and the work you
-handed over with it.", heard at its next turn and never a wake. Ending a
-thread that has ended already does nothing. A question an Interrupt left the
-thread carrying ends with it as a turn that ended without a result.
+brings a colleague into an open work thread for one answer, since there are
+no threads of three: an item from the thread's teammate, sent from the
+thread, lands in the colleague's inbox, marked `loopedIn` (the person's act
+is its grant, so it asks no card), titled "Ada looped you into Bob's
+"<title>"" and carrying the thread's last eight lines. Its answer is an item
+in the thread's teammate's inbox, heard in the thread while it is live. The
+thread keeps a looped-in `aside` line, written on the thread only, which the
+window draws as "Quill was looped in". The pair's brake counts the item and
+its answer. *End thread* is the person's `thread.close` on a work thread,
+live or parked; on one a taken item opened it is also one of the ends phase 1
+names: each handoff into it is released, one whose work had not come back is
+stopped with no result, the link says `handoffEnded`, and its item closes as
+dropped, "The person ended this thread before it finished.", which its sender
+is told at its next turn and never a wake. Ending a thread that has ended
+already does nothing.
 
-**Inbound sources** (`session/inbound.rs`; the record is
+### Inbound sources
+
+(`session/inbound.rs`; the record is
 `hotline_room::inbound`, the wire's [Inbound sources](wire.md#inbound-sources)).
 A place outside Hotline (a webhook, a mailbox, a GitHub repository) leaves a
 teammate asides only through a source the person added: from Settings or the
@@ -1589,30 +1568,24 @@ Inbound lists the sources with a switch (off is muted) and Remove.
 
 ## Files between teammates
 
-A message or an aside may carry files (`files: [path]` on `message_teammate`
-and `aside`; `session/files_between.rs`; the design's §3). Each path is read as
+An inbox item may carry files (`files: [path]` on `send`;
+`session/files_between.rs`; the design's §3). Each path is read as
 `send_file` reads one (`files::from_workspace`): where the sender's read tools
 find it, its working directory and the folders granted it, or anywhere under
 whole-machine reach; anything else is refused with the tool's reason. At most
 10 files, of plain names and none twice, coming to at most 25 MB together
-(`FILES_MAX`), or 512 KB to a teammate on a linked desk (`LINKED_FILES_MAX`),
-since they cross in the frame of the message or aside they ride on; more is
-refused before anything is sent, queued or kept.
+(`FILES_MAX`); more is refused before anything is sent or kept.
 
-A message's files are read when it is sent and held on the desk,
-`files-between/<request id>/`, until it is let in: only then, past the grant
-an ask needs and the person's first-contact card, are they copied into the
-recipient's working directory under `inbox/<sender id>/` (`personaId@deskId`
-for a linked sender), never over a file there (`q3 (2).csv`), and the message
-gains a line saying where: "Files from Ada, now in your working directory:
-inbox/ada/q3.csv". They land in the working directory whatever the
+An item's files land as it does: at once when the two may already reach each
+other, else held on the desk, `files-between/inbox-<item id>/`, until the
+person's first-contact card lets the item in, and dropped with it on a no.
+They are copied into the recipient's working directory under
+`inbox/<sender id>/`, never over a file there (`q3 (2).csv`), and the item's
+words gain a line saying where: "Files from Ada, now in your working
+directory: inbox/ada/q3.csv". They land in the working directory whatever the
 recipient's reach, through `Workspace::receive_file`, which is confined to
-it. To a linked teammate they cross the link with the request, as base64, and
-the desk there checks them as it would its own, holds them and copies them
-the same way once it lets the request in; the sending desk lets go of them
-once the request has crossed. An aside's files are copied as it is left,
-after its grant, and its text gains the same line. What a stopped or failed
-message held is let go of when the desk next starts.
+it. Nothing crosses a link. What a held item still holds is kept across a
+restart while its card is asked again.
 
 ## Stop and Interrupt
 
@@ -1627,8 +1600,9 @@ door clears and the cut turn's end reads, and which counts only when the turn
 ended because it was cut (`cut_short`: the runner's cancel, or a stop reason
 `cancelled`, `canceled` or `aborted`).
 
-**Stop on a handoff.** The person's Stop in a work thread
-(`Room::cancel_side`) ends a colleague's handoff for good when it reaches it:
+**Stop on taken work.** The person's Stop in a work thread
+(`Room::cancel_side`) ends the work taken from a colleague's item for good
+when it reaches it:
 the one whose turn it cut, one whose line it dropped from the queue (a
 handoff that waited for the thread's agent to start or behind the person's
 own turn, and one waiting on the person or a colleague whose answer was
@@ -1637,18 +1611,10 @@ Interrupt left the thread carrying. Each is stopped with "The person stopped
 this handoff. Do not send it again unless they ask." as its reply, its
 leases revoked, and released, so the link says `handoffEnded`
 (`Room::stop_handoff_for_the_person`); it is never handed over or run again.
-Its sender gets no result and no failure, which would start a turn that sends
-the work again: it is left one `note` aside, `stopped:<request>`, of what the
-cut turn last said (cut to 400 characters) and that sentence, heard at its
-next turn and never a wake. A sender on a linked desk is sent the same words
-as the stopped request's result with `stoppedByPerson`, and its desk ends the
-request there the same way (`Room::stop_linked_request`): stopped, released,
-its leases revoked, and its sender left one `note` aside of the words, never a
-delivery or a wake; one that desk still holds as queued, its forward's answer
-lost, is ended too, and this desk takes the same request sent again before
-the stop has crossed as the one it has. A desk older than that hands the
-words back as a failure. End thread on a handoff from a linked desk crosses
-the same way. A thread whose handoff's own turn the Stop
+Its sender gets no result, which would start a turn that sends the work
+again: its item closes as dropped with what the cut turn last said (cut to
+400 characters) and that sentence, which it is told at its next turn's start
+and which wakes nothing. A thread whose handoff's own turn the Stop
 cut closes as `stopped`, unless a line said since waits in it, and the
 person may continue it as theirs; one whose handoff only waited in it goes
 on.
@@ -1660,8 +1626,7 @@ question the cut turn was answering stays at work, running and begun on its
 record with no turn on it, which is all that says the thread carries it
 (`Room::carried_into`). The next line said there that answers no request of
 its own and is not a wake, normally the person's, takes it up, and that
-turn's end is its result or its answer. The cut turn leaves the sender the
-note any turn that is not the result leaves. A parked thread keeps what it
+turn's end is its result. A parked thread keeps what it
 carries, so the person's line that brings it back carries it on; a second
 Interrupt keeps the first, and the thread does not close on a result while
 it still carries another. The person's Stop ends what it carries, as above;
@@ -1675,45 +1640,8 @@ driver takes input mid-turn (`Room::steer_into_work`, also looked at between
 updates), so the agent changes course without starting over; what the driver
 took but never used goes back to the queue as it was said, first. A driver
 that cannot take it leaves the line queued, and the thread says it waits for
-the turn to end. The person's line does not join a turn answering a
-colleague's question, whose whole reply is theirs.
-
-**A follow-up steers** (`Room::steer_work`, `exchanges/stops.rs`). A
-colleague's handoff into a work thread (`message_teammate` with `thread`)
-while the thread's turn does another of that colleague's handoffs joins that
-turn the same way, when the driver takes it: the follow-up becomes what the
-turn answers, and the handoff it was doing is settled as carried on by it
-(`Room::fold_carried`). A driver that cannot take it is cut as the person's
-Interrupt cuts it, after the follow-up is queued behind it: the handoff it
-was doing stays standing and carried, its sender is left no note of the cut
-pass, and the follow-up's turn runs next, its line opening "(Your last turn
-here was cut for the line below … That turn had said: "…")" after its time
-(`steered_text`, at most 600 characters of what the cut turn had said), so
-the agent carries the same work on with the change applied. As that turn
-begins, each handoff the thread carries from the same sender is settled as
-carried on by it (`Room::fold_carried`: done, its result consumed, never
-delivered). Either way the sender hears one result, the follow-up's, and the
-thread closes on it. A follow-up into a thread with no turn running, or one
-whose turn does someone else's work, waits as any line does. A linked desk's
-sender is owed a result per handoff, so its follow-ups wait too. A cut that lands after the turn ended on its own
-changes nothing, and both results are delivered as before.
-
-**An answer cut by either.** A turn answering a colleague's question that
-the person's Stop or Interrupt cuts fails the question to its asker, as any
-failed answer reaches it ([Peer threads](#peer-threads)), with what the turn
-had said and the person's word as its reply: "The person stopped the answer
-to this question. Do not ask it again unless they ask." for a Stop, in the
-main conversation, a work thread or a job (whose cancel is the Stop), and
-"The person interrupted the answer to this question. Ask it again if you
-still need it." for the main conversation's Interrupt, which has no thread to
-carry the answer on and whose next line must never become a colleague's
-answer. A handoff waiting on the question carries on with that failure, as
-with an answer. "Send it again if you still need it." is never added after
-the person's word, whatever the cut turn had said before it, and neither is
-it after Stop exchange's. Only the person's cut is theirs: a restart whose
-drain runs out cuts a main conversation's turn without it (`Room::cut_turn`),
-and the answer that turn was giving fails as uncertain, to inspect before
-asking again.
+the turn to end. The inbox's mid-turn notice joins a main conversation's turn
+the same way ([The inbox](#the-inbox)).
 
 **A first-contact card** expires with the person's Stop of either
 teammate's main-conversation turn, as before; their Interrupt leaves it up
@@ -1822,54 +1750,11 @@ without the index (`index::asked`).
 
 ## Peer threads
 
-A teammate asking a colleague asks the conversation that has the memory
-(`session/exchanges/questions.rs`, decision 1 of
-[design/thread-awareness.md](design/thread-awareness.md)). There is no session
-of the pair's own, and nothing answers in the pair's thread. Three records come
-out of `message_teammate` (`session/peers.rs`):
-
-- **The thread.** `threads/<key>.jsonl`, one file per pair, belonging to
-  neither side. The core writes each question and its answer there, through
-  the shared write path, so both teammates' searches find them; a question
-  never handed over has no answer there either.
-- **The question.** A `delivery` whose cause is `question`, in the
-  conversation that answers it. The recipient's main conversation answers when
-  no turn holds it: the line claims its queue under the start gate, so nothing
-  lands between the look and the claim, and its turn takes in nothing the
-  person says (their lines wait behind it). While that conversation is busy
-  the question never waits behind it: a work thread of the recipient's is
-  opened for it alone, with the question as its first line, `askedIn` on its
-  link naming the pair (whose thread carries the link too), told it answers
-  for the busy conversation, seeded with the DM's tail as any work thread is
-  and with the asides the teammate was left in the last day, heard or not,
-  and opening each turn with the thread index. It closes with its answer, and
-  leaves the main conversation a `note` aside, "Answered Ada for you: …", the
-  answer the asker was given, as plain words cut at a word to 200 characters:
-  of what the turn said after its last tool card, the first message that is
-  more than an opener ("On it.", "One sec, let me check."), without an
-  opener paragraph it starts with ("on it.\n\n…"), and read with the message
-  after it when it only leads into it ("Here's what I found:"), so
-  a remark it closed on is not taken for the answer
-  (`exchanges/asides.rs` `answer_of`). It is heard at that conversation's next
-  turn and never in the person's chat. A teammate with no place for a thread (three live, every one
-  mid-turn) takes the question behind its main conversation's turn instead.
-  An ask that names a handoff's thread (`thread`) is answered in that thread
-  by the teammate doing the work, which stays open. A question a handed-over
-  thread asks the teammate that handed it over (`about` on the request) goes
-  to the conversation that handed it over, by the handoff's reply route: its
-  main conversation as above, the work thread or the job it was sent from.
-- **The answer.** A `delivery` event on the sender's side. The tool
-  returns as soon as the message is sent (`{"sent": true, "to": …}`) and the
-  sender carries on; the exchange, including a first-contact approval, runs
-  on its own task. What came back, or why nothing did (`cause.status` is
-  `done` or `failed`), is the whole reply of the turn that answered, handed to
-  the thread the sender asked from (its job while it lives, its work thread
-  while open, else its DM) behind the turn in flight, or on a turn of its own,
-  starting the sender if it is not running. A delivery never steers into a
-  turn. The agent hears the answer fenced, as the recipient heard the
-  question, and the seats draw the event as the reason a turn began, not as a
-  bubble. A turn that failed or was cancelled says so, to inspect before
-  retrying.
+A pair's thread (`threads/<key>.jsonl`, one file per pair, belonging to
+neither side) held the questions and answers between two teammates before the
+inbox. Nothing is written to one now: no chat opens between teammates
+([The inbox](#the-inbox)). An old one is still listed, read and searched by
+both of its teammates, and its receipts still move.
 
 `list_teammates` is public roster metadata: id, name, and the same state a
 desk window would show — `idle`, `working`, `waiting` (on the person) or
@@ -1885,44 +1770,26 @@ Reach and direct collaboration read `whole machine` and `directly` only for
 a Hotline Agent, because that is where they mean anything. None of it is
 conversation: never a message's text, never what anyone said, never a
 working path, a server's address or login, or a tool inventory, and never
-the caller. A teammate can check
-this before `message_teammate` to know whether a colleague is mid-turn. The
-caller may be mid-turn on its own tape while the exchange runs: nothing
-touches the caller's session until the answer is delivered.
+the caller.
 
-**Ask or hand off** (`session/exchanges.rs`). `message_teammate` takes
-`intent: "ask" | "handoff"`, defaulting to Ask. Ask goes where the memory is,
-above; Handoff opens a **work thread** on the recipient (see
-[Side threads](#side-threads)) with the sender as its opener, and never lands
-in the recipient's main conversation, which stays open to the person. The
-brief arrives in the thread as a delivery whose `handoff` cause keeps the
-sender, thread and `requestId` and whose `from` is the sender's DM. The
-thread's final reply returns automatically as a correlated peer delivery to the
-sender's DM (or to the work thread the sender was in), even when the sender has
-moved on, from the work thread. A handoff to a recipient whose three work
-threads are all mid-turn stays queued until one is free. Neither intent expands the recipient's permissions.
-There is no link record, roster link, or chapter-scoped relationship.
+### Ask or hand off
 
-**Continuing a work thread.** A handoff's tool result carries `thread`: the
-request id of the handoff that opened its thread. Its result names its own
-request id too, and `list_teammates` lists, on each colleague's row, the work
-threads the caller's handoffs to it opened and that were not stopped
-(`handoffThreads`: `thread`, `sideThreadId`, `phase`, `lastRequestId`).
-Passing that id, the id of any handoff that ran in the thread, or the work
-thread's own id, as `message_teammate`'s `thread` hands the
-new brief into the same thread instead of a new one. The sender's desk checks
-the id against the pair's record before queuing (it must be a handoff from the
-same sender to the same recipient); an ask that names one is answered in that
-thread, waits for a handoff that will open it, and is refused when none will;
-a request
-crossing a link carries the id as `continues`, and the recipient's desk checks
-it against its own copy of the record before dispatch. The thread closes with
-each result, as before, unless another handoff is already waiting in it; the
-next one brings it back from its saved session, or its own stream when the
-harness cannot reopen that, the way a parked thread wakes. A continuation sent
-before the handoff that opened the thread has started follows it in. A thread
-whose opening handoff was stopped before it ran is opened by the first
-continuation that is taken up.
+(`session/exchanges.rs`.) What was an ask or a handoff is now an inbox item;
+the exchange queue runs the work a receiver takes from its inbox
+(`exchanges/inbox.rs`, [The inbox](#the-inbox)). Taking an item opens a
+**work thread** on the receiver (see [Side threads](#side-threads)) with the
+item's sender as its opener, never in the receiver's main conversation, which
+stays open to the person. The items arrive in the thread as a delivery whose
+`handoff` cause keeps the sender and `requestId` and whose `from` is the
+sender's DM, opening with the taken item's title, which names the thread. The
+thread's final reply goes back by itself as an item in each sender's inbox
+that answers the one taken, heard in the work thread the sender was in while
+that is live, else its DM. A receiver whose three work threads are all
+mid-turn holds the request queued until one is free. Nothing continues an
+earlier work thread by name: a follow-up is another item, which the receiver
+may combine or take where it likes. An ask saved before the inbox and still
+open when this version starts is ended as unanswered, its sender told in its
+inbox to send it again. Neither expands the recipient's permissions.
 
 **The person in a handed-over thread.** The person talks in a thread a
 colleague handed over as in any work thread, and continues it once it has
@@ -1948,7 +1815,7 @@ it is written under too, so the mark never brings an ended thread back as
 live), as every later rewrite of it
 does while the latest handoff into the thread is released or stopped
 (`Room::handoff_ended`); a new handoff into it stands, and its link says so no
-more. `list_teammates` offers a sender only the threads whose handoff stands.
+more.
 The window reads only the link: the thread's bar says the handoff has ended,
 and the receiver's conversation leaves it out of the handoffs it is working on.
 
@@ -2036,8 +1903,8 @@ listing threads and marking them read is [wire.md](wire.md).
 A side thread is the same teammate borrowed for a second conversation while it
 is busy with the first, and the one kind of thread a teammate works in beside
 its main conversation: the **work thread**. The person starts one beside the
-main conversation, or a colleague hands work to the teammate (`message_teammate`
-with intent handoff), and it runs in parallel in a context of its own, served by
+main conversation, or the teammate takes a colleague's item from its inbox
+into one (`update_inbox`), and it runs in parallel in a context of its own, served by
 the teammate's own agent with the full toolset. The opener is a participant
 and the person talks with the teammate in it as they would anywhere. (Stored and
 on the wire it is still `side`.) It is a working session on a topic, not an errand: the
@@ -2133,7 +2000,8 @@ variant of the teammate's (`TeammateTools::for_work`): all of them but
 file to the chat, stamped `from` the thread, and leave a notice in the
 thread; `request_human` posts in the thread and pushes to the person
 (answered by side id, `side.answer_permission`, or `human.answer`);
-`message_teammate` replies come back to the thread. Schedules and loops are the
+a reply to what it `send`s from the thread is heard there while the thread is
+live. Schedules and loops are the
 teammate's, and each fires on a job thread of its own ([Jobs](#jobs)).
 
 **Turns.** A line said in a thread is written to its stream and handed to the
@@ -2523,9 +2391,9 @@ permission set and the computer, less what the teammate left out when it
 made the job (`without` on `schedule` and `loop`, kept on the job). It has
 the home thread's tools but the chapter moves, `react`, `open_link`,
 `schedule` and `loop`: a `request_human` card it raises is on its own
-thread, and the person's answer, like a colleague's answer to its
-`message_teammate`, comes back to it there as a turn while the job lives
-(after it ends, to the DM). What came back is written on the thread before
+thread, and the person's answer comes back to it there as a turn while the
+job lives (after it ends, to the DM); a colleague's reply to what it `send`s
+lands in the teammate's inbox and is heard in the main conversation. What came back is written on the thread before
 it is queued, so one the last process had not handed over yet is handed
 over at start (`Room::resume_job_deliveries`), or to the DM if the job has
 ended since. The person's `schedule.create` takes no `without`: a job

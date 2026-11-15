@@ -5,6 +5,10 @@
   threads (task-220), and §0's clone model for subagents and jobs
   (task-221); slices 5 and 6 (task-223, task-225) attach Legacy voice and live-front work to the shared call-thread occupant.
 - Date: 2026-10-19
+- Amended on `proto/agent-inbox` (task-455): `message_teammate` and a
+  colleague's `aside` are replaced by the inbox
+  ([agent-inbox.md](../design/agent-inbox.md)); the lead's desk-call front
+  uses `send` for named work.
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls
 - Amends: [ADR 0005](0005-front-is-a-full-agent.md)

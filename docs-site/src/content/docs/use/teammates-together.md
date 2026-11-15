@@ -1,32 +1,33 @@
 ---
 title: Teammates working together
-description: How one teammate asks another a question or hands it work, what you approve, and how to follow along.
+description: How one teammate reaches another through its inbox, what you approve, and how to follow along.
 ---
 
-Teammates can talk to each other. One can **ask** a colleague a question,
-or **hand off** a piece of work to it. Either way, you approve the pair
-first, and you can read everything they said.
+Teammates reach each other one way: an item in the colleague's **inbox**.
+You approve the pair first, and nothing a teammate sends lands in your chat.
 
-## Asking and handing off
+## The inbox
 
-- **A question** goes where the colleague's memory is. When its
-  conversation with you is free, the colleague answers there, in a turn of
-  its own that you can read; what you type meanwhile waits for that turn. When
-  it is busy, a work thread of the colleague's answers at once, knowing what
-  that conversation knows, closes with its answer, and leaves the
-  conversation a quiet note of what it said. A question about work handed
-  over is answered in that work's thread. The asker carries on with its work,
-  and the answer arrives later as a line in its conversation, with the
-  colleague's picture and the start of what it said.
-- **A handoff** gives the colleague a piece of work to do. It opens a
-  **work thread** on the colleague with a brief saying who sent it and why.
-  The colleague works on it with its full tools while you keep talking to it
-  in its main conversation. When it finishes, the result goes back to the
-  teammate that handed it over.
+- **Sending.** A teammate sends a colleague an item with a short title, what
+  it needs to say, and what it wants back: an answer, some work done, or
+  nothing (it only wants the colleague to know). It also says whether it has
+  stopped to wait for the answer.
+- **Receiving.** The colleague is told the titles of new items, who sent them
+  and whether the sender is waiting, never their words, and reads them when
+  it suits the work it is on. An idle colleague is woken a few seconds after
+  an item lands, together with anything else that landed meanwhile; a busy
+  one gets a one-line notice and decides itself whether to look now or later.
+- **Sorting.** With several unread, the colleague reads them and sorts them in
+  one go: what to take now, what to fold together into one piece of work,
+  what to leave for later (and why), and what to close.
+- **Work and answers.** Work a colleague takes runs in a **work thread** of
+  its own, with the items it took; its result goes back to the sender's
+  inbox by itself. An answer goes back the same way. The sender is told, at
+  the start of its next turn, what became of each item it sent: seen, taken,
+  left for later, closed.
 
 Ask a teammate in plain words: "ask Mack whether the API change is merged",
-or "hand the release notes to Clementine". It decides which kind of message
-fits.
+or "hand the release notes to Clementine".
 
 A teammate can also see what its colleagues are doing: whether each is idle,
 working, waiting on you or stopped, and what it is working on. It never sees
@@ -47,46 +48,29 @@ no approval.)
 Standing grants are listed in the colleague's pane, under **Permissions →
 Collaboration**, each with **Revoke**.
 
-## Handoffs
+## Work threads
 
-In the sender's conversation, a handoff is one line: "Handed to" the
-colleague and the title of the work. The colleague's conversation with you
-does not fill up with handoffs. One line says what it is working on and for
-whom ("Working on a handoff from…"), and opens its threads.
-
-Press **Open** on either line to open the work thread in the
-[Threads pane](/docs/use/side-threads/#the-threads-pane). The brief shows in
-full, and above the message box a bar says who handed it over, with a link to
-the sender's conversation. You can talk to the colleague there as in any work
-thread: what you say waits for the turn in flight, and what it answers you
-stays in the thread and never goes to the sender. Only the work's result goes
-back. If the colleague needs something from you, the bar and the message box
-give way to a box for your answer. When the work is done the thread closes,
-and **Continue** brings it back. **End thread** closes it yourself: the
-handoff ends with it, and the sender is told quietly, without being woken.
+Press **Open** on a work thread to open it in the
+[Threads pane](/docs/use/side-threads/#the-threads-pane). The items it was
+opened with show in full, and above the message box a bar says whose they
+are. You can talk to the colleague there as in any work thread: what you say
+waits for the turn in flight, and what it answers you stays in the thread and
+never goes to the sender. Only the work's result goes back. When the work is
+done the thread closes, and **Continue** brings it back. **End thread**
+closes it yourself: the work ends with it, and the sender is told quietly,
+without being woken.
 
 While the colleague is working, **Stop** in the thread's header and
 **Interrupt** in its message box (or <kbd>Esc</kbd>) do different things:
 
-- **Stop** ends the handoff for good. The work is not run again, and the
-  sender is told quietly, without being woken, that you stopped it and not
-  to send it again unless you ask. You can still talk to the colleague in
-  the thread; it is yours now.
-- **Interrupt** only cuts the turn, so you can say something. The handoff
-  goes on: your next message in the thread carries it on, and its result
-  still goes back to the sender.
+- **Stop** ends the work for good. It is not run again, and the sender is
+  told quietly, without being woken, that you stopped it. You can still talk
+  to the colleague in the thread; it is yours now.
+- **Interrupt** only cuts the turn, so you can say something. The work goes
+  on: your next message in the thread carries it on, and its result still
+  goes back to the sender.
 
-If you stop a teammate while it is answering a colleague's question, the
-colleague is told you stopped the answer and not to ask again unless you ask.
-Interrupting a teammate's turn in its own conversation tells the colleague
-you interrupted the answer instead, and that it can ask again. Stopping a
-turn from the phone is always a Stop.
-
-The sender can hand more work into the same thread later, and the colleague
-takes it up with everything said there. Once you stop the pair's exchange, or
-a grant is revoked, the bar says the handoff has ended.
-
-A teammate works on up to three threads at a time. A handoff to a teammate
+A teammate works on up to three threads at a time. Work taken by a teammate
 that is fully busy waits its turn. Threads take turns on the teammate's
 computer, if it has one, and a thread that finds the computer busy is told
 who has it.
@@ -94,35 +78,28 @@ who has it.
 ## Looping a colleague in
 
 A thread is between you and one teammate. To bring in another, press
-**Loop in…** in a work thread's header and choose a colleague. It gets a
-nudge with a link to the thread and answers once, in the thread, under its
-own name; the thread's teammate takes it from there. An idle colleague is
-woken to answer; a busy one answers from a thread of its own. The thread
-shows "Quill was looped in". Nothing is sent to you.
+**Loop in…** in a work thread's header and choose a colleague. An item from
+the thread, with its last lines, lands in the colleague's inbox, and its
+answer is heard back in the thread, for the thread's teammate to take from
+there. The thread shows "Quill was looped in". Nothing is sent to you.
 
 ## Noted
 
-What a teammate's threads and colleagues tell it, without telling you, are
-its asides. Each shows as a quiet line marked (·) in its conversation, saying
-who it is from and which kind of thread, and opens that thread. **Noted** in
-the teammate's menu lists them all, newest first, with what you have not seen
-under New; one marked "to you", in amber, also put a card up for you.
-
-## Conversations between two teammates
-
-Every question and its answer is also kept in a conversation between the
-pair, which you can open, read-only, in the Threads pane.
-The **Threads** section of a teammate's pane lists every colleague it has
-talked to.
+What an inbound source you added tells a teammate, without telling you, are
+its asides. Each shows as a quiet line marked (·) in its conversation.
+**Noted** in the teammate's menu lists them all, newest first, with what you
+have not seen under New; one marked "to you", in amber, also put a card up
+for you.
 
 ## When they go on too long
 
-When two teammates have sent each other twelve messages without you, both
-conversations show a **Paused** card. Choose **Keep going** or **Stop
+When two teammates have sent each other twelve items and answers without
+you, both conversations show a **Paused** card, and nothing more is sent
+between them until you choose. Choose **Keep going** or **Stop
 exchange**. Anything you say to either teammate also resets the count.
 
 ## What it costs
 
 Each teammate runs on its own driver and model, so a question to a colleague
-on a paid model costs what that model costs. Handing work to a teammate on a
+on a paid model costs what that model costs. Sending work to a teammate on a
 cheaper or local model is a way to spend less on routine work.

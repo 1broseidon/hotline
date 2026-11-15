@@ -2,8 +2,8 @@
 
 Calling the desk opens a call thread on its team lead, with that teammate's
 own voice front, model and grants. The lead looks up the roster itself, answers
-briefly with names and current work (or idle), and hands a named teammate the person's words through `message_teammate` with
-`handoff`, then says who has it. No dispatcher runs for that routing. A direct
+briefly with names and current work (or idle), and puts the person's words for a named teammate in its inbox with `send`,
+`wants: work`, then says whose inbox it is in. No dispatcher runs for that routing. A direct
 call to the lead remains an ordinary teammate call, without the desk's routing
 grant. Hanging up, holding or interrupting speech does not cancel work already
 started.

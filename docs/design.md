@@ -1190,41 +1190,37 @@ replaced it.
 The iOS app is untouched until Phase 3 gives it a door. The old repository
 is read-only reference and is not modified by work here.
 
-### Teammate messages: ask or hand off
+### Teammate messages: the inbox
 
-`message_teammate(to, message, intent)` defaults to `ask`: an answer or review
-from where the memory is (decision 1 of
-[design/thread-awareness.md](design/thread-awareness.md)): the recipient's main
-conversation when it is idle, else a work thread of the recipient's, seeded
-with what that conversation knows, which answers at once and leaves it an
-aside saying what it answered. There is no session of the pair's own. Ask is
-not tool-free: the recipient uses its own workspace and granted tools.
-`handoff` opens a work thread of the recipient's own, which starts from its
-main conversation's context, to implement or continue work there; the main
-conversation is never interrupted by it.
-The handoff's request id names that thread to its sender, the way an agent's
-id does in Claude Code. A later handoff that passes it as `thread` lands in the
-same thread, behind any turn in flight there, and the recipient takes it up
-with everything said in the thread before; a handoff without `thread` opens a
-new one. Asking the sender to choose, rather than guessing from timing or
-topic, keeps a colleague's unrelated work out of a thread and a follow-up out
-of a fresh one. Only the teammate that opened a thread on that recipient
-continues it; an ask that passes it is answered in that thread.
-The recipient never silently promotes an Ask. Neither intent overrides the
-person or expands the recipient's permissions.
+Teammates reach each other one way, an item in the colleague's inbox
+([design/agent-inbox.md](design/agent-inbox.md), task-455, a prototype on
+`proto/agent-inbox` to observe how models sort their own messages). It
+replaced `message_teammate`'s ask and handoff and a colleague's `aside`, under
+which the sender decided when the receiver was interrupted and concurrent
+messages were each handled blind to the others. `send(to, title, message,
+wants, waiting)` returns at once; the receiver is told titles, never bodies,
+woken once a gather delay after an item lands when idle, given a one-line
+notice when busy, and decides itself what to read, take, combine or leave
+with `read_inbox` and `update_inbox`. Work it takes runs in a work thread of
+its own, started by its sort and never by the sender, and answers and
+results come back as items in the sender's inbox; the sender is told at its
+next turn what became of each item. Nothing scores items or gates which
+notify, so raw behaviour can be watched, and no chat opens between the two.
+The inbox does not cross a link yet.
 
-One directional collaboration approval explains and covers both intents. Old
-standing approvals remain valid for Ask, but the first Handoff requires informed
-consent. The room records that consent separately; removing authority invalidates
-queued work too. There is no room link, link/unlink tool, roster link or chapter
-link lifecycle. Old link records are inert.
+One directional collaboration approval covers every item, checked when it is
+sent; an item that wants work needs the informed consent a handoff needed,
+and old standing approvals still let a question or a note through without it.
+There is no room link, link/unlink tool, roster link or chapter link
+lifecycle. Old link records are inert.
 
-A room `exchange_pair` record keeps each pair's durable request queue, result,
-and message count together. A Handoff delivery retains sender, thread and
-`requestId`; its final turn result returns automatically as a correlated Peer
-delivery, even when the sender has moved on. Both intents remain readable in
-the pair's thread. Twelve automatic messages, including replies and across
-intents, pause the pair. Receipts do not count. Queued requests and completed
+A room `exchange_pair` record keeps each pair's durable request queue (the
+work receivers took from their inboxes), result, and message count together.
+A taken item's delivery retains sender, thread and `requestId`; its final
+turn result returns automatically as an item in the sender's inbox, even
+when the sender has moved on. Twelve items and replies between two
+teammates pause the pair, and nothing more is sent between them until the
+person decides. Receipts do not count. Queued requests and completed
 results wait without loss. The person's Keep going resets the counter; Stop
 exchange settles outstanding work and writes an explicit notice. Hearing from
 the person also resets the pair. These actions do not create new grants.
@@ -1298,9 +1294,9 @@ only. Clearing a desk of one is refused, since the next open would put it
 back, and `settings.update` cannot name a lead around these rules. Being lead
 changes nothing else about a teammate: its own model, memory and tools stay
 its own. A desk call opens the lead's own call thread and voice front. The
-front answers roster questions with `list_teammates` and passes named work
-straight through `message_teammate`, intent `handoff`, saying who has it. The
-live desk call and current lead together grant local handoffs without a
+front answers roster questions with `list_teammates` and puts named work in
+the teammate's inbox with `send`, `wants: work`, saying whose inbox it is in.
+The live desk call and current lead together let that item in without a
 first-contact card; a direct call, DM, stopped call or former lead does not
 carry that grant. The queue checks it again before starting work. Stopping or
 reassigning colleagues remains the person's choice.
@@ -1343,18 +1339,11 @@ dialled.
 A teammate on a linked desk is `deskId/personaId` here and never a persona
 in this roster. `list_teammates` lists it with its desk's name, from the
 roster rows the other desk publishes (exactly what a local row shows), and
-`message_teammate` reaches it by name, as "Name on Desk" when a name is
-shared, or by id; a shared name is refused with every choice listed, and a
-local teammate never wins a tie. A message rides the sender desk's exchange
-queue, crosses when it is taken up or waits until the link is back, and
-enters the recipient desk's queue as a request from a participant with
-nothing granted: the recipient's `allowedSenders` and the person's
-first-contact card decide it there, the card on the recipient's tape, and
-a whole-machine teammate on another desk is no more trusted for it. The
-answer comes back the same way, saved until it arrives, and each desk keeps
-its own copy of the pair's thread. Ending a link fails what waited on it
-with a sentence, withdraws the cards its teammates were waiting on and ends
-the standing grants they held, so a link made again starts from nothing.
+A message to it is refused for now: the inbox does not cross a link, and a
+linked desk's messages and asides are refused here. A shared name is still
+refused with every choice listed, and a local teammate never wins a tie.
+Ending a link withdraws the cards its teammates were waiting on and ends the
+standing grants they held, so a link made again starts from nothing.
 
 The window lists every desk's teammates in one rail, with a desk filter
 where it had a switcher. The screen follows the teammate: opening one on

@@ -108,35 +108,25 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 
 ## Kinds as policy
 
-| | DM | Side (work thread) | Pair (ask) | Call | Run | Job |
+| | DM | Side (work thread) | Pair (before the inbox) | Call | Run | Job |
 | --- | --- | --- | --- | --- | --- | --- |
-| Parent | — | DM, and the opener's DM when a teammate opened it; also the pair when a question opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
-| Agent | main session | the teammate's own agent, full tools | none: a question is answered in the target's own threads, its DM when idle, else a work thread of its own seeded with the index and recent asides, or the thread the question names | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
+| Parent | — | DM, and the opener's DM when a colleague's item opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
+| Agent | main session | the teammate's own agent, full tools | none: nothing is written to a pair now; teammates reach each other through their inbox | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
 | Lease | the teammate's | the teammate's; the computer through an exclusive lease | none of its own: each request holds both teammates' lasting leases, and the turn answering it runs under its thread's | the teammate’s own lease, including the exclusive computer lease | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
-| Idle | chapters (setting) | park at 3 h; a thread a question opened closes with its answer | nothing to park | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
-| Restart | resume | park | a question whose turn never began is handed over again; one cut mid-turn fails, to inspect before retrying | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
-| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | none per pair; the brake counts every request and reply | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
-| Cards | person | person, pushed; `request_human` lands here | none: a card is raised in the thread answering | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
+| Idle | chapters (setting) | park at 3 h; a thread a taken item opened closes with its result | nothing to park | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
+| Restart | resume | park | an ask from before the inbox still open ends as unanswered, its sender told in its inbox | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
+| Limit | one | three live per teammate, park the idlest; taken work queues when all are mid-turn | none per pair; the brake counts every inbox item and reply between the two | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
+| Cards | person | person, pushed; `request_human` lands here | none | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
 | Thread index | each turn, whole or "unchanged" | each turn, whole or "unchanged" | none: no turns of its own | each turn, as a work thread | its parent's line and the asides about it | its parent's line and the asides about it |
 
-A handoff is a side thread: opened by a teammate instead of the person, with the
-sender as its opener. Its result returns to the opener as a delivery. A later
-handoff from the same opener that names the thread (`message_teammate`'s
-`thread`) continues it rather than opening another, and an ask that names it
-is answered there by the teammate doing the work, without closing it.
-
-An ask goes where the memory is (decision 1 of
-`design/thread-awareness.md`). The recipient's main conversation answers it
-when idle, as a turn of its own that takes in nothing the person says. While
-that conversation is busy, a work thread of the recipient's answers at once:
-it is opened for the question alone, with no opener and `askedIn` naming the
-pair on its link (which is written on the pair's thread too), seeded as any
-work thread is with the DM's tail and told the asides the teammate was left
-lately, and it closes with its answer and leaves the DM a `note` aside,
-"Answered Ada for you: …". A question a handed-over thread asks the teammate
-that handed it over reaches the conversation that did, by the handoff's reply
-route, with no card while the delegation stands.
+Teammates reach each other through their inbox
+([design/agent-inbox.md](design/agent-inbox.md)), which is no thread: items
+are kept on the receiver's stream, and each teammate's turns open with the
+inbox section of their thread index. Work a teammate takes from its inbox is
+a side thread: opened for the receiver by its own `update_inbox`, with the
+item's sender as its opener. Its result returns to the sender's inbox as an
+item that answers the one taken. No chat opens between two teammates.
 
 Chapters stay specific to the DM. A side thread long enough to need chapters
 should become a teammate.
@@ -154,14 +144,17 @@ The stream files stay where they are, and no history is migrated:
 | Call | `calls/<id>.jsonl` (new) |
 | Job | `jobs/<id>.jsonl`, under the job's id on the room stream (new) |
 
-A teammate's asides, `asides/<id>.jsonl`, are a stream of the teammate's but
-no thread: what its threads and colleagues left it, heard at the start of its
-next turn in a thread ([sessions.md](sessions.md#asides)). The line an aside
-leaves on the thread it was said in is an `aside` event of that thread. The
-files a message carries wait in `files-between/<request id>/` on the desk
-until it is let in, and are then copied into the recipient's working
-directory ([sessions.md](sessions.md#files-between-teammates)); no thread
-holds them.
+A teammate's inbox, `inbox/<id>.jsonl`, is a stream of the teammate's but no
+thread: the items sent to it, each written again under its id as it moves
+([sessions.md](sessions.md#the-inbox)). An item sent leaves an `inbox_sent`
+line on the thread it was sent from, and each sort an `inbox_sorted` line on
+the receiver's DM. A teammate's asides, `asides/<id>.jsonl`, are likewise a
+stream and no thread: what an inbound source left it, heard at the start of
+its next turn in a thread ([sessions.md](sessions.md#asides)). The files an
+item carries wait in `files-between/inbox-<item id>/` on the desk until the
+person's first-contact card lets it in, and are then copied into the
+recipient's working directory
+([sessions.md](sessions.md#files-between-teammates)); no thread holds them.
 
 The thread records themselves (state, binding, title, note) live where each
 kind keeps them today: the marker line, the sidecar, the persona record. They
@@ -443,7 +436,7 @@ Where this differs from the design above:
   `resume_chapter`, plus `archive_thread`. `request_human` raises its card in
   the thread, pushed with the thread's id; `send_file` and `generate_image`
   post their file to the chat, stamped `from` the thread (`Room::post`), and
-  leave a notice naming it there; `message_teammate` replies there. Schedules and loops stay with the
+  leave a notice naming it there; a reply to what it `send`s is heard there. Schedules and loops stay with the
   persona, and each fires on a job thread of its own.
 - **Cap.** `MAX_LIVE` is 3 live work threads per teammate, operator- and
   teammate-opened together; parked ones do not count. At the cap the idlest
@@ -851,6 +844,19 @@ Where this differs from the design above:
 - **Files across a link are capped at 512 KB together**, not the 25 MB a
   file on one desk may come to, because they cross in the one frame of what
   carries them and a link's frame is 1 MiB.
+
+**The agent inbox** (task-455, `proto/agent-inbox`,
+[agent-inbox.md](design/agent-inbox.md)). One way to reach a teammate
+replaces the ask, the handoff and a colleague's aside built above: `send`
+puts an item in the colleague's inbox, the colleague's turns open with its
+titles, and `read_inbox` and `update_inbox` read and sort it. Work is taken
+into a work thread by the receiver's own sort, never the sender's send, and
+answers and results come back as items in the sender's inbox. So, of what is
+above: no question is answered in a main conversation or a thread of its
+own, no thread continues by name, a handed-over thread leaves its opener no
+notes (the item's receipts say where it stands), Loop in… is an item, and
+nothing of it crosses a link: `send` refuses a linked teammate and a linked
+desk's messages and asides are refused at the door.
 
 ## Today
 

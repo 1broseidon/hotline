@@ -1,7 +1,11 @@
 # Threads as streams of thought: awareness, asides and agent to agent
 
 Agreed with George, 2026-10-30 (the five answers below, as drawn in
-`thread-awareness/` frames 00–09). Builds on
+`thread-awareness/` frames 00–09). On `proto/agent-inbox` (task-455) teammates no
+longer leave each other asides or ask and hand off by `message_teammate`:
+they reach each other through an inbox ([agent-inbox.md](agent-inbox.md)),
+which supersedes §2 for colleagues (asides stay for inbound sources), §3's
+messages and the asks of decision 1; the index of §1 carries the inbox. Builds on
 [ADR 0001](../adr/0001-threads-are-a-primitive.md) and [threads.md](../threads.md),
 which made every conversation a thread with its kind as policy. This document is
 about what an agent knows of its own threads and how threads reach each other.

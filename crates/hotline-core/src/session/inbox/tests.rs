@@ -307,7 +307,7 @@ async fn a_busy_receiver_is_told_mid_turn_and_woken_once_its_turn_ends() {
 }
 
 #[tokio::test]
-async fn a_driver_that_takes_no_line_mid_turn_hears_the_notice_after_its_turn() {
+async fn a_driver_that_takes_no_line_mid_turn_hears_its_items_in_a_quiet_turn_after_its_own() {
     let gate = Arc::new(tokio::sync::Semaphore::new(0));
     let (room, agents) = room_on("inbox-busy-unsteered", replies().gated(gate.clone()));
     room.start("bob").await.unwrap();
@@ -321,14 +321,15 @@ async fn a_driver_that_takes_no_line_mid_turn_hears_the_notice_after_its_turn() 
     gate.add_permits(100);
     until("the next turn", || agents.told().len() == 2).await;
     tokio::time::sleep(heard::gather_delay() * 3).await;
-    let noticed = agents
+    let woken = agents
         .told()
         .iter()
-        .filter(|told| told.contains("1 new message in your inbox"))
+        .filter(|told| told.contains(heard::QUIET_WAKE_LINE))
         .count();
-    assert_eq!(noticed, 1, "heard once: {:?}", agents.told());
+    assert_eq!(woken, 1, "heard once: {:?}", agents.told());
     assert!(
-        agents.told()[1].contains("\"Deploy notes\""),
+        agents.told()[1].contains(heard::QUIET_WAKE_LINE)
+            && agents.told()[1].contains("\"Deploy notes\""),
         "{}",
         agents.told()[1]
     );

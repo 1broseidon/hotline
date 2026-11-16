@@ -169,7 +169,14 @@ impl Occupant for Session {
             // Results that came back together are one turn: the ones queued
             // behind this result are heard with it.
             let is_result = result_of(&wired).is_some();
-            let mut text = wired.text;
+            // An inbox notice its driver did not take mid-turn begins a turn
+            // of its own: the quiet one the idle wake begins, whose line says
+            // who reads it. The items it named are in the index above.
+            let mut text = if quiet && wired.steer {
+                super::timed(super::now_ms(), super::inbox::QUIET_WAKE_LINE)
+            } else {
+                wired.text
+            };
             if is_result {
                 for behind in room.results_behind(session) {
                     if let Some(said) = behind.said {

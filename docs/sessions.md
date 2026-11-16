@@ -1459,8 +1459,10 @@ after the first item lands, for everything that landed meanwhile, by a line
 that only wakes it (a teammate not running is started for it). A main
 conversation mid-turn is handed a one-line notice of the new titles when the
 gather delay is up, steered into the turn as the person's mid-turn line is
-(`HOTLINE_INBOX_MIDTURN=0` turns it off; a driver that cannot steer hears it
-as its next line), and starts no turn and no thread for them. Every turn of
+(`HOTLINE_INBOX_MIDTURN=0` turns it off), and starts no turn and no thread
+for them. The notice is queued marked quiet: a driver that cannot steer
+takes it as its next line, which begins the idle wake's quiet turn with the
+idle wake's line (`dm.rs`), never a loud one. Every turn of
 the main conversation, a work thread or a call opens with an `INBOX` section
 in its [thread index](#the-thread-index): the counts, each new item not yet
 offered to a turn (title, sender, `waiting on you`, what it wants, age, short
@@ -1533,7 +1535,8 @@ and no phone is pushed them. Its one post, or one file or image
 and pushes. The turn runs in the main conversation's own session, with its
 context. The person's own line steered into it ends the quiet: from there it
 answers them out loud, and its post is refused as any loud turn's is. A
-mid-turn notice into a turn the person started changes nothing, and a work
+mid-turn notice steered into a quiet turn leaves it quiet, one into a turn
+the person started changes nothing, and a work
 thread or a call the inbox wakes is told the words reach the person, as
 before.
 

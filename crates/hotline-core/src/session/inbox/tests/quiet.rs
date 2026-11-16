@@ -134,3 +134,85 @@ async fn the_persons_line_steered_into_a_quiet_turn_is_answered_out_loud() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_notice_steered_into_a_quiet_turn_leaves_it_quiet() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on(
+        "inbox-quiet-notice-steered",
+        replies().gated(gate.clone()).consuming(),
+    );
+    pair_a_phone(&room);
+    at_rest(&room, "bob").await;
+    send(&room, "ada", "bob", "Deploy notes", json!({})).await;
+    until("bob woke", || agents.told().len() == 1).await;
+    send(&room, "ada", "bob", "Logo colours", json!({})).await;
+    until("the notice joined the turn", || agents.steered().len() == 1).await;
+    assert!(agents.steered()[0].contains("\"Logo colours\""));
+    assert!(room.is_quiet(&ThreadId::dm("bob")), "still quiet");
+    gate.add_permits(100);
+    until("the turn ended", || turn_ended(&room, "bob")).await;
+    tokio::time::sleep(heard::gather_delay() * 3).await;
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|event| event["kind"] != "agent"),
+        "no reply: {:?}",
+        room.tape("bob")
+    );
+    assert!(crate::store::previews::preview(room.log.root(), "bob").is_none());
+    assert!(lock(&room.push.sent).is_empty(), "no push");
+}
+
+#[tokio::test]
+async fn a_notice_its_driver_did_not_take_mid_turn_starts_a_quiet_turn_with_no_bubble_unread_or_push()
+ {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on("inbox-quiet-notice-turn", replies().gated(gate.clone()));
+    pair_a_phone(&room);
+    at_rest(&room, "bob").await;
+    // The person's own turn, out loud, which the driver will not steer into.
+    room.prompt("bob", "the person's work", None, None)
+        .await
+        .unwrap();
+    until("bob is working", || agents.prompts().len() == 1).await;
+    send(&room, "ada", "bob", "Deploy notes", json!({})).await;
+    tokio::time::sleep(heard::gather_delay() * 3).await;
+    gate.add_permits(100);
+    until("the person's turn and the notice's", || {
+        room.tape("bob")
+            .iter()
+            .filter(|event| event["kind"] == "turn")
+            .count()
+            == 2
+    })
+    .await;
+    assert_eq!(
+        kinds_of(&room, "bob", "said-0"),
+        ["agent"],
+        "the person's reply"
+    );
+    let told = &agents.told()[1];
+    assert!(
+        told.contains(heard::QUIET_WAKE_LINE) && told.contains("\"Deploy notes\""),
+        "the notice's turn is the quiet wake: {told}"
+    );
+    assert_eq!(
+        kinds_of(&room, "bob", "said-1"),
+        ["thought"],
+        "the notice's turn says nothing in the chat"
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        lock(&room.push.sent).len(),
+        1,
+        "the person's reply pushes, the notice's turn does not"
+    );
+    let preview = crate::store::previews::preview(room.log.root(), "bob");
+    assert!(
+        preview
+            .as_ref()
+            .is_some_and(|preview| !format!("{preview:?}").contains("said-1")),
+        "the rail counts nothing of the notice's turn: {preview:?}"
+    );
+}

@@ -148,9 +148,11 @@ about that thread), else the receiver's main conversation.
   When the gather delay is up, the turn in flight in the main conversation is
   handed the one-line notice, steered into it as the person's mid-turn line
   is, at most once per gather window: `HOTLINE_INBOX_MIDTURN=0` (or `off`,
-  `false`) turns this off. A driver that takes no line mid-turn hears the
-  notice as its next line instead. A busy work thread hears its items at its
-  next turn's start; it is not handed a notice.
+  `false`) turns this off. A notice never makes a turn loud: steered into a
+  quiet turn it leaves it quiet, being no line of the person's, and one a
+  driver that takes no line mid-turn leaves waiting starts, as its next
+  line, the same quiet turn the idle wake starts, with its line. A busy work
+  thread hears its items at its next turn's start; it is not handed a notice.
 - **At a turn's start.** Every turn of the main conversation, a work thread
   or a call opens with an `INBOX` section in its thread index: the count of
   unread items and items for later, the new items not yet offered to a turn

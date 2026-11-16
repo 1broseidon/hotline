@@ -12,8 +12,10 @@
 //! - **Busy.** An item that lands while a turn runs starts nothing. When the
 //!   gather delay is up the turn in flight in the main conversation is handed
 //!   a one-line notice of the new titles, if its driver takes a line mid-turn
-//!   ([`midturn`], `HOTLINE_INBOX_MIDTURN=0` turns it off); a driver that
-//!   does not take it hears it as its next line.
+//!   ([`midturn`], `HOTLINE_INBOX_MIDTURN=0` turns it off). A notice never
+//!   makes a turn loud: steered into a quiet turn it leaves it quiet, and
+//!   one a driver does not take mid-turn starts, as its next line, the same
+//!   quiet turn the idle wake starts, with [`QUIET_WAKE_LINE`].
 //! - **At a turn's start.** Every turn opens with the inbox section of its
 //!   thread index: the unread items not offered to a turn before, by title,
 //!   sender and whether the sender waits, and the count of what is unread
@@ -51,7 +53,7 @@ pub(super) use nobody_reads;
 /// index. The turn is quiet, as a quiet job's firing is, and its line says
 /// who reads it as that firing's does: nobody, so the person hears only its
 /// one post.
-pub(super) const QUIET_WAKE_LINE: &str = concat!(
+pub(in crate::session) const QUIET_WAKE_LINE: &str = concat!(
     "quiet inbox · New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. ",
     nobody_reads!()
 );
@@ -191,10 +193,14 @@ impl Room {
                         turns.claim(woken)
                     } else if let Some(notice) = notice {
                         // Steered into the turn when its driver takes a line
-                        // mid-turn; heard as its next line when it does not.
+                        // mid-turn, which leaves a quiet turn quiet, since it
+                        // is no line of the person's; when the driver does
+                        // not take it, it starts the quiet turn the idle
+                        // wake would have (`dm.rs`).
                         turns.waiting.push_back(Wired {
                             steer: true,
                             wake: true,
+                            quiet: true,
                             ..Wired::words(timed(now_ms(), &notice))
                         });
                         noticed = true;

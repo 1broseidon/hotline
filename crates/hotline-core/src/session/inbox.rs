@@ -42,6 +42,7 @@ mod clock;
 mod heard;
 mod pick_up;
 
+pub(in crate::session) use heard::QUIET_WAKE_LINE;
 pub(in crate::session) use pick_up::PickUp;
 
 /// The most a title says: a line someone reads before deciding whether to

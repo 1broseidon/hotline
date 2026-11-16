@@ -22,11 +22,13 @@ through — Hotline Agent's own tool closures, the in-process MCP server an ACP
 child calls, the file callbacks Hotline performs for that child, the scheduler,
 and the wire.
 
-Two things are deliberately not defended against. The person: whoever holds
+Three things are deliberately not defended against. The person: whoever holds
 the desk token may do anything the desk may do, and the phone seat is a
-smaller fixed set, not a policy engine. And the workspace: a teammate can
+smaller fixed set, not a policy engine. The workspace: a teammate can
 read and change everything in its working directory, including any secret
-the person left there.
+the person left there. And a teammate with whole-machine reach, or a harness
+with its own shell: it is trusted as the person is, since it can change the
+desk's own records (Accepted risks, below).
 
 ## Standing consent
 
@@ -139,6 +141,44 @@ decision for George, not a bug fix.
 - **The person is asked nothing at call time.** There are no approval cards
   for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.
+- **A whole-machine teammate is trusted as the person is.** Grants bind only
+  teammates whose tools stay behind Hotline's wall: workspace reach on
+  Hotline Agent. A teammate with whole-machine reach, or any harness that
+  runs its own shell (an ACP harness, whatever its saved reach), can read and
+  write the desk's own files under the data directory, so nothing Hotline
+  records there binds it: it can read another teammate's inbox and threads on
+  disk, add itself to a colleague's `allowedSenders`, add or widen an inbound
+  source, and on a served desk read the local door's token. The collaboration,
+  inbound and folder grants, the first-contact card and the brake hold for
+  what it asks through Hotline's tools, not for what it does to the files.
+  Give that reach only to a teammate you would trust with the desk itself.
+- **A colleague's item acts with the receiver's reach.** An item is data,
+  fenced and labelled as its sender's words, but a receiver that takes it
+  into work does that work with everything the receiver can reach: a
+  workspace teammate that read a hostile page can ask a whole-machine or
+  signed-in teammate to act, and the first-contact card, per pair and
+  standing once the person chooses Always, is the only gate. Only the
+  person's own lines carry the person's authority, and teammates are told
+  so; that is guidance to the model, not enforcement.
+- **A quiet turn does real work unseen.** A turn the inbox starts keeps
+  every tool the teammate has, and Hotline Agent has no per-action cards, so
+  shell, files, browser and network run without the person's attention. Its
+  trail is kept (the "Read N messages" line, the sent rows, the turn's
+  steps), but nothing points the person at it.
+- **Cost has no desk-wide ceiling.** The brake is twelve items and replies
+  per pair, counted afresh when the person says Keep going, or writes to
+  either teammate while the two are not paused. Nothing limits a teammate,
+  an hour or the desk, and the Chat budget meters only turns on a model
+  billed per token; a harness on its own account is not counted.
+- **A received file lands in the receiver's working directory**, under
+  `inbox/<sender>/`, never over a file, whatever the receiver's reach. A
+  whole-machine sender can send anything it can read, and a file whose name
+  a tool picks up by itself (a test runner's config, an instructions file)
+  is in the receiver's tree.
+- **A paired phone can answer a source proposal.** The `inbound.*` commands
+  give a phone only the list and the mute, but `human.answer` lets it answer
+  any card, so a yes from the phone to a teammate's `propose_inbound` card
+  adds that source.
 
 ## Voice calls
 
@@ -1588,7 +1628,7 @@ extend; when a change adds a boundary, it adds a row.
 | Stop and Interrupt: the person's Stop on a taken item's turn, on its line it drops, or on what an Interrupt left a thread carrying ends that handoff for good, released and stopped with its leases revoked, never handed over or run again, and closes its item as dropped with the cut turn's words and the person's sentence, told to the sender once and never a wake; Interrupt only cuts the turn and the person's next line there carries the work to its result; the main conversation's Interrupt leaves a first-contact card up and the Stop expires it; `session.cancel` and `thread.cancel` are the Stop without `interrupt`, as the phone and an older window send them, and the Interrupt with it | `session/exchanges/tests/stops.rs` `the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_sender_once`, `the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_runs`, `the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_it`, `the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_carries_it_on`, `the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried`, `send_it_again_is_never_said_after_the_persons_word`; `session/peers/tests.rs` `an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up`; `hotline-contract/src/tests.rs` `a_cancel_is_a_stop_unless_it_says_it_interrupts` | — |
 | Files and links: a file is sent only from where the sender's read tools reach, from a job's thread only within the job's narrowing, at most 25 MB together, each refused with why, lands only once its item is let in, under `inbox/<sender>/` in the recipient's working directory and never over a file; nothing of the inbox crosses a link, and the link still carries rosters | `hotline-contract/src/tests.rs` `a_thread_names_its_desk_only_when_it_is_on_a_linked_one`, `what_crosses_a_link_grows_only_by_fields_an_older_desk_leaves_out`; `session/exchanges/tests/files.rs` `an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in`, `an_allowed_items_files_land_at_once_and_never_over_another`, `files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reason`, `a_narrowed_job_sends_no_file_from_beyond_its_narrowing`; `session/tests/sent_files.rs` `a_narrowed_job_sends_no_file_from_beyond_its_narrowing`; `hotline-tools/src/workspace/tests.rs` `a_received_file_lands_in_the_working_directory_and_overwrites_nothing`; `remote/tests/link.rs` `a_link_made_over_the_owner_seat_carries_rosters_both_ways_and_no_inbox_item`; `ui/tests/asides.test.ts` | — |
 | The thread index: a turn is told only its own teammate's threads, fenced and labelled as Hotline's note with each title, last line and aside quoted as data; a job's firing and a run are told only their parent thread and the asides about them; work handed to a colleague is quoted to its sender in the colleague's words, never the person's | `session/index/tests.rs` `the_main_conversation_opens_each_turn_with_the_index_of_its_threads`, `a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it`, `a_run_hears_only_its_parent_thread`, `handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only` | — |
-| Inbound sources: nothing outside Hotline reaches a teammate but through a source the person added; a muted or removed source delivers nothing, a teammate it does not name is refused, the level is lowered to the source's highest, its hourly rate holds, files are refused unless allowed and then meet a colleague's cap and path rules, taken only from the source's own staging folder and landing under `inbox/inbound-<source>/`, its words are one line with no control characters or tokens, fenced as untrusted data from outside Hotline and never among a colleague's, and found by search under the source's name; a nudge's wake counts on its brake, which mutes it at the cap; a teammate adds none but by the person's yes on its card, which names no secret; only the owner adds, widens or removes one, a phone only lists and mutes, and a secret is held by the name of a stored one, never its value | `session/inbound/tests.rs` `a_muted_or_missing_source_delivers_nothing`, `a_teammate_the_source_does_not_name_is_refused`, `the_level_is_lowered_to_the_sources_highest`, `the_rate_limit_holds_for_the_hour`, `files_are_refused_unless_the_source_allows_them_and_then_meet_the_file_rules`, `inbound_words_are_fenced_as_untrusted_data_from_outside_and_searchable`, `a_sources_nudges_wake_an_idle_teammate_and_its_brake_mutes_it_at_the_cap`, `a_teammate_adds_no_source_without_the_persons_yes`; `wire/tests/inbound.rs` `only_the_owner_adds_widens_and_removes_a_source_and_a_phone_only_mutes_it`, `a_source_names_a_stored_secret_and_never_holds_a_value`, `the_phone_seat_reads_and_mutes_sources_and_nothing_more`; `hotline-room/src/inbound.rs` `untrusted_text_is_one_line_with_no_control_characters_or_keys` | — |
+| Inbound sources: nothing outside Hotline reaches a teammate but through a source the person added; a muted or removed source delivers nothing, a teammate it does not name is refused, the level is lowered to the source's highest, its hourly rate holds, files are refused unless allowed and then meet a colleague's cap and path rules, taken only from the source's own staging folder and landing under `inbox/inbound-<source>/`, its words are one line with no control characters or tokens, fenced as untrusted data from outside Hotline and never among a colleague's, and found by search under the source's name; a nudge's wake counts on its brake, which mutes it at the cap; a teammate adds none but by the person's yes on its card, which names no secret and which a paired phone may answer; through `inbound.*` only the owner adds, widens or removes one, a phone only lists and mutes, and a secret is held by the name of a stored one, never its value | `session/inbound/tests.rs` `a_muted_or_missing_source_delivers_nothing`, `a_teammate_the_source_does_not_name_is_refused`, `the_level_is_lowered_to_the_sources_highest`, `the_rate_limit_holds_for_the_hour`, `files_are_refused_unless_the_source_allows_them_and_then_meet_the_file_rules`, `inbound_words_are_fenced_as_untrusted_data_from_outside_and_searchable`, `a_sources_nudges_wake_an_idle_teammate_and_its_brake_mutes_it_at_the_cap`, `a_teammate_adds_no_source_without_the_persons_yes`; `wire/tests/inbound.rs` `only_the_owner_adds_widens_and_removes_a_source_and_a_phone_only_mutes_it`, `a_source_names_a_stored_secret_and_never_holds_a_value`, `the_phone_seat_reads_and_mutes_sources_and_nothing_more`; `hotline-room/src/inbound.rs` `untrusted_text_is_one_line_with_no_control_characters_or_keys` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes queued work; a dropped wait cannot be answered later | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `hotline-room/src/linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
@@ -1673,7 +1713,10 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   the sender's stable id and an informed-consent record, cleared only when the
   receiver's access grows). It is checked when the item is sent: as an ask
   was for an item that wants an answer or nothing, as a handoff was (informed
-  consent) for one that wants work. The lead's front on a desk call sends
+  consent) for one that wants work. The receiver may take an item that
+  wanted an answer into work too, and the card that let it in stands for
+  that work: the informed card is asked of what the sender says it wants,
+  not of what the receiver does with it. The lead's front on a desk call sends
   named work by the call's grant, as its handoffs did. Loop in… is the
   person's grant for its item. A reply rides on the item it answers and asks
   nothing. Keep going and Stop exchange stay person-seat commands.
@@ -1924,11 +1967,12 @@ its checks exist: no webhook endpoint, mailbox or GitHub poller is built.
   adds one, and nothing outside reaches any teammate. A new source asides only
   the teammates it names, at `note`, ten an hour, with no files, unmuted.
 - **Grant source:** the person alone: `inbound.add`, `inbound.update` and
-  `inbound.remove` from the desk or owner seat, and a phone may only list them
-  and mute or unmute one (`wire/seat.rs`). A teammate's `propose_inbound`
-  only raises a card showing the source as it would be added, bound to a
-  core-generated `inbound-source:` id and the session's lease; the person's
-  yes writes exactly that record (`Room::settle_inbound_source`, which checks
+  `inbound.remove` from the desk or owner seat, and through those commands a
+  phone may only list them and mute or unmute one (`wire/seat.rs`). A
+  teammate's `propose_inbound` only raises a card showing the source as it
+  would be added, bound to a core-generated `inbound-source:` id and the
+  session's lease; the person's yes, from any seat that may answer a card
+  (`human.answer`, the paired phone's included), writes exactly that record (`Room::settle_inbound_source`, which checks
   the lease, the expiry and that its teammates are still here), and a no, a
   stale card or a revoked session writes nothing. The proposal cannot name a
   secret, and is not offered to a job, a run or a voice front. A source keeps
@@ -2986,10 +3030,12 @@ thread, and reaching back into it with the home agent's own reading tools.
   drivers: a run has `RUN_TOOLS`, the reading ones, and is refused the doors
   to the person; a job has the teammate's tools less `JOB_WITHOUT` (the
   chapter moves, `react`, `open_link`, `schedule`, `loop`). A job's
-  `request_human` card is written on its own thread (`Room::ask_human`), a
-  colleague's answer to its `message_teammate` is routed by
-  `Request::reply_job`, and both come back through
-  `Room::deliver_into_job` while the job lives, else to the DM; one the
+  `request_human` card is written on its own thread (`Room::ask_human`), and
+  its answer, like a colleague's answer to a request the job made before the
+  inbox (`Request::reply_job`), comes back through
+  `Room::deliver_into_job` while the job lives, else to the DM; a reply to
+  an item a job `send`s is an item in the teammate's inbox, heard in its
+  main conversation; one the
   last process wrote and had not handed over is handed over at start the
   same way (`Room::resume_job_deliveries`), so a restart neither drops it
   nor hands it to a job that has ended. A run
@@ -3151,7 +3197,7 @@ teammate's lease never covers another teammate's computer.
   exchange records carry none.
 - **Enforcement:** `Calls::lead_call` checks target, live call and current lead.
   `TeammateTools::call` checks the capability lease and limits the front to
-  lookups plus `message_teammate` with `handoff` on that desk call. The exchange
+  lookups plus `send` of named work (`wants: work`) on that desk call. The exchange
   records the source call only for a local recipient and rechecks both leases
   and the lead/call before starting or resuming the handoff. A queued request
   whose call or lead ended fails explicitly, including after restart. Stop,
@@ -3381,7 +3427,7 @@ narrator leaves the written result available without a new spoken pointer.
 - **Proof:** `tests/call_threads/new_teammate.rs`
   `the_leads_card_makes_the_teammate_only_on_yes_with_the_rooms_defaults`
   drives one card, decline, approve, a repeated approval and a
-  `message_teammate` to the new teammate through both real drivers and the
+  `send` to the new teammate through both real drivers and the
   wire, and checks the record against the pane's own defaults.
   `a_teammate_that_does_not_lead_has_no_add_teammate` proves a non-lead's
   ledger lacks it, its call raises no card, and a lead demoted mid-session is
@@ -3394,7 +3440,7 @@ narrator leaves the written result available without a new spoken pointer.
   sensitive directory; the card shows the path, as the pane's own folder
   field would. The new teammate is a fresh session with its own lease and
   nothing beyond the defaults; the lead gains no reach over it beyond
-  `message_teammate`, which is checked as for any colleague.
+  `send`, which is checked as for any colleague.
 
 ## Credential capture in the chat (task-266)
 

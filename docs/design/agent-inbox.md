@@ -301,6 +301,13 @@ changes, like the index. The window reads the receipts over the wire.
 - **First contact.** `send` checks `authorize_collaboration` as an ask or an
   aside was checked, and for an item that wants work as a handoff was
   (informed consent). An item the card has yet to allow is held, as above.
+  The card is asked of what the sender says it wants: a receiver may take an
+  item that wanted an answer into work, and the card that let it in stands
+  for that work.
+- **Whole-machine reach.** These guards bind what a teammate asks through
+  Hotline's tools. A whole-machine teammate, or a harness with its own
+  shell, can change the desk's records on disk, and is trusted as the
+  person is (`docs/security.md`, Accepted risks).
 - **The brake.** Every item and every reply counts on the two teammates'
   `EXCHANGE_CAP` (12); at the cap they pause, the person has the card, and
   nothing more is sent or answered between them until the person answers

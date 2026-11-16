@@ -870,7 +870,7 @@ impl Room {
             let works = sorting.sort == Some(Sort::Taken)
                 && sorting.in_thread.unwrap_or(item.wants == InboxWants::Work);
             if let Some(brake) = thread_key(&me.id, &item.from).and_then(|key| self.brake(&key))
-                && (sends || (works && brake == Brake::Stopped))
+                && (sends || (works && brake != Brake::Paused))
             {
                 return Err(brake.refusal(&self.name_of(&item.from), "Nothing was sorted."));
             }
@@ -1275,13 +1275,14 @@ impl Room {
         Ok(new)
     }
 
-    /// The held items' file keys, which the start's sweep of held files
-    /// keeps.
-    pub(super) fn inbox_held_keys(&self) -> Vec<String> {
+    /// The file keys of the items whose files nothing will let in: each one
+    /// let in or closed. The start's sweep of held files lets go of these and
+    /// no others, so an item this build cannot read keeps its files.
+    pub(super) fn inbox_spent_keys(&self) -> Vec<String> {
         crate::room::roster(&self.log)
             .iter()
             .flat_map(|persona| kept::of(&self.log, &persona.id))
-            .filter(|item| item.held && item.state != InboxState::Closed)
+            .filter(|item| !item.held || item.state == InboxState::Closed)
             .map(|item| held_key(&item.id))
             .collect()
     }

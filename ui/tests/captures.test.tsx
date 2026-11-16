@@ -41,8 +41,6 @@ let os: string;
 let ratio: number;
 let onRatio: (() => void)[];
 let restore: () => void;
-/** A mark in every event's id, so no test meets a copy another made: copies are kept by event, across tests. */
-let mark = 0;
 
 beforeEach(async () => {
 	frames = [];
@@ -56,7 +54,6 @@ beforeEach(async () => {
 	ratio = 1;
 	onRatio = [];
 	now = 1_000;
-	mark++;
 	let timerId = 0;
 	/** An image, as far as a copy is kept by one: loaded as soon as it has a source. */
 	class Loaded {
@@ -120,7 +117,12 @@ beforeEach(async () => {
 		URL.revokeObjectURL = revoke;
 	};
 	act = (await import("react")).act;
-	({ ComputerFrame } = await import("../src/components/transcript/ComputerFrame"));
+	const captures = await import("../src/components/transcript/ComputerFrame");
+	ComputerFrame = captures.ComputerFrame;
+	// The window keeps captures for the life of the page, and every test file
+	// shares one page's modules: each test starts with none, not with what
+	// this file or another (long-tape.test.tsx keeps 24) left behind.
+	captures.forgetCaptures();
 	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
 	document.body.append(container);
@@ -136,8 +138,7 @@ afterEach(async () => {
 	await teardown();
 });
 
-const id = (name: string) => `${name}-${mark}`;
-const draw = (...names: string[]) => act(async () => root.render(names.map((name) => <ComputerFrame key={name} eventId={id(name)} dataUrl={png} />)));
+const draw = (...names: string[]) => act(async () => root.render(names.map((name) => <ComputerFrame key={name} eventId={name} dataUrl={png} />)));
 const thumbnails = () => [...container.querySelectorAll(".picture-open img")] as unknown as HTMLImageElement[];
 const thumbnail = () => thumbnails()[0]!;
 /** What a URL is a URL of: the capture as it came, or a copy of it and how big. */

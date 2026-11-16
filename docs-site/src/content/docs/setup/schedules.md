@@ -46,8 +46,9 @@ A schedule you add runs whatever the teammate's **Background work** setting.
 ## Let the teammate schedule itself
 
 Turn on **Background work**, under **Permissions** in the teammate's pane.
-The teammate can then use `schedule`, `loop`, `list_schedules` and
-`cancel_schedule`, and can say "check the build again in 20 minutes" and
+The teammate can then use `schedule`, `loop`, `list_schedules`,
+`cancel_schedule` and `update_schedule` (which turns **Quiet** on or off
+for one of its jobs, as the checkbox does), and can say "check the build again in 20 minutes" and
 mean it. Its jobs show in the same list. Turning **Background work** off
 pauses the jobs it made without deleting them; turning it on wakes them.
 

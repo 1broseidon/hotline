@@ -83,6 +83,7 @@ async fn a_jobs_thread_posts_where_a_run_may_not() {
     for tool in [
         "schedule",
         "loop",
+        "update_schedule",
         "new_chapter",
         "resume_chapter",
         "react",

@@ -167,6 +167,20 @@ folds are `room::roster`, `room::settings` and `room::schedules` in
 the field a fold discriminates on and the one a reader of the raw file
 looks for first.
 
+A build leaves alone what a newer build wrote, since the update tracks let
+a person open a newer build's data with an older one and go back. An
+`exchange_pair` record is rewritten with the fields this build does not
+know kept as they were, on the pair and on each request in it, and a
+request this build cannot read, or that carries such a field, is written
+back whole in its place and never moved (`session/exchanges/newer.rs`).
+The fields an older build wrote that this one no longer reads
+(`continues`, `crossing`) are not such fields: a request with only those
+is read, moved and written back without them. A pair record this build
+cannot read at all is never replaced, and nothing passes between its two
+teammates here: an item between them, the person's Stop of them, and a
+taken item's work are refused, saying a newer Hotline saved their
+messages.
+
 A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
 (Hotline Agent), `chapterIdleHours` is `8`, `linkPreviews` is `true`, and
 `mcpServers` is an empty list.

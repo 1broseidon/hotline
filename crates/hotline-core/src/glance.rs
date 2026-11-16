@@ -288,6 +288,15 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         ),
     ),
     (
+        "update_schedule",
+        label(
+            "schedule",
+            "Changed a schedule",
+            "Changed schedules",
+            "Changing a schedule",
+        ),
+    ),
+    (
         "computer_status",
         label(
             "computer",

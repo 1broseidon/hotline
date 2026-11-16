@@ -65,6 +65,8 @@ pub(in crate::session) enum Brake {
     Paused,
     /// The person's Stop, until the person next writes to one of the two.
     Stopped,
+    /// Their record is a newer Hotline's, which this one cannot count on.
+    Newer,
 }
 
 impl Brake {
@@ -78,16 +80,19 @@ impl Brake {
             Self::Stopped => format!(
                 "The person stopped the exchange between you and {other}: nothing passes between you until the person writes to one of you. {nothing}"
             ),
+            Self::Newer => format!("{NEWER_PAIR} {nothing}"),
         }
     }
 }
 
 impl Room {
     /// Whether two teammates are at their brake, and which: paused until the
-    /// person answers its card, or stopped until the person next writes to
-    /// one of them.
+    /// person answers its card, stopped until the person next writes to one
+    /// of them, or kept by a newer Hotline in a record this one cannot read.
     pub(in crate::session) fn brake(&self, key: &str) -> Option<Brake> {
-        let pair = self.exchange_pair(key)?;
+        let Some(pair) = self.exchange_pair(key) else {
+            return self.newer_pair(key).then_some(Brake::Newer);
+        };
         if pair.paused {
             Some(Brake::Paused)
         } else if pair.stopped {
@@ -101,15 +106,13 @@ impl Room {
     /// and pauses them at the cap.
     pub(in crate::session) fn count_wake(&self, key: &str, by: &str, to: &str) {
         let _guard = lock(&self.exchange_lock);
-        let mut pair = self.exchange_pair(key).unwrap_or(Pair {
-            id: key.to_string(),
-            a: by.to_string(),
-            b: to.to_string(),
-            exchanges: 0,
-            paused: false,
-            stopped: false,
-            requests: vec![],
-        });
+        let mut pair = match self.pair_or_new(key, by, to) {
+            Ok(pair) => pair,
+            Err(error) => {
+                eprintln!("count a nudge's wake: {error}");
+                return;
+            }
+        };
         if pair.paused {
             return;
         }

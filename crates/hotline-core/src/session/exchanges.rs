@@ -20,6 +20,7 @@ use crate::paths::thread_key;
 use crate::thread::Opener;
 pub(super) use asides::Brake;
 use asides::{answer_of, last_message, said_last};
+use newer::Newer;
 use questions::Route;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -30,6 +31,9 @@ pub(crate) const EXCHANGE_CAP: i64 = 12;
 /// What an ask from before the inbox, still open when this version starts,
 /// comes back to its sender as.
 const ASKED_BEFORE_THE_INBOX: &str = "Hotline now takes teammates' messages through the inbox, and this ask from before it was never answered. Send it again with `send` if you still need it.";
+/// Why nothing more passes between two teammates whose pair record a newer
+/// Hotline wrote in a shape this one cannot read.
+const NEWER_PAIR: &str = "These two teammates' messages were saved by a newer version of Hotline than this one, which cannot add to them.";
 /// What a request is. Every request made now is a `Handoff`: work a
 /// receiver took from its inbox. An `Ask` is a question from before the
 /// inbox, read so its record loads, and ended when this version starts
@@ -314,6 +318,12 @@ struct Record {
     answering: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     items: Vec<String>,
+    /// Every field this build does not know. Besides the few an older
+    /// Hotline wrote, only a newer one writes one, and a request that has
+    /// one is that build's ([`Pair`]); a request this build moves never has
+    /// any.
+    #[serde(flatten)]
+    newer: serde_json::Map<String, serde_json::Value>,
 }
 impl From<Record> for Request {
     fn from(r: Record) -> Self {
@@ -416,17 +426,13 @@ impl From<Request> for Record {
             sending,
             answering: stop.is_some_and(|s| s.answering),
             items: r.items,
+            newer: serde_json::Map::new(),
         }
     }
 }
 impl serde::Serialize for Request {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         Record::from(self.clone()).serialize(serializer)
-    }
-}
-impl<'de> serde::Deserialize<'de> for Request {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Record::deserialize(deserializer).map(Request::from)
     }
 }
 impl Request {
@@ -657,7 +663,7 @@ struct HumanGate {
     id: String,
     consumed: bool,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Pair {
     id: String,
     a: String,
@@ -665,11 +671,25 @@ struct Pair {
     exchanges: i64,
     paused: bool,
     /// The person's Stop exchange: nothing passes between the two until the
-    /// person next writes to one of them. Left out while false, so a record
-    /// from before it reads as not stopped.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// person next writes to one of them.
     stopped: bool,
     requests: Vec<Request>,
+    /// What a newer Hotline wrote here that this build does not read.
+    newer: Newer,
+}
+impl Pair {
+    fn new(id: &str, a: &str, b: &str) -> Pair {
+        Pair {
+            id: id.to_string(),
+            a: a.to_string(),
+            b: b.to_string(),
+            exchanges: 0,
+            paused: false,
+            stopped: false,
+            requests: Vec::new(),
+            newer: Newer::default(),
+        }
+    }
 }
 /// What a request's turn came to, for the thread it ran in.
 pub(super) enum Finished {
@@ -753,6 +773,27 @@ impl Room {
     fn exchange_pair(&self, key: &str) -> Option<Pair> {
         self.exchange_pairs().into_iter().find(|p| p.id == key)
     }
+    /// The pair `key`'s record, or a new one between `a` and `b` when there
+    /// is none. A record this build cannot read at all is a newer Hotline's,
+    /// and a new one would replace it: the two cannot be added to here.
+    fn pair_or_new(&self, key: &str, a: &str, b: &str) -> Result<Pair, String> {
+        if let Some(pair) = self.exchange_pair(key) {
+            return Ok(pair);
+        }
+        if self.newer_pair(key) {
+            return Err(NEWER_PAIR.into());
+        }
+        Ok(Pair::new(key, a, b))
+    }
+    /// Whether the room stream keeps a record of the pair `key`, asked once
+    /// [`Room::exchange_pair`] has read none: one there is a newer Hotline's,
+    /// which this build cannot read.
+    fn newer_pair(&self, key: &str) -> bool {
+        self.log
+            .load(&StreamId::Room)
+            .iter()
+            .any(|v| v["kind"] == "exchange_pair" && v["id"] == key)
+    }
     /// The pairs this teammate is in with a request being answered now, by
     /// key: what `thread.list` reads as a live pair, for the roster row.
     pub fn working_pairs(&self, persona_id: &str) -> Vec<String> {
@@ -790,15 +831,7 @@ impl Room {
         let mut pair = match self.exchange_pair(&key) {
             Some(pair) => pair,
             // A stop with nothing counted yet still stops the two.
-            None if stop => Pair {
-                id: key.clone(),
-                a: a.to_string(),
-                b: b.to_string(),
-                exchanges: 0,
-                paused: false,
-                stopped: false,
-                requests: vec![],
-            },
+            None if stop => self.pair_or_new(&key, a, b)?,
             None => return Err("There is no exchange for this pair".into()),
         };
         let mut ended = Vec::new();
@@ -1433,15 +1466,15 @@ impl Room {
                 }
             }
         }
-        let mut carried: Vec<String> = self
+        let mut spent: Vec<String> = self
             .exchange_pairs()
             .into_iter()
             .flat_map(|pair| pair.requests)
-            .filter(|r| !r.files.is_empty() && !matches!(r.phase(), Phase::Done | Phase::Stopped))
+            .filter(|r| r.files.is_empty() || matches!(r.phase(), Phase::Done | Phase::Stopped))
             .map(|r| r.id)
             .collect();
-        carried.extend(self.inbox_held_keys());
-        self.sweep_held(&carried);
+        spent.extend(self.inbox_spent_keys());
+        self.sweep_held(&spent);
     }
     pub(super) fn recover_queued_exchanges(self: &Arc<Self>) {
         for pair in self.exchange_pairs() {
@@ -1793,6 +1826,7 @@ mod gates;
 mod handover;
 mod inbox;
 mod loop_in;
+mod newer;
 mod place;
 mod questions;
 mod revoked;

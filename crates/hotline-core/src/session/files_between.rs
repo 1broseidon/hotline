@@ -204,16 +204,17 @@ impl Room {
         let _ = std::fs::remove_dir_all(held_dir(self.log.root(), id));
     }
 
-    /// Lets go of every held file no queued or running request still
-    /// carries: a message stopped before it was let in, or a send cut off
-    /// between reading its files and queueing it. Run as the desk starts.
-    pub(super) fn sweep_held(&self, carried: &[String]) {
+    /// Lets go of the files held under each key in `spent`: a request's or
+    /// an inbox item's that nothing will let in any more. Any other folder
+    /// here is left as found, since a newer Hotline's is one this build
+    /// cannot tell is spent. Run as the desk starts.
+    pub(super) fn sweep_held(&self, spent: &[String]) {
         let Ok(entries) = std::fs::read_dir(self.log.root().join(HELD)) else {
             return;
         };
         for entry in entries.flatten() {
-            let id = entry.file_name().to_string_lossy().into_owned();
-            if !carried.contains(&id) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if spent.contains(&name) {
                 let _ = std::fs::remove_dir_all(entry.path());
             }
         }

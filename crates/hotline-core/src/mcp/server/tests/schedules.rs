@@ -245,3 +245,184 @@ async fn list_schedules_says_a_loops_skipped_run() {
         format!("{}, over 2 hours late", due.format("%a %-d %b %Y, %H:%M"))
     );
 }
+
+/// A job of the teammate's as the clock keeps it, written to the room
+/// stream the way the `loop` tool would have written it.
+fn agent_loop(id: &str, next_at: i64) -> ScheduledJob {
+    ScheduledJob {
+        id: id.to_string(),
+        persona_id: "ada".to_string(),
+        kind: ScheduleKind::Loop,
+        when: None,
+        every: Some(3_600_000),
+        calendar: None,
+        prompt: "sweep the inbox".to_string(),
+        quiet: None,
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
+        without: None,
+        operator_created: false,
+        next_at,
+        created_at: 1,
+        last_post: None,
+        ended_at: None,
+        final_firing: None,
+        skipped: None,
+    }
+}
+
+/// `update_schedule` is the desk's Quiet checkbox from the teammate's side:
+/// the same room call, so what the desk lists (`schedule.list` is
+/// `schedule_list`) and its row's view (`entry`) say it at once, on a job
+/// the person added for this teammate as on one it made itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn update_schedule_turns_quiet_on_and_off_as_the_desk_does() {
+    let room = room_with_a_conversation("update-quiet");
+    let added = room
+        .schedule_create(
+            "ada",
+            Brief::job(
+                ScheduleKind::Loop,
+                None,
+                Some(3_600_000),
+                None,
+                None,
+                "check the crane",
+                false,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap();
+    let answered = through_rig(
+        &tools(&room),
+        UPDATE_SCHEDULE,
+        json!({ "id": added.id, "quiet": true }),
+    )
+    .await;
+    assert_eq!(
+        serde_json::from_str::<Value>(&answered).unwrap(),
+        json!({ "id": added.id, "quiet": true })
+    );
+    let job = room.schedule_list().remove(0);
+    assert_eq!(job.quiet, Some(true));
+    assert_eq!(crate::session::schedule::entry(job).quiet, Some(true));
+
+    through_rig(
+        &tools(&room),
+        UPDATE_SCHEDULE,
+        json!({ "id": added.id, "quiet": false }),
+    )
+    .await;
+    assert_eq!(room.schedule_list()[0].quiet, None);
+    let listed = through_rig(&tools(&room), LIST_SCHEDULES, json!({})).await;
+    assert_eq!(
+        serde_json::from_str::<Value>(&listed).unwrap()["jobs"][0]["quiet"],
+        false
+    );
+}
+
+/// A teammate changes only its own jobs, refused in `cancel_schedule`'s
+/// words, and a call missing what it needs says what that is.
+#[tokio::test(flavor = "multi_thread")]
+async fn update_schedule_refuses_another_teammates_job() {
+    let room = room_with_two("update-other");
+    let theirs = room
+        .schedule_create(
+            "bob",
+            Brief::job(
+                ScheduleKind::Loop,
+                None,
+                Some(3_600_000),
+                None,
+                None,
+                "bob's sweep",
+                false,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap();
+    let call = |arguments: Value| {
+        let tools = tools(&room);
+        async move { tools.call(UPDATE_SCHEDULE, &arguments).await.unwrap_err() }
+    };
+    assert_eq!(
+        call(json!({ "id": theirs.id, "quiet": true })).await,
+        "That job belongs to another teammate."
+    );
+    assert_eq!(room.schedule_list()[0].quiet, None);
+    assert_eq!(
+        call(json!({ "id": "nope", "quiet": true })).await,
+        "There is no scheduled job nope."
+    );
+    assert_eq!(
+        call(json!({ "quiet": true })).await,
+        "update_schedule needs an `id` from list_schedules."
+    );
+    assert_eq!(
+        call(json!({ "id": theirs.id })).await,
+        "update_schedule needs `quiet`, true or false."
+    );
+}
+
+/// `list_schedules` says what the desk's row says of a job's state: one
+/// the person added is `addedByPerson`, and one of the teammate's own
+/// while Background work is off is `paused`, with no next run, since none
+/// is coming until the grant is back. Absent means false.
+#[tokio::test(flavor = "multi_thread")]
+async fn list_schedules_says_a_paused_job_and_one_the_person_added() {
+    let mut persona = ada();
+    persona.background_work = false;
+    let log = Log::open(scratch("list-paused"));
+    write_persona(&log, persona.clone());
+    let next_at = now_ms() + 3_600_000;
+    crate::room::append_schedule(&log, &agent_loop("own", next_at)).unwrap();
+    let room = Room::new(log.clone(), Arc::new(NoKeys));
+    room.schedule_create(
+        "ada",
+        Brief::job(
+            ScheduleKind::Schedule,
+            Some(now_ms() + 20 * 60_000),
+            None,
+            None,
+            None,
+            "the person's check",
+            false,
+        )
+        .unwrap(),
+        false,
+    )
+    .unwrap();
+
+    let listed = |room: Arc<Room>| async move {
+        let listed = through_rig(&tools(&room), LIST_SCHEDULES, json!({})).await;
+        let body: Value = serde_json::from_str(&listed).unwrap();
+        body["jobs"].as_array().unwrap().clone()
+    };
+    let jobs = listed(room.clone()).await;
+    let own = jobs.iter().find(|job| job["id"] == "own").unwrap();
+    assert_eq!(own["paused"], true, "{own}");
+    assert!(
+        own.get("next").is_none() && own.get("nextAt").is_none(),
+        "{own}"
+    );
+    assert!(own.get("addedByPerson").is_none(), "{own}");
+    let added = jobs.iter().find(|job| job["id"] != "own").unwrap();
+    assert_eq!(added["addedByPerson"], true, "{added}");
+    assert!(added.get("paused").is_none(), "{added}");
+    assert!(
+        added["nextAt"].is_i64() && added["next"].is_string(),
+        "{added}"
+    );
+
+    // With the grant back, the teammate's own job runs again and says when.
+    persona.background_work = true;
+    write_persona(&log, persona);
+    let jobs = listed(room).await;
+    let own = jobs.iter().find(|job| job["id"] == "own").unwrap();
+    assert!(own.get("paused").is_none(), "{own}");
+    assert_eq!(own["nextAt"], next_at);
+}

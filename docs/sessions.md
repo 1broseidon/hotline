@@ -543,7 +543,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `send`, `read_inbox`, `update_inbox`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `send`, `read_inbox`, `update_inbox`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `update_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -1685,7 +1685,10 @@ They land there whatever the recipient's reach, through
 `Workspace::receive_file` on a handle opened on the received folder, under
 the recipient's lease, so no name and no link in it reaches anywhere else.
 Nothing crosses a link. What a held item still holds is kept across a
-restart while its card is asked again.
+restart while its card is asked again. As the desk starts it lets go of
+what it can tell nothing will carry: the folder of an item let in or
+closed, and of a request from before the inbox that ended. A folder there
+it cannot tell is spent, a newer build's, is left as it is.
 
 The recipient reads them through the [extra folders](security.md#extra-folders) it
 already has: every session of its own, its work threads, calls, jobs and
@@ -2512,7 +2515,7 @@ back is the first time they pass it, and one they skip as they go forward is
 the moment they changed (2:30 on a morning that jumps from 2:00 to 3:00 is
 3:00).
 
-A teammate speaks those strings through four tools, the same handler on
+A teammate speaks those strings through five tools, the same handler on
 both kinds of agent — Hotline Agent in-process, an ACP child over Hotline's own
 MCP server:
 
@@ -2520,8 +2523,19 @@ MCP server:
 | --- | --- | --- |
 | `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or a date and time like `2026-11-16T09:00` |
 | `loop` | `at` or `every`, `days?`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that repeats until it ends, which Hotline runs again itself: at `at`, a time of day (`09:00`, 24-hour, the desk's clock), on `days` (`daily`, the default, `weekdays`, or the days, `mon,wed,fri` or a list), or on an interval, `every` (`15s`, `5m`, `1h`, `1d`). Exactly one of `at` and `every`; `days` only with `at` |
-| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`, and a loop's latest run skipped for being over two hours late as `skipped`, the time it was due and why, until the loop next runs; a supplied `target` is refused |
+| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`, and `nextAt`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`, and a loop's latest run skipped for being over two hours late as `skipped`, the time it was due and why, until the loop next runs. As the desk's row does, it marks a job the person added (`addedByPerson`) and one of the caller's own waiting for Background work (`paused`), which has no `next` or `nextAt`, since no run is coming until the grant is back. A mark that does not apply is left out. A supplied `target` is refused |
 | `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |
+| `update_schedule` | `id`, `quiet` | turn Quiet on or off for one of the caller's jobs, through the call the desk's checkbox makes (`schedule.set_quiet`); another teammate's is refused as `cancel_schedule` refuses it. A job's own thread is not given it: going quiet or loud is asked for in the main conversation |
+
+What the desk and these tools can do with a job is kept the same where both
+have it: once at a time, on chosen days at a time and every interval, each
+created with the same bounds and read by the same functions; Quiet set on
+creation and changed later; cancelling; the next run, a skipped run, a
+paused job and who added it, seen on the desk's row and in
+`list_schedules`. Only the tools give a loop its end (`until`, `times`,
+`goal`), make a plain reminder or leave abilities out (`without`, which
+the desk takes no part in by design); neither changes a job's timing once
+it is made, which is cancelling it and adding another.
 
 The pane labels a job from its prompt; the tools take no name. A string
 neither parser accepts is refused as that string, not as milliseconds.

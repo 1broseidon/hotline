@@ -451,6 +451,11 @@ newer final release*. A desk on Stable is never offered a pre-release even
 if one were served at Stable's address, and Beta takes `beta.N` and no other
 pre-release (`updater::newer`).
 
+Because a desk can open a newer build's data with an older build, a build
+leaves alone what a newer build wrote: records it rewrites keep the fields
+it does not know, and the files it sweeps at start are only its own
+([log.md](log.md#the-room-stream)).
+
 The first beta of all has to be installed by hand, from its release page:
 a build from before tracks has no Track row and reads only Stable's address.
 From that build on, betas arrive in the app.

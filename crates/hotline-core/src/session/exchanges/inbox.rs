@@ -56,15 +56,7 @@ impl Room {
             .join("\n\n---\n\n");
         {
             let _guard = lock(&self.exchange_lock);
-            let mut pair = self.exchange_pair(&key).unwrap_or(Pair {
-                id: key.clone(),
-                a: taken.from.clone(),
-                b: receiver.id.clone(),
-                exchanges: 0,
-                paused: false,
-                stopped: false,
-                requests: vec![],
-            });
+            let mut pair = self.pair_or_new(&key, &taken.from, &receiver.id)?;
             pair.requests.push(Request {
                 id: id.clone(),
                 from: taken.from.clone(),

@@ -3,6 +3,7 @@ mod files;
 mod handed_over;
 mod lasting;
 mod loop_in;
+mod newer;
 mod pause;
 mod stops;
 mod threads;
@@ -18,6 +19,14 @@ fn setup(name: &str) -> (Arc<Room>, Arc<Fake>) {
     let log = scratch(name);
     enrol(&log, &persona("ada"));
     enrol(&log, &persona("bob"));
+    let agents = answering();
+    (
+        Room::with_agents(log, Arc::new(DeskKeys), agents.clone()),
+        agents,
+    )
+}
+/// Agents whose every turn answers `result-<n>`, the nth turn they take.
+fn answering() -> Arc<Fake> {
     let turns = (0..50)
         .map(|i| {
             vec![
@@ -33,11 +42,7 @@ fn setup(name: &str) -> (Arc<Room>, Arc<Fake>) {
             ]
         })
         .collect();
-    let agents = Fake::new(Scripted::turns(turns));
-    (
-        Room::with_agents(log, Arc::new(DeskKeys), agents.clone()),
-        agents,
-    )
+    Fake::new(Scripted::turns(turns))
 }
 /// Ada sends Bob an item that wants work, and Bob takes it into a work
 /// thread at once: answers the request the work runs as. Every request is
@@ -167,6 +172,7 @@ fn seed(room: &Room, request: Request, count: i64, paused: bool) {
         paused,
         stopped: false,
         requests: vec![request],
+        newer: Newer::default(),
     })
     .unwrap();
 }
@@ -421,6 +427,7 @@ async fn a_revoke_tells_the_sender_once_by_name_however_many_it_stopped() {
         paused: false,
         stopped: false,
         requests,
+        newer: Newer::default(),
     })
     .unwrap();
     room.invalidate("bob").unwrap();
@@ -1057,9 +1064,10 @@ fn a_request_saved_before_work_threads_still_loads_and_has_none() {
     let old = json!({
         "id": "r1", "from": "ada", "to": "bob", "message": "m",
         "intent": "handoff", "phase": "running", "reply": "", "failed": false,
-        "started": true, "humanActions": []
+        "started": true, "human_actions": []
     });
-    let request: Request = serde_json::from_value(old).expect("an old request loads");
+    let request =
+        Request::from(serde_json::from_value::<Record>(old).expect("an old request loads"));
     assert_eq!(request.thread, None);
     assert_eq!(request.reply_thread, None);
 }

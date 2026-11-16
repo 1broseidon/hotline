@@ -1444,7 +1444,8 @@ Teammates reach each other one way: an item in the colleague's inbox
 (`session/inbox.rs`; the design, its rules, states and contract, is
 [agent-inbox.md](design/agent-inbox.md)). `send` is the only tool that
 reaches a colleague; `read_inbox` and `update_inbox` read and sort the
-teammate's own. `message_teammate` and a colleague's `aside` are gone.
+teammate's own. `message_teammate` and a colleague's `aside` are gone: a
+call to either is answered with one line saying to use `send`.
 
 **Sending.** `send` names one teammate, several or `team`, a `title` (kept
 as one plain line, `fence::one_line`, of at most 80 characters), the `message`, what it `wants` back (`answer`, `work`, `nothing`)
@@ -1528,7 +1529,9 @@ Hotline's notice (`notice: expired`, `replyTo` the item, `wants: nothing`,
 from the receiver, shown to teammates as from Hotline, the desk's words with
 the receiver's last reason for later), which lands as any item and so wakes
 an idle sender quietly; the receiver is not woken. An expired notice sends
-no notice. Only the clock sets the mark or the outcome: `update_inbox`
+no notice. The other notice is `unanswered`, an ask from before the inbox
+that this version ended (Ask or hand off, Saved before the inbox). Only the
+desk sets the mark, and only the clock the outcome: `update_inbox`
 refuses `expired` and will not answer a notice or take it into a thread, and
 `send` and answers build items with no mark. Notices count on no brake and
 are not among the receiver's sent items (`store::inbox::sent_by`).
@@ -1922,9 +1925,20 @@ that answers the one taken, heard in the work thread the sender was in while
 that is live, else its DM. A receiver whose three work threads are all
 mid-turn holds the request queued until one is free. Nothing continues an
 earlier work thread by name: a follow-up is another item, which the receiver
-may combine or take where it likes. An ask saved before the inbox and still
-open when this version starts is ended as unanswered, its sender told in its
-inbox to send it again. Neither expands the recipient's permissions.
+may combine or take where it likes. Neither expands the recipient's
+permissions.
+
+**Saved before the inbox.** A desk updated from 0.49 may hold requests that
+were in flight. An ask still open when this version starts is ended, and its
+sender is told so by Hotline's notice in its inbox (`notice: unanswered`,
+from the colleague it was asked of but shown as Hotline's, "This is
+Hotline's notice, not Bob's words", saying to send it again with `send`),
+never in the colleague's voice. A handoff runs on as it did: one that
+continues an earlier handoff's thread (`continues`) is handed into that
+thread (`Pair::place`), and what it comes to, like an ask's answer saved
+before the update and not yet delivered, comes back as it did in 0.49
+(`Room::deliver_reply`): a turn of the job, the work thread or the main
+conversation that sent it, which the person reads, never a quiet item.
 
 **The person in a handed-over thread.** The person talks in a thread a
 colleague handed over as in any work thread, and continues it once it has

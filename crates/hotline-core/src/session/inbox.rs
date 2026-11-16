@@ -28,8 +28,8 @@
 use super::exchanges::Brake;
 use super::{Room, lock, new_id, now_ms};
 use crate::contract::{
-    InboxItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxState, InboxWants, Persona,
-    ThreadId, ThreadKind, TranscriptEvent,
+    InboxItem, InboxNotice, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxState, InboxWants,
+    Persona, ThreadId, ThreadKind, TranscriptEvent,
 };
 use crate::driver::CapabilityLease;
 use crate::log::StreamId;
@@ -1343,28 +1343,46 @@ impl Room {
         Ok(reply)
     }
 
-    /// What a request from before the inbox came to, for its sender's
-    /// inbox: a reply that answers no item.
-    pub(super) fn reply_without_item(
+    /// Hotline's notice to a teammate whose question to `colleague`, asked
+    /// before the inbox, this version ended unanswered: an item in its inbox
+    /// marked as the desk's (`notice: unanswered`), from the colleague it is
+    /// about, heard in `about` (the work thread it was asked from) while that
+    /// is live. It is no teammate's message, so it counts on no brake. A
+    /// teammate that is gone has nobody to tell.
+    pub(super) fn notify_unanswered(
         self: &Arc<Self>,
-        from: &Persona,
-        said_in: &ThreadId,
-        to: &str,
-        title: &str,
-        body: String,
+        asker: &str,
+        colleague: &str,
+        question: &str,
+        about: Option<ThreadId>,
     ) -> Result<(), String> {
-        let mut reply = item(
-            from,
-            said_in,
-            to,
-            title_of(title)?,
+        let Ok(asker) = self.persona(asker) else {
+            return Ok(());
+        };
+        let name = self.name_of(colleague);
+        let asked = super::peers::about(question);
+        // The question is the asker's own words inside Hotline's: quoted, so
+        // it cannot end its quote and speak as the notice.
+        let body = format!(
+            "This is Hotline's notice, not {name}'s words. Hotline was updated, and teammates now reach each other through the inbox. Your question to {name} from before the update, {}, was never answered, and Hotline ended it. Send it again with `send` if you still need it. Tell the person only if it is theirs to know.",
+            crate::fence::quoted(&asked)
+        );
+        let mut notice = item(
+            &asker,
+            &ThreadId::dm(colleague),
+            &asker.id,
+            title_of(&format!("Unanswered: {asked}"))?,
             body,
             InboxWants::Nothing,
         );
-        moved(&mut reply, InboxState::New, None, None, None);
-        reply.sender_told = 1;
-        self.keep_item(&reply)?;
-        self.arrived(&reply);
+        // From the colleague it is about, who may have gone since.
+        colleague.clone_into(&mut notice.from);
+        notice.notice = Some(InboxNotice::Unanswered);
+        notice.about = about;
+        moved(&mut notice, InboxState::New, None, None, None);
+        notice.sender_told = 1;
+        self.keep_item(&notice)?;
+        self.arrived(&notice);
         Ok(())
     }
 

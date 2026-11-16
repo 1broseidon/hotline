@@ -1717,9 +1717,10 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   or with an outcome this build does not know is listed as written and never
   moved, expired or swept ([log.md](log.md#the-room-stream)). An exchange
   request saved before the inbox still loads: an ask still open when this
-  version starts is ended as unanswered and its sender told in its inbox to
-  send it again; a handoff runs as any work taken from the inbox,
-  its result an item that answers no item. No standing sender grant is the
+  version starts is ended, and its sender told by Hotline's notice in its
+  inbox, never in the colleague's voice, to send it again; a handoff runs as
+  it did, a follow-up in the thread it continues, and its result comes back
+  as a turn of the thread that sent it, as in 0.49. No standing sender grant is the
   default, and missing informed-consent records on legacy grants still do not
   let work through.
 - **Grant source:** none between equals or down in access; up in access,

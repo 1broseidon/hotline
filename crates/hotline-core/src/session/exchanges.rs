@@ -21,6 +21,7 @@ use crate::thread::Opener;
 pub(super) use asides::Brake;
 use asides::{answer_of, last_message, said_last};
 use newer::Newer;
+use place::Place;
 use questions::Route;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -232,6 +233,9 @@ struct Request {
     /// answer comes back there while the job lives.
     reply_job: Option<String>,
     lead_call: Option<ThreadId>,
+    /// For a handoff from before the inbox: the earlier handoff, by its id,
+    /// whose work thread it continues ([`Pair::place`]).
+    continues: Option<String>,
     /// For a handoff: it no longer stands, whatever its phase. Stop
     /// exchange, a revocation or the end of the link released it, and its
     /// thread's link says so (`handoffEnded`). Read as [`Request::stands`].
@@ -296,6 +300,8 @@ struct Record {
     returned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     lead_call: Option<ThreadId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    continues: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     released: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -368,6 +374,7 @@ impl From<Record> for Request {
             reply_thread: r.reply_thread,
             reply_job: r.reply_job,
             lead_call: r.lead_call,
+            continues: r.continues,
             released: r.released,
             about: r.about,
             own_thread: r.own_thread,
@@ -416,6 +423,7 @@ impl From<Request> for Record {
             reply_job: r.reply_job,
             returned: stop.is_some_and(|s| s.owed != Owed::Desk),
             lead_call: r.lead_call,
+            continues: r.continues,
             released: r.released,
             about: r.about,
             own_thread: r.own_thread,
@@ -496,6 +504,18 @@ impl Request {
                 ..
             })
         )
+    }
+    /// Whether this is an ask from before the inbox that this version ended
+    /// unanswered ([`ASKED_BEFORE_THE_INBOX`]): its sender hears so from
+    /// Hotline, never in its colleague's voice.
+    fn ended_unanswered(&self) -> bool {
+        self.intent == Intent::Ask && self.failed() && self.reply == ASKED_BEFORE_THE_INBOX
+    }
+    /// Whether what came of it goes to its sender's inbox: the work taken
+    /// from an item, and an ask this version ended. What came of a request
+    /// from before the inbox reaches its sender as it did then.
+    fn answered_in_inbox(&self) -> bool {
+        !self.items.is_empty() || self.ended_unanswered()
     }
     /// Whether a handoff still stands: not released, not stopped. The one
     /// place that says so.
@@ -1597,10 +1617,18 @@ impl Room {
             // One being taken up is its task's until it has been handed over.
             Phase::Queued if lock(&self.exchange_admitting).contains(&request.id) => {}
             Phase::Queued => {
-                // A handoff works in a thread: its own, or the one it was
-                // handed to before a restart.
+                // A handoff works in a thread: its own, the one it was handed
+                // to before a restart, or the one it continues.
                 let in_thread = request.intent == Intent::Handoff || request.thread.is_some();
-                let thread = request.thread.clone();
+                let thread = if in_thread {
+                    match pair.place(&request) {
+                        Place::New => None,
+                        Place::In(thread) => Some(thread),
+                        Place::Later => return Ok(()),
+                    }
+                } else {
+                    None
+                };
                 // What works in a thread waits its turn for a place on its
                 // recipient: a teammate that has as many threads live as it
                 // may, every one of them mid-turn, takes it up when one has
@@ -1733,8 +1761,13 @@ impl Room {
                             (Phase::Reply | Phase::Stopped, true) => {
                                 r.advance(Event::Delivered).and_then(|()| {
                                     // In its sender's inbox it is theirs: there
-                                    // is nothing left to stop.
-                                    if r.phase() == Phase::Done && !linked::is_linked(&r.from) {
+                                    // is nothing left to stop. One delivered
+                                    // as before the inbox is heard by the
+                                    // turn that takes it up.
+                                    if r.phase() == Phase::Done
+                                        && !linked::is_linked(&r.from)
+                                        && r.answered_in_inbox()
+                                    {
                                         r.advance(Event::Heard)
                                     } else {
                                         Ok(())
@@ -1769,13 +1802,13 @@ impl Room {
     }
     /// Hands a request's reply to its sender, and says whether it reached
     /// them: a linked desk down does not, and is tried again. On this desk
-    /// it is an item in the sender's inbox that answers the one taken
-    /// (`exchanges/inbox.rs`).
-    async fn deliver_reply(
-        self: &Arc<Self>,
-        _key: &str,
-        request: &Request,
-    ) -> Result<bool, String> {
+    /// the result of work taken from an item is an item in the sender's
+    /// inbox that answers the one taken (`exchanges/inbox.rs`), and an ask
+    /// this version ended is Hotline's notice there. What came of a request
+    /// from before the inbox, a handoff's result or an ask's answer, comes
+    /// back as it did then: a turn of the job, the work thread or the main
+    /// conversation that sent it, which the person reads.
+    async fn deliver_reply(self: &Arc<Self>, key: &str, request: &Request) -> Result<bool, String> {
         if linked::is_linked(&request.from) {
             // Answering a linked teammate: the answer goes back over
             // the link, and waits saved while the link is down.
@@ -1789,7 +1822,31 @@ impl Room {
                 )
                 .await);
         }
-        self.reply_into_inbox(request)?;
+        if !request.items.is_empty() {
+            self.reply_into_inbox(request)?;
+            return Ok(true);
+        }
+        if request.ended_unanswered() {
+            let about = request
+                .reply_thread
+                .as_deref()
+                .map(|thread| self.work_thread(thread));
+            self.notify_unanswered(&request.from, &request.to, &request.message, about)?;
+            return Ok(true);
+        }
+        let (id, cause, from, text) = self.answer_delivery(key, request)?;
+        match self.route_of(request) {
+            Route::Job(job) => self.deliver_into_job(&job, &id, cause, from, text, None)?,
+            Route::Work(thread) => {
+                let carried = self.carried_on(request);
+                self.deliver_into_work(&thread, &id, cause, from, text, carried)
+                    .await?;
+            }
+            Route::Dm => {
+                self.deliver_identified(&request.from, &id, cause, text)
+                    .await?;
+            }
+        }
         Ok(true)
     }
     pub(super) fn set_exchange_reply(

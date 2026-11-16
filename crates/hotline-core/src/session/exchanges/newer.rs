@@ -19,11 +19,10 @@ pub(super) struct Newer {
     requests: Vec<(usize, serde_json::Value)>,
 }
 /// Fields an older Hotline wrote on a request that this build no longer
-/// reads: the thread a message continued and the asides crossing a link
-/// with it, both from before the inbox. A request with only these besides
-/// its own is an older build's, which this one reads and moves, and they are
-/// not written back.
-const OLDER: [&str; 2] = ["continues", "crossing"];
+/// reads: the asides crossing a link with it, from before the inbox. A
+/// request with only these besides its own is an older build's, which this
+/// one reads and moves, and they are not written back.
+const OLDER: [&str; 1] = ["crossing"];
 /// A pair as the room stream keeps it.
 #[derive(Serialize, Deserialize)]
 struct PairRecord {

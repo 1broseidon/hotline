@@ -1259,8 +1259,10 @@ export type InboxItemDetail = { item: InboxItem, replies: Array<InboxItem>, };
  * What Hotline's own notice in a teammate's inbox is about: never a
  * teammate's words, and never set by a teammate's tool. `expired`: an item
  * the teammate sent was closed as expired in its receiver's inbox.
+ * `unanswered`: a question the teammate asked a colleague before the inbox
+ * was ended unanswered when Hotline was updated.
  */
-export type InboxNotice = "expired";
+export type InboxNotice = "expired" | "unanswered";
 
 /**
  * How a closed item ended: `answered` (a reply went back with

@@ -124,11 +124,14 @@ impl InboxOutcome {
 /// What Hotline's own notice in a teammate's inbox is about: never a
 /// teammate's words, and never set by a teammate's tool. `expired`: an item
 /// the teammate sent was closed as expired in its receiver's inbox.
+/// `unanswered`: a question the teammate asked a colleague before the inbox
+/// was ended unanswered when Hotline was updated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum InboxNotice {
     Expired,
+    Unanswered,
 }
 
 /// One change of an item's state, when it happened, and why.

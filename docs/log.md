@@ -173,9 +173,10 @@ a person open a newer build's data with an older one and go back. An
 know kept as they were, on the pair and on each request in it, and a
 request this build cannot read, or that carries such a field, is written
 back whole in its place and never moved (`session/exchanges/newer.rs`).
-The fields an older build wrote that this one no longer reads
-(`continues`, `crossing`) are not such fields: a request with only those
-is read, moved and written back without them. A pair record this build
+The field an older build wrote that this one no longer reads
+(`crossing`) is not such a field: a request with only that is read, moved
+and written back without it. The handoff a follow-up from before the inbox
+continues (`continues`) is read, and written back as it was. A pair record this build
 cannot read at all is never replaced, and nothing passes between its two
 teammates here: an item between them, the person's Stop of them, and a
 taken item's work are refused, saying a newer Hotline saved their

@@ -74,6 +74,7 @@ impl Room {
                     .then(|| taken.from_thread.key.clone()),
                 reply_job: None,
                 lead_call: None,
+                continues: None,
                 released: false,
                 about: None,
                 own_thread: false,
@@ -105,9 +106,8 @@ impl Room {
     /// What a taken item's work came to goes back to each sender whose item
     /// it carried, as a reply to that sender's first item in it, heard where
     /// it was sent from; the taken item then closes as done, or as dropped
-    /// when the work failed. A request that carried no item, from before the
-    /// inbox, is answered to its sender all the same. A reply already sent
-    /// for an item is not sent again.
+    /// when the work failed. A reply already sent for an item is not sent
+    /// again.
     pub(super) fn reply_into_inbox(self: &Arc<Self>, request: &Request) -> Result<(), String> {
         let worker = self.persona(&request.to)?;
         let thread = request
@@ -128,9 +128,9 @@ impl Room {
                     .find(|item| item.id == *id)
             })
             .collect();
+        // Items this build can no longer read leave nothing to answer.
         let Some(taken) = items.first() else {
-            let title = format!("Result: {}", peers::about(&request.message));
-            return self.reply_without_item(&worker, &thread, &request.from, &title, text);
+            return Ok(());
         };
         let mut told: Vec<&str> = Vec::new();
         for item in &items {

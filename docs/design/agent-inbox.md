@@ -21,7 +21,8 @@ These are George's, and the prototype's acceptance criteria.
 
 1. **There is one way to reach a teammate.** An agent never chooses between
    two channels. `send` is the only tool that reaches a colleague;
-   `message_teammate` and `aside` are not offered to any thread.
+   `message_teammate` and `aside` are not offered to any thread, and a
+   call to either is told, in one line, to use `send`.
 2. **The inbox sorts; it does not hide.** An item still wakes an idle
    receiver, a short gather delay after it lands, so a lone message behaves
    as a direct message did. But the receiver sees every unread item together
@@ -363,7 +364,11 @@ changes, like the index. The window reads the receipts over the wire.
   `ask_in_own_thread`, a sender-triggered `dispatch_handoff`, or
   `aside_from`/nudge: those are deleted. An ask from before the inbox that is
   still open when this version starts is ended as unanswered and its sender
-  told, in its inbox, to send it again.
+  told by Hotline's notice in its inbox (`notice: unanswered`), never in the
+  colleague's voice, to send it again. A handoff from before the inbox runs
+  on as it did, a follow-up in the thread it continues, and what it comes to
+  is a turn of the thread that sent it, as in 0.49
+  ([sessions.md](../sessions.md#ask-or-hand-off), Saved before the inbox).
 
 ## What was removed
 
@@ -372,8 +377,8 @@ changes, like the index. The window reads the receipts over the wire.
 conversation, to a work thread of their own, back to a delegator, or into a
 named thread (`exchanges/questions.rs`), and the work thread's brief for a
 question; asks as gates on a handoff (`gate_on_ask`); continuing a handoff in
-a named thread (`continues`, `handoffThreads` in `list_teammates`) and the
-follow-up that steered it; the per-turn note and result nudge a handed-over
+a named thread (`handoffThreads` in `list_teammates`; a follow-up saved
+before the inbox still continues its thread); the per-turn note and result nudge a handed-over
 thread left its opener, and the note of the person's Stop or End thread (the
 item's receipts say it now); lines on the pair's thread; a colleague's aside
 and its crossing to a linked desk; the linked desk's requests, notes and asides
@@ -531,7 +536,8 @@ Types (`crates/hotline-contract/src/inbox.rs`, generated into
 
 - `InboxItem` as above; `InboxReceipt {state, at, reason?, outcome?, into?}`;
   `InboxState` `new | noticed | seen | taken | later | closed`; `InboxOutcome`
-  `answered | done | noted | dropped | combined | expired`; `InboxNotice` `expired`;
+  `answered | done | noted | dropped | combined | expired`; `InboxNotice`
+  `expired | unanswered`;
   `InboxWants` `answer | work | nothing`. `InboxItem.notice?` marks Hotline's
   own notice, `InboxItem.offerAgain?` is when a pick-up offers it next, and
   `InboxItem.forPerson?` marks one sent in a turn the person read.

@@ -28,6 +28,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A scheduled job's run on another agent that never lists or uses
+  Hotline's tools now says so on the job's thread when it ends. One whose
+  agent never connected to them at all also has its next run start a new
+  session. Before, nothing said so. Runs are not held up or started again
+  for this.
+- An agent that stops on its own lets go of Hotline's tools at once,
+  instead of when it is next asked something.
 - A scheduled job's run is told only of the tools it has. Before, it was
   told it could schedule, so a teammate asked for something daily would set
   a one-time job and try to set the next from inside its run, where it

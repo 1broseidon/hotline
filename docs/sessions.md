@@ -2572,6 +2572,35 @@ narrower than its teammate is the teammate's to make (design.md says why).
 Its authority is a child of the teammate's, made
 with the agent and revoked when it is let go of.
 
+**A run without Hotline's tools.** A child is a fresh process with a
+fresh endpoint for each firing, and some harnesses never take the tools on
+it until they are prompted, or at all. Nothing waits for them: a firing's
+line is sent as soon as its agent is up. The endpoint records what the
+child did there (`mcp::server::EndpointUse`: opened an MCP session, listed
+the tools, called one), kept past the child's end, and the driver reports
+it (`Driver::hotline_tools_seen`; Hotline Agent, handed the tools in
+process, has done all of it). When a firing's turn ends and its child never
+listed the tools and never called one, the job's thread gets one `info`
+notice. A child that never connected at all could not have used them: "This
+run's agent never connected to Hotline's tools, so it could not use them.
+Its next run starts a new session.", and the job's next agent opens a new
+session rather than reopening the saved one, which a stale address or a
+reopened session that ignored its servers would need. That new session is
+then the one saved, so it is one fresh start, not a habit. A child that
+connected and went no further gets only what was seen: "This run's agent
+connected to Hotline's tools but never listed or used them." It keeps its
+session, because a harness may hold a list from an earlier run and call a
+tool only when its model needs one, and a new session would not change
+that.
+The firing is not run again: what it did outside could be done twice. A
+child that listed the tools had them whatever its run used, and one that
+called a tool without listing them had them too; neither is said to lack
+them. Nor is a firing the person stopped within ten seconds of its start,
+or a child that came up failed, whose turn says why. The schedule moved on
+when the firing was handed over, as it always does. A child that hangs up
+on its own takes its endpoint with it as the connection ends, which ends
+every MCP session it held there.
+
 **Parked between firings.** Once a firing's turn is over and nothing waits
 behind it, the agent is let go of and the thread's link says `parked`; the
 next firing builds it again, an ACP child reopening its own session from the
@@ -2680,7 +2709,9 @@ honest state is declared: Hotline's own tools as named tools, each granted
 server as one row under that server's name. Those rows are published
 before `session/new` names the endpoint. The one exception is Hotline's own
 endpoint, which promotes its rows to verified the moment the child lists
-tools on it.
+tools on it. A child that opens an MCP session there and does not list the
+tools keeps them declared, with a reason that says it connected, so it
+reads apart from one that never came.
 
 The streams these sessions write are [log.md](log.md). How to run the room
 is [development.md](development.md).

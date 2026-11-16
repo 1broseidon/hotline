@@ -1051,3 +1051,260 @@ async fn a_jobs_run_is_told_only_the_tools_it_has_and_that_it_repeats_by_itself(
         }
     }
 }
+
+const NEVER_CONNECTED: crate::driver::ToolsSeen = crate::driver::ToolsSeen {
+    connected: false,
+    listed: false,
+    called: false,
+};
+
+/// One firing of a loop on an agent that says it did `seen` with Hotline's
+/// tools, run to its end.
+async fn fired_seeing(name: &str, seen: &[crate::driver::ToolsSeen]) -> (Arc<Room>, Arc<Fake>) {
+    let agents = Fake::new(Scripted::new(saying("s", "checked")).seeing(seen));
+    let job = due_job(name, ScheduleKind::Loop, "check the crane", false, 1);
+    let room = room_due(name, agents.clone(), job);
+    turn_ended(&room, name, 1).await;
+    (room, agents)
+}
+
+async fn turn_ended(room: &Room, job_id: &str, turns: usize) {
+    until("the job's turn ends", || {
+        room.log
+            .load(&StreamId::Job(job_id.to_string()))
+            .iter()
+            .filter(|event| event["kind"] == "turn")
+            .count()
+            >= turns
+    })
+    .await;
+}
+
+fn notices(room: &Room, job_id: &str) -> Vec<Value> {
+    room.log
+        .load(&StreamId::Job(job_id.to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] == "notice")
+        .collect()
+}
+
+/// A run whose agent listed Hotline's tools had them, whether or not it
+/// used one; one that called a tool without listing them had them too.
+/// Neither says anything.
+#[tokio::test]
+async fn a_run_whose_agent_listed_or_called_hotlines_tools_says_nothing_of_them() {
+    let listed = crate::driver::ToolsSeen {
+        connected: true,
+        listed: true,
+        called: false,
+    };
+    let (room, _) = fired_seeing("job-listed", &[listed]).await;
+    assert_eq!(notices(&room, "job-listed"), [] as [Value; 0]);
+
+    let called = crate::driver::ToolsSeen {
+        connected: true,
+        listed: false,
+        called: true,
+    };
+    let (room, _) = fired_seeing("job-called", &[called]).await;
+    assert_eq!(notices(&room, "job-called"), [] as [Value; 0]);
+}
+
+/// A run whose agent opened a session on its endpoint and never listed or
+/// called the tools says what was seen, once, quietly, and claims no more:
+/// the harness may hold a list from before and have needed none.
+#[tokio::test]
+async fn a_run_whose_agent_connected_but_never_listed_hotlines_tools_says_so_once() {
+    let connected = crate::driver::ToolsSeen {
+        connected: true,
+        listed: false,
+        called: false,
+    };
+    let (room, agents) = fired_seeing("job-connected", &[connected]).await;
+    let said = notices(&room, "job-connected");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(said[0]["level"], "info");
+    assert_eq!(
+        said[0]["text"],
+        "This run's agent connected to Hotline's tools but never listed or used them."
+    );
+    assert_eq!(
+        lock(&agents.driver.prompts).len(),
+        1,
+        "the firing is not run again"
+    );
+    assert!(crate::room::schedules(&room.log)[0].next_at > now_ms());
+}
+
+/// A run whose agent never came to its endpoint says that instead.
+#[tokio::test]
+async fn a_run_whose_agent_never_connected_to_hotlines_tools_says_so_once() {
+    let (room, agents) = fired_seeing("job-unconnected", &[NEVER_CONNECTED]).await;
+    let said = notices(&room, "job-unconnected");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(
+        said[0]["text"],
+        "This run's agent never connected to Hotline's tools, so it could not use them. Its next run starts a new session."
+    );
+    assert_eq!(
+        lock(&agents.driver.prompts).len(),
+        1,
+        "the firing is not run again"
+    );
+    assert!(crate::room::schedules(&room.log)[0].next_at > now_ms());
+}
+
+/// A firing's line goes to its agent as soon as the agent is up: what it
+/// did with Hotline's tools is asked only once the turn is over.
+#[tokio::test]
+async fn a_firings_line_is_sent_without_waiting_on_hotlines_tools() {
+    let (_, agents) = fired_seeing("job-prompt-first", &[NEVER_CONNECTED]).await;
+    assert_eq!(
+        lock(&agents.driver.prompts_at_seen).first().copied(),
+        Some(1),
+        "the line was sent before the tools were asked about"
+    );
+}
+
+/// A firing the person stopped moments after it began had no time to take
+/// the tools: it is not said to have lacked them.
+#[tokio::test]
+async fn a_firing_stopped_soon_after_it_began_is_not_said_to_lack_hotlines_tools() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::new(saying("s", "checked"))
+            .gated(gate)
+            .on_cancel(vec![Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            }])
+            .seeing(&[NEVER_CONNECTED]),
+    );
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-stopped-soon", ScheduleKind::Loop, "check", false, 1);
+    let room = room_due("job-stopped-soon", agents, job);
+    heard(&prompts, 1).await;
+    room.cancel_job_turn("job-stopped-soon").unwrap();
+    turn_ended(&room, "job-stopped-soon", 1).await;
+    until("the stop is said", || {
+        !notices(&room, "job-stopped-soon").is_empty()
+    })
+    .await;
+    let said: Vec<Value> = notices(&room, "job-stopped-soon")
+        .into_iter()
+        .map(|notice| notice["text"].clone())
+        .collect();
+    assert_eq!(
+        said,
+        [json!(
+            "Stopped. The job keeps its schedule and runs again at its next time."
+        )]
+    );
+}
+
+/// The sessions each agent of a job was opened on: one firing whose agent
+/// did `seen` with Hotline's tools, then two lines the person says in the
+/// thread, each to an agent built afresh. The thread's saved session at the
+/// start is `saved-session`; each child reopens what it is handed and calls
+/// its own session `child-session`.
+async fn sessions_after(name: &str, seen: crate::driver::ToolsSeen) -> Vec<Vec<String>> {
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            saying("a", "checked"),
+            saying("b", "noted"),
+            saying("c", "noted again"),
+        ])
+        .seeing(&[seen]),
+    );
+    agents.reporting("child-session", true);
+    let job = due_job(name, ScheduleKind::Loop, "check the crane", false, 1);
+    let log = scratch(name);
+    let mut teammate = persona("ada");
+    teammate.background_work = true;
+    teammate.backend_id = "codex-acp".to_string();
+    enrol(&log, &teammate);
+    crate::room::append_schedule(&log, &job).unwrap();
+    log.append(
+        &StreamId::Job(name.to_string()),
+        &crate::thread::Link {
+            id: "link".to_string(),
+            ts: job.created_at,
+            thread: ThreadId::job(name),
+            persona_id: Some("ada".to_string()),
+            title: "check the crane".to_string(),
+            state: crate::thread::ThreadState::Parked,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: Some(crate::thread::AgentBinding {
+                backend_id: "codex-acp".to_string(),
+                session_id: "saved-session".to_string(),
+            }),
+            elapsed_ms: None,
+            opener: None,
+            handoff_ended: false,
+            asked_in: None,
+            request: None,
+            run_kind: None,
+        }
+        .event(),
+    )
+    .unwrap();
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    turn_ended(&room, name, 1).await;
+    until("the firing's agent is let go of", || {
+        lock(&room.job_threads)
+            .get(name)
+            .is_none_or(|live| !live.has_agent())
+    })
+    .await;
+    room.prompt_job(name, "anything new?", None).await.unwrap();
+    turn_ended(&room, name, 2).await;
+    room.park_job(name);
+    room.prompt_job(name, "and now?", None).await.unwrap();
+    turn_ended(&room, name, 3).await;
+    lock(&agents.views)
+        .iter()
+        .map(|view| {
+            view.session_checkpoints
+                .iter()
+                .map(|checkpoint| checkpoint.session_id.clone())
+                .collect()
+        })
+        .collect()
+}
+
+/// After a run whose agent never connected to Hotline's tools, the job's
+/// next agent opens a new session rather than the saved one; that new
+/// session is then the one saved, and the agent after reopens it. The rule
+/// makes one fresh start, not a habit.
+#[tokio::test]
+async fn the_run_after_one_that_never_connected_opens_a_new_session_once() {
+    assert_eq!(
+        sessions_after("job-new-session", NEVER_CONNECTED).await,
+        [
+            vec!["saved-session".to_string()],
+            Vec::new(),
+            vec!["child-session".to_string()],
+        ]
+    );
+}
+
+/// A run whose agent connected and never listed or called the tools keeps
+/// its saved session: the next agent reopens it.
+#[tokio::test]
+async fn the_run_after_one_that_connected_but_never_listed_reopens_its_session() {
+    let connected = crate::driver::ToolsSeen {
+        connected: true,
+        listed: false,
+        called: false,
+    };
+    assert_eq!(
+        sessions_after("job-kept-session", connected).await,
+        [
+            vec!["saved-session".to_string()],
+            vec!["child-session".to_string()],
+            vec!["child-session".to_string()],
+        ]
+    );
+}

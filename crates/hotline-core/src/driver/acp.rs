@@ -380,7 +380,6 @@ pub struct ChildAgent {
     /// Loopback endpoints that fetch a fresh token for each child request.
     oauth_proxies: Mutex<HashMap<String, OAuthProxy>>,
     oauth_refused: Mutex<HashMap<String, String>>,
-    served: Mutex<Option<Served>>,
     live: Arc<Live>,
     launch: Mutex<Option<registry::Launch>>,
     bounds: Bounds,
@@ -409,7 +408,6 @@ impl ChildAgent {
             mcp_vault: None,
             oauth_proxies: Mutex::new(HashMap::new()),
             oauth_refused: Mutex::new(HashMap::new()),
-            served: Mutex::new(None),
             live: Arc::new(Live::default()),
             launch: Mutex::new(None),
             bounds: Bounds::default(),
@@ -479,7 +477,7 @@ impl ChildAgent {
                 .await
                 .map_err(|error| format!("Could not confirm the old agent exited: {error}"))?;
         }
-        lock(&self.served).take();
+        lock(&self.live.served).take();
         lock(&self.oauth_proxies).clear();
         lock(&self.oauth_refused).clear();
         self.live.briefed.store(false, Ordering::SeqCst);
@@ -571,6 +569,16 @@ impl Driver for ChildAgent {
     }
     fn startup_failure(&self) -> Option<String> {
         self.live.notice()
+    }
+
+    /// What the child did on the endpoint it was last handed, which stays
+    /// readable after the child and its endpoint are gone. None of it when
+    /// no endpoint opened.
+    fn hotline_tools_seen(&self) -> crate::driver::ToolsSeen {
+        lock(&self.live.hotline_use)
+            .as_ref()
+            .map(|used| used.seen())
+            .unwrap_or_default()
     }
 
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
@@ -882,7 +890,7 @@ impl Driver for ChildAgent {
         // session object is retained briefly by an in-flight turn.
         lock(&self.live.info_changes).take();
         lock(&self.live.connection).take();
-        lock(&self.served).take();
+        lock(&self.live.served).take();
         lock(&self.oauth_proxies).clear();
         lock(&self.oauth_refused).clear();
         self.kill_child();

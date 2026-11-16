@@ -78,6 +78,9 @@ const OVERRUNS_TO_TELL: u32 = 2;
 const OUTCOME_CHARS: usize = 200;
 /// The longest interval a skip suggests: a loop's own longest.
 const MAX_SUGGESTED: i64 = 7 * 86_400_000;
+/// A firing the person stopped sooner than this after it began had no time
+/// to take Hotline's tools, so it is not said to have lacked them.
+const STOPPED_SOON: i64 = 10_000;
 
 /// What a job's agent is told about itself, over and above who it is.
 fn job_brief(name: &str) -> String {
@@ -290,6 +293,8 @@ pub(super) struct JobTurn {
     run: ScheduledRun,
     /// The colleague's question this turn answers.
     request: Option<String>,
+    /// When the turn began, milliseconds since the epoch.
+    began: i64,
 }
 
 impl LiveJob {
@@ -449,6 +454,49 @@ impl LiveJob {
         }
     }
 
+    /// After a firing: a child that never listed Hotline's tools on its
+    /// endpoint and never called one gets one line on the thread saying
+    /// what was seen. One that never connected at all could not have used
+    /// them, and the job's next run opens a new session rather than
+    /// reopening this one; one that connected keeps its session. A child that listed them, or called one without listing, had
+    /// them, whatever the run used; a child that came up failed says why on
+    /// its own turn. The firing is not run again: what it did outside could
+    /// be done twice.
+    fn say_if_without_tools(&self, room: &Room, runs_again: bool) {
+        let Some(driver) = lock(&self.up).as_ref().map(|up| up.driver.clone()) else {
+            return;
+        };
+        let seen = driver.hotline_tools_seen();
+        if seen.had_tools() || driver.startup_failure().is_some() {
+            return;
+        }
+        if seen.connected {
+            // A harness may keep the tools it listed in an earlier run and
+            // call one only when its model needs it, so this says what was
+            // seen and no more, and keeps the session: a new one would not
+            // change how that harness behaves.
+            self.notice(
+                room,
+                NoticeLevel::Info,
+                "This run's agent connected to Hotline's tools but never listed or used them."
+                    .to_string(),
+            );
+            return;
+        }
+        let never =
+            "This run's agent never connected to Hotline's tools, so it could not use them.";
+        let said = if runs_again {
+            format!("{never} Its next run starts a new session.")
+        } else {
+            never.to_string()
+        };
+        self.notice(room, NoticeLevel::Info, said);
+        // A stale address, or a reopened session that ignored the servers it
+        // was handed, is what a new session can cure.
+        *lock(&self.saved) = None;
+        self.mark(room, ThreadState::Live, None);
+    }
+
     /// What a loop that ran out of its count or date says came of it: its
     /// last turn's words, or where it stood when that turn was stopped.
     fn final_word(&self, room: &Room, driven: &Driven, halted: bool) -> Option<String> {
@@ -563,6 +611,7 @@ impl Occupant for LiveJob {
             last: line.last,
             run: run_of(&job),
             request,
+            began: now,
         })
     }
 
@@ -636,6 +685,9 @@ impl Occupant for LiveJob {
                 "Stopped. The job keeps its schedule and runs again at its next time."
             };
             self.notice(room, NoticeLevel::Info, said.to_string());
+        }
+        if held.firing.is_some() && !(halted && now_ms() - held.began < STOPPED_SOON) {
+            self.say_if_without_tools(room, !(done || ran_out));
         }
         if let Some(firing) = &held.firing
             && !done

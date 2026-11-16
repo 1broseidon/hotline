@@ -59,6 +59,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use serde_json::{Value, json};
 use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 /// What this server is called, in the child's `session/new` and on the
@@ -865,6 +866,32 @@ pub struct TeammateTools {
     /// where a colleague's answer comes back. The DM unless they were made
     /// for another.
     thread: ThreadId,
+    /// What a child has done on the endpoint [`serve`] put these on: how a
+    /// job's run knows afterwards whether its agent had Hotline's tools.
+    /// None in process.
+    used: Option<Arc<EndpointUse>>,
+}
+
+/// What a child has done on the endpoint Hotline served it, the only
+/// evidence there is that it took Hotline's tools: opened an MCP session
+/// (`initialize`), listed the tools, called one. Each is set the first time
+/// and never cleared; the endpoint lives as long as the child.
+#[derive(Debug, Default)]
+pub struct EndpointUse {
+    connected: AtomicBool,
+    listed: AtomicBool,
+    called: AtomicBool,
+}
+
+impl EndpointUse {
+    /// What has been seen so far.
+    pub fn seen(&self) -> crate::driver::ToolsSeen {
+        crate::driver::ToolsSeen {
+            connected: self.connected.load(Ordering::SeqCst),
+            listed: self.listed.load(Ordering::SeqCst),
+            called: self.called.load(Ordering::SeqCst),
+        }
+    }
 }
 
 impl TeammateTools {
@@ -880,6 +907,7 @@ impl TeammateTools {
             front: false,
             work: None,
             job: None,
+            used: None,
         }
     }
 
@@ -2083,6 +2111,30 @@ impl ServerHandler for TeammateTools {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
     }
 
+    /// A child opening an MCP session here is the first thing it does with
+    /// these tools: noted, and on the teammate's own endpoint said on the
+    /// ledger, so a child that connects and never lists them reads as that
+    /// rather than as one that never came.
+    async fn initialize(
+        &self,
+        request: rmcp::model::InitializeRequestParams,
+        context: RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::InitializeResult, ErrorData> {
+        if let Some(used) = &self.used {
+            used.connected.store(true, Ordering::SeqCst);
+        }
+        if self.work.is_none() && self.job.is_none() && !self.run && !self.front {
+            ledger::note_connected(
+                &self.persona_id,
+                ToolSourceKind::Builtin,
+                SERVER_NAME,
+                "the agent opened a session on this teammate's own endpoint and has not listed the tools",
+            );
+        }
+        context.peer.set_peer_info(request.clone());
+        self.negotiate_initialize(&request)
+    }
+
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
@@ -2091,6 +2143,9 @@ impl ServerHandler for TeammateTools {
         // The one moment Hotline can see an ACP child take these tools. Until it
         // happens the ledger says "declared", which is the honest word for
         // handed over and unobserved.
+        if let Some(used) = &self.used {
+            used.listed.store(true, Ordering::SeqCst);
+        }
         if self.work.is_some() || self.job.is_some() || self.run {
             // A work thread's listing, a job's or a run's, is not the
             // teammate's: the ledger says what its own session was handed.
@@ -2111,6 +2166,9 @@ impl ServerHandler for TeammateTools {
         request: CallToolRequestParams,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        if let Some(used) = &self.used {
+            used.called.store(true, Ordering::SeqCst);
+        }
         let arguments = request.arguments.map_or(Value::Null, Value::Object);
         let answered = match self.answer(&request.name, &arguments).await {
             Ok(content) => {
@@ -2142,9 +2200,16 @@ pub struct Served {
     token: String,
     serving: tokio::task::JoinHandle<()>,
     _sessions: tokio_util::sync::DropGuard,
+    used: Arc<EndpointUse>,
 }
 
 impl Served {
+    /// What the child has done on this endpoint, kept for as long as anyone
+    /// holds it, past the endpoint's own end.
+    pub fn used(&self) -> Arc<EndpointUse> {
+        self.used.clone()
+    }
+
     /// Where the child is told to reach the server.
     pub fn url(&self) -> &str {
         &self.url
@@ -2174,8 +2239,10 @@ impl Drop for Served {
 /// card then found every Hotline tool answering "session not found" for the
 /// rest of its life, because it did not open a new session. The endpoint's
 /// own life is the bound instead: its sessions end when [`Served`] is dropped.
-pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
+pub async fn serve(mut tools: TeammateTools) -> std::io::Result<Served> {
     let token = uuid::Uuid::new_v4().to_string();
+    let used = Arc::new(EndpointUse::default());
+    tools.used = Some(used.clone());
     let mut sessions = LocalSessionManager::default();
     sessions.session_config.keep_alive = None;
     let ended = tokio_util::sync::CancellationToken::new();
@@ -2224,6 +2291,7 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
         token,
         serving,
         _sessions: ended.drop_guard(),
+        used,
     })
 }
 

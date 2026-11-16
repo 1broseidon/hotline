@@ -66,24 +66,33 @@ describe("Ask or hand off", () => {
 		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" })?.said).toBe("handed you: GET /receipts is live");
 	});
 
-	test("the pending pair pause offers Keep going and Stop exchange", () => {
+	test("the pending pair pause offers Keep going and Stop", () => {
 		const html = transcript([pause]);
 		expect(html).toContain("Ada");
 		expect(html).toContain("Mack");
 		expect(html).toContain("12");
-		expect(html).toContain("Keep going");
-		expect(html).toContain("Stop exchange");
+		expect(html).toContain(">Keep going<");
+		expect(html).toContain(">Stop<");
+		expect(html).not.toContain("Stop exchange");
 		expect(html).not.toContain("Unlink");
 	});
 
-	for (const [status, label] of [["resumed", "Exchange resumed"], ["stopped", "Exchange stopped"]] as const) {
+	for (const [status, label] of [["resumed", "Exchange resumed"], ["stopped", "Stopped. Write to either of them to start again."]] as const) {
 		test(`a ${status} pause has no live decision buttons`, () => {
 			const html = transcript([{ ...pause, status }]);
 			expect(html).toContain(label);
 			expect(html).not.toContain("Keep going");
-			expect(html).not.toContain("Stop exchange");
+			expect(html).not.toContain(">Stop<");
 		});
 	}
+
+	test("a waiting pause is one of the cards in Needs you, with its line, until it is answered", async () => {
+		const { askLine, openAsks } = await import("../src/components/transcript/AskCard");
+		expect(openAsks([pause]).map((ask) => ask.id)).toEqual(["pause-123"]);
+		expect(askLine(openAsks([pause])[0]!)).toBe("Paused with Mack");
+		expect(openAsks([{ ...pause, status: "stopped" }])).toEqual([]);
+		expect(openAsks([{ ...pause, status: "resumed" }])).toEqual([]);
+	});
 
 	test("Answering names the sender only until the person speaks or the turn finishes", () => {
 		expect(turnCauseLine([delivery])).toBe("Answering Mack");

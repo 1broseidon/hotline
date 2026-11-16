@@ -95,8 +95,10 @@ for you.
 
 When two teammates have sent each other twelve items and answers without
 you, both conversations show a **Paused** card, and nothing more is sent
-between them until you choose. Choose **Keep going** or **Stop
-exchange**. Anything you say to either teammate also resets the count.
+between them until you choose. The card also waits in **Needs you** above
+the message field. Choose **Keep going** or **Stop**; after Stop, nothing
+passes between them until you write to either of them. Anything you say to
+either teammate also resets the count.
 
 ## What it costs
 

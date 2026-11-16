@@ -193,7 +193,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
 | `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
-| `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop exchange (below) |
+| `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop (below) |
 | `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then; one opened without a task runs no turn and is not `working` while its agent starts. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
 | `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued. In a thread a teammate handed over, while its handoff waits on a card there, the words are that card's answer (and attachments are refused) |
 | `side.cancel` | `{sideId}` | none; the person's Stop, as `thread.cancel` without `interrupt` |
@@ -392,7 +392,7 @@ server's address or login, or a tool inventory.
 `teammates.exchange_resume {a,b}` and `teammates.exchange_stop {a,b}`
 answer a pair's `exchange_paused` card from either seat. Keep going resets
 the twelve-message count and releases queued asks, handoffs and replies;
-Stop exchange settles outstanding work without revoking collaboration, and
+Stop settles outstanding work without revoking collaboration, and
 nothing is sent between the two until the person next writes to one of them.
 A line the person writes while the card is up does not answer it.
 The card's status becomes `resumed` or `stopped`. These are operator

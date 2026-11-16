@@ -38,6 +38,13 @@ function keysOf(ask: Ask, thread: ThreadId, owner: string, handoff: boolean): Ke
 			const use = (answer: "approve" | "deny") => () => wire.command("secrets.use.answer", { personaId: ask.teammate, useId: ask.useId, answer });
 			return [{ word: "Approve", send: use("approve") }, { word: "Deny", send: use("deny") }];
 		}
+		case "exchange_paused": {
+			const pair = (cmd: "teammates.exchange_resume" | "teammates.exchange_stop") => () => wire.command(cmd, { a: owner, b: ask.withPersonaId });
+			return [
+				{ word: "Keep going", send: pair("teammates.exchange_resume") },
+				{ word: "Stop", send: pair("teammates.exchange_stop") },
+			];
+		}
 		case "credential_ask":
 		case "cookie_ask":
 			return [];

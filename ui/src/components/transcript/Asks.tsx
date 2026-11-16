@@ -246,13 +246,15 @@ export function PasskeyAskCard({ personaId, event, teammate }: { personaId: stri
 
 const EXCHANGE_SETTLED: Record<Exclude<ExchangePauseStatus, "pending">, string> = {
 	resumed: "Exchange resumed",
-	stopped: "Exchange stopped",
+	stopped: "Stopped. Write to either of them to start again.",
 };
 
 /**
  * Both asks and handoffs count toward the pair's message cap. Keep going
- * releases queued work and starts counting afresh; Stop exchange ends the
- * exchange, not the collaboration grant. Either outcome becomes a quiet line.
+ * releases queued work and starts counting afresh; Stop ends the exchange,
+ * not the collaboration grant, and holds the two apart until the person
+ * writes to either. Either outcome becomes a quiet line. While it waits it
+ * is one of the cards in Needs you.
  */
 export function ExchangePaused({
 	personaId,
@@ -288,7 +290,7 @@ export function ExchangePaused({
 					Keep going
 				</button>
 				<button type="button" disabled={answering} className="control btn" onClick={() => act("teammates.exchange_stop")}>
-					Stop exchange
+					Stop
 				</button>
 			</div>
 			{refusal !== null && <p role="alert" className="mt-2 text-sm text-danger">{refusal}</p>}

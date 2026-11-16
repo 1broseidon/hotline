@@ -1,13 +1,13 @@
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
-import { HumanAction, PasskeyAskCard, Permission } from "./Asks";
+import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./Asks";
 import { CookieAskCard } from "./CookieAskCard";
 import { CredentialAsk } from "./CredentialAsk";
 import { SecretUseAsk } from "./SecretUseAsk";
 
-/** A card waiting on the person: the kinds that hold a turn, or a teammate's computer, until answered. */
+/** A card waiting on the person: the kinds that hold a turn, a teammate's computer, or two teammates paused together, until answered. */
 export type Ask = Extract<
 	TranscriptEvent,
-	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_ask" }
+	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_ask" | "exchange_paused" }
 >;
 
 /** A card with a time limit that has run out on this clock: it can no longer be answered. */
@@ -25,6 +25,7 @@ function waits(event: TranscriptEvent, now: number): event is Ask {
 		case "passkey_ask":
 		case "secret_use_ask":
 		case "cookie_ask":
+		case "exchange_paused":
 			return event.status === "pending";
 		case "credential_ask":
 			return event.status === "pending" && !event.armed;
@@ -67,6 +68,8 @@ export function askLine(ask: Ask): string {
 			return `Use ${ask.secret} on ${ask.site}`;
 		case "cookie_ask":
 			return `Sign in to ${ask.site}`;
+		case "exchange_paused":
+			return `Paused with ${ask.withName}`;
 	}
 }
 
@@ -101,5 +104,7 @@ export function AskCard({
 			return <SecretUseAsk event={ask} teammate={ownerName} />;
 		case "cookie_ask":
 			return <CookieAskCard event={ask} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />;
+		case "exchange_paused":
+			return <ExchangePaused personaId={personaId} ownerName={ownerName} event={ask} />;
 	}
 }

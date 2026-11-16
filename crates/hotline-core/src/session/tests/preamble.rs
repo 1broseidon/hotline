@@ -2,7 +2,7 @@
 //! carries beside its words.
 
 use super::*;
-use crate::session::preamble::CLOCK;
+use crate::session::preamble::clock;
 
 /// A teammate is told which extra folders it has, which it may change, and
 /// who holds it to them; one with none is told nothing about folders.
@@ -73,7 +73,7 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(walled.contains("a path that leaves it is refused"));
     // No date: the clock rides on each line, so the preamble is the same
     // prefix every day.
-    assert!(walled.contains(CLOCK));
+    assert!(walled.contains(&clock(true)));
     assert!(!walled.contains(&Local::now().format("%B %Y").to_string()));
     // Skills are an index, not a body: the name, when to use it, and the
     // file to read, after the tool sentence and before the house style.

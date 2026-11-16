@@ -2555,8 +2555,14 @@ teammate on the model its home session is on, with the home thread's
 permission set and the computer, less what the teammate left out when it
 made the job (`without` on `schedule` and `loop`, kept on the job). It has
 the home thread's tools but the chapter moves, `react`, `open_link`,
-`schedule` and `loop`: a `request_human` card it raises is on its own
-thread, and the person's answer, like a colleague's answer to its
+`schedule`, `loop` and `propose_inbound`, and what it is told of Hotline's
+tools names only those it has (`mcp::server::how_to_use`, filtered by the
+tools its agent is served): it is never told it can schedule. Its brief says
+Hotline fires the job by itself at each of its times, so nothing needs
+re-arming, and each firing's line says how the job repeats ("Hotline runs
+this job again by itself until it ends (Weekdays at 09:00)") or, for a
+one-shot, that it is the job's only run. A `request_human` card it raises is
+on its own thread, and the person's answer, like a colleague's answer to its
 `message_teammate`, comes back to it there as a turn while the job lives
 (after it ends, to the DM). What came back is written on the thread before
 it is queued, so one the last process had not handed over yet is handed

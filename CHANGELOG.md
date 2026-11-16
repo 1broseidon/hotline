@@ -28,6 +28,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A scheduled job's run is told only of the tools it has. Before, it was
+  told it could schedule, so a teammate asked for something daily would set
+  a one-time job and try to set the next from inside its run, where it
+  cannot. A run is now told that Hotline repeats its job by itself, or that
+  this is its only run.
 - A time a teammate gives for a job without a time zone, such as
   2026-11-16T09:00, or a bare date, is a time on this computer's clock.
   Before, it was read as UTC, so a reminder asked for at 9:00 could come

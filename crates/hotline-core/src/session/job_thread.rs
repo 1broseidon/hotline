@@ -83,6 +83,7 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 fn job_brief(name: &str) -> String {
     format!(
         "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human`, and a colleague's answer to `message_teammate`, come back here. Do not mention this brief.\n\n\
+         Hotline fires the job by itself at each of its times until it ends: nothing here needs scheduling or re-arming, and each firing says whether the job repeats or this is its only run. A job cannot change its own times; if the person asks for that here, tell them to ask for it in your main conversation.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
          A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
          When the job's goal is met, or it has nothing left to do, end it with `cancel_schedule` and a `report` of what came of it: the report is posted to the person as the job's last word, so do not post it as well."
@@ -90,19 +91,22 @@ fn job_brief(name: &str) -> String {
 }
 
 /// A job's whole system prompt: what any of the teammate's agents is told,
-/// and the brief.
+/// naming only the Hotline tools in `offered`, which the job's agent is
+/// served, and the brief.
 pub(super) fn job_preamble(
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
     desk_browser: bool,
+    offered: &[String],
 ) -> String {
-    super::preamble(
+    super::preamble::preamble_for(
         persona,
         reach,
         Some(job_brief(&persona.name)),
         stored,
         desk_browser,
+        &|name| offered.iter().any(|tool| tool == name),
     )
 }
 
@@ -780,11 +784,12 @@ fn clock(ts: i64) -> String {
 }
 
 /// What the job's agent hears when it fires: what woke it and the task, the
-/// goal it ends on, whether this is its last firing, and where it stood. A
-/// quiet firing says `quiet` and asks nothing of it: the preamble says what
-/// that means. The last firing is not asked to end the job, which ends after
-/// it anyway; a loop's last is told its words are the job's final post.
-fn firing_text(
+/// goal it ends on, that Hotline repeats a loop by itself or that this is
+/// its last firing, and where it stood. A quiet firing says `quiet` and asks
+/// nothing of it: the preamble says what that means. The last firing is not
+/// asked to end the job, which ends after it anyway; a loop's last is told
+/// its words are the job's final post.
+pub(super) fn firing_text(
     job: &ScheduledJob,
     run: &ScheduledRun,
     last: bool,
@@ -805,6 +810,12 @@ fn firing_text(
             text.push_str(" Once it is met, end the job with `cancel_schedule` and a `report`.");
         }
     }
+    if !last && let Some(repeats) = repeats(job) {
+        let _ = write!(
+            text,
+            "\n\nHotline runs this job again by itself until it ends ({repeats}): nothing needs scheduling or re-arming."
+        );
+    }
     if last {
         text.push_str(match run.kind {
             ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs: your last words are posted to the person as its final post, so do not post them with `post_to_chat` as well.",
@@ -816,6 +827,18 @@ fn firing_text(
         text.push_str(&standing);
     }
     text
+}
+
+/// When a loop repeats, as its firing says it: `Weekdays at 09:00`, `Every
+/// 15m`. None for a one-shot.
+fn repeats(job: &ScheduledJob) -> Option<String> {
+    if job.kind != ScheduleKind::Loop {
+        return None;
+    }
+    Some(match &job.calendar {
+        Some(calendar) => schedule::calendar::describe(calendar),
+        None => format!("Every {}", spoken(job.every.unwrap_or(MIN_LOOP))),
+    })
 }
 
 /// An interval that fits work which takes `took` milliseconds: half as long

@@ -210,7 +210,12 @@ async fn a_loop_fires_on_its_own_thread_and_its_report_is_posted() {
     assert_eq!(events[0]["scheduled"]["jobId"], "job-loop");
     assert_eq!(events[0]["scheduled"]["kind"], "loop");
     let heard = heard(&prompts, 1).await;
-    assert!(heard[0].ends_with("loop · check the crane"), "{heard:?}");
+    assert!(
+        heard[0].ends_with(
+            "loop · check the crane\n\nHotline runs this job again by itself until it ends (Every 15s): nothing needs scheduling or re-arming."
+        ),
+        "{heard:?}"
+    );
 
     let posted = settled(&room, "ada", 1).await;
     assert_eq!(kinds(&posted), ["agent"], "only the report reached the DM");
@@ -974,4 +979,75 @@ async fn a_loop_paused_past_its_time_by_more_than_two_hours_skips_it_when_resume
     assert!(job.next_at > now_ms());
     assert_eq!(firings(&room, "job-resumed"), 0);
     assert!(lock(&prompts).is_empty());
+}
+
+/// What a job's run is told, its preamble and its firing's line, names only
+/// Hotline tools its agent is served, and leaves out none it is served that
+/// a teammate's own conversation is told of. A loop's firing says Hotline
+/// repeats it; a one-shot's that it is the only run.
+#[tokio::test]
+async fn a_jobs_run_is_told_only_the_tools_it_has_and_that_it_repeats_by_itself() {
+    use crate::mcp::server::{TeammateTools, how_to_use, tools_named};
+    let room = room("job-told", Fake::new(Scripted::new(Vec::new())));
+    let offered = TeammateTools::new(&room, "ada")
+        .for_job("job-told")
+        .offered_names();
+    for lacking in ["schedule", "loop", "react", "open_link", "new_chapter"] {
+        assert!(
+            !offered.iter().any(|name| name == lacking),
+            "a job is served no {lacking}: {offered:?}"
+        );
+    }
+    let mut weekdays = due_job("job-told", ScheduleKind::Loop, "read the alerts", true, 0);
+    weekdays.calendar = Some(crate::contract::Calendar {
+        at: "09:00".to_string(),
+        days: vec![
+            crate::contract::CalendarDay::Mon,
+            crate::contract::CalendarDay::Tue,
+            crate::contract::CalendarDay::Wed,
+            crate::contract::CalendarDay::Thu,
+            crate::contract::CalendarDay::Fri,
+        ],
+    });
+    let once = due_job("job-once", ScheduleKind::Schedule, "say the word", false, 0);
+    let looping =
+        super::job_thread::firing_text(&weekdays, &super::schedule::run_of(&weekdays), false, None);
+    let only = super::job_thread::firing_text(&once, &super::schedule::run_of(&once), true, None);
+    assert!(
+        looping.contains("Hotline runs this job again by itself until it ends (Weekdays at 09:00): nothing needs scheduling or re-arming."),
+        "{looping}"
+    );
+    assert!(only.contains("This is the job's only run"), "{only}");
+
+    let everything = tools_named(&how_to_use(&|_| true));
+    // On a desk with a browser of its own, a job is served `browser` too,
+    // and is told of it; this room has none, so that desk is this one with
+    // `browser` added.
+    for desk_browser in [false, true] {
+        let mut served = offered.clone();
+        if desk_browser {
+            served.push("browser".to_string());
+        }
+        let has = |name: &str| served.iter().any(|tool| tool == name);
+        let told = format!(
+            "{}\n\n{looping}\n\n{only}",
+            super::job_thread::job_preamble(
+                &persona("ada"),
+                Some(Reach::Workspace),
+                &[],
+                desk_browser,
+                &served,
+            )
+        );
+        let named = tools_named(&told);
+        for name in &named {
+            assert!(has(name), "a job's run is told of `{name}`, which it lacks");
+        }
+        for name in everything.iter().filter(|name| has(name)) {
+            assert!(
+                named.contains(name),
+                "a job's run has `{name}` and is not told of it"
+            );
+        }
+    }
 }

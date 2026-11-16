@@ -294,14 +294,13 @@ impl Room {
     /// and pauses them at the cap.
     pub(in crate::session) fn count_wake(&self, key: &str, by: &str, to: &str) {
         let _guard = lock(&self.exchange_lock);
-        let mut pair = self.exchange_pair(key).unwrap_or(Pair {
-            id: key.to_string(),
-            a: by.to_string(),
-            b: to.to_string(),
-            exchanges: 0,
-            paused: false,
-            requests: vec![],
-        });
+        let mut pair = match self.pair_or_new(key, by, to) {
+            Ok(pair) => pair,
+            Err(error) => {
+                eprintln!("count a nudge's wake: {error}");
+                return;
+            }
+        };
         if pair.paused {
             return;
         }

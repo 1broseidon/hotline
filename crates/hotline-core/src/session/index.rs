@@ -644,7 +644,7 @@ impl Room {
             .map(|(name, aside)| (name.clone(), aside))
             .collect();
         let told = (!heard.is_empty()).then(|| super::asides::render(&heard));
-        // The rules for reading it are in the preamble (`HOW_TO_USE`), told
+        // The rules for reading it are in the preamble (`how_to_use`), told
         // once; the block itself is only the facts.
         Some(timed(
             now,

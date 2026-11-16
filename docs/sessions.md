@@ -543,7 +543,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `activity`, `outcome`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `update_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -1102,9 +1102,13 @@ the token is fresh per session. The server is named `hotline` in `session/new`,
 with the token as an `Authorization` header. The ledger is published before
 that `session/new` is sent, because a child that lists Hotline's tools during
 the handshake promotes rows that have to exist by then — a ledger written
-afterwards would overwrite what was watched with "declared". Dropping the
-driver stops the endpoint and kills the child — its whole process group on
-Unix, so a wrapper like `npx` cannot leave the real agent behind.
+afterwards would overwrite what was watched with "declared". A session the
+child opens there never ends for being idle: rmcp's default would end it after
+five minutes without a request, and a child that waited that long on a
+permission card would find every Hotline tool gone, as "session not found",
+for the rest of its life. Dropping the driver stops the endpoint, ends every
+session on it, and kills the child — its whole process group on Unix, so a
+wrapper like `npx` cannot leave the real agent behind.
 
 Granted third-party servers are named in the same `session/new` (stdio
 command, or HTTP URL). Hotline does not connect them for a child; the child
@@ -1612,7 +1616,9 @@ the desk there checks them as it would its own, holds them and copies them
 the same way once it lets the request in; the sending desk lets go of them
 once the request has crossed. An aside's files are copied as it is left,
 after its grant, and its text gains the same line. What a stopped or failed
-message held is let go of when the desk next starts.
+message held is let go of when the desk next starts, as is a `held-` folder a
+send cut off before it was queued left; a folder there named anything else
+is a newer build's and is left as it is.
 
 ## Stop and Interrupt
 
@@ -2430,17 +2436,42 @@ Jobs live on the room stream as events of kind `schedule`. The clock in
 fires each one: a plain reminder is posted to the chat, and any other job's
 firing is a turn on the job's own thread ([Jobs](#jobs)). A missed tick while
 Hotline was closed fires once on reopen rather than catching up a pile of
-them.
+them. A loop's run is the exception, when it is late by more than two hours
+(`LATE_RUN_LIMIT`; `HOTLINE_LATE_RUN_LIMIT_MS` sets it in milliseconds, so
+the rule can be watched on a running desk): its time passed while the desk
+was closed, the machine asleep or Background work off, and running it now
+would be work for a moment long gone. It is skipped instead, the loop moves
+on to its next time with its count unspent, and the job keeps the latest
+skip as `skipped`, `{slot, at}` (when it was due and when it was skipped),
+for the desk to show and `list_schedules` to say, until the loop next runs:
+a run clears it, and a slot its thread skips because the run before is still
+going does not. A run late by two hours or
+less runs once, as before. A one-shot runs however late, since it has no
+next time to wait for. A start that failed and is retried a minute later
+counts its lateness from the retry.
 
-`schedule` is once; `loop` is every `every` milliseconds until it is
+`schedule` is once; `loop` is every `every` milliseconds, or at a time of
+day on chosen days (`calendar`, `session/schedule/calendar.rs`), until it is
 cancelled or reaches its end. A loop is recovered from `every` being present
 — the event's `kind` is always `schedule`, because that slot is the stream's.
+A calendar loop carries a day as its `every` beside its `calendar`, so a
+build that knows only `every` reads it as a loop that runs once a day; this
+build goes by the calendar, and folds one it cannot read as that daily loop.
 A create wakes the clock so it does not wait for the nearest existing
 `nextAt`.
 
-A firing does not wait for the work: a loop counts its next interval from
-when a firing starts, so one still running when the next is due is what its
-thread skips. After its firing a one-shot ends; so does a loop whose count
+A calendar loop's next run is worked out afresh each time, on the desk
+machine's own clock (`chrono::Local`), as the first of its times strictly
+after the moment it fired: never by adding a day to the run before, so a run
+that started late, a restart and the clocks changing all leave it on its
+time. A time the clocks skip that day (2:30 on a morning they go from 2:00 to
+3:00) runs at the moment they change, and one they pass twice runs the first
+time, once. The functions take the zone, so the tests hand them one with
+clock changes of its own; the room hands them the desk's.
+
+A firing does not wait for the work: a loop on an interval counts its next
+interval from when a firing starts, so one still running when the next is
+due is what its thread skips. After its firing a one-shot ends; so does a loop whose count
 runs out or whose next firing would fall after its end date. An ended job is
 written again with `endedAt` rather than tombstoned: it fires no more, its
 thread stays readable, and it is still listed until the person cancels it
@@ -2476,19 +2507,38 @@ into a crowd or a busy-loop:
 | jobs per teammate | 20 still to fire |
 
 `quiet` and `reminder` are stored only when true. The parsers that take a
-string (`20m`, an RFC3339 time) live with the scheduler; they are not on the
-wire.
+string (`20m`, a date and time) live with the scheduler; they are not on the
+wire. A calendar loop's `at` and `days` are strings on both: the `loop`
+tool and the wire's `schedule.create` both read them with
+`schedule::loop_trigger`. A date and time with an offset (`Z`, `+01:00`) is that instant. One
+without, or a bare date (its midnight), is read on the desk machine's own
+clock, because that is the clock a teammate is shown: every line opens with
+the local time and no offset. A wall time the clocks pass twice as they go
+back is the first time they pass it, and one they skip as they go forward is
+the moment they changed (2:30 on a morning that jumps from 2:00 to 3:00 is
+3:00).
 
-A teammate speaks those strings through four tools, the same handler on
+A teammate speaks those strings through five tools, the same handler on
 both kinds of agent — Hotline Agent in-process, an ACP child over Hotline's own
 MCP server:
 
 | tool | strings | what it does |
 | --- | --- | --- |
-| `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or an ISO timestamp |
-| `loop` | `every`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that fires on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
-| `list_schedules` | none | only the caller's jobs still to fire; a supplied `target` is refused |
+| `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or a date and time like `2026-11-16T09:00` |
+| `loop` | `at` or `every`, `days?`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that repeats until it ends, which Hotline runs again itself: at `at`, a time of day (`09:00`, 24-hour, the desk's clock), on `days` (`daily`, the default, `weekdays`, or the days, `mon,wed,fri` or a list), or on an interval, `every` (`15s`, `5m`, `1h`, `1d`). Exactly one of `at` and `every`; `days` only with `at` |
+| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`, and `nextAt`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`, and a loop's latest run skipped for being over two hours late as `skipped`, the time it was due and why, until the loop next runs. As the desk's row does, it marks a job the person added (`addedByPerson`) and one of the caller's own waiting for Background work (`paused`), which has no `next` or `nextAt`, since no run is coming until the grant is back. A mark that does not apply is left out. A supplied `target` is refused |
 | `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |
+| `update_schedule` | `id`, `quiet` | turn Quiet on or off for one of the caller's jobs, through the call the desk's checkbox makes (`schedule.set_quiet`); another teammate's is refused as `cancel_schedule` refuses it. A job's own thread is not given it: going quiet or loud is asked for in the main conversation |
+
+What the desk and these tools can do with a job is kept the same where both
+have it: once at a time, on chosen days at a time and every interval, each
+created with the same bounds and read by the same functions; Quiet set on
+creation and changed later; cancelling; the next run, a skipped run, a
+paused job and who added it, seen on the desk's row and in
+`list_schedules`. Only the tools give a loop its end (`until`, `times`,
+`goal`), make a plain reminder or leave abilities out (`without`, which
+the desk takes no part in by design); neither changes a job's timing once
+it is made, which is cancelling it and adding another.
 
 The pane labels a job from its prompt; the tools take no name. A string
 neither parser accepts is refused as that string, not as milliseconds.
@@ -2522,8 +2572,14 @@ teammate on the model its home session is on, with the home thread's
 permission set and the computer, less what the teammate left out when it
 made the job (`without` on `schedule` and `loop`, kept on the job). It has
 the home thread's tools but the chapter moves, `react`, `open_link`,
-`schedule` and `loop`: a `request_human` card it raises is on its own
-thread, and the person's answer, like a colleague's answer to its
+`schedule`, `loop` and `propose_inbound`, and what it is told of Hotline's
+tools names only those it has (`mcp::server::how_to_use`, filtered by the
+tools its agent is served): it is never told it can schedule. Its brief says
+Hotline fires the job by itself at each of its times, so nothing needs
+re-arming, and each firing's line says how the job repeats ("Hotline runs
+this job again by itself until it ends (Weekdays at 09:00)") or, for a
+one-shot, that it is the job's only run. A `request_human` card it raises is
+on its own thread, and the person's answer, like a colleague's answer to its
 `message_teammate`, comes back to it there as a turn while the job lives
 (after it ends, to the DM). What came back is written on the thread before
 it is queued, so one the last process had not handed over yet is handed
@@ -2532,6 +2588,35 @@ ended since. The person's `schedule.create` takes no `without`: a job
 narrower than its teammate is the teammate's to make (design.md says why).
 Its authority is a child of the teammate's, made
 with the agent and revoked when it is let go of.
+
+**A run without Hotline's tools.** A child is a fresh process with a
+fresh endpoint for each firing, and some harnesses never take the tools on
+it until they are prompted, or at all. Nothing waits for them: a firing's
+line is sent as soon as its agent is up. The endpoint records what the
+child did there (`mcp::server::EndpointUse`: opened an MCP session, listed
+the tools, called one), kept past the child's end, and the driver reports
+it (`Driver::hotline_tools_seen`; Hotline Agent, handed the tools in
+process, has done all of it). When a firing's turn ends and its child never
+listed the tools and never called one, the job's thread gets one `info`
+notice. A child that never connected at all could not have used them: "This
+run's agent never connected to Hotline's tools, so it could not use them.
+Its next run starts a new session.", and the job's next agent opens a new
+session rather than reopening the saved one, which a stale address or a
+reopened session that ignored its servers would need. That new session is
+then the one saved, so it is one fresh start, not a habit. A child that
+connected and went no further gets only what was seen: "This run's agent
+connected to Hotline's tools but never listed or used them." It keeps its
+session, because a harness may hold a list from an earlier run and call a
+tool only when its model needs one, and a new session would not change
+that.
+The firing is not run again: what it did outside could be done twice. A
+child that listed the tools had them whatever its run used, and one that
+called a tool without listing them had them too; neither is said to lack
+them. Nor is a firing the person stopped within ten seconds of its start,
+or a child that came up failed, whose turn says why. The schedule moved on
+when the firing was handed over, as it always does. A child that hangs up
+on its own takes its endpoint with it as the connection ends, which ends
+every MCP session it held there.
 
 **Parked between firings.** Once a firing's turn is over and nothing waits
 behind it, the agent is let go of and the thread's link says `parked`; the
@@ -2641,7 +2726,9 @@ honest state is declared: Hotline's own tools as named tools, each granted
 server as one row under that server's name. Those rows are published
 before `session/new` names the endpoint. The one exception is Hotline's own
 endpoint, which promotes its rows to verified the moment the child lists
-tools on it.
+tools on it. A child that opens an MCP session there and does not list the
+tools keeps them declared, with a reason that says it connected, so it
+reads apart from one that never came.
 
 The streams these sessions write are [log.md](log.md). How to run the room
 is [development.md](development.md).

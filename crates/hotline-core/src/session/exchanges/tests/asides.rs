@@ -246,6 +246,7 @@ async fn asking_carol(name: &str, granted: bool, paused: bool) -> (Arc<Room>, St
             exchanges: EXCHANGE_CAP,
             paused: true,
             requests: vec![],
+            newer: Newer::default(),
         };
         room.save_pair(&pair).unwrap();
         room.exchange_card(&pair, ExchangePauseStatus::Pending);
@@ -340,6 +341,7 @@ async fn a_turn_waiting_only_on_a_question_to_its_sender_leaves_no_note() {
         exchanges: 0,
         paused: false,
         requests: vec![handoff, back],
+        newer: Newer::default(),
     })
     .unwrap();
     let said = crate::session::runner::Driven {
@@ -371,6 +373,7 @@ async fn an_aside_of_a_result_is_the_turns_last_message_in_plain_words() {
         exchanges: 0,
         paused: false,
         requests: vec![handoff, ask],
+        newer: Newer::default(),
     })
     .unwrap();
     let turn = crate::session::runner::Driven {

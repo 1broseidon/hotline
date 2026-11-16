@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { ScheduleEntry, ScheduledRun, TranscriptEvent } from "../src/generated/contract";
-import { countdown, jobRuns, postingWords, scheduleWords } from "../src/jobRuns";
+import { calendarWords, countdown, jobRuns, postingWords, scheduleWords } from "../src/jobRuns";
 import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
@@ -233,6 +233,17 @@ describe("a job's runs, from its thread", () => {
 		expect(scheduleWords({ ...watch, every: 7_200_000 })).toBe("every 2 h");
 		expect(scheduleWords({ ...watch, every: 86_400_000 })).toBe("every 1 day");
 		expect(postingWords({ ...watch, quiet: true })).toBe("posts only what is worth posting");
+	});
+
+	test("a calendar loop is said as its days and time, not the day it carries as every", () => {
+		// The time is this clock's way of writing it: 9:00 AM, or 09:00.
+		const nine = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(2000, 0, 1, 9, 0));
+		const weekdays = { ...watch, every: 86_400_000, calendar: { at: "09:00", days: ["mon", "tue", "wed", "thu", "fri"] } } satisfies ScheduleEntry;
+		expect(scheduleWords(weekdays)).toBe(`weekdays at ${nine}`);
+		expect(calendarWords({ at: "09:00", days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] })).toBe(`daily at ${nine}`);
+		expect(calendarWords({ at: "09:00", days: ["sat", "sun"] })).toBe(`weekends at ${nine}`);
+		expect(calendarWords({ at: "09:00", days: ["mon", "wed", "fri"] })).toBe(`Mon, Wed and Fri at ${nine}`);
+		expect(calendarWords({ at: "09:00", days: ["sun"] })).toBe(`Sundays at ${nine}`);
 	});
 });
 

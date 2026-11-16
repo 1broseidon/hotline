@@ -53,8 +53,9 @@ Have a teammate check something every day and speak up only when there is
 something to say.
 
 1. Open its pane (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>I</kbd>), and under
-   **Schedules** choose **Add a schedule**. Pick **Repeating**, every **1
-   days**, and under **Say** write a prompt such as "Check the overnight CI
+   **Schedules** choose **Add a schedule**. Pick **On days**, turn on
+   **Sat** and **Sun** as well as the weekdays, set **At** to the time you
+   want, and under **Say** write a prompt such as "Check the overnight CI
    runs and open issues labelled urgent. Tell me only what needs me."
 2. Tick **Quiet** for the job. A quiet run stays out of the conversation
    unless it finds something worth telling you; a Hotline Agent teammate then

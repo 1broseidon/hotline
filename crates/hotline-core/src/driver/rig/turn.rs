@@ -823,6 +823,12 @@ impl Activity<'_> {
                 ),
             )));
         }
+        // A tool a newer Hotline had, named by a conversation held there.
+        if !tools.contains(&call.function.name)
+            && let Some(words) = crate::mcp::server::newer_tool(&call.function.name)
+        {
+            return Ok(ToolResult::failed(ToolExecutionError::not_found(words)));
+        }
         let jobs = &mut *self.jobs;
         let result = match call.function.name.as_str() {
             "shell" if jobs.shell_enabled() => job_result(jobs.launch(call_id.into(), arguments)),

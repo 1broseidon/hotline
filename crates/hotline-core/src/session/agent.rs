@@ -404,6 +404,8 @@ impl Room {
             (None, None) => OpenedBy::Person,
         };
         let stored = self.stored_secrets();
+        // A job's agent is told only of the tools it is served.
+        let offered = tools_of(self, &thread, &view.id, &lease).offered_names();
         let told_name = self.person_name();
         // Whether this desk has a browser to offer, as the session starts.
         let desk_browser = self.desk_browser().is_some();
@@ -414,6 +416,7 @@ impl Room {
                 reach,
                 &stored,
                 desk_browser,
+                &offered,
                 Joining {
                     opened_by,
                     context: context.clone(),
@@ -509,12 +512,14 @@ struct Joining<'a> {
 }
 
 /// What a kind tells its agent about itself, and about what it joins.
+/// `offered` is the Hotline tools its agent is served.
 fn preamble_of(
     kind: ThreadKind,
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
     desk_browser: bool,
+    offered: &[String],
     joining: Joining<'_>,
 ) -> String {
     let Joining {
@@ -525,7 +530,9 @@ fn preamble_of(
     } = joining;
     match kind {
         ThreadKind::Run => super::runner::run_preamble(persona, reach, stored, desk_browser),
-        ThreadKind::Job => super::job_thread::job_preamble(persona, reach, stored, desk_browser),
+        ThreadKind::Job => {
+            super::job_thread::job_preamble(persona, reach, stored, desk_browser, offered)
+        }
         // The DM's: what it needs to know of the chapter it joins, and of its
         // computer, is the note.
         ThreadKind::Dm => super::preamble(persona, reach, note, stored, desk_browser),

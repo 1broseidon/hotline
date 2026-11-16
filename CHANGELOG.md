@@ -8,6 +8,66 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.49.2] - 2026-11-16
+
+### Added
+
+- A teammate can set a job that repeats at a time of day on chosen days,
+  such as every weekday at 9:00, as well as one that repeats on an
+  interval. Hotline runs it again itself each time, on this computer's
+  clock, and keeps it at that time through a late run, a restart and the
+  clocks changing. Its row in the teammate's schedules says when it runs,
+  such as "Weekdays at 9:00 AM". A desk on an older version reads such a
+  job as one that runs once a day.
+- You can add such a job yourself: in a teammate's Schedules, Add a
+  schedule now offers Once, On days and Every. On days takes the days
+  (weekdays to start with) and a time, and reads the choice back under the
+  time as its row will say it.
+- A repeating job's row says when a run was skipped for being over two
+  hours late, such as "Skipped Fri 8:30 AM, over 2 hours late", until the
+  job next runs. A teammate's `list_schedules` says the same.
+- A teammate can turn Quiet on or off for one of its own jobs when you ask,
+  with `update_schedule`, as the checkbox in its schedules does. A job's own
+  run cannot change it.
+- A teammate's `list_schedules` says which jobs you added and which of its
+  own are paused while Background work is off, and gives a paused job no
+  next run, as its row in the schedules does.
+
+### Changed
+
+- A repeating job whose time passed more than two hours before Hotline
+  could run it, because the computer was asleep, Hotline was closed or
+  Background work was off, skips that run and waits for its next time,
+  instead of running hours late. A run late by less than two hours still
+  runs once, and a one-time job still runs whenever Hotline can.
+
+### Fixed
+
+- Opening this desk again after running a newer version of Hotline on it
+  no longer loses what that version saved about teammates' messages to
+  each other, or deletes files it was holding for them.
+- A scheduled job's run on another agent that never lists or uses
+  Hotline's tools now says so on the job's thread when it ends. One whose
+  agent never connected to them at all also has its next run start a new
+  session. Before, nothing said so. Runs are not held up or started again
+  for this.
+- An agent that stops on its own lets go of Hotline's tools at once,
+  instead of when it is next asked something.
+- A scheduled job's run is told only of the tools it has. Before, it was
+  told it could schedule, so a teammate asked for something daily would set
+  a one-time job and try to set the next from inside its run, where it
+  cannot. A run is now told that Hotline repeats its job by itself, or that
+  this is its only run.
+- A time a teammate gives for a job without a time zone, such as
+  2026-11-16T09:00, or a bare date, is a time on this computer's clock.
+  Before, it was read as UTC, so a reminder asked for at 9:00 could come
+  hours early or late. A time with a zone is still that time.
+- A teammate on another agent, such as Codex, keeps Hotline's tools however
+  long it sits waiting, on a permission card or anything else. Before, five
+  minutes without using them ended its connection to them, and every call
+  after that failed with "session not found" until the teammate was
+  restarted. The connection now ends only when the teammate's agent does.
+
 ## [0.49.1] - 2026-11-13
 
 ### Changed

@@ -559,6 +559,8 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
         kind: ScheduleKind::Loop,
         when: None,
         every: Some(60_000),
+        at: None,
+        days: None,
         prompt: "sweep the inbox".to_string(),
         quiet: None,
         reminder: None,

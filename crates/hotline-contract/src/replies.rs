@@ -131,12 +131,14 @@ pub enum Target {
 /// reading the list needs, and nothing that decides what the job may do.
 ///
 /// `name` is the job's label, the first breath of its prompt. `kind` is
-/// `schedule` for once and `loop` for every `every` milliseconds. `when` is a
-/// one-shot's original time, milliseconds since the epoch. `nextAt` is when
-/// the desk next means to fire it, also milliseconds since the epoch, and a
-/// plan rather than a promise: a desk that is closed or asleep then fires it
-/// once when it can, a fire that could not start tries again a minute later,
-/// and a loop counts its next interval from when a firing starts. A job's
+/// `schedule` for once and `loop` for every `every` milliseconds, or at the
+/// times its `calendar` names when it has one. `when` is a one-shot's
+/// original time, milliseconds since the epoch. `nextAt` is when the desk
+/// next means to fire it, also milliseconds since the epoch, and a plan
+/// rather than a promise: a desk that is closed or asleep then fires it once
+/// when it can, a fire that could not start tries again a minute later, a
+/// loop on an interval counts its next interval from when a firing starts,
+/// and a calendar loop's next is its next time on the desk's clock. A job's
 /// firings are turns on its own thread, `{"kind": "job", "key": id}`.
 /// `lastPost` is what it last posted to the chat. A job that has fired for
 /// the last time, been cancelled or met its goal is still listed, with
@@ -158,6 +160,10 @@ pub struct ScheduleEntry {
     pub when: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub every: Option<i64>,
+    /// A calendar loop's time of day and days, on the desk's clock. Such a
+    /// loop also carries a day as `every`, for a reader that knows only that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<Calendar>,
     pub next_at: i64,
     /// Present and true when the job was asked to say nothing in the chat
     /// unless it finds something worth saying.
@@ -173,6 +179,10 @@ pub struct ScheduleEntry {
     pub ended_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub without: Option<Vec<Ability>>,
+    /// The latest run of a loop skipped for starting more than two hours
+    /// after its time, which moved the loop on to its next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<SkippedRun>,
 }
 
 /// The views the core maintains. One so far.

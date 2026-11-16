@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { ScheduleKind, ScheduledJob } from "../generated/contract";
+import type { CalendarDay, ScheduledJob, SkippedRun } from "../generated/contract";
 import { CloseIcon, PlusIcon } from "../icons";
+import { calendarWords, DAY_NAMES, timeOfDay } from "../jobRuns";
 import { durationText, firstLine, nextText } from "../room";
 import { onTablistKey, Picker } from "../ui/Menu";
-import { wire } from "../wire";
+import { type Commands, wire } from "../wire";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -15,6 +16,21 @@ const MAX_LOOP = 7 * DAY;
 
 type Unit = "minutes" | "hours" | "days";
 
+/** When a job the person adds runs: once, on chosen days at a time, or every interval. */
+type When = "once" | "days" | "every";
+
+const WHENS: { id: When; name: string }[] = [
+	{ id: "once", name: "Once" },
+	{ id: "days", name: "On days" },
+	{ id: "every", name: "Every" },
+];
+
+/** The week as the day toggles lay it out, Monday first, as a calendar keeps its days. */
+const WEEK: CalendarDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const WEEKDAYS: CalendarDay[] = ["mon", "tue", "wed", "thu", "fri"];
+
+type Create = Commands["schedule.create"]["params"];
+
 const UNITS: { id: Unit; ms: number; name: string }[] = [
 	{ id: "minutes", ms: MINUTE, name: "minutes" },
 	{ id: "hours", ms: HOUR, name: "hours" },
@@ -24,7 +40,8 @@ const UNITS: { id: Unit; ms: number; name: string }[] = [
 /**
  * Work this teammate asked Hotline to wake it for — or that you set here.
  *
- * A job is once (`when`, ms since epoch) or a loop (`every`, ms). Quiet
+ * A job is once (`when`, ms since epoch) or a loop (`every`, ms, or a
+ * `calendar`'s time of day and days on the desk's clock). Quiet
  * means the run's words go to the tape as thoughts, by event kind, not by
  * asking the model to stay quiet. The form to add one is closed until the
  * add row is pressed, because a teammate with nothing scheduled should
@@ -62,17 +79,21 @@ export function Schedules({
 			<h3 ref={heading} id="schedules" tabIndex={-1} className="label outline-none">
 				Schedules
 			</h3>
-			<div className="grouped">
-				{jobs.map((job) => (
-					<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} />
-				))}
-				{!adding && (
-					<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
-						<PlusIcon />
-						Add a schedule
-					</button>
-				)}
-			</div>
+			{/* With nothing scheduled and the form open, the group has no rows,
+			 * and an empty card would draw as a stray line over the form. */}
+			{(jobs.length > 0 || !adding) && (
+				<div className="grouped">
+					{jobs.map((job) => (
+						<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} />
+					))}
+					{!adding && (
+						<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
+							<PlusIcon />
+							Add a schedule
+						</button>
+					)}
+				</div>
+			)}
 			{paused && <p className="group-hint">Paused jobs wake when Background work is on again.</p>}
 			{adding && <AddJob personaId={personaId} onDone={() => setAdding(false)} />}
 		</section>
@@ -108,7 +129,7 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 		}
 	};
 
-	const kind = job.kind === "loop" && job.every !== undefined ? `Every ${durationText(job.every)}` : "Once";
+	const kind = repeatsText(job);
 	const source = job.operatorCreated ? "Added by you" : "Background work";
 	const status = !job.operatorCreated && !backgroundWork ? "Paused" : nextText(job.nextAt, now);
 
@@ -118,9 +139,26 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 				<span className="group-row-title" title={job.prompt}>
 					{firstLine(job.prompt)}
 				</span>
-				<span className="group-row-detail">
-					{kind} · {source} · {status}
+				{/* Unlike other rows' details this one wraps, so the pane's
+				 * width (320px, or less in a narrow window) cuts off none of
+				 * when it runs next. It wraps between its parts only, and the
+				 * dot between them is drawn so a line starts and ends on
+				 * words (index.css, .schedule-detail); the text read aloud or
+				 * copied keeps its " · ". */}
+				<span className="group-row-detail schedule-detail">
+					<span className="schedule-detail-parts">
+						<span>{kind}</span>
+						<span>
+							<span className="sr-only"> · </span>
+							{source}
+						</span>
+						<span>
+							<span className="sr-only"> · </span>
+							{status}
+						</span>
+					</span>
 				</span>
+				{job.kind === "loop" && job.skipped !== undefined && <span className="group-row-detail">{skippedText(job.skipped)}</span>}
 				<label className="mt-1.5 flex items-center gap-2 text-sm text-ink-2">
 					<input
 						type="checkbox"
@@ -147,10 +185,30 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 	);
 }
 
+/** How often the row says the job runs: "Weekdays at 9:00 AM", "Every 2h", "Once". */
+function repeatsText(job: ScheduledJob): string {
+	if (job.kind !== "loop") return "Once";
+	if (job.calendar !== undefined) return capitalized(calendarWords(job.calendar));
+	return job.every !== undefined ? `Every ${durationText(job.every)}` : "Once";
+}
+
+/**
+ * A loop's run skipped for starting over two hours late, as the day and time
+ * it was due on this computer's clock: "Skipped Fri 8:30 AM, over 2 hours
+ * late". The desk keeps it on the job until the loop next runs.
+ */
+function skippedText(skipped: SkippedRun): string {
+	return `Skipped ${weekday.format(new Date(skipped.slot))} ${timeOfDay(skipped.slot)}, over 2 hours late`;
+}
+
+const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+
 function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
-	const [kind, setKind] = useState<ScheduleKind>("schedule");
+	const [when, setWhen] = useState<When>("once");
 	const [day, setDay] = useState(() => defaultWhen().day);
 	const [time, setTime] = useState(() => defaultWhen().time);
+	const [days, setDays] = useState<CalendarDay[]>(WEEKDAYS);
+	const [at, setAt] = useState(() => timeText(9, 0));
 	const [count, setCount] = useState("1");
 	const [unit, setUnit] = useState<Unit>("hours");
 	const [prompt, setPrompt] = useState("");
@@ -161,7 +219,7 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 	const add = async () => {
 		const text = prompt.trim();
 		if (!text || busy) return;
-		const params = buildCreate(personaId, kind, day, time, count, unit, text, quiet);
+		const params = buildCreate(personaId, { when, day, time, days, at, count, unit }, text, quiet);
 		if (typeof params === "string") {
 			setSaid(params);
 			return;
@@ -181,14 +239,21 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 	return (
 		<div className="mt-3 flex flex-col gap-3">
 			<div className="segmented self-start" role="tablist" aria-label="When" onKeyDown={onTablistKey}>
-				<button type="button" role="tab" className="segment" aria-selected={kind === "schedule"} onClick={() => setKind("schedule")}>
-					Once
-				</button>
-				<button type="button" role="tab" className="segment" aria-selected={kind === "loop"} onClick={() => setKind("loop")}>
-					Repeating
-				</button>
+				{WHENS.map((choice) => (
+					<button
+						key={choice.id}
+						type="button"
+						role="tab"
+						className="segment"
+						aria-selected={when === choice.id}
+						onClick={() => setWhen(choice.id)}
+					>
+						{choice.name}
+					</button>
+				))}
 			</div>
-			{kind === "schedule" ? (
+			{when === "days" && <OnDays days={days} at={at} onDays={setDays} onAt={setAt} />}
+			{when === "once" && (
 				<div>
 					<label className="label" htmlFor="job-time">
 						At
@@ -216,7 +281,8 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 						/>
 					</div>
 				</div>
-			) : (
+			)}
+			{when === "every" && (
 				<div>
 					<label className="label" htmlFor="job-every">
 						Every
@@ -271,7 +337,12 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 				<button type="button" className="control btn-quiet" disabled={busy} onClick={onDone}>
 					Cancel
 				</button>
-				<button type="button" className="control btn" disabled={busy || prompt.trim() === ""} onClick={() => void add()}>
+				<button
+					type="button"
+					className="control btn"
+					disabled={busy || prompt.trim() === "" || (when === "days" && days.length === 0)}
+					onClick={() => void add()}
+				>
 					{busy ? "Scheduling…" : "Add schedule"}
 				</button>
 			</div>
@@ -279,37 +350,121 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 	);
 }
 
-function buildCreate(
-	personaId: string,
-	kind: ScheduleKind,
-	day: string,
-	timeRaw: string,
-	countRaw: string,
-	unit: Unit,
-	prompt: string,
-	quiet: boolean,
-): { personaId: string; kind: ScheduleKind; when?: number; every?: number; prompt: string; quiet?: boolean } | string {
+/** What the form says about when the job runs, as its fields hold it. */
+type Timing = { when: When; day: string; time: string; days: CalendarDay[]; at: string; count: string; unit: Unit };
+
+/** The `schedule.create` the form asks for, or what is wrong with it, in the words the form shows. */
+function buildCreate(personaId: string, timing: Timing, prompt: string, quiet: boolean): Create | string {
 	const quietField = quiet ? { quiet: true as const } : {};
-	if (kind === "schedule") {
-		const at = parseTime(timeRaw);
-		if (at === null) return "Type a time like 9:30, 14:00 or 2pm.";
-		const [year, month, date] = day.split("-").map(Number);
+	if (timing.when === "once") {
+		const at = parseTime(timing.time);
+		if (at === null) return TIME_HINT;
+		const [year, month, date] = timing.day.split("-").map(Number);
 		const when = new Date(year ?? NaN, (month ?? NaN) - 1, date, at.hours, at.minutes).getTime();
 		if (!Number.isFinite(when)) return "Pick a day.";
 		const wait = when - Date.now();
 		if (wait < MIN_WAIT || wait > MAX_AHEAD) {
 			return "A one-shot has to be between a second and 30 days from now.";
 		}
-		return { personaId, kind, when, prompt, ...quietField };
+		return { personaId, kind: "schedule", when, prompt, ...quietField };
 	}
-	const count = Number(countRaw);
+	if (timing.when === "days") {
+		const at = calendarAt(timing.at);
+		if (at === null) return TIME_HINT;
+		if (timing.days.length === 0) return NO_DAYS;
+		return { personaId, kind: "loop", at, days: timing.days, prompt, ...quietField };
+	}
+	const count = Number(timing.count);
 	if (!Number.isInteger(count) || count < 1) return "Every needs a whole number of intervals.";
-	const step = UNITS.find((one) => one.id === unit)?.ms ?? HOUR;
+	const step = UNITS.find((one) => one.id === timing.unit)?.ms ?? HOUR;
 	const every = count * step;
 	if (every < MIN_LOOP || every > MAX_LOOP) {
 		return "A loop has to be between 15 seconds and 7 days.";
 	}
-	return { personaId, kind, every, prompt, ...quietField };
+	return { personaId, kind: "loop", every, prompt, ...quietField };
+}
+
+const TIME_HINT = "Type a time like 9:30, 14:00 or 2pm.";
+const NO_DAYS = "Pick at least one day.";
+
+/**
+ * The days and time of a loop on chosen days: a toggle for each day of the
+ * week and a typed time, then the choice read back in the words its row in
+ * the list will use. With no day on, that line says to pick one instead.
+ */
+function OnDays({
+	days,
+	at,
+	onDays,
+	onAt,
+}: {
+	days: CalendarDay[];
+	at: string;
+	onDays(days: CalendarDay[]): void;
+	onAt(at: string): void;
+}) {
+	const toggle = (day: CalendarDay) => {
+		const next = days.includes(day) ? days.filter((one) => one !== day) : [...days, day];
+		onDays(WEEK.filter((one) => next.includes(one)));
+	};
+	const kept = calendarAt(at);
+	const said =
+		days.length === 0
+			? NO_DAYS
+			: kept === null
+				? TIME_HINT
+				: `${capitalized(calendarWords({ at: kept, days }))}, on this computer’s clock.`;
+	return (
+		<>
+			<div>
+				<span className="label" id="job-days">
+					Days
+				</span>
+				<fieldset className="day-toggles" aria-labelledby="job-days">
+					{WEEK.map((day) => (
+						<button key={day} type="button" className="day-toggle" aria-pressed={days.includes(day)} onClick={() => toggle(day)}>
+							{DAY_NAMES[day][0]}
+						</button>
+					))}
+				</fieldset>
+			</div>
+			<div>
+				<label className="label" htmlFor="job-at">
+					At
+				</label>
+				{/* Typed, as Once's time is: no native time field, for the
+				 * WebKitGTK reason Once's day menu gives. */}
+				<input
+					id="job-at"
+					type="text"
+					inputMode="text"
+					className="field w-28"
+					placeholder="9:30, 14:00, 2pm"
+					aria-describedby="job-days-said"
+					value={at}
+					onChange={(event) => onAt(event.target.value)}
+					onBlur={() => {
+						const parsed = parseTime(at);
+						if (parsed !== null) onAt(timeText(parsed.hours, parsed.minutes));
+					}}
+				/>
+				<p id="job-days-said" className="hint" aria-live="polite">
+					{said}
+				</p>
+			</div>
+		</>
+	);
+}
+
+/** A typed time as a calendar keeps it, `09:00` on a 24-hour clock, or null when it is not a time. */
+function calendarAt(raw: string): string | null {
+	const parsed = parseTime(raw);
+	if (parsed === null) return null;
+	return `${String(parsed.hours).padStart(2, "0")}:${String(parsed.minutes).padStart(2, "0")}`;
+}
+
+function capitalized(words: string): string {
+	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** An hour from now, on the minute. */

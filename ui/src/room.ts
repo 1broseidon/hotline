@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { ScheduledJob } from "./generated/contract";
+import type { Calendar, CalendarDay, ScheduledJob } from "./generated/contract";
 import { mcpServersFrom, type McpServer } from "./mcp";
 import { activeDeskId, wireFor } from "./desks";
 
@@ -29,6 +29,7 @@ type RoomItem = {
 	personaId?: string;
 	when?: number;
 	every?: number;
+	calendar?: unknown;
 	prompt?: string;
 	quiet?: boolean;
 	operatorCreated?: boolean;
@@ -308,7 +309,8 @@ function takeJobs(items: RoomItem[]): ScheduledJob[] {
 
 /**
  * The event's `kind` is always `schedule`. A loop is the job that carries
- * `every`; a one-shot is everything else that still reads as a job. A
+ * `every`, a calendar loop included, which carries a day there beside its
+ * `calendar`; a one-shot is everything else that still reads as a job. A
  * half-written line is skipped, the same as a teammate that does not read
  * as a persona, and so is a job that has ended: it fires no more.
  */
@@ -320,18 +322,32 @@ function jobFromEvent(item: RoomItem): ScheduledJob | null {
 	if (typeof item.nextAt !== "number" || typeof item.createdAt !== "number") return null;
 	const every = typeof item.every === "number" ? item.every : undefined;
 	const when = typeof item.when === "number" ? item.when : undefined;
+	const calendar = every !== undefined ? calendarFrom(item.calendar) : null;
 	return {
 		id: item.id,
 		personaId: item.personaId,
 		kind: every !== undefined ? "loop" : "schedule",
 		...(when !== undefined ? { when } : {}),
 		...(every !== undefined ? { every } : {}),
+		...(calendar !== null ? { calendar } : {}),
 		prompt: item.prompt,
 		...(item.quiet === true ? { quiet: true } : {}),
 		operatorCreated: item.operatorCreated === true,
 		nextAt: item.nextAt,
 		createdAt: item.createdAt,
 	};
+}
+
+const CALENDAR_DAYS: readonly CalendarDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/** A calendar as the core writes it, or null for one this window cannot read: its loop is then read by its `every`. */
+function calendarFrom(value: unknown): Calendar | null {
+	if (typeof value !== "object" || value === null) return null;
+	const { at, days } = value as { at?: unknown; days?: unknown };
+	if (typeof at !== "string" || !/^\d{2}:\d{2}$/.test(at)) return null;
+	if (!Array.isArray(days) || days.length === 0) return null;
+	if (!days.every((day): day is CalendarDay => CALENDAR_DAYS.includes(day as CalendarDay))) return null;
+	return { at, days };
 }
 
 function sortJobs(jobs: ScheduledJob[]): ScheduledJob[] {

@@ -122,16 +122,19 @@ fn requests_saved_with_the_old_end_flags_still_load() {
         for (key, value) in extra.as_object().unwrap() {
             record[key] = value.clone();
         }
-        let request: Request = serde_json::from_value(record).expect("an old record loads");
+        let record: Record = serde_json::from_value(record).expect("an old record loads");
+        assert!(record.newer.is_empty(), "nothing in it is a newer build's");
+        let request = Request::from(record);
         // And what is saved is read back the same.
-        let again: Request =
-            serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        let again = Request::from(
+            serde_json::from_value::<Record>(serde_json::to_value(&request).unwrap()).unwrap(),
+        );
         assert_eq!(again.phase(), request.phase());
         request
     };
     let owing = base(json!({"owed_to_thread": true, "reply_thread": "side"}));
     assert!(Room::owes_answer(&owing));
-    let told = base(json!({"owedToThread": false, "returned": true}));
+    let told = base(json!({"owed_to_thread": false, "returned": true}));
     assert!(!Room::owes_answer(&told));
     let person = base(json!({"stopped_by_person": true, "released": true}));
     assert_eq!(person.phase(), Phase::Stopped);

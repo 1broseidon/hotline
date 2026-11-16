@@ -103,6 +103,11 @@ pub(crate) struct Scripted {
     /// says its offer changed.
     pub(super) looks: Arc<Mutex<Vec<String>>>,
     pub(super) look_changes: Arc<std::sync::atomic::AtomicBool>,
+    /// What each ask says the agent did with Hotline's tools, in order, for
+    /// a script standing in for a child; everything once these run out.
+    seen: Arc<Mutex<std::collections::VecDeque<crate::driver::ToolsSeen>>>,
+    /// How many prompts had been sent at each such ask.
+    pub(super) prompts_at_seen: Arc<Mutex<Vec<usize>>>,
 }
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
@@ -142,7 +147,15 @@ impl Scripted {
             catalog: Arc::default(),
             looks: Arc::default(),
             look_changes: Arc::default(),
+            seen: Arc::default(),
+            prompts_at_seen: Arc::default(),
         }
+    }
+
+    /// A child that says it did this with Hotline's tools, one ask each.
+    pub(super) fn seeing(self, seen: &[crate::driver::ToolsSeen]) -> Self {
+        lock(&self.seen).extend(seen);
+        self
     }
 
     /// An agent whose start-up waits for a permit, as a child's does while its
@@ -235,6 +248,13 @@ impl Scripted {
 
 #[async_trait]
 impl Driver for Scripted {
+    fn hotline_tools_seen(&self) -> crate::driver::ToolsSeen {
+        lock(&self.prompts_at_seen).push(lock(&self.prompts).len());
+        lock(&self.seen)
+            .pop_front()
+            .unwrap_or(crate::driver::ToolsSeen::IN_PROCESS)
+    }
+
     async fn start(&self, _persona: &Persona) -> Result<DriverInfo, String> {
         if let Some(gate) = &self.start_gate {
             gate.acquire().await.expect("the gate closed").forget();

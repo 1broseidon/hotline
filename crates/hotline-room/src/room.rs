@@ -401,7 +401,8 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
 ///
 /// The event's `kind` is always `schedule` — that is the stream's kind, and
 /// overwriting a job's own `kind` is what lets a loop share the kind with a
-/// one-shot. A loop is recovered from `every` being present. An event that
+/// one-shot. A loop is recovered from `every` being present, a calendar loop
+/// included, which carries a daily `every` beside its `calendar`. An event that
 /// does not read as a job is skipped rather than fatal, the same as a
 /// teammate that does not read as a persona.
 pub fn schedules(log: &Log) -> Vec<ScheduledJob> {
@@ -497,6 +498,11 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
         },
         when: event.get("when").and_then(Value::as_i64),
         every: event.get("every").and_then(Value::as_i64),
+        // A calendar this build cannot read, written by a newer one, leaves
+        // the loop its daily `every`: a loop that still runs, once a day.
+        calendar: event
+            .get("calendar")
+            .and_then(|calendar| serde_json::from_value(calendar.clone()).ok()),
         prompt,
         quiet: event
             .get("quiet")
@@ -527,6 +533,9 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
             .and_then(|post| serde_json::from_value(post.clone()).ok()),
         ended_at: event.get("endedAt").and_then(Value::as_i64),
         final_firing: event.get("finalFiring").and_then(Value::as_i64),
+        skipped: event
+            .get("skipped")
+            .and_then(|skipped| serde_json::from_value(skipped.clone()).ok()),
     })
 }
 
@@ -1177,6 +1186,7 @@ mod tests {
             kind,
             when: (kind == ScheduleKind::Schedule).then_some(1_700_000_100_000),
             every: (kind == ScheduleKind::Loop).then_some(15_000),
+            calendar: None,
             prompt: prompt.to_string(),
             quiet: quiet.then_some(true),
             reminder: None,
@@ -1190,6 +1200,7 @@ mod tests {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            skipped: None,
         }
     }
 
@@ -1241,6 +1252,49 @@ mod tests {
         assert_eq!(log.load(&StreamId::Room)[0]["kind"], "schedule");
         assert_eq!(log.load(&StreamId::Room)[0]["every"], 15_000);
         assert_eq!(log.load(&StreamId::Room)[0]["quiet"], true);
+    }
+
+    /// A calendar loop is kept with its time and days, and with a day as its
+    /// `every`: a build that knows only `every` reads the same line, the
+    /// calendar it does not know left aside, as a loop that runs once a day.
+    /// A calendar written in a shape this build cannot read does the same.
+    #[test]
+    fn a_calendar_loop_reads_as_a_daily_loop_to_a_build_without_calendars() {
+        let log = scratch("schedule-calendar");
+        let mut weekdays = job(
+            "job-cal",
+            "ada",
+            ScheduleKind::Loop,
+            "read the alerts",
+            false,
+        );
+        weekdays.every = Some(86_400_000);
+        weekdays.calendar = Some(hotline_contract::Calendar {
+            at: "09:00".to_string(),
+            days: vec![
+                hotline_contract::CalendarDay::Mon,
+                hotline_contract::CalendarDay::Fri,
+            ],
+        });
+        append_schedule(&log, &weekdays).unwrap();
+        assert_eq!(schedules(&log), vec![weekdays]);
+        let line = log.load(&StreamId::Room).remove(0);
+        assert_eq!(
+            line["calendar"],
+            json!({"at": "09:00", "days": ["mon", "fri"]})
+        );
+        assert_eq!(line["every"], 86_400_000);
+
+        let mut older = line.clone();
+        older.as_object_mut().unwrap().remove("calendar");
+        let mut unreadable = line;
+        unreadable["calendar"] = json!({"at": "09:00", "days": ["someday"]});
+        for read in [older, unreadable] {
+            let daily = jobs(&[read]).remove(0);
+            assert_eq!(daily.kind, ScheduleKind::Loop);
+            assert_eq!(daily.every, Some(86_400_000));
+            assert_eq!(daily.calendar, None);
+        }
     }
 
     /// An ended job no longer fires, and is still listed: its thread stays

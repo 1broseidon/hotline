@@ -285,6 +285,20 @@ function letGo(): void {
 	}
 }
 
+/**
+ * Forgets every capture's URL and copy, and the line waiting for copies,
+ * for tests: these are kept for the life of the page, and every test file
+ * shares one page's modules, so the captures another file left behind
+ * would count against what is kept and be let go in the next one.
+ */
+export function forgetCaptures() {
+	smalls.clear();
+	unmade.clear();
+	line.length = 0;
+	making = false;
+	frames.clear();
+}
+
 /** The bytes of a `data:` URL, or null for anything else, which is then drawn as it came. */
 function blobOf(dataUrl: string): Blob | null {
 	const comma = dataUrl.indexOf(",");

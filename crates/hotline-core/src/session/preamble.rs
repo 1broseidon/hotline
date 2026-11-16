@@ -14,6 +14,20 @@ pub(crate) fn preamble(
     stored: &[SharedSecret],
     desk_browser: bool,
 ) -> String {
+    preamble_for(persona, reach, wake, stored, desk_browser, &|_| true)
+}
+
+/// [`preamble`] for an agent served only the Hotline tools `has` says it
+/// has, a job's: what it is told of Hotline's tools names none it lacks.
+pub(crate) fn preamble_for(
+    persona: &Persona,
+    reach: Option<Reach>,
+    wake: Option<String>,
+    stored: &[SharedSecret],
+    desk_browser: bool,
+    has: &dyn Fn(&str) -> bool,
+) -> String {
+    let open_link = has(crate::mcp::server::OPEN_LINK);
     let reach_sentence = format!(
         "{}{}",
         reach_sentence(reach),
@@ -44,7 +58,11 @@ pub(crate) fn preamble(
         // here, not left to the tool listing: an agent whose tools are found
         // by search reads this first, and "open" with no browser named must
         // land in its own.
-        "\n\nYou have a web browser of your own on the person's desk, the `browser` tool: it keeps its own sign-ins, the person can watch it and take it over, and it is where you open pages. When the person asks you to open a page or a site without saying whose browser, open it there, in yours, and say it is open in your browser; only their own words for their browser (\"in my browser\", \"in Brave\") mean `open_link`. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in in your browser themselves. Never ask for the person's passwords in chat."
+        if open_link {
+            "\n\nYou have a web browser of your own on the person's desk, the `browser` tool: it keeps its own sign-ins, the person can watch it and take it over, and it is where you open pages. When the person asks you to open a page or a site without saying whose browser, open it there, in yours, and say it is open in your browser; only their own words for their browser (\"in my browser\", \"in Brave\") mean `open_link`. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in in your browser themselves. Never ask for the person's passwords in chat."
+        } else {
+            "\n\nYou have a web browser of your own on the person's desk, the `browser` tool: it keeps its own sign-ins, the person can watch it and take it over, and it is where you open pages. When the person asks you to open a page or a site, open it there, in yours, and say it is open in your browser. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in in your browser themselves. Never ask for the person's passwords in chat."
+        }
     } else {
         ""
     };
@@ -114,9 +132,10 @@ pub(crate) fn preamble(
     // cannot drive.
     let skills = skills_index(persona);
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\n{CLOCK}\n\n{}\n\n{skills}\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\n{}\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,
-        crate::mcp::server::HOW_TO_USE,
+        clock(open_link),
+        crate::mcp::server::how_to_use(has),
         pacing::HOUSE_STYLE,
     );
     match wake {
@@ -214,5 +233,19 @@ pub(super) fn skills_index(persona: &Persona) -> String {
     crate::skills::index(&listed)
 }
 
-/// What the preamble says in place of a date: the clock is on the lines.
-pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from. `desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser', or in one they name, means opening it here with `open_link`; a page they ask you to open without saying whose browser, and whatever you open to read or work on yourself, goes in your own browser if you have one, never theirs. `phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";
+/// What the preamble says in place of a date: the clock is on the lines,
+/// and where the person wrote from. An agent without `open_link`, a job's,
+/// is not told it can open a page in the person's own browser.
+pub(crate) fn clock(open_link: bool) -> String {
+    let desktop = if open_link {
+        CLOCK_DESKTOP
+    } else {
+        CLOCK_DESKTOP_WITHOUT_OPEN_LINK
+    };
+    format!("{CLOCK_OPENS} {desktop} {CLOCK_PHONE}")
+}
+
+const CLOCK_OPENS: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from.";
+const CLOCK_DESKTOP: &str = "`desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser', or in one they name, means opening it here with `open_link`; a page they ask you to open without saying whose browser, and whatever you open to read or work on yourself, goes in your own browser if you have one, never theirs.";
+const CLOCK_DESKTOP_WITHOUT_OPEN_LINK: &str = "`desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, and nothing you have opens a page in them; a page they ask you to open, and whatever you open to read or work on yourself, goes in your own browser if you have one.";
+const CLOCK_PHONE: &str = "`phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";

@@ -25,7 +25,7 @@ conversation:
 | `web_search` | Searches the web. See [Web search](#web-search). |
 | `generate_image`, `set_avatar` | Draws a picture, and sets its own profile picture. See [Pictures](/docs/use/images/). |
 | `search_thread`, `list_chapters`, `new_chapter`, `resume_chapter` | Searches its own history, including earlier chapters, side threads and calls, and opens or reopens a chapter. |
-| `schedule`, `loop`, `list_schedules`, `cancel_schedule` | Wakes itself later, or on an interval, with **Background work** on. See [Schedules](/docs/setup/schedules/). |
+| `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `update_schedule` | Wakes itself later, on chosen days or on an interval, with **Background work** on, and makes one of its jobs quiet or not when you ask. See [Schedules](/docs/setup/schedules/). |
 | `computer_status` | Says whether its computer is ready or still downloading. |
 
 In a [side thread](/docs/use/side-threads/), or a work thread a colleague

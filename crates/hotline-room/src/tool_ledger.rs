@@ -199,6 +199,26 @@ pub fn mark_verified(
     }
 }
 
+/// Say on a supplier's rows still `declared` that the agent connected to
+/// it, so one that connected and never listed its tools reads as that and
+/// not as one that never came. Rows already `verified` or `absent` stay.
+pub fn note_connected(persona_id: &str, source: ToolSourceKind, origin: &str, reason: &str) {
+    let mut held = store();
+    let Some(ledgers) = held.as_mut() else {
+        return;
+    };
+    let Some(ledger) = ledgers.get_mut(persona_id) else {
+        return;
+    };
+    let at = now_ms();
+    for row in &mut ledger.rows {
+        if row.source == source && row.origin == origin && row.state == ToolState::Declared {
+            row.reason = reason.to_string();
+            row.at = at;
+        }
+    }
+}
+
 /// Flip a supplier's rows to absent with one cause — a server that went
 /// away mid-session.
 pub fn mark_absent(persona_id: &str, source: ToolSourceKind, origin: &str, reason: &str) {

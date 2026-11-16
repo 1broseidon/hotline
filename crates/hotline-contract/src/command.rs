@@ -727,8 +727,10 @@ pub enum Command {
     #[serde(rename = "teammate.tools")]
     TeammateTools { persona_id: String },
     /// Times are milliseconds. `when` is a one-shot's fire, milliseconds
-    /// since epoch; `every` is a loop's interval. The parsers that take a
-    /// string live with the scheduler, for the tool that will speak them.
+    /// since epoch; `every` is a loop's interval. A loop at a time of day
+    /// gives `at` (`09:00`, 24-hour, on the desk's clock) and `days`
+    /// (`["mon", "wed"]`, or `["weekdays"]`; daily when left out) instead
+    /// of `every`, read by the same code as the teammate's `loop` tool.
     /// `reminder` makes it a plain reminder: the prompt is posted to the chat
     /// when it fires, and no work is done.
     #[serde(rename = "schedule.create")]
@@ -737,6 +739,10 @@ pub enum Command {
         kind: ScheduleKind,
         when: Option<i64>,
         every: Option<i64>,
+        #[serde(default)]
+        at: Option<String>,
+        #[serde(default)]
+        days: Option<Vec<String>>,
         prompt: String,
         quiet: Option<bool>,
         #[serde(default)]

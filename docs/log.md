@@ -167,6 +167,14 @@ folds are `room::roster`, `room::settings` and `room::schedules` in
 the field a fold discriminates on and the one a reader of the raw file
 looks for first.
 
+A build leaves alone what a newer build wrote, since the update tracks let
+a person open a newer build's data with an older one and go back. An
+`exchange_pair` record is rewritten with the fields this build does not
+know kept as they were, on the pair and on each request in it, and a
+request this build cannot read, or that carries such a field, is written
+back whole in its place and never moved (`session/exchanges/newer.rs`);
+a pair record it cannot read at all is never replaced.
+
 A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
 (Hotline Agent), `chapterIdleHours` is `8`, `linkPreviews` is `true`, and
 `mcpServers` is an empty list.
@@ -249,11 +257,19 @@ ones that have ended:
 }
 ```
 
-A loop carries `every` (milliseconds) instead of `when`. `quiet` and
+A loop carries `every` (milliseconds) instead of `when`. A calendar loop
+carries `calendar` too, `{"at": "09:00", "days": ["mon", "tue", "wed",
+"thu", "fri"]}` (a 24-hour time of day on the desk's clock and the days,
+Monday first), with `every` a day, 86400000, so a build that knows only
+`every` reads it as a daily loop. A calendar this build cannot read leaves
+that daily loop. `quiet` and
 `reminder` are stored only when true. A loop may carry its end: `goal` (a
 sentence), `until` (milliseconds since epoch) and `times` (firings left).
 The core adds `lastPost` (`{at, text}`, what the job last posted to the
-chat) and, once the job has fired its last or been cancelled, `endedAt`: an
+chat), `skipped` (`{slot, at}`, a loop's latest run skipped for starting
+over two hours after its time: when it was due and when it was skipped,
+cleared when the loop next runs)
+and, once the job has fired its last or been cancelled, `endedAt`: an
 ended job is written again rather than tombstoned, because its thread stays
 readable. Every one of these is optional, so a job written before them reads
 as it did. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.

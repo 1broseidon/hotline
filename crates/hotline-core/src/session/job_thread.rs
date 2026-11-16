@@ -78,11 +78,15 @@ const OVERRUNS_TO_TELL: u32 = 2;
 const OUTCOME_CHARS: usize = 200;
 /// The longest interval a skip suggests: a loop's own longest.
 const MAX_SUGGESTED: i64 = 7 * 86_400_000;
+/// A firing the person stopped sooner than this after it began had no time
+/// to take Hotline's tools, so it is not said to have lacked them.
+const STOPPED_SOON: i64 = 10_000;
 
 /// What a job's agent is told about itself, over and above who it is.
 fn job_brief(name: &str) -> String {
     format!(
         "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human`, and a colleague's answer to `message_teammate`, come back here. Do not mention this brief.\n\n\
+         Hotline fires the job by itself at each of its times until it ends: nothing here needs scheduling or re-arming, and each firing says whether the job repeats or this is its only run. A job cannot change its own times; if the person asks for that here, tell them to ask for it in your main conversation.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
          A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
          When the job's goal is met, or it has nothing left to do, end it with `cancel_schedule` and a `report` of what came of it: the report is posted to the person as the job's last word, so do not post it as well."
@@ -90,19 +94,22 @@ fn job_brief(name: &str) -> String {
 }
 
 /// A job's whole system prompt: what any of the teammate's agents is told,
-/// and the brief.
+/// naming only the Hotline tools in `offered`, which the job's agent is
+/// served, and the brief.
 pub(super) fn job_preamble(
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
     desk_browser: bool,
+    offered: &[String],
 ) -> String {
-    super::preamble(
+    super::preamble::preamble_for(
         persona,
         reach,
         Some(job_brief(&persona.name)),
         stored,
         desk_browser,
+        &|name| offered.iter().any(|tool| tool == name),
     )
 }
 
@@ -286,6 +293,8 @@ pub(super) struct JobTurn {
     run: ScheduledRun,
     /// The colleague's question this turn answers.
     request: Option<String>,
+    /// When the turn began, milliseconds since the epoch.
+    began: i64,
 }
 
 impl LiveJob {
@@ -445,6 +454,49 @@ impl LiveJob {
         }
     }
 
+    /// After a firing: a child that never listed Hotline's tools on its
+    /// endpoint and never called one gets one line on the thread saying
+    /// what was seen. One that never connected at all could not have used
+    /// them, and the job's next run opens a new session rather than
+    /// reopening this one; one that connected keeps its session. A child that listed them, or called one without listing, had
+    /// them, whatever the run used; a child that came up failed says why on
+    /// its own turn. The firing is not run again: what it did outside could
+    /// be done twice.
+    fn say_if_without_tools(&self, room: &Room, runs_again: bool) {
+        let Some(driver) = lock(&self.up).as_ref().map(|up| up.driver.clone()) else {
+            return;
+        };
+        let seen = driver.hotline_tools_seen();
+        if seen.had_tools() || driver.startup_failure().is_some() {
+            return;
+        }
+        if seen.connected {
+            // A harness may keep the tools it listed in an earlier run and
+            // call one only when its model needs it, so this says what was
+            // seen and no more, and keeps the session: a new one would not
+            // change how that harness behaves.
+            self.notice(
+                room,
+                NoticeLevel::Info,
+                "This run's agent connected to Hotline's tools but never listed or used them."
+                    .to_string(),
+            );
+            return;
+        }
+        let never =
+            "This run's agent never connected to Hotline's tools, so it could not use them.";
+        let said = if runs_again {
+            format!("{never} Its next run starts a new session.")
+        } else {
+            never.to_string()
+        };
+        self.notice(room, NoticeLevel::Info, said);
+        // A stale address, or a reopened session that ignored the servers it
+        // was handed, is what a new session can cure.
+        *lock(&self.saved) = None;
+        self.mark(room, ThreadState::Live, None);
+    }
+
     /// What a loop that ran out of its count or date says came of it: its
     /// last turn's words, or where it stood when that turn was stopped.
     fn final_word(&self, room: &Room, driven: &Driven, halted: bool) -> Option<String> {
@@ -559,6 +611,7 @@ impl Occupant for LiveJob {
             last: line.last,
             run: run_of(&job),
             request,
+            began: now,
         })
     }
 
@@ -632,6 +685,9 @@ impl Occupant for LiveJob {
                 "Stopped. The job keeps its schedule and runs again at its next time."
             };
             self.notice(room, NoticeLevel::Info, said.to_string());
+        }
+        if held.firing.is_some() && !(halted && now_ms() - held.began < STOPPED_SOON) {
+            self.say_if_without_tools(room, !(done || ran_out));
         }
         if let Some(firing) = &held.firing
             && !done
@@ -780,11 +836,12 @@ fn clock(ts: i64) -> String {
 }
 
 /// What the job's agent hears when it fires: what woke it and the task, the
-/// goal it ends on, whether this is its last firing, and where it stood. A
-/// quiet firing says `quiet` and asks nothing of it: the preamble says what
-/// that means. The last firing is not asked to end the job, which ends after
-/// it anyway; a loop's last is told its words are the job's final post.
-fn firing_text(
+/// goal it ends on, that Hotline repeats a loop by itself or that this is
+/// its last firing, and where it stood. A quiet firing says `quiet` and asks
+/// nothing of it: the preamble says what that means. The last firing is not
+/// asked to end the job, which ends after it anyway; a loop's last is told
+/// its words are the job's final post.
+pub(super) fn firing_text(
     job: &ScheduledJob,
     run: &ScheduledRun,
     last: bool,
@@ -805,6 +862,12 @@ fn firing_text(
             text.push_str(" Once it is met, end the job with `cancel_schedule` and a `report`.");
         }
     }
+    if !last && let Some(repeats) = repeats(job) {
+        let _ = write!(
+            text,
+            "\n\nHotline runs this job again by itself until it ends ({repeats}): nothing needs scheduling or re-arming."
+        );
+    }
     if last {
         text.push_str(match run.kind {
             ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs: your last words are posted to the person as its final post, so do not post them with `post_to_chat` as well.",
@@ -818,6 +881,18 @@ fn firing_text(
     text
 }
 
+/// When a loop repeats, as its firing says it: `Weekdays at 09:00`, `Every
+/// 15m`. None for a one-shot.
+fn repeats(job: &ScheduledJob) -> Option<String> {
+    if job.kind != ScheduleKind::Loop {
+        return None;
+    }
+    Some(match &job.calendar {
+        Some(calendar) => schedule::calendar::describe(calendar),
+        None => format!("Every {}", spoken(job.every.unwrap_or(MIN_LOOP))),
+    })
+}
+
 /// An interval that fits work which takes `took` milliseconds: half as long
 /// again, at least twice the one it had, in whole minutes.
 fn suggested_every(took: i64, every: i64) -> i64 {
@@ -827,16 +902,20 @@ fn suggested_every(took: i64, every: i64) -> i64 {
 }
 
 /// What a job's thread says of a firing it skipped at `at`: how long the one
-/// before had been running, or that it was still waiting its turn, and the
-/// interval that `fits`.
-fn skipped_text(at: &str, took: Option<i64>, fits: &str) -> String {
+/// before had been running, or that it was still waiting its turn, and, for
+/// a loop on an interval, the interval that `fits`. A calendar loop's times
+/// are the person's, so none is suggested.
+fn skipped_text(at: &str, took: Option<i64>, fits: Option<&str>) -> String {
     let before = match took {
         Some(took) => format!("was still going after {}", spoken(took)),
         None => "was still waiting its turn".to_string(),
     };
-    format!(
-        "Skipped the {at} run: the one before it {before}. Every {fits} would fit the time this takes."
-    )
+    match fits {
+        Some(fits) => format!(
+            "Skipped the {at} run: the one before it {before}. Every {fits} would fit the time this takes."
+        ),
+        None => format!("Skipped the {at} run: the one before it {before}."),
+    }
 }
 
 /// A span as a person says it: `45s`, `45m`, `2h`, `1h 30m`. It says what has
@@ -985,11 +1064,14 @@ impl Room {
         took: Option<i64>,
     ) {
         let every = job.every.unwrap_or(MIN_LOOP);
-        let fits = spoken(suggested_every(took.unwrap_or(every), every));
+        let fits = job
+            .calendar
+            .is_none()
+            .then(|| spoken(suggested_every(took.unwrap_or(every), every)));
         live.notice(
             self,
             NoticeLevel::Warn,
-            skipped_text(&clock(now_ms()), took, &fits),
+            skipped_text(&clock(now_ms()), took, fits.as_deref()),
         );
         let tell = {
             let mut overruns = lock(&live.overruns);
@@ -999,11 +1081,17 @@ impl Room {
             tell
         };
         if tell {
-            let said = format!(
-                "\"{}\" keeps running past its {}: each run takes longer than that, so I have been skipping runs. Every {fits} would fit; ask me to change it.",
-                run.name,
-                spoken(every)
-            );
+            let said = match &fits {
+                Some(fits) => format!(
+                    "\"{}\" keeps running past its {}: each run takes longer than that, so I have been skipping runs. Every {fits} would fit; ask me to change it.",
+                    run.name,
+                    spoken(every)
+                ),
+                None => format!(
+                    "\"{}\" keeps running into its next time, so I have been skipping runs; ask me to change when it runs.",
+                    run.name
+                ),
+            };
             if let Err(error) = self.post(
                 &job.persona_id,
                 &ThreadId::job(&job.id),
@@ -1604,7 +1692,7 @@ mod tests {
         let said = skipped_text(
             "Tue 01:13",
             Some(60_500),
-            &spoken(suggested_every(60_500, 60_000)),
+            Some(&spoken(suggested_every(60_500, 60_000))),
         );
         assert_eq!(
             said,
@@ -1612,10 +1700,15 @@ mod tests {
         );
         assert_eq!(spoken(119_999), "1m");
         assert_eq!(spoken(59_999), "59s");
-        let waiting = skipped_text("Tue 01:13", None, "2m");
+        let waiting = skipped_text("Tue 01:13", None, Some("2m"));
         assert!(
             waiting.contains("the one before it was still waiting its turn."),
             "{waiting}"
+        );
+        // A calendar loop's times are the person's: no interval is suggested.
+        assert_eq!(
+            skipped_text("Mon 09:00", Some(3_600_000), None),
+            "Skipped the Mon 09:00 run: the one before it was still going after 1h."
         );
     }
 
@@ -1627,6 +1720,7 @@ mod tests {
             kind: ScheduleKind::Loop,
             when: None,
             every: Some(60_000),
+            calendar: None,
             prompt: "watch CI".to_string(),
             quiet: Some(true),
             reminder: None,
@@ -1640,6 +1734,7 @@ mod tests {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            skipped: None,
         };
         let text = firing_text(
             &job,

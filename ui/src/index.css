@@ -5724,6 +5724,16 @@
 .tape-column {
 	position: relative;
 }
+/* In the right-hand pane a work thread's conversation hangs under its
+ * Conversation heading, so a short one starts there instead of resting on
+ * the composer (the window's own conversation keeps `justify-end`). It only
+ * moves a column shorter than its scroller: a long one fills it either way,
+ * and following the latest line is the scroller's, not the column's. Out of
+ * the layers, as the utilities it overrides are in one. */
+.dock .tape-column {
+	justify-content: flex-start;
+	padding-top: 4px;
+}
 .tape-room {
 	position: absolute;
 	top: 0;

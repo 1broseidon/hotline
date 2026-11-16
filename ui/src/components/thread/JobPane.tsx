@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { ScheduleEntry, ThreadSummary, TranscriptEvent } from "../../generated/contract";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon } from "../../icons";
-import { type JobRun, countdown, jobRuns, scheduleWords, timeOfDay } from "../../jobRuns";
+import { type JobRun, countdown, jobRuns, postingWords, scheduleWords, timeOfDay } from "../../jobRuns";
 import { firstLine } from "../../room";
 import { useThread } from "../../tape";
 import { wire } from "../../wire";
@@ -151,7 +151,8 @@ export function JobPage({
 				title={title}
 				line={<StateLine word={ended ? "Ended" : working ? "Running now" : "Scheduled"} time={working && runs[0] !== undefined ? timeOfDay(runs[0].ts) : undefined} />}
 				facts={[
-					["Schedule", schedule],
+					// When it runs and what it posts, in one fact: a fourth row would be one too many.
+					["Schedule", job === undefined ? schedule : `${schedule} · ${postingWords(job)}`, "wraps"],
 					["Next run", ended || job === undefined ? "None" : working ? "Running" : countdown(job.nextAt - now)],
 					["Last posted", job?.lastPost === undefined ? "Nothing yet" : `${timeOfDay(job.lastPost.at)} · ${firstLine(job.lastPost.text)}`],
 				]}

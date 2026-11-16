@@ -119,8 +119,12 @@ export function SpineHead({ title, state, children, className = "" }: { title?: 
 	);
 }
 
-/** A fact of a pane: a label and its value, on one line. An empty value leaves its row out. */
-type Fact = readonly [label: string, value: string | undefined];
+/**
+ * A fact of a pane: a label and its value, on one line, or on two where
+ * every word of it counts (`wraps`: a job's schedule and what it posts). An
+ * empty value leaves its row out.
+ */
+type Fact = readonly [label: string, value: string | undefined, wraps?: "wraps"];
 type FactSlot = Fact | false | undefined;
 /** A pane's facts: three at most, so the type will not take a fourth. */
 export type FactRows = readonly [] | readonly [FactSlot] | readonly [FactSlot, FactSlot] | readonly [FactSlot, FactSlot, FactSlot];
@@ -131,14 +135,16 @@ export type FactRows = readonly [] | readonly [FactSlot] | readonly [FactSlot, F
  * say the rest).
  */
 export function Facts({ rows }: { rows: FactRows }) {
-	const shown = (rows as readonly FactSlot[]).filter((row): row is readonly [string, string] => row !== false && row !== undefined && row[1] !== undefined && row[1] !== "");
+	const shown = (rows as readonly FactSlot[]).filter((row): row is readonly [string, string, "wraps"?] => row !== false && row !== undefined && row[1] !== undefined && row[1] !== "");
 	if (shown.length === 0) return null;
 	return (
 		<dl className="spine-facts">
-			{shown.map(([label, value]) => (
+			{shown.map(([label, value, wraps]) => (
 				<div key={label}>
 					<dt>{label}</dt>
-					<dd className="selectable">{value}</dd>
+					<dd className="selectable" data-wraps={wraps !== undefined || undefined}>
+						{value}
+					</dd>
 				</div>
 			))}
 		</dl>

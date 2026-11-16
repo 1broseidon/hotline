@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { ScheduleEntry, ScheduledRun, TranscriptEvent } from "../src/generated/contract";
-import { calendarWords, countdown, jobRuns, scheduleWords } from "../src/jobRuns";
+import { calendarWords, countdown, jobRuns, postingWords, scheduleWords } from "../src/jobRuns";
 import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
@@ -98,11 +98,12 @@ describe("a job's pane", () => {
 		expect(container.querySelector(".spine-title")?.textContent).toBe("Watch CI on release/0.49.0");
 		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Running now");
 		expect(text(".spine-facts dt")).toEqual(["Schedule", "Next run", "Last posted"]);
-		expect(fact("Schedule")).toBe("every 5 min");
+		// What it posts rides on its schedule, so the facts stay three.
+		expect(fact("Schedule")).toBe("every 5 min · posts each run");
 		const { every: _every, ...once } = watch;
 		await draw({ working: false, job: { ...once, kind: "schedule", when: at(21, 0), quiet: true } });
 		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Scheduled");
-		expect(fact("Schedule")).toMatch(/^once at 9:00\s?PM$/);
+		expect(fact("Schedule")).toMatch(/^once at 9:00\s?PM · posts only what is worth posting$/);
 		expect(container.querySelectorAll(".spine-facts > div").length).toBeLessThanOrEqual(3);
 	});
 
@@ -245,6 +246,8 @@ describe("a job's runs, from its thread", () => {
 		expect(countdown(3 * 86_400_000)).toBe("3d");
 		expect(scheduleWords({ ...watch, every: 7_200_000 })).toBe("every 2 h");
 		expect(scheduleWords({ ...watch, every: 86_400_000 })).toBe("every 1 day");
+		expect(postingWords({ ...watch, quiet: false })).toBe("posts each run");
+		expect(postingWords({ ...watch, quiet: true })).toBe("posts only what is worth posting");
 	});
 
 	test("a calendar loop is said as its days and time, not the day it carries as every", () => {

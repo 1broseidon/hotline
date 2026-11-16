@@ -200,6 +200,10 @@
 		line-height: var(--text-md--line-height);
 		color: var(--ink-2);
 	}
+	/* A value whose every word counts takes a second line rather than losing its end. */
+	.spine-facts dd[data-wraps] {
+		white-space: normal;
+	}
 
 	/* -------------------------------------------------------------- sections
 	 * A section's name in the instrument face, sentence case, on a hairline

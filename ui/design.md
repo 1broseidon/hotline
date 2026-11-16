@@ -222,7 +222,10 @@ so the eye learns it once:
 - **Facts are rows**, three at most: a mono label in the annotating ink
   (4.5:1 on the pane in both themes) in an 88px column, its value on one
   line. A helper has Sent by, Model, Started; a command In, Started; a call
-  With, From, Started; a job Schedule, Next run, Last posted; a work thread
+  With, From, Started; a job Schedule (with what it posts after it, "every
+  30 min · posts each run" or "posts only what is worth posting", the one
+  value that takes a second line rather than lose its end), Next run, Last
+  posted; a work thread
   With, Started; a handoff From, To, Answers. The rest is said by the title
   and the state line. An inbox item has none: who and what ("Goldie to Huck
   · wants work done") stands at the end of its Message heading's rule, or

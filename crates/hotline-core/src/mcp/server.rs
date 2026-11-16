@@ -1,6 +1,6 @@
 //! Hotline's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Twenty-nine tools ([`TOOL_NAMES`]): over its own conversation, ones that
+//! Thirty tools ([`TOOL_NAMES`]): over its own conversation, ones that
 //! reach the person (asking and withdrawing the ask, reacting, saying what it
 //! is on and what came of it, posting to the chat, sending a file, opening a
 //! link, making an image), one that sets its own picture, ones over the
@@ -37,7 +37,7 @@ use crate::session::browser::BrowserAnswer;
 use crate::session::files::Source;
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;
-use crate::session::schedule::{self, calendar};
+use crate::session::schedule::{self, background_work_allowed, calendar};
 use crate::session::{
     Brief, Ends, Report, Room, Trigger, ledger, now_ms, parse_duration, parse_when,
 };
@@ -98,6 +98,7 @@ const SCHEDULE: &str = "schedule";
 const LOOP: &str = "loop";
 const LIST_SCHEDULES: &str = "list_schedules";
 const CANCEL_SCHEDULE: &str = "cancel_schedule";
+const UPDATE_SCHEDULE: &str = "update_schedule";
 const COMPUTER_STATUS: &str = "computer_status";
 const WEB_SEARCH: &str = "web_search";
 const ARCHIVE_THREAD: &str = "archive_thread";
@@ -112,7 +113,7 @@ const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool every teammate's own session has, in the order it lists them.
 /// The lead's session also has [`ADD_TEAMMATE`] (see [`lead_descriptor`]).
-pub const TOOL_NAMES: [&str; 29] = [
+pub const TOOL_NAMES: [&str; 30] = [
     SEARCH_THREAD,
     READ_THREAD,
     LIST_CHAPTERS,
@@ -140,6 +141,7 @@ pub const TOOL_NAMES: [&str; 29] = [
     LOOP,
     LIST_SCHEDULES,
     CANCEL_SCHEDULE,
+    UPDATE_SCHEDULE,
     COMPUTER_STATUS,
     WEB_SEARCH,
 ];
@@ -170,15 +172,18 @@ const RUN_TOOLS: [&str; 7] = [
 /// job's lines are its firings and what it has for the person it posts;
 /// `schedule` and `loop`, since a job is work the home thread scheduled, and
 /// work it scheduled itself would carry none of the narrowing it was given;
-/// and `propose_inbound`, a standing grant the person asks for where they
-/// are talking, not one a firing raises on its own.
-const JOB_WITHOUT: [&str; 7] = [
+/// `update_schedule`, since going quiet or loud is asked for in the main
+/// conversation, not decided by a firing about itself; and
+/// `propose_inbound`, a standing grant the person asks for where they are
+/// talking, not one a firing raises on its own.
+const JOB_WITHOUT: [&str; 8] = [
     RESUME_CHAPTER,
     NEW_CHAPTER,
     REACT,
     OPEN_LINK,
     SCHEDULE,
     LOOP,
+    UPDATE_SCHEDULE,
     PROPOSE_INBOUND,
 ];
 
@@ -221,7 +226,7 @@ const MAX_QUERY: usize = 200;
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words. That is why a part names a tool
 /// only in backticks, and says nothing that needs a tool it does not name.
-const HOW_TO_USE: [&str; 34] = [
+const HOW_TO_USE: [&str; 35] = [
     "Each turn in your main conversation, a work thread or a call opens with your thread index, Hotline's note and never the person's words: your other threads that are working, open or waiting on the person, those that ended in the last day (closed chapters of this conversation among them), how many older ones there are, and any new asides; when nothing has moved since your last turn there it is one line saying so, and once you have seen it whole, a turn is told only what moved since your last turn there, under its sections, and what left it under GONE: the rest stands as you were last told it.",
     "A job's or a subagent's turn is told only its parent thread.",
     "These are your own threads, and the same you worked in them: the lines that say \"you\" are work you did, so speak from them as yours without reading them, unless you need more detail.",
@@ -245,6 +250,7 @@ const HOW_TO_USE: [&str; 34] = [
     "If you lead the team, `add_teammate` proposes a new teammate when the person asks you for one, and only then; it raises a card and only their yes makes it.",
     "When Background work is granted, `schedule` makes a job that runs once later (`20m`, or a date and time on this computer's clock) and `loop` one that repeats, at a time of day on chosen days (every weekday at 09:00) or on an interval, which Hotline repeats by itself until it ends, so nothing ever re-arms it: each runs on a thread of its own, not in this conversation, and what it finds is posted to the person's chat; for a person who only wants reminding, set `reminder` and the prompt itself is posted at that time; `without` leaves out of a job what its work should not touch (`computer`, `folders` outside your working directory, `mcp_servers`).",
     "`list_schedules` shows only your jobs and `cancel_schedule` ends one of yours. The pane labels each job from its prompt.",
+    "`update_schedule` makes one of your jobs quiet, so it posts only what is worth telling, or posts each run again, when the person asks.",
     "`activity` says what you are on as the work moves, in a few words of your own beside your mark, and `outcome` says what a turn left behind, under your reply: the person reads those and your words, and every step you took is one press behind them.",
     "`react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise.",
     "`post_to_chat` puts one message a turn in the person's chat with you from a work thread, a colleague's thread or a job's thread; in the main conversation your reply is already the chat.",
@@ -259,7 +265,7 @@ const HOW_TO_USE: [&str; 34] = [
 ];
 
 /// Every tool a part of [`HOW_TO_USE`] may name.
-const NAMED_TOOLS: [&str; 32] = [
+const NAMED_TOOLS: [&str; 33] = [
     SEARCH_THREAD,
     READ_THREAD,
     LIST_CHAPTERS,
@@ -287,6 +293,7 @@ const NAMED_TOOLS: [&str; 32] = [
     LOOP,
     LIST_SCHEDULES,
     CANCEL_SCHEDULE,
+    UPDATE_SCHEDULE,
     COMPUTER_STATUS,
     WEB_SEARCH,
     ARCHIVE_THREAD,
@@ -809,6 +816,19 @@ fn descriptors() -> Vec<Tool> {
                     "id": { "type": "string" },
                     "report": { "type": "string", "maxLength": 2000 },
                 },
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            UPDATE_SCHEDULE,
+            "Change one of your jobs, by id from list_schedules. `quiet` true posts to the person's chat only what is worth telling; false posts each run. Use it when the person asks; they can change it from your jobs too.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "quiet": { "type": "boolean" },
+                },
+                "required": ["id", "quiet"],
                 "additionalProperties": false,
             })),
         ),
@@ -1542,11 +1562,12 @@ impl TeammateTools {
                 if arguments.get("target").is_some() {
                     return Err("list_schedules only shows your own jobs.".to_string());
                 }
+                let background_work = background_work_allowed(room.log(), &self.persona_id);
                 let jobs: Vec<Value> = room
                     .schedule_list()
                     .into_iter()
                     .filter(|job| job.persona_id == self.persona_id.as_str())
-                    .map(listed_job)
+                    .map(|job| listed_job(job, background_work))
                     .collect();
                 Ok(json!({ "jobs": jobs }).to_string())
             }
@@ -1574,15 +1595,27 @@ impl TeammateTools {
                 // is no reason to refuse: the tool's one schema offers it to
                 // every caller, and a model refused for it retries the same
                 // call. The job is cancelled and ends with where it stood.
-                if let Some(job) = crate::room::all_jobs(room.log())
-                    .iter()
-                    .find(|job| job.id == id)
-                    && job.persona_id != self.persona_id
-                {
-                    return Err("That job belongs to another teammate.".to_string());
-                }
+                refuse_anothers_job(&room, &self.persona_id, id)?;
                 room.schedule_cancel(id)?;
                 Ok(json!({ "cancelled": true }).to_string())
+            }
+            UPDATE_SCHEDULE => {
+                let id = arguments
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        "update_schedule needs an `id` from list_schedules.".to_string()
+                    })?;
+                let quiet = arguments
+                    .get("quiet")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| "update_schedule needs `quiet`, true or false.".to_string())?;
+                refuse_anothers_job(&room, &self.persona_id, id)?;
+                // The desk's Quiet checkbox (`schedule.set_quiet`) does exactly this.
+                room.schedule_set_quiet(id, quiet)?;
+                Ok(json!({ "id": id, "quiet": quiet }).to_string())
             }
             WEB_SEARCH => room.web_search(&self.persona_id, arguments).await,
             other => Err(format!("This room has no tool called '{other}'.")),
@@ -2009,6 +2042,18 @@ fn without_of(arguments: &Value) -> Result<Vec<Ability>, String> {
     }
 }
 
+/// Refuses a job that is another teammate's: a teammate changes or cancels
+/// only its own. One that does not exist is left to the room to refuse.
+fn refuse_anothers_job(room: &Room, persona_id: &str, id: &str) -> Result<(), String> {
+    if crate::room::all_jobs(room.log())
+        .iter()
+        .any(|job| job.id == id && job.persona_id != persona_id)
+    {
+        return Err("That job belongs to another teammate.".to_string());
+    }
+    Ok(())
+}
+
 /// What `loop` was asked to repeat on: a time of day on chosen days, or an
 /// interval, read by [`schedule::loop_trigger`] as the desk's are. A
 /// `null`, which a strict caller sends for what it leaves out, is left out.
@@ -2060,16 +2105,28 @@ fn created(job: ScheduledJob) -> String {
 /// calendar loop is said as its time and days; the day it carries as
 /// `every`, for older builds, is not its interval and is left out. A loop's
 /// latest run skipped for being too late is said as the time it was due and
-/// why, as the person's row says it, until the loop next runs.
-fn listed_job(job: ScheduledJob) -> Value {
+/// why, as the person's row says it, until the loop next runs. As the row
+/// does, it says a job the person added (`addedByPerson`), and one of the
+/// teammate's own that waits for Background work (`paused`): a paused job
+/// has no `next` or `nextAt`, because no run is coming until the grant is
+/// back, and a time would read as one that is.
+fn listed_job(job: ScheduledJob, background_work: bool) -> Value {
+    let paused = !job.operator_created && !background_work;
     let mut listed = json!({
         "id": job.id,
         "kind": job.kind,
         "prompt": job.prompt,
-        "nextAt": job.next_at,
-        "next": local_said(job.next_at),
         "quiet": job.quiet.unwrap_or(false),
     });
+    if paused {
+        listed["paused"] = json!(true);
+    } else {
+        listed["nextAt"] = json!(job.next_at);
+        listed["next"] = json!(local_said(job.next_at));
+    }
+    if job.operator_created {
+        listed["addedByPerson"] = json!(true);
+    }
     match (&job.calendar, job.every) {
         (Some(calendar), _) => {
             listed["repeats"] = json!(calendar::describe(calendar));

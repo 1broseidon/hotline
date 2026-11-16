@@ -24,6 +24,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A repeating job's row says when a run was skipped for being over two
   hours late, such as "Skipped Fri 8:30 AM, over 2 hours late", until the
   job next runs. A teammate's `list_schedules` says the same.
+- A teammate can turn Quiet on or off for one of its own jobs when you ask,
+  with `update_schedule`, as the checkbox in its schedules does. A job's own
+  run cannot change it.
+- A teammate's `list_schedules` says which jobs you added and which of its
+  own are paused while Background work is off, and gives a paused job no
+  next run, as its row in the schedules does.
 
 ### Changed
 

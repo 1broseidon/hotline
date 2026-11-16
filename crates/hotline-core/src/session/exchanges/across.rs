@@ -144,14 +144,7 @@ impl Room {
             if waiting >= LINKED_WAITING_MAX {
                 return Err("Too many messages from that desk are already waiting here.".into());
             }
-            let mut pair = pairs.into_iter().find(|p| p.id == key).unwrap_or(Pair {
-                id: key.clone(),
-                a: from.to_string(),
-                b: to.to_string(),
-                exchanges: 0,
-                paused: false,
-                requests: vec![],
-            });
+            let mut pair = self.pair_or_new(&key, from, to)?;
             // A thread named as this desk names it is found among this
             // sender's own handoffs here, now: that desk cannot know it any
             // other way, and a name no handoff of its opened is refused.

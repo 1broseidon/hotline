@@ -104,6 +104,17 @@ const WEB_SEARCH: &str = "web_search";
 const ARCHIVE_THREAD: &str = "archive_thread";
 const ADD_TEAMMATE: &str = "add_teammate";
 const BROWSER: &str = "browser";
+/// Tools a newer Hotline gives a teammate, which a conversation it had there
+/// may still name here.
+const NEWER_TOOLS: [&str; 3] = ["send", "read_inbox", "update_inbox"];
+/// What a call to one of [`NEWER_TOOLS`] is told on this desk, which lacks it.
+pub(crate) fn newer_tool(name: &str) -> Option<String> {
+    NEWER_TOOLS.contains(&name).then(|| {
+        format!(
+            "This desk's Hotline is older than the one that had `{name}`, so it has no such tool."
+        )
+    })
+}
 /// What `ask_cookies` says of itself on a desk that shares the person's
 /// cookies, and on a server, which shares none (decision-45).
 const ASK_COOKIES_SAYS: &str = "Ask the person to sign your browser in to one site, when a page needs you signed in: a sign-in wall, or a private page that shows as 404 or empty because you are not. One card shows the site and your reason; the person can share their own cookies for it from one of their browsers, give you a login through secure fields (you get only its name, and your browser types it), or open your browser and sign in themselves. Returns at once; the outcome arrives later as its own message, never with a value. One ask per site while it is up. If the person closes it, do not ask for that site again until they next write to you. Never ask for passwords or cookies in chat. withdraw_request with the returned id takes it down.";
@@ -1618,7 +1629,8 @@ impl TeammateTools {
                 Ok(json!({ "id": id, "quiet": quiet }).to_string())
             }
             WEB_SEARCH => room.web_search(&self.persona_id, arguments).await,
-            other => Err(format!("This room has no tool called '{other}'.")),
+            other => Err(newer_tool(other)
+                .unwrap_or_else(|| format!("This room has no tool called '{other}'."))),
         };
         words.map(|text| CallContent {
             text,

@@ -37,6 +37,10 @@ pub(crate) const FILES_COUNT_MAX: usize = 10;
 /// Where the desk holds a message's files until it is let in.
 const HELD: &str = "files-between";
 
+/// How the folder of files read for a message not yet queued begins; once
+/// queued, the folder is named by its request's id.
+const UNQUEUED: &str = "held-";
+
 /// The folder of the recipient's working directory they are copied into.
 const INBOX: &str = "inbox";
 
@@ -221,7 +225,7 @@ impl Room {
         }
         let to = self.teammate_named(to)?;
         let files = self.take_files(from, &to, paths, capability).await?;
-        let key = format!("held-{}", super::new_id());
+        let key = format!("{UNQUEUED}{}", super::new_id());
         let names = self.hold(&key, &files)?;
         Ok(Some(Held { key, names }))
     }
@@ -272,16 +276,19 @@ impl Room {
         let _ = std::fs::remove_dir_all(held_dir(self.log.root(), id));
     }
 
-    /// Lets go of every held file no queued or running request still
-    /// carries: a message stopped before it was let in, or a send cut off
-    /// between reading its files and queueing it. Run as the desk starts.
-    pub(super) fn sweep_held(&self, carried: &[String]) {
+    /// Lets go of the files this build held that nothing will carry: those
+    /// of each request in `spent` (one that carries none any more, a message
+    /// stopped before it was let in among them), and a `held-` folder, left
+    /// by a send cut off between reading its files and queueing it. A folder
+    /// named anything else is a newer Hotline's, which this build cannot
+    /// tell is spent, and is left as found. Run as the desk starts.
+    pub(super) fn sweep_held(&self, spent: &[String]) {
         let Ok(entries) = std::fs::read_dir(self.log.root().join(HELD)) else {
             return;
         };
         for entry in entries.flatten() {
-            let id = entry.file_name().to_string_lossy().into_owned();
-            if !carried.contains(&id) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(UNQUEUED) || spent.contains(&name) {
                 let _ = std::fs::remove_dir_all(entry.path());
             }
         }

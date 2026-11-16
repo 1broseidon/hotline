@@ -1616,7 +1616,9 @@ the desk there checks them as it would its own, holds them and copies them
 the same way once it lets the request in; the sending desk lets go of them
 once the request has crossed. An aside's files are copied as it is left,
 after its grant, and its text gains the same line. What a stopped or failed
-message held is let go of when the desk next starts.
+message held is let go of when the desk next starts, as is a `held-` folder a
+send cut off before it was queued left; a folder there named anything else
+is a newer build's and is left as it is.
 
 ## Stop and Interrupt
 

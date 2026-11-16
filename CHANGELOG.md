@@ -41,6 +41,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- Opening this desk again after running a newer version of Hotline on it
+  no longer loses what that version saved about teammates' messages to
+  each other, or deletes files it was holding for them.
 - A scheduled job's run on another agent that never lists or uses
   Hotline's tools now says so on the job's thread when it ends. One whose
   agent never connected to them at all also has its next run start a new

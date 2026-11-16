@@ -635,11 +635,11 @@ fn descriptors() -> Vec<Tool> {
         propose_inbound::descriptor(),
         Tool::new(
             SCHEDULE,
-            "Do the given prompt once, at a future time, as a job: it runs on a thread of its own beside this conversation, not in it, and what it finds is posted to the person's chat. This requires the operator's Background work grant; `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The person can see, open, quiet and cancel it from your jobs.",
+            "Do the given prompt once, at a future time, as a job: it runs on a thread of its own beside this conversation, not in it, and what it finds is posted to the person's chat. This requires the operator's Background work grant; `when` is a duration from now (20m, 2h, 1d) or a date and time on this computer's clock, like 2026-11-16T09:00 (one with an offset, such as Z or +01:00, is that instant instead). Use loop for repeating work. The person can see, open, quiet and cancel it from your jobs.",
             schema(json!({
                 "type": "object",
                 "properties": {
-                    "when": { "type": "string", "description": "Duration like 20m or an ISO timestamp" },
+                    "when": { "type": "string", "description": "A duration like 20m, or a date and time on this computer's clock like 2026-11-16T09:00" },
                     "prompt": { "type": "string" },
                     "quiet": {
                         "type": "boolean",
@@ -681,7 +681,7 @@ fn descriptors() -> Vec<Tool> {
                         "maxLength": 500,
                         "description": "What the job is for, when it should stop once that is done (\"the order has shipped\"): it ends itself with a report when it is met.",
                     },
-                    "until": { "type": "string", "description": "When to stop: a duration from now or an ISO timestamp" },
+                    "until": { "type": "string", "description": "When to stop: a duration from now, or a date and time on this computer's clock like 2026-11-30T18:00" },
                     "times": { "type": "integer", "minimum": 1, "description": "How many runs, at most" },
                     "without": {
                         "type": "array",
@@ -1856,7 +1856,7 @@ fn paths(arguments: &Value) -> Result<Vec<String>, String> {
 /// tools share it so an agent that swaps the two still reads the same
 /// refusal.
 fn not_a_when(value: &str) -> String {
-    format!("`{value}` is not a duration like 20m or 2h, or an ISO timestamp.")
+    format!("`{value}` is not a duration like 20m or 2h, or a date and time like 2026-11-16T09:00.")
 }
 
 /// Whether a boolean argument was set.
@@ -2709,7 +2709,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             refused,
-            "`nope` is not a duration like 20m or 2h, or an ISO timestamp."
+            "`nope` is not a duration like 20m or 2h, or a date and time like 2026-11-16T09:00."
         );
         assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }

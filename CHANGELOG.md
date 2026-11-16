@@ -10,6 +10,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A time a teammate gives for a job without a time zone, such as
+  2026-11-16T09:00, or a bare date, is a time on this computer's clock.
+  Before, it was read as UTC, so a reminder asked for at 9:00 could come
+  hours early or late. A time with a zone is still that time.
 - A teammate on another agent, such as Codex, keeps Hotline's tools however
   long it sits waiting, on a permission card or anything else. Before, five
   minutes without using them ended its connection to them, and every call

@@ -2480,8 +2480,14 @@ into a crowd or a busy-loop:
 | jobs per teammate | 20 still to fire |
 
 `quiet` and `reminder` are stored only when true. The parsers that take a
-string (`20m`, an RFC3339 time) live with the scheduler; they are not on the
-wire.
+string (`20m`, a date and time) live with the scheduler; they are not on the
+wire. A date and time with an offset (`Z`, `+01:00`) is that instant. One
+without, or a bare date (its midnight), is read on the desk machine's own
+clock, because that is the clock a teammate is shown: every line opens with
+the local time and no offset. A wall time the clocks pass twice as they go
+back is the first time they pass it, and one they skip as they go forward is
+the moment they changed (2:30 on a morning that jumps from 2:00 to 3:00 is
+3:00).
 
 A teammate speaks those strings through four tools, the same handler on
 both kinds of agent — Hotline Agent in-process, an ACP child over Hotline's own
@@ -2489,7 +2495,7 @@ MCP server:
 
 | tool | strings | what it does |
 | --- | --- | --- |
-| `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or an ISO timestamp |
+| `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or a date and time like `2026-11-16T09:00` |
 | `loop` | `every`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that fires on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
 | `list_schedules` | none | only the caller's jobs still to fire; a supplied `target` is refused |
 | `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |

@@ -84,7 +84,7 @@ describe("task-456 the sender's rows", () => {
 		expect(inbox.sentState(group, known([item("i1", { state: "closed", outcome: "noted", receipts: [{ state: "seen", at: NOW }] }), item("i2", { state: "closed", outcome: "noted" }), item("i3", { state: "closed", outcome: "noted" })]))).toBe("Noted");
 		const one = { title: "Rerun the Linux build", sent: [sent("i4", "juno", "x")] as InboxSent[] };
 		expect(inbox.sentState(one, known([item("i4", { state: "taken" })]))).toBe("Taken");
-		expect(inbox.sentState(one, known([item("i4", { state: "later", reason: "after the release" })]))).toBe("For later");
+		expect(inbox.sentState(one, known([item("i4", { state: "later", reason: "after the release" })]))).toBe("Later");
 		expect(inbox.sentState(one, known([item("i4", { held: true, receipts: [] })]))).toBe("Awaiting approval");
 		// One closed straight from its title, or dropped while held, was never seen.
 		expect(inbox.wasSeen(item("x", { state: "closed", outcome: "dropped" }))).toBe(false);
@@ -477,7 +477,9 @@ describe("task-456 drawn", () => {
 				<InboxItemPane itemId="o" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={(owner, thread) => threads.push(`${owner} ${thread.kind}:${thread.key}`)} />,
 			),
 		);
-		expect(container.querySelector(".pane-title")?.textContent).toBe("Rerun the Linux build");
+		// Where it stands is the word beside its title.
+		expect(container.querySelector(".pane-title")?.firstChild?.textContent).toBe("Rerun the Linux build");
+		expect(container.querySelector(".pane-title .pane-state")?.textContent).toBe("Done");
 		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · wants an answer");
 		expect(container.querySelector(".pane-task-body")?.textContent).toBe("The Linux build went red on the packaging step.");
 		expect([...container.querySelectorAll(".inbox-receipts li .inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent", "Seen", "Taken", "Done"]);
@@ -547,12 +549,31 @@ describe("task-456 drawn", () => {
 		expect(row.textContent).not.toContain("3");
 	});
 
-	test("a held item says it waits on the first-contact card", async () => {
+	test("a held item says it waits for the person to allow it", async () => {
 		const { InboxItemPane } = await import("../src/components/InboxPane");
 		spyOn(wire, "command").mockImplementation((async () => ({ item: item("h", { held: true, receipts: [] }), replies: [] })) as unknown as typeof wire.command);
 		await act(async () => root!.render(<InboxItemPane itemId="h" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
-		expect(container.textContent).toContain("Held for the first-contact card.");
+		expect(container.textContent).toContain("Waiting for you to allow it.");
+		expect(container.textContent).not.toContain("first-contact");
 		expect([...container.querySelectorAll(".inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent"]);
+	});
+
+	test("an item's pane says where it stands beside its title, and a receipt older than today its date as well as its time", async () => {
+		const { InboxItemPane } = await import("../src/components/InboxPane");
+		const midnight = new Date(NOW);
+		midnight.setHours(0, 0, 0, 0);
+		const sentAt = midnight.getTime() - 3 * 86_400_000 + 9 * 3_600_000;
+		const today = Math.max(midnight.getTime() + 60_000, NOW - 60_000);
+		const later = item("l", { ts: sentAt, state: "later", reason: "after the release", receipts: [{ state: "new", at: sentAt }, { state: "later", at: today, reason: "after the release" }] });
+		spyOn(wire, "command").mockImplementation((async () => ({ item: later, replies: [] })) as unknown as typeof wire.command);
+		await act(async () => root!.render(<InboxItemPane itemId="l" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
+		expect(container.querySelector(".pane-title .pane-state")?.textContent).toBe("Later");
+		const times = [...container.querySelectorAll(".inbox-receipt-at")].map((one) => one.textContent);
+		const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+		const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(sentAt));
+		expect(times[0]).toContain(day);
+		expect(times[0]).toContain(clock.format(new Date(sentAt)));
+		expect(times[1]).toBe(clock.format(new Date(today)));
 	});
 });
 

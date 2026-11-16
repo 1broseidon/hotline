@@ -37,24 +37,36 @@ export type From = { personaId: string; name: string; hash?: string | undefined 
  * Under the band, on every thread's pane: the title, then one line of facts
  * joined by " · ", empty ones left out, led by the kind's own fact where it
  * has one ("Read only", "Started by Poe"). The band says the kind
- * ([`BandKind`]) and keeps the state and the keys.
+ * ([`BandKind`]) and keeps the state and the keys; an inbox item, which has
+ * no live state for the band to keep, says where it stands beside its title.
  */
 export function PaneHead({
 	kind,
 	family,
 	title,
+	state,
 	meta = [],
 }: {
 	kind: PaneKind;
 	/** Said in place of the kind's own fact: a job's "Loop", a run's nothing. */
 	family?: string | undefined;
 	title: string;
+	/** Where it stands, in a word after the title: an inbox item's "Taken". */
+	state?: string | undefined;
 	meta?: ReadonlyArray<string | false | null | undefined>;
 }) {
 	const facts = [family ?? kind.family, ...meta].filter((part): part is string => typeof part === "string" && part !== "");
 	return (
 		<header className="pane-head">
-			<h3 className="pane-title selectable">{title}</h3>
+			<h3 className="pane-title selectable">
+				{title}
+				{state !== undefined && (
+					<>
+						{" "}
+						<span className="pane-state">{state}</span>
+					</>
+				)}
+			</h3>
 			{facts.length > 0 && <p className="pane-meta selectable">{facts.join(" · ")}</p>}
 		</header>
 	);

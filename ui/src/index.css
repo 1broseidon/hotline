@@ -4693,6 +4693,13 @@
 		font-weight: 600;
 		overflow-wrap: anywhere;
 	}
+	/* Where an inbox item stands, a word after its title, in the meta's ink. */
+	.pane-state {
+		font-size: var(--text-sm);
+		font-weight: 500;
+		white-space: nowrap;
+		color: var(--ink-3);
+	}
 	.pane-meta {
 		margin-top: 2px;
 		font-family: var(--font-mono);
@@ -5163,19 +5170,22 @@
 		color: var(--accent-ink);
 	}
 	/* An item's receipts in its pane: the time, the state, and why. */
+	/* A table of three columns, so a dated time and today's line up at the
+	 * right of one column, whichever rows carry a date. */
 	.inbox-receipts {
 		flex-shrink: 0;
-		padding: 2px 16px 8px;
+		display: grid;
+		grid-template-columns: max-content max-content minmax(0, 1fr);
+		align-items: baseline;
+		column-gap: 8px;
+		row-gap: 6px;
+		padding: 5px 16px 11px 24px;
 	}
 	.inbox-receipts li {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		padding: 3px 8px;
+		display: contents;
 	}
 	.inbox-receipt-at {
-		min-width: 6ch;
-		flex-shrink: 0;
+		grid-column: 1;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);

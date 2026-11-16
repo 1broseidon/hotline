@@ -184,6 +184,14 @@ function ItemRow({
 }
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const dated = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** When a receipt happened: its time today, and its date as well before today, so days apart never read as one minute. */
+function receiptTime(at: number, now: number = Date.now()): string {
+	const today = new Date(now);
+	today.setHours(0, 0, 0, 0);
+	return at >= today.getTime() ? clock.format(new Date(at)) : dated.format(new Date(at));
+}
 
 /** The band's word over an item: where it is read, with Back to the list. */
 const INBOX_KIND = { glyph: "", word: "Inbox", family: "", watching: true };
@@ -233,15 +241,16 @@ export function InboxItemPane({
 					<PaneHead
 						kind={INBOX_KIND}
 						title={item.title}
+						state={stateWord(item)}
 						meta={[`${senderWords(item, nameOf)} to ${nameOf(item.to)}`, alsoSentWords(item, (id) => people.get(id)?.name), wantsWords(item.wants), item.waiting === true && `${nameOf(item.from)} is waiting`]}
 					/>
-					{item.held === true && <p className="dock-note">Held for the first-contact card.</p>}
+					{item.held === true && <p className="dock-note">Waiting for you to allow it.</p>}
 					{item.body.trim() !== "" && <TaskCard eyebrow="Message" text={item.body} />}
 					<h4 className="pane-section eyebrow">Receipts</h4>
 					<ol className="inbox-receipts">
 						{receiptRows(item, titleOf).map((row) => (
 							<li key={`${row.at}:${row.word}`}>
-								<span className="inbox-receipt-at">{clock.format(new Date(row.at))}</span>
+								<span className="inbox-receipt-at">{receiptTime(row.at)}</span>
 								<span className="inbox-receipt-word">{row.word}</span>
 								{row.detail !== undefined && <span className="inbox-receipt-detail selectable">{row.detail}</span>}
 							</li>

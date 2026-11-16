@@ -175,7 +175,7 @@ export function stateWord(item: InboxItem): string {
 		case "taken":
 			return "Taken";
 		case "later":
-			return "For later";
+			return "Later";
 		case "closed":
 			return outcomeWord(item.outcome);
 	}

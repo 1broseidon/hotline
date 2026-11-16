@@ -399,7 +399,9 @@ item, and no chat opens between teammates.
   reply; it does not split the turn's steps, which stay one run under the
   reply. A turn that ends without a new line in the chat posts no desktop
   toast (`ui/src/notify.ts`).
-- **The item pane.** Its title; from whom to whom, whom else the send
+- **The item pane.** Its title, with where it stands in a word beside it
+  (Sent, Seen, Taken, Later, Answered, Done, Expired…, the sent row's word);
+  from whom to whom, whom else the send
   reached ("also sent to Quill"), what it wants, and whether the sender
   waits; the words; Receipts, a timeline of sent,
   seen, taken, later with its reason, closed with its outcome
@@ -407,8 +409,9 @@ item, and no chat opens between teammates.
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's
   conversation when the open teammate's Threads list does not hold it); the
-  item it answers and the items that answer it. A held item says it waits on
-  the first-contact card. Hotline's notice is from Hotline, by its mark,
+  item it answers and the items that answer it. A held item says "Waiting
+  for you to allow it." A receipt from before today gives its date as well
+  as its time. Hotline's notice is from Hotline, by its mark,
   wherever an item's sender is named (the pane, its rows, the composer's
   tray). Back goes where it was opened from.
 - **One word for each outcome.** An item a reply went back on is Answered

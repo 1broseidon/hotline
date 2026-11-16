@@ -4789,11 +4789,12 @@
 		font-size: var(--text-md);
 		line-height: var(--text-md--line-height);
 	}
-	/* A call's transcript (thread/CallPane.tsx): who said each line in a
-	 * narrow column of its own, the words beside it, so the speakers read
-	 * down one edge. Yours are labelled in your words' mint and said in ink;
-	 * the teammate's in the annotating ink and said in ink-2. */
-	.call-transcript {
+	/* A call's transcript in its pane (thread/CallPane.tsx), whole, never
+	 * the call card's capped box: who said each line in a narrow column of
+	 * its own, the words beside it, so the speakers read down one edge.
+	 * Yours are labelled in your words' mint and said in ink; the
+	 * teammate's in the annotating ink and said in ink-2. */
+	.call-pane-transcript {
 		display: flex;
 		flex-direction: column;
 	}

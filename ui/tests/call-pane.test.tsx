@@ -94,6 +94,18 @@ describe("a call's pane", () => {
 		expect(container.querySelector('[aria-label="Message"]')).toBeNull();
 	});
 
+	test("the call pane shows its whole transcript: its own list, never the call card's capped box", async () => {
+		await draw();
+		const list = container.querySelector('ol[aria-label="Transcript"]');
+		expect(list?.className).toBe("call-pane-transcript");
+		expect(container.querySelector(".call-transcript")).toBeNull();
+		const css = await Bun.file(new URL("../src/index.css", import.meta.url)).text();
+		const rule = css.slice(css.indexOf(".call-pane-transcript {"), css.indexOf("}", css.indexOf(".call-pane-transcript {")));
+		expect(rule).not.toContain("max-height");
+		expect(rule).not.toContain("overflow");
+		expect(rule).not.toContain("border");
+	});
+
 	test("hung up with its thread still open, the band says Ended and the composer stays, as today", async () => {
 		await draw({ live: false, open: true, endedAt: NOW - 60_000, model: undefined });
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, ended");
@@ -119,7 +131,7 @@ describe("a call's pane", () => {
 		expect(fold.getAttribute("aria-expanded")).toBe("false");
 		expect(container.querySelector(".trail")).toBeNull();
 		// It sits between the two lines it fell between.
-		const rows = [...container.querySelectorAll(".call-transcript > li")].map((li) => (li.querySelector(".call-work") ? "work" : li.querySelector(".call-who")?.textContent));
+		const rows = [...container.querySelectorAll(".call-pane-transcript > li")].map((li) => (li.querySelector(".call-work") ? "work" : li.querySelector(".call-who")?.textContent));
 		expect(rows).toEqual(["You", "Pork Chop", "work", "Pork Chop"]);
 		await act(async () => fold.click());
 		expect(fold.getAttribute("aria-expanded")).toBe("true");
@@ -182,7 +194,7 @@ describe("a call's pane", () => {
 
 	test("its own link line is not drawn as a line of the transcript", async () => {
 		await draw({ events: [{ kind: "link", id: "link:call:c1", ts: 1, thread: "c1", threadKind: "call", title: "Release checks", state: "live" }, transcript[0]!] });
-		expect(container.querySelectorAll(".call-transcript > li")).toHaveLength(1);
+		expect(container.querySelectorAll(".call-pane-transcript > li")).toHaveLength(1);
 	});
 });
 

@@ -226,7 +226,7 @@ export function CallPage({
 						Earlier lines
 					</button>
 				)}
-				<ol className="call-transcript" aria-label="Transcript">
+				<ol className="call-pane-transcript" aria-label="Transcript">
 					{blocks.map((block) => (
 						<CallRow key={block.kind === "event" ? block.event.id : block.id} block={block} personaId={personaId} name={name} live={working} onOpenThread={onOpenThread} />
 					))}

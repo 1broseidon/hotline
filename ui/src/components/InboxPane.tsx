@@ -3,8 +3,8 @@ import type { InboxItem, InboxView, ThreadId } from "../generated/contract";
 import { asideTime } from "../asides";
 import type { Person } from "../avatars";
 import { stopwatch } from "../dock";
-import { ArrowLeftIcon } from "../icons";
-import { alsoSentWords, type InboxSegment, itemsOf, movedAt, openCounts, openGroups, outcomeWord, receiptRows, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
+import { ArrowLeftIcon, ChevronRightIcon } from "../icons";
+import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -48,7 +48,9 @@ function markOf(item: InboxItem, sent: boolean): string {
 
 /**
  * One teammate's inbox: Open (unread, taken, for later), Closed and Sent,
- * each newest first. A row opens the item in the pane, with Back here.
+ * each newest first, under a line that says what the list on show holds. A
+ * row opens the item in the pane, with Back here; on Sent, one send to
+ * several teammates is one row that opens to a row for each.
  */
 export function InboxList({
 	name,
@@ -72,6 +74,13 @@ export function InboxList({
 	onClose(): void;
 }) {
 	const now = useNow(1_000);
+	const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set());
+	const unfold = (id: string) =>
+		setUnfolded((was) => {
+			const next = new Set(was);
+			if (!next.delete(id)) next.add(id);
+			return next;
+		});
 	const nameOf = (id: string) => people.get(id)?.name;
 	const row = (item: InboxItem, sent = false) => (
 		<ItemRow key={item.id} item={item} sent={sent} now={now} nameOf={nameOf} live={item.work !== undefined && working.has(item.work.key)} onOpen={() => onOpenItem(item.id)} />
@@ -95,7 +104,18 @@ export function InboxList({
 	} else if (view !== undefined && segment === "closed") {
 		body = view.closed.length === 0 ? <p className="px-2 py-3 text-sm text-ink-3">Nothing closed.</p> : view.closed.map((item) => row(item));
 	} else if (view !== undefined) {
-		body = view.sent.length === 0 ? <p className="px-2 py-3 text-sm text-ink-3">Nothing sent.</p> : view.sent.map((item) => row(item, true));
+		body =
+			view.sent.length === 0 ? (
+				<p className="px-2 py-3 text-sm text-ink-3">Nothing sent.</p>
+			) : (
+				sends(view.sent).map((send) =>
+					send.items.length === 1 ? (
+						row(send.items[0]!, true)
+					) : (
+						<SendRows key={send.items[0]!.id} send={send} now={now} nameOf={nameOf} open={unfolded.has(send.items[0]!.id)} onToggle={() => unfold(send.items[0]!.id)} onOpenItem={onOpenItem} />
+					),
+				)
+			);
 	}
 	return (
 		<section className="dock-page" aria-label={`${name}'s inbox`}>
@@ -103,7 +123,7 @@ export function InboxList({
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Inbox</h2>
 				<PaneClose onClose={onClose} />
 			</Band>
-			{view !== undefined && <p className="dock-note instrument">{openCounts(view) || "Nothing open"}</p>}
+			{view !== undefined && <p className="dock-note instrument">{listHeading(view, segment)}</p>}
 			<div className="list-span">
 				<div className="segmented" role="tablist" aria-label="Show" onKeyDown={onTablistKey}>
 					{SEGMENTS.map((one) => (
@@ -117,6 +137,58 @@ export function InboxList({
 				<div className="px-2 pb-3">{body}</div>
 			</Scroll>
 		</section>
+	);
+}
+
+/**
+ * One send to several teammates on Sent: one row, its title over whom it
+ * reached and where they stand together ("To Huck, Quill, Timo · 2 of 3
+ * seen"), that opens to a row for each teammate, each opening its item.
+ */
+function SendRows({
+	send,
+	now,
+	nameOf,
+	open,
+	onToggle,
+	onOpenItem,
+}: {
+	send: Send;
+	now: number;
+	nameOf(personaId: string): string | undefined;
+	open: boolean;
+	onToggle(): void;
+	onOpenItem(itemId: string): void;
+}) {
+	const first = send.items[0]!;
+	const line = `To ${toWords(send.items.map((item) => item.to), nameOf)} · ${sendState(send)}`;
+	const when = asideTime(first.ts, now);
+	return (
+		<>
+			<button type="button" className="list-row" data-send={first.id} aria-expanded={open} aria-label={`${first.title}, ${line}, ${when}`} onClick={onToggle}>
+				<span className="list-mark" aria-hidden="true">
+					↗
+				</span>
+				<span className="min-w-0 flex-1">
+					<span className="list-title">
+						<span className="list-title-text">{first.title}</span>
+						<ChevronRightIcon className="list-unfold" />
+					</span>
+					<span className="list-line">{line}</span>
+				</span>
+				<span className="list-when">{when}</span>
+			</button>
+			{open &&
+				send.items.map((item) => (
+					<button key={item.id} type="button" className="list-row list-row-sub" data-inbox={item.id} aria-label={`To ${toWords([item.to], nameOf)}, ${stateWord(item)}`} onClick={() => onOpenItem(item.id)}>
+						<span className="min-w-0 flex-1">
+							<span className="list-line">
+								To {toWords([item.to], nameOf)} · {stateWord(item)}
+							</span>
+						</span>
+					</button>
+				))}
+		</>
 	);
 }
 
@@ -165,7 +237,7 @@ function ItemRow({
 				.join(" · ");
 	const when = waiting ? stopwatch(now - item.ts) : asideTime(sent ? item.ts : movedAt(item), now);
 	return (
-		<button type="button" className="list-row" data-inbox={item.id} data-state={item.state} aria-label={`${item.title}, ${line}, ${when}`} onClick={onOpen}>
+		<button type="button" className="list-row" data-inbox={item.id} data-state={sent ? undefined : item.state} aria-label={`${item.title}, ${line}, ${when}`} onClick={onOpen}>
 			<span className="list-mark" aria-hidden="true">
 				{markOf(item, sent)}
 			</span>

@@ -199,6 +199,27 @@ describe("a turn the inbox woke is drawn as path", () => {
 	});
 });
 
+describe("the three lists", () => {
+	test("one send to several teammates is one send, however its items' states differ; another send of the same title is another", () => {
+		const to = (id: string, who: string, others: string[], more: Partial<InboxItem> = {}) => item(id, { from: "juno", to: who, alsoTo: others, title: "Release moves to Thursday", ...more });
+		// Newest first, as the view lists them: the send made t1, t2, t3 in that order.
+		const listed = [
+			to("t3", "chop", ["huck", "ivy"]),
+			to("t2", "ivy", ["huck", "chop"], { state: "taken" }),
+			to("t1", "huck", ["ivy", "chop"], { state: "seen" }),
+			to("t4", "huck", ["ivy", "chop"]),
+			item("one", { from: "juno", to: "huck", title: "Rerun the Linux build" }),
+		];
+		const grouped = inbox.sends(listed);
+		expect(grouped.map((send) => send.items.map((one) => one.id))).toEqual([["t1", "t2", "t3"], ["t4"], ["one"]]);
+		expect(inbox.sendState(grouped[0]!)).toBe("2 of 3 seen");
+		expect(inbox.listHeading(view({ sent: listed }), "sent")).toBe("3 sent");
+		expect(inbox.listHeading(view(), "sent")).toBe("Nothing sent");
+		expect(inbox.listHeading(view(), "closed")).toBe("Nothing closed");
+		expect(inbox.listHeading(view(), "open")).toBe("Nothing open");
+	});
+});
+
 describe("a teammate woken by its inbox", () => {
 	test("a turn the person was not part of ends Worked quietly in the steps pane, never Done; a stopped one is Stopped", async () => {
 		const { runEnding } = await import("../src/transcriptFolds");
@@ -221,7 +242,7 @@ describe("task-456 the pane", () => {
 		expect(groups.unread.map((one) => one.id)).toEqual(["a", "b", "e"]);
 		expect(groups.taken.map((one) => one.id)).toEqual(["c"]);
 		expect(groups.later.map((one) => one.id)).toEqual(["d"]);
-		expect(inbox.openCounts(shown)).toBe("2 unread · 1 taken · 1 for later");
+		expect(inbox.listHeading(shown, "open")).toBe("2 unread · 1 taken · 1 for later");
 		// The composer's tray is only what the teammate has not read.
 		expect(inbox.unreadItems(shown).map((one) => one.id)).toEqual(["a", "e"]);
 	});
@@ -471,7 +492,11 @@ describe("task-456 drawn", () => {
 		expect(segments).toEqual(["sent"]);
 		await list("sent");
 		expect(container.querySelector("[data-inbox=s] .list-line")?.textContent).toBe("To Pork Chop · Seen");
+		// The heading follows the tab, and a sent row's arrow never takes its receiver's state's colour.
+		expect(container.querySelector(".dock-note")?.textContent).toBe("1 sent");
+		expect(container.querySelector("[data-inbox=s]")?.hasAttribute("data-state")).toBe(false);
 		await list("closed");
+		expect(container.querySelector(".dock-note")?.textContent).toBe("2 closed");
 		expect(container.querySelector("[data-inbox=c] .list-line")?.textContent).toBe("Pork Chop · Noted");
 		expect(container.querySelector("[data-inbox=c] .list-mark")?.textContent).toBe("✓");
 		expect(container.querySelector("[data-inbox=x] .list-mark")?.textContent).toBe("◌");
@@ -518,6 +543,27 @@ describe("task-456 drawn", () => {
 		expect(threads).toEqual(["juno side:s1"]);
 		await press(rows[1]!);
 		expect(opened.at(-1)).toBe("r");
+	});
+
+	test("on Sent, one send to three teammates is one row that opens to a row for each, each opening its item", async () => {
+		const { InboxList } = await import("../src/components/InboxPane");
+		const to = (id: string, who: string, others: string[], more: Partial<InboxItem> = {}) => item(id, { from: "juno", to: who, alsoTo: others, title: "Release moves to Thursday", ...more });
+		const shown = view({ sent: [to("t3", "chop", ["huck", "ivy"], { state: "taken" }), to("t2", "ivy", ["huck", "chop"], { state: "noticed" }), to("t1", "huck", ["ivy", "chop"], { state: "seen" })] });
+		const opened: string[] = [];
+		const draw = () => act(async () => root!.render(<InboxList name="Juno" view={shown} segment="sent" people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onClose={() => {}} />));
+		await draw();
+		const send = container.querySelector<HTMLButtonElement>("[data-send=t1]")!;
+		expect(container.querySelectorAll(".list-row")).toHaveLength(1);
+		expect(send.querySelector(".list-line")?.textContent).toBe("To Huck, Ivy, Pork Chop · 2 of 3 seen");
+		expect(send.getAttribute("aria-expanded")).toBe("false");
+		await press(send);
+		expect(send.getAttribute("aria-expanded")).toBe("true");
+		const each = [...container.querySelectorAll<HTMLButtonElement>(".list-row-sub")];
+		expect(each.map((row) => row.textContent)).toEqual(["To Huck · Seen", "To Ivy · Sent", "To Pork Chop · Taken"]);
+		await press(each[2]!);
+		expect(opened).toEqual(["t3"]);
+		await press(send);
+		expect(container.querySelectorAll(".list-row-sub")).toHaveLength(0);
 	});
 
 	test("an item's pane says who else the send reached, and nothing for one sent to one", async () => {

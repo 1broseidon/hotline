@@ -5164,6 +5164,23 @@
 	.list-when[data-waiting] {
 		color: var(--warn-ink);
 	}
+	/* One send to several teammates on Sent: its chevron turns as it opens
+	 * to a row for each teammate, set in under its title. */
+	.list-unfold {
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+		color: var(--ink-4);
+		transition: transform var(--dur-press) var(--ease-out);
+	}
+	.list-row[aria-expanded="true"] .list-unfold {
+		transform: rotate(90deg);
+	}
+	.list-row-sub {
+		padding-top: 4px;
+		padding-bottom: 4px;
+		padding-left: 32px;
+	}
 	/* An inbox item not yet read: its ring in the accent. */
 	.list-row[data-inbox][data-state="new"] .list-mark,
 	.list-row[data-inbox][data-state="noticed"] .list-mark {

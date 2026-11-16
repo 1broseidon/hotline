@@ -438,7 +438,13 @@ item, and no chat opens between teammates.
   ticked, a dropped one crossed, and an expired one, never picked up, keeps
   a dotted ring.
 - **The inbox pane.** Open (Unread: new, noticed and seen; Taken; For
-  later), Closed and Sent, newest first, under a line of the open counts. An
+  later), Closed and Sent, newest first, under a line for the tab on show:
+  the open counts, "4 closed", "6 sent", or "Nothing open", "Nothing
+  closed", "Nothing sent". On Sent, the items one `send` made for several
+  teammates are one row, its title over whom it reached and where they
+  stand together ("To Huck, Quill, Timo · 2 of 3 seen"), which opens to a
+  row for each teammate, each opening its item. Every Sent row's arrow is
+  grey: the accent is for what the teammate itself has not read. An
   unsorted item whose sender waits counts how long in amber. It opens from
   the teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.

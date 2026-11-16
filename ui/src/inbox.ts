@@ -234,12 +234,49 @@ export function sentState(group: SentGroup, items: ReadonlyMap<string, InboxItem
 		const item = items.get(one.item);
 		return item === undefined ? [] : [item];
 	});
-	if (known.length === 0) return undefined;
-	if (group.sent.length === 1) return stateWord(known[0]!);
-	const words = known.map(stateWord);
-	if (known.length === group.sent.length && words.every((word) => word === words[0])) return words[0];
-	return `${known.filter(wasSeen).length} of ${group.sent.length} seen`;
+	return together(known, group.sent.length);
 }
+
+/** Where `count` items sent together stand, from the `known` of them: one's word, the word they share, else how many were seen. */
+function together(known: readonly InboxItem[], count: number): string | undefined {
+	if (known.length === 0) return undefined;
+	if (count === 1) return stateWord(known[0]!);
+	const words = known.map(stateWord);
+	if (known.length === count && words.every((word) => word === words[0])) return words[0];
+	return `${known.filter(wasSeen).length} of ${count} seen`;
+}
+
+/** The items one `send` made, in the order it made them: one for each teammate it reached. */
+export type Send = { items: InboxItem[] };
+
+/**
+ * A sender's list as sends: the items one `send` made for several teammates
+ * stand side by side in it, under one title, each naming the others in
+ * `alsoTo`, so a run of them that agree on the title and on who the send
+ * reached, each to a different teammate, is one send. The list is newest
+ * first, so a send's items are put back in the order it made them, which is
+ * the order its row in the conversation names them.
+ */
+export function sends(sent: readonly InboxItem[]): Send[] {
+	const reached = (item: InboxItem) => [item.to, ...(item.alsoTo ?? [])].sort().join(" ");
+	const out: Send[] = [];
+	for (const item of sent) {
+		const last = out.at(-1)?.items;
+		const first = last?.[0];
+		const joins =
+			first !== undefined &&
+			(first.alsoTo ?? []).length > 0 &&
+			first.title === item.title &&
+			reached(first) === reached(item) &&
+			!last!.some((one) => one.to === item.to);
+		if (joins) last!.unshift(item);
+		else out.push({ items: [item] });
+	}
+	return out;
+}
+
+/** Where a send stands, as its row on Sent says it: "Seen", or "2 of 3 seen". */
+export const sendState = (send: Send): string => together(send.items, send.items.length) ?? "";
 
 /* ------------------------------------------------------- the sort's line */
 
@@ -271,8 +308,15 @@ export function openGroups(view: InboxView): { unread: InboxItem[]; taken: Inbox
 /** What the teammate has not read, newest first: the composer's tray. */
 export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.open ?? []).filter((item) => item.state === "new" || item.state === "noticed");
 
+/** The pane's heading line for the list it shows: the open counts, else how many closed or sent, else that there are none. */
+export function listHeading(view: InboxView, segment: InboxSegment): string {
+	if (segment === "open") return openCounts(view) || "Nothing open";
+	const count = segment === "closed" ? view.closed.length : sends(view.sent).length;
+	return count === 0 ? `Nothing ${segment}` : `${count} ${segment}`;
+}
+
 /** The open count as the pane heads it: "2 unread · 1 taken · 1 for later". */
-export function openCounts(view: InboxView): string {
+function openCounts(view: InboxView): string {
 	const { taken, later } = openGroups(view);
 	return [view.unread > 0 && `${view.unread} unread`, taken.length > 0 && `${taken.length} taken`, later.length > 0 && `${later.length} for later`]
 		.filter((part): part is string => part !== false)

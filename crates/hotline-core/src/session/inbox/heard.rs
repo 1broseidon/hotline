@@ -183,10 +183,13 @@ impl Room {
                     .collect();
                 let notice = (!fresh.is_empty()).then(|| self.notice(&fresh));
                 let mut noticed = false;
+                // A teammate held at its hourly limit begins no quiet turn:
+                // its items wait for the person's answer, or their turn.
+                let held = self.quiet_held(persona_id).is_some();
                 let claimed = {
                     let mut turns = lock(&session.turns);
                     if !turns.running {
-                        turns.claim(woken)
+                        if held { None } else { turns.claim(woken) }
                     } else if let Some(notice) = notice {
                         // Steered into the turn when its driver takes a line
                         // mid-turn, which leaves a quiet turn quiet, since it

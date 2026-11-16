@@ -606,6 +606,10 @@ impl RoomHandle for Desk {
         self.room.resume_exchange(a, b)
     }
 
+    fn answer_quiet_pause(&self, persona_id: &str, keep_going: bool) -> Result<(), String> {
+        self.room.answer_quiet_pause(persona_id, keep_going)
+    }
+
     fn info(&self, persona_id: &str) -> SessionInfo {
         self.room.info(persona_id)
     }

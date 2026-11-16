@@ -1238,7 +1238,10 @@ thread, or a chat reply that goes to a work thread), which starts the count
 afresh. While the card is up only Keep going or Stop answers it: a line from
 the person about anything else leaves a paused pair paused, at its count. The
 person's line to either one, in any of its threads, resets the count of a
-pair that is not paused.
+pair that is not paused. One teammate whose main conversation begins the
+person's `quietTurnsPerHour` quiet turns in an hour (20 by default) gets the
+same card for itself, and begins no quiet turn until the person answers it
+(`docs/design/agent-inbox.md`, The hourly limit).
 These actions do not create new grants.
 A handoff stands until Stop exchange, a revocation or an unlink releases it,
 its result back or not, and its thread's link says when it no longer does

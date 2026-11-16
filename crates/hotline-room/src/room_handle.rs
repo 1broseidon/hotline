@@ -217,6 +217,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Resumes a pair its message cap paused.
     fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String>;
 
+    /// Answers the card of a teammate paused at its hourly limit on quiet
+    /// turns: Keep going, or Stop until the person next writes to it.
+    fn answer_quiet_pause(&self, persona_id: &str, keep_going: bool) -> Result<(), String>;
+
     /// Answers a `request_human` card, refusing when nothing is waiting.
     fn answer_human(
         &self,

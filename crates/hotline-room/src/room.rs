@@ -17,6 +17,10 @@
 //! - `exchange_pair` carries the durable queue and message brake for two
 //!   teammates. `session::exchanges` owns its transitions.
 //!
+//! - `quiet_limit` says a teammate is held at its hourly limit on quiet
+//!   turns, by an id of its own (`quiet-limit:<personaId>`).
+//!   `session::inbox::limit` owns it.
+//!
 //! - `models` says the room's model choices changed where no other event
 //!   shows it: a discovery refresh, a manual model id, a sign-in's account
 //!   list. It carries no data. It always has the same id, so the stream
@@ -48,6 +52,10 @@ fn defaults() -> Map<String, Value> {
     settings.insert("defaultBackendId".into(), Value::from("hotline"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
     settings.insert(INBOX_KEEP_DAYS.into(), Value::from(DEFAULT_KEEP_DAYS));
+    settings.insert(
+        QUIET_TURNS_PER_HOUR.into(),
+        Value::from(DEFAULT_QUIET_TURNS),
+    );
     settings.insert(LINK_PREVIEWS.into(), Value::Bool(true));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
@@ -117,6 +125,15 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
                 )
             });
     }
+    if key == QUIET_TURNS_PER_HOUR {
+        return value
+            .as_i64()
+            .filter(|turns| (1..=MAX_QUIET_TURNS).contains(turns))
+            .map(Value::from)
+            .ok_or_else(|| {
+                format!("A teammate's quiet turns an hour are a whole number from 1 to {MAX_QUIET_TURNS}.")
+            });
+    }
     if matches!(key, "images" | "spending") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
     }
@@ -173,6 +190,14 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
 pub const INBOX_KEEP_DAYS: &str = "inboxKeepDays";
 pub const DEFAULT_KEEP_DAYS: i64 = 30;
 pub const MAX_KEEP_DAYS: i64 = 3650;
+
+/// How many quiet turns a teammate may begin in an hour before it is paused
+/// with a card (`quietTurnsPerHour`, the person's to change in Settings):
+/// [`DEFAULT_QUIET_TURNS`] until they do, at most [`MAX_QUIET_TURNS`]. The
+/// default is a placeholder until desks say how many a teammate needs.
+pub const QUIET_TURNS_PER_HOUR: &str = "quietTurnsPerHour";
+pub const DEFAULT_QUIET_TURNS: i64 = 20;
+pub const MAX_QUIET_TURNS: i64 = 1000;
 
 /// How many teammates a desk can pin. Three faces fit a phone's header and
 /// the desktop rail's width, and a fourth would stop being a favourite.
@@ -940,6 +965,24 @@ mod tests {
         );
         for bad in [json!(0), json!(MAX_KEEP_DAYS + 1), json!(7.5), json!("7")] {
             assert!(normalize_setting(INBOX_KEEP_DAYS, &bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn quiet_turns_an_hour_are_a_setting_with_a_default() {
+        let log = Log::open(
+            std::env::temp_dir().join(format!("hotline-room-quiet-turns-{}", std::process::id())),
+        );
+        assert_eq!(settings(&log)[QUIET_TURNS_PER_HOUR], DEFAULT_QUIET_TURNS);
+        assert_eq!(
+            normalize_setting(QUIET_TURNS_PER_HOUR, &json!(5)).unwrap(),
+            json!(5)
+        );
+        for bad in [json!(0), json!(MAX_QUIET_TURNS + 1), json!(2.5), json!("5")] {
+            assert!(
+                normalize_setting(QUIET_TURNS_PER_HOUR, &bad).is_err(),
+                "{bad}"
+            );
         }
     }
 

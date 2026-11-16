@@ -182,6 +182,14 @@ teammates here: an item between them, the person's Stop of them, and a
 taken item's work are refused, saying a newer Hotline saved their
 messages.
 
+A teammate held at its hourly limit on quiet turns has a `quiet_limit`
+record, `{"kind": "quiet_limit", "id": "quiet-limit:<personaId>",
+"teammate", "held"}`, `held` being `paused` or `stopped` and null once the
+person has let it go on (`session/inbox/limit.rs`). The id is never a
+teammate's own, since the stream folds by id alone. It is rewritten from the
+line found, so a field a newer build added stays, and a `held` this build
+does not know holds the teammate as a pause does until the person answers.
+
 An inbox item (`inbox_item` on a teammate's `inbox/<id>.jsonl`) is held to
 the same rule. One that carries a field this build does not know, on the
 item or on a receipt, is read and moved as any other, and every rewrite

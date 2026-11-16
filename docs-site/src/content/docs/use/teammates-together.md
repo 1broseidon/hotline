@@ -121,6 +121,13 @@ Keep going or Stop does.
 Until they pause, anything you write to either of them, wherever you write
 it, starts the count again.
 
+One teammate working on its own pauses too. When it has started 20 quiet
+turns in an hour, working on its messages while you were not talking to it,
+its conversation shows the same **Paused** card, "Huck paused after 20 quiet
+turns in an hour without you." **Keep going** lets it carry on, counting from
+zero; **Stop** holds it until you next write to it. Change the number in
+**Settings › General**: "Pause a teammate after [20] quiet turns an hour".
+
 ## What it costs
 
 Each teammate runs on its own driver and model, so a question to a colleague

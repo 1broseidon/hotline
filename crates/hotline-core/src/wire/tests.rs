@@ -361,6 +361,10 @@ impl RoomHandle for CoreHandle {
         self.room.resume_exchange(a, b)
     }
 
+    fn answer_quiet_pause(&self, persona_id: &str, keep_going: bool) -> Result<(), String> {
+        self.room.answer_quiet_pause(persona_id, keep_going)
+    }
+
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,
@@ -779,6 +783,10 @@ impl RoomHandle for Quiet {
     }
 
     fn resume_exchange(&self, _a: &str, _b: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn answer_quiet_pause(&self, _persona_id: &str, _keep_going: bool) -> Result<(), String> {
         Ok(())
     }
 

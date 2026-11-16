@@ -374,6 +374,9 @@ impl RoomHandle for Computered {
     fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
         self.desk.resume_exchange(a, b)
     }
+    fn answer_quiet_pause(&self, persona_id: &str, keep_going: bool) -> Result<(), String> {
+        self.desk.answer_quiet_pause(persona_id, keep_going)
+    }
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,

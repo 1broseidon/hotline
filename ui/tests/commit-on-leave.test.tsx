@@ -19,12 +19,14 @@ let container: HTMLDivElement;
 let teardown: () => Promise<void>;
 let saved: string[];
 let kept: number[];
+let limits: number[];
 
 beforeEach(() => {
 	({ teardown } = installDom());
 	spyOn(wire, "command").mockImplementation((async () => []) as typeof wire.command);
 	saved = [];
 	kept = [];
+	limits = [];
 	container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
@@ -47,6 +49,8 @@ async function mount(personName: string) {
 				onIdleHours={() => {}}
 				keepDays={30}
 				onKeepDays={(days) => kept.push(days)}
+				quietTurns={20}
+				onQuietTurns={(turns) => limits.push(turns)}
 				linkPreviews
 				onLinkPreviews={() => {}}
 				onBackend={() => {}}
@@ -88,4 +92,17 @@ test("closed messages are kept 30 days by default, and a whole number of days ty
 	expect(kept).toEqual([]);
 	await act(async () => type(field, "60"));
 	expect(kept).toEqual([60]);
+});
+
+test("a teammate is paused after 20 quiet turns an hour by default, and a whole number typed is saved", async () => {
+	await mount("Ada");
+	const field = container.querySelector<HTMLInputElement>("#setting-quiet-turns")!;
+	expect(field.value).toBe("20");
+	expect(container.querySelector("label[for=setting-quiet-turns]")?.textContent).toBe("Pause a teammate after");
+	expect(field.parentElement?.textContent).toBe("quiet turns an hour");
+	await act(async () => type(field, "0"));
+	await act(async () => type(field, "2.5"));
+	expect(limits).toEqual([]);
+	await act(async () => type(field, "40"));
+	expect(limits).toEqual([40]);
 });

@@ -675,6 +675,14 @@ pub enum Command {
     /// Stops a pair's queued automatic exchange without changing its grants.
     #[serde(rename = "teammates.exchange_stop")]
     TeammatesExchangeStop { a: String, b: String },
+    /// Keep going on a teammate paused at its hourly limit on quiet turns:
+    /// its count starts afresh and it hears what waited.
+    #[serde(rename = "teammate.quiet_resume")]
+    TeammateQuietResume { persona_id: String },
+    /// Stop on a teammate paused at its hourly limit on quiet turns: it
+    /// begins none until the person next writes to it.
+    #[serde(rename = "teammate.quiet_stop")]
+    TeammateQuietStop { persona_id: String },
     /// Answers a card the agent posted with `request_human`. Refused when
     /// nothing is waiting any more — the deadline passed, the session
     /// stopped, the room restarted, or somebody else answered first. The

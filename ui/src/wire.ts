@@ -221,6 +221,8 @@ type Results = {
 	"session.set_config": SessionInfo;
 	"session.answer_permission": null;
 	"teammates.exchange_resume": null;
+	"teammate.quiet_resume": null;
+	"teammate.quiet_stop": null;
 	"teammates.exchange_stop": null;
 	"human.answer": null;
 	"search.thread": ThreadSearchResult;

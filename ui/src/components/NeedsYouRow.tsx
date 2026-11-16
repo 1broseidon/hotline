@@ -45,6 +45,13 @@ function keysOf(ask: Ask, thread: ThreadId, owner: string, handoff: boolean): Ke
 				{ word: "Stop", send: pair("teammates.exchange_stop") },
 			];
 		}
+		case "quiet_paused": {
+			const quiet = (cmd: "teammate.quiet_resume" | "teammate.quiet_stop") => () => wire.command(cmd, { personaId: owner });
+			return [
+				{ word: "Keep going", send: quiet("teammate.quiet_resume") },
+				{ word: "Stop", send: quiet("teammate.quiet_stop") },
+			];
+		}
 		case "credential_ask":
 		case "cookie_ask":
 			return [];

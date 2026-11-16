@@ -488,6 +488,12 @@ pub(crate) async fn run(
         Command::TeammatesExchangeResume { a, b } => {
             room.resume_exchange(&a, &b).map(|()| Value::Null)
         }
+        Command::TeammateQuietResume { persona_id } => room
+            .answer_quiet_pause(&persona_id, true)
+            .map(|()| Value::Null),
+        Command::TeammateQuietStop { persona_id } => room
+            .answer_quiet_pause(&persona_id, false)
+            .map(|()| Value::Null),
         Command::HumanAnswer {
             persona_id,
             action_id,

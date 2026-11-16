@@ -140,6 +140,10 @@ impl Seat {
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
+                    // The same card's answer for one teammate at its
+                    // hourly limit on quiet turns.
+                    | Command::TeammateQuietResume { .. }
+                    | Command::TeammateQuietStop { .. }
                     // A side thread is a conversation with a teammate the
                     // person already talks to from the phone; starting,
                     // speaking in, stopping and archiving one grant nothing

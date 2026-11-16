@@ -235,6 +235,8 @@ export function Settings({
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
 							keepDays={settings.inboxKeepDays}
 							onKeepDays={(days) => patch({ inboxKeepDays: days })}
+							quietTurns={settings.quietTurnsPerHour}
+							onQuietTurns={(turns) => patch({ quietTurnsPerHour: turns })}
 							linkPreviews={settings.linkPreviews}
 							onLinkPreviews={(on) => patch({ linkPreviews: on ? null : false })}
 							onBackend={(id) => patch({ defaultBackendId: id })}

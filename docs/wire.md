@@ -194,6 +194,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
 | `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
 | `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop (below) |
+| `teammate.quiet_resume` | `{personaId}` | none; answers a teammate's `quiet_paused` card with Keep going (below) |
+| `teammate.quiet_stop` | `{personaId}` | none; answers it with Stop (below) |
 | `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then; one opened without a task runs no turn and is not `working` while its agent starts. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
 | `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued. In a thread a teammate handed over, while its handoff waits on a card there, the words are that card's answer (and attachments are refused) |
 | `side.cancel` | `{sideId}` | none; the person's Stop, as `thread.cancel` without `interrupt` |
@@ -400,6 +402,15 @@ job, `session.prompt`, `mobile.prompt`, or a line said on a call), which also
 starts the count afresh, as such a line does for any pair that is not paused.
 A line the person writes while the card is up does not answer it, and leaves
 the count.
+
+`teammate.quiet_resume {personaId}` and `teammate.quiet_stop {personaId}`
+answer the same card for one teammate, `quiet_paused {id, ts, turns,
+status}`, written to its tape when its main conversation has begun the room's
+`quietTurnsPerHour` quiet turns in the last hour: no quiet turn begins while
+it waits. Keep going counts afresh and wakes the teammate for what waited;
+Stop holds it until the person next writes to it, as a pair's Stop does. Both
+belong to the person, on desktop or phone; one for a card already answered
+is refused with "That pause is no longer waiting for an answer."
 The card's status becomes `resumed` or `stopped`. These are operator
 commands, not teammate tools. There are no link commands or roster links.
 

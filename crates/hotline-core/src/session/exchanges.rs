@@ -875,8 +875,10 @@ impl Room {
     /// job's thread (`Room::prompt_job`). Each of its pairs counts afresh, and
     /// one the person stopped may reach each other again. A pair paused at
     /// the cap is left as it is: its card is the person's answer, and a line
-    /// about something else is not it.
+    /// about something else is not it. The teammate's own hourly limit on
+    /// quiet turns is the same (`inbox/limit.rs`).
     pub(super) fn heard_from_person(&self, persona: &str) {
+        self.quiet_heard_from_person(persona);
         let _guard = lock(&self.exchange_lock);
         for mut pair in self.exchange_pairs() {
             if (pair.a != persona && pair.b != persona) || pair.paused {
@@ -891,6 +893,14 @@ impl Room {
         }
     }
     fn exchange_card(&self, pair: &Pair, status: ExchangePauseStatus) {
+        if status == ExchangePauseStatus::Pending {
+            self.note_brake(json!({
+                "brake": "pair",
+                "teammates": [pair.a, pair.b],
+                "count": pair.exchanges,
+                "limit": EXCHANGE_CAP,
+            }));
+        }
         for (whose, other) in [(&pair.a, &pair.b), (&pair.b, &pair.a)] {
             if status != ExchangePauseStatus::Pending {
                 // Settle the actual open cards, including the pair-wide ids

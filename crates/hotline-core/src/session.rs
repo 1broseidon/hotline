@@ -797,6 +797,9 @@ pub struct Room {
     /// The threads waiting out the inbox's gather delay, by teammate and
     /// thread, so items that land together wake a thread once.
     inbox_gathers: Mutex<HashSet<String>>,
+    /// The quiet turns each teammate's main conversation began in the last
+    /// hour, by teammate, for its hourly limit (`session/inbox/limit.rs`).
+    quiet_turns: Mutex<HashMap<String, inbox::QuietTurns>>,
     /// How long a test's pick-up waits in place of the gather delay, so a
     /// test can act inside the wait (`session/inbox/pick_up.rs`).
     #[cfg(test)]
@@ -1004,6 +1007,7 @@ impl Room {
             asides_lock: Mutex::new(()),
             inbox_lock: Mutex::new(()),
             inbox_gathers: Mutex::default(),
+            quiet_turns: Mutex::default(),
             #[cfg(test)]
             pick_up_delay: Mutex::new(None),
             inbox_started: std::sync::atomic::AtomicBool::new(false),

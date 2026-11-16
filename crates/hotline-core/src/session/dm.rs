@@ -159,6 +159,11 @@ impl Occupant for Session {
         if pick_up && room.set_aside(&session.persona_id).is_empty() {
             return Begin::Skip;
         }
+        // A quiet turn past the teammate's hourly limit is not begun: it is
+        // paused with a card (`inbox/limit.rs`).
+        if quiet && !room.quiet_turn_may_begin(&session.persona_id) {
+            return Begin::Skip;
+        }
         let source = if let Some(unprompted) = &wired.unprompted {
             let Some(updates) = lock(&unprompted.0).take() else {
                 return Begin::Skip;

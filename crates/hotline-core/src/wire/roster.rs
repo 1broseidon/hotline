@@ -577,7 +577,8 @@ pub(crate) fn waiting_on(tail: &[Value]) -> bool {
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 open.insert(id, status == PasskeyAskStatus::Pending);
             }
-            TranscriptEvent::ExchangePaused { id, status, .. } => {
+            TranscriptEvent::ExchangePaused { id, status, .. }
+            | TranscriptEvent::QuietPaused { id, status, .. } => {
                 open.insert(id, status == crate::contract::ExchangePauseStatus::Pending);
             }
             _ => {}

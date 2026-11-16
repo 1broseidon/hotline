@@ -234,7 +234,11 @@ impl Room {
     /// it offers is due to be offered again an hour after its first pick-up,
     /// then a day after each.
     async fn offer_set_aside(self: &Arc<Self>, persona_id: &str, due: Due) {
-        if self.closing() || self.persona(persona_id).is_err() {
+        // A teammate held at its hourly limit is offered nothing quietly.
+        if self.closing()
+            || self.persona(persona_id).is_err()
+            || self.quiet_held(persona_id).is_some()
+        {
             return;
         }
         // Items no turn has been offered wake it by their own rule.

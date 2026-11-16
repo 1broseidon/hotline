@@ -43,6 +43,7 @@ impl State {
                 | "secret_use_ask"
                 | "cookie_ask"
                 | "exchange_paused"
+                | "quiet_paused"
         ) {
             return kind == "delivery";
         }
@@ -94,7 +95,8 @@ impl State {
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 self.set_card(id, status == PasskeyAskStatus::Pending);
             }
-            TranscriptEvent::ExchangePaused { id, status, .. } => {
+            TranscriptEvent::ExchangePaused { id, status, .. }
+            | TranscriptEvent::QuietPaused { id, status, .. } => {
                 self.set_card(id, status == hotline_contract::ExchangePauseStatus::Pending);
             }
             _ => {}

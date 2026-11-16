@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCommitOnLeave } from "../../commitOnLeave";
 import type { BackendChoice, ConfigChoice } from "../../generated/contract";
-import { DEFAULT_IDLE_HOURS, DEFAULT_KEEP_DAYS, useModelsRevision } from "../../room";
+import { DEFAULT_IDLE_HOURS, DEFAULT_KEEP_DAYS, DEFAULT_QUIET_TURNS, useModelsRevision } from "../../room";
 import { Chips } from "../../ui/Chips";
 import { Fold, toggled } from "../../ui/Fold";
 import { Picker } from "../../ui/Menu";
@@ -17,6 +17,9 @@ const MAX_IDLE_HOURS = 336;
 /** The days a closed message between teammates is kept: the desk takes 1 to 3650 (`inboxKeepDays`). */
 const MIN_KEEP_DAYS = 1;
 const MAX_KEEP_DAYS = 3650;
+/** The quiet turns a teammate may begin in an hour before it is paused: the desk takes 1 to 1000 (`quietTurnsPerHour`). */
+const MIN_QUIET_TURNS = 1;
+const MAX_QUIET_TURNS = 1000;
 
 function AppearanceSection({ accent, onAccent }: { accent: string; onAccent(accent: Accent): void }) {
 	const theme = useTheme();
@@ -52,6 +55,8 @@ export function GeneralSection({
 	onIdleHours,
 	keepDays,
 	onKeepDays,
+	quietTurns,
+	onQuietTurns,
 	linkPreviews,
 	onLinkPreviews,
 	onBackend,
@@ -68,6 +73,8 @@ export function GeneralSection({
 	onIdleHours(hours: number): void;
 	keepDays: number;
 	onKeepDays(days: number): void;
+	quietTurns: number;
+	onQuietTurns(turns: number): void;
 	linkPreviews: boolean;
 	onLinkPreviews(on: boolean): void;
 	onBackend(id: string): void;
@@ -90,6 +97,14 @@ export function GeneralSection({
 		const next = Number(raw);
 		if (!Number.isInteger(next) || next < MIN_KEEP_DAYS || next > MAX_KEEP_DAYS) return;
 		if (next !== keepDays) onKeepDays(next);
+	};
+	const [turns, setTurns] = useState(String(quietTurns));
+	useEffect(() => setTurns(String(quietTurns)), [quietTurns]);
+	const commitTurns = (raw: string) => {
+		setTurns(raw);
+		const next = Number(raw);
+		if (!Number.isInteger(next) || next < MIN_QUIET_TURNS || next > MAX_QUIET_TURNS) return;
+		if (next !== quietTurns) onQuietTurns(next);
 	};
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
@@ -223,6 +238,26 @@ export function GeneralSection({
 								onChange={(event) => commitDays(event.target.value)}
 							/>
 							days
+						</span>
+					</div>
+					{/* A teammate that begins this many quiet turns in an hour is paused with a card. */}
+					<div className="group-row">
+						<label className="group-row-text" htmlFor="setting-quiet-turns">
+							<span className="group-row-title">Pause a teammate after</span>
+						</label>
+						<span className="flex items-center gap-2 text-sm text-ink-2">
+							<input
+								id="setting-quiet-turns"
+								type="number"
+								className="field w-16 text-right"
+								min={MIN_QUIET_TURNS}
+								max={MAX_QUIET_TURNS}
+								step={1}
+								placeholder={String(DEFAULT_QUIET_TURNS)}
+								value={turns}
+								onChange={(event) => commitTurns(event.target.value)}
+							/>
+							quiet turns an hour
 						</span>
 					</div>
 					{/* Off, the desk contacts no site an agent linked to: no card, picture or icon. */}

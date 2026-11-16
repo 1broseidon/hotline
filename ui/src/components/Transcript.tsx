@@ -40,7 +40,7 @@ import { Plan } from "./transcript/Plan";
 import { CredentialAsk } from "./transcript/CredentialAsk";
 import { CookieAskCard } from "./transcript/CookieAskCard";
 import { SecretUseAsk } from "./transcript/SecretUseAsk";
-import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
+import { ExchangePaused, HumanAction, PasskeyAskCard, Permission, QuietPaused } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
@@ -986,6 +986,11 @@ const Row = memo(function Row({
 		 * person, a quiet rule line once it is settled either way. */
 		case "exchange_paused":
 			return <ExchangePaused personaId={personaId} ownerName={ownerName} event={event} />;
+
+		/* The teammate passed its hourly limit on quiet turns: the same card,
+		 * for one teammate. */
+		case "quiet_paused":
+			return <QuietPaused personaId={personaId} ownerName={ownerName} event={event} />;
 
 		/* A thread with a colleague while it has no answer to show: hung
 		 * under the row before it, the way a reply's steps are, so the

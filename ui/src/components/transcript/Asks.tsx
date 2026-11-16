@@ -339,3 +339,47 @@ export function ExchangePaused({
 		</div>
 	);
 }
+
+/**
+ * A teammate that began as many quiet turns in an hour as the person allows
+ * (Settings › General) is paused before the next, with the card a pair of
+ * teammates gets: Keep going counts afresh and lets it work on what waited;
+ * Stop holds it until the person writes to it. Either outcome becomes a
+ * quiet line. While it waits it is one of the cards in Needs you.
+ */
+export function QuietPaused({ personaId, ownerName, event }: { personaId: string; event: Extract<TranscriptEvent, { kind: "quiet_paused" }>; ownerName: string }) {
+	const { answering, failure: refusal, answer: send } = useAnswer(askKey(event), event.status !== "pending", () => "Could not update this pause. Try again.");
+
+	if (event.status !== "pending") {
+		return <p className="rule-line rule-line-plain">{event.status === "stopped" ? `Stopped. Write to ${ownerName} to start again.` : "Quiet turns resumed"}</p>;
+	}
+
+	const act = (cmd: "teammate.quiet_resume" | "teammate.quiet_stop") => {
+		send(() => wire.command(cmd, { personaId }));
+	};
+
+	return (
+		<div className="card card-live mt-3">
+			<p className="eyebrow mb-1">Paused</p>
+			<p className="selectable">{quietPausedWords(ownerName, event.turns)}</p>
+			<div className="card-actions">
+				<button type="button" disabled={answering} className="control btn-primary" onClick={() => act("teammate.quiet_resume")}>
+					Keep going
+				</button>
+				<button type="button" disabled={answering} className="control btn" onClick={() => act("teammate.quiet_stop")}>
+					Stop
+				</button>
+			</div>
+			{refusal !== null && (
+				<p role="alert" className="mt-2 text-sm text-danger">
+					{refusal}
+				</p>
+			)}
+		</div>
+	);
+}
+
+/** What the card says: "Huck paused after 20 quiet turns in an hour without you." */
+function quietPausedWords(name: string, turns: number): string {
+	return `${name} paused after ${turns} quiet ${turns === 1 ? "turn" : "turns"} in an hour without you.`;
+}

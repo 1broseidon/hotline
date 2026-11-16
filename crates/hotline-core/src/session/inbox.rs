@@ -40,11 +40,13 @@ use std::sync::Arc;
 
 mod clock;
 mod heard;
+mod limit;
 mod pick_up;
 mod tidy;
 
 pub(in crate::session) use clock::{arrived_at, expire_after};
 pub(in crate::session) use heard::QUIET_WAKE_LINE;
+pub(in crate::session) use limit::QuietTurns;
 pub(in crate::session) use pick_up::PickUp;
 
 /// The most a title says: a line someone reads before deciding whether to

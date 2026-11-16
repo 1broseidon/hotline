@@ -1,15 +1,15 @@
 import type { Person } from "../../avatars";
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
-import { collaborationAsk, ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./Asks";
+import { collaborationAsk, ExchangePaused, HumanAction, PasskeyAskCard, Permission, QuietPaused } from "./Asks";
 import { CookieAskCard } from "./CookieAskCard";
 import { CredentialAsk } from "./CredentialAsk";
 import { Prompted } from "./InboxLines";
 import { SecretUseAsk } from "./SecretUseAsk";
 
-/** A card waiting on the person: the kinds that hold a turn, a teammate's computer, or two teammates paused together, until answered. */
+/** A card waiting on the person: the kinds that hold a turn, a teammate's computer, two teammates paused together, or one paused at its hourly limit, until answered. */
 export type Ask = Extract<
 	TranscriptEvent,
-	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_ask" | "exchange_paused" }
+	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_ask" | "exchange_paused" | "quiet_paused" }
 >;
 
 /** A card with a time limit that has run out on this clock: it can no longer be answered. */
@@ -28,6 +28,7 @@ function waits(event: TranscriptEvent, now: number): event is Ask {
 		case "secret_use_ask":
 		case "cookie_ask":
 		case "exchange_paused":
+		case "quiet_paused":
 			return event.status === "pending";
 		case "credential_ask":
 			return event.status === "pending" && !event.armed;
@@ -76,6 +77,8 @@ export function askLine(ask: Ask): string {
 			return `Sign in to ${ask.site}`;
 		case "exchange_paused":
 			return `Paused with ${ask.withName}`;
+		case "quiet_paused":
+			return `Paused after ${ask.turns} quiet ${ask.turns === 1 ? "turn" : "turns"}`;
 	}
 }
 
@@ -134,5 +137,7 @@ function AskBody({
 			return <CookieAskCard event={ask} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />;
 		case "exchange_paused":
 			return <ExchangePaused personaId={personaId} ownerName={ownerName} event={ask} />;
+		case "quiet_paused":
+			return <QuietPaused personaId={personaId} ownerName={ownerName} event={ask} />;
 	}
 }

@@ -17,6 +17,8 @@ import { activeDeskId, wireFor } from "./desks";
 export const DEFAULT_IDLE_HOURS = 8;
 /** How many days a closed message between teammates is kept before Hotline removes it (`inboxKeepDays`). */
 export const DEFAULT_KEEP_DAYS = 30;
+/** How many quiet turns a teammate may begin in an hour before it is paused with a card (`quietTurnsPerHour`). */
+export const DEFAULT_QUIET_TURNS = 20;
 
 /**
  * One line on the room stream. Settings are `kind: "setting"` (`id` the key,
@@ -211,6 +213,7 @@ export function useRoomSettings(): {
 	accent: string;
 	chapterIdleHours: number;
 	inboxKeepDays: number;
+	quietTurnsPerHour: number;
 	linkPreviews: boolean;
 	defaultBackendId: string;
 	defaultModelId: string | null;
@@ -230,6 +233,7 @@ export function useRoomSettings(): {
 		accent: stringSetting(events.get("accent"), "mint"),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		inboxKeepDays: numberSetting(events.get("inboxKeepDays"), DEFAULT_KEEP_DAYS),
+		quietTurnsPerHour: numberSetting(events.get("quietTurnsPerHour"), DEFAULT_QUIET_TURNS),
 		linkPreviews: booleanSetting(events.get("linkPreviews"), true),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),

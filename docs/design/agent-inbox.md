@@ -429,6 +429,30 @@ changes, like the index. The window reads the receipts over the wire.
   "Stopped. Write to either of them to start again." Their open items stay
   open for the receiver to close or leave. The result of a work thread is
   counted as a request's reply always was.
+- **The hourly limit** (task-472, `inbox/limit.rs`). Turns nobody watches
+  have a ceiling per teammate: one whose main conversation has begun as many
+  quiet turns in the last hour as the person allows (Settings › General ›
+  Conversations, "Pause a teammate after [20] quiet turns an hour", the room
+  setting `quietTurnsPerHour`, 1 to 1000; 20 is a placeholder until desks
+  say how many a teammate needs) is paused before the next, with the pair's
+  card for one teammate (`quiet_paused`): "Paused", "Huck paused after 20
+  quiet turns in an hour without you.", Keep going and Stop; in Needs you,
+  "Paused after 20 quiet turns". While it waits no quiet turn begins (no
+  wake, no pick-up): its items still land, and a turn the person starts
+  hears them. Keep going counts afresh and wakes it for what waited ("Quiet
+  turns resumed"); Stop holds it until the person next writes to it, in any
+  of its threads, which counts afresh ("Stopped. Write to Huck to start
+  again."); while it is not paused, any such line counts afresh too. A
+  quiet turn is one the inbox begins in the main conversation (a new item's
+  wake, a notice the driver did not take mid-turn, a pick-up); a work thread
+  or a job the inbox wakes is not counted. The count is the process's, so a
+  restart counts afresh; the pause and the stop are on the room stream
+  (`quiet_limit`) and hold across one.
+- **How often a brake fires.** Each pause, a pair's or the hourly limit's,
+  adds one line to `brakes.jsonl` in the data directory: `{"at", "brake":
+  "pair", "teammates": [a, b], "count", "limit"}` or `{"at", "brake":
+  "quiet", "teammate", "count", "limit"}`, so the numbers can be set from
+  what happens on a desk. Nothing reads it but a person.
 - **One path.** Nothing reaches a teammate by `ask_in_main`,
   `ask_in_own_thread`, a sender-triggered `dispatch_handoff`, or
   `aside_from`/nudge: those are deleted. An ask from before the inbox that is

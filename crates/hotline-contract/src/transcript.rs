@@ -413,6 +413,18 @@ pub enum TranscriptEvent {
         exchanges: i64,
         status: ExchangePauseStatus,
     },
+    /// A teammate began as many quiet turns in an hour as the person allows
+    /// (`quietTurnsPerHour`), and is paused before the next: no quiet turn
+    /// begins until the person says Keep going (`teammate.quiet_resume`) or
+    /// Stop (`teammate.quiet_stop`), which holds it until they next write to
+    /// it. `turns` is how many it began in the hour. The card a pair gets
+    /// (`ExchangePaused`), for one teammate.
+    QuietPaused {
+        id: String,
+        ts: i64,
+        turns: u32,
+        status: ExchangePauseStatus,
+    },
     Turn {
         id: String,
         ts: i64,

@@ -2009,7 +2009,9 @@ person's first-contact card, so a request waiting on its card holds up nothing
 either. Asks no longer take turns on a pair: each is answered by a
 conversation of the recipient's, and several may be at once. Requests and
 replies share the twelve-message brake across intents; receipts do not
-count. At twelve, both tapes receive an `exchange_paused` card. Further
+count. At twelve, both tapes receive an `exchange_paused` card (and a teammate
+whose main conversation begins the room's `quietTurnsPerHour` quiet turns in an
+hour gets the same card for itself, `quiet_paused`, `inbox/limit.rs`). Further
 queued requests and completed results wait without being discarded.
 `teammates.exchange_resume {a,b}` resets the count and releases them;
 `teammates.exchange_stop {a,b}` stops outstanding exchanges and holds the

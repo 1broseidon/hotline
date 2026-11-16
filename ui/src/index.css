@@ -5160,10 +5160,6 @@
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-4);
 	}
-	/* How long a sender has waited on an item not yet sorted: amber, as what waits is. */
-	.list-when[data-waiting] {
-		color: var(--warn-ink);
-	}
 	/* One send to several teammates on Sent: its chevron turns as it opens
 	 * to a row for each teammate, set in under its title. */
 	.list-unfold {

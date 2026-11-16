@@ -485,7 +485,11 @@ describe("task-456 drawn", () => {
 		await list("open");
 		expect([...container.querySelectorAll(".list-group")].map((one) => one.textContent)).toEqual(["Unread1", "Taken1", "For later1"]);
 		expect([...container.querySelectorAll("[data-inbox]")].map((one) => one.getAttribute("data-inbox"))).toEqual(["a", "t", "l"]);
-		expect(container.querySelector("[data-inbox=a] .list-when")?.hasAttribute("data-waiting")).toBe(true);
+		// A waiting sender is said in the line, and the row's time is a time, as every row's is: no amber countdown.
+		expect(container.querySelector("[data-inbox=a] .list-line")?.textContent).toBe("Huck · waiting");
+		const { asideTime } = await import("../src/asides");
+		expect(container.querySelector("[data-inbox=a] .list-when")?.textContent).toBe(asideTime(NOW - 60_000));
+		expect(container.querySelector("[data-inbox=a] .list-when")?.hasAttribute("data-waiting")).toBe(false);
 		expect(container.querySelector("[data-inbox=t] .dock-dot")).not.toBeNull();
 		expect(container.querySelector(".dock-note")?.textContent).toBe("1 unread · 1 taken · 1 for later");
 		await press([...container.querySelectorAll("[role=tab]")].find((one) => one.textContent === "Sent")!);

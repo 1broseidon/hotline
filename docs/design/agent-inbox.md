@@ -447,8 +447,10 @@ item, and no chat opens between teammates.
   teammates are one row, its title over whom it reached and where they
   stand together ("To Huck, Quill, Timo · 2 of 3 seen"), which opens to a
   row for each teammate, each opening its item. Every Sent row's arrow is
-  grey: the accent is for what the teammate itself has not read. An
-  unsorted item whose sender waits counts how long in amber. It opens from
+  grey: the accent is for what the teammate itself has not read. Every row
+  says a time, when it was sent or last moved; an unsorted item whose
+  sender waits says "waiting" in its line, as the composer's tray does,
+  never a countdown. It opens from
   the teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.
 - **Work an item started.** The desk opens a taken item's work thread with

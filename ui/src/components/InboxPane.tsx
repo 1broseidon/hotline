@@ -2,7 +2,6 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { InboxItem, InboxView, ThreadId } from "../generated/contract";
 import { asideTime } from "../asides";
 import type { Person } from "../avatars";
-import { stopwatch } from "../dock";
 import { ArrowLeftIcon, ChevronRightIcon } from "../icons";
 import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
@@ -73,7 +72,8 @@ export function InboxList({
 	onOpenItem(itemId: string): void;
 	onClose(): void;
 }) {
-	const now = useNow(1_000);
+	// Times of day and days, never a running count: a minute is fine enough.
+	const now = useNow(60_000);
 	const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set());
 	const unfold = (id: string) =>
 		setUnfolded((was) => {
@@ -204,8 +204,9 @@ function Group({ title, items }: { title: string; items: InboxItem[] }) {
 
 /**
  * An item as a row: its mark, the title, who it is from (or to, for one
- * sent) with what it waits on or why it moved, and a time. An unsorted
- * item whose sender stopped for it counts how long, in amber.
+ * sent) with what it waits on or why it moved, and a time: when it was
+ * sent, or last moved. One whose sender stopped for it says "waiting" in its
+ * line and its time as every row does, never a countdown.
  */
 function ItemRow({
 	item,
@@ -235,7 +236,7 @@ function ItemRow({
 			]
 				.filter((part): part is string => typeof part === "string" && part !== "")
 				.join(" · ");
-	const when = waiting ? stopwatch(now - item.ts) : asideTime(sent ? item.ts : movedAt(item), now);
+	const when = asideTime(sent ? item.ts : movedAt(item), now);
 	return (
 		<button type="button" className="list-row" data-inbox={item.id} data-state={sent ? undefined : item.state} aria-label={`${item.title}, ${line}, ${when}`} onClick={onOpen}>
 			<span className="list-mark" aria-hidden="true">
@@ -247,7 +248,7 @@ function ItemRow({
 				</span>
 				<span className="list-line">{line}</span>
 			</span>
-			<span className="list-when" data-waiting={waiting || undefined}>
+			<span className="list-when">
 				{when}
 				{live && <span aria-hidden="true" className="dock-dot beat" data-state="running" />}
 			</span>

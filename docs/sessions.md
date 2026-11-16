@@ -1196,7 +1196,9 @@ The teammate's granted `folders` are bound too, whatever its reach, each at
 name), `:ro` unless the grant is `writable`; one gone from the host is left
 out. The container is created with `HOTLINE_FOLDERS` naming those binds, and
 a start that finds a container made with other folders removes it and makes
-it again, so a folder taken away is never still mounted.
+it again, so a folder taken away is never still mounted. The received folder
+Hotline grants a teammate is not bound
+([Files between teammates](#files-between-teammates)).
 
 In the window, Settings › Computer writes `computerRuntime` (blank is
 automatic) and `computerImage`; the teammate's pane writes
@@ -1642,8 +1644,8 @@ left, under the lock hearing takes. Files are refused unless the source allows
 them, and then meet a colleague's [file rules](#files-between-teammates): a
 transport stages them in the source's own folder on the desk,
 `inbound/<source id>/`, and only plain files directly there are taken, at most
-10 coming to 25 MB, copied into the teammate's working directory under
-`inbox/inbound-<source id>/` once nothing else refuses the aside, which names
+10 coming to 25 MB, copied into the teammate's received folder under
+`inbound-<source id>/` once nothing else refuses the aside, which names
 where.
 The words are made one line with every control character a space and any
 token cut out (`hotline_room::inbound::untrusted_text`), clipped to an aside's
@@ -1672,13 +1674,42 @@ the tool's reason. At most
 An item's files land as it does: at once when the two may already reach each
 other, else held on the desk, `files-between/inbox-<item id>/`, until the
 person's first-contact card lets the item in, and dropped with it on a no.
-They are copied into the recipient's working directory under
-`inbox/<sender id>/`, never over a file there (`q3 (2).csv`), and the item's
-words gain a line saying where: "Files from Ada, now in your working
-directory: inbox/ada/q3.csv". They land in the working directory whatever the
-recipient's reach, through `Workspace::receive_file`, which is confined to
-it. Nothing crosses a link. What a held item still holds is kept across a
+They are copied into the recipient's received folder, a folder Hotline keeps
+for it on the desk outside its working directory,
+`received/<recipient id>/<sender id>/` (each id one plain name,
+`paths::encode_file_component`), never over a file there (`q3 (2).csv`), and
+the item's words gain a line naming each file by its whole path: "Files from
+Ada, kept outside your working directory for you to read, not change; copy
+one into your working directory to work on it: <data>/received/bob/ada/q3.csv".
+They land there whatever the recipient's reach, through
+`Workspace::receive_file` on a handle opened on the received folder, under
+the recipient's lease, so no name and no link in it reaches anywhere else.
+Nothing crosses a link. What a held item still holds is kept across a
 restart while its card is asked again.
+
+The recipient reads them through the [extra folders](security.md#extra-folders) it
+already has: every session of its own, its work threads, calls, jobs and
+runs, and the reads `send` and `send_file` make for it, are given its record
+with `received/<recipient id>/` as one more folder, read only
+(`Room::with_received`, at the session's start in `start.rs`, `sides.rs`,
+`job_thread.rs` and `runner.rs`, and in `Room::reaching_from`). The record is
+not changed and the person never sees it among the folders they granted. A
+job or run made `without` folders is narrowed after it is added, so it has
+none of it. Under workspace reach Hotline Agent's file tools read it and
+refuse a write or an edit, and the confined shell binds or allows it
+read-only, so nothing there is deleted, moved or written; another teammate's
+received folder is not among its folders and stays hidden. Hotline's ACP
+file callbacks hold a harness to the same, and a harness that takes
+`additionalDirectories` is handed it, what its own tools do there being its
+own. Whole-machine reach reads and changes it as it does anything. A file
+the recipient wants in its project it copies there itself. The preamble
+lists the person's folders alone, and a computer is made with those alone
+(`Room::without_received`): a computer is the teammate's across its threads
+and made again whenever its folders differ, so a folder a narrowed job lacks
+would remake it between threads. Files an older build copied into a working
+directory under `inbox/<sender id>/` stay there, named by the items that
+carried them. Nothing deletes or caps what a received folder holds beyond
+each item's own limits.
 
 ## Stop and Interrupt
 

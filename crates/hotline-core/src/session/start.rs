@@ -127,7 +127,7 @@ impl Room {
     ) -> Result<SessionInfo, String> {
         let _working = self.working()?;
         capability.check()?;
-        let persona = self.persona(persona_id)?;
+        let persona = self.with_received(self.persona(persona_id)?);
         capability.check()?;
         let mut agent = self
             .thread_agent(agent::Opening {

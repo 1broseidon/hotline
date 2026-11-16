@@ -189,8 +189,9 @@ async fn the_rate_limit_holds_for_the_hour() {
 
 /// A source's files are refused unless it allows them, and then meet a
 /// colleague's file rules: taken only from its own staging folder on the
-/// desk, at most 25 MB together, and landing in its teammate's working
-/// directory under `inbox/inbound-<source>/`, which the aside names.
+/// desk, at most 25 MB together, and landing in its teammate's received
+/// folder under `inbound-<source>/`, outside its working directory, which
+/// the aside names.
 #[tokio::test]
 async fn files_are_refused_unless_the_source_allows_them_and_then_meet_the_file_rules() {
     let (room, _) = room("inbound-files");
@@ -248,16 +249,25 @@ async fn files_are_refused_unless_the_source_allows_them_and_then_meet_the_file_
         0,
         "nothing is left half-delivered"
     );
-    assert!(!bobs.path().join("inbox").exists());
+    let received = crate::session::files_between::received_dir(room.log.root(), "bob");
+    assert!(!received.join("inbound-gh").exists());
 
     let aside = room.inbound_aside("gh", &carrying).unwrap();
-    assert_eq!(
-        std::fs::read_to_string(bobs.path().join("inbox/inbound-gh/report.pdf")).unwrap(),
-        "%PDF"
-    );
+    let landed = dunce::canonicalize(&received)
+        .unwrap()
+        .join("inbound-gh")
+        .join("report.pdf");
+    assert_eq!(std::fs::read_to_string(&landed).unwrap(), "%PDF");
     assert_eq!(
         aside.text,
-        "the report\n\nFiles from hotline repo, now in your working directory: inbox/inbound-gh/report.pdf"
+        format!(
+            "the report\n\n{}",
+            crate::session::files_between::files_line("hotline repo", &[landed])
+        )
+    );
+    assert!(
+        std::fs::read_dir(bobs.path()).unwrap().next().is_none(),
+        "nothing lands in his working directory"
     );
 }
 

@@ -79,7 +79,7 @@ An item (`InboxItem`) has an id, when it was sent, who sent it and from which
 of its threads (`from`, `fromThread`), whom it is for (`to`) and whom else
 the same `send` made an item for (`alsoTo`, absent when it went to one and
 on an item kept before it was recorded), the title, the
-words (`body`, with where any files landed), `wants`, `waiting`, `replyTo`,
+words (`body`, with the whole path of each file it carried), `wants`, `waiting`, `replyTo`,
 `about`, its `state`, and every state it has been in with its time
 (`receipts`). Once taken into a thread it names the thread (`work`) and the
 exchange request the work runs as (`request`). Once a pick-up has offered it
@@ -304,6 +304,14 @@ changes, like the index. The window reads the receipts over the wire.
   The card is asked of what the sender says it wants: a receiver may take an
   item that wanted an answer into work, and the card that let it in stands
   for that work.
+- **Files.** A file an item carries lands outside the receiver's working
+  directory, in a folder Hotline keeps for it on the desk,
+  `received/<receiver>/<sender>/`, which its own sessions are granted as
+  one more read-only extra folder (task-467, decision-47). The receiver
+  reads it there and copies it into its project itself, with its own reach,
+  so no colleague puts a file a tool picks up by its name (a test runner's
+  config, an instructions file) in a teammate's tree
+  (`docs/sessions.md`, Files between teammates).
 - **Whole-machine reach.** These guards bind what a teammate asks through
   Hotline's tools. A whole-machine teammate, or a harness with its own
   shell, can change the desk's records on disk, and is trusted as the

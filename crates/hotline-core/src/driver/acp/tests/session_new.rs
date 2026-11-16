@@ -620,6 +620,47 @@ fn acp_callbacks_honour_granted_folders() {
     );
 }
 
+/// Hotline's file callbacks for a harness hold its received folder as the
+/// person's read-only folders are held: a colleague's file there reads, a
+/// write over it, beside it or in a new folder in it is refused, and another
+/// teammate's received folder is not reached. A harness that takes extra
+/// roots is handed the folder; what its own tools then do in it is its own.
+#[test]
+fn acp_callbacks_read_the_received_folder_and_change_nothing_in_it() {
+    let data = scratch("callbacks-received-data");
+    let root = scratch("callbacks-received-root");
+    let grant = crate::session::files_between::received_grant(&data, "ada").unwrap();
+    let received = Path::new(&grant.path).to_path_buf();
+    std::fs::create_dir_all(received.join("bob")).unwrap();
+    std::fs::write(received.join("bob/brief.md"), "from bob\n").unwrap();
+    let carols = crate::session::files_between::received_dir(&data, "carol").join("bob");
+    std::fs::create_dir_all(&carols).unwrap();
+    std::fs::write(carols.join("private.md"), "for carol\n").unwrap();
+    let mut ada = persona(&root.to_string_lossy(), Vec::new());
+    ada.folders = Some(vec![grant]);
+    let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+
+    let brief = ReadTextFileRequest::new(SessionId::new("s"), received.join("bob/brief.md"));
+    assert_eq!(read_text_file(&workspace, &brief).unwrap(), "from bob\n");
+    let other = ReadTextFileRequest::new(SessionId::new("s"), carols.join("private.md"));
+    assert!(read_text_file(&workspace, &other).is_err());
+    for path in [
+        received.join("bob/brief.md"),
+        received.join("bob/new.md"),
+        received.join("made/new.md"),
+    ] {
+        let write = WriteTextFileRequest::new(SessionId::new("s"), path, "changed\n");
+        let error = write_text_file(&workspace, &write).unwrap_err();
+        assert!(error.to_string().contains("read but not change"), "{error}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(received.join("bob/brief.md")).unwrap(),
+        "from bob\n"
+    );
+    assert!(!received.join("bob/new.md").exists());
+    assert!(!received.join("made").exists());
+}
+
 /// A harness that says it takes extra roots is opened with the granted
 /// folders, and the session says so; one that does not is not sent them.
 #[tokio::test(flavor = "multi_thread")]

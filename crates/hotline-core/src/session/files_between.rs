@@ -9,13 +9,21 @@
 //! teammate sends them, and land as the item does: at once when the two may
 //! already reach each other, else held on the desk (`files-between/<key>/`)
 //! until the person's first-contact card lets the item in. Then each is
-//! copied into the recipient's working directory under `inbox/<sender>/`,
-//! never over a file there, and the item says where. An inbound source's
-//! files arrive the same way. Nothing new is approved: a file goes only where
-//! the item carrying it may.
+//! copied, never over a file there, into a folder Hotline keeps on the desk
+//! for the recipient, `received/<recipient>/<sender>/`, outside its working
+//! directory, and the item says where. An inbound source's files arrive the
+//! same way. Nothing new is approved: a file goes only where the item
+//! carrying it may.
+//!
+//! The recipient reads them there and changes nothing: its sessions and read
+//! tools are given `received/<recipient>/` as one more extra folder, read
+//! only ([`Room::with_received`]), so a file it wants in its project it
+//! copies there itself, with its own reach. A file a tool picks up by its
+//! name (a test runner's config, an instructions file) is never put in a
+//! project by a colleague.
 
 use super::Room;
-use crate::contract::{Reach, ThreadId};
+use crate::contract::{FolderGrant, Persona, Reach, ThreadId};
 use crate::driver::CapabilityLease;
 use crate::tools::Workspace;
 use std::path::{Path, PathBuf};
@@ -30,8 +38,9 @@ pub(crate) const FILES_COUNT_MAX: usize = 10;
 /// Where the desk holds a message's files until it is let in.
 const HELD: &str = "files-between";
 
-/// The folder of the recipient's working directory they are copied into.
-const INBOX: &str = "inbox";
+/// Where on the desk each teammate's received files are kept, a folder for
+/// each recipient.
+const RECEIVED: &str = "received";
 
 fn held_dir(root: &Path, id: &str) -> PathBuf {
     root.join(HELD).join(id)
@@ -43,14 +52,23 @@ pub(super) fn inbound_dir(root: &Path, source_id: &str) -> PathBuf {
     root.join("inbound").join(source_id)
 }
 
-/// The folder under `inbox/` a sender's files land in: its id, or for a
-/// teammate on a linked desk `personaId@deskId`.
+/// The folder a teammate's received files are kept in on the desk, and the
+/// folder it is granted read-only: `received/<its id>`, the id made one
+/// plain name.
+pub(crate) fn received_dir(root: &Path, persona_id: &str) -> PathBuf {
+    root.join(RECEIVED)
+        .join(crate::paths::encode_file_component(persona_id))
+}
+
+/// The folder in the recipient's received folder a sender's files land in:
+/// its id, or for a teammate on a linked desk `personaId@deskId`, made one
+/// plain name, so no id can name a folder above it.
 fn sender_folder(from: &str) -> PathBuf {
     let folder = match crate::linked::split(from) {
         Some((desk, persona)) => format!("{persona}@{desk}"),
         None => from.to_string(),
     };
-    Path::new(INBOX).join(folder)
+    PathBuf::from(crate::paths::encode_file_component(&folder))
 }
 
 /// A name a file may be written under: one plain component, which a linked
@@ -64,23 +82,33 @@ fn plain_name(name: &str) -> bool {
         && !name.chars().any(char::is_control)
 }
 
-/// What the message or the aside says of the files: where each now is in
-/// the recipient's working directory, written with `/` on every platform, as
-/// the recipient may be on another desk's.
+/// What the message or the aside says of the files: where each now is, by
+/// its whole path, and that the recipient reads them there and copies one
+/// into its working directory to work on it.
 pub(super) fn files_line(sender: &str, paths: &[PathBuf]) -> String {
     let paths: Vec<String> = paths
         .iter()
-        .map(|path| {
-            path.components()
-                .map(|part| part.as_os_str().to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/")
-        })
+        .map(|path| path.display().to_string())
         .collect();
     format!(
-        "Files from {sender}, now in your working directory: {}",
+        "Files from {sender}, kept outside your working directory for you to read, not change; copy one into your working directory to work on it: {}",
         paths.join(", ")
     )
+}
+
+/// The grant a teammate's sessions are given for its received folder
+/// ([`received_dir`], made if missing): read only, spelled as the directory
+/// it is, as a folder the person grants is. No folder the person grants can
+/// be inside the data directory, so this one is never theirs. None when the
+/// desk cannot make it.
+pub(crate) fn received_grant(root: &Path, persona_id: &str) -> Option<FolderGrant> {
+    let dir = received_dir(root, persona_id);
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dunce::canonicalize(&dir).ok()?;
+    Some(FolderGrant {
+        path: path.to_str()?.to_string(),
+        writable: false,
+    })
 }
 
 impl Room {
@@ -245,10 +273,9 @@ impl Room {
         Ok(taken)
     }
 
-    /// Copies files from `from` into `to`'s working directory, under
-    /// `inbox/<sender>/`, under `to`'s own lease, and answers where each
-    /// landed, relative to that directory. A teammate of any reach gets them
-    /// in its working directory, and nowhere else.
+    /// Copies files from `from` into `to`'s received folder, under its
+    /// sender's own folder, under `to`'s own lease, and answers where each
+    /// landed. A teammate of any reach gets them there, and nowhere else.
     pub(super) fn deliver_files(
         &self,
         from: &str,
@@ -258,18 +285,23 @@ impl Room {
         self.deliver_into(&sender_folder(from), to, files)
     }
 
-    /// Copies an inbound source's files into `to`'s working directory, under
-    /// `inbox/inbound-<source id>/`, as a colleague's are.
+    /// Copies an inbound source's files into `to`'s received folder, under
+    /// `inbound-<source id>/`, as a colleague's are.
     pub(super) fn deliver_inbound(
         &self,
         source_id: &str,
         to: &str,
         files: &[(String, Vec<u8>)],
     ) -> Result<Vec<PathBuf>, String> {
-        let folder = Path::new(INBOX).join(format!("inbound-{source_id}"));
+        let folder = PathBuf::from(crate::paths::encode_file_component(&format!(
+            "inbound-{source_id}"
+        )));
         self.deliver_into(&folder, to, files)
     }
 
+    /// Writes each file into `folder` of `to`'s received folder through a
+    /// handle confined to that folder, so no name and no link in it reaches
+    /// anywhere else, and answers each file's whole path.
     fn deliver_into(
         &self,
         folder: &Path,
@@ -277,27 +309,59 @@ impl Room {
         files: &[(String, Vec<u8>)],
     ) -> Result<Vec<PathBuf>, String> {
         let target = self.persona(to)?;
-        let workspace = Workspace::open_with_capability(
-            PathBuf::from(&target.cwd),
+        let could_not = |error: &dyn std::fmt::Display| {
+            format!("The files could not be kept for {}: {error}", target.name)
+        };
+        let received = received_dir(self.log.root(), &target.id);
+        std::fs::create_dir_all(&received).map_err(|error| could_not(&error))?;
+        let kept = Workspace::open_with_capability(
+            received,
             Reach::Workspace,
             self.log.root().join("tool-output").join(&target.id),
             &[],
             Some(self.capability_lease(&target.id)),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| could_not(&error))?;
         files
             .iter()
             .map(|(name, bytes)| {
-                workspace
-                    .receive_file(folder, name, bytes)
+                kept.receive_file(folder, name, bytes)
+                    .map(|landed| kept.display_root().join(landed))
                     .map_err(|error| {
-                        format!(
-                            "{name} could not be put in {}'s working directory: {error}",
-                            target.name
-                        )
+                        format!("{name} could not be kept for {}: {error}", target.name)
                     })
             })
             .collect()
+    }
+
+    /// The teammate as its sessions and its read tools are given it: its
+    /// record with its received folder as one more extra folder, read only
+    /// ([`received_grant`]). The record is the person's and is not changed.
+    /// A job or run made `without` folders is narrowed after this
+    /// (`agent::clone_of`), and loses it with the rest.
+    pub(super) fn with_received(&self, mut persona: Persona) -> Persona {
+        if let Some(grant) = received_grant(self.log.root(), &persona.id) {
+            persona.folders.get_or_insert_with(Vec::new).push(grant);
+        }
+        persona
+    }
+
+    /// `persona` without the grant [`Room::with_received`] added: what its
+    /// computer is made with and its preamble lists, both of which hold the
+    /// person's folders alone. A computer is the teammate's across its
+    /// threads and is made again whenever its folders differ, so a folder
+    /// some of its threads have and others lack would remake it between
+    /// them; and each item names where its files are.
+    pub(super) fn without_received(&self, mut persona: Persona) -> Persona {
+        let dir = received_dir(self.log.root(), &persona.id);
+        let received = dunce::canonicalize(&dir).unwrap_or(dir);
+        if let Some(folders) = persona.folders.as_mut() {
+            folders.retain(|folder| Path::new(&folder.path) != received);
+            if folders.is_empty() {
+                persona.folders = None;
+            }
+        }
+        persona
     }
 
     /// Copies the files held for request `id` to its recipient and lets go
@@ -324,12 +388,28 @@ impl Room {
 mod tests {
     use super::*;
 
+    /// Each sender's files land in a folder of its own, one plain name
+    /// whatever its id says, in a folder of the recipient's own.
     #[test]
-    fn a_senders_files_land_in_a_folder_of_its_own_under_inbox() {
-        assert_eq!(sender_folder("pork-chop"), Path::new("inbox/pork-chop"));
+    fn a_senders_files_land_in_a_folder_of_its_own_that_no_id_can_leave() {
+        assert_eq!(sender_folder("pork-chop"), Path::new("pork-chop"));
         assert_eq!(
             sender_folder("laptop-desk/clementine"),
-            Path::new("inbox/clementine@laptop-desk")
+            Path::new("clementine@laptop-desk")
         );
+        for id in ["..", ".", "../bob", "a/../../b", "..\\x"] {
+            let folder = sender_folder(id);
+            assert_eq!(folder.components().count(), 1, "{id}: {folder:?}");
+            assert!(
+                matches!(
+                    folder.components().next(),
+                    Some(std::path::Component::Normal(_))
+                ),
+                "{id}: {folder:?}"
+            );
+        }
+        let root = Path::new("/data");
+        assert_eq!(received_dir(root, "bob"), Path::new("/data/received/bob"));
+        assert_eq!(received_dir(root, ".."), Path::new("/data/received/%2E%2E"));
     }
 }

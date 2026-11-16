@@ -754,13 +754,14 @@ fn machine_reach_ignores_the_overflow_root() {
     assert!(!description.contains("long tool result"), "{description}");
 }
 
-/// A colleague's file lands under the working directory, beside any of the
-/// same name rather than over it, and never through a link that leads out.
+/// A colleague's file lands under the handle's directory, beside any of the
+/// same name rather than over it, and never through a name or a link that
+/// leads out.
 #[test]
-fn a_received_file_lands_in_the_working_directory_and_overwrites_nothing() {
+fn a_received_file_lands_under_its_handle_and_overwrites_nothing() {
     let directory = TestDirectory::new();
     let workspace = opened(directory.path(), Reach::Machine);
-    let inbox = Path::new("inbox/ada");
+    let inbox = Path::new("ada");
     assert_eq!(
         workspace.receive_file(inbox, "q3.csv", b"first").unwrap(),
         inbox.join("q3.csv")
@@ -774,19 +775,20 @@ fn a_received_file_lands_in_the_working_directory_and_overwrites_nothing() {
         inbox.join("notes")
     );
     assert_eq!(
-        fs::read(directory.path().join("inbox/ada/q3.csv")).unwrap(),
+        fs::read(directory.path().join("ada/q3.csv")).unwrap(),
         b"first"
     );
     assert_eq!(
-        fs::read(directory.path().join("inbox/ada/q3 (2).csv")).unwrap(),
+        fs::read(directory.path().join("ada/q3 (2).csv")).unwrap(),
         b"second"
     );
     for (folder, name) in [
-        ("inbox/../..", "x"),
-        ("inbox/ada", "../x"),
-        ("inbox/ada", ".."),
+        ("ada/../..", "x"),
+        ("..", "x"),
+        ("ada", "../x"),
+        ("ada", ".."),
         ("/tmp", "x"),
-        ("inbox/ada", "a/b"),
+        ("ada", "a/b"),
     ] {
         assert!(
             workspace
@@ -801,7 +803,7 @@ fn a_received_file_lands_in_the_working_directory_and_overwrites_nothing() {
         std::os::unix::fs::symlink(outside.path(), directory.path().join("away")).unwrap();
         assert!(
             workspace
-                .receive_file(Path::new("away/inbox"), "x", b"x")
+                .receive_file(Path::new("away/ada"), "x", b"x")
                 .is_err()
         );
         assert!(fs::read_dir(outside.path()).unwrap().next().is_none());

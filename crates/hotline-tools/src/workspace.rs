@@ -673,12 +673,13 @@ impl Workspace {
             .join(relative.strip_prefix(".").unwrap_or(&relative)))
     }
 
-    /// A file a colleague sent this teammate, written into `folder` under
-    /// the working directory (made if missing) as `name`, or as `name (2)`
-    /// and so on when that is taken: nothing the teammate has is overwritten.
-    /// It is confined to the working directory as every write is, whatever
-    /// the reach the handle was opened with. Answers its path relative to the
-    /// working directory.
+    /// A file a colleague sent a teammate, written into `folder` under this
+    /// handle's directory (made if missing) as `name`, or as `name (2)` and
+    /// so on when that is taken: nothing already there is overwritten. The
+    /// core opens the handle on the teammate's received folder, outside its
+    /// working directory. It is confined to that directory as every write
+    /// is, whatever the reach the handle was opened with. Answers its path
+    /// relative to that directory.
     pub fn receive_file(
         &self,
         folder: &Path,

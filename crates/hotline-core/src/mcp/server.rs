@@ -1917,7 +1917,7 @@ fn files_schema() -> Value {
         "type": "array",
         "items": { "type": "string" },
         "maxItems": crate::session::files_between::FILES_COUNT_MAX,
-        "description": "Files to send with it, as your read tools name them: in your workspace or a folder you were granted. Each is copied into their working directory under inbox/<your id>/, and they are told where. At most 25 MB together.",
+        "description": "Files to send with it, as your read tools name them: in your workspace or a folder you were granted. Each is copied into a folder Hotline keeps for them outside their working directory, where they may read it but not change it, and they are told where. At most 25 MB together.",
     })
 }
 

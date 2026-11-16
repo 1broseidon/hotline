@@ -72,59 +72,7 @@ fn path(path: &Path) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn granted_folders_hold_the_real_tools_and_a_change_takes_them_back() {
     let place = Place::new();
-    let script: Script = Arc::default();
-    let (seen, mut requests) = tokio::sync::mpsc::unbounded_channel::<Value>();
-    let served = script.clone();
-    let app = Router::new().route(
-        "/v1/chat/completions",
-        post(move |body: Bytes| {
-            let seen = seen.clone();
-            let served = served.clone();
-            async move {
-                let request: Value = serde_json::from_slice(&body).unwrap();
-                seen.send(request.clone()).unwrap();
-                let mut next = served.lock().unwrap().pop_front();
-                // A shell call answers with a job receipt; the wait names it.
-                if let Some((_, name, arguments)) = next.as_mut()
-                    && name == "wait_jobs"
-                {
-                    let receipt = request["messages"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .rev()
-                        .find(|message| message["role"] == "tool")
-                        .map(|message| message["content"].to_string())
-                        .unwrap_or_default();
-                    let job = receipt
-                        .split("job_id")
-                        .nth(1)
-                        .map(|rest| {
-                            rest.chars()
-                                .skip_while(|c| !c.is_ascii_hexdigit())
-                                .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
-                                .collect::<String>()
-                        })
-                        .unwrap_or_default();
-                    *arguments = json!({"job_ids": [job]});
-                }
-                let delta = match next {
-                    Some((id, name, arguments)) => json!({"role":"assistant","tool_calls":[{"index":0,"id":id,"type":"function","function":{"name":name,"arguments":arguments.to_string()}}]}),
-                    None => json!({"role":"assistant","content":"Done."}),
-                };
-                let finish = if delta["tool_calls"].is_array() { "tool_calls" } else { "stop" };
-                let events = [
-                    json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":delta,"finish_reason":null}]}),
-                    json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":finish}]}),
-                ];
-                let body = events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>();
-                ([("Content-Type", "text/event-stream")], format!("{body}data: [DONE]\n\n"))
-            }
-        }),
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}/v1", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (script, mut requests, base, server) = scripted_model().await;
     let desk = common::open_desk(&place.data).unwrap();
     let parts = desk.parts();
     let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
@@ -323,6 +271,154 @@ async fn granted_folders_hold_the_real_tools_and_a_change_takes_them_back() {
     server.abort();
 }
 
+/// What colleagues sent a teammate is kept outside its working directory,
+/// in its received folder on the desk, which Hotline Agent's real tools read
+/// and never change: a write or an edit there is refused, the confined shell
+/// can copy a file out into the workspace but neither delete, move nor
+/// write one there, and another teammate's received folder is hidden from
+/// both. The record gains no folder: the grant is Hotline's own.
+#[tokio::test(flavor = "multi_thread")]
+async fn received_files_are_read_only_to_the_real_tools_and_another_teammates_are_hidden() {
+    let place = Place::new();
+    let (script, mut requests, base, server) = scripted_model().await;
+    let desk = common::open_desk(&place.data).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let door_task = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    let saved = client
+        .call(
+            "credential.custom_save",
+            json!({"draft": {
+                "name":"folders","baseUrl":base,"api":"chat_completions","models":["vendor/coder"]
+            }}),
+        )
+        .await;
+    assert_eq!(saved["ok"], true, "{saved}");
+    let mut made = Vec::new();
+    for (name, cwd) in [("Receiver", &place.workspace), ("Other", &place.writable)] {
+        let created = client
+            .call(
+                "persona.create",
+                json!({"draft": {"name":name, "goal":"Follow the script", "cwd":path(cwd)}}),
+            )
+            .await;
+        assert_eq!(created["ok"], true, "{created}");
+        assert!(created["result"].get("folders").is_none(), "{created}");
+        made.push(created["result"]["id"].as_str().unwrap().to_owned());
+    }
+    let [receiver, other] = [made[0].clone(), made[1].clone()];
+    // As two deliveries from Ada left them.
+    let received = place.data.join("received").join(&receiver).join("ada");
+    let others = place.data.join("received").join(&other).join("ada");
+    for folder in [&received, &others] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::write(received.join("brief.md"), "brief-canary").unwrap();
+    std::fs::write(others.join("private.md"), "private-canary").unwrap();
+    let brief = received.join("brief.md");
+
+    let shell = hotline_core::tools::shell_available(Reach::Workspace).is_ok();
+    {
+        let mut calls = script.lock().unwrap();
+        for (id, name, arguments) in [
+            ("read_received", "read", json!({"path": path(&brief)})),
+            (
+                "write_received",
+                "write",
+                json!({"path": path(&received.join("new.md")), "content":"no"}),
+            ),
+            (
+                "edit_received",
+                "edit",
+                json!({"path": path(&brief), "old_text":"brief", "new_text":"changed"}),
+            ),
+            (
+                "read_others",
+                "read",
+                json!({"path": path(&others.join("private.md"))}),
+            ),
+        ] {
+            calls.push_back((id.into(), name.into(), arguments));
+        }
+        if shell {
+            calls.push_back((
+                "shell".into(),
+                "shell".into(),
+                json!({"command": format!(
+                    "cat '{brief}' > '{copied}'; rm -f '{brief}'; mv '{brief}' '{moved}'; echo y > '{written}'; cat '{private}' > '{leaked}'",
+                    brief = brief.display(),
+                    copied = place.workspace.join("copied.md").display(),
+                    moved = received.join("moved.md").display(),
+                    written = received.join("shell.md").display(),
+                    private = others.join("private.md").display(),
+                    leaked = place.workspace.join("leaked.md").display(),
+                )}),
+            ));
+            calls.push_back(("wait".into(), "wait_jobs".into(), Value::Null));
+        }
+    }
+    let results = turn(
+        &mut client,
+        &mut requests,
+        &receiver,
+        "Look at what Ada sent",
+    )
+    .await;
+    let result = |id: &str| {
+        results.iter().find(|(call, _)| call == id).map_or_else(
+            || panic!("no result for {id}: {results:?}"),
+            |(_, text)| text.clone(),
+        )
+    };
+    assert!(
+        result("read_received").contains("brief-canary"),
+        "{results:?}"
+    );
+    for refused in ["write_received", "edit_received"] {
+        assert!(
+            result(refused).contains("read but not change"),
+            "{refused}: {results:?}"
+        );
+    }
+    assert!(
+        !result("read_others").contains("private-canary"),
+        "{results:?}"
+    );
+    if shell {
+        assert!(
+            result("wait").contains("\\\"state\\\":\\\"failed\\\""),
+            "{results:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(place.workspace.join("copied.md")).unwrap(),
+            "brief-canary"
+        );
+        assert!(!received.join("moved.md").exists());
+        assert!(!received.join("shell.md").exists());
+        assert!(
+            !std::fs::read_to_string(place.workspace.join("leaked.md"))
+                .unwrap_or_default()
+                .contains("private-canary")
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&brief).unwrap(), "brief-canary");
+    assert!(!received.join("new.md").exists());
+    let record = client
+        .call(
+            "persona.update",
+            json!({"id": receiver, "patch": {"goal": "Still here"}}),
+        )
+        .await;
+    assert_eq!(record["ok"], true, "{record}");
+    assert!(record["result"].get("folders").is_none(), "{record}");
+
+    drop(client);
+    door_task.abort();
+    server.abort();
+}
+
 /// Every folder that cannot be granted is refused over the wire with a
 /// sentence, and a refusal leaves the teammate as it was.
 #[tokio::test(flavor = "multi_thread")]
@@ -432,6 +528,72 @@ async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
     );
     drop(client);
     door_task.abort();
+}
+
+/// A disposable model endpoint that answers each request with the next
+/// scripted tool call, then a closing answer, and hands every request it
+/// was sent to the test: the script, the requests, its base address and its
+/// task.
+async fn scripted_model() -> (
+    Script,
+    tokio::sync::mpsc::UnboundedReceiver<Value>,
+    String,
+    tokio::task::JoinHandle<()>,
+) {
+    let script: Script = Arc::default();
+    let (seen, requests) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let served = script.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |body: Bytes| {
+            let seen = seen.clone();
+            let served = served.clone();
+            async move {
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                seen.send(request.clone()).unwrap();
+                let mut next = served.lock().unwrap().pop_front();
+                // A shell call answers with a job receipt; the wait names it.
+                if let Some((_, name, arguments)) = next.as_mut()
+                    && name == "wait_jobs"
+                {
+                    let receipt = request["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .map(|message| message["content"].to_string())
+                        .unwrap_or_default();
+                    let job = receipt
+                        .split("job_id")
+                        .nth(1)
+                        .map(|rest| {
+                            rest.chars()
+                                .skip_while(|c| !c.is_ascii_hexdigit())
+                                .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
+                                .collect::<String>()
+                        })
+                        .unwrap_or_default();
+                    *arguments = json!({"job_ids": [job]});
+                }
+                let delta = match next {
+                    Some((id, name, arguments)) => json!({"role":"assistant","tool_calls":[{"index":0,"id":id,"type":"function","function":{"name":name,"arguments":arguments.to_string()}}]}),
+                    None => json!({"role":"assistant","content":"Done."}),
+                };
+                let finish = if delta["tool_calls"].is_array() { "tool_calls" } else { "stop" };
+                let events = [
+                    json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":delta,"finish_reason":null}]}),
+                    json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":finish}]}),
+                ];
+                let body = events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>();
+                ([("Content-Type", "text/event-stream")], format!("{body}data: [DONE]\n\n"))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (script, requests, base, server)
 }
 
 /// Runs one turn and answers each tool call's id with the text its result

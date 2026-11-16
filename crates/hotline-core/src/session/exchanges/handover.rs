@@ -50,7 +50,7 @@ impl Room {
             else {
                 return Ok(());
             };
-            // Its files go into the recipient's working directory only now
+            // Its files go into the recipient's received folder only now
             // that it is let in, and the message says where.
             if !r.files.is_empty() {
                 match self.deliver_held(&r.id, &r.from, &r.to, &r.files) {

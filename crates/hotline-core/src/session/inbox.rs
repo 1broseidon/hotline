@@ -507,7 +507,7 @@ impl Room {
         Ok(found)
     }
 
-    /// Lands an item's files in its receiver's working directory, and says
+    /// Lands an item's files in its receiver's received folder, and says
     /// where at the end of its words.
     fn with_files(&self, item: &mut InboxItem, files: &[(String, Vec<u8>)]) -> Result<(), String> {
         if files.is_empty() {

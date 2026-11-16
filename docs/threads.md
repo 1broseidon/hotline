@@ -153,7 +153,8 @@ stream and no thread: what an inbound source left it, heard at the start of
 its next turn in a thread ([sessions.md](sessions.md#asides)). The files an
 item carries wait in `files-between/inbox-<item id>/` on the desk until the
 person's first-contact card lets it in, and are then copied into the
-recipient's working directory
+recipient's received folder on the desk, `received/<recipient>/<sender>/`,
+which it may read and not change
 ([sessions.md](sessions.md#files-between-teammates)); no thread holds them.
 
 The thread records themselves (state, binding, title, note) live where each
@@ -821,7 +822,7 @@ handed-over thread's notes reach a sender on another desk the same way, its
 question back reaches that sender with no card while the handoff stands, and
 the person's Stop or End thread of a linked colleague's handoff crosses as
 theirs. A message or an aside may carry files, copied into the recipient's
-working directory under `inbox/<sender>/`, over the link too up to a cap. How
+received folder under `<sender>/`, over the link too up to a cap. How
 the core does it is in [sessions.md](sessions.md#asides) and
 [Files between teammates](sessions.md#files-between-teammates); the frames
 are in [wire.md](wire.md#linked-desks).

@@ -961,7 +961,7 @@ impl Room {
     /// the agent is let go of.
     async fn job_agent(self: &Arc<Self>, live: &LiveJob, job: &ScheduledJob) -> Result<Up, String> {
         let persona = clone_of(
-            self.persona(&job.persona_id)?,
+            self.with_received(self.persona(&job.persona_id)?),
             &self.info(&job.persona_id),
             job.without.as_deref().unwrap_or_default(),
         );

@@ -349,7 +349,7 @@ impl Room {
                     .to_string(),
             );
         }
-        let persona = self.persona(&spec.persona_id)?;
+        let persona = self.with_received(self.persona(&spec.persona_id)?);
         let lease = lease_of(ThreadKind::Run, &spec.capability);
         running.lease = Some(lease.clone());
         let view = clone_of(persona, &self.info(&spec.persona_id), &spec.brief.without);

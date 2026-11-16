@@ -1,9 +1,12 @@
 //! Files between teammates on one desk: read where the sender's read tools
-//! find them, copied into the recipient's working directory under
-//! `inbox/<sender>/` once the item carrying them is let in, and named in
-//! the item; refused, with why, outside the sender's reach or over the cap.
+//! find them, copied into the recipient's received folder on the desk,
+//! `received/<recipient>/<sender>/`, outside its working directory, once the
+//! item carrying them is let in, and named in the item; refused, with why,
+//! outside the sender's reach or over the cap.
 
 use super::*;
+use crate::contract::Reach;
+use std::path::Path;
 use tempfile::TempDir;
 
 /// Ada and Bob, each working in a directory of their own with workspace
@@ -40,6 +43,22 @@ fn collaboration_card(room: &Room) -> Option<serde_json::Value> {
     })
 }
 
+/// Where Bob's file from Ada called `name` is kept, spelled as the item
+/// names it.
+fn from_ada(room: &Room, name: &str) -> std::path::PathBuf {
+    let folder = crate::session::files_between::received_dir(room.log.root(), "bob");
+    dunce::canonicalize(&folder)
+        .unwrap_or(folder)
+        .join("ada")
+        .join(name)
+}
+
+/// The line an item gains for Bob's files from Ada.
+fn told(room: &Room, names: &[&str]) -> String {
+    let paths: Vec<std::path::PathBuf> = names.iter().map(|name| from_ada(room, name)).collect();
+    crate::session::files_between::files_line("Ada", &paths)
+}
+
 /// The item Bob has by its id.
 fn kept(room: &Room, id: &str) -> crate::contract::InboxItem {
     crate::store::inbox::of(&room.log, "bob")
@@ -49,9 +68,9 @@ fn kept(room: &Room, id: &str) -> crate::contract::InboxItem {
 }
 
 /// Ada sends Bob a file. Nothing lands while the person's first-contact
-/// card waits; once they allow it, the file is in Bob's working directory
-/// under `inbox/ada/`, the item says where, and the desk holds nothing more
-/// of it.
+/// card waits; once they allow it, the file is in Bob's received folder
+/// under `ada/`, nothing is in his working directory, the item says where,
+/// and the desk holds nothing more of it.
 #[tokio::test]
 async fn an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
     let (room, _agents, ada, bob) = apart("files-message");
@@ -68,7 +87,7 @@ async fn an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
         .unwrap()
         .to_string();
     until("the person's card", || collaboration_card(&room).is_some()).await;
-    let landed = bob.path().join("inbox/ada/q3.csv");
+    let landed = from_ada(&room, "q3.csv");
     assert!(!landed.exists(), "nothing lands before the grant");
     let held = room
         .log
@@ -87,16 +106,20 @@ async fn an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
     );
     assert_eq!(
         kept(&room, &id).body,
-        "The Q3 numbers.\n\nFiles from Ada, now in your working directory: inbox/ada/q3.csv"
+        format!("The Q3 numbers.\n\n{}", told(&room, &["q3.csv"]))
     );
     assert!(!held.exists());
+    assert!(
+        !bob.path().join("inbox").exists(),
+        "nothing is in his project"
+    );
 }
 
 /// An item between two who may already reach each other lands its files as
 /// it is sent; a second file of the same name never overwrites the first.
 #[tokio::test]
 async fn an_allowed_items_files_land_at_once_and_never_over_another() {
-    let (room, _agents, ada, bob) = apart("files-aside");
+    let (room, _agents, ada, _bob) = apart("files-aside");
     room.allow_sender("bob", "ada").unwrap();
     std::fs::write(ada.path().join("q3.csv"), "first").unwrap();
     call(
@@ -115,11 +138,11 @@ async fn an_allowed_items_files_land_at_once_and_never_over_another() {
     .await
     .unwrap();
     assert_eq!(
-        std::fs::read_to_string(bob.path().join("inbox/ada/q3.csv")).unwrap(),
+        std::fs::read_to_string(from_ada(&room, "q3.csv")).unwrap(),
         "first"
     );
     assert_eq!(
-        std::fs::read_to_string(bob.path().join("inbox/ada/q3 (2).csv")).unwrap(),
+        std::fs::read_to_string(from_ada(&room, "q3 (2).csv")).unwrap(),
         "second"
     );
     let id = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["sent"][0]["id"]
@@ -128,7 +151,7 @@ async fn an_allowed_items_files_land_at_once_and_never_over_another() {
         .to_string();
     assert_eq!(
         kept(&room, &id).body,
-        "Corrected.\n\nFiles from Ada, now in your working directory: inbox/ada/q3 (2).csv"
+        format!("Corrected.\n\n{}", told(&room, &["q3 (2).csv"]))
     );
 }
 
@@ -136,7 +159,7 @@ async fn an_allowed_items_files_land_at_once_and_never_over_another() {
 /// than the cap together; each says why, and nothing is kept or copied.
 #[tokio::test]
 async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reason() {
-    let (room, _agents, ada, bob) = apart("files-refused");
+    let (room, _agents, ada, _bob) = apart("files-refused");
     room.allow_sender("bob", "ada").unwrap();
     let elsewhere = TempDir::new().unwrap();
     let outside = elsewhere.path().join("secret.txt");
@@ -185,7 +208,7 @@ async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reas
         crate::store::inbox::of(&room.log, "bob").is_empty(),
         "nothing was kept"
     );
-    assert!(!bob.path().join("inbox").exists());
+    assert!(!from_ada(&room, "").exists());
     assert!(
         std::fs::read_dir(room.log.root().join("files-between"))
             .map_or(true, |mut held| held.next().is_none()),
@@ -203,7 +226,7 @@ async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
         crate::contract::Reach::Workspace,
         crate::contract::Reach::Machine,
     ] {
-        let (room, _agents, ada, bob) = apart(&format!("files-narrowed-{reach:?}"));
+        let (room, _agents, ada, _bob) = apart(&format!("files-narrowed-{reach:?}"));
         room.allow_sender("bob", "ada").unwrap();
         let granted = TempDir::new().unwrap();
         let folder = granted.path().canonicalize().unwrap();
@@ -223,16 +246,25 @@ async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
         }))
         .unwrap();
         crate::room::append_schedule(&room.log, &job).unwrap();
+        // What a colleague once sent Ada is kept outside her working
+        // directory too, and a job without folders reaches none of it.
+        let grant = crate::session::files_between::received_grant(room.log.root(), "ada").unwrap();
+        let brief = Path::new(&grant.path).join("carol").join("brief.md");
+        std::fs::create_dir_all(brief.parent().unwrap()).unwrap();
+        std::fs::write(&brief, "carol's brief").unwrap();
+        let brief = brief.to_string_lossy().into_owned();
         let from_job = TeammateTools::new(&room, "ada").for_job(&job.id);
         let plan = folder.join("plan.md").to_string_lossy().into_owned();
-        let refused = from_job
-            .call(
-                "send",
-                &json!({"to": ["bob"], "title": "The plan", "files": [plan]}),
-            )
-            .await
-            .unwrap_err();
-        assert_ne!(refused, "", "{reach:?}");
+        for beyond in [&plan, &brief] {
+            let refused = from_job
+                .call(
+                    "send",
+                    &json!({"to": ["bob"], "title": "The plan", "files": [beyond]}),
+                )
+                .await
+                .unwrap_err();
+            assert_ne!(refused, "", "{reach:?}");
+        }
         assert!(
             crate::store::inbox::of(&room.log, "bob").is_empty(),
             "{reach:?}: nothing was sent"
@@ -249,11 +281,133 @@ async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
         call(
             &room,
             "send",
-            json!({"to": ["bob"], "title": "The plan", "files": [plan]}),
+            json!({"to": ["bob"], "title": "The plan", "files": [plan, brief]}),
         )
         .await
         .unwrap();
-        assert!(bob.path().join("inbox/ada/notes.md").exists(), "{reach:?}");
-        assert!(bob.path().join("inbox/ada/plan.md").exists(), "{reach:?}");
+        assert!(from_ada(&room, "notes.md").exists(), "{reach:?}");
+        assert!(from_ada(&room, "plan.md").exists(), "{reach:?}");
+        assert!(from_ada(&room, "brief.md").exists(), "{reach:?}");
     }
+}
+
+/// Bob's own session is handed his received folder read-only: Hotline
+/// Agent's file tools, opened on the view the room starts his agent with,
+/// read what Ada sent him there and change nothing in it, and reach no
+/// other teammate's received folder. Whole-machine reach reads it too. His
+/// preamble lists only the person's folders, and his working directory gains
+/// nothing; a file an older build put there stays.
+#[tokio::test]
+async fn a_receiver_reads_what_it_was_sent_and_changes_nothing_there() {
+    let (room, agents, ada, bob) = apart("files-read-only");
+    crate::room::append_persona(&room.log, &persona("carol")).unwrap();
+    room.allow_sender("bob", "ada").unwrap();
+    room.allow_sender("carol", "ada").unwrap();
+    std::fs::create_dir_all(bob.path().join("inbox/ada")).unwrap();
+    std::fs::write(bob.path().join("inbox/ada/old.csv"), "from before").unwrap();
+    std::fs::write(ada.path().join("brief.md"), "the brief").unwrap();
+    std::fs::write(ada.path().join("private.md"), "for carol").unwrap();
+    for (to, file) in [("bob", "brief.md"), ("carol", "private.md")] {
+        call(
+            &room,
+            "send",
+            json!({"to": [to], "title": "For you", "files": [file]}),
+        )
+        .await
+        .unwrap();
+    }
+    let landed = from_ada(&room, "brief.md");
+    let carols = crate::session::files_between::received_dir(room.log.root(), "carol")
+        .join("ada")
+        .join("private.md");
+    assert_eq!(std::fs::read_to_string(&carols).unwrap(), "for carol");
+    assert_eq!(
+        std::fs::read_to_string(bob.path().join("inbox/ada/old.csv")).unwrap(),
+        "from before"
+    );
+    assert!(!bob.path().join("inbox/ada/brief.md").exists());
+
+    for reach in [Reach::Workspace, Reach::Machine] {
+        let mut record = room.persona("bob").unwrap();
+        record.reach = Some(reach);
+        crate::room::append_persona(&room.log, &record).unwrap();
+        room.start("bob").await.unwrap();
+        let view = agents.views().pop().unwrap();
+        room.stop("bob").unwrap();
+        let grant = view.folders.clone().unwrap_or_default();
+        assert_eq!(
+            grant,
+            [crate::contract::FolderGrant {
+                path: landed
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                writable: false,
+            }],
+            "{reach:?}"
+        );
+        assert!(
+            !agents
+                .preambles
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .contains("received"),
+            "the preamble lists the person's folders alone"
+        );
+        // As Hotline Agent opens its file tools and confined shell.
+        let tools = crate::tools::Workspace::open_with_capability(
+            std::path::PathBuf::from(&view.cwd),
+            reach,
+            room.log.root().join("tool-output").join("bob"),
+            &grant,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            tools.read_text_path(&landed, None, None).unwrap(),
+            "the brief",
+            "{reach:?}"
+        );
+        if reach == Reach::Machine {
+            continue;
+        }
+        let over = tools.write_text_path(&landed, "changed").unwrap_err();
+        assert!(over.to_string().contains("read but not change"), "{over}");
+        let beside = landed.with_file_name("new.md");
+        assert!(tools.write_text_path(&beside, "new").is_err());
+        assert!(tools.read_text_path(&carols, None, None).is_err());
+        assert_eq!(std::fs::read_to_string(&landed).unwrap(), "the brief");
+        assert!(!beside.exists());
+    }
+}
+
+/// A name or a sender's id that would climb out of the received folder
+/// lands nothing anywhere: a file's name must be one plain name, and a
+/// sender's id is made one, so the files stay in the recipient's own
+/// folder under a folder of the sender's.
+#[tokio::test]
+async fn a_name_or_a_sender_that_would_leave_the_received_folder_is_refused_or_kept_inside() {
+    let (room, _agents, _ada, _bob) = apart("files-traversal");
+    let received = room.log.root().join("received");
+    for name in ["../../escape.txt", "..", "a/b.txt", "../carol/x.txt"] {
+        assert!(
+            room.deliver_files("ada", "bob", &[(name.to_string(), b"x".to_vec())])
+                .is_err(),
+            "{name}"
+        );
+    }
+    let landed = room
+        .deliver_files("../carol", "bob", &[("x.txt".to_string(), b"x".to_vec())])
+        .unwrap();
+    let bobs = dunce::canonicalize(received.join("bob")).unwrap();
+    assert_eq!(landed.len(), 1);
+    assert!(landed[0].starts_with(&bobs), "{landed:?}");
+    assert_eq!(landed[0].parent().unwrap().parent().unwrap(), bobs);
+    assert!(!received.join("carol").exists());
+    assert!(!room.log.root().join("escape.txt").exists());
 }

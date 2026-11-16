@@ -912,7 +912,7 @@ impl Room {
         persona_id: &str,
         start: Start,
     ) -> Result<(Arc<LiveSide>, Launch), String> {
-        let persona = self.persona(persona_id)?;
+        let persona = self.with_received(self.persona(persona_id)?);
         let persona = if start.thread.kind == ThreadKind::Call {
             super::agent::clone_of(persona, &self.info(persona_id), &[])
         } else {

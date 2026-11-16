@@ -284,12 +284,14 @@ impl Room {
         }
         // The computer is the teammate's, shared through a lease. A thread that
         // cannot be given it goes on without, and the DM, which is told so,
-        // does not wait for a download.
+        // does not wait for a download. It is made with the person's folders
+        // alone, never the received one.
         let driving = driving_of(&thread, &title, &lease);
         let mut computer_note = None;
+        let for_computer = self.without_received(view.clone());
         let extra_mcp = match policy.computer {
             Computer::No => Vec::new(),
-            Computer::Lease => match self.grant_computer(&view, &driving).await {
+            Computer::Lease => match self.grant_computer(&for_computer, &driving).await {
                 Ok(servers) => servers,
                 Err(reason) => {
                     eprintln!("{}'s computer is not in this thread: {reason}", view.name);
@@ -303,7 +305,7 @@ impl Room {
             // cannot come up at all (Docker not running, an image that will
             // not pull), starts the teammate without it. The agent is told
             // which, and the tape says so too: never a silent absence.
-            Computer::Download => match self.computer_at_start(&view, &driving).await {
+            Computer::Download => match self.computer_at_start(&for_computer, &driving).await {
                 ComputerAtStart::NotWanted => Vec::new(),
                 ComputerAtStart::Attached(extra_mcp) => extra_mcp,
                 ComputerAtStart::Downloading => {
@@ -391,9 +393,11 @@ impl Room {
         // Whether this desk has a browser to offer, as the session starts.
         let desk_browser = self.desk_browser().is_some();
         let build = |view: &Persona, transcript: Option<String>| {
+            // The preamble lists the person's folders; each item names where
+            // its files are kept.
             let mut preamble = preamble_of(
                 thread.kind,
-                view,
+                &self.without_received(view.clone()),
                 reach,
                 &stored,
                 desk_browser,

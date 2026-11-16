@@ -294,17 +294,18 @@ impl Room {
 }
 
 impl Room {
-    /// The teammate as a turn on `thread` reaches its files: its record, or
-    /// on a job's thread the clone the job runs as, narrowed by what its home
-    /// agent left out ([`super::agent::clone_of`]), so a job sends nothing
-    /// from beyond its narrowing. A job whose record cannot be read is left
-    /// every ability out, as a `without` a desk cannot read is.
+    /// The teammate as a turn on `thread` reaches its files: its record with
+    /// its received folder ([`Room::with_received`]), or on a job's thread
+    /// the clone the job runs as, narrowed by what its home agent left out
+    /// ([`super::agent::clone_of`]), so a job sends nothing from beyond its
+    /// narrowing. A job whose record cannot be read is left every ability
+    /// out, as a `without` a desk cannot read is.
     pub(super) fn reaching_from(
         &self,
         persona_id: &str,
         thread: &ThreadId,
     ) -> Result<Persona, String> {
-        let persona = self.persona(persona_id)?;
+        let persona = self.with_received(self.persona(persona_id)?);
         if thread.kind != ThreadKind::Job {
             return Ok(persona);
         }

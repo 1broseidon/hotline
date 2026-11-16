@@ -27,7 +27,7 @@ beforeEach(async () => {
 	container = document.createElement("div");
 	document.body.append(container);
 	root = (await import("react-dom/client")).createRoot(container);
-	await act(async () => root.render(<Schedules personaId="ada" jobs={[]} backgroundWork focus={false} />));
+	await act(async () => root.render(<Schedules personaId="ada" jobs={[]} backgroundWork focus={false} nameOf={(id) => id} />));
 	await press("Add a schedule");
 });
 

@@ -1475,7 +1475,15 @@ firing of it has begun since (`Room::job_run_open`). The job's thread is
 woken for it as an idle work thread is (`Room::wake_job_for_inbox`), a turn
 of that run whose words stay in the thread; once the next run begins or the
 job ends, what came back to the run and was never heard is the main
-conversation's, which is woken for it (`Room::inbox_left_job`). An idle thread is woken once, the gather delay (4 s)
+conversation's, which is woken for it (`Room::inbox_left_job`). A job's last
+run waits for the replies to what it sent that wants an answer or work
+(`job_thread/waiting.rs`): its turn ends with no agent and no turn running,
+the record's `awaiting` names whom it waits on, each reply is heard in the
+job, and the turn that hears the last ends it; an item that expires is heard
+there as Hotline's notice, one closed with no reply is heard at the inbox
+clock's next look (`Room::look_at_waiting_jobs`), and one taken and never
+answered is waited on three days from when it arrived. Stop or End job ends
+it at once, and a restart keeps it waiting. An idle thread is woken once, the gather delay (4 s)
 after the first item lands, for everything that landed meanwhile, by a line
 that only wakes it (a teammate not running is started for it). A main
 conversation mid-turn is handed a one-line notice of the new titles when the
@@ -2708,7 +2716,9 @@ meets its goal ends itself from its own thread with `cancel_schedule` and a
 `report`, which is its final post; the turn it ends in finishes. A one-shot,
 or a loop whose count or date runs out, ends after its last firing, and that
 firing's line says it is the last, so the job does not try to end what ends
-anyway. A loop's last words are its final post whatever its report policy
+anyway; a last firing that sent a colleague an item still waiting on its
+reply ends once the replies have come back (Reaching the receiver, in the
+inbox above). A loop's last words are its final post whatever its report policy
 (where it stood, when the person stopped that turn); a one-shot's one report
 follows its policy. Either way the record gains `endedAt`, the thread's link
 is closed with what came of it, and the thread stays readable.

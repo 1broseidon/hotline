@@ -52,11 +52,14 @@ export function Schedules({
 	jobs,
 	backgroundWork,
 	focus,
+	nameOf,
 }: {
 	personaId: string;
 	jobs: ScheduledJob[];
 	backgroundWork: boolean;
 	focus: boolean;
+	/** A teammate's name, for whom a job waits on. */
+	nameOf(personaId: string): string;
 }) {
 	const heading = useRef<HTMLHeadingElement>(null);
 	const now = useNow();
@@ -84,7 +87,7 @@ export function Schedules({
 			{(jobs.length > 0 || !adding) && (
 				<div className="grouped">
 					{jobs.map((job) => (
-						<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} />
+						<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} nameOf={nameOf} />
 					))}
 					{!adding && (
 						<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
@@ -100,7 +103,7 @@ export function Schedules({
 	);
 }
 
-function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; backgroundWork: boolean }) {
+function JobRow({ job, now, backgroundWork, nameOf }: { job: ScheduledJob; now: number; backgroundWork: boolean; nameOf(personaId: string): string }) {
 	const [busy, setBusy] = useState(false);
 	const [said, setSaid] = useState<string | null>(null);
 
@@ -131,7 +134,13 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 
 	const kind = repeatsText(job);
 	const source = job.operatorCreated ? "Added by you" : "Background work";
-	const status = !job.operatorCreated && !backgroundWork ? "Paused" : nextText(job.nextAt, now);
+	// A last run that sent a colleague something waits for the reply, and the job ends once it comes.
+	const status =
+		job.awaiting !== undefined
+			? `Waiting on ${job.awaiting.map(nameOf).join(", ")}`
+			: !job.operatorCreated && !backgroundWork
+				? "Paused"
+				: nextText(job.nextAt, now);
 
 	return (
 		<div className="group-row items-start gap-2 py-2">

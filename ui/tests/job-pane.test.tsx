@@ -101,6 +101,12 @@ describe("a job's pane", () => {
 		expect(container.querySelector(".pane-meta")?.textContent).toMatch(/^Once · Pork Chop · once at 9:00\s?PM · posts only what is worth posting$/);
 	});
 
+	test("a last run waiting on a colleague's reply says whom on where it would say when it runs next", async () => {
+		const { every: _every, ...once } = watch;
+		await draw({ working: false, job: { ...once, kind: "schedule", when: at(19, 46), nextAt: at(19, 46), awaiting: ["Huck"] } });
+		expect(text(".job-facts dd")[0]).toBe("Waiting on Huck");
+	});
+
 	test("says when it runs next, counting down, and what it last posted", async () => {
 		await draw({ working: false });
 		expect(text(".job-facts dt")).toEqual(["Next run", "Last posted"]);

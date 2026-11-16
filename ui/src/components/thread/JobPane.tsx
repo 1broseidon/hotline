@@ -159,7 +159,7 @@ export function JobPage({
 				<dl className="job-facts">
 					<div>
 						<dt>Next run</dt>
-						<dd className="tabular-nums">{ended || job === undefined ? "None" : working ? "Running" : countdown(job.nextAt - now)}</dd>
+						<dd className="tabular-nums">{ended || job === undefined ? "None" : working ? "Running" : job.awaiting !== undefined ? `Waiting on ${job.awaiting.join(", ")}` : countdown(job.nextAt - now)}</dd>
 					</div>
 					<div>
 						<dt>Last posted</dt>

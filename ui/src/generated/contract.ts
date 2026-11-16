@@ -2247,7 +2247,12 @@ reminder?: boolean, lastPost?: JobPost, endedAt?: number, without?: Array<Abilit
  * The latest run of a loop skipped for starting more than two hours
  * after its time, which moved the loop on to its next.
  */
-skipped?: SkippedRun, };
+skipped?: SkippedRun, 
+/**
+ * Whom the job's last run is waiting on for a reply, by name, as a list
+ * says it: "Waiting on Huck". Absent while it is not waiting.
+ */
+awaiting?: Array<string>, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.
@@ -2332,6 +2337,13 @@ endedAt?: number,
  * more, but it has not ended: it ends (`endedAt`) when that firing does.
  */
 finalFiring?: number, 
+/**
+ * Whom the job's last run is waiting on, by teammate id: its turn has
+ * ended, but it sent each of them an item that wants an answer or work
+ * whose reply has not come back, and the job ends once it has. Absent
+ * otherwise.
+ */
+awaiting?: Array<string>, 
 /**
  * The latest run of a loop that was skipped for being too late: by the
  * time the desk could start it, more than two hours had passed since

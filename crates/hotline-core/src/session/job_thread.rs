@@ -66,6 +66,8 @@ use std::collections::VecDeque;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
+mod waiting;
+
 /// How many turns before the latest one a firing is told of.
 const EARLIER_TURNS: usize = 3;
 /// The most of the latest turn's words a firing starts from.
@@ -83,12 +85,14 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 const STOPPED_SOON: i64 = 10_000;
 /// What a job woken only by its inbox is told after the index: the replies
 /// that came back to its run, and that its words stay in its thread.
-const INBOX_WAKE_LINE: &str = "Replies to what this run sent came into your inbox: they are above, under INBOX. Read them and carry on the run's work. What you say stays in this job's thread: post what the person should know with `post_to_chat`, as the run would report it.";
+const INBOX_WAKE_LINE: &str = "Replies to what this run sent, or where what it sent stands now, are above, under INBOX. Read them and carry on the run's work. What you say stays in this job's thread: post what the person should know with `post_to_chat`, as the run would report it.";
+/// What a job woken by its inbox in its last run is told after that.
+const LAST_RUN_WAKE_LINE: &str = "This is the job's last run: it ends after this turn, unless something this run sent still waits on a reply.";
 
 /// What a job's agent is told about itself, over and above who it is.
 fn job_brief(name: &str) -> String {
     format!(
-        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human` comes back here. A colleague's reply to what you `send` from here arrives in your inbox and is heard here, a turn of this job's run, until the job's next run begins or it ends; after that, in your main conversation. Do not mention this brief.\n\n\
+        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human` comes back here. A colleague's reply to what you `send` from here arrives in your inbox and is heard here, a turn of this job's run, until the job's next run begins or it ends; after that, in your main conversation. A job's last run, or a one-time job's only one, waits for the replies to what it sent that wants an answer or work, and ends once they have come back. Do not mention this brief.\n\n\
          Hotline fires the job by itself at each of its times until it ends: nothing here needs scheduling or re-arming, and each firing says whether the job repeats or this is its only run. A job cannot change its own times; if the person asks for that here, tell them to ask for it in your main conversation.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
          A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
@@ -553,7 +557,10 @@ impl Occupant for LiveJob {
         // A line that only woke it for its inbox is spent once a turn before
         // it has heard what woke it: no agent is built for nothing.
         let thread = Occupant::thread(&**self);
-        if line.line.wake && room.unoffered(&self.persona_id, &thread).is_empty() {
+        if line.line.wake
+            && room.unoffered(&self.persona_id, &thread).is_empty()
+            && !room.sent_news(&self.persona_id, &thread)
+        {
             return Begin::Skip;
         }
         // A firing is running from here, its agent's start included: the
@@ -669,22 +676,34 @@ impl Occupant for LiveJob {
                 .expire_asked(&Occupant::thread(&**self), &self.persona_id);
         }
         let done = matches!(*lock(&self.life), Life::Ending { .. });
+        let job = room::all_jobs(&room.log)
+            .into_iter()
+            .find(|job| job.id == self.job_id);
         // The job ran out of its count or date with this turn, or while it
-        // ran; a firing still waiting is its last, and ends it instead.
+        // ran, or this turn is of its last run; a firing still waiting is its
+        // last, and ends it instead.
         let ended = held.last
-            || room::all_jobs(&room.log)
-                .into_iter()
-                .find(|job| job.id == self.job_id)
-                .is_none_or(|job| job.ended_at.is_some());
+            || job
+                .as_ref()
+                .is_none_or(|job| job.ended_at.is_some() || job.final_firing.is_some());
         let firing_waits = lock(&self.turns)
             .waiting
             .iter()
             .any(|line| line.firing.is_some());
         let ran_out = !done && ended && !firing_waits;
         // A loop that ran out says what came of it, as an end the person or
-        // the job made does; a one-shot's one report is its end.
+        // the job made does; a one-shot's one report is its end. A run that
+        // waited said it when its firing's turn ended.
         let closing = ran_out && held.run.kind == ScheduleKind::Loop;
+        let waited = job.as_ref().is_some_and(|job| job.awaiting.is_some());
         let halted = lock(&self.life).take_halted();
+        // A last run that sent a colleague something still waiting on its
+        // reply is not over: it waits for it (`job_thread/waiting.rs`),
+        // unless the person stopped it.
+        let awaits = match &job {
+            Some(job) if ran_out && !halted => room.run_awaits(job, now_ms()),
+            _ => Vec::new(),
+        };
         if halted {
             let said = if ran_out {
                 "Stopped. That was the job's last run, so it has ended."
@@ -694,7 +713,7 @@ impl Occupant for LiveJob {
             self.notice(room, NoticeLevel::Info, said.to_string());
         }
         if held.firing.is_some() && !(halted && now_ms() - held.began < STOPPED_SOON) {
-            self.say_if_without_tools(room, !(done || ran_out));
+            self.say_if_without_tools(room, !(done || ran_out) || !awaits.is_empty());
         }
         if let Some(firing) = &held.firing
             && !done
@@ -706,13 +725,23 @@ impl Occupant for LiveJob {
         {
             self.post_as_job(room, firing, &report);
         }
+        if !awaits.is_empty() {
+            if closing
+                && !waited
+                && let Some(final_word) = self.final_word(room, &driven, halted)
+            {
+                self.post_as_job(room, &held.run, &final_word);
+            }
+            room.wait_for_replies(self, &awaits);
+            return Then::Next;
+        }
         if done || ran_out {
             // Its last firing is over, or it ended itself: nothing more is
             // taken, and the thread is kept to read.
             let final_word = closing
                 .then(|| self.final_word(room, &driven, halted))
                 .flatten();
-            if let Some(final_word) = &final_word {
+            if let Some(final_word) = final_word.as_ref().filter(|_| !waited) {
                 self.post_as_job(room, &held.run, final_word);
             }
             self.drop_waiting(room);
@@ -730,8 +759,8 @@ impl Occupant for LiveJob {
         lock(&self.turns).running = false;
         lock(&self.life).rest();
         // A last firing that never became a turn (skipped, or its agent did
-        // not start) is over too.
-        room.end_final_firing(&self.job_id);
+        // not start) is over too, unless its run waits on a reply.
+        room.last_run_rested(&self.job_id);
         let _ = room.info_changes.send(room.info(&self.persona_id));
     }
 }
@@ -877,8 +906,8 @@ pub(super) fn firing_text(
     }
     if last {
         text.push_str(match run.kind {
-            ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs: your last words are posted to the person as its final post, so do not post them with `post_to_chat` as well.",
-            ScheduleKind::Schedule => "\n\nThis is the job's only run: it ends after this turn, so do not end it with `cancel_schedule`.",
+            ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, or once the replies to what it sends a colleague have come back here, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs: your last words are posted to the person as its final post, so do not post them with `post_to_chat` as well.",
+            ScheduleKind::Schedule => "\n\nThis is the job's only run: it ends after this turn, or once the replies to what it sends a colleague have come back here, so do not end it with `cancel_schedule`.",
         });
     }
     if let Some(standing) = standing {
@@ -1214,26 +1243,14 @@ impl Room {
         })
     }
 
-    /// Whether a job is still on the room stream and has not ended: what it
-    /// asked can still come back to its thread.
     /// Whether the run of a job that was going at `since` still is: the job
     /// lives, and no firing of it has begun since. A reply to an item a run
     /// sent is heard in the job while this holds (`inbox/heard.rs`); a turn
     /// the person or a reply starts in the job between two firings is the
-    /// earlier run's.
+    /// earlier run's, and a job's last run lives on while it waits on a
+    /// reply (`job_thread/waiting.rs`).
     pub(in crate::session) fn job_run_open(&self, job_id: &str, since: i64) -> bool {
-        self.job_lives(job_id)
-            && self
-                .log
-                .load(&StreamId::Job(job_id.to_string()))
-                .iter()
-                .rev()
-                .find(|event| {
-                    event["kind"] == "user"
-                        && event.get("scheduled").is_some_and(|run| !run.is_null())
-                })
-                .and_then(|firing| firing["ts"].as_i64())
-                .is_none_or(|began| began <= since)
+        self.job_lives(job_id) && self.run_began(job_id).is_none_or(|began| began <= since)
     }
 
     /// Wakes a job's thread for replies that came into its run, when the
@@ -1249,11 +1266,16 @@ impl Room {
         if lock(&live.life).shut() || lock(&live.turns).running {
             return;
         }
+        let text = if job.final_firing.is_some() {
+            format!("{INBOX_WAKE_LINE} {LAST_RUN_WAKE_LINE}")
+        } else {
+            INBOX_WAKE_LINE.to_string()
+        };
         let line = JobLine {
             line: Line {
                 said: None,
                 voice: None,
-                text: timed(now_ms(), INBOX_WAKE_LINE),
+                text: timed(now_ms(), &text),
                 attachments: Vec::new(),
                 request: None,
                 from: None,
@@ -1269,6 +1291,8 @@ impl Room {
         }
     }
 
+    /// Whether a job is still on the room stream and has not ended: what it
+    /// asked can still come back to its thread.
     pub(super) fn job_lives(&self, job_id: &str) -> bool {
         room::all_jobs(&self.log)
             .iter()
@@ -1475,15 +1499,21 @@ impl Room {
     /// Stops the turn in flight in a job's thread, a firing's or the
     /// person's, and drops what waited behind it, a colleague's question
     /// included, which fails to its asker. The job goes on firing: its next
-    /// time is the one it already had.
-    pub fn cancel_job_turn(&self, job_id: &str) -> Result<(), String> {
+    /// time is the one it already had. A last run waiting on a reply has no
+    /// turn, and Stop ends it.
+    pub fn cancel_job_turn(self: &Arc<Self>, job_id: &str) -> Result<(), String> {
         let live = lock(&self.job_threads)
             .get(job_id)
             .cloned()
-            .filter(|live| lock(&live.life).halt())
-            .ok_or_else(|| "That job has no turn running.".to_string())?;
-        live.interrupt(self);
-        Ok(())
+            .filter(|live| lock(&live.life).halt());
+        if let Some(live) = live {
+            live.interrupt(self);
+            return Ok(());
+        }
+        if self.stop_waiting_job(job_id) {
+            return Ok(());
+        }
+        Err("That job has no turn running.".to_string())
     }
 
     /// The jobs of this teammate with a turn running, by id, for its roster
@@ -1673,9 +1703,10 @@ impl Room {
     /// button nobody is behind.
     pub(super) fn settle_jobs(&self, now: i64) {
         for job in room::all_jobs(&self.log) {
-            // Its last firing died with the process: the job is over.
+            // Its last firing died with the process: the job is over, unless
+            // its run waits on a reply, which can still come.
             if job.final_firing.is_some() && job.ended_at.is_none() {
-                self.end_final_firing(&job.id);
+                self.settle_last_run(&job);
             }
             let thread = ThreadId::job(&job.id);
             let Some(link) = self.link_of(&thread) else {
@@ -1801,6 +1832,7 @@ mod tests {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            awaiting: None,
             skipped: None,
         };
         let text = firing_text(

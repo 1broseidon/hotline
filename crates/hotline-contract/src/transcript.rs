@@ -1041,6 +1041,12 @@ pub struct ScheduledJob {
     /// more, but it has not ended: it ends (`endedAt`) when that firing does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_firing: Option<i64>,
+    /// Whom the job's last run is waiting on, by teammate id: its turn has
+    /// ended, but it sent each of them an item that wants an answer or work
+    /// whose reply has not come back, and the job ends once it has. Absent
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub awaiting: Option<Vec<String>>,
     /// The latest run of a loop that was skipped for being too late: by the
     /// time the desk could start it, more than two hours had passed since
     /// its time, so the loop moved on to its next. None until that happens.

@@ -186,6 +186,10 @@ pub struct ScheduleEntry {
     /// after its time, which moved the loop on to its next.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<SkippedRun>,
+    /// Whom the job's last run is waiting on for a reply, by name, as a list
+    /// says it: "Waiting on Huck". Absent while it is not waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub awaiting: Option<Vec<String>>,
 }
 
 /// The views the core maintains. One so far.

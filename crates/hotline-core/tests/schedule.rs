@@ -846,7 +846,7 @@ async fn a_job_that_runs_out_of_its_count_ends_with_a_final_post() {
         assert!(!earlier.contains("last run"), "{earlier}");
     }
     assert!(
-        heard[2].contains("This is the job's last run: it ends after this turn, so do not end it with `cancel_schedule`."),
+        heard[2].contains("This is the job's last run: it ends after this turn, or once the replies to what it sends a colleague have come back here, so do not end it with `cancel_schedule`."),
         "{}",
         heard[2]
     );

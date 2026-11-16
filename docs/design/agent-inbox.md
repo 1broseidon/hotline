@@ -155,6 +155,27 @@ person. Once the job's next run begins, or the job ends, the run is over: a
 reply to it lands in the main conversation, quietly, and one that came back
 to it and was never heard is heard there, woken for it.
 
+A job's last run, a one-time job's only one or a loop's last, waits for its
+replies (`job_thread/waiting.rs`). When its turn ends while an item it sent
+that wants an answer or work is still open, the job does not end: its agent
+is let go of, so it runs no turn and is not working, its thread says once
+"Waiting for Huck to reply. The job ends once the reply has come back.", and
+its record names whom it waits on (`awaiting`), which its row in Schedules
+and its pane say as "Waiting on Huck" in place of its next run. Each reply is
+heard in the job, a turn told it is the job's last run, and the turn that
+hears the last one ends the job, its thread closed. A run that sent several
+items waits for each. It never waits for ever: an open item expires after
+three days as any does, and Hotline's notice of it is heard in the job as a
+reply is; an item the colleague closed with no reply is heard where it
+stands at the clock's next look, a turn of the job, which then ends; one
+taken and never answered, which never expires, is waited on until three
+days after it arrived, and the job then ends saying "No reply came in three
+days, so the job has ended." The person's End job ends it at once, and so
+does Stop, which says "Stopped. That was the job's last run, so it has
+ended."; a reply after that is the main conversation's. A desk that
+restarts keeps it waiting: the record says it is in its last run, the items
+are on disk, and what came back meanwhile wakes it as the desk opens.
+
 - **Idle.** An item that lands while that thread is idle wakes it once, after
   the gather delay, 4 seconds (a unit test's room gathers in 150 ms). Items that land within the delay are heard in one
   turn. A teammate that is not running is started for it, as one was for a

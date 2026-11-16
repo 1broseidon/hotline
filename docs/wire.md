@@ -1281,9 +1281,11 @@ intervals are milliseconds. `nextAt` is a plan, not a promise: a desk that
 is closed or asleep fires a missed job once when it can, a fire that could
 not start tries again a minute later, and a loop counts its next interval
 from when a run ends. `quiet` is present and true when the job was asked to
-say nothing in the chat unless it finds something worth saying. There is no
-paused or failed state: a job is listed until it has fired for the last
-time or is cancelled. Who made a job is not part of the entry.
+say nothing in the chat unless it finds something worth saying. `awaiting`
+is present while the job's last run waits on a colleague's reply to what it
+sent, naming them as a list says it (`["Huck"]`). There is no paused or
+failed state: a job is listed until its last run is over or it is
+cancelled. Who made a job is not part of the entry.
 
 The view is read before the subscription is acknowledged, so a list that
 cannot be told is a refusal and never `ok` followed by `[]`:

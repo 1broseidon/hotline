@@ -413,6 +413,7 @@ pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
         ended_at: job.ended_at,
         without: job.without,
         skipped: job.skipped,
+        awaiting: None,
     }
 }
 
@@ -836,6 +837,7 @@ impl Room {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            awaiting: None,
             skipped: None,
         };
         room::append_schedule(&self.log, &job)?;
@@ -897,6 +899,7 @@ impl Room {
             return;
         };
         job.ended_at = Some(now_ms());
+        job.awaiting = None;
         write_or_log(room::append_schedule(&self.log, &job));
         self.schedule_changed.notify_one();
     }
@@ -904,6 +907,7 @@ impl Room {
     /// Writes `job` as ended now. The caller holds the schedule guard.
     fn end_job_record(&self, mut job: ScheduledJob) -> Result<ScheduledJob, String> {
         job.ended_at = Some(now_ms());
+        job.awaiting = None;
         room::append_schedule(&self.log, &job)?;
         Ok(job)
     }

@@ -38,6 +38,7 @@ type RoomItem = {
 	nextAt?: number;
 	createdAt?: number;
 	endedAt?: number;
+	awaiting?: unknown;
 };
 
 /**
@@ -327,6 +328,7 @@ function jobFromEvent(item: RoomItem): ScheduledJob | null {
 	const every = typeof item.every === "number" ? item.every : undefined;
 	const when = typeof item.when === "number" ? item.when : undefined;
 	const calendar = every !== undefined ? calendarFrom(item.calendar) : null;
+	const awaiting = stringList(item.awaiting);
 	return {
 		id: item.id,
 		personaId: item.personaId,
@@ -339,7 +341,13 @@ function jobFromEvent(item: RoomItem): ScheduledJob | null {
 		operatorCreated: item.operatorCreated === true,
 		nextAt: item.nextAt,
 		createdAt: item.createdAt,
+		...(awaiting !== null ? { awaiting } : {}),
 	};
+}
+
+/** A list of ids as the core writes one, or null for anything else. */
+function stringList(value: unknown): string[] | null {
+	return Array.isArray(value) && value.length > 0 && value.every((one) => typeof one === "string") ? value : null;
 }
 
 const CALENDAR_DAYS: readonly CalendarDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];

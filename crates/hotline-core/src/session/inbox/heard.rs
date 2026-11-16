@@ -395,24 +395,36 @@ impl Room {
         )
     }
 
+    /// Whether something `persona_id` sent has moved since it was last told,
+    /// with its news heard in `thread`: what the next turn there is told.
+    pub(in crate::session) fn sent_news(&self, persona_id: &str, thread: &ThreadId) -> bool {
+        !self.sent_untold(persona_id, thread).is_empty()
+    }
+
+    /// Each item `persona_id` sent whose news is heard in `thread` and that
+    /// has moved since its sender was last told.
+    fn sent_untold(&self, persona_id: &str, thread: &ThreadId) -> Vec<InboxItem> {
+        let roster = crate::room::roster(&self.log);
+        kept::sent_by(
+            &self.log,
+            persona_id,
+            roster.iter().map(|persona| persona.id.as_str()),
+        )
+        .into_iter()
+        .filter(|item| {
+            let told = usize::try_from(item.sender_told).unwrap_or(usize::MAX);
+            item.receipts.len() > told
+                && live_or_main(self, Some(&item.from_thread), &item.from, item.ts) == *thread
+        })
+        .collect()
+    }
+
     /// Each item `persona_id` sent whose news is heard in `thread` and that
     /// has moved since its sender was last told, as one line of where it
     /// stands now, each rewritten as told.
     fn sent_moves(&self, persona_id: &str, thread: &ThreadId) -> Vec<String> {
-        let roster = crate::room::roster(&self.log);
-        let sent = kept::sent_by(
-            &self.log,
-            persona_id,
-            roster.iter().map(|persona| persona.id.as_str()),
-        );
         let mut lines = Vec::new();
-        for item in sent {
-            let told = usize::try_from(item.sender_told).unwrap_or(usize::MAX);
-            if item.receipts.len() <= told
-                || live_or_main(self, Some(&item.from_thread), &item.from, item.ts) != *thread
-            {
-                continue;
-            }
+        for item in self.sent_untold(persona_id, thread) {
             let Some(latest) = item.receipts.last() else {
                 continue;
             };

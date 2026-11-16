@@ -60,7 +60,7 @@ pub(super) fn again_every() -> i64 {
 }
 
 /// How long an item may stay open since it arrived: three days.
-pub(super) fn expire_after() -> i64 {
+pub(in crate::session) fn expire_after() -> i64 {
     EXPIRE_AFTER_MS
 }
 
@@ -79,7 +79,7 @@ fn span_words(ms: i64) -> String {
 }
 
 /// When an item arrived: when it was let in (its last `new`), else sent.
-fn arrived_at(item: &InboxItem) -> i64 {
+pub(in crate::session) fn arrived_at(item: &InboxItem) -> i64 {
     item.receipts
         .iter()
         .rev()
@@ -119,6 +119,7 @@ impl Room {
             return;
         }
         self.expire_overdue(now_ms());
+        self.look_at_waiting_jobs(now_ms());
         self.pick_up_at_start();
         let room = Arc::downgrade(self);
         tokio::spawn(async move {
@@ -134,11 +135,14 @@ impl Room {
         });
     }
 
-    /// The clock read at `now`: what has expired closes, and each teammate
-    /// is offered, in one quiet turn, what of its set aside has come due.
+    /// The clock read at `now`: what has expired closes, a job's last run
+    /// whose wait is over hears what came of it or ends
+    /// (`job_thread/waiting.rs`), and each teammate is offered, in one quiet
+    /// turn, what of its set aside has come due.
     pub(in crate::session) async fn inbox_due(self: &Arc<Self>, now: i64) {
         self.inbox_tidy(now, false);
         self.expire_overdue(now);
+        self.look_at_waiting_jobs(now);
         for persona in crate::room::roster(&self.log) {
             self.offer_again(&persona.id, now).await;
         }

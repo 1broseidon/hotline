@@ -402,6 +402,7 @@ export function Teammate({
 						jobs={jobs}
 						backgroundWork={persona.backgroundWork}
 						focus={focusSchedules}
+						nameOf={(id) => roster.find((entry) => entry.persona.id === id)?.persona.name ?? id}
 					/>
 
 					<div className="flex items-center gap-1 border-t border-line pt-3">

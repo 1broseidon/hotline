@@ -277,6 +277,7 @@ async fn retry_receives_a_cancelled_job() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
@@ -314,6 +315,7 @@ async fn retry_and_finish_keep_the_latest_job_source_and_quiet_setting() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
@@ -358,6 +360,7 @@ async fn a_skipped_slot_moves_a_loop_on_without_spending_its_count() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
@@ -400,6 +403,7 @@ async fn an_update_does_not_consume_or_reschedule_a_due_job() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
@@ -567,6 +571,7 @@ fn an_every_loop_still_runs_its_interval_after_it_fires() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     };
     let fired = utc("2026-03-08 06:59");
@@ -637,6 +642,7 @@ fn calendar_job(id: &str, calendar: Calendar, next_at: i64) -> ScheduledJob {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     }
 }

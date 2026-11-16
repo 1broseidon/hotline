@@ -29,13 +29,32 @@ pub(super) enum Unreadable {
     Failed(String),
 }
 
-/// One teammate's jobs as the view sends them, soonest first.
+/// One teammate's jobs as the view sends them, soonest first, each one
+/// whose last run waits on a reply naming whom by name.
 pub(super) fn read(log: &Log, persona_id: &str) -> Result<Vec<ScheduleEntry>, Unreadable> {
     match room::teammate_schedules(log, persona_id) {
-        Ok(Some(jobs)) => Ok(jobs
-            .into_iter()
-            .map(crate::session::schedule::entry)
-            .collect()),
+        Ok(Some(jobs)) => {
+            let roster = room::roster(log);
+            let name_of = |id: &String| {
+                roster
+                    .iter()
+                    .find(|persona| persona.id == *id)
+                    .map_or_else(|| id.clone(), |persona| persona.name.clone())
+            };
+            Ok(jobs
+                .into_iter()
+                .map(|job| {
+                    let awaiting = job
+                        .awaiting
+                        .as_ref()
+                        .map(|whom| whom.iter().map(name_of).collect());
+                    ScheduleEntry {
+                        awaiting,
+                        ..crate::session::schedule::entry(job)
+                    }
+                })
+                .collect())
+        }
         Ok(None) => Err(Unreadable::NoTeammate(format!(
             "There is no teammate {persona_id}."
         ))),

@@ -27,6 +27,7 @@ fn scheduled(
         last_post: None,
         ended_at: None,
         final_firing: None,
+        awaiting: None,
         skipped: None,
     }
 }

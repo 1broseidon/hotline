@@ -27,6 +27,11 @@ like any other reply, and your phone is notified. A run that finds nothing
 says nothing. Coding tools such as Claude Code have no way to speak up from a
 quiet run, so their quiet runs stay quiet.
 
+A run that asks a colleague hears the reply in the run. A **Once** schedule,
+or a repeating one's last run, waits for that reply before it ends: its row
+says "Waiting on Huck" until the reply comes, for at most three days. Stop or
+End job in its pane ends it at once.
+
 Once a teammate has schedules, its conversation's header shows how many and
 when the next one fires; press it to open the list. Cancel a schedule from
 the list.

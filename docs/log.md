@@ -299,7 +299,8 @@ sentence), `until` (milliseconds since epoch) and `times` (firings left).
 The core adds `lastPost` (`{at, text}`, what the job last posted to the
 chat), `skipped` (`{slot, at}`, a loop's latest run skipped for starting
 over two hours after its time: when it was due and when it was skipped,
-cleared when the loop next runs)
+cleared when the loop next runs), `awaiting` (the ids of the teammates its
+last run waits on for a reply to what it sent, cleared when it ends)
 and, once the job has fired its last or been cancelled, `endedAt`: an
 ended job is written again rather than tombstoned, because its thread stays
 readable. Every one of these is optional, so a job written before them reads

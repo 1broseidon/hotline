@@ -43,6 +43,7 @@ mod heard;
 mod pick_up;
 mod tidy;
 
+pub(in crate::session) use clock::{arrived_at, expire_after};
 pub(in crate::session) use heard::QUIET_WAKE_LINE;
 pub(in crate::session) use pick_up::PickUp;
 

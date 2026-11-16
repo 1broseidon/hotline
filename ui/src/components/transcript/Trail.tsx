@@ -224,20 +224,23 @@ function HelpersLine({ links, onOpen }: { links: RunLink[]; onOpen: ((thread: Th
 /**
  * A path line that stands for several things and unfolds to a row for each:
  * its dot, what it says, the fact at the right, and pressed, its rows under
- * it. The helpers a turn started are one; the conversation's line for a sort
- * of the inbox is another (InboxLines.tsx).
+ * it, set in on a rule (`detail`, the class they sit in, says otherwise).
+ * The helpers a turn started are one; the conversation's line for a run of
+ * inbox activity is another (InboxLines.tsx), whose rows sit in no rule.
  */
 export function FoldLine({
 	id,
 	said,
 	status = "completed",
 	fact,
+	detail = "trail-detail",
 	children,
 }: {
 	id: string;
 	said: string;
 	status?: "in_progress" | "failed" | "completed";
 	fact?: { text: string; tone: string | undefined } | undefined;
+	detail?: string;
 	children: ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
@@ -253,7 +256,7 @@ export function FoldLine({
 				)}
 				{open ? <ChevronDownIcon className="trail-chevron" /> : <ChevronRightIcon className="trail-chevron" />}
 			</button>
-			{open && <div className="trail-detail">{children}</div>}
+			{open && <div className={detail}>{children}</div>}
 		</li>
 	);
 }

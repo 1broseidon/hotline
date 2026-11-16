@@ -12,8 +12,6 @@ import { wire } from "./wire";
 /** An `inbox_sent` line: one item a teammate sent, on the thread it was sent from. */
 export type InboxSent = Extract<TranscriptEvent, { kind: "inbox_sent" }>;
 
-/** An `inbox_sorted` line: the receiver's sort of what it read, on its main conversation. */
-export type InboxSorted = Extract<TranscriptEvent, { kind: "inbox_sorted" }>;
 
 /* ------------------------------------------------------------ the wire */
 
@@ -278,7 +276,7 @@ export function sends(sent: readonly InboxItem[]): Send[] {
 /** Where a send stands, as its row on Sent says it: "Seen", or "2 of 3 seen". */
 export const sendState = (send: Send): string => together(send.items, send.items.length) ?? "";
 
-/* ------------------------------------------------------- the sort's line */
+/* ----------------------------------------------------- the inbox's line */
 
 /** What became of an entry of a sort, in a word, at the right of its row. */
 export function sortedWord(entry: InboxSortedEntry): string {
@@ -288,8 +286,9 @@ export function sortedWord(entry: InboxSortedEntry): string {
 	return entry.state.charAt(0).toUpperCase() + entry.state.slice(1);
 }
 
-/** "Read 3 messages", "Read 1 message": the sort's line in the conversation. */
-export const readWords = (count: number): string => `Read ${count} ${count === 1 ? "message" : "messages"}`;
+/** "Inbox · read 3, sent 1": the line for a run of a teammate's inbox activity, saying only what it has. */
+export const runWords = (read: number, sent: number): string =>
+	`Inbox · ${[read > 0 && `read ${read}`, sent > 0 && `sent ${sent}`].filter((part): part is string => part !== false).join(", ")}`;
 
 /* ------------------------------------------------------------ the pane */
 

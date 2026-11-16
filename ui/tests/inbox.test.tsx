@@ -96,9 +96,7 @@ describe("task-456 the sender's rows", () => {
 describe("task-456 the sort's line", () => {
 	const entry = (id: string, more: Partial<InboxSortedEntry>): InboxSortedEntry => ({ item: id, title: `Title ${id}`, from: "chop", state: "taken", ...more });
 
-	test("says how many it read, and what became of each in a word", () => {
-		expect(inbox.readWords(3)).toBe("Read 3 messages");
-		expect(inbox.readWords(1)).toBe("Read 1 message");
+	test("says what became of each in a word", () => {
 		expect(
 			[
 				entry("build", { state: "taken" }),
@@ -196,6 +194,119 @@ describe("a turn the inbox woke is drawn as path", () => {
 		const steps = drawn.filter((block) => block.kind === "steps");
 		expect(steps).toHaveLength(1);
 		expect(steps[0]?.kind === "steps" && steps[0].items.map((one) => one.id)).toEqual(["t1", "t2", "t3", "t4"]);
+	});
+});
+
+describe("task-494 a run of inbox activity is one line in the chat", () => {
+	const tool = (id: string, title: string): TranscriptEvent => ({ kind: "tool", id, ts: NOW, toolCallId: id, title, status: "completed" });
+	const quietEnd = (id: string): TranscriptEvent => ({ kind: "turn", id, ts: NOW, stopReason: "end_turn", quiet: true });
+	const sorted = (id: string, ...items: string[]): TranscriptEvent => ({
+		kind: "inbox_sorted",
+		id,
+		ts: NOW,
+		open: 0,
+		unread: 0,
+		entries: items.map((one) => ({ item: one, title: `Title ${one}`, from: "chop", state: "closed" as const, outcome: "noted" as const })),
+	});
+	const link = (id: string, thread: string, state: "live" | "closed"): TranscriptEvent =>
+		({ kind: "link", id, ts: NOW, thread, threadKind: "side", title: "Rerun the Linux build", state, personaId: "juno", openerId: "chop" }) as TranscriptEvent;
+	const shape = (blocks: Block[]) =>
+		blocks.flatMap((block) =>
+			block.kind === "inboxRun"
+				? [`run(${block.read},${block.sent}):${block.members.map((member) => (member.kind === "event" ? member.event.id : member.kind === "steps" ? `steps:${member.id}` : member.id)).join(",")}`]
+				: block.kind === "event"
+					? block.event.kind === "turn"
+						? []
+						: [block.event.id]
+					: block.kind === "inbox"
+						? [`${block.id}${block.asked === true ? " asked" : ""}`]
+						: [`${block.kind}:${block.id}`],
+		);
+	const fold = async (events: TranscriptEvent[], work: ReadonlySet<string> = new Set()) => {
+		const { toBlocks } = await import("../src/transcriptFolds");
+		const { foldInboxRuns } = await import("../src/scheduledRuns");
+		return foldInboxRuns(groupInbox(toBlocks(events)), work);
+	};
+
+	test("quiet turns' sorts, sends and times run together into one line, which says how many it read and sent", async () => {
+		const drawn = await fold([
+			tool("t1", "read_inbox"),
+			sent("r1", "chop", "Re: Test message"),
+			sorted("s1", "i1"),
+			quietEnd("e1"),
+			tool("t2", "read_inbox"),
+			sorted("s2", "i2", "i3"),
+			quietEnd("e2"),
+		]);
+		expect(shape(drawn)).toEqual(["run(3,1):inbox-sent:r1,s1,steps:t1,s2,steps:t2"]);
+		// Named by its first row, so it keeps its row as it grows.
+		expect(drawn[0]?.kind === "inboxRun" && drawn[0].id).toBe("inbox-run:inbox-sent:r1");
+		expect(inbox.runWords(3, 1)).toBe("Inbox · read 3, sent 1");
+	});
+
+	test("the label says only what the run has: only sorting, only sending", () => {
+		expect(inbox.runWords(2, 0)).toBe("Inbox · read 2");
+		expect(inbox.runWords(0, 1)).toBe("Inbox · sent 1");
+	});
+
+	test("a run ends at the person's line, a bubble the teammate posts and a turn the person asked for", async () => {
+		const drawn = await fold([
+			tool("t1", "read_inbox"),
+			sorted("s1", "i1"),
+			{ kind: "tool", id: "t2", ts: NOW, toolCallId: "t2", title: "post_to_chat", status: "completed" },
+			said("p1", "The crane permit is yours to sign."),
+			quietEnd("e1"),
+			tool("t3", "read_inbox"),
+			sorted("s2", "i2"),
+			quietEnd("e2"),
+			{ kind: "user", id: "u1", ts: NOW, text: "Ask Huck whether staging is safe to wipe." },
+			sent("a1", "huck", "Is staging safe to wipe?"),
+			tool("t4", "update_inbox"),
+			sorted("s3", "i3"),
+			said("a2", "Asked Huck."),
+			ended("e3"),
+			tool("t5", "read_inbox"),
+			sorted("s4", "i4"),
+			quietEnd("e4"),
+		]);
+		expect(shape(drawn)).toEqual([
+			"run(1,0):s1",
+			"p1",
+			// A quiet turn that posted keeps its time under its bubble, as any reply does.
+			"steps:t1",
+			"run(1,0):s2,steps:t3",
+			"u1",
+			// What came of the person's ask stays out of the line, a quiet row of its own.
+			"inbox-sent:a1 asked",
+			"run(1,0):s3",
+			"a2",
+			"steps:t4",
+			"run(1,0):s4,steps:t5",
+		]);
+	});
+
+	test("a work thread an item started stands beside the run while it runs, and folds in once it is over", async () => {
+		const work = new Set(["w1"]);
+		const running = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), link("l1", "w1", "live"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2"), quietEnd("e2")], work);
+		// It does not split the run: the line, then the running thread under it.
+		expect(shape(running)).toEqual(["run(2,0):s1,steps:t1,s2,steps:t2", "l1"]);
+		const over = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), link("l1", "w1", "closed"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2"), quietEnd("e2")], work);
+		expect(shape(over)).toEqual(["run(2,0):s1,l1,steps:t1,s2,steps:t2"]);
+		// A thread no item started is no part of a run.
+		expect(shape(await fold([sorted("s1", "i1"), link("l1", "w1", "closed"), sorted("s2", "i2")]))).toEqual(["run(1,0):s1", "l1", "run(1,0):s2"]);
+	});
+
+	test("a quiet turn's time alone, with nothing read or sent, stays its own line", async () => {
+		expect(shape(await fold([tool("t1", "read_inbox"), quietEnd("e1")]))).toEqual(["steps:t1"]);
+	});
+
+	test("a run that grows keeps the block it was, and the turn still running sits under it", async () => {
+		const { keepBlocks } = await import("../src/transcriptFolds");
+		const first = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), quietEnd("e1"), tool("t2", "read_inbox")]);
+		expect(shape(first)).toEqual(["run(1,0):s1,steps:t1", "steps:t2"]);
+		const grown = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2"), quietEnd("e2")]);
+		expect(grown[0]?.kind === "inboxRun" && grown[0].id).toBe(first[0]?.kind === "inboxRun" && first[0].id);
+		expect(keepBlocks(first, first)[0]).toBe(first[0]);
 	});
 });
 
@@ -354,73 +465,87 @@ describe("task-456 drawn", () => {
 		expect(opened).toEqual(["i1"]);
 	});
 
-	test("a sort is one quiet line that unfolds to a row per item, each opening it", async () => {
-		const { InboxRows, InboxSortedLine } = await import("../src/components/transcript/InboxLines");
+	/** A run as the fold makes it, of these lines. */
+	const runOf = async (events: TranscriptEvent[], work: ReadonlySet<string> = new Set()) => {
+		const { toBlocks } = await import("../src/transcriptFolds");
+		const { foldInboxRuns } = await import("../src/scheduledRuns");
+		const run = foldInboxRuns(groupInbox(toBlocks(events)), work).find((block) => block.kind === "inboxRun");
+		if (run?.kind !== "inboxRun") throw new Error("no run");
+		return run;
+	};
+
+	test("a run is one quiet line that opens in place to its rows in the order they happened, each item's opening it", async () => {
+		const { InboxRows, InboxRun } = await import("../src/components/transcript/InboxLines");
 		const opened: string[] = [];
-		const event = {
-			kind: "inbox_sorted" as const,
-			id: "sorted-1",
-			ts: NOW,
-			open: 1,
-			unread: 0,
-			entries: [
-				{ item: "thursday", title: "Release moves to Thursday", from: "ivy", state: "closed" as const, outcome: "noted" as const },
-				{ item: "wipe", title: "Is the staging database safe to wipe?", from: "huck", state: "closed" as const, outcome: "answered" as const },
-				{ item: "notes", title: "Storage numbers", from: "chop", state: "later" as const, reason: "after this research" },
-			],
-		};
+		const worked: string[] = [];
+		const run = await runOf([
+			{
+				kind: "inbox_sorted",
+				id: "sorted-1",
+				ts: NOW,
+				open: 1,
+				unread: 0,
+				entries: [
+					{ item: "thursday", title: "Release moves to Thursday", from: "ivy", state: "closed", outcome: "noted" },
+					{ item: "notes", title: "Storage numbers", from: "chop", state: "later", reason: "after this research" },
+				],
+			},
+			sent("r1", "huck", "Re: Is the staging database safe to wipe?"),
+			{ kind: "tool", id: "t1", ts: NOW, toolCallId: "t1", title: "update_inbox", status: "completed" },
+			{ kind: "turn", id: "e1", ts: NOW, stopReason: "end_turn", quiet: true },
+		]);
 		await act(async () =>
 			root!.render(
-				<InboxRows.Provider value={{ work: new Set(), items: new Map(), onOpen: (id) => opened.push(id) }}>
-					<InboxSortedLine event={event} people={people} />
+				<InboxRows.Provider value={{ work: new Set(), items: new Map([["r1", item("r1", { to: "huck", state: "seen" })]]), onOpen: (id) => opened.push(id) }}>
+					<InboxRun run={run} owner="juno" people={people} onOpenWork={(id) => worked.push(id)} />
 				</InboxRows.Provider>,
 			),
 		);
-		// A path line, not a card: no header, no counts, no rows until it is pressed.
-		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-sorted] .trail-step > .trail-head")!;
-		expect(line.querySelector(".trail-said")?.textContent).toBe("Read 3 messages");
+		// A path line, not a card: no fact, no rows until it is pressed.
+		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-step > .trail-head")!;
+		expect(line.querySelector(".trail-said")?.textContent).toBe("Inbox · read 2, sent 1");
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(container.querySelector(".trail-fact")).toBeNull();
-		expect(container.querySelectorAll(".trail-row")).toHaveLength(0);
+		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
 		await press(line);
-		expect(line.getAttribute("aria-expanded")).toBe("true");
-		const rows = [...container.querySelectorAll<HTMLButtonElement>(".trail-detail > .trail-row")];
-		expect(rows.map((row) => row.dataset["inbox"])).toEqual(["thursday", "wipe", "notes"]);
-		expect(rows.map((row) => row.querySelector(".trail-page")?.firstChild?.textContent)).toEqual(["Release moves to Thursday", "Is the staging database safe to wipe?", "Storage numbers"]);
-		// The sender, and a later's reason, in the muted ink; what became of it at the right.
-		expect(rows.map((row) => row.querySelector(".trail-page .text-ink-3")?.textContent)).toEqual([" · Ivy", " · Huck", " · Pork Chop · after this research"]);
-		expect(rows.map((row) => row.querySelector(".trail-meta")?.textContent)).toEqual(["Noted", "Answered", "Later"]);
-		await press(rows[1]!);
-		expect(opened).toEqual(["wipe"]);
+		// No rule or box around them: the conversation's own quiet rows, in order, the quiet turn's time last.
+		const rows = container.querySelector(".inbox-run-rows")!;
+		expect(container.querySelector(".trail-detail")).toBeNull();
+		expect([...rows.querySelectorAll(".link-row")].map((row) => row.textContent)).toEqual([
+			"Release moves to Thursday· From Ivy · NotedOpen ›",
+			"Storage numbers· From Pork Chop · Later · after this researchOpen ›",
+			"Re: Is the staging database safe to wipe?· To Huck · SeenOpen ›",
+		]);
+		expect([...rows.querySelectorAll(".link-row")].every((row) => row.closest(".inbox-run-rows") === rows)).toBe(true);
+		expect(rows.lastElementChild?.querySelector(".steps-caption")).not.toBeNull();
+		await press(rows.querySelectorAll<HTMLButtonElement>(".link-row")[1]!);
+		await press(rows.querySelectorAll<HTMLButtonElement>(".link-row")[2]!);
+		expect(opened).toEqual(["notes", "r1"]);
+		await press(rows.querySelector<HTMLButtonElement>(".steps-caption")!);
+		expect(worked).toHaveLength(1);
 		await press(line);
-		expect(container.querySelectorAll(".trail-row")).toHaveLength(0);
+		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
 	});
 
-	test("a sort's row for Hotline's notice credits Hotline, not the teammate it is about", async () => {
-		const { InboxSortedLine } = await import("../src/components/transcript/InboxLines");
-		const event = {
-			kind: "inbox_sorted" as const,
-			id: "s",
-			ts: NOW,
-			open: 0,
-			unread: 0,
-			entries: [{ item: "n", title: "Expired: Changelog wording", from: "huck", state: "closed" as const, outcome: "noted" as const, notice: "expired" as const }],
-		};
-		await act(async () => root!.render(<InboxSortedLine event={event} people={people} />));
-		await press(container.querySelector("[data-kind=inbox-sorted] .trail-head")!);
-		expect(container.querySelector(".trail-row")?.textContent).toBe("Expired: Changelog wording · HotlineNoted");
-	});
-
-	test("a sort of one item says so in the singular, and its row does nothing where nothing opens it", async () => {
-		const { InboxSortedLine } = await import("../src/components/transcript/InboxLines");
-		const event = { kind: "inbox_sorted" as const, id: "s", ts: NOW, open: 0, unread: 0, entries: [{ item: "x", title: "Nightly deploy is paused", from: "huck", state: "closed" as const, outcome: "noted" as const }] };
-		await act(async () => root!.render(<InboxSortedLine event={event} people={people} />));
-		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-sorted] .trail-head")!;
-		expect(line.textContent).toBe("Read 1 message");
+	test("a run's row for Hotline's notice credits Hotline, and an item's row does nothing where nothing opens it", async () => {
+		const { InboxRun } = await import("../src/components/transcript/InboxLines");
+		const run = await runOf([
+			{
+				kind: "inbox_sorted",
+				id: "s",
+				ts: NOW,
+				open: 0,
+				unread: 0,
+				entries: [{ item: "n", title: "Expired: Changelog wording", from: "huck", state: "closed", outcome: "noted", notice: "expired" }],
+			},
+		]);
+		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} />));
+		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-head")!;
+		expect(line.textContent).toBe("Inbox · read 1");
 		await press(line);
-		const row = container.querySelector<HTMLButtonElement>(".trail-row")!;
-		expect(row.textContent).toBe("Nightly deploy is paused · HuckNoted");
-		expect(row.disabled).toBe(true);
+		const row = container.querySelector(".inbox-run-rows .link-row")!;
+		expect(row.tagName).toBe("P");
+		expect(row.textContent).toBe("Expired: Changelog wording· From Hotline · Noted");
 	});
 
 	test("the composer counts what the teammate has not read only while there is some, its tray says when each arrived, and opens an item or the whole inbox", async () => {

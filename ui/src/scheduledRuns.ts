@@ -32,7 +32,9 @@ type AgentEvent = Extract<TranscriptEvent, { kind: "agent" }>;
  * last and `open`. A job that fired again and again
  * with nothing between is one block too, oldest run first, sitting where the
  * newest run sits; so are finished calls one after another, and a turn's
- * files sent a message each.
+ * files sent a message each. A run of a teammate's inbox activity in its
+ * own conversation is one block too (`foldInboxRuns`); a send in a turn the
+ * person asked for stays its own row, `asked`.
  */
 export type Block =
 	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
@@ -40,7 +42,8 @@ export type Block =
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] }
 	| { kind: "sent"; id: string; ts: number; messages: AgentEvent[]; files: { eventId: string; index: number; file: Attachment }[] }
-	| { kind: "inbox"; id: string; ts: number; title: string; sent: InboxSentEvent[] };
+	| { kind: "inbox"; id: string; ts: number; title: string; sent: InboxSentEvent[]; asked?: true }
+	| { kind: "inboxRun"; id: string; ts: number; members: Block[]; read: number; sent: number };
 
 type InboxSentEvent = Extract<TranscriptEvent, { kind: "inbox_sent" }>;
 
@@ -182,4 +185,90 @@ export function groupInbox(blocks: Block[]): Block[] {
 		out.push({ kind: "inbox", id: sent.id, ts: sent.ts, title: sent.title, sent: [sent] });
 	}
 	return out;
+}
+
+/** A blocks' line as its fold reads it: one that joins the run, one that stands beside it, or one that ends it. */
+type Place = "member" | "beside" | "end";
+
+/**
+ * A teammate's inbox activity in its own conversation, a run at a time, as
+ * one quiet line ("Inbox · read 3, sent 1") that opens to its rows in the
+ * order they happened: the items it sorted, the items it sent, the work an
+ * item started once that work is over, and the time of each turn its inbox
+ * woke that said nothing in the chat (a quiet turn's "5.0s"). A run ends at
+ * what the person should read: their own line, a bubble the teammate
+ * posted, a turn they asked for (whose sent rows stay out of the line as
+ * quiet rows of their own, `asked`, being what came of their ask), and any
+ * card, notice or other row. What draws nothing, a quiet turn still
+ * running, and a work thread an item started while it is not over stand
+ * beside the run without ending it: they are drawn under its line, and a
+ * work thread joins the line once it is over. The line sits where the run's
+ * first row is, and is named and dated by it, so a run that grows keeps its
+ * row, open or not, and only its counts move. A run that read and sent nothing (a
+ * quiet turn's time alone, a finished work thread alone) is drawn as its
+ * rows were. `work` is the work threads inbox items started, by key.
+ */
+export function foldInboxRuns(blocks: Block[], work: ReadonlySet<string>): Block[] {
+	const out: Block[] = [];
+	let run: { block: Block; member: boolean }[] | null = null;
+	// The turn going now: the person's line began it or was steered into it, and it posted a bubble.
+	let asked = false;
+	let posted = false;
+	const flush = () => {
+		if (run === null) return;
+		const members = run.filter((one) => one.member).map((one) => one.block);
+		const beside = run.filter((one) => !one.member).map((one) => one.block);
+		const read = new Set(members.flatMap((block) => (block.kind === "event" && block.event.kind === "inbox_sorted" ? block.event.entries.map((entry) => entry.item) : []))).size;
+		const sent = members.filter((block) => block.kind === "inbox").length;
+		if (read + sent === 0) out.push(...run.map((one) => one.block));
+		else {
+			const first = members[0]!;
+			const [id, ts] = first.kind === "event" ? [first.event.id, first.event.ts] : [first.id, first.ts];
+			out.push({ kind: "inboxRun", id: `inbox-run:${id}`, ts, members, read, sent }, ...beside);
+		}
+		run = null;
+	};
+	blocks.forEach((block, at) => {
+		const place = placeIn(block, at);
+		if (place === "end") {
+			flush();
+			out.push(block.kind === "inbox" && asked ? { ...block, asked: true } : block);
+		} else if (place === "member") (run ??= []).push({ block, member: true });
+		else if (run !== null) run.push({ block, member: false });
+		else out.push(block);
+		if (block.kind !== "event") return;
+		const event = block.event;
+		if (event.kind === "user" && event.scheduled === undefined) asked = true;
+		else if (event.kind === "agent") posted = true;
+		else if (event.kind === "turn") {
+			asked = false;
+			posted = false;
+		}
+	});
+	flush();
+	return out;
+
+	function placeIn(block: Block, at: number): Place {
+		if (block.kind === "inbox") return asked ? "end" : "member";
+		if (block.kind === "steps") {
+			if (block.open === true) return "beside";
+			return !posted && endedQuiet(blocks, at) ? "member" : "end";
+		}
+		if (block.kind !== "event") return "end";
+		const event = block.event;
+		if (event.kind === "inbox_sorted") return "member";
+		if (event.kind === "turn") return event.stopReason === "end_turn" ? "beside" : "end";
+		if (event.kind === "link" && event.threadKind === "side" && work.has(event.thread)) return event.state === "closed" ? "member" : "beside";
+		return "end";
+	}
+}
+
+/** Whether the turn a run of steps belongs to ended quiet: the first turn's end or person's line after it says. */
+function endedQuiet(blocks: Block[], at: number): boolean {
+	for (const block of blocks.slice(at + 1)) {
+		if (block.kind !== "event") continue;
+		if (block.event.kind === "turn") return block.event.quiet === true;
+		if (block.event.kind === "user") return false;
+	}
+	return false;
 }

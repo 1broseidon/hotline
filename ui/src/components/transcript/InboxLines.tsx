@@ -1,8 +1,12 @@
-import { createContext, useContext } from "react";
-import type { InboxItem } from "../../generated/contract";
+import { createContext, memo, useContext } from "react";
+import type { InboxItem, InboxSortedEntry } from "../../generated/contract";
 import type { Person } from "../../avatars";
-import { ChevronRightIcon, InboxIcon } from "../../icons";
-import { type InboxSent, type InboxSorted, readWords, senderWords, sentState, sortedWord, toWords } from "../../inbox";
+import type { LinkEvent } from "../../dock";
+import { InboxIcon } from "../../icons";
+import { type InboxSent, runWords, senderWords, sentState, sortedWord, toWords } from "../../inbox";
+import type { Block } from "../../scheduledRuns";
+import { LinkRow } from "./LinkRow";
+import { Steps } from "./Steps";
 import { FoldLine } from "./Trail";
 
 /**
@@ -25,9 +29,10 @@ export const InboxRows = createContext<InboxRowsContext>({ items: new Map(), wor
  * from: the tray, the title, whom it went to, and where it stands now, read
  * live from the sender's inbox ("To Juno · Taken"; "To Juno, Ivy, Huck · 2
  * of 3 seen"). A press opens the item in the pane; several sent together
- * open the first.
+ * open the first. `quiet`, in an inbox run or as what came of a turn the
+ * person asked for, it is in plain weight with the tray in grey.
  */
-export function InboxSentRow({ title, sent, people }: { title: string; sent: InboxSent[]; people: ReadonlyMap<string, Person> | undefined }) {
+export function InboxSentRow({ title, sent, people, quiet = false }: { title: string; sent: InboxSent[]; people: ReadonlyMap<string, Person> | undefined; quiet?: boolean }) {
 	const { items, onOpen } = useContext(InboxRows);
 	const to = `To ${toWords(sent.map((one) => one.to), (id) => people?.get(id)?.name)}`;
 	const state = sentState({ title, sent }, items);
@@ -46,13 +51,13 @@ export function InboxSentRow({ title, sent, people }: { title: string; sent: Inb
 	const label = `Message: ${title}, ${to}${state !== undefined ? `, ${state}` : ""}`;
 	if (onOpen === undefined) {
 		return (
-			<p className="link-row" data-kind="inbox">
+			<p className="link-row" data-kind="inbox" data-quiet={quiet || undefined}>
 				{words}
 			</p>
 		);
 	}
 	return (
-		<button type="button" className="link-row" data-kind="inbox" aria-label={`${label}. Open it`} onClick={() => onOpen(sent[0]!.item)}>
+		<button type="button" className="link-row" data-kind="inbox" data-quiet={quiet || undefined} aria-label={`${label}. Open it`} onClick={() => onOpen(sent[0]!.item)}>
 			{words}
 			<span className="link-row-open">Open ›</span>
 		</button>
@@ -95,45 +100,89 @@ export function InboxFromRow({ itemId, people }: { itemId: string; people: Reado
 }
 
 /**
- * The receiver's sort of what it read, on its main conversation: one quiet
- * line among the turn's, "Read 3 messages", drawn as a path line is
- * (Trail.tsx's FoldLine). Pressed, it unfolds to a row per item in the order
- * given: its title, its sender (Hotline for the desk's own notice) and a
- * later's reason in the muted ink, and what became of it at the right
- * ("Answered", "Later", "Noted"). A press on a row opens the item in the
- * pane.
+ * A run of the teammate's inbox activity, as one quiet line among the
+ * conversation's ("Inbox · read 3, sent 1"), drawn as a path line is
+ * (Trail.tsx's FoldLine). Pressed, it opens in place to its rows in the
+ * order they happened, with no box around them: a row for each item it
+ * sorted (its title, whom it is from, what became of it, and a later's
+ * reason), each send (InboxSentRow), the work an item started once it is
+ * over, and each quiet turn's time, which opens that turn's path as the
+ * line under a reply does. Every row is quiet: plain weight, the tray in
+ * grey. A press on an item's row opens the item.
  */
-export function InboxSortedLine({ event, people }: { event: InboxSorted; people: ReadonlyMap<string, Person> | undefined }) {
-	const { onOpen } = useContext(InboxRows);
-	const nameOf = (id: string) => people?.get(id)?.name ?? "A teammate";
+export const InboxRun = memo(function InboxRun({
+	run,
+	owner,
+	people,
+	onOpenThread,
+	onOpenWork,
+	workOpen,
+}: {
+	run: Extract<Block, { kind: "inboxRun" }>;
+	/** Whose conversation this is. */
+	owner: string;
+	people: ReadonlyMap<string, Person> | undefined;
+	onOpenThread?: ((link: LinkEvent) => void) | undefined;
+	onOpenWork?: ((blockId: string) => void) | undefined;
+	workOpen?: string | null | undefined;
+}) {
 	return (
-		<ol className="trail my-2" data-kind="inbox-sorted">
-			<FoldLine id={event.id} said={readWords(event.entries.length)}>
-				{event.entries.map((entry) => {
-					// Hotline's notice is the desk's, whoever it is about.
-					const from = entry.notice !== undefined ? "Hotline" : nameOf(entry.from);
-					const muted = [from, entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
-					const word = sortedWord(entry);
-					return (
-						<button
-							key={entry.item}
-							type="button"
-							className="trail-row"
-							data-inbox={entry.item}
-							aria-label={`${entry.title}, ${muted}, ${word}${onOpen !== undefined ? ". Open it" : ""}`}
-							disabled={onOpen === undefined}
-							onClick={() => onOpen?.(entry.item)}
-						>
-							<span className="trail-page">
-								{entry.title}
-								<span className="text-ink-3"> · {muted}</span>
-							</span>
-							<span className="trail-meta">{word}</span>
-							{onOpen !== undefined && <ChevronRightIcon className="shrink-0 text-ink-3" />}
-						</button>
-					);
+		<ol className="trail my-2" data-kind="inbox-run">
+			<FoldLine id={run.id} said={runWords(run.read, run.sent)} detail="inbox-run-rows">
+				{run.members.map((member) => {
+					if (member.kind === "inbox") return <InboxSentRow key={member.id} title={member.title} sent={member.sent} people={people} quiet />;
+					if (member.kind === "steps")
+						return (
+							<Steps
+								key={member.id}
+								id={member.id}
+								items={member.items}
+								live={false}
+								shown={false}
+								{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === member.id } : {})}
+							/>
+						);
+					if (member.kind !== "event") return null;
+					const event = member.event;
+					if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => <InboxSortedRow key={`${event.id}:${at}`} entry={entry} people={people} />);
+					if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork onOpen={() => onOpenThread?.(event)} />;
+					return null;
 				})}
 			</FoldLine>
 		</ol>
+	);
+});
+
+/**
+ * One item a sort moved, as a row of the run: the tray, its title, whom it
+ * is from (Hotline for the desk's own notice, whoever it is about), what
+ * became of it in the word the sent row and the panes use, and a later's
+ * reason. A press opens the item.
+ */
+function InboxSortedRow({ entry, people }: { entry: InboxSortedEntry; people: ReadonlyMap<string, Person> | undefined }) {
+	const { onOpen } = useContext(InboxRows);
+	const from = `From ${entry.notice !== undefined ? "Hotline" : (people?.get(entry.from)?.name ?? "a teammate")}`;
+	const facts = [from, sortedWord(entry), entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
+	const words = (
+		<>
+			<InboxIcon className="inbox-row-mark" />
+			<span className="link-row-words">
+				<span className="link-row-title">{entry.title}</span>
+				<span className="link-row-outcome">· {facts}</span>
+			</span>
+		</>
+	);
+	if (onOpen === undefined) {
+		return (
+			<p className="link-row" data-kind="inbox-sorted" data-inbox-item={entry.item}>
+				{words}
+			</p>
+		);
+	}
+	return (
+		<button type="button" className="link-row" data-kind="inbox-sorted" data-inbox-item={entry.item} aria-label={`${entry.title}, ${facts}. Open it`} onClick={() => onOpen(entry.item)}>
+			{words}
+			<span className="link-row-open">Open ›</span>
+		</button>
 	);
 }

@@ -17,7 +17,7 @@ export type Side = "me" | "them" | "other" | null;
 export type Run = { top: boolean; bottom: boolean };
 
 export function sideOf(block: Block): Side {
-	if (block.kind === "scheduled" || block.kind === "calls" || block.kind === "inbox") return "other";
+	if (block.kind === "scheduled" || block.kind === "calls" || block.kind === "inbox" || block.kind === "inboxRun") return "other";
 	if (block.kind === "sent") return "them";
 	if (block.kind !== "event") return null;
 	const event = block.event;
@@ -191,7 +191,9 @@ function sameBlock(was: Block, now: Block): boolean {
 		case "sent":
 			return now.kind === "sent" && sameMembers(was.messages, now.messages);
 		case "inbox":
-			return now.kind === "inbox" && sameMembers(was.sent, now.sent);
+			return now.kind === "inbox" && was.asked === now.asked && sameMembers(was.sent, now.sent);
+		case "inboxRun":
+			return now.kind === "inboxRun" && was.ts === now.ts && sameMembers(was.members, now.members);
 	}
 }
 

@@ -25,6 +25,12 @@ You approve the pair first, and nothing a teammate sends lands in your chat.
   inbox by itself. An answer goes back the same way. The sender is told, at
   the start of its next turn, what became of each item it sent: seen, taken,
   left for later, closed.
+- **In the chat.** What a teammate does with its inbox while you are not
+  talking to it is one quiet line in its chat, such as "Inbox · read 3, sent
+  1". Click it to see each message it read or sent, what became of it, and
+  how long each look at its inbox took; click a message to open it. What it
+  posts to you, and a work thread while it is still running, show on their
+  own.
 
 Ask a teammate in plain words: "ask Mack whether the API change is merged",
 or "hand the release notes to Clementine".

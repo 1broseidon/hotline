@@ -163,8 +163,9 @@ decision for George, not a bug fix.
 - **A quiet turn does real work unseen.** A turn the inbox starts keeps
   every tool the teammate has, and Hotline Agent has no per-action cards, so
   shell, files, browser and network run without the person's attention. Its
-  trail is kept (the "Read N messages" line, the sent rows, the turn's
-  steps), but nothing points the person at it.
+  trail is kept (the "Inbox · read 3, sent 1" line, whose rows are the
+  items it sorted and sent and the turn's steps), but nothing points the
+  person at it.
 - **Cost has no desk-wide ceiling.** The brake is twelve items and replies
   per pair, counted afresh when the person says Keep going, or writes to
   either teammate, in any of its threads, while the two are not paused.

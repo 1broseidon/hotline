@@ -534,6 +534,19 @@ describe("task-456 drawn", () => {
 		expect(container.querySelectorAll(".link-row[data-kind=thread]")).toHaveLength(1);
 	});
 
+	test("a teammate's row in the rail shows no inbox count, however much is unread", async () => {
+		const { Rail } = await import("../src/components/Rail");
+		const juno = { persona: { id: "juno", name: "Juno", goal: "" }, session: { personaId: "juno", state: "idle" }, waiting: false, drawing: false, inbox: 3 } as unknown as import("../src/wire").RosterEntry;
+		await act(async () =>
+			root!.render(
+				<Rail entries={[juno]} selectedId={null} seen={{}} connection="open" onSelect={() => {}} onEdit={() => {}} onDelete={() => {}} onPin={() => {}} onLead={() => {}} onAddDesk={() => {}} onNew={() => {}} settings={null} search={null} deskKey={null} />,
+			),
+		);
+		const row = container.querySelector("[data-teammate-row]")!;
+		expect(row.getAttribute("aria-label")).toBe("Juno");
+		expect(row.textContent).not.toContain("3");
+	});
+
 	test("a held item says it waits on the first-contact card", async () => {
 		const { InboxItemPane } = await import("../src/components/InboxPane");
 		spyOn(wire, "command").mockImplementation((async () => ({ item: item("h", { held: true, receipts: [] }), replies: [] })) as unknown as typeof wire.command);

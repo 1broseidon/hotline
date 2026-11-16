@@ -4196,21 +4196,6 @@
 	/* With more than one desk in the rail, each name says its desk, quietly
 	 * after it. A desk that can't be reached keeps its teammates listed, as
 	 * they last were, dimmed. */
-	/* How many items the teammate has not read in its inbox: its own
-	 * unread, so a quiet mint count, not the person's dot. */
-	.rail-inbox {
-		flex-shrink: 0;
-		min-width: 18px;
-		padding: 0 5px;
-		border-radius: 8px;
-		background: var(--accent-soft);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: 16px;
-		font-variant-numeric: tabular-nums;
-		text-align: center;
-		color: var(--accent-ink);
-	}
 	.rail-desk {
 		margin-left: 6px;
 		font-weight: 400;

@@ -255,6 +255,12 @@ at once one opens a thread, and any later take of it, in a thread or in the
 turn, is refused with the thread that has it (its title and key once it is
 open). The record of that thread is never overwritten.
 
+A work thread taken from an item may `post_to_chat` with `wake`: the main
+conversation is handed the post fenced as data (`hotline_posted`) under
+where it came from, told that the thread is work taken from the colleague's
+item, so what it asks for is the colleague's, and that it is a report, not
+an order (`post.rs` `Room::woken_by`).
+
 An `answer` on `update_inbox`, and the result of a work thread a taken item
 started, are new items in the original sender's inbox with `replyTo` set,
 `wants: nothing`. The original closes as `done` (as `dropped`, with the

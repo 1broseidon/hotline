@@ -46,23 +46,45 @@ export function PaneHead({ title, line, facts = [] }: { title: string; line: Rea
 
 /**
  * What the thread was handed, and by whom: a subagent's task, a handoff's
- * request, an item's message. Its words at reading size on a rule, real
- * bullets where it has a list; six lines of it, with Show all only when
- * there is more (`Clamped`).
+ * request, an item's message, the inbox message a work thread was picked up
+ * from, which `onOpen` opens in the pane. Its words at reading size on a
+ * rule, real bullets where it has a list; six lines of it, with Show all
+ * only when there is more (`Clamped`).
  */
-export function TaskCard({ eyebrow, from, text, aside }: { eyebrow: string; from?: From | undefined; text: string; /** Said at the rule's end in place of the face: an item's who and what. */ aside?: ReactNode }) {
+export function TaskCard({
+	eyebrow,
+	from,
+	text,
+	aside,
+	onOpen,
+}: {
+	eyebrow: string;
+	from?: From | undefined;
+	text: string;
+	/** Said at the rule's end in place of the face: an item's who and what. */
+	aside?: ReactNode;
+	/** Opens what the words came from, by "Open ›" at the rule's end: a work thread's message. */
+	onOpen?: (() => void) | undefined;
+}) {
 	return (
 		<section className="pane-task" aria-label={eyebrow}>
 			<SectionRule
 				title={eyebrow}
 				aside={
-					aside ??
-					(from !== undefined && (
-						<span className="pane-task-from">
-							<Avatar id={from.personaId} name={from.name} size={16} hash={from.hash} />
-							{from.name}
-						</span>
-					))
+					<>
+						{aside ??
+							(from !== undefined && (
+								<span className="pane-task-from">
+									<Avatar id={from.personaId} name={from.name} size={16} hash={from.hash} />
+									{from.name}
+								</span>
+							))}
+						{onOpen !== undefined && (
+							<button type="button" className="pane-task-open" title="Open the message" onClick={onOpen}>
+								Open ›
+							</button>
+						)}
+					</>
 				}
 			/>
 			<Clamped className="spine-said" watch={text}>

@@ -155,13 +155,20 @@ export function openerWords(row: ThreadSummary, listedFor: string, nameOf: (pers
 /** The other teammate in a pair: its key is the two ids, joined. */
 export const pairWith = (key: string, selfId: string): string | undefined => key.split("~").find((id) => id !== selfId);
 
-/** What a row is called: its own title, else, for a pair, the teammate it is with. */
+/**
+ * What a row is called: its own title, else a work thread's first line. A
+ * pair, a conversation two teammates had before the inbox, is always
+ * "Conversation with" the other teammate.
+ */
 export function rowTitle(row: ThreadSummary, selfId: string, nameOf: (personaId: string) => string | undefined): string {
+	if (row.thread.kind === "pair") return conversationWith(row.withName ?? nameOf(pairWith(row.thread.key, selfId) ?? ""));
 	if (row.title !== undefined && row.title !== "") return row.title;
 	if (row.thread.kind === "side") return sideTitle(row.title);
-	const other = row.thread.kind === "pair" ? pairWith(row.thread.key, selfId) : undefined;
-	return other !== undefined ? `${nameOf(selfId) ?? "A teammate"} ↔ ${nameOf(other) ?? "a teammate"}` : "Conversation";
+	return "Conversation";
 }
+
+/** What a conversation two teammates had before the inbox is called, by the teammate it was with. */
+export const conversationWith = (name: string | undefined): string => `Conversation with ${name ?? "a teammate"}`;
 
 /**
  * What a person can do in a thread, by what it is: only a work thread is
@@ -197,8 +204,8 @@ export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string)
  * Whether a turn of a thread is running, as the roster row of the teammate
  * whose agent it is says. The roster hears a turn start and end first; a list
  * is read at a moment, and in the pane of the teammate who handed a thread
- * over it is not read again when the receiver's turn ends. A pair is on the
- * rows of both its teammates while one answers the other (`workingPairs`).
+ * over it is not read again when the receiver's turn ends. A pair, kept from
+ * before the inbox, never runs.
  */
 export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, row: ThreadSummary | undefined): boolean {
 	if (owner === undefined) return row?.working === true;
@@ -212,7 +219,7 @@ export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, ro
 		case "call":
 			return owner.workingCalls?.includes(thread.key) ?? false;
 		case "pair":
-			return owner.workingPairs?.includes(thread.key) ?? false;
+			return false;
 		default:
 			return row?.working === true;
 	}

@@ -51,7 +51,7 @@ export type LiveInput = {
 	nameOf(personaId: string): string | undefined;
 	now: number;
 	/** Work threads taking an inbox item started, by key: listed as work threads. */
-	inboxWork?: ReadonlySet<string> | undefined;
+	inboxWork?: ReadonlyMap<string, string> | undefined;
 };
 
 const NO_RUNS: RunningSubagent[] = [];

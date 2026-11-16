@@ -249,7 +249,17 @@ so the eye learns it once:
   A work thread's conversation keeps its bubbles and cards, set on the text
   edge, each time on that edge over what it dates.
 - **Lists.** Threads has its search field straight under the band and no
-  state line; the inbox keeps its count line above its tabs.
+  state line; the inbox keeps its count line above its tabs. A row that
+  belongs to the row above it (a send's teammate, a picked-up item's
+  "Work thread") is one line on the text edge with no mark of its own,
+  tucked under its row; the row above wears the mark, in the accent while
+  the thread under it runs. A row that opens nothing (an item a newer
+  Hotline saved) keeps the row's shape with a plain dot in the gutter and
+  lets its line wrap.
+- **A link at a rule's end.** Where the words under a heading came from
+  somewhere the page can open (a work thread's Message, the item it was
+  picked up from), "Open ›" stands at the end of that heading's rule, after
+  who wrote them, in the rule's own face.
 - **A long path** shows its latest eight lines and one "N earlier steps"
   row, a dotted ring in the gutter, that opens in place.
 - **The foot:** a helper and a command keep their one action, Stop, at the

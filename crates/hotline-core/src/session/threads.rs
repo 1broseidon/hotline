@@ -472,7 +472,10 @@ mod tests {
     }
 
     #[test]
-    fn a_pair_loads_from_its_sidecar_and_is_live_while_a_request_is_answered() {
+    /// A pair, a conversation two teammates had before the inbox, is kept to
+    /// read: it is parked even while work a receiver took from its inbox
+    /// runs on the pair's record.
+    fn a_pair_loads_from_its_sidecar_and_is_never_live() {
         let log = scratch("thread-pair");
         enrol(&log, &persona("ada"));
         enrol(&log, &persona("bob"));
@@ -497,15 +500,16 @@ mod tests {
                 "kind": "exchange_pair", "id": key, "a": "ada", "b": "bob",
                 "exchanges": 0, "paused": false,
                 "requests": [{
-                    "id": "q1", "from": "ada", "to": "bob", "message": "hi",
-                    "intent": "ask", "phase": "running", "reply": "", "failed": false
+                    "id": "r1", "from": "ada", "to": "bob", "message": "Rerun the Linux build",
+                    "intent": "handoff", "phase": "running", "reply": "", "failed": false,
+                    "thread": "side-1", "items": ["i1"]
                 }]
             }),
         )
         .unwrap();
         assert_eq!(
             store.load(&ThreadId::pair(&key)).unwrap().state,
-            ThreadState::Live
+            ThreadState::Parked
         );
     }
 

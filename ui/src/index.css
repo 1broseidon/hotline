@@ -4990,6 +4990,10 @@
 		padding-bottom: 4px;
 		padding-left: 32px;
 	}
+	/* An item a newer Hotline saved says so in full: its line wraps. */
+	.list-row[data-newer] .list-line {
+		white-space: normal;
+	}
 	/* An inbox item not yet read: its ring in the accent. */
 	.list-row[data-inbox][data-state="new"] .list-mark,
 	.list-row[data-inbox][data-state="noticed"] .list-mark {

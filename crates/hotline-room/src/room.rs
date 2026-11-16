@@ -47,6 +47,7 @@ fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
     settings.insert("defaultBackendId".into(), Value::from("hotline"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
+    settings.insert(INBOX_KEEP_DAYS.into(), Value::from(DEFAULT_KEEP_DAYS));
     settings.insert(LINK_PREVIEWS.into(), Value::Bool(true));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
@@ -105,6 +106,17 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
                 )
             });
     }
+    if key == INBOX_KEEP_DAYS {
+        return value
+            .as_i64()
+            .filter(|days| (1..=MAX_KEEP_DAYS).contains(days))
+            .map(Value::from)
+            .ok_or_else(|| {
+                format!(
+                    "Closed messages are kept a whole number of days, from 1 to {MAX_KEEP_DAYS}."
+                )
+            });
+    }
     if matches!(key, "images" | "spending") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
     }
@@ -153,6 +165,14 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
         _ => Ok(value.clone()),
     }
 }
+
+/// How many days a message between teammates is kept once it has closed,
+/// before Hotline removes it from the inbox (`inboxKeepDays`, the person's to
+/// change in Settings): [`DEFAULT_KEEP_DAYS`] until they do, at most
+/// [`MAX_KEEP_DAYS`].
+pub const INBOX_KEEP_DAYS: &str = "inboxKeepDays";
+pub const DEFAULT_KEEP_DAYS: i64 = 30;
+pub const MAX_KEEP_DAYS: i64 = 3650;
 
 /// How many teammates a desk can pin. Three faces fit a phone's header and
 /// the desktop rail's width, and a fourth would stop being a favourite.
@@ -897,6 +917,23 @@ mod tests {
         // than the contract spells it fails on one side or the other.
         assert_eq!(roster(&log), [ada]);
         assert_eq!(log.load(&StreamId::Room), [written]);
+    }
+
+    /// Closed messages are kept 30 days until the person says otherwise, a
+    /// whole number of days from 1 to ten years.
+    #[test]
+    fn the_days_closed_messages_are_kept_are_a_setting_with_a_default() {
+        let log = Log::open(
+            std::env::temp_dir().join(format!("hotline-room-keep-days-{}", std::process::id())),
+        );
+        assert_eq!(settings(&log)[INBOX_KEEP_DAYS], DEFAULT_KEEP_DAYS);
+        assert_eq!(
+            normalize_setting(INBOX_KEEP_DAYS, &json!(7)).unwrap(),
+            json!(7)
+        );
+        for bad in [json!(0), json!(MAX_KEEP_DAYS + 1), json!(7.5), json!("7")] {
+            assert!(normalize_setting(INBOX_KEEP_DAYS, &bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

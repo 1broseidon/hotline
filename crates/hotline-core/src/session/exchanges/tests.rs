@@ -7,6 +7,7 @@ mod newer;
 mod pause;
 mod stops;
 mod threads;
+mod updated;
 
 use super::*;
 use crate::driver::{MessageKind, Update};
@@ -73,20 +74,26 @@ async fn send(room: &Arc<Room>, intent: &str) -> String {
         .and_then(|kept| kept.request)
         .expect("taking the item made a request")
 }
-/// What came of request `id` in Ada's inbox, shaped as its delivery was:
-/// the reply's words as `text`, and `cause.status` done or failed.
+/// What came of request `id` for its sender: for work taken from an item,
+/// the reply in the sender's inbox, shaped as a delivery is (the reply's
+/// words as `text`, and `cause.status` done or failed); for a request from
+/// before the inbox, the delivery in the sender's main conversation.
 fn result(room: &Room, id: &str) -> Option<serde_json::Value> {
     let request = room
         .exchange_pairs()
         .into_iter()
         .flat_map(|pair| pair.requests)
         .find(|r| r.id == id)?;
+    let Some(item) = request.items.first() else {
+        let delivery = format!("exchange-result:{id}");
+        return room
+            .tape(&request.from)
+            .into_iter()
+            .find(|line| line["kind"] == "delivery" && line["id"] == delivery.as_str());
+    };
     let reply = crate::store::inbox::of(&room.log, &request.from)
         .into_iter()
-        .find(|reply| match request.items.first() {
-            Some(item) => reply.reply_to.as_deref() == Some(item.as_str()),
-            None => reply.reply_to.is_none() && reply.from == request.to,
-        })?;
+        .find(|reply| reply.reply_to.as_deref() == Some(item.as_str()))?;
     Some(json!({
         "text": reply.body,
         "cause": {
@@ -155,6 +162,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         reply_thread: None,
         reply_job: None,
         lead_call: None,
+        continues: None,
         released: false,
         about: None,
         own_thread: false,

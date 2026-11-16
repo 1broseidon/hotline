@@ -24,15 +24,11 @@
 //!   aside once (the pick-up at start, which also counts as the offer due),
 //!   and from then on every [`LOOK_EVERY_MS`].
 //!
-//! `HOTLINE_INBOX_OFFER_AGAIN_MS`, `HOTLINE_INBOX_OFFER_EVERY_MS` and
-//! `HOTLINE_INBOX_EXPIRE_MS` set the three times; a unit test's room uses
-//! shorter ones, and a test reads the clock at a time it chooses
-//! ([`Room::inbox_due`]).
+//! A unit test's room uses shorter times, and a test reads the clock at a
+//! time it chooses ([`Room::inbox_due`]).
 
 use super::{Room, kept, moved, now_ms, title_of};
-use crate::contract::{
-    InboxItem, InboxNotice, InboxOutcome, InboxState, InboxWants, ThreadId, ThreadKind,
-};
+use crate::contract::{InboxItem, InboxNotice, InboxOutcome, InboxState, InboxWants, ThreadId};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -52,33 +48,20 @@ const EXPIRE_AFTER_MS: i64 = if cfg!(test) { 300_000 } else { 3 * DAY_MS };
 /// read every inbox each time.
 const LOOK_EVERY_MS: u64 = if cfg!(test) { 1_000 } else { 30_000 };
 
-fn millis(switch: &str, default: i64) -> i64 {
-    millis_from(std::env::var(switch).ok().as_deref(), default)
-}
-
-fn millis_from(switch: Option<&str>, default: i64) -> i64 {
-    switch
-        .and_then(|ms| ms.trim().parse().ok())
-        .filter(|ms: &i64| *ms > 0)
-        .unwrap_or(default)
-}
-
-/// After an item's first pick-up, how long until it is offered again
-/// (`HOTLINE_INBOX_OFFER_AGAIN_MS`, an hour by default).
+/// After an item's first pick-up, how long until it is offered again: an
+/// hour.
 pub(super) fn again_after_first() -> i64 {
-    millis("HOTLINE_INBOX_OFFER_AGAIN_MS", AGAIN_AFTER_FIRST_MS)
+    AGAIN_AFTER_FIRST_MS
 }
 
-/// After each later offer, how long until the next
-/// (`HOTLINE_INBOX_OFFER_EVERY_MS`, a day by default).
+/// After each later offer, how long until the next: a day.
 pub(super) fn again_every() -> i64 {
-    millis("HOTLINE_INBOX_OFFER_EVERY_MS", AGAIN_EVERY_MS)
+    AGAIN_EVERY_MS
 }
 
-/// How long an item may stay open since it arrived
-/// (`HOTLINE_INBOX_EXPIRE_MS`, three days by default).
+/// How long an item may stay open since it arrived: three days.
 pub(super) fn expire_after() -> i64 {
-    millis("HOTLINE_INBOX_EXPIRE_MS", EXPIRE_AFTER_MS)
+    EXPIRE_AFTER_MS
 }
 
 /// A span as a notice says it: "3 days", "1 hour", "45 minutes".
@@ -154,6 +137,7 @@ impl Room {
     /// The clock read at `now`: what has expired closes, and each teammate
     /// is offered, in one quiet turn, what of its set aside has come due.
     pub(in crate::session) async fn inbox_due(self: &Arc<Self>, now: i64) {
+        self.inbox_tidy(now, false);
         self.expire_overdue(now);
         for persona in crate::room::roster(&self.log) {
             self.offer_again(&persona.id, now).await;
@@ -237,11 +221,7 @@ impl Room {
         );
         notice.notice = Some(InboxNotice::Expired);
         notice.reply_to = Some(expired.id.clone());
-        notice.about = matches!(
-            expired.from_thread.kind,
-            ThreadKind::Side | ThreadKind::Call
-        )
-        .then(|| expired.from_thread.clone());
+        notice.about = self.reply_about(expired);
         moved(&mut notice, InboxState::New, None, None, None);
         notice.sender_told = 1;
         self.keep_item(&notice)?;
@@ -255,11 +235,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_inbox_times_are_switches_with_defaults() {
-        assert_eq!(millis_from(None, 7), 7);
-        assert_eq!(millis_from(Some(" 250 "), 7), 250);
-        assert_eq!(millis_from(Some("0"), 7), 7);
-        assert_eq!(millis_from(Some("soon"), 7), 7);
+    fn a_notice_says_a_span_in_the_largest_whole_unit() {
         assert_eq!(span_words(3 * DAY_MS), "3 days");
         assert_eq!(span_words(HOUR_MS), "1 hour");
         assert_eq!(span_words(300_000), "5 minutes");

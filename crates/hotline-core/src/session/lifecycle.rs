@@ -256,6 +256,10 @@ impl Room {
         // What a pair was answering when the process died is told to the
         // teammate that asked.
         self.reconcile_exchanges();
+        // The inbox's streams, each item's latest line alone, less what was
+        // closed longer ago than the desk keeps it, once the held files the
+        // requests and items left are swept.
+        self.inbox_tidy(now, true);
         // A thread the restart closed is told as one that closed any other way
         // is: with the note its kind takes.
         for thread in closed {

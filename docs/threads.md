@@ -114,7 +114,7 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 | Agent | main session | the teammate's own agent, full tools | none: nothing is written to a pair now; teammates reach each other through their inbox | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
 | Lease | the teammate's | the teammate's; the computer through an exclusive lease | none of its own: each request holds both teammates' lasting leases, and the turn answering it runs under its thread's | the teammate’s own lease, including the exclusive computer lease | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
 | Idle | chapters (setting) | park at 3 h; a thread a taken item opened closes with its result | nothing to park | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
-| Restart | resume | park | an ask from before the inbox still open ends as unanswered, its sender told in its inbox | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
+| Restart | resume | park | an ask from before the inbox still open ends as unanswered, its sender told by Hotline's notice in its inbox | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
 | Limit | one | three live per teammate, park the idlest; taken work queues when all are mid-turn | none per pair; the brake counts every inbox item and reply between the two | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
 | Cards | person | person, pushed; `request_human` lands here | none | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
@@ -242,8 +242,8 @@ Where this differs from the design above:
   DMs. A run's parent is found from the marker on the teammate's tape, since
   the run's own marker does not name its owner.
 - **A record's word is the state.** A side or run a dead process left `Live`
-  loads as `Live`, a pair is `Live` while its `exchange_pair` has a request
-  running, and a DM is always `Live`. The room's settle still parks the
+  loads as `Live`, a pair, a conversation two teammates had before the inbox,
+  is always `Parked`, kept to read, and a DM is always `Live`. The room's settle still parks the
   orphans. The store cannot tell a stopped DM from a running one.
 - **`write` takes the teammate too**: `write(thread, persona_id, event)`. A
   run's id does not say whose it is, and the index, the push and the roster row
@@ -706,10 +706,8 @@ has one hook and one view.
   panel (its "2 threads ›" count is the Threads list's Live group, read from
   the same `thread.list` rows and roster by the same `listItems` and `filtered`
   rule: `liveThreads.ts`, `threadRows.ts`; its All threads row opens the
-  list; a pair is live there while the roster rows of both its teammates
-  carry its key in `workingPairs`, which the core sends again whenever the
-  pair's `exchange_pair` record moves, since a pair has no agent of its own
-  to follow), the More menu's Threads entry and its Start a side thread all open
+  list; a pair, a conversation two teammates had before the inbox, is never
+  live), the More menu's Threads entry and its Start a side thread all open
   the dock. The band's side-thread chips and the rail's nested subagent rows
   are gone (desk-threads mockup, 2026-11-12): an idle work thread is reached
   from its link row or the list. That
@@ -848,7 +846,7 @@ Where this differs from the design above:
   file on one desk may come to, because they cross in the one frame of what
   carries them and a link's frame is 1 MiB.
 
-**The agent inbox** (task-455, `proto/agent-inbox`,
+**The agent inbox** (task-455, from 0.50,
 [agent-inbox.md](design/agent-inbox.md)). One way to reach a teammate
 replaces the ask, the handoff and a colleague's aside built above: `send`
 puts an item in the colleague's inbox, the colleague's turns open with its

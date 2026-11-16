@@ -300,20 +300,20 @@ fn a_request_this_build_cannot_read_is_kept_whole_in_its_place() {
 
 /// What an older build wrote on a request and this one no longer reads does
 /// not make the request a newer build's: it is read and moved, and written
-/// back without those fields.
+/// back without those fields. The handoff a follow-up continues is read, and
+/// written back as it was.
 #[test]
 fn a_request_with_only_an_older_builds_fields_is_this_builds() {
     let mut older = own_request();
-    older["continues"] = json!("side:abc");
+    older["continues"] = json!("r-first");
     older["crossing"] = json!([]);
     let pair: Pair = serde_json::from_value(json!({"id": "ada~bob", "a": "ada", "b": "bob",
         "exchanges": 0, "paused": false, "requests": [older]}))
     .unwrap();
     assert_eq!(pair.requests.len(), 1, "the request is this build's");
-    assert_eq!(
-        serde_json::to_value(&pair).unwrap()["requests"][0],
-        own_request()
-    );
+    let mut kept = own_request();
+    kept["continues"] = json!("r-first");
+    assert_eq!(serde_json::to_value(&pair).unwrap()["requests"][0], kept);
 }
 
 /// A pair record this build cannot read at all is not replaced by a new

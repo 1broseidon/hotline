@@ -85,7 +85,7 @@ type Input = {
 	personName: string;
 	now: number;
 	/** Work threads taking an inbox item started, by key: work threads, not handoffs, though the desk names an opener. */
-	inboxWork?: ReadonlySet<string> | undefined;
+	inboxWork?: ReadonlyMap<string, string> | undefined;
 };
 
 const keyOf = (thread: ThreadId) => `${thread.kind}:${thread.key}`;
@@ -307,12 +307,14 @@ const RECENT_MS = 24 * 60 * 60 * 1000;
  * Rows into Needs you, Live, New (what a thread or source told the teammate
  * that the person has not read), Recent (the last 24 hours) and Earlier.
  * Under Active, Earlier is "Earlier and routine": what is older, and with it
- * what is routine and a note already read, however recent.
+ * what is routine and a note already read, however recent. A conversation two
+ * teammates had before the inbox is always Earlier: it is kept to read.
  */
 export function grouped(items: ListItem[], now: number, active: boolean): Groups {
 	const groups: Groups = { needs: [], live: [], fresh: [], recent: [], earlier: [] };
 	for (const item of items) {
-		if (item.waiting) groups.needs.push(item);
+		if (item.kind === "pair") groups.earlier.push(item);
+		else if (item.waiting) groups.needs.push(item);
 		else if (item.live) groups.live.push(item);
 		else if (item.kind === "note" && !item.read) groups.fresh.push(item);
 		else if (item.at >= now - RECENT_MS && !(active && (item.routine || item.read))) groups.recent.push(item);

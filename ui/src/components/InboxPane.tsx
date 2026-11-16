@@ -1,9 +1,9 @@
-import { type ReactNode, useEffect, useState } from "react";
-import type { InboxItem, InboxView, ThreadId } from "../generated/contract";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
+import type { InboxItem, InboxNewerItem, InboxView, ThreadId } from "../generated/contract";
 import { asideTime } from "../asides";
 import type { Person } from "../avatars";
 import { ArrowLeftIcon, ChevronRightIcon } from "../icons";
-import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
+import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, newerIn, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -50,7 +50,8 @@ function markOf(item: InboxItem, sent: boolean): string {
 /**
  * One teammate's inbox: Open (unread, picked up, for later), Closed and Sent,
  * each newest first, under a line that says what the list on show holds. A
- * row opens the item in the pane, with Back here; on Sent, one send to
+ * row opens the item in the pane, with Back here, and an item taken into a
+ * work thread has a row under it that opens the thread; on Sent, one send to
  * several teammates is one row that opens to a row for each.
  */
 export function InboxList({
@@ -61,6 +62,7 @@ export function InboxList({
 	working,
 	onSegment,
 	onOpenItem,
+	onOpenThread,
 	onClose,
 }: {
 	/** Whose inbox: the teammate open beside it. */
@@ -72,6 +74,8 @@ export function InboxList({
 	working: ReadonlySet<string>;
 	onSegment(segment: InboxSegment): void;
 	onOpenItem(itemId: string): void;
+	/** Opens the work thread taking an item started, which is its receiver's. */
+	onOpenThread(owner: string, thread: ThreadId, title: string): void;
 	onClose(): void;
 }) {
 	// Times of day and days, never a running count: a minute is fine enough.
@@ -84,14 +88,23 @@ export function InboxList({
 			return next;
 		});
 	const nameOf = (id: string) => people.get(id)?.name;
-	const row = (item: InboxItem, sent = false) => (
-		<ItemRow key={item.id} item={item} sent={sent} now={now} nameOf={nameOf} live={item.work !== undefined && working.has(item.work.key)} onOpen={() => onOpenItem(item.id)} />
-	);
+	const row = (item: InboxItem, sent = false) => {
+		const live = item.work !== undefined && working.has(item.work.key);
+		return (
+			<Fragment key={item.id}>
+				<ItemRow item={item} sent={sent} now={now} nameOf={nameOf} live={live} onOpen={() => onOpenItem(item.id)} />
+				{item.work !== undefined && <WorkRow item={item} live={live} onOpen={() => onOpenThread(item.to, item.work!, item.title)} />}
+			</Fragment>
+		);
+	};
+	// What a newer Hotline saved that this build cannot read: listed where it belongs, never opened or moved.
+	const newer = view === undefined ? [] : newerIn(view, segment);
+	const newerRows = newer.map((item) => <NewerRow key={item.id} item={item} sent={segment === "sent"} now={now} nameOf={nameOf} />);
 	let body: ReactNode = null;
 	if (view !== undefined && segment === "open") {
 		const groups = openGroups(view);
 		body =
-			view.open.length === 0 ? (
+			view.open.length === 0 && newer.length === 0 ? (
 				<p className="spine-empty">Nothing open.</p>
 			) : (
 				<>
@@ -101,22 +114,36 @@ export function InboxList({
 					{groups.taken.map((item) => row(item))}
 					<Group title="For later" items={groups.later} />
 					{groups.later.map((item) => row(item))}
+					{/* Its own section, so it is not read as one of the group above it. */}
+					{newer.length > 0 && <SectionRule level={3} className="list-group" title="From a newer version" count={newer.length} />}
+					{newerRows}
 				</>
 			);
 	} else if (view !== undefined && segment === "closed") {
-		body = view.closed.length === 0 ? <p className="spine-empty">Nothing closed.</p> : view.closed.map((item) => row(item));
+		body =
+			view.closed.length === 0 && newer.length === 0 ? (
+				<p className="spine-empty">Nothing closed.</p>
+			) : (
+				<>
+					{view.closed.map((item) => row(item))}
+					{newerRows}
+				</>
+			);
 	} else if (view !== undefined) {
 		body =
-			view.sent.length === 0 ? (
+			view.sent.length === 0 && newer.length === 0 ? (
 				<p className="spine-empty">Nothing sent.</p>
 			) : (
-				sends(view.sent).map((send) =>
-					send.items.length === 1 ? (
-						row(send.items[0]!, true)
-					) : (
-						<SendRows key={send.items[0]!.id} send={send} now={now} nameOf={nameOf} open={unfolded.has(send.items[0]!.id)} onToggle={() => unfold(send.items[0]!.id)} onOpenItem={onOpenItem} />
-					),
-				)
+				<>
+					{sends(view.sent).map((send) =>
+						send.items.length === 1 ? (
+							row(send.items[0]!, true)
+						) : (
+							<SendRows key={send.items[0]!.id} send={send} now={now} nameOf={nameOf} open={unfolded.has(send.items[0]!.id)} onToggle={() => unfold(send.items[0]!.id)} onOpenItem={onOpenItem} />
+						),
+					)}
+					{newerRows}
+				</>
 			);
 	}
 	return (
@@ -237,7 +264,7 @@ function ItemRow({
 				.join(" · ");
 	const when = asideTime(sent ? item.ts : movedAt(item), now);
 	return (
-		<button type="button" className="list-row" data-inbox={item.id} data-state={sent ? undefined : item.state} aria-label={`${item.title}, ${line}, ${when}`} onClick={onOpen}>
+		<button type="button" className="list-row" data-inbox={item.id} data-state={sent ? undefined : item.state} data-live={live || undefined} aria-label={`${item.title}, ${line}, ${when}`} onClick={onOpen}>
 			<span className="list-mark" aria-hidden="true">
 				{markOf(item, sent)}
 			</span>
@@ -250,6 +277,47 @@ function ItemRow({
 			<span className="list-when">
 				{when}
 				{live && <span aria-hidden="true" className="dock-dot beat" data-state="running" />}
+			</span>
+		</button>
+	);
+}
+
+/**
+ * An item a newer Hotline saved in a shape this build cannot read: a plain
+ * row, its title and whom it is from (or to), that says so. Nothing here
+ * opens it, and nothing on this desk can change it.
+ */
+function NewerRow({ item, sent, now, nameOf }: { item: InboxNewerItem; sent: boolean; now: number; nameOf(personaId: string): string | undefined }) {
+	const who = sent ? `To ${toWords([item.to], nameOf)}` : (nameOf(item.from) ?? "A teammate");
+	const line = `${who} · Saved by a newer version of Hotline. It can't be changed here.`;
+	const when = asideTime(item.ts, now);
+	return (
+		<div className="list-row" data-newer={item.id}>
+			<span className="list-mark" aria-hidden="true">
+				·
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="list-title">
+					<span className="list-title-text">{item.title}</span>
+				</span>
+				<span className="list-line">{line}</span>
+			</span>
+			<span className="list-when">{when}</span>
+		</div>
+	);
+}
+
+/**
+ * Under an item picked up into a work thread, the thread: one row set in
+ * under it, as a send's rows are, on the text edge with no mark of its own
+ * (the item's ≡ in the gutter is the thread's, in the accent while it runs),
+ * that opens the thread with Back to the inbox.
+ */
+function WorkRow({ item, live, onOpen }: { item: InboxItem; live: boolean; onOpen(): void }) {
+	return (
+		<button type="button" className="list-row list-row-sub" data-work={item.id} aria-label={`Work thread: ${item.title}. Open it`} onClick={onOpen}>
+			<span className="min-w-0 flex-1">
+				<span className="list-line">Work thread{live ? " · Running" : ""}</span>
 			</span>
 		</button>
 	);

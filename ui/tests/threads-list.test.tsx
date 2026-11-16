@@ -342,15 +342,16 @@ describe("task-401 the Active default", () => {
 		// A teammate whose list has never been narrowed opens on Active.
 		await dock(aDay("ada"));
 		expect(chip("Active")?.getAttribute("aria-pressed")).toBe("true");
-		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "New", "Recent", "Earlier and routine · 3"]);
+		expect(headings().map((one) => one[0])).toEqual(["Needs you", "Live", "New", "Recent", "Earlier and routine · 4"]);
 		expect(sections()).toEqual({
 			"Needs you": ["side:w1"],
 			Live: ["run:r-audit", "job:watch"],
 			// Unread, however old: Friday's note too.
 			New: ["note:unread", "note:friday"],
-			Recent: ["pair:lou~ada", "run:r-map"],
+			// A conversation two teammates had before the inbox is Earlier, however recent.
+			Recent: ["run:r-map"],
 			// Folded: the rest wait under one row.
-			"Earlier and routine · 3": [],
+			"Earlier and routine · 4": [],
 		});
 	});
 
@@ -359,21 +360,22 @@ describe("task-401 the Active default", () => {
 		await act(async () => rememberFilter("pork", "active"));
 		const fold = container.querySelector<HTMLButtonElement>(".list-fold")!;
 		expect(fold.getAttribute("aria-expanded")).toBe("false");
-		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 3", "Show"]);
-		for (const folded of ["run:r-pre", "job:sweep", "side:old"]) expect(row(folded)).toBeNull();
+		expect([...fold.children].map((part) => part.textContent)).toEqual(["Earlier and routine · 4", "Show"]);
+		for (const folded of ["pair:lou~pork", "run:r-pre", "job:sweep", "side:old"]) expect(row(folded)).toBeNull();
 		await act(async () => fold.click());
 		expect(fold.getAttribute("aria-expanded")).toBe("true");
 		expect(fold.lastElementChild?.textContent).toBe("Hide");
 		// In place: under the fold, newest first, and nothing above it moved.
-		expect(sections()["Earlier and routine · 3"]).toEqual(["run:r-pre", "job:sweep", "side:old"]);
+		expect(sections()["Earlier and routine · 4"]).toEqual(["run:r-pre", "job:sweep", "pair:lou~pork", "side:old"]);
+		expect(parts("pair:lou~pork").title).toBe("Conversation with Lou");
 		expect(parts("run:r-pre").mark).toBe("$");
 		expect(parts("run:r-pre").line).toStartWith("Done · All 8 legs pass · ");
 		expect(sections()["New"]).toEqual(["note:unread", "note:friday"]);
-		expect(sections()["Recent"]).toEqual(["pair:lou~pork", "run:r-map"]);
-		// Under All nothing is folded: routine and read lately are Recent's, the rest Earlier.
+		expect(sections()["Recent"]).toEqual(["run:r-map"]);
+		// Under All nothing is folded: routine and read lately are Recent's, the rest Earlier, with the conversation from before the inbox.
 		await act(async () => chip("All")!.click());
 		expect(container.querySelector(".list-fold")).toBeNull();
-		expect(sections()["Earlier"]).toEqual(["side:old"]);
+		expect(sections()["Earlier"]).toEqual(["pair:lou~pork", "side:old"]);
 		expect(sections()["Recent"]).toContain("run:r-pre");
 	});
 

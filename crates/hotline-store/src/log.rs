@@ -501,6 +501,76 @@ impl Log {
         Ok(Some(epoch))
     }
 
+    /// Rewrites the file this stream is written to with each id's latest
+    /// line, byte for byte as it was written, in the order the ids first
+    /// appeared, leaving out the ids whose latest line `keep` refuses; a
+    /// line with no id, or one that is not JSON, stays as it is. So a line
+    /// some other build wrote, which the caller cannot read, keeps its every
+    /// byte unless `keep` refuses it. Answers the epoch it rewrote, or `None`
+    /// when nothing would change.
+    pub fn tidy(
+        &self,
+        stream: &StreamId,
+        keep: impl Fn(&Value) -> bool,
+    ) -> io::Result<Option<u64>> {
+        let mut cache = self.lock_cache();
+        let (file, epoch) = self.writable_file(stream)?;
+        if !file.exists() {
+            return Ok(None);
+        }
+        let before = fs::read_to_string(&file)?;
+        let lines: Vec<(&str, Option<Value>)> = before
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| (line, serde_json::from_str::<Value>(line.trim()).ok()))
+            .collect();
+        let id_of = |value: &Option<Value>| {
+            value
+                .as_ref()
+                .and_then(|value| value.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        let mut latest: HashMap<String, usize> = HashMap::new();
+        for (at, (_, value)) in lines.iter().enumerate() {
+            if let Some(id) = id_of(value) {
+                latest.insert(id, at);
+            }
+        }
+        let mut placed = std::collections::HashSet::new();
+        let mut kept = Vec::new();
+        for (_, value) in &lines {
+            let Some(id) = id_of(value) else {
+                continue;
+            };
+            if !placed.insert(id.clone()) {
+                continue;
+            }
+            let (line, value) = &lines[latest[&id]];
+            if value.as_ref().is_some_and(&keep) {
+                kept.push(*line);
+            }
+        }
+        // What has no id is kept as it is, after the lines kept by id.
+        kept.extend(
+            lines
+                .iter()
+                .filter(|(_, value)| id_of(value).is_none())
+                .map(|(line, _)| *line),
+        );
+        let after = if kept.is_empty() {
+            String::new()
+        } else {
+            kept.join("\n") + "\n"
+        };
+        if after == before {
+            return Ok(None);
+        }
+        cache.remove(stream);
+        fs::write(&file, after)?;
+        Ok(Some(epoch))
+    }
+
     /// A fold and the events strictly after it, with no write between them.
     /// Derived views use this boundary both on opening and after lag.
     pub fn snapshot(&self, stream: &StreamId) -> (Vec<Value>, broadcast::Receiver<Value>) {
@@ -774,6 +844,30 @@ mod tests {
 
     fn setting(key: &str, value: i64) -> Value {
         json!({"kind": "setting", "id": key, "value": value})
+    }
+
+    /// A tidy keeps each id's latest line byte for byte, in the order the ids
+    /// first appeared, leaves out the ids `keep` refuses, and writes nothing
+    /// when nothing would change.
+    #[test]
+    fn a_tidy_keeps_each_ids_latest_line_as_written_and_leaves_out_what_it_is_told_to() {
+        let log = scratch("tidy");
+        let stream = StreamId::Inbox("bob".into());
+        let file = log.root().join("inbox/bob.jsonl");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        // As another build spaced its line, and an item that moved twice.
+        let written = "{\"id\":\"a\",\"state\":\"new\"}\n{ \"id\" : \"newer\", \"state\": \"parked\" }\n{\"id\":\"a\",\"state\":\"seen\"}\n{\"id\":\"gone\",\"state\":\"closed\"}\n";
+        fs::write(&file, written).unwrap();
+        assert_eq!(
+            log.tidy(&stream, |line| line["id"] != "gone").unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "{\"id\":\"a\",\"state\":\"seen\"}\n{ \"id\" : \"newer\", \"state\": \"parked\" }\n"
+        );
+        assert_eq!(log.load(&stream).len(), 2);
+        assert_eq!(log.tidy(&stream, |_| true).unwrap(), None);
     }
 
     #[test]

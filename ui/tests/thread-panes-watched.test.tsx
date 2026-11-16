@@ -144,11 +144,11 @@ describe("task-395 a pair's pane", () => {
 		<PairPane threadKey={key} self={poe} other={lou} row={row(state)} events={events} people={new Map()} onBack={() => {}} onClose={() => {}} />
 	);
 
-	test('says Pair alone in its band, "read only" in its state line, titled "<A> ↔ <B>" with a linked-desk teammate by its desk name', async () => {
-		await render(pane("live"));
+	test('says Pair alone in its band, "read only" in its state line, titled "Conversation with <B>" with a linked-desk teammate by its desk name', async () => {
+		await render(pane("parked"));
 		expect(text(".band-kind")).toBe("Pair");
-		expect(text(".spine-state")).toStartWith("Talking now· read only");
-		expect(text(".spine-title")).toBe("Poe ↔ Lou on grizzly");
+		expect(text(".spine-state")).toStartWith("Earlier· read only");
+		expect(text(".spine-title")).toBe("Conversation with Lou on grizzly");
 		expect(container.querySelectorAll(".spine-facts > div").length).toBeLessThanOrEqual(3);
 	});
 
@@ -181,22 +181,22 @@ describe("task-395 a pair's pane", () => {
 
 	test("a pause waiting on Keep going or Stop puts the amber ring on Lines", async () => {
 		const paused: TranscriptEvent = { kind: "exchange_paused", id: "x1", ts: 3, withPersonaId: lou.id, withName: lou.name, exchanges: 12, status: "pending" };
-		await act(async () => root.render(<PairPane threadKey={key} self={poe} other={lou} row={row("live")} events={[...events, paused]} people={new Map()} onBack={() => {}} onClose={() => {}} />));
+		await act(async () => root.render(<PairPane threadKey={key} self={poe} other={lou} row={row("parked")} events={[...events, paused]} people={new Map()} onBack={() => {}} onClose={() => {}} />));
 		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("blocked");
 	});
 
-	test("is live while talking, with Stop exchange in the band while the handoff stands, and none after", async () => {
-		await render(pane("live"));
-		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, talking");
-		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("live");
-		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop the exchange"]');
-		expect(stop?.textContent).toBe("Stop exchange");
-		await act(async () => stop!.click());
-		expect(sent).toContainEqual({ cmd: "thread.cancel", params: { thread: { kind: "pair", key } } });
-		await render(pane("closed"));
-		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, ended");
-		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("stopped");
-		expect(container.querySelector('button[title="Stop the exchange"]')).toBeNull();
+	test("is read only: kept from before the inbox, with nothing that writes to it, stops it or starts it again", async () => {
+		// Even where an older desk's record still says live, it is never live here.
+		for (const state of ["live", "parked", "closed"] as const) {
+			await render(pane(state));
+			expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, earlier");
+			expect(container.querySelector(".beat")).toBeNull();
+			expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("stopped");
+			expect(container.querySelector("textarea, input, [contenteditable]")).toBeNull();
+			const keys = [...container.querySelectorAll<HTMLButtonElement>(".band button")].map((one) => one.getAttribute("title"));
+			expect(keys.map((key) => key?.split(" ")[0])).toEqual(["Back", "Close"]);
+		}
+		expect(sent).toEqual([]);
 	});
 
 	test("in the conversation that holds it, its link line is a pair's, and shows no kind word", async () => {

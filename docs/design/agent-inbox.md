@@ -1,10 +1,13 @@
 # The agent inbox: one way to reach a teammate
 
-A prototype on `proto/agent-inbox` (task-455), to watch how models behave
-when they sort their own messages. It replaces `message_teammate` (ask and
-handoff) and a colleague's `aside` with one path. It builds on
-[thread-awareness.md](thread-awareness.md), whose §2 and §3 it supersedes for
-teammates, and on the exchange queue of [sessions.md](../sessions.md).
+How teammates reach each other from 0.50 (task-455): one path, an item in
+the colleague's inbox, which the colleague reads and sorts itself. It
+replaces 0.49's `message_teammate` (ask and handoff) and a colleague's
+`aside`. It builds on [thread-awareness.md](thread-awareness.md), whose §2
+and §3 it supersedes for teammates, and on the exchange queue of
+[sessions.md](../sessions.md). What a desk updated from 0.49 had in flight
+carries on as below (One path); a teammate on a linked desk is not reached
+yet (Not in 0.50).
 
 ## Why
 
@@ -17,11 +20,12 @@ messages that arrived together caused conflicting work.
 
 ## The rules
 
-These are George's, and the prototype's acceptance criteria.
+These are George's, and what the inbox holds to.
 
 1. **There is one way to reach a teammate.** An agent never chooses between
    two channels. `send` is the only tool that reaches a colleague;
-   `message_teammate` and `aside` are not offered to any thread.
+   `message_teammate` and `aside` are not offered to any thread, and a
+   call to either is told, in one line, to use `send`.
 2. **The inbox sorts; it does not hide.** An item still wakes an idle
    receiver, a short gather delay after it lands, so a lone message behaves
    as a direct message did. But the receiver sees every unread item together
@@ -33,7 +37,7 @@ These are George's, and the prototype's acceptance criteria.
 4. **The sender can see where its item stands** without anyone writing a
    reply: sent, seen and not yet taken, taken, for later, closed.
 5. **No relevance gate.** Nothing scores items or decides which ones notify:
-   every item follows the same rule, so the raw behaviour can be observed.
+   every item follows the same rule.
 6. **No chat opens between teammates.** Nothing is written to a pair's thread.
 
 ## The tools
@@ -47,7 +51,8 @@ These are George's, and the prototype's acceptance criteria.
   `reply_to` (an item in the sender's own inbox), `files`. It returns at once
   with each item's id. `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency.
-- **`read_inbox`** without `ids` lists the open items, newest first: id, title,
+- **`read_inbox`** without `ids` lists the open items, the newest 50 with
+  how many older ones there are, newest first: id, title,
   sender, `wants`, `waiting`, who else the send reached (`alsoTo`), state and
   how long it has been in it, and age, never the words. `list` (`open` by default) may say `closed`, the closed
   items with each one's outcome, or `sent`, the items the teammate sent
@@ -126,18 +131,32 @@ the item or a receipt, is written back as it was at every move here, and an
 item in a state or with an outcome this build does not know is never moved,
 expired, woken or swept. `read_inbox` lists it with its state and outcome as
 written, reading it shows its words without marking it seen, and a sort or
-a reply that names it is refused, saying a newer Hotline saved it. The
-window's pane does not list it.
+a reply that names it is refused, saying a newer Hotline saved it. A
+field a newer Hotline wrote inside a thread an item names (`fromThread`,
+`about`, `work`) is written back as it was found too, while the item still
+names that thread (`hotline_store::inbox::line`). The window's pane lists
+such an item where it belongs (Open, Closed or Sent, by the state as
+written) as a plain row that opens nothing: its title, whom it is from or
+to, and "Saved by a newer version of Hotline. It can't be changed here.";
+the pane's heading counts it ("1 from a newer version" on Open).
 
 ## When an item reaches the receiver
 
 An item is heard in one thread of the receiver's: the thread it is `about`
 while that thread is live (a reply to something sent from a work thread is
-about that thread), else the receiver's main conversation.
+about that thread), else the receiver's main conversation. A reply to
+something a scheduled job sent is about the job, and heard in it while the
+run that sent it is still going: the job lives and no firing of it has
+begun since (`Room::job_run_open`). So "ask Huck, then summarise" gets
+Huck's answer in the job, even after the firing's own turn has ended: the
+job's thread is woken for it, as an idle work thread is, with a line that
+says replies came back to the run and that only `post_to_chat` reaches the
+person. Once the job's next run begins, or the job ends, the run is over: a
+reply to it lands in the main conversation, quietly, and one that came back
+to it and was never heard is heard there, woken for it.
 
 - **Idle.** An item that lands while that thread is idle wakes it once, after
-  the gather delay, `HOTLINE_INBOX_GATHER_MS` (default 4000 ms; a unit test's
-  room gathers in 150 ms). Items that land within the delay are heard in one
+  the gather delay, 4 seconds (a unit test's room gathers in 150 ms). Items that land within the delay are heard in one
   turn. A teammate that is not running is started for it, as one was for a
   colleague's question. The wake line carries titles, senders and waiting
   marks, never bodies.
@@ -157,8 +176,7 @@ about that thread), else the receiver's main conversation.
 - **Busy.** An item that lands mid-turn starts no turn and no work thread.
   When the gather delay is up, the turn in flight in the main conversation is
   handed the one-line notice, steered into it as the person's mid-turn line
-  is, at most once per gather window: `HOTLINE_INBOX_MIDTURN=0` (or `off`,
-  `false`) turns this off. A notice never makes a turn loud: steered into a
+  is, at most once per gather window. A notice never makes a turn loud: steered into a
   quiet turn it leaves it quiet, being no line of the person's, and one a
   driver that takes no line mid-turn leaves waiting starts, as its next
   line, the same quiet turn the idle wake starts, with its line. A busy work
@@ -253,12 +271,43 @@ about that thread), else the receiver's main conversation.
 - **The clock** looks when the desk opens (after the room has handed on what
   it resumes: what expired while it was closed closes first, then the pick-up
   at start) and then every 30 seconds.
-- **Switches.** `HOTLINE_INBOX_GATHER_MS` (4000), `HOTLINE_INBOX_MIDTURN`
-  (on), `HOTLINE_INBOX_OFFER_AGAIN_MS` (3600000, an hour after the first
-  pick-up), `HOTLINE_INBOX_OFFER_EVERY_MS` (86400000, a day after each later
-  offer), `HOTLINE_INBOX_EXPIRE_MS` (259200000, three days since it arrived).
-  A unit test's room uses 150 ms, a minute, two minutes and five minutes, and
-  reads the clock at a time it chooses.
+- **The times** are fixed: the gather delay 4 seconds, an offer again an
+  hour after the first pick-up and a day after each later one, expiry three
+  days after an item arrived. Nothing on a desk changes them; a unit test's
+  room uses 150 ms, a minute, two minutes and five minutes (`cfg!(test)`),
+  and reads the clock at a time it chooses (`Room::inbox_due`).
+
+## What is kept
+
+(`inbox/tidy.rs`.) An item is a line on its receiver's stream written again
+at every move, so the stream grows with every move and every item. What it
+keeps, and what goes:
+
+- **Closed items are kept 30 days**, then removed: from when they closed
+  (their closing receipt), however they closed (answered, done, noted,
+  dropped, combined, expired). The number is the person's, in Settings,
+  General, Conversations: "Keep closed messages for [30] days" (the room
+  setting `inboxKeepDays`, a whole number of days from 1 to 3650). The clock
+  removes them as it looks, and the desk as it opens. Open, taken and held
+  items are never removed, however old.
+- **The desk tidies the inbox as it opens** (`Room::settle`): each
+  teammate's stream is written again with each item's latest line alone
+  (`Log::tidy`), less the closed items past their days; the work an item
+  was taken into leaves the two teammates' record once it is over and its
+  items are gone, and the leases this process held for finished work go
+  (`Room::forget_finished_work`); held files of items let in or closed go,
+  as before, and so do the empty folders the inbox's files leave (the
+  held-files folder, and a received folder, a teammate's or a sender's in
+  it, with nothing in it). A file in a received folder is the teammate's and
+  stays.
+- **Every list is capped**: `read_inbox` lists the newest 50 open items and
+  the newest 20 closed or sent; the window is sent the newest 200 closed and
+  200 sent (`hotline_store::inbox::VIEW_MOST`); the requests on a pair's
+  record go with their items, as above.
+- **Nothing a newer Hotline wrote is touched.** A line this build cannot read
+  is kept byte for byte through a tidy and never removed, however old; a
+  pair's record it wrote anything in is left whole, and its held files stay; a folder with
+  anything in it stays.
 
 ## Taking work, answers and results
 
@@ -363,7 +412,11 @@ changes, like the index. The window reads the receipts over the wire.
   `ask_in_own_thread`, a sender-triggered `dispatch_handoff`, or
   `aside_from`/nudge: those are deleted. An ask from before the inbox that is
   still open when this version starts is ended as unanswered and its sender
-  told, in its inbox, to send it again.
+  told by Hotline's notice in its inbox (`notice: unanswered`), never in the
+  colleague's voice, to send it again. A handoff from before the inbox runs
+  on as it did, a follow-up in the thread it continues, and what it comes to
+  is a turn of the thread that sent it, as in 0.49
+  ([sessions.md](../sessions.md#ask-or-hand-off), Saved before the inbox).
 
 ## What was removed
 
@@ -372,19 +425,22 @@ changes, like the index. The window reads the receipts over the wire.
 conversation, to a work thread of their own, back to a delegator, or into a
 named thread (`exchanges/questions.rs`), and the work thread's brief for a
 question; asks as gates on a handoff (`gate_on_ask`); continuing a handoff in
-a named thread (`continues`, `handoffThreads` in `list_teammates`) and the
-follow-up that steered it; the per-turn note and result nudge a handed-over
+a named thread (`handoffThreads` in `list_teammates`; a follow-up saved
+before the inbox still continues its thread); the per-turn note and result nudge a handed-over
 thread left its opener, and the note of the person's Stop or End thread (the
 item's receipts say it now); lines on the pair's thread; a colleague's aside
 and its crossing to a linked desk; the linked desk's requests, notes and asides
 arriving here, and files crossing a link.
 
-## Out of scope
+## Not in 0.50
 
-- **Linked desks.** `send` refuses a teammate on a linked desk with a
-  sentence, and a linked desk's request or aside is refused at
-  `federation.deliver`. The link still carries rosters, and the answer to a
-  request an older version forwarded.
+- **Linked desks.** Messages between teammates cannot yet cross to a
+  teammate on a linked desk: 0.49 could pass a message to another desk, and
+  0.50 does not. `send` refuses a teammate on a linked desk with a sentence,
+  and a linked desk's request or aside is refused at `federation.deliver`.
+  The link still carries rosters, and the answer to a request an older
+  version forwarded. A message from another desk will be a message from
+  outside, with the protections inbound sources have, when it crosses.
 - **Inbound sources** stay on their aside path (`inbound.rs`, `inbound_aside`),
   with their own grant, level and brake; turning them into inbox items would
   change the source grant model.
@@ -392,9 +448,8 @@ arriving here, and files crossing a link.
   with `waiting: true` still ends its turn and returns its result; the reply
   is heard in that thread only while it is live. Asks used to hold a
   handoff's result back as a gate.
-- **Mid-turn notices in work threads**, jobs and runs; and inbox items heard
-  in a job's thread (a reply to something a job sent is heard in the main
-  conversation).
+- **Mid-turn notices in work threads**, jobs and runs: a busy one hears its
+  items at its next turn's start.
 - **Relevance**: no score or gate decides which items notify.
 
 ## On the desk
@@ -490,7 +545,8 @@ stored state and the teammates' tools keep `taken`.
   for you to allow it." A receipt from before today gives its date as well
   as its time. Hotline's notice is from Hotline, by its mark,
   wherever an item's sender is named (the pane, its rows, the sort's row,
-  the composer's tray). Back goes where it was opened from.
+  the composer's tray). Back goes where it was opened from (`DockState.from`):
+  the inbox, a thread, another item, or the work thread it was opened from.
 - **One word for each outcome.** An item a reply went back on is Answered
   and one whose work finished is Done, the same word on its sent row, its
   sort's row, the inbox pane and the item pane. Noticed, the desk showing
@@ -509,7 +565,11 @@ stored state and the teammates' tools keep `taken`.
   grey: the accent is for what the teammate itself has not read. Every row
   says a time, when it was sent or last moved; an unsorted item whose
   sender waits says "waiting" in its line, as the composer's tray does,
-  never a countdown. It opens from
+  never a countdown. An item taken into a work thread has one row set in
+  under it, "Work thread" ("· Running" while a turn of it runs), on the text
+  edge with no mark of its own (the item's ≡ in the gutter is the thread's,
+  in the accent while a turn of it runs), which opens the thread with Back
+  to the inbox. It opens from
   the teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.
 - **Work an item started.** The desk opens a taken item's work thread with
@@ -519,8 +579,9 @@ stored state and the teammates' tools keep `taken`.
   dot, its title and "Work thread · Running" (or Open, Parked, or what came
   of it), and on the sender's "Work thread · Juno · Running"; the Threads
   list and the composer's count list it as a work thread; its pane is the
-  work thread's, with the item's words over it as its Message. A handoff from
-  before the inbox keeps its old line and pane.
+  work thread's, with the item's words over it as its Message, whose Open ›
+  opens the item (the one taken, not one combined into it), with Back to the
+  thread. A handoff from before the inbox keeps its old line and pane.
 - **The composer and the rail.** While the open teammate has unread items,
   the composer's bottom row has "N unread" with the tray, beside "N threads"
   and in its style; it opens a tray of them (title, sender with "waiting"
@@ -528,11 +589,22 @@ stored state and the teammates' tools keep `taken`.
   a last row to the whole inbox. The rail shows no inbox count: a
   teammate's unread is its own business, and the chip says it the moment
   the person opens that conversation.
+- **Conversations from before the inbox.** A conversation two teammates had
+  in 0.49 (a pair thread) is kept to read: in the Threads list it is always
+  under Earlier ("Earlier and routine" under Active), however recent, named
+  "Conversation with Goldie" for the other teammate, and its pane
+  (`PairPane`) has no composer and no key that writes to it, stops it or
+  starts it again. It is never live: the work a receiver takes from its
+  inbox runs on the pair's record but in the receiver's work thread, so the
+  pair's thread is always `Parked` and no roster row carries it. Nothing
+  starts a new one: no tool writes to a pair (`send` is the one way between
+  teammates), and the wire refuses a line, a Loop in or an End thread on one.
 - **What was removed.** The teammate pane's Threads section, which listed a
-  teammate's conversations with colleagues. Old pair threads and colleague
-  asides still on disk keep rendering where they always did (the Threads
-  list's Pairs and From teammates, `PairPane`, `AsideLine`), and inbound
-  sources' and Loop in's asides still draw as asides.
+  teammate's conversations with colleagues; a pair's Stop exchange and its
+  live state (`workingPairs` on the roster row). Colleague asides still on
+  disk keep rendering where they always did (the Threads list's From
+  teammates, `AsideLine`), and inbound sources' and Loop in's asides still
+  draw as asides.
 
 ## Contract
 
@@ -541,12 +613,16 @@ Types (`crates/hotline-contract/src/inbox.rs`, generated into
 
 - `InboxItem` as above; `InboxReceipt {state, at, reason?, outcome?, into?}`;
   `InboxState` `new | noticed | seen | taken | later | closed`; `InboxOutcome`
-  `answered | done | noted | dropped | combined | expired`; `InboxNotice` `expired`;
+  `answered | done | noted | dropped | combined | expired`; `InboxNotice`
+  `expired | unanswered`;
   `InboxWants` `answer | work | nothing`. `InboxItem.notice?` marks Hotline's
   own notice, `InboxItem.offerAgain?` is when a pick-up offers it next, and
   `InboxItem.forPerson?` marks one sent in a turn the person read.
-- `InboxView {personaId, open, closed, sent, unread}`: open and closed newest
-  first, what the teammate sent others newest first, and its unread count.
+- `InboxView {personaId, open, closed, sent, unread, newer?}`: open and
+  closed newest first, what the teammate sent others newest first (the
+  newest 200 closed and 200 sent), its unread count, and `newer`, the items a
+  newer Hotline saved that this build cannot read, as `InboxNewerItem {id,
+  ts, from, to, title, state}`.
 - `InboxItemDetail {item, replies}`: the item with its receipts and its `work`
   thread, and the items that answer it.
 - `RosterEntry.inbox?`: how many open items the teammate has not read, which

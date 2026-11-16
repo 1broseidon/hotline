@@ -549,6 +549,29 @@
 	.dock .list-row[data-inbox][data-state="noticed"] .list-mark {
 		color: var(--ink);
 	}
+	/* A picked-up item whose work thread runs: its ≡ in the accent, as a running row's mark is. */
+	.dock .list-row[data-inbox][data-live] .list-mark {
+		color: var(--accent);
+	}
+	/* The work thread under its item: one line tucked under the item's, no mark of its own. */
+	.dock .list-row[data-work] {
+		padding-top: 0;
+	}
+	.dock .list-row[data-work] .list-line {
+		margin-top: 0;
+	}
+	/* "Open ›" at a rule's end, in the rule's own face: the message a work thread was picked up from. */
+	.pane-task-open {
+		flex-shrink: 0;
+		margin-left: 4px;
+		font: inherit;
+		letter-spacing: inherit;
+		color: var(--ink-3);
+		transition: color var(--dur-press) var(--ease-out);
+	}
+	.pane-task-open:hover {
+		color: var(--ink);
+	}
 
 	/* ------------------------------------------------- what a stream holds
 	 * A notice in a stream (a call ended, a run stopped): a quiet line on the

@@ -15,6 +15,8 @@ import { activeDeskId, wireFor } from "./desks";
 
 /** A chapter closes after this many idle hours unless someone has set another. */
 export const DEFAULT_IDLE_HOURS = 8;
+/** How many days a closed message between teammates is kept before Hotline removes it (`inboxKeepDays`). */
+export const DEFAULT_KEEP_DAYS = 30;
 
 /**
  * One line on the room stream. Settings are `kind: "setting"` (`id` the key,
@@ -206,6 +208,7 @@ export function useRoomSettings(): {
 	personName: string;
 	accent: string;
 	chapterIdleHours: number;
+	inboxKeepDays: number;
 	linkPreviews: boolean;
 	defaultBackendId: string;
 	defaultModelId: string | null;
@@ -224,6 +227,7 @@ export function useRoomSettings(): {
 		personName: stringSetting(events.get("personName"), ""),
 		accent: stringSetting(events.get("accent"), "mint"),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
+		inboxKeepDays: numberSetting(events.get("inboxKeepDays"), DEFAULT_KEEP_DAYS),
 		linkPreviews: booleanSetting(events.get("linkPreviews"), true),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),

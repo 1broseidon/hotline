@@ -173,9 +173,10 @@ a person open a newer build's data with an older one and go back. An
 know kept as they were, on the pair and on each request in it, and a
 request this build cannot read, or that carries such a field, is written
 back whole in its place and never moved (`session/exchanges/newer.rs`).
-The fields an older build wrote that this one no longer reads
-(`continues`, `crossing`) are not such fields: a request with only those
-is read, moved and written back without them. A pair record this build
+The field an older build wrote that this one no longer reads
+(`crossing`) is not such a field: a request with only that is read, moved
+and written back without it. The handoff a follow-up from before the inbox
+continues (`continues`) is read, and written back as it was. A pair record this build
 cannot read at all is never replaced, and nothing passes between its two
 teammates here: an item between them, the person's Stop of them, and a
 taken item's work are refused, saying a newer Hotline saved their
@@ -184,9 +185,13 @@ messages.
 An inbox item (`inbox_item` on a teammate's `inbox/<id>.jsonl`) is held to
 the same rule. One that carries a field this build does not know, on the
 item or on a receipt, is read and moved as any other, and every rewrite
-keeps that field as it was found (`InboxItem::newer`): a turn offering it,
-reading it, each sort, an answer, a work thread's start and result, its
-sender being told, the person's card, expiry and the pick-up. One this
+keeps that field as it was found (`InboxItem::newer`), and so is a field it
+wrote inside a thread the item names (`fromThread`, `about`, `work`) while
+the item still names that thread (`InboxItem::nested`): a turn offering it,
+the notice a busy receiver is handed, reading it, each sort, an answer, a
+take and its letting go when the work cannot be queued, a work thread's
+start and result, the person's Stop of that work, its sender being told,
+the person's card, expiry and the pick-up. One this
 build cannot read at all, in a state or with an outcome (or any other
 value) it does not know, is never rewritten, expired, woken or swept:
 `read_inbox` lists it with its state and outcome as written, among the open
@@ -194,11 +199,16 @@ items or, when its state is `closed`, the closed ones, and among its
 sender's sent ones; reading it with its id shows its words without marking
 it seen; and a sort or a reply that names it is refused, saying a newer
 Hotline saved it (`hotline_store::inbox::newer_of`). The window's inbox
-pane does not list it.
+pane lists it as a plain row that says a newer version saved it. A closed
+item this build can read is removed once it has been kept the room's
+`inboxKeepDays`; one it cannot read never is. As the desk opens each inbox
+stream is written again with each item's latest line, a line this build
+cannot read kept byte for byte (`Log::tidy`).
 
 A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
-(Hotline Agent), `chapterIdleHours` is `8`, `linkPreviews` is `true`, and
-`mcpServers` is an empty list.
+(Hotline Agent), `chapterIdleHours` is `8`, `inboxKeepDays` (how many days
+a closed message between teammates is kept) is `30`, `linkPreviews` is
+`true`, and `mcpServers` is an empty list.
 
 ### `persona`
 

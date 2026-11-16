@@ -90,13 +90,16 @@ describe("the right-hand pane's width", () => {
 });
 
 describe("a row of the list", () => {
-	test("names a row by its title, else by the teammate on the other side of a pair", () => {
+	test("names a row by its title, and a conversation two teammates had before the inbox by the other teammate", () => {
 		const names = (id: string) => ({ ada: "Ada", mack: "Mack" })[id];
 		expect(rowTitle(thread("x", "side", { title: "Fix CI" }), "ada", names)).toBe("Fix CI");
 		const pair = thread("ada~mack", "pair", { personaId: "ada", withPersonaId: "mack" });
 		const { title: _gone, ...untitled } = pair;
-		expect(rowTitle(untitled, "ada", names)).toBe("Ada ↔ Mack");
-		expect(rowTitle(untitled, "mack", names)).toBe("Mack ↔ Ada");
+		expect(rowTitle(untitled, "ada", names)).toBe("Conversation with Mack");
+		expect(rowTitle(untitled, "mack", names)).toBe("Conversation with Ada");
+		// Whatever title the record carries, and a linked teammate by the name that says so.
+		expect(rowTitle({ ...pair, title: "Mack" }, "ada", names)).toBe("Conversation with Mack");
+		expect(rowTitle({ ...untitled, withName: "Lou on grizzly" }, "ada", names)).toBe("Conversation with Lou on grizzly");
 		expect(pairWith("ada~mack", "mack")).toBe("ada");
 	});
 
@@ -218,10 +221,9 @@ describe("what a person can do in a thread", () => {
 		expect(withTurns([handed], roster, "mack")[0]?.working).toBe(false);
 		expect(turnRunning(roster[1], handed.thread, handed)).toBe(false);
 		expect(turnRunning(rosterOf("poe", { sides: [{ sideId: "h", title: "h", startedAt: 1, working: true }] }), handed.thread, undefined)).toBe(true);
-		// A pair is on both its teammates' rows while one answers the other (`workingPairs`), whatever an older list said.
+		// A pair, kept from before the inbox, never runs, whatever an older list said.
 		const pair = thread("ada~mack", "pair", { personaId: "ada", working: true });
 		expect(withTurns([pair], [rosterOf("mack")], "mack")[0]?.working).toBe(false);
-		expect(withTurns([{ ...pair, working: false }], [rosterOf("mack", { workingPairs: ["ada~mack"] })], "mack")[0]?.working).toBe(true);
 		// No roster row follows a teammate gone from the roster: the list says.
 		expect(turnRunning(undefined, handed.thread, handed)).toBe(true);
 		expect(turnRunning(undefined, pair.thread, pair)).toBe(true);

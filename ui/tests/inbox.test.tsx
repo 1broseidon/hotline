@@ -452,7 +452,7 @@ describe("task-456 drawn", () => {
 		const draw = (items: InboxItem[]) =>
 			act(async () =>
 				root!.render(
-					<InboxRows.Provider value={{ work: new Set(), items: new Map(items.map((one) => [one.id, one])), onOpen: (id) => opened.push(id) }}>
+					<InboxRows.Provider value={{ work: new Map(), items: new Map(items.map((one) => [one.id, one])), onOpen: (id) => opened.push(id) }}>
 						<InboxSentRow title="Release" sent={members} people={people} />
 					</InboxRows.Provider>,
 				),
@@ -497,7 +497,7 @@ describe("task-456 drawn", () => {
 		]);
 		await act(async () =>
 			root!.render(
-				<InboxRows.Provider value={{ work: new Set(), items: new Map([["r1", item("r1", { to: "huck", state: "seen" })]]), onOpen: (id) => opened.push(id) }}>
+				<InboxRows.Provider value={{ work: new Map(), items: new Map([["r1", item("r1", { to: "huck", state: "seen" })]]), onOpen: (id) => opened.push(id) }}>
 					<InboxRun run={run} owner="juno" people={people} onOpenWork={(id) => worked.push(id)} />
 				</InboxRows.Provider>,
 			),
@@ -537,7 +537,7 @@ describe("task-456 drawn", () => {
 		const taken = item("i1", { state: "taken" });
 		await act(async () =>
 			root!.render(
-				<InboxRows.Provider value={{ work: new Set(), items: new Map([["i1", taken]]), onOpen: () => {} }}>
+				<InboxRows.Provider value={{ work: new Map(), items: new Map([["i1", taken]]), onOpen: () => {} }}>
 					<InboxRun run={run} owner="juno" people={people} onOpenWork={() => {}} />
 					<InboxSentRow title="Release" sent={[sent("i1", "juno", "Release")] as InboxSent[]} people={people} />
 				</InboxRows.Provider>,
@@ -623,10 +623,11 @@ describe("task-456 drawn", () => {
 		});
 		const segments: string[] = [];
 		const opened: string[] = [];
+		const threads: string[] = [];
 		const list = (segment: "open" | "closed" | "sent") =>
 			act(async () =>
 				root!.render(
-					<InboxList name="Juno" view={shown} segment={segment} people={people} working={new Set(["s1"])} onSegment={(one) => segments.push(one)} onOpenItem={(id) => opened.push(id)} onClose={() => {}} />,
+					<InboxList name="Juno" view={shown} segment={segment} people={people} working={new Set(["s1"])} onSegment={(one) => segments.push(one)} onOpenItem={(id) => opened.push(id)} onOpenThread={(owner, thread) => threads.push(`${owner} ${thread.kind}:${thread.key}`)} onClose={() => {}} />,
 				),
 			);
 		await list("open");
@@ -640,6 +641,14 @@ describe("task-456 drawn", () => {
 		expect(container.querySelector("[data-inbox=a] .list-when")?.textContent).toBe(asideTime(NOW - 60_000));
 		expect(container.querySelector("[data-inbox=a] .list-when")?.hasAttribute("data-waiting")).toBe(false);
 		expect(container.querySelector("[data-inbox=t] .dock-dot")).not.toBeNull();
+		// The picked-up item's work thread is a row under it, on the text edge with no mark of its own, which opens the thread.
+		expect(container.querySelector("[data-work=t]")?.textContent).toBe("Work thread · Running");
+		expect(container.querySelector("[data-work=t] .list-mark")).toBeNull();
+		expect(container.querySelector("[data-inbox=t]")?.hasAttribute("data-live")).toBe(true);
+		expect(container.querySelectorAll("[data-work]")).toHaveLength(1);
+		await press(container.querySelector("[data-work=t]")!);
+		expect(threads).toEqual(["juno side:s1"]);
+		threads.length = 0;
 		// The count line stays above the tabs.
 		expect(container.querySelector(".spine-count")?.textContent).toBe("1 unread · 1 picked up · 1 for later");
 		expect(container.querySelector(".spine-count + .list-span [role=tablist]")).not.toBeNull();
@@ -678,7 +687,6 @@ describe("task-456 drawn", () => {
 			if (cmd !== "inbox.item") throw new Error(cmd);
 			return params.id === "o" ? { item: original, replies: [reply] } : { item: reply, replies: [] };
 		}) as typeof wire.command);
-		const threads: string[] = [];
 		await act(async () =>
 			root!.render(
 				<InboxItemPane itemId="o" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={(owner, thread) => threads.push(`${owner} ${thread.kind}:${thread.key}`)} />,
@@ -707,12 +715,40 @@ describe("task-456 drawn", () => {
 		expect(opened.at(-1)).toBe("r");
 	});
 
+	test("an item a newer Hotline saved is a plain row where it belongs, saying so, that opens nothing", async () => {
+		const { InboxList } = await import("../src/components/InboxPane");
+		const newer = (id: string, more: Partial<import("../src/generated/contract").InboxNewerItem>) => ({ id, ts: NOW - 120_000, from: "chop", to: "juno", title: `Title ${id}`, state: "parked", ...more });
+		const shown = view({
+			open: [item("a")],
+			unread: 1,
+			newer: [newer("n-open", {}), newer("n-closed", { state: "closed" }), newer("n-sent", { from: "juno", to: "huck" })],
+		});
+		const opened: string[] = [];
+		const draw = (segment: "open" | "closed" | "sent") =>
+			act(async () => root!.render(<InboxList name="Juno" view={shown} segment={segment} people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={() => {}} onClose={() => {}} />));
+		await draw("open");
+		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-open"]);
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 unread · 1 from a newer version");
+		const row = container.querySelector("[data-newer=n-open]")!;
+		expect(row.tagName).toBe("DIV");
+		expect(row.querySelector(".list-line")?.textContent).toBe("Pork Chop · Saved by a newer version of Hotline. It can't be changed here.");
+		// On Open it stands under its own heading on a rule, not under the group before it.
+		expect(row.previousElementSibling?.textContent).toBe("From a newer version1");
+		await draw("closed");
+		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-closed"]);
+		expect(container.querySelector(".spine-empty")).toBeNull();
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 closed");
+		await draw("sent");
+		expect(container.querySelector("[data-newer=n-sent] .list-line")?.textContent).toBe("To Huck · Saved by a newer version of Hotline. It can't be changed here.");
+		expect(opened).toEqual([]);
+	});
+
 	test("on Sent, one send to three teammates is one row that opens to a row for each, each opening its item", async () => {
 		const { InboxList } = await import("../src/components/InboxPane");
 		const to = (id: string, who: string, others: string[], more: Partial<InboxItem> = {}) => item(id, { from: "juno", to: who, alsoTo: others, title: "Release moves to Thursday", ...more });
 		const shown = view({ sent: [to("t3", "chop", ["huck", "ivy"], { state: "taken" }), to("t2", "ivy", ["huck", "chop"], { state: "noticed" }), to("t1", "huck", ["ivy", "chop"], { state: "seen" })] });
 		const opened: string[] = [];
-		const draw = () => act(async () => root!.render(<InboxList name="Juno" view={shown} segment="sent" people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onClose={() => {}} />));
+		const draw = () => act(async () => root!.render(<InboxList name="Juno" view={shown} segment="sent" people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={() => {}} onClose={() => {}} />));
 		await draw();
 		const send = container.querySelector<HTMLButtonElement>("[data-send=t1]")!;
 		expect(container.querySelectorAll(".list-row")).toHaveLength(1);
@@ -872,7 +908,10 @@ describe("task-456 work an inbox item started is a work thread, not a handoff", 
 		expect(inboxWorkRow(started({ state: "closed", outcome: "It was the runner" }), "juno", peopleNames).outcome).toBe("Work thread · It was the runner");
 		expect(inboxWorkRow(started({ state: "parked" }), "juno", peopleNames).outcome).toBe("Work thread · Parked");
 		expect(inboxWorkLine(started(), "juno", peopleNames, true)).toBe("Work thread · Rerun the Linux build · Running");
-		expect(inbox.inboxWork(new Map([["b", item("b", { state: "taken", work: { kind: "side", key: "s-build" } })], ["n", item("n")]]))).toEqual(new Set(["s-build"]));
+		// The thread is the taken item's, not one combined into it.
+		const combined = item("c", { state: "closed", outcome: "combined", combinedInto: "b", work: { kind: "side", key: "s-build" } });
+		const taken = item("b", { state: "taken", work: { kind: "side", key: "s-build" }, request: "r1" });
+		expect(inbox.inboxWork(new Map([["c", combined], ["b", taken], ["n", item("n")]]))).toEqual(new Map([["s-build", "b"]]));
 	});
 
 	test("the Threads list and the composer's count list it as a work thread", async () => {
@@ -880,13 +919,13 @@ describe("task-456 work an inbox item started is a work thread, not a handoff", 
 		const { liveThreads } = await import("../src/liveThreads");
 		const row = { thread: { kind: "side" as const, key: "s-build" }, personaId: "juno", title: "Rerun the Linux build", state: "live" as const, startedAt: NOW - 60_000, updatedAt: NOW, working: true, waiting: false, opener: { personaId: "chop", name: "Pork Chop" } };
 		const old = { ...row, thread: { kind: "side" as const, key: "s-old" }, title: "Old handoff", opener: { personaId: "huck", name: "Huck" } };
-		const items = listItems({ rows: [row, old], runs: [], jobs: [], asides: [], listedFor: "juno", nameOf, personName: "", now: NOW, inboxWork: new Set(["s-build"]) });
+		const items = listItems({ rows: [row, old], runs: [], jobs: [], asides: [], listedFor: "juno", nameOf, personName: "", now: NOW, inboxWork: new Map([["s-build", "b"]]) });
 		expect(items.map((one) => [one.id, one.kind, markOf(one.kind).word])).toEqual([
 			["side:s-build", "work", "Work thread"],
 			["side:s-old", "handoff", "Handoff"],
 		]);
 		const juno = { persona: { id: "juno", name: "Juno" }, session: { personaId: "juno", state: "thinking" }, sides: [{ sideId: "s-build", title: "Rerun the Linux build", startedAt: NOW - 60_000, working: true }] } as unknown as import("../src/wire").RosterEntry;
-		const live = liveThreads({ listed: [row], roster: [juno], entry: juno, jobs: [], nameOf, now: NOW, inboxWork: new Set(["s-build"]) });
+		const live = liveThreads({ listed: [row], roster: [juno], entry: juno, jobs: [], nameOf, now: NOW, inboxWork: new Map([["s-build", "b"]]) });
 		expect(live.map((one) => one.line)).toEqual(["Work thread from Pork Chop · Working"]);
 		expect(live.some((one) => /handoff|handed/i.test(one.line))).toBe(false);
 	});

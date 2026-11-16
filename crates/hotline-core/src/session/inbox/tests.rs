@@ -124,13 +124,21 @@ async fn agents_reach_a_colleague_only_by_send() {
         )
         .await
         .unwrap_err();
-        assert!(main.contains("no tool called"), "{main}");
-        let work = TeammateTools::new(&room, "ada")
-            .for_work("s1")
-            .call(gone, &json!({"to": "bob", "message": "x", "text": "x"}))
-            .await
-            .unwrap_err();
-        assert!(work.contains("no tool called"), "{work}");
+        // A conversation from 0.49 that names an old tool is told, in one
+        // line, the one that took its place.
+        let pointer =
+            format!("`{gone}` is gone in this version of Hotline: use `send` to reach a teammate.");
+        assert_eq!(main, pointer);
+        for (thread, tools) in [
+            ("work", TeammateTools::new(&room, "ada").for_work("s1")),
+            ("job", TeammateTools::new(&room, "ada").for_job("j1")),
+        ] {
+            let refused = tools
+                .call(gone, &json!({"to": "bob", "message": "x", "text": "x"}))
+                .await
+                .unwrap_err();
+            assert_eq!(refused, pointer, "{thread}");
+        }
     }
     let told = crate::mcp::server::how_to_use(&|_| true);
     assert!(
@@ -975,8 +983,10 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
 
 mod brake;
 mod clock;
+mod jobs;
 mod newer;
 mod pick_up;
 mod quiet;
+mod retention;
 mod taken;
 mod titles;

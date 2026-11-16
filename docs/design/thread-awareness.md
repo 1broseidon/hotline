@@ -1,7 +1,7 @@
 # Threads as streams of thought: awareness, asides and agent to agent
 
 Agreed with George, 2026-10-30 (the five answers below, as drawn in
-`thread-awareness/` frames 00–09). On `proto/agent-inbox` (task-455) teammates no
+`thread-awareness/` frames 00–09). From 0.50 (task-455) teammates no
 longer leave each other asides or ask and hand off by `message_teammate`:
 they reach each other through an inbox ([agent-inbox.md](agent-inbox.md)),
 which supersedes §2 for colleagues (asides stay for inbound sources), §3's

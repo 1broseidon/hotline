@@ -18,11 +18,13 @@ let root: Root;
 let container: HTMLDivElement;
 let teardown: () => Promise<void>;
 let saved: string[];
+let kept: number[];
 
 beforeEach(() => {
 	({ teardown } = installDom());
 	spyOn(wire, "command").mockImplementation((async () => []) as typeof wire.command);
 	saved = [];
+	kept = [];
 	container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
@@ -43,6 +45,8 @@ async function mount(personName: string) {
 				defaultBackendId="hotline"
 				defaultModelId={null}
 				onIdleHours={() => {}}
+				keepDays={30}
+				onKeepDays={(days) => kept.push(days)}
 				linkPreviews
 				onLinkPreviews={() => {}}
 				onBackend={() => {}}
@@ -72,4 +76,16 @@ test("leaving with the name unchanged saves nothing", async () => {
 	await mount("Ada");
 	await act(async () => root.unmount());
 	expect(saved).toEqual([]);
+});
+
+test("closed messages are kept 30 days by default, and a whole number of days typed is saved", async () => {
+	await mount("Ada");
+	const field = container.querySelector<HTMLInputElement>("#setting-keep-days")!;
+	expect(field.value).toBe("30");
+	expect(container.querySelector("label[for=setting-keep-days]")?.textContent).toBe("Keep closed messages for");
+	await act(async () => type(field, "0"));
+	await act(async () => type(field, "7.5"));
+	expect(kept).toEqual([]);
+	await act(async () => type(field, "60"));
+	expect(kept).toEqual([60]);
 });

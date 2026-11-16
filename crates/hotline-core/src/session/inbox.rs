@@ -28,8 +28,8 @@
 use super::exchanges::Brake;
 use super::{Room, lock, new_id, now_ms};
 use crate::contract::{
-    InboxItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxState, InboxWants, Persona,
-    ThreadId, ThreadKind, TranscriptEvent,
+    InboxItem, InboxNotice, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxState, InboxWants,
+    Persona, ThreadId, ThreadKind, TranscriptEvent,
 };
 use crate::driver::CapabilityLease;
 use crate::log::StreamId;
@@ -41,6 +41,7 @@ use std::sync::Arc;
 mod clock;
 mod heard;
 mod pick_up;
+mod tidy;
 
 pub(in crate::session) use heard::QUIET_WAKE_LINE;
 pub(in crate::session) use pick_up::PickUp;
@@ -75,6 +76,10 @@ const TEAM: [&str; 3] = ["team", "everyone", "all"];
 /// The most items `read_inbox` lists of what is closed or what was sent:
 /// the newest, so the list stays a glance however long the inbox has run.
 const LISTED: usize = 20;
+
+/// The most open items `read_inbox` lists: the newest, with how many older
+/// ones there are, however many colleagues send at once.
+const OPEN_LISTED: usize = 50;
 
 /// Which items `read_inbox` lists without ids.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -357,6 +362,7 @@ fn item(
         notice: None,
         offer_again: None,
         newer: serde_json::Map::new(),
+        nested: serde_json::Map::new(),
     }
 }
 
@@ -850,7 +856,7 @@ impl Room {
         let shown: Vec<Value> = rows
             .into_iter()
             .take(if listing == Listing::Open {
-                usize::MAX
+                OPEN_LISTED
             } else {
                 LISTED
             })
@@ -1317,11 +1323,7 @@ impl Room {
             InboxWants::Nothing,
         );
         reply.reply_to = Some(original.id.clone());
-        reply.about = matches!(
-            original.from_thread.kind,
-            ThreadKind::Side | ThreadKind::Call
-        )
-        .then(|| original.from_thread.clone());
+        reply.about = self.reply_about(original);
         moved(&mut reply, InboxState::New, None, None, None);
         reply.sender_told = 1;
         self.keep_item(&reply)?;
@@ -1343,28 +1345,59 @@ impl Room {
         Ok(reply)
     }
 
-    /// What a request from before the inbox came to, for its sender's
-    /// inbox: a reply that answers no item.
-    pub(super) fn reply_without_item(
+    /// Where a reply to `original` is heard by its sender: the work thread or
+    /// call it was sent from, while that is live, or the job it was sent
+    /// from, while the run that sent it is still going; else nowhere but the
+    /// sender's main conversation.
+    pub(super) fn reply_about(&self, original: &InboxItem) -> Option<ThreadId> {
+        let thread = &original.from_thread;
+        match thread.kind {
+            ThreadKind::Side | ThreadKind::Call => Some(thread.clone()),
+            ThreadKind::Job if self.job_run_open(&thread.key, original.ts) => Some(thread.clone()),
+            _ => None,
+        }
+    }
+
+    /// Hotline's notice to a teammate whose question to `colleague`, asked
+    /// before the inbox, this version ended unanswered: an item in its inbox
+    /// marked as the desk's (`notice: unanswered`), from the colleague it is
+    /// about, heard in `about` (the work thread it was asked from) while that
+    /// is live. It is no teammate's message, so it counts on no brake. A
+    /// teammate that is gone has nobody to tell.
+    pub(super) fn notify_unanswered(
         self: &Arc<Self>,
-        from: &Persona,
-        said_in: &ThreadId,
-        to: &str,
-        title: &str,
-        body: String,
+        asker: &str,
+        colleague: &str,
+        question: &str,
+        about: Option<ThreadId>,
     ) -> Result<(), String> {
-        let mut reply = item(
-            from,
-            said_in,
-            to,
-            title_of(title)?,
+        let Ok(asker) = self.persona(asker) else {
+            return Ok(());
+        };
+        let name = self.name_of(colleague);
+        let asked = super::peers::about(question);
+        // The question is the asker's own words inside Hotline's: quoted, so
+        // it cannot end its quote and speak as the notice.
+        let body = format!(
+            "This is Hotline's notice, not {name}'s words. Hotline was updated, and teammates now reach each other through the inbox. Your question to {name} from before the update, {}, was never answered, and Hotline ended it. Send it again with `send` if you still need it. Tell the person only if it is theirs to know.",
+            crate::fence::quoted(&asked)
+        );
+        let mut notice = item(
+            &asker,
+            &ThreadId::dm(colleague),
+            &asker.id,
+            title_of(&format!("Unanswered: {asked}"))?,
             body,
             InboxWants::Nothing,
         );
-        moved(&mut reply, InboxState::New, None, None, None);
-        reply.sender_told = 1;
-        self.keep_item(&reply)?;
-        self.arrived(&reply);
+        // From the colleague it is about, who may have gone since.
+        colleague.clone_into(&mut notice.from);
+        notice.notice = Some(InboxNotice::Unanswered);
+        notice.about = about;
+        moved(&mut notice, InboxState::New, None, None, None);
+        notice.sender_told = 1;
+        self.keep_item(&notice)?;
+        self.arrived(&notice);
         Ok(())
     }
 

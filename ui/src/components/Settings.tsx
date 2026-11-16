@@ -233,6 +233,8 @@ export function Settings({
 							defaultBackendId={settings.defaultBackendId}
 							defaultModelId={settings.defaultModelId}
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
+							keepDays={settings.inboxKeepDays}
+							onKeepDays={(days) => patch({ inboxKeepDays: days })}
 							linkPreviews={settings.linkPreviews}
 							onLinkPreviews={(on) => patch({ linkPreviews: on ? null : false })}
 							onBackend={(id) => patch({ defaultBackendId: id })}

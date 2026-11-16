@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { InboxItem, InboxItemDetail, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
+import type { InboxItem, InboxItemDetail, InboxNewerItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
 import { wire } from "./wire";
 
 /*
@@ -106,19 +106,25 @@ export function itemsOf(view: InboxView | undefined): ReadonlyMap<string, InboxI
 }
 
 /**
- * The work threads taking an item started, by key, out of what a view knows:
- * the receiver's own (open and closed) and those its sent items started.
- * The desk opens such a thread with the item's sender as its opener, as a
- * handoff was; this is how the window tells it from a handoff of old.
+ * The work threads taking an item started, by key, each with the item taken
+ * into it, out of what a view knows: the receiver's own (open and closed) and
+ * those its sent items started. The desk opens such a thread with the item's
+ * sender as its opener, as a handoff was; this is how the window tells it
+ * from a handoff of old, and how the thread's pane opens its message. Items
+ * combined into the taken one name the thread too; the one taken, which
+ * holds its request, is the thread's message.
  */
-export function inboxWork(items: ReadonlyMap<string, InboxItem>): ReadonlySet<string> {
-	const keys = new Set<string>();
-	for (const item of items.values()) if (item.work?.kind === "side") keys.add(item.work.key);
-	return keys;
+export function inboxWork(items: ReadonlyMap<string, InboxItem>): ReadonlyMap<string, string> {
+	const work = new Map<string, string>();
+	for (const item of items.values()) {
+		if (item.work?.kind !== "side") continue;
+		if (!work.has(item.work.key) || item.request !== undefined) work.set(item.work.key, item.id);
+	}
+	return work;
 }
 
 /** The same, for a teammate: live from its inbox. */
-export function useInboxWork(personaId: string | undefined): ReadonlySet<string> {
+export function useInboxWork(personaId: string | undefined): ReadonlyMap<string, string> {
 	const view = useInbox(personaId);
 	return useMemo(() => inboxWork(itemsOf(view)), [view]);
 }
@@ -310,10 +316,24 @@ export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.
 
 /** The pane's heading line for the list it shows: the open counts, else how many closed or sent, else that there are none. */
 export function listHeading(view: InboxView, segment: InboxSegment): string {
-	if (segment === "open") return openCounts(view) || "Nothing open";
-	const count = segment === "closed" ? view.closed.length : sends(view.sent).length;
+	const newer = newerIn(view, segment).length;
+	if (segment === "open") return [openCounts(view), newer > 0 && `${newer} from a newer version`].filter((part) => typeof part === "string" && part !== "").join(" · ") || "Nothing open";
+	const count = (segment === "closed" ? view.closed.length : sends(view.sent).length) + newer;
 	return count === 0 ? `Nothing ${segment}` : `${count} ${segment}`;
 }
+
+/** The items a newer Hotline saved that belong on a tab: held for the teammate, open or closed, or sent by it. */
+export function newerIn(view: InboxView, segment: InboxSegment): InboxNewerItem[] {
+	return (view.newer ?? []).filter((item) => (segment === "sent" ? item.from === view.personaId : item.to === view.personaId && (item.state === "closed") === (segment === "closed")));
+}
+
+/**
+ * The words that seeded a work thread, as its Message shows them: each item
+ * the desk wrote in as its title, then "From Goldie, item i-linux, wants
+ * work:", then its words. Those two lines keep their breaks when the words
+ * are read as Markdown, which would run them into one paragraph.
+ */
+export const messageWords = (seeded: string): string => seeded.replace(/^(.+)\n(From .+, item \S+, wants [^:\n]+:)\n/gm, "$1  \n$2  \n");
 
 /** The open count as the pane heads it: "2 unread · 1 picked up · 1 for later". */
 function openCounts(view: InboxView): string {

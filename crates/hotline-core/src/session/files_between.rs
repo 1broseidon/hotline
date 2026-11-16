@@ -220,6 +220,28 @@ impl Room {
         }
     }
 
+    /// Lets go of the folders that hold nothing as the desk starts: the
+    /// held-files folder once every item's are let go of, and each received
+    /// folder, a teammate's or a sender's in it, that no file ever landed in
+    /// or that its teammate emptied. A folder with anything in it is left as
+    /// it is, whoever put it there; a teammate's own is made again as its
+    /// session starts.
+    pub(super) fn sweep_empty_folders(&self) {
+        let root = self.log.root();
+        if let Ok(teammates) = std::fs::read_dir(root.join(RECEIVED)) {
+            for teammate in teammates.flatten().map(|entry| entry.path()) {
+                if let Ok(senders) = std::fs::read_dir(&teammate) {
+                    for sender in senders.flatten().map(|entry| entry.path()) {
+                        let _ = std::fs::remove_dir(sender);
+                    }
+                }
+                let _ = std::fs::remove_dir(teammate);
+            }
+        }
+        let _ = std::fs::remove_dir(root.join(RECEIVED));
+        let _ = std::fs::remove_dir(root.join(HELD));
+    }
+
     /// Reads the files a transport staged for an inbound source, at
     /// `paths`, checked as a colleague's are: each a plain file of a plain
     /// name directly in the source's own staging folder on the desk

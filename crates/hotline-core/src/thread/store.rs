@@ -22,8 +22,8 @@ use serde_json::Value;
 ///
 /// The state a record gives is the record's word. A side thread or run that a
 /// dead process left `Live` reads as `Live` here, and the room parks it when it
-/// next starts; a pair is `Live` while a request is being answered on the room
-/// stream. A DM is always `Live`: whether it has an agent is the room's
+/// next starts; a pair, a conversation two teammates had before the inbox, is
+/// kept to read and never live. A DM is always `Live`: whether it has an agent is the room's
 /// knowledge, not the tape's, and the DM is never closed.
 pub struct ThreadStore {
     log: Log,
@@ -73,7 +73,7 @@ impl ThreadStore {
         let jobs = room::jobs(events);
         let pairs: Vec<_> = pair_files::list_all_keys(self.log.root())
             .iter()
-            .filter_map(|key| self.pair_from(key, events))
+            .filter_map(|key| self.pair(key))
             .collect();
         let mut threads = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -245,23 +245,16 @@ impl ThreadStore {
         self.log.thread_link(thread)
     }
 
-    /// A pair, from its sidecar's key. The pair's thread has no agent of its
-    /// own: it is `Live` while the room stream holds a request of it running
-    /// or waiting on the person, and `Parked` the rest of the time.
+    /// A pair, from its sidecar's key: a conversation two teammates had
+    /// before the inbox, which has no agent of its own and nothing writes to
+    /// any more, so it is always `Parked`, kept to read. The work a receiver
+    /// takes from its inbox runs as a request on the pair's record, but in a
+    /// work thread of the receiver's, never in this conversation.
     fn pair(&self, key: &str) -> Option<Thread> {
-        self.pair_from(key, &self.log.load(&StreamId::Room))
-    }
-
-    fn pair_from(&self, key: &str, events: &[Value]) -> Option<Thread> {
         let (a, b) = thread_participants(key)?;
         if !thread_meta_path(self.log.root(), key)?.exists() {
             return None;
         }
-        let answering = events.iter().any(|event| {
-            event.get("kind").and_then(Value::as_str) == Some("exchange_pair")
-                && event.get("id").and_then(Value::as_str) == Some(key)
-                && crate::session::exchanges::answering(event)
-        });
         Some(Thread {
             id: ThreadId::pair(key),
             parent: None,
@@ -269,11 +262,7 @@ impl ThreadStore {
                 Participant::Persona(a.to_string()),
                 Participant::Persona(b.to_string()),
             ],
-            state: if answering {
-                ThreadState::Live
-            } else {
-                ThreadState::Parked
-            },
+            state: ThreadState::Parked,
             title: None,
             binding: None,
             note: None,

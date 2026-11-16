@@ -18,11 +18,11 @@ import { FoldLine } from "./Trail";
 export type InboxRowsContext = {
 	items: ReadonlyMap<string, InboxItem>;
 	/** The work threads taking one of those items started, by key: drawn as work threads, not handoffs. */
-	work: ReadonlySet<string>;
+	work: ReadonlyMap<string, string>;
 	onOpen?: ((itemId: string) => void) | undefined;
 };
 
-export const InboxRows = createContext<InboxRowsContext>({ items: new Map(), work: new Set() });
+export const InboxRows = createContext<InboxRowsContext>({ items: new Map(), work: new Map() });
 
 /**
  * Items a teammate sent, as one quiet row in the conversation they were sent

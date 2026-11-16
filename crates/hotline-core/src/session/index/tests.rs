@@ -868,6 +868,7 @@ async fn a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it() {
                 kind: ScheduleKind::Loop,
                 when: None,
                 every: Some(15_000),
+                calendar: None,
                 prompt: "run the nightly tests".into(),
                 quiet: None,
                 reminder: None,
@@ -881,6 +882,7 @@ async fn a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it() {
                 last_post: None,
                 ended_at: None,
                 final_firing: None,
+                skipped: None,
             },
         )
         .unwrap();

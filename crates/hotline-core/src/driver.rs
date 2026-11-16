@@ -239,6 +239,31 @@ impl ToolImage {
     }
 }
 
+/// What an agent has been seen to do with Hotline's own tools: a child
+/// opened an MCP session on the endpoint it was handed, listed the tools,
+/// called one. Nothing else about a child's tools can be seen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ToolsSeen {
+    pub connected: bool,
+    pub listed: bool,
+    pub called: bool,
+}
+
+impl ToolsSeen {
+    /// An agent in this process, handed the tools as functions.
+    pub const IN_PROCESS: Self = Self {
+        connected: true,
+        listed: true,
+        called: true,
+    };
+
+    /// Whether the agent had the tools to use: it listed them, or used one
+    /// without listing them first.
+    pub fn had_tools(self) -> bool {
+        self.listed || self.called
+    }
+}
+
 /// One agent, driven.
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -271,6 +296,13 @@ pub trait Driver: Send + Sync {
     /// is not on the persona — a preamble, the conversation so far — it was
     /// built with.
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String>;
+
+    /// What the agent has been seen to do with Hotline's own tools so far.
+    /// An agent in this process is handed them as functions, so it has
+    /// done all of it.
+    fn hotline_tools_seen(&self) -> ToolsSeen {
+        ToolsSeen::IN_PROCESS
+    }
 
     /// Subscribes to metadata that can change while the driver is alive.
     ///

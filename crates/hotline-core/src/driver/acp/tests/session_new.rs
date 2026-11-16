@@ -283,6 +283,213 @@ async fn tools_listed_during_session_new_are_verified_on_the_ledger() {
     }
 }
 
+/// What an agent does on Hotline's endpoint while `session/new` is in
+/// flight, as the probe saw real harnesses do or not do.
+#[derive(Clone, Copy)]
+enum Using {
+    /// Opens an MCP session and goes no further, as Cursor did.
+    Connects,
+    /// Opens one and lists the tools, as Claude Code and Codex do.
+    Lists,
+    /// Opens one and calls a tool it never listed.
+    Calls,
+}
+
+/// An ACP agent that does `using` on Hotline's endpoint during
+/// `session/new`, then answers.
+fn agent_that_uses_hotlines_endpoint(
+    using: Using,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("using")
+            .on_receive_request(
+                async move |request: InitializeRequest, responder, _cx| {
+                    responder.respond(
+                        InitializeResponse::new(request.protocol_version)
+                            .agent_info(Implementation::new("using", "1")),
+                    )
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |request: NewSessionRequest,
+                      responder: Responder<NewSessionResponse>,
+                      _cx| async move {
+                    let hotline = request
+                        .mcp_servers
+                        .iter()
+                        .find_map(|server| match server {
+                            acp::McpServer::Http(http) if http.name == mcp::server::SERVER_NAME => {
+                                Some(http.clone())
+                            }
+                            _ => None,
+                        })
+                        .expect("Hotline names its own endpoint in session/new");
+                    let token = hotline.headers[0]
+                        .value
+                        .strip_prefix("Bearer ")
+                        .expect("a bearer token")
+                        .to_string();
+                    let client = rmcp::model::ClientConfig::new(
+                        rmcp::model::ClientCapabilities::default(),
+                        rmcp::model::Implementation::new("using", "1"),
+                    )
+                    .serve(
+                        rmcp::transport::streamable_http_client::StreamableHttpClientTransport::with_client(
+                            reqwest::Client::default(),
+                            rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(hotline.url.clone())
+                                .auth_header(token),
+                        ),
+                    )
+                    .await
+                    .expect("the endpoint is open before the session is");
+                    match using {
+                        Using::Connects => {}
+                        Using::Lists => {
+                            client.list_all_tools().await.expect("tools listed");
+                        }
+                        Using::Calls => {
+                            client
+                                .peer()
+                                .call_tool(rmcp::model::CallToolRequestParams::new(
+                                    "list_teammates",
+                                ))
+                                .await
+                                .expect("the call reached the room");
+                        }
+                    }
+                    client.cancel().await.ok();
+                    responder.respond(NewSessionResponse::new(SessionId::new("using")))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the agent ended: {error}");
+        }
+    }
+}
+
+/// The endpoint records what the child did on it, which is all Hotline can
+/// see of a child's tools: listed them, called one without listing,
+/// connected and went no further, or never came at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_endpoint_records_what_a_child_did_on_it() {
+    use crate::driver::ToolsSeen;
+    let held = room("used-room");
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "used".to_string();
+    let seen = |child: &ChildAgent| child.hotline_tools_seen();
+    for (using, expected) in [
+        (
+            Using::Lists,
+            ToolsSeen {
+                connected: true,
+                listed: true,
+                called: false,
+            },
+        ),
+        (
+            Using::Calls,
+            ToolsSeen {
+                connected: true,
+                listed: false,
+                called: true,
+            },
+        ),
+        (
+            Using::Connects,
+            ToolsSeen {
+                connected: true,
+                listed: false,
+                called: false,
+            },
+        ),
+    ] {
+        tokio::spawn(agent_that_uses_hotlines_endpoint(using));
+        let child = ChildAgent::new(
+            scratch("used"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "used").for_job("job"),
+        );
+        child.handshake(&ada, client_transport()).await.unwrap();
+        assert_eq!(seen(&child), expected);
+        assert_eq!(expected.had_tools(), !matches!(using, Using::Connects));
+    }
+
+    tokio::spawn(scripted_agent(Heard::default(), false));
+    let absent = ChildAgent::new(
+        scratch("unused"),
+        "cursor".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "used").for_job("job"),
+    );
+    absent.handshake(&ada, client_transport()).await.unwrap();
+    assert_eq!(seen(&absent), ToolsSeen::default());
+}
+
+/// A child that opens a session on its own endpoint and never lists the
+/// tools reads on the teammate's ledger as having connected, not as handed
+/// the tools and never seen.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_child_that_connects_and_never_lists_is_said_so_on_the_ledger() {
+    let held = room("connected-room");
+    tokio::spawn(agent_that_uses_hotlines_endpoint(Using::Connects));
+    let child = ChildAgent::new(
+        scratch("connected"),
+        "cursor".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "connected"),
+    );
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "connected".to_string();
+    child.handshake(&ada, client_transport()).await.unwrap();
+    let rows = crate::session::ledger::teammate_tools("connected")
+        .expect("the ledger exists")
+        .rows;
+    for tool in mcp::server::TOOL_NAMES {
+        let row = rows.iter().find(|row| row.name == tool).unwrap();
+        assert_eq!(row.state, ToolState::Declared, "{row:?}");
+        assert!(
+            row.reason.contains("opened a session") && row.reason.contains("has not listed"),
+            "{row:?}"
+        );
+    }
+}
+
+/// A child that hangs up on its own takes Hotline's tools with it: the
+/// endpoint closes as the connection ends, not at the next prompt, so the
+/// sessions it held there end with it. What it did there stays readable.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_child_that_hangs_up_takes_its_hotline_endpoint_with_it() {
+    let held = room("hangs-up-room");
+    let agent = tokio::spawn(agent_that_uses_hotlines_endpoint(Using::Lists));
+    let driver = ChildAgent::new(
+        scratch("hangs-up"),
+        "cursor".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "hangs-up"),
+    );
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "hangs-up".to_string();
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    assert!(lock(&driver.live.served).is_some());
+
+    // Dropping the endpoint is what ends its sessions
+    // (`mcp::server::tests::sessions`); this is that it is dropped.
+    agent.abort();
+    crate::test_support::until("the endpoint closes with the connection", || {
+        lock(&driver.live.served).is_none()
+    })
+    .await;
+    assert!(driver.hotline_tools_seen().listed);
+}
+
 /// Hotline rewrites only the file it wrote. A hand-written AGENTS.md — even
 /// one that merely mentions the marker, as this repository's own does — is
 /// left exactly as it was.

@@ -85,8 +85,8 @@ These come over as ideas and, where the code was already Rust, as code.
   and for anything absent, why. A tool that vanishes silently is the worst
   failure the old app shipped.
 - **Jobs are subagents on a schedule** ([ADR 0008](adr/0008-one-agent-thread-layer.md)
-  §7). One schema, `session::Brief` (the task, now / at / every, the report
-  policy, an optional end), is written by the `subagent`, `schedule` and
+  §7). One schema, `session::Brief` (the task, now / at / every / a time of
+  day on chosen days, the report policy, an optional end), is written by the `subagent`, `schedule` and
   `loop` tools. Each job is an arm with a thread of its own
   (`ThreadKind::Job`, `jobs/<id>.jsonl`), every firing is a turn on it and
   never on the home thread, and its agent is parked between firings and

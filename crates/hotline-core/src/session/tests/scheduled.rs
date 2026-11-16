@@ -135,6 +135,7 @@ fn due_job(
         kind,
         when: (kind == ScheduleKind::Schedule).then_some(now - overdue_by),
         every: (kind == ScheduleKind::Loop).then_some(15_000),
+        calendar: None,
         prompt: prompt.to_string(),
         quiet: quiet.then_some(true),
         reminder: None,
@@ -148,6 +149,7 @@ fn due_job(
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     }
 }
 
@@ -208,7 +210,12 @@ async fn a_loop_fires_on_its_own_thread_and_its_report_is_posted() {
     assert_eq!(events[0]["scheduled"]["jobId"], "job-loop");
     assert_eq!(events[0]["scheduled"]["kind"], "loop");
     let heard = heard(&prompts, 1).await;
-    assert!(heard[0].ends_with("loop · check the crane"), "{heard:?}");
+    assert!(
+        heard[0].ends_with(
+            "loop · check the crane\n\nHotline runs this job again by itself until it ends (Every 15s): nothing needs scheduling or re-arming."
+        ),
+        "{heard:?}"
+    );
 
     let posted = settled(&room, "ada", 1).await;
     assert_eq!(kinds(&posted), ["agent"], "only the report reached the DM");
@@ -832,4 +839,472 @@ async fn the_sweep_does_not_park_an_agent_whose_turn_has_begun() {
         "a turn that has begun keeps the agent it runs on"
     );
     gate.add_permits(10);
+}
+
+/// Two hours and some, the most a loop's run may be late, and more.
+const TOO_LATE: i64 = 3 * 3_600_000;
+/// Late, but not too late.
+const LATE: i64 = 2 * 3_600_000 - 5 * 60_000;
+
+/// The job once the clock has done with its missed time: the loop's latest
+/// skip is on it, or a firing is on its thread.
+async fn skipped(room: &Room, job_id: &str) -> ScheduledJob {
+    until("the clock skips the late run", || {
+        crate::room::schedules(&room.log)
+            .iter()
+            .any(|job| job.id == job_id && job.skipped.is_some())
+    })
+    .await;
+    crate::room::schedules(&room.log)
+        .into_iter()
+        .find(|job| job.id == job_id)
+        .expect("the loop is still on the stream")
+}
+
+fn firings(room: &Room, job_id: &str) -> usize {
+    room.log
+        .load(&StreamId::Job(job_id.to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] == "user")
+        .count()
+}
+
+/// A loop whose time passed more than two hours before the desk could run
+/// it, as when the desk was closed or the machine asleep, does not run: it
+/// moves to its next time, its count unspent, and keeps which time it
+/// skipped and when.
+#[tokio::test]
+async fn a_loop_run_more_than_two_hours_late_is_skipped_to_its_next_time() {
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job("job-stale", ScheduleKind::Loop, "sweep", false, TOO_LATE);
+    job.times = Some(2);
+    let slot = job.next_at;
+    let started = now_ms();
+    let room = room_due("schedule-too-late", agents, job);
+
+    let job = skipped(&room, "job-stale").await;
+    let skip = job.skipped.expect("the skip is kept");
+    assert_eq!(skip.slot, slot);
+    assert!(skip.at >= started);
+    assert!(job.next_at > skip.at, "the loop waits for its next time");
+    assert_eq!(job.times, Some(2), "a skipped run spends no count");
+    assert_eq!(job.ended_at, None);
+    assert_eq!(firings(&room, "job-stale"), 0);
+    assert!(lock(&prompts).is_empty());
+}
+
+/// Late by less than two hours, a loop's missed time runs, once.
+#[tokio::test]
+async fn a_loop_run_less_than_two_hours_late_runs_once() {
+    let agents = Fake::new(Scripted::new(saying("s", "caught up")));
+    let job = due_job("job-late", ScheduleKind::Loop, "sweep", false, LATE);
+    let room = room_due("schedule-late", agents, job);
+
+    let events = job_thread(&room, "job-late", 3).await;
+    assert_eq!(events[0]["text"], "sweep");
+    let living = crate::room::schedules(&room.log);
+    assert_eq!(living[0].skipped, None);
+    assert!(living[0].next_at > now_ms());
+    assert_eq!(firings(&room, "job-late"), 1);
+}
+
+/// A calendar loop missed by more than two hours moves to its next time of
+/// day, not to an interval after the skip.
+#[tokio::test]
+async fn a_calendar_loop_missed_by_more_than_two_hours_waits_for_its_next_time() {
+    use chrono::TimeZone;
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let mut job = due_job("job-noon", ScheduleKind::Loop, "lunch", false, TOO_LATE);
+    job.every = Some(86_400_000);
+    job.calendar = Some(crate::contract::Calendar {
+        at: "12:00".to_string(),
+        days: vec![
+            crate::contract::CalendarDay::Mon,
+            crate::contract::CalendarDay::Tue,
+            crate::contract::CalendarDay::Wed,
+            crate::contract::CalendarDay::Thu,
+            crate::contract::CalendarDay::Fri,
+            crate::contract::CalendarDay::Sat,
+            crate::contract::CalendarDay::Sun,
+        ],
+    });
+    let room = room_due("schedule-calendar-too-late", agents, job);
+
+    let job = skipped(&room, "job-noon").await;
+    let next = chrono::Local.timestamp_millis_opt(job.next_at).unwrap();
+    assert_eq!(next.format("%H:%M").to_string(), "12:00");
+    assert!(job.next_at > now_ms());
+    assert_eq!(firings(&room, "job-noon"), 0);
+}
+
+/// A one-shot has no next time to wait for: however late, it runs once.
+#[tokio::test]
+async fn a_one_shot_runs_once_however_late() {
+    let agents = Fake::new(Scripted::new(saying("s", "done late")));
+    let job = due_job(
+        "job-once-late",
+        ScheduleKind::Schedule,
+        "say the word",
+        false,
+        TOO_LATE,
+    );
+    let room = room_due("schedule-once-too-late", agents, job);
+
+    let events = job_thread(&room, "job-once-late", 3).await;
+    assert_eq!(events[0]["text"], "say the word");
+    assert_eq!(firings(&room, "job-once-late"), 1);
+}
+
+/// Background work switched off past a loop's time and on again more than
+/// two hours later skips that run rather than running it late.
+#[tokio::test]
+async fn a_loop_paused_past_its_time_by_more_than_two_hours_skips_it_when_resumed() {
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-resumed", ScheduleKind::Loop, "sweep", false, TOO_LATE);
+    let room = room_due_with_grant("schedule-resumed", agents, job, false);
+    assert_eq!(
+        crate::room::schedules(&room.log)[0].skipped,
+        None,
+        "a paused loop is left as it was"
+    );
+
+    let mut teammate = persona("ada");
+    teammate.background_work = true;
+    enrol(&room.log, &teammate);
+    room.reattach("ada").await.unwrap();
+
+    let job = skipped(&room, "job-resumed").await;
+    assert!(job.next_at > now_ms());
+    assert_eq!(firings(&room, "job-resumed"), 0);
+    assert!(lock(&prompts).is_empty());
+}
+
+/// What a job's run is told, its preamble and its firing's line, names only
+/// Hotline tools its agent is served, and leaves out none it is served that
+/// a teammate's own conversation is told of. A loop's firing says Hotline
+/// repeats it; a one-shot's that it is the only run.
+#[tokio::test]
+async fn a_jobs_run_is_told_only_the_tools_it_has_and_that_it_repeats_by_itself() {
+    use crate::mcp::server::{TeammateTools, how_to_use, tools_named};
+    let room = room("job-told", Fake::new(Scripted::new(Vec::new())));
+    let offered = TeammateTools::new(&room, "ada")
+        .for_job("job-told")
+        .offered_names();
+    for lacking in ["schedule", "loop", "react", "open_link", "new_chapter"] {
+        assert!(
+            !offered.iter().any(|name| name == lacking),
+            "a job is served no {lacking}: {offered:?}"
+        );
+    }
+    let mut weekdays = due_job("job-told", ScheduleKind::Loop, "read the alerts", true, 0);
+    weekdays.calendar = Some(crate::contract::Calendar {
+        at: "09:00".to_string(),
+        days: vec![
+            crate::contract::CalendarDay::Mon,
+            crate::contract::CalendarDay::Tue,
+            crate::contract::CalendarDay::Wed,
+            crate::contract::CalendarDay::Thu,
+            crate::contract::CalendarDay::Fri,
+        ],
+    });
+    let once = due_job("job-once", ScheduleKind::Schedule, "say the word", false, 0);
+    let looping =
+        super::job_thread::firing_text(&weekdays, &super::schedule::run_of(&weekdays), false, None);
+    let only = super::job_thread::firing_text(&once, &super::schedule::run_of(&once), true, None);
+    assert!(
+        looping.contains("Hotline runs this job again by itself until it ends (Weekdays at 09:00): nothing needs scheduling or re-arming."),
+        "{looping}"
+    );
+    assert!(only.contains("This is the job's only run"), "{only}");
+
+    let everything = tools_named(&how_to_use(&|_| true));
+    // On a desk with a browser of its own, a job is served `browser` too,
+    // and is told of it; this room has none, so that desk is this one with
+    // `browser` added.
+    for desk_browser in [false, true] {
+        let mut served = offered.clone();
+        if desk_browser {
+            served.push("browser".to_string());
+        }
+        let has = |name: &str| served.iter().any(|tool| tool == name);
+        let told = format!(
+            "{}\n\n{looping}\n\n{only}",
+            super::job_thread::job_preamble(
+                &persona("ada"),
+                Some(Reach::Workspace),
+                &[],
+                desk_browser,
+                &served,
+            )
+        );
+        let named = tools_named(&told);
+        for name in &named {
+            assert!(has(name), "a job's run is told of `{name}`, which it lacks");
+        }
+        for name in everything.iter().filter(|name| has(name)) {
+            assert!(
+                named.contains(name),
+                "a job's run has `{name}` and is not told of it"
+            );
+        }
+    }
+}
+
+const NEVER_CONNECTED: crate::driver::ToolsSeen = crate::driver::ToolsSeen {
+    connected: false,
+    listed: false,
+    called: false,
+};
+
+/// One firing of a loop on an agent that says it did `seen` with Hotline's
+/// tools, run to its end.
+async fn fired_seeing(name: &str, seen: &[crate::driver::ToolsSeen]) -> (Arc<Room>, Arc<Fake>) {
+    let agents = Fake::new(Scripted::new(saying("s", "checked")).seeing(seen));
+    let job = due_job(name, ScheduleKind::Loop, "check the crane", false, 1);
+    let room = room_due(name, agents.clone(), job);
+    turn_ended(&room, name, 1).await;
+    (room, agents)
+}
+
+async fn turn_ended(room: &Room, job_id: &str, turns: usize) {
+    until("the job's turn ends", || {
+        room.log
+            .load(&StreamId::Job(job_id.to_string()))
+            .iter()
+            .filter(|event| event["kind"] == "turn")
+            .count()
+            >= turns
+    })
+    .await;
+}
+
+fn notices(room: &Room, job_id: &str) -> Vec<Value> {
+    room.log
+        .load(&StreamId::Job(job_id.to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] == "notice")
+        .collect()
+}
+
+/// A run whose agent listed Hotline's tools had them, whether or not it
+/// used one; one that called a tool without listing them had them too.
+/// Neither says anything.
+#[tokio::test]
+async fn a_run_whose_agent_listed_or_called_hotlines_tools_says_nothing_of_them() {
+    let listed = crate::driver::ToolsSeen {
+        connected: true,
+        listed: true,
+        called: false,
+    };
+    let (room, _) = fired_seeing("job-listed", &[listed]).await;
+    assert_eq!(notices(&room, "job-listed"), [] as [Value; 0]);
+
+    let called = crate::driver::ToolsSeen {
+        connected: true,
+        listed: false,
+        called: true,
+    };
+    let (room, _) = fired_seeing("job-called", &[called]).await;
+    assert_eq!(notices(&room, "job-called"), [] as [Value; 0]);
+}
+
+/// A run whose agent opened a session on its endpoint and never listed or
+/// called the tools says what was seen, once, quietly, and claims no more:
+/// the harness may hold a list from before and have needed none.
+#[tokio::test]
+async fn a_run_whose_agent_connected_but_never_listed_hotlines_tools_says_so_once() {
+    let connected = crate::driver::ToolsSeen {
+        connected: true,
+        listed: false,
+        called: false,
+    };
+    let (room, agents) = fired_seeing("job-connected", &[connected]).await;
+    let said = notices(&room, "job-connected");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(said[0]["level"], "info");
+    assert_eq!(
+        said[0]["text"],
+        "This run's agent connected to Hotline's tools but never listed or used them."
+    );
+    assert_eq!(
+        lock(&agents.driver.prompts).len(),
+        1,
+        "the firing is not run again"
+    );
+    assert!(crate::room::schedules(&room.log)[0].next_at > now_ms());
+}
+
+/// A run whose agent never came to its endpoint says that instead.
+#[tokio::test]
+async fn a_run_whose_agent_never_connected_to_hotlines_tools_says_so_once() {
+    let (room, agents) = fired_seeing("job-unconnected", &[NEVER_CONNECTED]).await;
+    let said = notices(&room, "job-unconnected");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(
+        said[0]["text"],
+        "This run's agent never connected to Hotline's tools, so it could not use them. Its next run starts a new session."
+    );
+    assert_eq!(
+        lock(&agents.driver.prompts).len(),
+        1,
+        "the firing is not run again"
+    );
+    assert!(crate::room::schedules(&room.log)[0].next_at > now_ms());
+}
+
+/// A firing's line goes to its agent as soon as the agent is up: what it
+/// did with Hotline's tools is asked only once the turn is over.
+#[tokio::test]
+async fn a_firings_line_is_sent_without_waiting_on_hotlines_tools() {
+    let (_, agents) = fired_seeing("job-prompt-first", &[NEVER_CONNECTED]).await;
+    assert_eq!(
+        lock(&agents.driver.prompts_at_seen).first().copied(),
+        Some(1),
+        "the line was sent before the tools were asked about"
+    );
+}
+
+/// A firing the person stopped moments after it began had no time to take
+/// the tools: it is not said to have lacked them.
+#[tokio::test]
+async fn a_firing_stopped_soon_after_it_began_is_not_said_to_lack_hotlines_tools() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::new(saying("s", "checked"))
+            .gated(gate)
+            .on_cancel(vec![Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            }])
+            .seeing(&[NEVER_CONNECTED]),
+    );
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-stopped-soon", ScheduleKind::Loop, "check", false, 1);
+    let room = room_due("job-stopped-soon", agents, job);
+    heard(&prompts, 1).await;
+    room.cancel_job_turn("job-stopped-soon").unwrap();
+    turn_ended(&room, "job-stopped-soon", 1).await;
+    until("the stop is said", || {
+        !notices(&room, "job-stopped-soon").is_empty()
+    })
+    .await;
+    let said: Vec<Value> = notices(&room, "job-stopped-soon")
+        .into_iter()
+        .map(|notice| notice["text"].clone())
+        .collect();
+    assert_eq!(
+        said,
+        [json!(
+            "Stopped. The job keeps its schedule and runs again at its next time."
+        )]
+    );
+}
+
+/// The sessions each agent of a job was opened on: one firing whose agent
+/// did `seen` with Hotline's tools, then two lines the person says in the
+/// thread, each to an agent built afresh. The thread's saved session at the
+/// start is `saved-session`; each child reopens what it is handed and calls
+/// its own session `child-session`.
+async fn sessions_after(name: &str, seen: crate::driver::ToolsSeen) -> Vec<Vec<String>> {
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            saying("a", "checked"),
+            saying("b", "noted"),
+            saying("c", "noted again"),
+        ])
+        .seeing(&[seen]),
+    );
+    agents.reporting("child-session", true);
+    let job = due_job(name, ScheduleKind::Loop, "check the crane", false, 1);
+    let log = scratch(name);
+    let mut teammate = persona("ada");
+    teammate.background_work = true;
+    teammate.backend_id = "codex-acp".to_string();
+    enrol(&log, &teammate);
+    crate::room::append_schedule(&log, &job).unwrap();
+    log.append(
+        &StreamId::Job(name.to_string()),
+        &crate::thread::Link {
+            id: "link".to_string(),
+            ts: job.created_at,
+            thread: ThreadId::job(name),
+            persona_id: Some("ada".to_string()),
+            title: "check the crane".to_string(),
+            state: crate::thread::ThreadState::Parked,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: Some(crate::thread::AgentBinding {
+                backend_id: "codex-acp".to_string(),
+                session_id: "saved-session".to_string(),
+            }),
+            elapsed_ms: None,
+            opener: None,
+            handoff_ended: false,
+            asked_in: None,
+            request: None,
+            run_kind: None,
+        }
+        .event(),
+    )
+    .unwrap();
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    turn_ended(&room, name, 1).await;
+    until("the firing's agent is let go of", || {
+        lock(&room.job_threads)
+            .get(name)
+            .is_none_or(|live| !live.has_agent())
+    })
+    .await;
+    room.prompt_job(name, "anything new?", None).await.unwrap();
+    turn_ended(&room, name, 2).await;
+    room.park_job(name);
+    room.prompt_job(name, "and now?", None).await.unwrap();
+    turn_ended(&room, name, 3).await;
+    lock(&agents.views)
+        .iter()
+        .map(|view| {
+            view.session_checkpoints
+                .iter()
+                .map(|checkpoint| checkpoint.session_id.clone())
+                .collect()
+        })
+        .collect()
+}
+
+/// After a run whose agent never connected to Hotline's tools, the job's
+/// next agent opens a new session rather than the saved one; that new
+/// session is then the one saved, and the agent after reopens it. The rule
+/// makes one fresh start, not a habit.
+#[tokio::test]
+async fn the_run_after_one_that_never_connected_opens_a_new_session_once() {
+    assert_eq!(
+        sessions_after("job-new-session", NEVER_CONNECTED).await,
+        [
+            vec!["saved-session".to_string()],
+            Vec::new(),
+            vec!["child-session".to_string()],
+        ]
+    );
+}
+
+/// A run whose agent connected and never listed or called the tools keeps
+/// its saved session: the next agent reopens it.
+#[tokio::test]
+async fn the_run_after_one_that_connected_but_never_listed_reopens_its_session() {
+    let connected = crate::driver::ToolsSeen {
+        connected: true,
+        listed: false,
+        called: false,
+    };
+    assert_eq!(
+        sessions_after("job-kept-session", connected).await,
+        [
+            vec!["saved-session".to_string()],
+            vec!["child-session".to_string()],
+            vec!["child-session".to_string()],
+        ]
+    );
 }

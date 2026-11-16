@@ -132,10 +132,11 @@ async fn agents_reach_a_colleague_only_by_send() {
             .unwrap_err();
         assert!(work.contains("no tool called"), "{work}");
     }
+    let told = crate::mcp::server::how_to_use(&|_| true);
     assert!(
-        crate::mcp::server::HOW_TO_USE.contains("`update_inbox`")
-            && !crate::mcp::server::HOW_TO_USE.contains("message_teammate")
-            && !crate::mcp::server::HOW_TO_USE.contains("`aside`")
+        told.contains("`update_inbox`")
+            && !told.contains("message_teammate")
+            && !told.contains("`aside`")
     );
 }
 

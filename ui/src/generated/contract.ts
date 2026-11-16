@@ -268,6 +268,27 @@ export type BudgetKind = "chat" | "voice" | "images";
 export type BudgetLimits = { dayUsd?: number, monthUsd?: number, };
 
 /**
+ * When a calendar loop runs: a time of day on the desk machine's own clock,
+ * on chosen days of the week. Hotline works out each next run itself, on
+ * that clock, so the loop stays at that time of day through a late run, a
+ * restart and the clocks changing.
+ */
+export type Calendar = { 
+/**
+ * The time of day, `HH:MM` on a 24-hour clock: `09:00`, `17:30`.
+ */
+at: string, 
+/**
+ * The days it runs, Monday first, each once, never none.
+ */
+days: Array<CalendarDay>, };
+
+/**
+ * A day of the week, as a calendar loop names it.
+ */
+export type CalendarDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+/**
  * Whether a call is still going.
  */
 export type CallStatus = "live" | "ended";
@@ -2165,12 +2186,14 @@ export type RuntimeState = "ready" | "not_installed" | "not_running" | "not_resp
  * reading the list needs, and nothing that decides what the job may do.
  *
  * `name` is the job's label, the first breath of its prompt. `kind` is
- * `schedule` for once and `loop` for every `every` milliseconds. `when` is a
- * one-shot's original time, milliseconds since the epoch. `nextAt` is when
- * the desk next means to fire it, also milliseconds since the epoch, and a
- * plan rather than a promise: a desk that is closed or asleep then fires it
- * once when it can, a fire that could not start tries again a minute later,
- * and a loop counts its next interval from when a firing starts. A job's
+ * `schedule` for once and `loop` for every `every` milliseconds, or at the
+ * times its `calendar` names when it has one. `when` is a one-shot's
+ * original time, milliseconds since the epoch. `nextAt` is when the desk
+ * next means to fire it, also milliseconds since the epoch, and a plan
+ * rather than a promise: a desk that is closed or asleep then fires it once
+ * when it can, a fire that could not start tries again a minute later, a
+ * loop on an interval counts its next interval from when a firing starts,
+ * and a calendar loop's next is its next time on the desk's clock. A job's
  * firings are turns on its own thread, `{"kind": "job", "key": id}`.
  * `lastPost` is what it last posted to the chat. A job that has fired for
  * the last time, been cancelled or met its goal is still listed, with
@@ -2183,7 +2206,12 @@ export type ScheduleEntry = { id: string, personaId: string, name: string, kind:
 /**
  * What the teammate is asked when the job fires.
  */
-prompt: string, when?: number, every?: number, nextAt: number, 
+prompt: string, when?: number, every?: number, 
+/**
+ * A calendar loop's time of day and days, on the desk's clock. Such a
+ * loop also carries a day as `every`, for a reader that knows only that.
+ */
+calendar?: Calendar, nextAt: number, 
 /**
  * Present and true when the job was asked to say nothing in the chat
  * unless it finds something worth saying.
@@ -2193,7 +2221,12 @@ quiet?: boolean,
  * Present and true for a plain reminder, which posts its prompt and
  * does no work.
  */
-reminder?: boolean, lastPost?: JobPost, endedAt?: number, without?: Array<Ability>, };
+reminder?: boolean, lastPost?: JobPost, endedAt?: number, without?: Array<Ability>, 
+/**
+ * The latest run of a loop skipped for starting more than two hours
+ * after its time, which moved the loop on to its next.
+ */
+skipped?: SkippedRun, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.
@@ -2203,9 +2236,9 @@ export type ScheduleKind = "schedule" | "loop";
 /**
  * Work a teammate has asked Hotline to do later: a job (ADR 0008 §7).
  *
- * `schedule` is once. `loop` is every `every` milliseconds until cancelled
- * or until its end. `nextAt` is the next fire, so the window can say when
- * without doing the math. Each firing is a turn on the job's own thread
+ * `schedule` is once. `loop` is every `every` milliseconds, or at the times
+ * its `calendar` names, until cancelled or until its end. `nextAt` is the
+ * next fire, so the window can say when without doing the math. Each firing is a turn on the job's own thread
  * (`ThreadId::job(id)`), never the teammate's DM; a reminder is posted to the
  * DM as it is and has no thread. Jobs live on the room stream as events of
  * kind `schedule`; that event kind is the stream's, not this `kind`, and a
@@ -2219,9 +2252,17 @@ export type ScheduledJob = { id: string, personaId: string, kind: ScheduleKind,
  */
 when?: number, 
 /**
- * The interval of a loop, in milliseconds.
+ * The interval of a loop, in milliseconds. A calendar loop carries a
+ * day here as well, so a build that knows only `every` still reads it
+ * as a loop that runs once a day; a build that knows `calendar` goes by
+ * that instead.
  */
-every?: number, prompt: string, 
+every?: number, 
+/**
+ * A calendar loop's time of day and days: present, the loop runs at
+ * those times and not every `every`.
+ */
+calendar?: Calendar, prompt: string, 
 /**
  * The report policy: the job posts to the chat only what is worth
  * telling, and a firing that finds nothing says nothing there. Absent
@@ -2269,7 +2310,13 @@ endedAt?: number,
  * When the job's last firing was handed to its thread. The job fires no
  * more, but it has not ended: it ends (`endedAt`) when that firing does.
  */
-finalFiring?: number, };
+finalFiring?: number, 
+/**
+ * The latest run of a loop that was skipped for being too late: by the
+ * time the desk could start it, more than two hours had passed since
+ * its time, so the loop moved on to its next. None until that happens.
+ */
+skipped?: SkippedRun, };
 
 /**
  * What a firing stamps on the user event it writes.
@@ -2534,6 +2581,19 @@ export type SkillSource = "builtin" | "gateway" | "home" | "workspace" | "comput
  * word the list, not the row.
  */
 export type Skipped = { item: string, reason: string, };
+
+/**
+ * A loop's run that was skipped for being too late (`ScheduledJob::skipped`).
+ */
+export type SkippedRun = { 
+/**
+ * When it was due, milliseconds since the epoch.
+ */
+slot: number, 
+/**
+ * When the desk skipped it, milliseconds since the epoch.
+ */
+at: number, };
 
 export type SlashCommand = { name: string, description?: string, hint?: string, };
 

@@ -348,12 +348,16 @@ impl ChildAgent {
     async fn open_hotline_endpoint(&self) -> Result<(), String> {
         match mcp::server::serve(self.teammate.clone()).await {
             Ok(served) => {
-                *lock(&self.served) = Some(served);
+                *lock(&self.live.hotline_use) = Some(served.used());
+                *lock(&self.live.served) = Some(served);
                 Ok(())
             }
-            Err(error) => Err(format!(
-                "Hotline could not open a loopback port for its own tools: {error}"
-            )),
+            Err(error) => {
+                lock(&self.live.hotline_use).take();
+                Err(format!(
+                    "Hotline could not open a loopback port for its own tools: {error}"
+                ))
+            }
         }
     }
 
@@ -390,7 +394,7 @@ impl ChildAgent {
     /// ever say "declared".
     fn declared_servers(&self) -> Vec<acp::McpServer> {
         let mut declared = Vec::new();
-        if let Some(served) = lock(&self.served).as_ref() {
+        if let Some(served) = lock(&self.live.served).as_ref() {
             declared.push(acp::McpServer::Http(
                 acp::McpServerHttp::new(mcp::server::SERVER_NAME, served.url()).headers(vec![
                     acp::HttpHeader::new("Authorization", format!("Bearer {}", served.token())),
@@ -774,8 +778,10 @@ async fn connect(
             eprintln!("an ACP connection ended: {error}");
         }
         live.settle_permissions();
-        // The child is gone, or hung up: the next prompt starts it again
-        // instead of finding out by failing.
+        // The child is gone, or hung up: its Hotline tools go with it, and
+        // the MCP sessions it held on them end now rather than at the next
+        // prompt, which starts it again instead of finding out by failing.
+        lock(&live.served).take();
         live.fail(None);
     });
     *lock(&task_live.connection_task) = Some(task);

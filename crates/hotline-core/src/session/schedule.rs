@@ -1,13 +1,19 @@
 //! Durable wakes for teammates: the clock of their jobs.
 //!
 //! Jobs live on the room stream. This module is the clock: it folds them,
-//! sleeps until the nearest `nextAt`, and fires each one. A plain reminder is
-//! posted to the teammate's chat as it was written ([`Room::post`]) and does
-//! no work; any other job's firing is a turn on the job's own thread
-//! ([`super::job_thread`]), never the teammate's DM. A missed tick while
-//! Hotline was closed fires once on reopen rather than catching up a pile of
+//! sleeps until the nearest `nextAt`, and fires each one. A loop runs every
+//! interval, counted from when a firing starts, or at a time of day on
+//! chosen days ([`calendar`]), each next run worked out on the desk's clock.
+//! A plain reminder is posted to the teammate's chat as it was written
+//! ([`Room::post`]) and does no work; any other job's firing is a turn on
+//! the job's own thread ([`super::job_thread`]), never the teammate's DM.
+//! Missed times, while Hotline was closed, the machine asleep or background
+//! work off, fire once when the desk can rather than catching up a pile of
 //! them — the teammate should do the work now, not replay every interval it
-//! slept through.
+//! slept through. A loop's run that could only start more than two hours
+//! after its time ([`LATE_RUN_LIMIT`]) is not run at all: the loop moves on
+//! to its next time and the job keeps the skip (`skipped`). A one-shot runs
+//! however late, since it has no next time to wait for.
 //!
 //! A job and a subagent are one thing with one schema ([`Brief`], ADR 0008
 //! §7): the task, when it runs, whom it reports to, and what ends it. The
@@ -20,9 +26,13 @@
 //! strings and call this module.
 
 use super::{Post, Room, lock, now_ms};
-use crate::contract::{Ability, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId};
+use crate::contract::{
+    Ability, Calendar, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, SkippedRun,
+    ThreadId,
+};
 use crate::log::Log;
 use crate::room;
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Timelike};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -42,12 +52,24 @@ const MAX_PROMPT: usize = 8_000;
 const MAX_GOAL: usize = 500;
 /// How long a failed fire waits before trying again.
 const RETRY_WAIT: i64 = 60_000;
+/// How late a loop's run may start. George, 2026-11-15: "skip after 2 hours
+/// from original time". A run the desk could not start until later than
+/// this after its time is skipped, and the loop waits for its next.
+const LATE_RUN_LIMIT: i64 = 2 * 3_600_000;
+/// Sets [`LATE_RUN_LIMIT`] in milliseconds, so the rule can be watched on a
+/// running desk without waiting two hours.
+const LATE_RUN_LIMIT_ENV: &str = "HOTLINE_LATE_RUN_LIMIT_MS";
 /// How long the clock will sleep before looking again, even when the next job
 /// is further away. The task holds the room weakly, and this is how often it
 /// notices the room is gone; a create notifies and does not wait.
 const LOOK_AGAIN: Duration = Duration::from_secs(60);
 /// Longer than this stops being a name and starts being the prompt again.
 const SCHEDULE_NAME_MAX: usize = 48;
+/// What a calendar loop writes as its `every`, so a build that knows only
+/// `every` still reads it as a loop that runs once a day.
+const DAY: i64 = 86_400_000;
+
+pub(crate) mod calendar;
 
 /// What a teammate is asked to do away from its home thread: one schema for
 /// a subagent and a job (ADR 0008 §7).
@@ -63,7 +85,7 @@ pub(crate) struct Brief {
 }
 
 /// When the work runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Trigger {
     /// At once: a subagent.
     Now,
@@ -71,6 +93,8 @@ pub(crate) enum Trigger {
     At(i64),
     /// Every this many milliseconds, until it ends.
     Every(i64),
+    /// At a time of day on chosen days, on the desk's clock, until it ends.
+    Calendar(Calendar),
 }
 
 /// Whom the work reports to, and how often.
@@ -188,8 +212,19 @@ pub fn parse_duration(value: &str) -> Option<i64> {
 }
 
 /// When a job should fire: a duration from `now`, an epoch-millisecond
-/// number, or an RFC3339 time.
+/// number, or a date and time, read on this machine's clock (see
+/// [`parse_when_in`]).
 pub fn parse_when(value: &str, now: i64) -> Option<i64> {
+    parse_when_in(value, now, &Local)
+}
+
+/// [`parse_when`] on `zone`'s clock. A date and time with an offset (`Z`,
+/// `+01:00`) is that instant. One without, or a bare date, which is its
+/// midnight, is a time on `zone`'s wall clock, because that is the clock a
+/// teammate is shown: every line it reads opens with the local time and no
+/// offset. [`local_instant`] says which instant a wall time that the clocks
+/// skip or repeat is.
+pub(crate) fn parse_when_in<Tz: TimeZone>(value: &str, now: i64, zone: &Tz) -> Option<i64> {
     if let Some(relative) = parse_duration(value) {
         return Some(now.saturating_add(relative));
     }
@@ -199,21 +234,63 @@ pub fn parse_when(value: &str, now: i64) -> Option<i64> {
     {
         return Some(ms);
     }
-    parse_datetime(trimmed)
+    parse_datetime(trimmed, zone)
 }
 
-fn parse_datetime(value: &str) -> Option<i64> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) {
-        return Some(dt.timestamp_millis());
+/// The ways a date and time is written that carry their own offset.
+const WITH_OFFSET: &[&str] = &["%Y-%m-%dT%H:%M%#z", "%Y-%m-%d %H:%M:%S%.f%#z"];
+/// The ways one is written on a wall clock.
+const WALL: &[&str] = &[
+    "%Y-%m-%dT%H:%M:%S%.f",
+    "%Y-%m-%dT%H:%M",
+    "%Y-%m-%d %H:%M:%S%.f",
+    "%Y-%m-%d %H:%M",
+];
+
+fn parse_datetime<Tz: TimeZone>(value: &str, zone: &Tz) -> Option<i64> {
+    if let Ok(at) = DateTime::parse_from_rfc3339(value) {
+        return Some(at.timestamp_millis());
     }
-    if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-        return Some(date.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis());
+    if let Some(at) = WITH_OFFSET
+        .iter()
+        .find_map(|format| DateTime::parse_from_str(value, format).ok())
+    {
+        return Some(at.timestamp_millis());
     }
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
-        return Some(dt.and_utc().timestamp_millis());
+    let wall = WALL
+        .iter()
+        .find_map(|format| NaiveDateTime::parse_from_str(value, format).ok())
+        .or_else(|| {
+            NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .ok()
+                .map(|date| date.and_time(NaiveTime::MIN))
+        })?;
+    local_instant(zone, wall)
+}
+
+/// The instant a wall-clock time names on `zone`, decided the same way every
+/// time. A time the clocks pass twice, as they go back, is the first time
+/// they pass it. A time the clocks skip, as they go forward, is the first
+/// moment after it that exists, which is the moment they changed: 2:30 on
+/// the morning the clocks go from 2:00 to 3:00 is 3:00.
+pub(crate) fn local_instant<Tz: TimeZone>(zone: &Tz, wall: NaiveDateTime) -> Option<i64> {
+    if let Some(at) = zone.from_local_datetime(&wall).earliest() {
+        return Some(at.timestamp_millis());
+    }
+    // Clocks change on a whole minute, so the first whole minute after a
+    // skipped time that exists is when they changed.
+    let mut minute = wall.with_second(0)?.with_nanosecond(0)?;
+    for _ in 0..MINUTES_A_CLOCK_MAY_SKIP {
+        minute = minute.checked_add_signed(TimeDelta::minutes(1))?;
+        if let Some(at) = zone.from_local_datetime(&minute).earliest() {
+            return Some(at.timestamp_millis());
+        }
     }
     None
 }
+
+/// No zone has ever moved its clocks by more than a day at once.
+const MINUTES_A_CLOCK_MAY_SKIP: u32 = 24 * 60;
 
 /// A job's short name: the first breath of its prompt, clipped so a firing
 /// draws as a line rather than as the whole instruction.
@@ -263,6 +340,23 @@ pub(super) fn run_of(job: &ScheduledJob) -> ScheduledRun {
     }
 }
 
+/// When a loop that fired, or skipped a run, at `now` fires next: its
+/// calendar's next time after `now` on the desk's clock, or `every` after
+/// `now`.
+pub(super) fn next_after(job: &ScheduledJob, now: i64) -> i64 {
+    next_after_in(job, now, &Local)
+}
+
+/// [`next_after`] on `zone`'s clock. A calendar this build cannot work a
+/// time from, written by a newer one, falls back to its daily `every`.
+pub(super) fn next_after_in<Tz: TimeZone>(job: &ScheduledJob, now: i64, zone: &Tz) -> i64 {
+    let every = || now.saturating_add(job.every.unwrap_or(MIN_LOOP));
+    match &job.calendar {
+        Some(calendar) => calendar::next_slot(calendar, now, zone).unwrap_or_else(every),
+        None => every(),
+    }
+}
+
 /// A job as the schedules view lists it.
 pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
     ScheduleEntry {
@@ -273,12 +367,14 @@ pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
         prompt: job.prompt,
         when: job.when,
         every: job.every,
+        calendar: job.calendar,
         next_at: job.next_at,
         quiet: job.quiet,
         reminder: job.reminder,
         last_post: job.last_post,
         ended_at: job.ended_at,
         without: job.without,
+        skipped: job.skipped,
     }
 }
 
@@ -382,11 +478,40 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
     });
 }
 
+/// How late a loop's run may start: [`LATE_RUN_LIMIT`], or what
+/// [`LATE_RUN_LIMIT_ENV`] says.
+fn late_run_limit() -> i64 {
+    std::env::var(LATE_RUN_LIMIT_ENV)
+        .ok()
+        .and_then(|ms| ms.trim().parse::<i64>().ok())
+        .filter(|ms| *ms >= 0)
+        .unwrap_or(LATE_RUN_LIMIT)
+}
+
+/// Whether a run due at `slot` is too late to start at `now`: more than
+/// `limit` after it. A run exactly `limit` late still runs.
+pub(super) fn too_late(slot: i64, now: i64, limit: i64) -> bool {
+    now.saturating_sub(slot) > limit
+}
+
+/// What became of a due time of a job's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot {
+    /// Its firing was handed over, or its reminder posted.
+    Ran,
+    /// The firing before was still going: its thread skipped this one.
+    Overlapped,
+    /// A loop's time passed more than [`LATE_RUN_LIMIT`] before the desk
+    /// could start it.
+    TooLate,
+}
+
 /// Fires one due job: a reminder is posted, any other job's firing is handed
 /// to its thread. Neither waits for the work, so a loop counts its next
 /// interval from when this firing started, and one still running when the
-/// next is due is what its thread skips. A skipped slot is not a firing, so
-/// it does not count toward the loop's count.
+/// next is due is what its thread skips. A loop's time the desk reaches more
+/// than [`LATE_RUN_LIMIT`] late is skipped instead of run. A skipped slot is
+/// not a firing, so it does not count toward the loop's count.
 fn fire(room: &Arc<Room>, job: ScheduledJob) {
     let Ok(_working) = room.working() else {
         return;
@@ -404,13 +529,18 @@ fn fire(room: &Arc<Room>, job: ScheduledJob) {
     if !scheduled_job_allowed(&room.log, &current.persona_id, &current.id) {
         return;
     }
+    if current.kind == ScheduleKind::Loop && too_late(current.next_at, now_ms(), late_run_limit()) {
+        finish(room, &current.id, Slot::TooLate);
+        return;
+    }
     let ran = if current.reminder == Some(true) {
         room.remind(&current).map(|()| true)
     } else {
         room.fire_job(&current)
     };
     match ran {
-        Ok(ran) => finish(room, &current.id, ran),
+        Ok(true) => finish(room, &current.id, Slot::Ran),
+        Ok(false) => finish(room, &current.id, Slot::Overlapped),
         Err(error) => retry(room, &current, &error),
     }
 }
@@ -456,9 +586,10 @@ fn tombstone_if_live(room: &Room, job_id: &str) {
 /// A one-shot has fired its last, and so has a loop whose count runs out or
 /// whose next firing would fall after its end: each is ended rather than
 /// deleted, because its thread stays readable. A slot that was skipped, not
-/// `ran`, moves the loop to its next slot without spending its count, so only
-/// its end date can end it.
-fn finish(room: &Room, job_id: &str, ran: bool) {
+/// run, moves the loop to its next slot without spending its count, so only
+/// its end date can end it; one skipped for being too late is kept on the
+/// job as its latest skip.
+fn finish(room: &Room, job_id: &str, slot: Slot) {
     let _mutations = lock(&room.schedule_mutations);
     let Some(mut next) = room::schedules(&room.log)
         .into_iter()
@@ -467,6 +598,13 @@ fn finish(room: &Room, job_id: &str, ran: bool) {
         return;
     };
     let now = now_ms();
+    let ran = slot == Slot::Ran;
+    if slot == Slot::TooLate {
+        next.skipped = Some(SkippedRun {
+            slot: next.next_at,
+            at: now,
+        });
+    }
     let ends = if ran {
         fires_last(&next, now)
     } else {
@@ -485,7 +623,7 @@ fn finish(room: &Room, job_id: &str, ran: bool) {
         next.ended_at = Some(now);
     }
     if next.kind == ScheduleKind::Loop {
-        next.next_at = now.saturating_add(next.every.unwrap_or(MIN_LOOP));
+        next.next_at = next_after(&next, now);
         if ran {
             next.times = next.times.map(|times| times.saturating_sub(1));
         }
@@ -504,8 +642,7 @@ pub(super) fn fires_last(job: &ScheduledJob, now: i64) -> bool {
 
 /// Whether a loop's next slot after `now` would fall after its end date.
 fn next_after_end(job: &ScheduledJob, now: i64) -> bool {
-    let next_at = now.saturating_add(job.every.unwrap_or(MIN_LOOP));
-    job.until.is_some_and(|until| next_at > until)
+    job.until.is_some_and(|until| next_after(job, now) > until)
 }
 
 impl Room {
@@ -584,7 +721,7 @@ impl Room {
             ));
         }
         let now = now_ms();
-        let (kind, when, every, next_at) = match trigger {
+        let (kind, when, every, next_at, calendar) = match trigger {
             Trigger::Now => {
                 return Err(
                     "A job runs at a time or every interval; a subagent runs now.".to_string(),
@@ -597,7 +734,7 @@ impl Room {
                         "schedule must be between 1 second and 30 days from now".to_string()
                     );
                 }
-                (ScheduleKind::Schedule, Some(when), None, when)
+                (ScheduleKind::Schedule, Some(when), None, when, None)
             }
             Trigger::Every(every) => {
                 if !(MIN_LOOP..=MAX_LOOP).contains(&every) {
@@ -608,7 +745,15 @@ impl Room {
                     None,
                     Some(every),
                     now.saturating_add(every),
+                    None,
                 )
+            }
+            Trigger::Calendar(calendar) => {
+                calendar::check(&calendar)?;
+                let first = calendar::next_slot(&calendar, now, &Local).ok_or_else(|| {
+                    "This desk's clock has no next time for that calendar.".to_string()
+                })?;
+                (ScheduleKind::Loop, None, Some(DAY), first, Some(calendar))
             }
         };
         let quiet = match report {
@@ -633,6 +778,7 @@ impl Room {
             kind,
             when,
             every,
+            calendar,
             prompt: prompt.to_string(),
             quiet: quiet.then_some(true),
             reminder: reminder.then_some(true),
@@ -646,6 +792,7 @@ impl Room {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            skipped: None,
         };
         room::append_schedule(&self.log, &job)?;
         self.schedule_changed.notify_one();
@@ -766,285 +913,4 @@ impl Room {
 const POST_LINE_CHARS: usize = 160;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::contract::SkillPolicy;
-    use crate::contract::{McpPolicy, Persona, PolicyMode};
-    use std::collections::HashMap;
-
-    struct NoKeys;
-
-    impl crate::session::ProviderKeys for NoKeys {
-        fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
-            HashMap::new()
-        }
-    }
-
-    fn grant_log(background_work: bool) -> Log {
-        let root = std::env::temp_dir().join(format!(
-            "hotline-core-schedule-grant-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        let log = Log::open(root);
-        let persona = Persona {
-            node: None,
-            id: "ada".to_string(),
-            name: "Ada".to_string(),
-            goal: String::new(),
-            avatar: None,
-            team: None,
-            bubble: None,
-            backend_id: "hotline".to_string(),
-            cwd: "/tmp/ada".to_string(),
-            reach: None,
-            model_id: None,
-            mode_id: None,
-            effort_id: None,
-            config_choices: std::collections::BTreeMap::new(),
-            effort_by_model: std::collections::BTreeMap::new(),
-            harness_override: None,
-            hop_notice: None,
-            mcp_policy: McpPolicy {
-                mode: PolicyMode::None,
-                server_ids: Vec::new(),
-            },
-            skill_policy: SkillPolicy::default(),
-            background_work,
-            allowed_senders: Vec::new(),
-            web_search_policy: None,
-            folders: None,
-            computer: None,
-            secrets: None,
-            voice: None,
-            session_checkpoints: Vec::new(),
-            last_session_id: None,
-            created_at: 1,
-            updated_at: 1,
-        };
-        log.append(
-            &crate::log::StreamId::Room,
-            &crate::room::room_event("persona", serde_json::to_value(persona).unwrap()),
-        )
-        .unwrap();
-        log
-    }
-
-    fn run(operator_created: bool) -> ScheduledRun {
-        ScheduledRun {
-            job_id: "job".to_string(),
-            kind: ScheduleKind::Schedule,
-            name: "check".to_string(),
-            operator_created,
-            quiet: None,
-        }
-    }
-
-    #[test]
-    fn parse_duration_reads_the_units_a_person_types() {
-        assert_eq!(parse_duration("15s"), Some(15_000));
-        assert_eq!(parse_duration("20m"), Some(20 * 60_000));
-        assert_eq!(parse_duration("1.5h"), Some(5_400_000));
-        assert_eq!(parse_duration("7d"), Some(7 * 86_400_000));
-        assert_eq!(parse_duration("20 minutes"), Some(20 * 60_000));
-        assert_eq!(parse_duration(" 20m "), Some(20 * 60_000));
-        assert_eq!(parse_duration("0s"), None);
-        assert_eq!(parse_duration("20"), None);
-        assert_eq!(parse_duration("nope"), None);
-        assert_eq!(parse_duration("-1m"), None);
-    }
-
-    #[test]
-    fn parse_when_takes_a_duration_an_epoch_or_an_rfc3339_time() {
-        let now = 1_700_000_000_000;
-        assert_eq!(parse_when("20m", now), Some(now + 20 * 60_000));
-        assert_eq!(parse_when("1700000001000", now), Some(1_700_000_001_000));
-        assert_eq!(
-            parse_when("2020-01-01T00:00:00Z", now),
-            Some(1_577_836_800_000)
-        );
-        assert_eq!(parse_when("2020-01-01", now), Some(1_577_836_800_000));
-        assert_eq!(parse_when("nope", now), None);
-        assert_eq!(parse_when("1000", now), None);
-    }
-
-    #[test]
-    fn a_job_name_is_the_prompts_first_breath() {
-        assert_eq!(
-            schedule_name("Check the Apple order\n\nThen report."),
-            "Check the Apple order"
-        );
-        assert_eq!(schedule_name("\n   \nCheck the order"), "Check the order");
-        assert_eq!(schedule_name("Runner mode:\nstep one"), "Runner mode");
-        assert_eq!(schedule_name("Check the order — "), "Check the order");
-        assert_eq!(schedule_name("   \n\t "), "scheduled work");
-        let long = schedule_name(&"x".repeat(400));
-        assert_eq!(long.chars().count(), SCHEDULE_NAME_MAX);
-        assert!(long.ends_with('…'));
-    }
-
-    #[test]
-    fn scheduled_run_authority_reads_the_live_grant_and_trusted_source() {
-        let off = grant_log(false);
-        assert!(!scheduled_run_allowed(&off, "ada", &run(false)));
-        assert!(scheduled_run_allowed(&off, "ada", &run(true)));
-
-        let on = grant_log(true);
-        assert!(scheduled_run_allowed(&on, "ada", &run(false)));
-    }
-
-    #[tokio::test]
-    async fn retry_receives_a_cancelled_job() {
-        let log = grant_log(true);
-        let now = now_ms();
-        let job = ScheduledJob {
-            id: "cancel-during-start".to_string(),
-            persona_id: "ada".to_string(),
-            kind: ScheduleKind::Schedule,
-            when: Some(now + 60_000),
-            every: None,
-            prompt: "retry this".to_string(),
-            quiet: Some(true),
-            reminder: None,
-            goal: None,
-            until: None,
-            times: None,
-            without: None,
-            operator_created: false,
-            next_at: now + 60_000,
-            created_at: now,
-            last_post: None,
-            ended_at: None,
-            final_firing: None,
-        };
-        room::append_schedule(&log, &job).unwrap();
-        let room = Room::new(log, Arc::new(NoKeys));
-
-        // This is the deterministic equivalent of cancellation winning while
-        // fire awaits start: retry receives the old captured job afterwards.
-        room.schedule_cancel(&job.id).unwrap();
-        retry(&room, &job, "simulated start failure");
-
-        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
-    }
-
-    #[tokio::test]
-    async fn retry_and_finish_keep_the_latest_job_source_and_quiet_setting() {
-        let log = grant_log(true);
-        let now = now_ms();
-        let job = ScheduledJob {
-            id: "preserve-edits".to_string(),
-            persona_id: "ada".to_string(),
-            kind: ScheduleKind::Loop,
-            when: None,
-            every: Some(MIN_LOOP),
-            prompt: "keep this loop".to_string(),
-            quiet: Some(true),
-            reminder: None,
-            goal: None,
-            until: None,
-            times: None,
-            without: None,
-            operator_created: true,
-            next_at: now + 60_000,
-            created_at: now,
-            last_post: None,
-            ended_at: None,
-            final_firing: None,
-        };
-        room::append_schedule(&log, &job).unwrap();
-        let room = Room::new(log, Arc::new(NoKeys));
-
-        room.schedule_set_quiet(&job.id, false).unwrap();
-        retry(&room, &job, "simulated start failure");
-        let retried = room.schedule_list();
-        assert_eq!(retried.len(), 1);
-        assert!(retried[0].operator_created);
-        assert_eq!(retried[0].quiet, None);
-
-        finish(&room, &job.id, true);
-        let advanced = room.schedule_list();
-        assert_eq!(advanced.len(), 1);
-        assert!(advanced[0].operator_created);
-        assert_eq!(advanced[0].quiet, None);
-        assert!(advanced[0].next_at > now);
-    }
-
-    #[tokio::test]
-    async fn a_skipped_slot_moves_a_loop_on_without_spending_its_count() {
-        let log = grant_log(true);
-        let now = now_ms();
-        let job = ScheduledJob {
-            id: "skips".to_string(),
-            persona_id: "ada".to_string(),
-            kind: ScheduleKind::Loop,
-            when: None,
-            every: Some(MIN_LOOP),
-            prompt: "post the time".to_string(),
-            quiet: None,
-            reminder: None,
-            goal: None,
-            until: None,
-            times: Some(1),
-            without: None,
-            operator_created: true,
-            next_at: now,
-            created_at: now,
-            last_post: None,
-            ended_at: None,
-            final_firing: None,
-        };
-        room::append_schedule(&log, &job).unwrap();
-        let room = Room::new(log, Arc::new(NoKeys));
-
-        finish(&room, &job.id, false);
-        let skipped = room.schedule_list();
-        assert_eq!(skipped[0].times, Some(1));
-        assert_eq!(skipped[0].ended_at, None);
-        assert!(skipped[0].next_at > now);
-
-        finish(&room, &job.id, true);
-        assert!(room::all_jobs(&room.log)[0].ended_at.is_some());
-    }
-}
-
-#[cfg(test)]
-mod update_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn an_update_does_not_consume_or_reschedule_a_due_job() {
-        let log = super::super::tests::scratch("update-keeps-jobs");
-        super::super::tests::enrol(&log, &super::super::tests::persona("ada"));
-        let room = Room::new(log.clone(), Arc::new(super::super::tests::DeskKeys));
-        let held = room.prepare_restart().unwrap();
-        let job = ScheduledJob {
-            id: "due-during-update".into(),
-            persona_id: "ada".into(),
-            kind: ScheduleKind::Schedule,
-            when: Some(now_ms()),
-            every: None,
-            prompt: "Resume after updating".into(),
-            quiet: None,
-            reminder: None,
-            goal: None,
-            until: None,
-            times: None,
-            without: None,
-            operator_created: true,
-            next_at: now_ms(),
-            created_at: now_ms(),
-            last_post: None,
-            ended_at: None,
-            final_firing: None,
-        };
-        room::append_schedule(&log, &job).unwrap();
-        let before = log.load(&crate::log::StreamId::Room);
-        fire(&room, job);
-        assert_eq!(log.load(&crate::log::StreamId::Room), before);
-        assert_eq!(room::schedules(&log).len(), 1);
-        drop(held);
-    }
-}
+mod tests;

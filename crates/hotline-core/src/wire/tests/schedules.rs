@@ -13,6 +13,7 @@ fn scheduled(
         kind,
         when: (kind == ScheduleKind::Schedule).then_some(next_at),
         every: (kind == ScheduleKind::Loop).then_some(60_000),
+        calendar: None,
         prompt: format!("{id}, please"),
         quiet: None,
         reminder: None,
@@ -26,6 +27,7 @@ fn scheduled(
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     }
 }
 

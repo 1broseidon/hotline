@@ -8,6 +8,48 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate can set a job that repeats at a time of day on chosen days,
+  such as every weekday at 9:00, as well as one that repeats on an
+  interval. Hotline runs it again itself each time, on this computer's
+  clock, and keeps it at that time through a late run, a restart and the
+  clocks changing. Its row in the teammate's schedules says when it runs,
+  such as "Weekdays at 9:00 AM". A desk on an older version reads such a
+  job as one that runs once a day.
+
+### Changed
+
+- A repeating job whose time passed more than two hours before Hotline
+  could run it, because the computer was asleep, Hotline was closed or
+  Background work was off, skips that run and waits for its next time,
+  instead of running hours late. A run late by less than two hours still
+  runs once, and a one-time job still runs whenever Hotline can.
+
+### Fixed
+
+- A scheduled job's run on another agent that never lists or uses
+  Hotline's tools now says so on the job's thread when it ends. One whose
+  agent never connected to them at all also has its next run start a new
+  session. Before, nothing said so. Runs are not held up or started again
+  for this.
+- An agent that stops on its own lets go of Hotline's tools at once,
+  instead of when it is next asked something.
+- A scheduled job's run is told only of the tools it has. Before, it was
+  told it could schedule, so a teammate asked for something daily would set
+  a one-time job and try to set the next from inside its run, where it
+  cannot. A run is now told that Hotline repeats its job by itself, or that
+  this is its only run.
+- A time a teammate gives for a job without a time zone, such as
+  2026-11-16T09:00, or a bare date, is a time on this computer's clock.
+  Before, it was read as UTC, so a reminder asked for at 9:00 could come
+  hours early or late. A time with a zone is still that time.
+- A teammate on another agent, such as Codex, keeps Hotline's tools however
+  long it sits waiting, on a permission card or anything else. Before, five
+  minutes without using them ended its connection to them, and every call
+  after that failed with "session not found" until the teammate was
+  restarted. The connection now ends only when the teammate's agent does.
+
 ## [0.49.1] - 2026-11-13
 
 ### Changed

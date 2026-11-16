@@ -12,6 +12,13 @@ pub(super) struct Live {
     pub(super) terminal_done: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(super) connection: Mutex<Option<ConnectionTo<Agent>>>,
     pub(super) connection_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Hotline's own tools for this child, on a loopback endpoint of their
+    /// own. They live as long as the connection: a child that dies takes
+    /// them with it, ending every MCP session it opened on them.
+    pub(super) served: Mutex<Option<Served>>,
+    /// What the child did on the endpoint it was last handed, kept past the
+    /// endpoint so a turn that ends with the child can still be read.
+    pub(super) hotline_use: Mutex<Option<Arc<crate::mcp::server::EndpointUse>>>,
     pub(super) session: Mutex<Session>,
     /// The latest picker metadata the harness advertised. A watch keeps
     /// notifications separate from the transcript update stream; the room

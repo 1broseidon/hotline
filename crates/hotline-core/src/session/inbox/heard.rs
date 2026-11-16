@@ -269,8 +269,8 @@ impl Room {
             .iter()
             .map(|item| {
                 format!(
-                    "\"{}\" from {}{}",
-                    item.title,
+                    "{} from {}{}",
+                    crate::fence::quoted(&item.title),
                     self.sender_of(item),
                     if item.waiting {
                         " (waiting on you)"
@@ -377,8 +377,8 @@ impl Room {
             .as_deref()
             .map_or_else(String::new, |id| format!(" · answers {}", short(id)));
         format!(
-            "\"{}\" · from {}{waiting} · wants {} · {}{answers} · {}",
-            item.title,
+            "{} · from {}{waiting} · wants {} · {}{answers} · {}",
+            crate::fence::quoted(&item.title),
             self.sender_of(item),
             item.wants.name(),
             since(now - item.ts),
@@ -415,10 +415,9 @@ impl Room {
                 (InboxState::Closed, Some(outcome)) => format!("closed, {}", outcome.name()),
                 (state, _) => state.name().to_string(),
             };
-            let why = latest
-                .reason
-                .as_deref()
-                .map_or_else(String::new, |why| format!(": {why}"));
+            let why = latest.reason.as_deref().map_or_else(String::new, |why| {
+                format!(": {}", crate::fence::quoted(why))
+            });
             let work = item
                 .work
                 .as_ref()
@@ -427,8 +426,8 @@ impl Room {
                     format!(" · in {}", crate::session::index::short(work))
                 });
             lines.push(format!(
-                "\"{}\" to {} · {state}{at}{why}{work} · {}",
-                item.title,
+                "{} to {} · {state}{at}{why}{work} · {}",
+                crate::fence::quoted(&item.title),
                 self.name_of(&item.to),
                 short(&item.id)
             ));

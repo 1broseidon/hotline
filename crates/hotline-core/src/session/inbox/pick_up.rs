@@ -45,7 +45,7 @@ use super::clock;
 use super::heard::{gather_delay, nobody_reads, since};
 use super::{Room, kept, lock, now_ms, short};
 use crate::contract::{InboxItem, InboxState, ThreadId};
-use crate::fence::fenced;
+use crate::fence::{fenced, quoted};
 use crate::session::turns::Occupant;
 use crate::session::{Wired, timed};
 use std::sync::Arc;
@@ -326,7 +326,7 @@ impl Room {
                 "for later{}",
                 item.reason
                     .as_deref()
-                    .map_or_else(String::new, |why| format!(": {why}"))
+                    .map_or_else(String::new, |why| format!(": {}", quoted(why)))
             ),
             InboxState::Seen => "read, not sorted".to_string(),
             _ => "not read".to_string(),
@@ -336,8 +336,8 @@ impl Room {
             .as_deref()
             .map_or_else(String::new, |id| format!(" · answers {}", short(id)));
         format!(
-            "\"{}\" · from {}{waiting} · wants {} · {}{answers} · {stands} · {}",
-            item.title,
+            "{} · from {}{waiting} · wants {} · {}{answers} · {stands} · {}",
+            quoted(&item.title),
             self.sender_of(item),
             item.wants.name(),
             since(now - item.ts),

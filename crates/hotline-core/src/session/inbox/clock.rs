@@ -203,13 +203,18 @@ impl Room {
         }
         let receiver = self.persona(&expired.to)?;
         let name = self.name_of(&receiver.id);
+        // The title and the reason are teammates' words inside Hotline's:
+        // quoted, so neither can end its quote and speak as the notice.
         let mut body = format!(
-            "This is Hotline's notice, not {name}'s words. Your item \"{}\" to {name} was not picked up and expired after {}: Hotline closed it unanswered.",
-            expired.title,
+            "This is Hotline's notice, not {name}'s words. Your item {} to {name} was not picked up and expired after {}: Hotline closed it unanswered.",
+            crate::fence::quoted(&expired.title),
             span_words(after)
         );
         let because = last_later_reason(expired).map_or_else(String::new, |reason| {
-            format!(" {name}'s last reason for leaving it for later: \"{reason}\".")
+            format!(
+                " {name}'s last reason for leaving it for later: {}.",
+                crate::fence::quoted(&reason)
+            )
         });
         body.push_str(&because);
         body.push_str(" Nothing more comes of it unless you send it again. Tell the person only if it is theirs to know.");

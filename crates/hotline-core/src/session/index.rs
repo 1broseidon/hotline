@@ -23,6 +23,7 @@
 use super::sides::cut;
 use super::{Room, lock, now_ms, timed};
 use crate::contract::{Aside, End, SessionState, ThreadId, ThreadKind};
+use crate::fence::quoted;
 use crate::thread::{Link, Participant, Thread, ThreadState, ThreadStore};
 use chrono::{Local, TimeZone};
 use serde_json::Value;
@@ -321,7 +322,7 @@ impl Entry {
         let said = self
             .said
             .as_deref()
-            .map_or_else(String::new, |said| format!(" · \"{said}\""));
+            .map_or_else(String::new, |said| format!(" · {}", quoted(said)));
         let kind = if self.key.is_some() { "" } else { " chapter" };
         format!(
             "{}{kind} · {} · {} {when}{said}{key}",
@@ -347,10 +348,11 @@ impl Entry {
         let said = self
             .said
             .as_deref()
-            .map_or_else(String::new, |said| format!(": \"{said}\""));
+            .map_or_else(String::new, |said| format!(": {}", quoted(said)));
         format!(
-            "{verb} \"{}\"{whom}{then} ({} {when}){said}",
-            self.title, self.state
+            "{verb} {}{whom}{then} ({} {when}){said}",
+            quoted(&self.title),
+            self.state
         )
     }
 }

@@ -1436,8 +1436,8 @@ Teammates reach each other one way: an item in the colleague's inbox
 reaches a colleague; `read_inbox` and `update_inbox` read and sort the
 teammate's own. `message_teammate` and a colleague's `aside` are gone.
 
-**Sending.** `send` names one teammate, several or `team`, a one-line
-`title`, the `message`, what it `wants` back (`answer`, `work`, `nothing`)
+**Sending.** `send` names one teammate, several or `team`, a `title` (kept
+as one plain line, `fence::one_line`, of at most 80 characters), the `message`, what it `wants` back (`answer`, `work`, `nothing`)
 and whether the sender is `waiting`; optionally `about` (a thread of the
 receiver's, where it is heard while that thread is live), `reply_to` (an item
 in the sender's own inbox) and `files`. It returns at once with each item's
@@ -1544,6 +1544,12 @@ when), or reads the ones named whole and marks them `seen`. `update_inbox` sorts
 call, in the order the receiver means to work them: `taken`, `later` with a
 reason, `closed` with an outcome (`done`, `noted`, `dropped`), `combined`
 into another item, or an `answer`, which replies and closes the item as done.
+A reason is kept as a title is, one plain line, at most 200 characters, and
+an answer is at most as long as a message. Wherever Hotline lists a title or
+a reason for a teammate (the index's `INBOX` section, the mid-turn notice,
+the pick-up, the expired notice, the thread index) it is quoted with its own
+quotes escaped (`fence::quoted`) inside the fence, and a taken item's work
+thread hears its title only inside the colleague's fence.
 Every entry is checked before any moves. Each call writes an `inbox_sorted`
 line on the receiver's main conversation.
 

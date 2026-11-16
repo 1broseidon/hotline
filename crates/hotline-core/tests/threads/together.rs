@@ -962,7 +962,9 @@ async fn an_item_left_for_later_is_offered_once_when_idle_and_a_teammate_that_de
     assert!(line.contains("\"Keyboards\" · from Ada"), "{line}");
     assert!(
         line.contains("for later")
-            && line.contains(": Finishing the deep research first; keyboards are a separate task."),
+            && line.contains(
+                ": \"Finishing the deep research first; keyboards are a separate task.\""
+            ),
         "with the reason he gave: {line}"
     );
     desk.line_saying(&bob, "Still later.").await;
@@ -1149,7 +1151,7 @@ async fn a_desk_that_opens_offers_what_was_left_for_later_once() {
     .await;
     let line = &desk.heard(PICKED_UP)[1];
     assert!(
-        line.contains("\"Keyboards\" · from Ada") && line.contains(": Still on the research."),
+        line.contains("\"Keyboards\" · from Ada") && line.contains(": \"Still on the research.\""),
         "{line}"
     );
     desk.line_saying(&bob, "Not yet.").await;

@@ -100,7 +100,7 @@ async fn a_set_aside_item_is_offered_again_an_hour_after_its_first_pick_up_then_
         "as the same quiet turn"
     );
     assert!(
-        picked_up(&agents)[1].contains(": after the research"),
+        picked_up(&agents)[1].contains(": \"after the research\""),
         "{}",
         picked_up(&agents)[1]
     );

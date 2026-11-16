@@ -763,7 +763,7 @@ async fn the_sender_is_told_once_what_became_of_its_items_at_its_next_turn() {
     let told = &agents.told()[0];
     assert!(told.contains("SENT · what moved 1"), "{told}");
     assert!(told.contains("\"Pick a name\" to Bob · later"), "{told}");
-    assert!(told.contains(": after the release"), "{told}");
+    assert!(told.contains(": \"after the release\""), "{told}");
     until("at rest", || !lock(&session.turns).running).await;
     room.prompt("ada", "and now?", None, None).await.unwrap();
     until("ada's next turn", || agents.told().len() == 2).await;
@@ -955,3 +955,4 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
 mod clock;
 mod pick_up;
 mod quiet;
+mod titles;

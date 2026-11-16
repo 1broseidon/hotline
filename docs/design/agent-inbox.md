@@ -38,8 +38,10 @@ These are George's, and the prototype's acceptance criteria.
 
 ## The tools
 
-- **`send`** `to` (one teammate, several, or `["team"]`), `title` (one line,
-  at most 80 characters; a longer one is cut at a word), `message` (optional),
+- **`send`** `to` (one teammate, several, or `["team"]`), `title` (kept as
+  one plain line: control characters, line breaks and characters a reader
+  never sees, such as direction overrides and zero-width ones, are dropped;
+  at most 80 characters, a longer one cut at a word), `message` (optional),
   `wants` (`answer`, `work` or `nothing`), `waiting` (the sender has stopped
   until this is answered), `about` (a thread of the receiver's, `kind:key`),
   `reply_to` (an item in the sender's own inbox), `files`. It returns at once
@@ -55,11 +57,13 @@ These are George's, and the prototype's acceptance criteria.
   them whole and marks them seen.
 - **`update_inbox`** `items`, a list in the order the receiver means to work
   them. Each entry names an item and sets `state`: `taken`, `later` (with a
-  `reason`), `closed` (with an `outcome`: `done`, `noted` or `dropped`;
+  `reason`, kept as one plain line of at most 200 characters, as a title
+  is), `closed` (with an `outcome`: `done`, `noted` or `dropped`;
   `expired` is Hotline's and refused) or `combined` (with `into`, the item it
   folds into). An entry may not answer Hotline's notice or take it into a
   thread: there is no colleague behind it. An entry may carry an
-  `answer`, which replies and closes the item as done. `in_thread` (with
+  `answer`, which replies and closes the item as done, at most as long as
+  a message. `in_thread` (with
   `taken`) says whether the work runs in a work thread of the receiver's: true
   by default for an item that wants work, false otherwise. Every entry is
   checked before any moves, so one mistake changes nothing.
@@ -153,7 +157,12 @@ about that thread), else the receiver's main conversation.
   (title, sender, `waiting on you`, what it wants, age, short id, and which
   item it answers), and what moved among the items the teammate sent. An item
   is offered once; the count stays while it is unread. The section is fenced
-  as data (`hotline_inbox`).
+  as data (`hotline_inbox`), and every title and reason in it is quoted with
+  its own quotes escaped (`fence::quoted`), so none can end its quote, forge
+  a second entry or speak as Hotline. The mid-turn notice, the pick-up's
+  line, the expired notice's words and the thread index quote them the same
+  way, and a work thread taken from an item hears its title only as the
+  first line inside the colleague's own fence.
 - **At a turn's end.** Items still unread that no turn's start was offered,
   because they landed mid-turn, wake the idle thread as above. An item wakes
   its receiver once as new; what the main conversation was shown and left
@@ -261,7 +270,7 @@ Every change of an item is a receipt with its time. At the start of its next
 turn in the thread the item was sent from (if live, else its main
 conversation) the sender is told, under `SENT · what moved`, each of its items
 that moved since it was last told, as one line of where it stands now:
-`"Pick a name" to Bob · later 14:03: after the release · 1a2b3c4d`. Only the
+`"Pick a name" to Bob · later 14:03: "after the release" · 1a2b3c4d`. Only the
 changes, like the index. The window reads the receipts over the wire.
 
 ## Guards

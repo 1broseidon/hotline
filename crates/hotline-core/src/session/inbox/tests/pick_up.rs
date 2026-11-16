@@ -119,7 +119,7 @@ async fn an_item_set_aside_while_busy_is_offered_once_quietly_when_idle_and_can_
         "{line}"
     );
     assert!(
-        line.contains(": Finishing the deep research first; keyboards are a separate task."),
+        line.contains(": \"Finishing the deep research first; keyboards are a separate task.\""),
         "with the reason he gave: {line}"
     );
     assert!(line.contains("for later"), "{line}");
@@ -187,7 +187,7 @@ async fn a_pick_up_turn_is_followed_by_no_other_however_much_it_leaves_open() {
     })
     .await;
     assert!(
-        picked_up(&agents)[1].contains(": still not now"),
+        picked_up(&agents)[1].contains(": \"still not now\""),
         "{}",
         picked_up(&agents)[1]
     );
@@ -393,7 +393,7 @@ async fn a_desk_that_opens_offers_what_was_set_aside_once_quietly_and_nothing_mo
     .await;
     let bobs = &picked_up_from(&agents, "Ada")[0];
     assert!(
-        bobs.contains("\"Keyboards\" · from Ada") && bobs.contains(": after the research"),
+        bobs.contains("\"Keyboards\" · from Ada") && bobs.contains(": \"after the research\""),
         "{bobs}"
     );
     let bob = room.session("bob").unwrap();

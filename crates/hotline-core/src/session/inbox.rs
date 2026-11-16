@@ -47,6 +47,10 @@ pub(in crate::session) use pick_up::PickUp;
 /// open the item.
 pub(crate) const TITLE_CHARS: usize = 80;
 
+/// The most a reason says (why an item is for later, or how it was closed):
+/// its sender reads it in a line of where its item stands.
+const REASON_CHARS: usize = 200;
+
 /// How much of an item's id the index and the notices show. Any part of an
 /// id that names one item alone is taken wherever an id is.
 const SHORT_ID: usize = 8;
@@ -221,11 +225,23 @@ impl Sorting {
                         ));
                     }
                 };
+                let answer = text("answer");
+                if answer
+                    .as_ref()
+                    .is_some_and(|answer| answer.chars().count() > super::TEAMMATE_MESSAGE_MAX)
+                {
+                    return Err(format!(
+                        "An answer is at most {} characters.",
+                        super::TEAMMATE_MESSAGE_MAX
+                    ));
+                }
                 Ok(Self {
                     id,
                     sort,
-                    reason: text("reason"),
-                    answer: text("answer"),
+                    reason: text("reason")
+                        .map(|reason| short_line(&reason, REASON_CHARS))
+                        .filter(|reason| !reason.is_empty()),
+                    answer,
                     in_thread: entry.get("in_thread").and_then(Value::as_bool),
                 })
             })
@@ -233,16 +249,25 @@ impl Sorting {
     }
 }
 
-/// A title as it is kept: one line, cut at a word to [`TITLE_CHARS`].
+/// A title as it is kept: one plain line ([`crate::fence::one_line`]), cut
+/// at a word to [`TITLE_CHARS`].
 fn title_of(title: &str) -> Result<String, String> {
-    let line = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line = short_line(title, TITLE_CHARS);
     if line.is_empty() {
         return Err("send needs a `title`: a short line saying what it is.".into());
     }
-    if line.chars().count() <= TITLE_CHARS {
-        return Ok(line);
+    Ok(line)
+}
+
+/// A line one teammate writes that another reads in Hotline's own lists (a
+/// title, a reason), as it is kept: one plain line, cut at a word to `most`
+/// characters.
+fn short_line(text: &str, most: usize) -> String {
+    let line = crate::fence::one_line(text);
+    if line.chars().count() <= most {
+        return line;
     }
-    Ok(super::sides::cut(&line, TITLE_CHARS))
+    super::sides::cut(&line, most)
 }
 
 /// The part of an id the index and notices show.
@@ -994,7 +1019,11 @@ impl Room {
         let mut resolved: Vec<(InboxItem, Sorting)> = Vec::new();
         for mut sorting in sortings {
             let item = self.item_of(persona_id, &sorting.id)?;
-            let named = format!("\"{}\" ({})", item.title, short(&item.id));
+            let named = format!(
+                "{} ({})",
+                crate::fence::quoted(&item.title),
+                short(&item.id)
+            );
             if item.state == InboxState::Closed {
                 return Err(format!("{named} is closed already."));
             }
@@ -1045,8 +1074,8 @@ impl Room {
                 }
                 if target.state == InboxState::Closed {
                     return Err(format!(
-                        "{named} folds into \"{}\", which is closed.",
-                        target.title
+                        "{named} folds into {}, which is closed.",
+                        crate::fence::quoted(&target.title)
                     ));
                 }
                 sorting.sort = Some(Sort::Combined(target.id));
@@ -1060,8 +1089,8 @@ impl Room {
                 })
             {
                 return Err(format!(
-                    "\"{}\" folds into an item that is itself combined: fold both into the one you keep.",
-                    item.title
+                    "{} folds into an item that is itself combined: fold both into the one you keep.",
+                    crate::fence::quoted(&item.title)
                 ));
             }
         }

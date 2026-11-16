@@ -94,6 +94,41 @@ describe("Ask or hand off", () => {
 		expect(openAsks([{ ...pause, status: "resumed" }])).toEqual([]);
 	});
 
+	const upInAccess: Extract<TranscriptEvent, { kind: "permission" }> = {
+		kind: "permission",
+		id: "perm:collab:1",
+		ts: 3,
+		requestId: "collab:1",
+		title: "Goldie wants Huck to do work\n\nHuck has more access than Goldie. If you allow this, Huck does the work with its own access: your whole Mac.",
+		options: [
+			{ optionId: "allow", name: "Allow", kind: "allow_once" },
+			{ optionId: "allow_always", name: "Always", kind: "allow_always" },
+			{ optionId: "deny", name: "Deny" },
+		],
+	};
+
+	test("task-470 a request up in access is a card with its heading, why, and Allow, Always and Deny", () => {
+		const html = renderToStaticMarkup(<Transcript personaId="goldie" name="Goldie" events={[upInAccess]} streaming={[]} live={false} focus={null} />);
+		expect(html).toContain('data-kind="collaboration"');
+		expect(html).toContain("<b>Goldie</b> wants <b>Huck</b> to do work");
+		expect(html).toContain(">Huck has more access than Goldie. If you allow this, Huck does the work with its own access: your whole Mac.<");
+		expect([...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((match) => match[1])).toEqual(["Allow", "Always", "Deny"]);
+		expect(html).not.toContain("wants to run");
+		expect(html).not.toMatch(/up in reach/i);
+		const settled = renderToStaticMarkup(
+			<Transcript personaId="goldie" name="Goldie" events={[{ ...upInAccess, decision: "allow_always", decidedOptionName: "Always" }]} streaming={[]} live={false} focus={null} />,
+		);
+		expect(settled).toContain("Goldie wants Huck to do work");
+		expect(settled).toContain(">Always<");
+		expect(settled).not.toContain("<button");
+	});
+
+	test("task-470 in Needs you a request up in access is one short question", async () => {
+		const { askLine, openAsks } = await import("../src/components/transcript/AskCard");
+		expect(askLine(openAsks([upInAccess])[0]!)).toBe("Allow Huck to do work for Goldie?");
+		expect(openAsks([{ ...upInAccess, decision: "deny", decidedOptionName: "Deny" }])).toEqual([]);
+	});
+
 	test("Answering names the sender only until the person speaks or the turn finishes", () => {
 		expect(turnCauseLine([delivery])).toBe("Answering Mack");
 		expect(turnCauseLine([delivery, { kind: "user", id: "user-1", ts: 2, text: "Do this instead" }])).toBeNull();

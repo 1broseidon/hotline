@@ -4,7 +4,8 @@ description: How one teammate reaches another through its inbox, what you approv
 ---
 
 Teammates reach each other one way: an item in the colleague's **inbox**.
-You approve the pair first, and nothing a teammate sends lands in your chat.
+You are asked only when a teammate asks one with more access than itself,
+and nothing a teammate sends lands in your chat.
 
 ## The inbox
 
@@ -39,19 +40,23 @@ A teammate can also see what its colleagues are doing: whether each is idle,
 working, waiting on you or stopped, and what it is working on. It never sees
 what anyone said.
 
-## Approving a pair
+## When you are asked
 
-The first time a teammate tries to reach a colleague, a card in its
-conversation asks you to allow it. It names the two teammates and says what
-the colleague may do. Choose **Allow this session**, **Always allow** and
-the asking teammate's name, or **Deny**.
+Teammates reach each other without asking you, unless one asks a colleague
+with more access than itself: a teammate kept to its own folders asking one
+with **Whole machine** on. Then a card in the asking teammate's chat says,
+for example, "Goldie wants Huck to do work: Huck has more access than
+Goldie. If you allow this, Huck does the work with its own access: your
+whole Mac." It also waits in **Needs you** above the message field.
 
-A grant goes one way. Allowing Mack to ask Clementine does not let
-Clementine ask Mack, and it does not let Clementine pass the work on to
-anyone else. (A Hotline Agent teammate with **Whole machine** access needs
-no approval.)
+- **Allow** lets this one request through. The next one asks again.
+- **Always** lets Goldie ask Huck from now on, until Huck is given more
+  access, when you are asked again.
+- **Deny** drops the request. Huck never sees it, and Goldie is told.
 
-Standing grants are listed in the colleague's pane, under **Permissions →
+An answer goes one way. Allowing Goldie to ask Huck does not let Huck ask
+Goldie, and it does not let Huck pass the work on to anyone else. What you
+chose Always for is listed in the colleague's pane, under **Permissions →
 Collaboration**, each with **Revoke**.
 
 ## Work threads

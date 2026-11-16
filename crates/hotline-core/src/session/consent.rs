@@ -1,14 +1,20 @@
-//! The person's standing consent to one teammate handing another work, and
-//! the one thing that clears it: the recipient's access growing.
+//! Which teammate has more access than another, and the person's standing
+//! consent to one asking another with more to work, with the one thing that
+//! clears it: the recipient's access growing.
 //!
-//! "Always allow" on a first-contact card is two records. The caller's id in
-//! the recipient's `allowedSenders`, which lets it ask, and a
-//! `collaboration_informed` room event for the direction, which says the
-//! person was shown what a handoff means and lets it hand work over. Both
-//! stand until the person takes them away or the recipient comes to reach
+//! A teammate's access is the level its settings give it: its own folders,
+//! or the whole machine (Hotline Agent's Whole machine switch, `reach`). Only a request
+//! up in access asks the person ([`more_access`]); between equals, or down,
+//! the receiver can do nothing the sender could not, so nothing asks.
+//!
+//! "Always" on that card is two records. The caller's id in the recipient's
+//! `allowedSenders`, which lets it ask, and a `collaboration_informed` room
+//! event for the direction, which says the person was shown what a handoff
+//! means and lets it hand work over. Both stand until the person takes them
+//! away (Permissions › Collaboration, Revoke) or the recipient comes to reach
 //! more than it did when they were given: then the work the person agreed
-//! to could do more than they agreed to, so both go, and the next card says
-//! why it is asking again. A goal edited, a model or agent switched, a
+//! to could do more than they agreed to, so both go, and the next request up
+//! in access asks again. A goal edited, a model or agent switched, a
 //! restart, a chapter, a rebuild or a sign-out that narrows nothing leaves
 //! them alone.
 
@@ -47,7 +53,37 @@ pub(crate) fn record_informed(log: &Log, caller: &str, target: &str) -> Result<(
     .map_err(|error| error.to_string())
 }
 
-/// How a teammate's access grew, as the next card says it after the name.
+/// Whether `target` has more access than `caller`, by the level each one's
+/// settings give it: the whole machine is more than its own folders.
+pub(crate) fn more_access(caller: &Persona, target: &Persona) -> bool {
+    whole_machine(target) && !whole_machine(caller)
+}
+
+/// Whether a teammate has the whole machine: Hotline Agent with Whole
+/// machine on. Another agent's callbacks stay in its workspace whatever its
+/// record says (`driver/acp/session.rs`), as its settings show no such switch.
+fn whole_machine(persona: &Persona) -> bool {
+    persona.backend_id == crate::driver::HOTLINE_BACKEND_ID
+        && persona.reach.unwrap_or_default() == Reach::Machine
+}
+
+/// A teammate's access in the words the person knows it by from its
+/// settings, for the card that asks before one with more of it does work:
+/// the whole machine (the Whole machine switch), else its own folders (its
+/// Folders). A card up in access names the whole machine; only a caller on
+/// a linked desk, always asked about, can meet the other.
+pub(crate) fn access_words(target: &Persona) -> &'static str {
+    if !whole_machine(target) {
+        "its own folders"
+    } else if cfg!(target_os = "macos") {
+        "your whole Mac"
+    } else {
+        "the whole machine"
+    }
+}
+
+/// How a teammate's access grew, kept on the record of the consent it
+/// cleared.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Widening {
     Machine,
@@ -69,26 +105,6 @@ impl Widening {
             Self::Secret => "secret",
         }
     }
-
-    fn said(code: &str) -> Option<&'static str> {
-        Some(match code {
-            "machine" => "can reach the whole machine",
-            "workspace" => "works in another folder",
-            "folder" => "was given a folder",
-            "mcp" => "was given an MCP server",
-            "computer" => "has its computer on",
-            "secret" => "was given a secret",
-            _ => return None,
-        })
-    }
-}
-
-/// The line a first-contact card carries when the person allowed this
-/// direction for good before and the recipient's access has grown since.
-pub(crate) fn asking_again(room: &[Value], caller: &str, target: &Persona) -> Option<String> {
-    let cleared = record(room, caller, &target.id)?;
-    let said = Widening::said(cleared["widened"].as_str()?)?;
-    Some(format!("{} {said} since you chose Always.", target.name))
 }
 
 /// The servers a policy grants out of those the desk has.

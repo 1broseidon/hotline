@@ -42,7 +42,7 @@ impl Room {
                 return None;
             };
             return Some(Notice {
-                text: format!("{title} Say yes to allow this session, or no to decline."),
+                text: format!("{title} Say yes to allow it this once, or no to decline."),
                 answerable: true,
             });
         }
@@ -193,11 +193,7 @@ impl Room {
         self.answer_permission(
             &card.persona,
             &card.request,
-            if yes {
-                peers::ALLOW_SESSION
-            } else {
-                peers::DENY
-            },
+            if yes { peers::ALLOW } else { peers::DENY },
         )
         .await?;
         Ok(())

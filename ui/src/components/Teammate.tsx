@@ -549,9 +549,9 @@ function HarnessRows({
 }
 
 /**
- * Who may hand this teammate work without asking first. A teammate with
- * the whole machine asks nobody; a workspace teammate asks once, and the
- * answer that says "always" lands here as a row you can revoke.
+ * Who may hand this teammate work without asking first. Only a teammate
+ * with less access than this one is asked about at all, and the answer
+ * Always lands here as a row you can revoke.
  */
 function CollaborationRows({
 	allowed,

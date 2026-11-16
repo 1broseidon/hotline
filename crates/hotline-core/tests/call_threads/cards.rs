@@ -352,11 +352,12 @@ async fn live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes() {
 }
 
 #[tokio::test]
-async fn spoken_collaboration_approval_is_only_for_this_session() {
+async fn spoken_collaboration_approval_is_only_for_this_request() {
     for from_call in [false, true] {
         let mut desk = open().await;
+        // Bob has the whole machine, more than Ada: her request asks.
         let (ada, _) = desk.teammate("Ada", Driver::HotlineAgent, false).await;
-        let (bob, _) = desk.teammate("Bob", Driver::HotlineAgent, false).await;
+        let (bob, _) = desk.teammate("Bob", Driver::HotlineAgent, true).await;
         let (call, _, thread) = desk.call_on(&ada, None).await;
         let prompt = format!(
             "CALL send {}",
@@ -375,7 +376,7 @@ async fn spoken_collaboration_approval_is_only_for_this_session() {
             e["kind"] == "agent"
                 && e["text"]
                     .as_str()
-                    .is_some_and(|s| s.contains("allow this session"))
+                    .is_some_and(|s| s.contains("allow it this once"))
         })
         .await;
         if from_call {
@@ -388,11 +389,11 @@ async fn spoken_collaboration_approval_is_only_for_this_session() {
             assert_eq!(card["from"]["thread"], call);
         }
         desk.say(&call, 2, "yes").await;
-        crate::common::until("the session approval", || {
+        crate::common::until("the approval of this request", || {
             desk.log
                 .load(&StreamId::Tape(ada.clone()))
                 .iter()
-                .any(|e| e["kind"] == "permission" && e["decision"] == "allow_session")
+                .any(|e| e["kind"] == "permission" && e["decision"] == "allow")
         })
         .await;
         assert!(

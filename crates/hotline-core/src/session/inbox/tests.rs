@@ -796,8 +796,10 @@ async fn the_sender_is_told_once_what_became_of_its_items_at_its_next_turn() {
 #[tokio::test]
 async fn first_contact_holds_an_item_until_the_card_and_a_no_drops_it_unseen() {
     let log = scratch("inbox-consent");
+    // Bob has the whole machine, more than Ada: her items to him wait on the
+    // person's card.
     enrol(&log, &named("ada", "Ada", None));
-    enrol(&log, &named("bob", "Bob", None));
+    enrol(&log, &named("bob", "Bob", Some(Reach::Machine)));
     let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(replies()));
     let sent = tool(
         &room,

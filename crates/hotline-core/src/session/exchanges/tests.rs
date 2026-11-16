@@ -458,6 +458,10 @@ async fn a_revoke_tells_the_sender_once_by_name_however_many_it_stopped() {
 #[tokio::test]
 async fn a_legacy_grant_requires_informed_approval_for_work_but_still_lets_a_question_through() {
     let (room, _) = setup("legacy-handoff-grant");
+    // Ada with her own folders asks Bob, with the whole machine: up in access.
+    let mut caller = room.persona("ada").unwrap();
+    caller.reach = Some(crate::contract::Reach::Workspace);
+    crate::room::append_persona(&room.log, &caller).unwrap();
     let mut target = room.persona("bob").unwrap();
     target.allowed_senders.push("ada".into());
     crate::room::append_persona(&room.log, &target).unwrap();
@@ -496,7 +500,7 @@ async fn a_legacy_grant_requires_informed_approval_for_work_but_still_lets_a_que
         card().unwrap()["title"]
             .as_str()
             .unwrap()
-            .contains("into a work thread of its own")
+            .contains(" to do work\n\n")
     );
     room.answer_permission(
         "ada",

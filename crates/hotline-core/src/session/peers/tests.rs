@@ -1,9 +1,10 @@
 //! Two teammates reaching each other, driven by the scripted driver.
 //!
 //! Nothing here reaches a model. What is under test is what an item needs to
-//! land in a colleague's inbox: the person's first-contact grant, how long it
-//! lasts and whom it covers; and the receipts a pair's thread from before the
-//! inbox still moves.
+//! land in a colleague's inbox: nothing between equals or down in access, and
+//! up in access the person's card, how long its answer lasts and whom it
+//! covers; and the receipts a pair's thread from before the inbox still
+//! moves.
 
 use super::*;
 use crate::driver::{MessageKind, Update};
@@ -23,16 +24,27 @@ fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
-/// A pair in the ordinary workspace reach, so an ask needs the person's
-/// grant.
-fn workspace_room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
+/// Ada with its own folders and Bob with the whole machine, so Ada's
+/// requests to Bob go up in access and need the person's word, and Bob's to
+/// Ada go down and need none.
+fn up_room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
+    reach_room(name, agents, None, Some(crate::contract::Reach::Machine))
+}
+
+fn reach_room(
+    name: &str,
+    agents: Arc<Fake>,
+    ada_reach: Option<crate::contract::Reach>,
+    bob_reach: Option<crate::contract::Reach>,
+) -> Arc<Room> {
     let log = scratch(name);
     let mut ada = persona("ada");
-    ada.reach = None;
+    ada.name = "Ada".to_string();
+    ada.reach = ada_reach;
     enrol(&log, &ada);
     let mut bob = persona("bob");
     bob.name = "Bob".to_string();
-    bob.reach = None;
+    bob.reach = bob_reach;
     enrol(&log, &bob);
     Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
@@ -113,8 +125,8 @@ async fn answer(room: &Room, _whose: &str, kept: &str) -> Value {
 }
 
 #[tokio::test]
-async fn workspace_delivery_requires_consent_before_peer_side_effects() {
-    let room = workspace_room(
+async fn a_request_up_in_access_asks_the_person_and_deny_drops_it_unseen() {
+    let room = up_room(
         "workspace-deny",
         Fake::new(Scripted::new(answers("a1", "should not run"))),
     );
@@ -123,13 +135,25 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
         .unwrap();
     let card = collaboration_card(&room, "ada").await;
     let request_id = card["requestId"].as_str().unwrap().to_string();
+    let whole = if cfg!(target_os = "macos") {
+        "your whole Mac"
+    } else {
+        "the whole machine"
+    };
     assert_eq!(
         card["title"],
-        "Allow Ada to ask Bob to work?\n\nAda's messages land in Bob's inbox, and Bob reads them when it decides to and answers from what it knows, including what you told it. Bob can also take Ada's work into a work thread of its own, and uses its own workspace and enabled tools to do it."
+        format!(
+            "Ada wants Bob to do work\n\nBob has more access than Ada. If you allow this, Bob does the work with its own access: {whole}."
+        )
     );
-    assert_eq!(card["options"][0]["name"], "Allow this session");
-    assert_eq!(card["options"][1]["name"], "Always allow Ada");
-    assert_eq!(card["options"][2]["name"], "Deny");
+    assert!(!card["title"].as_str().unwrap().contains("reach"));
+    let names: Vec<&str> = card["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["Allow", "Always", "Deny"]);
     assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(room.session("bob").is_err());
 
@@ -207,53 +231,67 @@ async fn collaboration_rechecks_reach_after_discovery() {
     assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
 }
 
+/// Between equals, or down in access, no card asks: the receiver can do
+/// nothing the sender could not.
 #[tokio::test]
-async fn session_consent_is_directional_and_expires_when_a_side_stops() {
-    let room = workspace_room(
-        "workspace-session",
+async fn between_equals_or_down_in_access_nothing_asks() {
+    use crate::contract::Reach;
+    for (name, ada, bob, from, to) in [
+        ("equal-folders", None, None, "ada", "bob"),
+        (
+            "equal-machine",
+            Some(Reach::Machine),
+            Some(Reach::Machine),
+            "ada",
+            "bob",
+        ),
+        ("down", None, Some(Reach::Machine), "bob", "ada"),
+    ] {
+        let room = reach_room(
+            &format!("no-card-{name}"),
+            Fake::new(Scripted::new(answers("a1", "done"))),
+            ada,
+            bob,
+        );
+        let id = ask(&room, from, to, "check the harbour").await.unwrap();
+        assert_eq!(
+            answer(&room, from, &id).await["cause"]["status"],
+            "done",
+            "{name}"
+        );
+        assert_eq!(permission_cards(&room, from), 0, "{name}");
+        assert!(lock(&room.peers.waiting).is_empty(), "{name}");
+    }
+}
+
+/// Allow lets this one request through; the next one up in access asks
+/// again, and Allow answers it again.
+#[tokio::test]
+async fn allow_lets_one_request_through_and_the_next_asks_again() {
+    let room = up_room(
+        "allow-once",
         Fake::new(Scripted::new(answers("a1", "done"))),
     );
-    let first = ask(&room, "ada", "bob", "one").await.unwrap();
-    let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
+    for (round, title) in ["one", "two"].into_iter().enumerate() {
+        let id = ask(&room, "ada", "bob", title).await.unwrap();
+        let card = collaboration_card(&room, "ada").await;
+        room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW)
+            .await
+            .unwrap();
+        assert_eq!(answer(&room, "ada", &id).await["cause"]["status"], "done");
+        assert_eq!(permission_cards(&room, "ada"), round + 1);
+    }
+    let settled = room
+        .tape("ada")
+        .into_iter()
+        .rfind(|event| kind_of(event) == "permission")
         .unwrap();
+    assert_eq!(settled["decidedOptionName"], "Allow");
     assert_eq!(
-        answer(&room, "ada", &first).await["cause"]["status"],
-        "done"
+        room.persona("bob").unwrap().allowed_senders,
+        [] as [String; 0],
+        "Allow keeps nothing"
     );
-
-    // The same direction is covered without a new card, and the reverse
-    // direction has no grant of its own.
-    let second = ask(&room, "ada", "bob", "two").await.unwrap();
-    assert_eq!(
-        answer(&room, "ada", &second).await["cause"]["status"],
-        "done"
-    );
-    assert_eq!(permission_cards(&room, "ada"), 1);
-    let reverse = ask(&room, "bob", "ada", "back").await.unwrap();
-    let reverse_card = collaboration_card(&room, "bob").await;
-    room.answer_permission("bob", reverse_card["requestId"].as_str().unwrap(), DENY)
-        .await
-        .unwrap();
-    assert_eq!(
-        answer(&room, "bob", &reverse).await["cause"]["status"],
-        "failed"
-    );
-
-    // Stopping either participant ends the temporary grant; a later request
-    // must ask again.
-    room.stop("bob").unwrap();
-    let after_stop = ask(&room, "ada", "bob", "three").await.unwrap();
-    let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
-        .unwrap();
-    assert_eq!(
-        answer(&room, "ada", &after_stop).await["cause"]["status"],
-        "done"
-    );
-    assert_eq!(permission_cards(&room, "ada"), 2);
 }
 
 /// The person's Interrupt of either teammate's main-conversation turn
@@ -264,7 +302,7 @@ async fn session_consent_is_directional_and_expires_when_a_side_stops() {
 async fn an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up() {
     for whose in ["ada", "bob"] {
         let gate = Arc::new(tokio::sync::Semaphore::new(0));
-        let room = workspace_room(
+        let room = up_room(
             &format!("interrupt-leaves-the-card-{whose}"),
             Fake::new(Scripted::new(answers("a1", "done")).gated(gate.clone())),
         );
@@ -283,7 +321,7 @@ async fn an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up
             .unwrap();
         assert!(still.get("decision").is_none(), "{whose}: {still}");
         gate.add_permits(100);
-        room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW)
             .await
             .unwrap();
         assert_eq!(
@@ -293,7 +331,7 @@ async fn an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up
         );
     }
     let gate = Arc::new(tokio::sync::Semaphore::new(0));
-    let room = workspace_room(
+    let room = up_room(
         "stop-expires-the-card",
         Fake::new(Scripted::new(answers("a1", "done")).gated(gate.clone())),
     );
@@ -314,7 +352,7 @@ async fn an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up
 
 #[tokio::test]
 async fn permanent_consent_survives_peer_restart_and_uses_stable_sender_id() {
-    let room = workspace_room(
+    let room = up_room(
         "workspace-permanent",
         Fake::new(Scripted::new(answers("a1", "done"))),
     );
@@ -349,7 +387,7 @@ async fn permanent_consent_survives_peer_restart_and_uses_stable_sender_id() {
 
 #[tokio::test]
 async fn removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again() {
-    let room = workspace_room(
+    let room = up_room(
         "workspace-remove-grant",
         Fake::new(Scripted::new(answers("a1", "done"))),
     );
@@ -582,7 +620,7 @@ async fn a_teammate_this_room_does_not_have_is_refused_in_a_sentence() {
 /// and cannot be answered later, so it grants nothing.
 #[tokio::test]
 async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() {
-    let room = workspace_room(
+    let room = up_room(
         "dropped-collaboration-wait",
         Fake::new(Scripted::new(answers("a1", "should not run"))),
     );
@@ -618,7 +656,7 @@ async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() 
 
 #[tokio::test]
 async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_changes() {
-    let room = workspace_room(
+    let room = up_room(
         "collaboration-generation-race",
         Fake::new(Scripted::new(answers("a1", "should not run"))),
     );
@@ -626,7 +664,7 @@ async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_chang
         .await
         .unwrap();
     let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW)
         .await
         .unwrap();
     room.peers.advance_generation("ada");
@@ -645,7 +683,6 @@ async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_chang
         crate::store::inbox::received(&room.log, "bob"),
         [] as [crate::contract::InboxItem; 0]
     );
-    assert!(lock(&room.peers.session_grants).is_empty());
 }
 
 /// The receipts a reader moves in a pair's thread.
@@ -771,12 +808,13 @@ mod receipts {
     }
 }
 
-/// An approval covers later items, whatever they want, even after another
+/// Always covers later items, whatever they want, even after another
 /// operator turn.
 #[tokio::test]
 async fn collaboration_consent_covers_separate_operator_turns_and_both_intents() {
-    for decision in [ALLOW_SESSION, ALLOW_ALWAYS] {
-        let room = workspace_room(
+    {
+        let decision = ALLOW_ALWAYS;
+        let room = up_room(
             &format!("consent-across-turns-{decision}"),
             Fake::new(Scripted::turns(
                 (0..30)

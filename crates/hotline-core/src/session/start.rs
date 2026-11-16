@@ -279,7 +279,6 @@ impl Room {
                 self.revoke_session(session);
             }
         }
-        self.peers.expire_grants(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));
         self.revoke_exchanges(persona_id);
@@ -328,7 +327,6 @@ impl Room {
         for persona_id in &roster_ids {
             self.revoke_exchanges(persona_id);
         }
-        self.peers.expire_all_grants();
         self.drop_all_sides();
         self.let_go_of_jobs(None);
         self.settle_all_collaboration();
@@ -420,7 +418,6 @@ impl Room {
             epoch.replace_session();
             (sessions.remove(persona_id), epoch.lease())
         };
-        self.peers.expire_grants(persona_id);
         let Some(session) = session else {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);

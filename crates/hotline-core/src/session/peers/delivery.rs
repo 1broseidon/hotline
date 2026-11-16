@@ -1,17 +1,18 @@
-//! The collaboration grant one teammate needs to ask another: the person's
-//! card that authorizes it, and the decision written back when the card is
-//! answered or expires.
+//! What one teammate needs to ask another to work: nothing when the other
+//! has no more access than it, else the person's card, "Goldie wants Huck to
+//! do work", answered Allow (this request), Always (this direction, until the
+//! receiver's access grows) or Deny; and the decision written back when the
+//! card is answered or expires.
 
 use super::*;
-use crate::contract::Reach;
-use crate::driver::HOTLINE_BACKEND_ID;
 use crate::session::{new_id, now_ms};
 
 impl Room {
     /// Checks the directional collaboration policy before anything is handed
-    /// to the recipient. A Whole machine Hotline Agent caller has implicit
-    /// authority; every workspace caller needs either the recipient's stable
-    /// sender grant or an approval tied to the two live capability leases.
+    /// to the recipient ([`Room::collaboration_granted`]): a recipient with no
+    /// more access than the caller needs nothing; one with more needs the
+    /// person's Always for this direction, or their Allow on a card raised
+    /// for this request and tied to the two live capability leases.
     pub(in crate::session) async fn authorize_collaboration(
         self: &Arc<Self>,
         caller: &Persona,
@@ -34,13 +35,10 @@ impl Room {
         if self.collaboration_granted(&caller, &target, handoff) {
             return Ok(());
         }
-        let room = self.log.load(&StreamId::Room);
-
         let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
         let caller_name = crate::session::links::shown(&caller);
-        let again = crate::session::consent::asking_again(&room, &caller.id, &target);
-        let title = collaboration_title(&caller_name, &target.name, again.as_deref());
-        let options = collaboration_options(&caller_name);
+        let title = collaboration_title(&caller_name, &target);
+        let options = collaboration_options();
         // The card is the person's, on the desk whose teammate would do the
         // work: the caller's tape, or the recipient's when the caller lives
         // on a linked desk and has no tape here.
@@ -53,7 +51,6 @@ impl Room {
             request_id: request_id.clone(),
             card_on: card_on.clone(),
             caller_id: caller.id.clone(),
-            caller_name,
             target_id: target.id.clone(),
             title: title.clone(),
             caller_capability: caller_capability.clone(),
@@ -98,17 +95,8 @@ impl Room {
             return Err("That collaboration approval expired before work started.".to_string());
         }
         match decision {
-            CollaborationDecision::Session => {
-                lock(&self.peers.session_grants).insert(
-                    (caller.id.clone(), target.id.clone()),
-                    SessionGrant {
-                        caller: caller_capability.clone(),
-                        target: target_capability.clone(),
-                        scope,
-                    },
-                );
-                Ok(())
-            }
+            // This request only: the next one up in access asks again.
+            CollaborationDecision::Once => Ok(()),
             CollaborationDecision::Permanent => {
                 if !self
                     .persona(&target.id)?
@@ -168,7 +156,7 @@ impl Room {
                 ts: now_ms(),
                 request_id: wait.request_id.clone(),
                 title: wait.title.clone(),
-                options: collaboration_options(&wait.caller_name),
+                options: collaboration_options(),
                 decision: Some(decision.to_string()),
                 decided_option_name: Some(option_name.to_string()),
             },
@@ -185,7 +173,10 @@ impl Room {
     }
 
     /// Whether `caller` may ask `target` to work without the person's card:
-    /// implicitly, by a standing grant, or by one for these two sessions.
+    /// when `target` has no more access than `caller`, it gains nothing a
+    /// card would guard, so nothing asks; up in access, only the person's
+    /// Always for this direction (`allowedSenders`, and for work the informed
+    /// record beside it) lets it through unasked.
     pub(in crate::session) fn collaboration_granted(
         &self,
         caller: &Persona,
@@ -193,19 +184,17 @@ impl Room {
         handoff: bool,
     ) -> bool {
         // Whatever a teammate may do on its own desk, it gains nothing by
-        // crossing a link: one on a linked desk is never implicitly trusted.
-        let implicit = caller.node.is_none()
-            && caller.backend_id == HOTLINE_BACKEND_ID
-            && caller.reach.unwrap_or_default() == Reach::Machine;
+        // crossing a link: one on a linked desk is always asked about.
+        if caller.node.is_none() && !crate::session::consent::more_access(caller, target) {
+            return true;
+        }
         let room = self.log.load(&StreamId::Room);
         let informed = crate::session::consent::informed(&room, &caller.id, &target.id);
-        let allowed = (!handoff || informed)
-            && (implicit
-                || target
-                    .allowed_senders
-                    .iter()
-                    .any(|sender| sender == &caller.id));
-        allowed || self.peers.session_granted(&caller.id, &target.id)
+        (!handoff || informed)
+            && target
+                .allowed_senders
+                .iter()
+                .any(|sender| sender == &caller.id)
     }
 
     pub(in crate::session) fn settle_collaboration(&self, persona_id: &str) {

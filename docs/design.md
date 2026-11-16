@@ -523,16 +523,18 @@ Reach governs local workspace tools, while an MCP grant authorizes that
 server's own capabilities and permissions. The shell sandbox does not confine
 granted servers. These are standing choices, without per-call approval cards.
 
-Teammate collaboration uses the same capability boundary. A Whole machine
-Hotline Agent has implicit authority to ask another teammate to work. A workspace
-caller gets only public teammate names and ids from discovery, then
-needs a first-contact operator decision for each direction. The card names the
-caller and recipient and offers a session grant, a standing sender grant, or
-denial. A standing grant is an `allowedSenders` id on the recipient; it
-survives rename and restart, while a session grant is tied to both live
-capability leases and expires on session or chapter replacement. Revocation
-clears waits, queued work and temporary grants. An authorized reply does
-not grant the reverse direction or any third party.
+Teammate collaboration uses the same capability boundary. A teammate asks
+another to work without a card when the other has no more access than it
+(the whole machine is more than its own folders): the receiver can do
+nothing the sender could not. Up in access, the person is asked each time,
+by a card in the sender's chat: "Goldie wants Huck to do work", "Huck has
+more access than Goldie. If you allow this, Huck does the work with its own
+access: your whole Mac.", with Allow (this request only), Always (this
+direction, until the recipient's access grows) and Deny. Always is an
+`allowedSenders` id on the recipient; it survives rename and restart.
+Revocation clears waits and queued work. An authorized reply does not grant
+the reverse direction or any third party. Discovery gives any caller only
+public teammate names and ids.
 
 A card a teammate raised to ask the person is the teammate's to take back.
 `request_human` returns the card's id, and `withdraw_request` supersedes the

@@ -378,7 +378,6 @@ impl Room {
             .collect();
         for id in theirs {
             self.capability_epoch(&id).invalidate();
-            self.peers.expire_grants(&id);
         }
         self.settle_invalid_collaboration();
         self.forget_linked_grants(desk_id).await

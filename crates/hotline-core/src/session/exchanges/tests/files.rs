@@ -9,15 +9,16 @@ use crate::contract::Reach;
 use std::path::Path;
 use tempfile::TempDir;
 
-/// Ada and Bob, each working in a directory of their own with workspace
-/// reach, so Ada may send only what is in hers.
+/// Ada and Bob, each working in a directory of their own, Ada with her own
+/// folders, so she may send only what is in hers, and Bob with the whole
+/// machine, so her items to him wait for the person's card.
 fn apart(name: &str) -> (Arc<Room>, Arc<Fake>, TempDir, TempDir) {
     let (room, agents) = setup(name);
-    let dirs = ["ada", "bob"].map(|id| {
+    let dirs = [("ada", Reach::Workspace), ("bob", Reach::Machine)].map(|(id, reach)| {
         let dir = TempDir::new().unwrap();
         let mut persona = room.persona(id).unwrap();
         persona.cwd = dir.path().to_string_lossy().into_owned();
-        persona.reach = Some(crate::contract::Reach::Workspace);
+        persona.reach = Some(reach);
         crate::room::append_persona(&room.log, &persona).unwrap();
         dir
     });
@@ -96,7 +97,7 @@ async fn an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
         .join(format!("inbox-{id}"));
     assert!(held.exists());
     let card = collaboration_card(&room).unwrap();
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_session")
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow")
         .await
         .unwrap();
     until("it lands", || !kept(&room, &id).held).await;

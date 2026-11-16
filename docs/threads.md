@@ -838,7 +838,7 @@ Where this differs from the design above:
   own, so the roster that opens every channel carries `features`; a desk that
   names no `asides` is sent none, and keeps every message and answer.
 - **An aside across a link never raises a card.** It lands only under a grant
-  that already stands there, `allowedSenders` or the person's session grant,
+  that already stands there, `allowedSenders`,
   so a linked desk cannot fill the person's view with cards by leaving
   asides; the sender is told to message first, which asks.
 - **A linked thread is learned, not listed.** A teammate names a thread on

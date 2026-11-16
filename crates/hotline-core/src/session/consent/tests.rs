@@ -199,13 +199,16 @@ fn finished() -> Vec<Update> {
     ]
 }
 
-/// Ada, with workspace reach so she needs the person's word, and Bob.
+/// Ada, with her own folders, and Bob with the whole machine, so Ada asking
+/// Bob to work goes up in access and needs the person's word.
 fn room_of_two(name: &str) -> Arc<Room> {
     let log = scratch(name);
     let mut ada = persona("ada");
     ada.reach = Some(Reach::Workspace);
     enrol(&log, &ada);
-    enrol(&log, &bob());
+    let mut bob = bob();
+    bob.reach = Some(Reach::Machine);
+    enrol(&log, &bob);
     room_on(log)
 }
 
@@ -269,46 +272,58 @@ fn result_heard(room: &Room) -> bool {
         .any(|reply| reply.reply_to.is_some())
 }
 
-/// An Always grant cleared because Bob's access grew asks again, and the
-/// card says why in a few words; settings no longer list Ada as allowed.
+/// Always keeps Ada's requests to Bob from asking until Bob's access grows;
+/// then the grant is cleared, settings no longer list Ada as allowed, and the
+/// next request asks again in the same words.
 #[tokio::test]
-async fn a_cleared_grant_asks_again_and_the_card_says_why() {
+async fn always_asks_no_more_until_the_receivers_access_grows_and_then_asks_again() {
     let room = room_of_two("consent-asks-again");
-    room.allow_sender("bob", "ada").unwrap();
+    hand_off(&room).await;
+    until("the card asks", || open_card(&room).is_some()).await;
+    let first = open_card(&room).unwrap();
+    room.answer_permission("ada", first["requestId"].as_str().unwrap(), "allow_always")
+        .await
+        .unwrap();
+    until("the handoff ran", || result_heard(&room)).await;
+    assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
+    assert!(informed(&room.log.load(&StreamId::Room), "ada", "bob"));
+
+    // A second request: no card.
+    let cards = || {
+        room.tape("ada")
+            .iter()
+            .filter(|event| event["kind"] == "permission")
+            .count()
+    };
+    let sent = TeammateTools::new(&room, "ada")
+        .call(
+            "send",
+            &json!({"to": ["bob"], "title": "And the docs", "wants": "work"}),
+        )
+        .await
+        .unwrap();
+    assert!(!sent.contains("has not yet allowed"), "{sent}");
+    assert_eq!(cards(), 1);
+
+    // Bob is given a folder: his access grew, so Always is cleared, and the
+    // next request asks again with the card's own words.
     let mut target = room.persona("bob").unwrap();
-    clear(&room.log, &mut target, Widening::Machine).unwrap();
+    clear(&room.log, &mut target, Widening::Folder).unwrap();
     crate::room::append_persona(&room.log, &target).unwrap();
     assert_eq!(
         room.persona("bob").unwrap().allowed_senders,
         [] as [String; 0]
     );
-
-    hand_off(&room).await;
-    until("a card asks the person again", || {
-        open_card(&room).is_some()
-    })
-    .await;
-    let title = open_card(&room).unwrap()["title"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        title.contains("\n\nBob can reach the whole machine since you chose Always.\n\n"),
-        "{title}"
-    );
-
-    // Choosing Always again records fresh consent, and the next card, after
-    // another change, says that change.
-    let card = open_card(&room).unwrap();
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_always")
+    TeammateTools::new(&room, "ada")
+        .call(
+            "send",
+            &json!({"to": ["bob"], "title": "One more", "wants": "work"}),
+        )
         .await
         .unwrap();
-    until("the handoff ran", || result_heard(&room)).await;
-    assert!(informed(&room.log.load(&StreamId::Room), "ada", "bob"));
-    assert_eq!(
-        asking_again(&room.log.load(&StreamId::Room), "ada", &target),
-        None
-    );
+    until("a card asks the person again", || cards() == 2).await;
+    let again = open_card(&room).unwrap();
+    assert_eq!(again["title"], first["title"]);
 }
 
 /// An Always grant is not authority a reattach, a sign-out or a restart

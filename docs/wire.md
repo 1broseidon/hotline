@@ -374,14 +374,15 @@ request any more — the turn ended, the session stopped, or somebody else
 answered first — so a stale card cannot silently let an agent through.
 
 The same command answers a room-owned `collab:<id>` card before any driver is
-asked. Its options are `allow_session`, `allow_always`, and `deny`; the card
-names both teammates and says that the recipient can use its workspace and
-enabled tools to fulfill the caller's requests and return results. A session
-choice is held against both live capability leases. An always choice appends
-the caller's stable id to the recipient's `allowedSenders` list. A workspace
-caller gets a card on first contact in each direction; an explicit Whole
-machine Hotline Agent caller does not. ACP mode and Computer access do not imply
-Whole machine authority. `list_teammates` returns each other teammate's
+asked. It is raised only for a request up in access, a caller with its own
+folders asking a recipient with the whole machine; between equals or down,
+there is none. Its title is the heading, `<caller> wants <recipient> to do
+work`, a blank line, and `<recipient> has more access than <caller>. If you
+allow this, <recipient> does the work with its own access: your whole Mac.`
+Its options are `allow` ("Allow", this request only), `allow_always`
+("Always") and `deny` ("Deny"). An always choice appends the caller's stable
+id to the recipient's `allowedSenders` list, until the recipient's access
+grows. ACP mode and Computer access do not imply Whole machine authority. `list_teammates` returns each other teammate's
 `personaId` and `name`, plus what the roster already knows about it: `state`
 (`idle`, `working`, `waiting` or `stopped`), the running tool's title as
 `activity`, and `workingOn` (`title` — the open chapter's or the goal's,

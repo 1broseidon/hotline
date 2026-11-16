@@ -24,7 +24,7 @@ export type Asker = { id: string; name: string; hash?: string | undefined };
 export function SettledAsk({ state, what, command = false, who }: { state: string; what: string; command?: boolean; who?: string }) {
 	return (
 		<p className="ask-settled">
-			<span className="link-row-dot" data-tone={/allow|yes|done|signed|stored|used|cookies|opened/i.test(state) ? "done" : /den|refus|fail/i.test(state) ? "failed" : undefined} />
+			<span className="link-row-dot" data-tone={/allow|always|yes|done|signed|stored|used|cookies|opened/i.test(state) ? "done" : /den|refus|fail/i.test(state) ? "failed" : undefined} />
 			{command ? <code className="ask-settled-what selectable">{what}</code> : <span className="ask-settled-what selectable">{what}</span>}
 			{who !== undefined && <span className="ask-settled-who">{who}</span>}
 			<span className="ask-chip">{state}</span>
@@ -59,6 +59,35 @@ export function Permission({
 		send(() => answerCard(thread, { kind: "permission", requestId: event.requestId, optionId }));
 	};
 
+	const asking = collaborationAsk(event);
+	if (asking !== undefined) {
+		if (chosen !== undefined) return <SettledAsk state={chosen} what={asking.heading} who={who.name} />;
+		return (
+			<div className="ask-card" data-kind="collaboration">
+				<p className="ask-head">
+					<Avatar id={who.id} name={who.name} size={18} hash={who.hash} />
+					<span className="line-label">
+						{asking.from !== undefined && asking.to !== undefined ? (
+							<>
+								<b>{asking.from}</b> wants <b>{asking.to}</b> to do work
+							</>
+						) : (
+							asking.heading
+						)}
+					</span>
+				</p>
+				<p className="selectable">{asking.body}</p>
+				<div className="card-actions">
+					{event.options.map((option) => (
+						<button key={option.optionId} type="button" disabled={answering} className="control btn" onClick={() => answer(option.optionId)}>
+							{option.name}
+						</button>
+					))}
+				</div>
+				{failure !== null && <p role="alert" className="mt-2 text-sm text-danger">{failure}</p>}
+			</div>
+		);
+	}
 	if (chosen !== undefined) return <SettledAsk state={chosen} what={commandOf(event.title)} command who={who.name} />;
 	return (
 		<div className="ask-card">
@@ -84,6 +113,19 @@ export function Permission({
 			{failure !== null && <p role="alert" className="mt-2 text-sm text-danger">{failure}</p>}
 		</div>
 	);
+}
+
+/**
+ * A card a teammate's request to one with more access raised (the desk's
+ * `collab:` cards): its heading, "Goldie wants Huck to do work", the reason
+ * under it, and, when the heading names them, the two teammates. Undefined
+ * for any other permission.
+ */
+export function collaborationAsk(event: Extract<TranscriptEvent, { kind: "permission" }>): { heading: string; body: string; from?: string; to?: string } | undefined {
+	if (!event.requestId.startsWith("collab:")) return undefined;
+	const [heading = "", ...rest] = event.title.split("\n\n");
+	const names = /^(.+?) wants (.+) to do work$/.exec(heading);
+	return { heading, body: rest.join("\n\n"), ...(names !== null ? { from: names[1]!, to: names[2]! } : {}) };
 }
 
 function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): string | undefined {

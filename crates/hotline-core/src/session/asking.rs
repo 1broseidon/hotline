@@ -23,9 +23,7 @@ impl Room {
             let Some(wait) = self.take_collaboration_wait(request_id, persona_id) else {
                 return Err("That request is no longer waiting for an answer.".to_string());
             };
-            let Some((decision, option_name)) =
-                peers::collaboration_decision(option_id, &wait.caller_name)
-            else {
+            let Some((decision, option_name)) = peers::collaboration_decision(option_id) else {
                 self.write_collaboration_decision(&wait, "expired", "Invalid answer");
                 let _ = wait.sender.send(peers::CollaborationDecision::Deny);
                 return Err("That collaboration card has no such answer.".to_string());

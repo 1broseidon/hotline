@@ -1,9 +1,10 @@
 //! Teammates talking to each other: the person's grant one needs to ask
 //! another, the thread each pair keeps, and the words a delivery is told in.
 //!
-//! - **The grant.** A teammate asks another only under a collaboration grant
-//!   the person gave, for a session or standing, held against the live leases
-//!   of both sides ([`Room::authorize_collaboration`]).
+//! - **The grant.** A teammate asks one with more access than its own only
+//!   with the person's yes, for that one request or standing (Always), held
+//!   against the live leases of both sides ([`Room::authorize_collaboration`]);
+//!   between equals, or down in access, nothing asks.
 //! - **The thread.** [`StreamId::Pair`] of [`thread_key`], which is one file
 //!   per pair and belongs to neither side: the core writes each question and
 //!   its answer there, and the pair conversations older versions held stay
@@ -32,7 +33,7 @@ use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::oneshot;
 
 pub(super) const COLLAB_REQUEST_PREFIX: &str = "collab:";
-pub(super) const ALLOW_SESSION: &str = "allow_session";
+pub(super) const ALLOW: &str = "allow";
 pub(super) const ALLOW_ALWAYS: &str = "allow_always";
 pub(super) const DENY: &str = "deny";
 
@@ -40,24 +41,25 @@ pub(super) const DENY: &str = "deny";
 /// Hotline's number, and the schema the tool advertises.
 pub const TEAMMATE_MESSAGE_MAX: usize = 24_000;
 
-/// The operator's answer to a first-contact collaboration card.
+/// The person's answer to the card a request up in access raises: this
+/// request only, this direction for good, or no.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CollaborationDecision {
-    Session,
+    Once,
     Permanent,
     Deny,
 }
 
-fn collaboration_options(caller_name: &str) -> Vec<PermissionOption> {
+fn collaboration_options() -> Vec<PermissionOption> {
     vec![
         PermissionOption {
-            option_id: ALLOW_SESSION.to_string(),
-            name: "Allow this session".to_string(),
-            kind: Some("allow_session".to_string()),
+            option_id: ALLOW.to_string(),
+            name: "Allow".to_string(),
+            kind: Some("allow_once".to_string()),
         },
         PermissionOption {
             option_id: ALLOW_ALWAYS.to_string(),
-            name: format!("Always allow {caller_name}"),
+            name: "Always".to_string(),
             kind: Some("allow_always".to_string()),
         },
         PermissionOption {
@@ -68,28 +70,21 @@ fn collaboration_options(caller_name: &str) -> Vec<PermissionOption> {
     ]
 }
 
-/// The card's words. `again` says why a direction the person allowed for good
-/// is asked about again (see [`crate::session::consent`]).
-fn collaboration_title(caller_name: &str, target_name: &str, again: Option<&str>) -> String {
-    let again = again.map(|line| format!("{line}\n\n")).unwrap_or_default();
+/// The card's words: its heading, then why it asks, naming the receiver's
+/// access as its settings do ([`crate::session::consent::access_words`]).
+/// The heading is the card's first paragraph.
+fn collaboration_title(caller_name: &str, target: &Persona) -> String {
+    let target_name = &target.name;
     format!(
-        "Allow {caller_name} to ask {target_name} to work?\n\n{again}{caller_name}'s messages land in {target_name}'s inbox, and {target_name} reads them when it decides to and answers from what it knows, including what you told it. {target_name} can also take {caller_name}'s work into a work thread of its own, and uses its own workspace and enabled tools to do it."
+        "{caller_name} wants {target_name} to do work\n\n{target_name} has more access than {caller_name}. If you allow this, {target_name} does the work with its own access: {}.",
+        crate::session::consent::access_words(target)
     )
 }
 
-pub(super) fn collaboration_decision(
-    option_id: &str,
-    caller_name: &str,
-) -> Option<(CollaborationDecision, String)> {
+pub(super) fn collaboration_decision(option_id: &str) -> Option<(CollaborationDecision, String)> {
     match option_id {
-        ALLOW_SESSION => Some((
-            CollaborationDecision::Session,
-            "Allow this session".to_string(),
-        )),
-        ALLOW_ALWAYS => Some((
-            CollaborationDecision::Permanent,
-            format!("Always allow {caller_name}"),
-        )),
+        ALLOW => Some((CollaborationDecision::Once, "Allow".to_string())),
+        ALLOW_ALWAYS => Some((CollaborationDecision::Permanent, "Always".to_string())),
         DENY => Some((CollaborationDecision::Deny, "Deny".to_string())),
         _ => None,
     }
@@ -105,22 +100,12 @@ pub(super) struct CollaborationScope {
     target_generation: u64,
 }
 
-/// A temporary grant is attached to the two capability leases that were live
-/// when the operator allowed this exchange. Ending either session invalidates
-/// its lease, so a grant cannot survive a restart or a stale peer cache.
-struct SessionGrant {
-    caller: CapabilityLease,
-    target: CapabilityLease,
-    scope: CollaborationScope,
-}
-
 /// One operator decision waiting for the caller's delivery to continue.
 pub(crate) struct CollaborationWait {
     pub(crate) request_id: String,
     /// Whose tape the card is on, and so who answers it.
     pub(crate) card_on: String,
     pub(crate) caller_id: String,
-    pub(crate) caller_name: String,
     pub(crate) target_id: String,
     /// The card's words as it was raised, which its decision repeats.
     pub(crate) title: String,
@@ -134,7 +119,6 @@ struct CollaborationRequest {
     request_id: String,
     card_on: String,
     caller_id: String,
-    caller_name: String,
     target_id: String,
     title: String,
     caller_capability: CapabilityLease,
@@ -165,12 +149,9 @@ impl Drop for CollaborationWaitGuard {
     }
 }
 
-/// The collaboration grants the room holds, and the cards waiting to give one.
+/// The cards waiting on the person's answer to a request up in access.
 #[derive(Default)]
 pub(super) struct Peers {
-    /// Temporary approvals, each held only while the operator's session grant
-    /// still names both live capability leases.
-    session_grants: Mutex<HashMap<(String, String), SessionGrant>>,
     /// First-contact approvals waiting for the operator, at most one per
     /// direction ([`Self::wait`]).
     waiting: Mutex<HashMap<String, CollaborationWait>>,
@@ -210,47 +191,14 @@ impl Peers {
     }
 
     /// Starts a fresh authorization generation for one participant. The
-    /// session itself stays alive, but every temporary grant involving this
-    /// persona must be established again in its new chapter.
+    /// session itself stays alive, but a card answered for it in the chapter
+    /// that closed lets nothing start in the new one.
     pub(super) fn advance_generation(&self, persona_id: &str) {
         {
             let mut generations = lock(&self.collaboration_generations);
             let generation = generations.entry(persona_id.to_string()).or_default();
             *generation = generation.wrapping_add(1);
         }
-        self.expire_grants(persona_id);
-    }
-
-    /// Returns the scope of a temporary grant that still covers this
-    /// direction. A grant whose lease ended is removed as it is observed, so
-    /// it cannot authorize a later request.
-    fn session_granted(&self, caller_id: &str, target_id: &str) -> bool {
-        let pair = (caller_id.to_string(), target_id.to_string());
-        let mut grants = lock(&self.session_grants);
-        let Some(grant) = grants.get(&pair) else {
-            return false;
-        };
-        if grant.caller.is_current()
-            && grant.target.is_current()
-            && self.scope_current(caller_id, target_id, grant.scope)
-        {
-            return true;
-        }
-        grants.remove(&pair);
-        false
-    }
-
-    pub(super) fn expire_grants(&self, persona_id: &str) {
-        lock(&self.session_grants)
-            .retain(|(caller_id, target_id), _| caller_id != persona_id && target_id != persona_id);
-    }
-
-    fn prune_grants(&self) {
-        lock(&self.session_grants).retain(|(caller_id, target_id), grant| {
-            grant.caller.is_current()
-                && grant.target.is_current()
-                && self.scope_current(caller_id, target_id, grant.scope)
-        });
     }
 
     fn wait(
@@ -272,7 +220,6 @@ impl Peers {
                 request_id: request.request_id,
                 card_on: request.card_on,
                 caller_id: request.caller_id,
-                caller_name: request.caller_name,
                 target_id: request.target_id,
                 title: request.title,
                 caller_capability: request.caller_capability,
@@ -341,11 +288,6 @@ impl Peers {
 
     fn settle_all_waits(&self) -> Vec<CollaborationWait> {
         lock(&self.waiting).drain().map(|(_, wait)| wait).collect()
-    }
-
-    /// Drops every temporary grant; a whole-room policy change ends them all.
-    pub(super) fn expire_all_grants(&self) {
-        lock(&self.session_grants).clear();
     }
 }
 

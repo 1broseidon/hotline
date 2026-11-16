@@ -315,12 +315,19 @@ changes, like the index. The window reads the receipts over the wire.
   claim, and the receiver is told so where it reads an item: `read_inbox`'s
   note, a taken item's delivery and its work thread's brief, the tool text
   and the room skill (`inbox::PERSONS_WORD`).
-- **First contact.** `send` checks `authorize_collaboration` as an ask or an
-  aside was checked, and for an item that wants work as a handoff was
-  (informed consent). An item the card has yet to allow is held, as above.
-  The card is asked of what the sender says it wants: a receiver may take an
-  item that wanted an answer into work, and the card that let it in stands
-  for that work.
+- **Up in access.** `send` checks `authorize_collaboration`: a receiver
+  with no more access than the sender (the whole machine is more than its
+  own folders) is reached with no card at all. One with more raises a card
+  in the sender's chat, "Goldie wants Huck to do work", "Huck has more
+  access than Goldie. If you allow this, Huck does the work with its own
+  access: your whole Mac.", with Allow (this item only: the next asks
+  again), Always (this direction, until the receiver's access grows; the
+  informed consent an item that wants work needs) and Deny (the item is
+  dropped unseen, and its sender told). In Needs you it is one question,
+  "Allow Huck to do work for Goldie?". An item the card has yet to allow is
+  held, as above. The card stands for any item, whatever it wants: a
+  receiver may take an item that wanted an answer into work, and the card
+  that let it in stands for that work.
 - **Files.** A file an item carries lands outside the receiver's working
   directory, in a folder Hotline keeps for it on the desk,
   `received/<receiver>/<sender>/`, which its own sessions are granted as

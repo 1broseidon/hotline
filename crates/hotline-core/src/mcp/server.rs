@@ -697,7 +697,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             SEND,
-            "Send one or more teammates an item in their inbox: the one way to reach a colleague. It returns at once with each item's id. They are shown its title and who sent it, and read it when it suits their work; an idle teammate is woken a few seconds after it lands, with anything else that landed meanwhile. Say everything they need in `message`: they cannot see your conversation. `wants` is what you want back: an `answer`, `work` done (they may do it in a work thread of their own), or `nothing` (only for them to know). Set `waiting` only when you have stopped and will not go on until this is answered. What becomes of it (seen, taken, for later, closed) is told to you at the start of your next turn, and a reply arrives in your own inbox. The first time you reach a colleague the person may have to allow it: the item waits for their card.",
+            "Send one or more teammates an item in their inbox: the one way to reach a colleague. It returns at once with each item's id. They are shown its title and who sent it, and read it when it suits their work; an idle teammate is woken a few seconds after it lands, with anything else that landed meanwhile. Say everything they need in `message`: they cannot see your conversation. `wants` is what you want back: an `answer`, `work` done (they may do it in a work thread of their own), or `nothing` (only for them to know). Set `waiting` only when you have stopped and will not go on until this is answered. What becomes of it (seen, taken, for later, closed) is told to you at the start of your next turn, and a reply arrives in your own inbox. To a colleague with more access than yours, the person may have to allow it: the item waits for their card.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -1812,8 +1812,8 @@ pub(crate) fn profile(
         .or_else(|| persona.effort_id.clone());
     // Whole-machine reach is Hotline Agent's alone: a harness's callbacks
     // stay in its workspace whatever its record says (`driver/acp/session.rs`), and
-    // only such a teammate on this desk collaborates without the person's
-    // first-contact approval (`session/peers.rs`).
+    // only such a teammate has more access than its peers, which asks the
+    // person before one with less hands it work (`session/consent.rs`).
     let whole_machine =
         in_process && persona.reach.unwrap_or_default() == crate::contract::Reach::Machine;
     let computer = if !persona

@@ -34,6 +34,13 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     let snapshot = heard(&mut socket).await;
     assert_eq!(snapshot["snapshot"], json!([]));
 
+    // Bob has the whole machine, more than Ada: her request asks the person.
+    let mut bob = crate::room::roster(&log)
+        .into_iter()
+        .find(|persona| persona.id == "bob")
+        .unwrap();
+    bob.reach = Some(crate::contract::Reach::Machine);
+    crate::room::append_persona(&log, &bob).unwrap();
     let sent = crate::mcp::server::TeammateTools::new(&room, "ada")
         .call(
             "send",
@@ -51,9 +58,12 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     .await;
     let request_id = card["event"]["requestId"].as_str().unwrap();
     assert!(request_id.starts_with("collab:"), "{card}");
-    assert_eq!(
-        card["event"]["title"],
-        "Allow Ada to ask Bob to work?\n\nAda's messages land in Bob's inbox, and Bob reads them when it decides to and answers from what it knows, including what you told it. Bob can also take Ada's work into a work thread of its own, and uses its own workspace and enabled tools to do it."
+    assert!(
+        card["event"]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("Ada wants Bob to do work\n\nBob has more access than Ada. If you allow this, Bob does the work with its own access: "),
+        "{card}"
     );
 
     ask(

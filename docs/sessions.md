@@ -1389,27 +1389,31 @@ nothing deletes them while the conversation they belong to is kept.
 
 `send` is authority to ask another teammate to use its own workspace and
 enabled tools, so the room checks collaboration before an item lands in the
-recipient's inbox ([The inbox](#the-inbox)). A Hotline Agent caller with explicit Whole
-machine reach has that authority implicitly. A workspace caller needs a
-first-contact operator decision for each caller and recipient direction,
-regardless of whether the two teammates happen to have the same tools. ACP
-trust or mode labels and the separate Computer capability do not count as
-Whole machine reach.
+recipient's inbox ([The inbox](#the-inbox)). The person is asked only when
+the request goes up in access (`consent::more_access`): the recipient has
+the whole machine (a Hotline Agent with Whole machine reach) and the caller
+only its own folders. Between equals, or when the recipient has less, nothing
+is asked and the item lands: the recipient can do nothing the caller could
+not. A teammate on another agent counts at its own folders, as Hotline's
+callbacks hold it there whatever its record says: ACP trust or mode labels
+and the separate Computer capability do not count as Whole machine reach. A
+caller on a linked desk is always asked about.
 
-The card says `Allow <caller> to ask <recipient> to work?` and explains that
-the caller's messages land in the recipient's inbox, which it reads when it
-decides to and answers from what it knows, and that the recipient can take
-the caller's work into a work thread of its own and use its workspace and
-enabled tools to do it. `Allow this
-session` binds a temporary grant to both live capability leases. It expires
-when either session or chapter is replaced, or when the room restarts.
-`Always allow <caller>` appends the caller's stable id to the recipient's
-`allowedSenders` list and records, in a `collaboration_informed` room event,
-that the person was shown what a handoff means; an item that wants work
-needs both. The
-recipient's settings show that list as `Accept requests from <caller>` and
-removing one revokes active and queued delegated work. New and imported
-records have an empty list.
+The card, on the caller's chat (a `collab:<id>` permission), says `<caller>
+wants <recipient> to do work`, then `<recipient> has more access than
+<caller>. If you allow this, <recipient> does the work with its own access:
+your whole Mac.` (on a desk that is not a Mac, `the whole machine`;
+`consent::access_words`). Its keys are `Allow`, `Always` and `Deny`. `Allow`
+lets this one request through and keeps nothing: the next request up in
+access asks again. `Always` appends the caller's stable id to the
+recipient's `allowedSenders` list and records, in a `collaboration_informed`
+room event, that the person was shown what a handoff means; an item that
+wants work needs both. `Deny` drops the item unseen, closed as dropped with
+why, which its sender is told at its next turn. In Needs you the waiting card
+is one short question, `Allow <recipient> to do work for <caller>?`. The
+recipient's settings show that list under Permissions as Collaboration,
+"<caller> may hand it work", and Revoke removes one, which revokes active
+and queued delegated work. New and imported records have an empty list.
 
 An Always grant stands until the person removes it or the recipient comes to
 reach more than it did (`session/consent.rs`): its reach set to the whole
@@ -1418,8 +1422,8 @@ writable, a secret granted to its computer, its computer turned on, or an MCP
 server granted, by its policy or by a server added to the desk while its
 policy grants all. Then every caller leaves its `allowedSenders` and each
 direction's informed event is tombstoned with what grew, so the settings
-never say Always where a handoff would ask, and the next card says why it is
-asking again ("Bob was given a folder since you chose Always."). Nothing
+never say Always where a handoff would ask, and the next request up in
+access asks again, with the card's own words. Nothing
 else clears it: a goal edited, a model or agent switched, a reattach, a
 restart, a chapter, a narrowing, or an MCP sign-in or sign-out. The check
 reads the room stream's fold by id, so a tombstone counts the moment it is

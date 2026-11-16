@@ -124,10 +124,9 @@ impl Room {
         self.inbox_at_start();
     }
 
-    /// What follows every sweep: temporary grants whose leases have gone are
-    /// dropped, and the cards waiting to give one with nobody behind them.
+    /// What follows every sweep: the cards waiting on the person with nobody
+    /// behind them any more are settled.
     pub(in crate::session) fn tidy_grants(&self) {
-        self.peers.prune_grants();
         self.settle_invalid_collaboration();
     }
 

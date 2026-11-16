@@ -1,5 +1,5 @@
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
-import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./Asks";
+import { collaborationAsk, ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./Asks";
 import { CookieAskCard } from "./CookieAskCard";
 import { CredentialAsk } from "./CredentialAsk";
 import { SecretUseAsk } from "./SecretUseAsk";
@@ -56,8 +56,12 @@ export function nextLapse(events: readonly TranscriptEvent[], now: number): numb
 /** A waiting card in a few words, for the chip. */
 export function askLine(ask: Ask): string {
 	switch (ask.kind) {
-		case "permission":
-			return ask.title;
+		case "permission": {
+			// A request up in access is one short question.
+			const asking = collaborationAsk(ask);
+			if (asking === undefined) return ask.title;
+			return asking.from !== undefined && asking.to !== undefined ? `Allow ${asking.to} to do work for ${asking.from}?` : asking.heading;
+		}
 		case "human_action":
 			return ask.reason;
 		case "credential_ask":

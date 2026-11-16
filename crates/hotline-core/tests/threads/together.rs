@@ -609,20 +609,7 @@ async fn taken_works_link_carries_its_request_into_the_receivers_dm() {
             json!({"to": ["Bob"], "title": "The winch", "message": message, "wants": "work"}),
         )
         .await;
-    let card = || {
-        desk.log
-            .load(&StreamId::Tape(ada.clone()))
-            .into_iter()
-            .find(|event| event["kind"] == "permission" && event.get("decision").is_none())
-            .and_then(|event| event["requestId"].as_str().map(str::to_string))
-    };
-    until("work asks the person first", || card().is_some()).await;
-    let card = card().unwrap();
-    desk.ok(
-        "session.answer_permission",
-        json!({"personaId": ada, "requestId": card, "optionId": "allow_always"}),
-    )
-    .await;
+    // Ada and Bob have the same access, so nothing asks the person.
     until("the item lands", || {
         desk.item(&bob, &item)
             .is_some_and(|item| item["held"].is_null())

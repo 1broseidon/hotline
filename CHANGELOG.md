@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.49.2] - 2026-11-16
+
 ### Added
 
 - A teammate can set a job that repeats at a time of day on chosen days,

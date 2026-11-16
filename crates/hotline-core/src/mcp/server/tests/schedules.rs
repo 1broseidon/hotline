@@ -128,6 +128,10 @@ fn the_loop_description_says_hotline_repeats_it() {
         looping.contains("give `at` \"09:00\" and `days` \"weekdays\""),
         "{looping}"
     );
+    assert!(
+        looping.contains("more than 2 hours after its time (this computer asleep, Hotline closed) is skipped, not run late"),
+        "{looping}"
+    );
     let once = said(SCHEDULE);
     assert!(
         once.contains(
@@ -141,4 +145,32 @@ fn the_loop_description_says_hotline_repeats_it() {
         .unwrap()
         .input_schema;
     assert_eq!(schema["required"], json!(["prompt"]));
+}
+
+/// A loop's latest run skipped for being too late is said to the teammate
+/// as the time it was due, on this computer's clock.
+#[tokio::test(flavor = "multi_thread")]
+async fn list_schedules_says_a_loops_skipped_run() {
+    let room = room_with_a_conversation("list-skipped");
+    through_rig(
+        &tools(&room),
+        LOOP,
+        json!({ "every": "1h", "prompt": "sweep the inbox" }),
+    )
+    .await;
+    let mut job = room.schedule_list().remove(0);
+    let slot = job.next_at - 3 * 3_600_000;
+    job.skipped = Some(crate::contract::SkippedRun {
+        slot,
+        at: job.next_at,
+    });
+    crate::room::append_schedule(room.log(), &job).unwrap();
+
+    let listed = through_rig(&tools(&room), LIST_SCHEDULES, json!({})).await;
+    let listed: Value = serde_json::from_str(&listed).unwrap();
+    let due = Local.timestamp_millis_opt(slot).unwrap();
+    assert_eq!(
+        listed["jobs"][0]["skipped"],
+        due.format("%a %-d %b %Y, %H:%M").to_string()
+    );
 }

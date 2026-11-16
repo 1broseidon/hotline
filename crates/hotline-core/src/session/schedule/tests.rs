@@ -277,6 +277,7 @@ async fn retry_receives_a_cancelled_job() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
     let room = Room::new(log, Arc::new(NoKeys));
@@ -313,6 +314,7 @@ async fn retry_and_finish_keep_the_latest_job_source_and_quiet_setting() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
     let room = Room::new(log, Arc::new(NoKeys));
@@ -324,7 +326,7 @@ async fn retry_and_finish_keep_the_latest_job_source_and_quiet_setting() {
     assert!(retried[0].operator_created);
     assert_eq!(retried[0].quiet, None);
 
-    finish(&room, &job.id, true);
+    finish(&room, &job.id, Slot::Ran);
     let advanced = room.schedule_list();
     assert_eq!(advanced.len(), 1);
     assert!(advanced[0].operator_created);
@@ -356,17 +358,18 @@ async fn a_skipped_slot_moves_a_loop_on_without_spending_its_count() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
     let room = Room::new(log, Arc::new(NoKeys));
 
-    finish(&room, &job.id, false);
+    finish(&room, &job.id, Slot::Overlapped);
     let skipped = room.schedule_list();
     assert_eq!(skipped[0].times, Some(1));
     assert_eq!(skipped[0].ended_at, None);
     assert!(skipped[0].next_at > now);
 
-    finish(&room, &job.id, true);
+    finish(&room, &job.id, Slot::Ran);
     assert!(room::all_jobs(&room.log)[0].ended_at.is_some());
 }
 
@@ -397,6 +400,7 @@ async fn an_update_does_not_consume_or_reschedule_a_due_job() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     };
     room::append_schedule(&log, &job).unwrap();
     let before = log.load(&crate::log::StreamId::Room);
@@ -563,6 +567,7 @@ fn an_every_loop_still_runs_its_interval_after_it_fires() {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     };
     let fired = utc("2026-03-08 06:59");
     assert_eq!(next_after_in(&job, fired, &NewYork), fired + 3_600_000);
@@ -632,6 +637,7 @@ fn calendar_job(id: &str, calendar: Calendar, next_at: i64) -> ScheduledJob {
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     }
 }
 
@@ -648,7 +654,7 @@ async fn a_calendar_loop_survives_a_restart_and_a_late_run_on_its_time() {
     let room = Room::new(log, Arc::new(NoKeys));
     assert_eq!(room.schedule_list()[0].calendar, Some(noon.clone()));
 
-    finish(&room, "noon", true);
+    finish(&room, "noon", Slot::Ran);
     let next = room.schedule_list()[0].next_at;
     let at = Local.timestamp_millis_opt(next).unwrap();
     assert_eq!(at.format("%H:%M").to_string(), "12:00");
@@ -659,4 +665,50 @@ async fn a_calendar_loop_survives_a_restart_and_a_late_run_on_its_time() {
         calendar::next_slot(&noon, next - 1, &Local),
         "the next run is a time the calendar names"
     );
+}
+
+/// A run exactly the limit late still runs; a millisecond more and it is
+/// skipped. A time still ahead is never too late.
+#[test]
+fn a_run_is_too_late_only_past_the_limit() {
+    assert_eq!(LATE_RUN_LIMIT, 2 * 3_600_000);
+    let limit = 1_000;
+    let slot = 1_700_000_000_000;
+    assert!(!too_late(slot, slot, limit));
+    assert!(!too_late(slot, slot + limit, limit));
+    assert!(too_late(slot, slot + limit + 1, limit));
+    assert!(!too_late(slot, slot - 60_000, limit));
+}
+
+/// A loop's run skipped for being too late is kept on the job, spends none
+/// of its count, and still ends the loop when its next time is past its end.
+#[tokio::test]
+async fn a_run_skipped_for_being_late_is_kept_and_ends_only_a_loop_out_of_time() {
+    let log = grant_log(true);
+    let now = now_ms();
+    let mut job = calendar_job("late", calendar("12:00", "daily"), now - 3 * 3_600_000);
+    job.times = Some(1);
+    room::append_schedule(&log, &job).unwrap();
+    let mut done = calendar_job("done", calendar("12:00", "daily"), now - 3 * 3_600_000);
+    done.until = Some(now);
+    room::append_schedule(&log, &done).unwrap();
+    let room = Room::new(log, Arc::new(NoKeys));
+
+    finish(&room, "late", Slot::TooLate);
+    let late = room::all_jobs(&room.log)
+        .into_iter()
+        .find(|job| job.id == "late")
+        .unwrap();
+    assert_eq!(late.skipped.map(|skip| skip.slot), Some(job.next_at));
+    assert_eq!(late.times, Some(1));
+    assert_eq!(late.ended_at, None);
+    assert!(late.next_at > now);
+
+    finish(&room, "done", Slot::TooLate);
+    let done = room::all_jobs(&room.log)
+        .into_iter()
+        .find(|job| job.id == "done")
+        .unwrap();
+    assert!(done.skipped.is_some());
+    assert!(done.ended_at.is_some(), "its next time is past its end");
 }

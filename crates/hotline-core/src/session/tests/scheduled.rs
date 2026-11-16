@@ -149,6 +149,7 @@ fn due_job(
         last_post: None,
         ended_at: None,
         final_firing: None,
+        skipped: None,
     }
 }
 
@@ -833,4 +834,144 @@ async fn the_sweep_does_not_park_an_agent_whose_turn_has_begun() {
         "a turn that has begun keeps the agent it runs on"
     );
     gate.add_permits(10);
+}
+
+/// Two hours and some, the most a loop's run may be late, and more.
+const TOO_LATE: i64 = 3 * 3_600_000;
+/// Late, but not too late.
+const LATE: i64 = 2 * 3_600_000 - 5 * 60_000;
+
+/// The job once the clock has done with its missed time: the loop's latest
+/// skip is on it, or a firing is on its thread.
+async fn skipped(room: &Room, job_id: &str) -> ScheduledJob {
+    until("the clock skips the late run", || {
+        crate::room::schedules(&room.log)
+            .iter()
+            .any(|job| job.id == job_id && job.skipped.is_some())
+    })
+    .await;
+    crate::room::schedules(&room.log)
+        .into_iter()
+        .find(|job| job.id == job_id)
+        .expect("the loop is still on the stream")
+}
+
+fn firings(room: &Room, job_id: &str) -> usize {
+    room.log
+        .load(&StreamId::Job(job_id.to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] == "user")
+        .count()
+}
+
+/// A loop whose time passed more than two hours before the desk could run
+/// it, as when the desk was closed or the machine asleep, does not run: it
+/// moves to its next time, its count unspent, and keeps which time it
+/// skipped and when.
+#[tokio::test]
+async fn a_loop_run_more_than_two_hours_late_is_skipped_to_its_next_time() {
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job("job-stale", ScheduleKind::Loop, "sweep", false, TOO_LATE);
+    job.times = Some(2);
+    let slot = job.next_at;
+    let started = now_ms();
+    let room = room_due("schedule-too-late", agents, job);
+
+    let job = skipped(&room, "job-stale").await;
+    let skip = job.skipped.expect("the skip is kept");
+    assert_eq!(skip.slot, slot);
+    assert!(skip.at >= started);
+    assert!(job.next_at > skip.at, "the loop waits for its next time");
+    assert_eq!(job.times, Some(2), "a skipped run spends no count");
+    assert_eq!(job.ended_at, None);
+    assert_eq!(firings(&room, "job-stale"), 0);
+    assert!(lock(&prompts).is_empty());
+}
+
+/// Late by less than two hours, a loop's missed time runs, once.
+#[tokio::test]
+async fn a_loop_run_less_than_two_hours_late_runs_once() {
+    let agents = Fake::new(Scripted::new(saying("s", "caught up")));
+    let job = due_job("job-late", ScheduleKind::Loop, "sweep", false, LATE);
+    let room = room_due("schedule-late", agents, job);
+
+    let events = job_thread(&room, "job-late", 3).await;
+    assert_eq!(events[0]["text"], "sweep");
+    let living = crate::room::schedules(&room.log);
+    assert_eq!(living[0].skipped, None);
+    assert!(living[0].next_at > now_ms());
+    assert_eq!(firings(&room, "job-late"), 1);
+}
+
+/// A calendar loop missed by more than two hours moves to its next time of
+/// day, not to an interval after the skip.
+#[tokio::test]
+async fn a_calendar_loop_missed_by_more_than_two_hours_waits_for_its_next_time() {
+    use chrono::TimeZone;
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let mut job = due_job("job-noon", ScheduleKind::Loop, "lunch", false, TOO_LATE);
+    job.every = Some(86_400_000);
+    job.calendar = Some(crate::contract::Calendar {
+        at: "12:00".to_string(),
+        days: vec![
+            crate::contract::CalendarDay::Mon,
+            crate::contract::CalendarDay::Tue,
+            crate::contract::CalendarDay::Wed,
+            crate::contract::CalendarDay::Thu,
+            crate::contract::CalendarDay::Fri,
+            crate::contract::CalendarDay::Sat,
+            crate::contract::CalendarDay::Sun,
+        ],
+    });
+    let room = room_due("schedule-calendar-too-late", agents, job);
+
+    let job = skipped(&room, "job-noon").await;
+    let next = chrono::Local.timestamp_millis_opt(job.next_at).unwrap();
+    assert_eq!(next.format("%H:%M").to_string(), "12:00");
+    assert!(job.next_at > now_ms());
+    assert_eq!(firings(&room, "job-noon"), 0);
+}
+
+/// A one-shot has no next time to wait for: however late, it runs once.
+#[tokio::test]
+async fn a_one_shot_runs_once_however_late() {
+    let agents = Fake::new(Scripted::new(saying("s", "done late")));
+    let job = due_job(
+        "job-once-late",
+        ScheduleKind::Schedule,
+        "say the word",
+        false,
+        TOO_LATE,
+    );
+    let room = room_due("schedule-once-too-late", agents, job);
+
+    let events = job_thread(&room, "job-once-late", 3).await;
+    assert_eq!(events[0]["text"], "say the word");
+    assert_eq!(firings(&room, "job-once-late"), 1);
+}
+
+/// Background work switched off past a loop's time and on again more than
+/// two hours later skips that run rather than running it late.
+#[tokio::test]
+async fn a_loop_paused_past_its_time_by_more_than_two_hours_skips_it_when_resumed() {
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-resumed", ScheduleKind::Loop, "sweep", false, TOO_LATE);
+    let room = room_due_with_grant("schedule-resumed", agents, job, false);
+    assert_eq!(
+        crate::room::schedules(&room.log)[0].skipped,
+        None,
+        "a paused loop is left as it was"
+    );
+
+    let mut teammate = persona("ada");
+    teammate.background_work = true;
+    enrol(&room.log, &teammate);
+    room.reattach("ada").await.unwrap();
+
+    let job = skipped(&room, "job-resumed").await;
+    assert!(job.next_at > now_ms());
+    assert_eq!(firings(&room, "job-resumed"), 0);
+    assert!(lock(&prompts).is_empty());
 }

@@ -179,6 +179,10 @@ pub struct ScheduleEntry {
     pub ended_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub without: Option<Vec<Ability>>,
+    /// The latest run of a loop skipped for starting more than two hours
+    /// after its time, which moved the loop on to its next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<SkippedRun>,
 }
 
 /// The views the core maintains. One so far.

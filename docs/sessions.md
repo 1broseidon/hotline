@@ -2434,7 +2434,17 @@ Jobs live on the room stream as events of kind `schedule`. The clock in
 fires each one: a plain reminder is posted to the chat, and any other job's
 firing is a turn on the job's own thread ([Jobs](#jobs)). A missed tick while
 Hotline was closed fires once on reopen rather than catching up a pile of
-them.
+them. A loop's run is the exception, when it is late by more than two hours
+(`LATE_RUN_LIMIT`; `HOTLINE_LATE_RUN_LIMIT_MS` sets it in milliseconds, so
+the rule can be watched on a running desk): its time passed while the desk
+was closed, the machine asleep or Background work off, and running it now
+would be work for a moment long gone. It is skipped instead, the loop moves
+on to its next time with its count unspent, and the job keeps the latest
+skip as `skipped`, `{slot, at}` (when it was due and when it was skipped),
+for the desk to show and `list_schedules` to say. A run late by two hours or
+less runs once, as before. A one-shot runs however late, since it has no
+next time to wait for. A start that failed and is retried a minute later
+counts its lateness from the retry.
 
 `schedule` is once; `loop` is every `every` milliseconds, or at a time of
 day on chosen days (`calendar`, `session/schedule/calendar.rs`), until it is
@@ -2510,7 +2520,7 @@ MCP server:
 | --- | --- | --- |
 | `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or a date and time like `2026-11-16T09:00` |
 | `loop` | `at` or `every`, `days?`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that repeats until it ends, which Hotline runs again itself: at `at`, a time of day (`09:00`, 24-hour, the desk's clock), on `days` (`daily`, the default, `weekdays`, or the days, `mon,wed,fri` or a list), or on an interval, `every` (`15s`, `5m`, `1h`, `1d`). Exactly one of `at` and `every`; `days` only with `at` |
-| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`; a supplied `target` is refused |
+| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`, and a loop's latest run skipped for being over two hours late as `skipped`, the time it was due; a supplied `target` is refused |
 | `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |
 
 The pane labels a job from its prompt; the tools take no name. A string

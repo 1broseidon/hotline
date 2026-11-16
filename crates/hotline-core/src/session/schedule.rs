@@ -6,10 +6,14 @@
 //! chosen days ([`calendar`]), each next run worked out on the desk's clock.
 //! A plain reminder is posted to the teammate's chat as it was written
 //! ([`Room::post`]) and does no work; any other job's firing is a turn on
-//! the job's own thread ([`super::job_thread`]), never the teammate's DM. A
-//! missed tick while Hotline was closed fires once on reopen rather than
-//! catching up a pile of them — the teammate should do the work now, not
-//! replay every interval it slept through.
+//! the job's own thread ([`super::job_thread`]), never the teammate's DM.
+//! Missed times, while Hotline was closed, the machine asleep or background
+//! work off, fire once when the desk can rather than catching up a pile of
+//! them — the teammate should do the work now, not replay every interval it
+//! slept through. A loop's run that could only start more than two hours
+//! after its time ([`LATE_RUN_LIMIT`]) is not run at all: the loop moves on
+//! to its next time and the job keeps the skip (`skipped`). A one-shot runs
+//! however late, since it has no next time to wait for.
 //!
 //! A job and a subagent are one thing with one schema ([`Brief`], ADR 0008
 //! §7): the task, when it runs, whom it reports to, and what ends it. The
@@ -23,7 +27,8 @@
 
 use super::{Post, Room, lock, now_ms};
 use crate::contract::{
-    Ability, Calendar, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId,
+    Ability, Calendar, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, SkippedRun,
+    ThreadId,
 };
 use crate::log::Log;
 use crate::room;
@@ -47,6 +52,13 @@ const MAX_PROMPT: usize = 8_000;
 const MAX_GOAL: usize = 500;
 /// How long a failed fire waits before trying again.
 const RETRY_WAIT: i64 = 60_000;
+/// How late a loop's run may start. George, 2026-11-15: "skip after 2 hours
+/// from original time". A run the desk could not start until later than
+/// this after its time is skipped, and the loop waits for its next.
+const LATE_RUN_LIMIT: i64 = 2 * 3_600_000;
+/// Sets [`LATE_RUN_LIMIT`] in milliseconds, so the rule can be watched on a
+/// running desk without waiting two hours.
+const LATE_RUN_LIMIT_ENV: &str = "HOTLINE_LATE_RUN_LIMIT_MS";
 /// How long the clock will sleep before looking again, even when the next job
 /// is further away. The task holds the room weakly, and this is how often it
 /// notices the room is gone; a create notifies and does not wait.
@@ -362,6 +374,7 @@ pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
         last_post: job.last_post,
         ended_at: job.ended_at,
         without: job.without,
+        skipped: job.skipped,
     }
 }
 
@@ -465,11 +478,40 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
     });
 }
 
+/// How late a loop's run may start: [`LATE_RUN_LIMIT`], or what
+/// [`LATE_RUN_LIMIT_ENV`] says.
+fn late_run_limit() -> i64 {
+    std::env::var(LATE_RUN_LIMIT_ENV)
+        .ok()
+        .and_then(|ms| ms.trim().parse::<i64>().ok())
+        .filter(|ms| *ms >= 0)
+        .unwrap_or(LATE_RUN_LIMIT)
+}
+
+/// Whether a run due at `slot` is too late to start at `now`: more than
+/// `limit` after it. A run exactly `limit` late still runs.
+pub(super) fn too_late(slot: i64, now: i64, limit: i64) -> bool {
+    now.saturating_sub(slot) > limit
+}
+
+/// What became of a due time of a job's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot {
+    /// Its firing was handed over, or its reminder posted.
+    Ran,
+    /// The firing before was still going: its thread skipped this one.
+    Overlapped,
+    /// A loop's time passed more than [`LATE_RUN_LIMIT`] before the desk
+    /// could start it.
+    TooLate,
+}
+
 /// Fires one due job: a reminder is posted, any other job's firing is handed
 /// to its thread. Neither waits for the work, so a loop counts its next
 /// interval from when this firing started, and one still running when the
-/// next is due is what its thread skips. A skipped slot is not a firing, so
-/// it does not count toward the loop's count.
+/// next is due is what its thread skips. A loop's time the desk reaches more
+/// than [`LATE_RUN_LIMIT`] late is skipped instead of run. A skipped slot is
+/// not a firing, so it does not count toward the loop's count.
 fn fire(room: &Arc<Room>, job: ScheduledJob) {
     let Ok(_working) = room.working() else {
         return;
@@ -487,13 +529,18 @@ fn fire(room: &Arc<Room>, job: ScheduledJob) {
     if !scheduled_job_allowed(&room.log, &current.persona_id, &current.id) {
         return;
     }
+    if current.kind == ScheduleKind::Loop && too_late(current.next_at, now_ms(), late_run_limit()) {
+        finish(room, &current.id, Slot::TooLate);
+        return;
+    }
     let ran = if current.reminder == Some(true) {
         room.remind(&current).map(|()| true)
     } else {
         room.fire_job(&current)
     };
     match ran {
-        Ok(ran) => finish(room, &current.id, ran),
+        Ok(true) => finish(room, &current.id, Slot::Ran),
+        Ok(false) => finish(room, &current.id, Slot::Overlapped),
         Err(error) => retry(room, &current, &error),
     }
 }
@@ -539,9 +586,10 @@ fn tombstone_if_live(room: &Room, job_id: &str) {
 /// A one-shot has fired its last, and so has a loop whose count runs out or
 /// whose next firing would fall after its end: each is ended rather than
 /// deleted, because its thread stays readable. A slot that was skipped, not
-/// `ran`, moves the loop to its next slot without spending its count, so only
-/// its end date can end it.
-fn finish(room: &Room, job_id: &str, ran: bool) {
+/// run, moves the loop to its next slot without spending its count, so only
+/// its end date can end it; one skipped for being too late is kept on the
+/// job as its latest skip.
+fn finish(room: &Room, job_id: &str, slot: Slot) {
     let _mutations = lock(&room.schedule_mutations);
     let Some(mut next) = room::schedules(&room.log)
         .into_iter()
@@ -550,6 +598,13 @@ fn finish(room: &Room, job_id: &str, ran: bool) {
         return;
     };
     let now = now_ms();
+    let ran = slot == Slot::Ran;
+    if slot == Slot::TooLate {
+        next.skipped = Some(SkippedRun {
+            slot: next.next_at,
+            at: now,
+        });
+    }
     let ends = if ran {
         fires_last(&next, now)
     } else {
@@ -737,6 +792,7 @@ impl Room {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            skipped: None,
         };
         room::append_schedule(&self.log, &job)?;
         self.schedule_changed.notify_one();

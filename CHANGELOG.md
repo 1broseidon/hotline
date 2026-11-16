@@ -18,6 +18,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   such as "Weekdays at 9:00 AM". A desk on an older version reads such a
   job as one that runs once a day.
 
+### Changed
+
+- A repeating job whose time passed more than two hours before Hotline
+  could run it, because the computer was asleep, Hotline was closed or
+  Background work was off, skips that run and waits for its next time,
+  instead of running hours late. A run late by less than two hours still
+  runs once, and a one-time job still runs whenever Hotline can.
+
 ### Fixed
 
 - A time a teammate gives for a job without a time zone, such as

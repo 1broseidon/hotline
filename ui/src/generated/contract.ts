@@ -2035,7 +2035,12 @@ quiet?: boolean,
  * Present and true for a plain reminder, which posts its prompt and
  * does no work.
  */
-reminder?: boolean, lastPost?: JobPost, endedAt?: number, without?: Array<Ability>, };
+reminder?: boolean, lastPost?: JobPost, endedAt?: number, without?: Array<Ability>, 
+/**
+ * The latest run of a loop skipped for starting more than two hours
+ * after its time, which moved the loop on to its next.
+ */
+skipped?: SkippedRun, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.
@@ -2119,7 +2124,13 @@ endedAt?: number,
  * When the job's last firing was handed to its thread. The job fires no
  * more, but it has not ended: it ends (`endedAt`) when that firing does.
  */
-finalFiring?: number, };
+finalFiring?: number, 
+/**
+ * The latest run of a loop that was skipped for being too late: by the
+ * time the desk could start it, more than two hours had passed since
+ * its time, so the loop moved on to its next. None until that happens.
+ */
+skipped?: SkippedRun, };
 
 /**
  * What a firing stamps on the user event it writes.
@@ -2384,6 +2395,19 @@ export type SkillSource = "builtin" | "gateway" | "home" | "workspace" | "comput
  * word the list, not the row.
  */
 export type Skipped = { item: string, reason: string, };
+
+/**
+ * A loop's run that was skipped for being too late (`ScheduledJob::skipped`).
+ */
+export type SkippedRun = { 
+/**
+ * When it was due, milliseconds since the epoch.
+ */
+slot: number, 
+/**
+ * When the desk skipped it, milliseconds since the epoch.
+ */
+at: number, };
 
 export type SlashCommand = { name: string, description?: string, hint?: string, };
 

@@ -999,6 +999,22 @@ pub struct ScheduledJob {
     /// more, but it has not ended: it ends (`endedAt`) when that firing does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_firing: Option<i64>,
+    /// The latest run of a loop that was skipped for being too late: by the
+    /// time the desk could start it, more than two hours had passed since
+    /// its time, so the loop moved on to its next. None until that happens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<SkippedRun>,
+}
+
+/// A loop's run that was skipped for being too late (`ScheduledJob::skipped`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SkippedRun {
+    /// When it was due, milliseconds since the epoch.
+    pub slot: i64,
+    /// When the desk skipped it, milliseconds since the epoch.
+    pub at: i64,
 }
 
 /// A job's latest post to the chat, for the listing to draw.

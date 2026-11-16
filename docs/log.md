@@ -258,7 +258,9 @@ that daily loop. `quiet` and
 `reminder` are stored only when true. A loop may carry its end: `goal` (a
 sentence), `until` (milliseconds since epoch) and `times` (firings left).
 The core adds `lastPost` (`{at, text}`, what the job last posted to the
-chat) and, once the job has fired its last or been cancelled, `endedAt`: an
+chat), `skipped` (`{slot, at}`, a loop's latest run skipped for starting
+over two hours after its time: when it was due and when it was skipped)
+and, once the job has fired its last or been cancelled, `endedAt`: an
 ended job is written again rather than tombstoned, because its thread stays
 readable. Every one of these is optional, so a job written before them reads
 as it did. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.

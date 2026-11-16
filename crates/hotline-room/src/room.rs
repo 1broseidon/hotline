@@ -533,6 +533,9 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
             .and_then(|post| serde_json::from_value(post.clone()).ok()),
         ended_at: event.get("endedAt").and_then(Value::as_i64),
         final_firing: event.get("finalFiring").and_then(Value::as_i64),
+        skipped: event
+            .get("skipped")
+            .and_then(|skipped| serde_json::from_value(skipped.clone()).ok()),
     })
 }
 
@@ -1197,6 +1200,7 @@ mod tests {
             last_post: None,
             ended_at: None,
             final_firing: None,
+            skipped: None,
         }
     }
 

@@ -665,7 +665,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             LOOP,
-            "Repeat the given prompt as a job, at a time of day on chosen days or on an interval. Hotline runs it again by itself each time until it ends: call this once, and nothing ever needs re-arming. For every weekday at 9, give `at` \"09:00\" and `days` \"weekdays\"; for every two hours, give `every` \"2h\". Give `at` or `every`, never both. `at` is a time of day on this computer's clock, the one your messages are stamped with, and the job stays on it whatever happens: a late run, a restart, the clocks changing. Each run is a turn on the job's own thread beside this conversation, starting from a note of where it stood, and what it finds is posted to the person's chat. A run still going when the next is due skips that one. This requires the operator's Background work grant. Use schedule for a one-shot. The person can see, open, quiet and cancel it from your jobs.",
+            "Repeat the given prompt as a job, at a time of day on chosen days or on an interval. Hotline runs it again by itself each time until it ends: call this once, and nothing ever needs re-arming. For every weekday at 9, give `at` \"09:00\" and `days` \"weekdays\"; for every two hours, give `every` \"2h\". Give `at` or `every`, never both. `at` is a time of day on this computer's clock, the one your messages are stamped with, and the job stays on it whatever happens: a late run, a restart, the clocks changing. Each run is a turn on the job's own thread beside this conversation, starting from a note of where it stood, and what it finds is posted to the person's chat. A run still going when the next is due skips that one, and a run Hotline cannot start until more than 2 hours after its time (this computer asleep, Hotline closed) is skipped, not run late. This requires the operator's Background work grant. Use schedule for a one-shot. The person can see, open, quiet and cancel it from your jobs.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -1947,7 +1947,8 @@ fn created(job: ScheduledJob) -> String {
 /// The fields a teammate asked for, not the whole room record. `quiet`
 /// stays a boolean so the agent does not have to treat absence as false. A
 /// calendar loop is said as its time and days; the day it carries as
-/// `every`, for older builds, is not its interval and is left out.
+/// `every`, for older builds, is not its interval and is left out. A loop's
+/// latest run skipped for being too late is said as the time it was due.
 fn listed_job(job: ScheduledJob) -> Value {
     let mut listed = json!({
         "id": job.id,
@@ -1968,6 +1969,9 @@ fn listed_job(job: ScheduledJob) -> Value {
     }
     if let Some(when) = job.when {
         listed["when"] = json!(when);
+    }
+    if let Some(skipped) = job.skipped {
+        listed["skipped"] = json!(local_said(skipped.slot));
     }
     listed
 }

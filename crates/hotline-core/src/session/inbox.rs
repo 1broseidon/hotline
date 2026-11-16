@@ -25,6 +25,7 @@
 //! reply counts on the two teammates' brake, which pauses them at the cap
 //! until the person says to keep going.
 
+use super::exchanges::Brake;
 use super::{Room, lock, new_id, now_ms};
 use crate::contract::{
     InboxItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxState, InboxWants, Persona,
@@ -384,17 +385,12 @@ impl Room {
                 )
             })?),
         };
-        // Nothing is sent to anyone while any of them is paused with the
-        // sender at the brake.
+        // Nothing is sent to anyone while any of them is at the brake with
+        // the sender: paused, or stopped by the person.
         for target in &targets {
-            if let Some(key) = thread_key(&caller.id, &target.id)
-                && self.brake_holds(&key)
+            if let Some(brake) = thread_key(&caller.id, &target.id).and_then(|key| self.brake(&key))
             {
-                return Err(format!(
-                    "You and {} have paused at {} messages: the person has a card to let you keep going. Nothing was sent.",
-                    target.name,
-                    super::exchanges::EXCHANGE_CAP
-                ));
+                return Err(brake.refusal(&target.name, "Nothing was sent."));
             }
         }
         let files = if sending.files.is_empty() {
@@ -862,15 +858,16 @@ impl Room {
                     self.name_of(&item.from)
                 ));
             }
-            if sorting.answer.is_some()
-                && let Some(key) = thread_key(&me.id, &item.from)
-                && self.brake_holds(&key)
+            // An answer is sent to the colleague, and work taken into a
+            // thread sends it its result: neither while the two are at the
+            // brake. Work taken while they are paused waits for the card.
+            let sends = sorting.answer.is_some();
+            let works = sorting.sort == Some(Sort::Taken)
+                && sorting.in_thread.unwrap_or(item.wants == InboxWants::Work);
+            if let Some(brake) = thread_key(&me.id, &item.from).and_then(|key| self.brake(&key))
+                && (sends || (works && brake == Brake::Stopped))
             {
-                return Err(format!(
-                    "You and {} have paused at {} messages: the person has a card to let you keep going. Nothing was sorted.",
-                    self.name_of(&item.from),
-                    super::exchanges::EXCHANGE_CAP
-                ));
+                return Err(brake.refusal(&self.name_of(&item.from), "Nothing was sorted."));
             }
         }
         let mut entries = Vec::new();

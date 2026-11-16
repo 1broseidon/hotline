@@ -61,6 +61,7 @@ impl Room {
                 b: receiver.id.clone(),
                 exchanges: 0,
                 paused: false,
+                stopped: false,
                 requests: vec![],
             });
             pair.requests.push(Request {

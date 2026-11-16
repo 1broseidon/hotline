@@ -280,9 +280,14 @@ changes, like the index. The window reads the receipts over the wire.
   (informed consent). An item the card has yet to allow is held, as above.
 - **The brake.** Every item and every reply counts on the two teammates'
   `EXCHANGE_CAP` (12); at the cap they pause, the person has the card, and
-  nothing more is sent or answered between them until the person says to
-  keep going. The result of a work thread is counted as a request's reply
-  always was.
+  nothing more is sent or answered between them until the person answers
+  it: a line from the person about anything else does not. Keep going counts
+  afresh. Stop exchange ends their outstanding work and holds them apart:
+  `send`, an `answer` and taking work into a thread between the two are
+  refused with a plain reason until the person next writes to one of them,
+  which starts the count afresh. Their open items stay open for the receiver
+  to close or leave. The result of a work thread is counted as a request's
+  reply always was.
 - **One path.** Nothing reaches a teammate by `ask_in_main`,
   `ask_in_own_thread`, a sender-triggered `dispatch_handoff`, or
   `aside_from`/nudge: those are deleted. An ask from before the inbox that is

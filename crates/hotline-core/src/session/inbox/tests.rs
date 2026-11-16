@@ -952,6 +952,7 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
     assert_eq!(team["sent"].as_array().unwrap().len(), 1, "{team}");
 }
 
+mod brake;
 mod clock;
 mod pick_up;
 mod quiet;

@@ -122,7 +122,8 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_it() {
 }
 
 #[tokio::test]
-async fn an_operator_message_settles_legacy_pause_cards_without_touching_another_pair() {
+async fn a_persons_line_leaves_a_pause_and_keep_going_settles_legacy_cards_without_touching_another_pair()
+ {
     let (room, _) = setup("legacy-exchange-pause-settlement");
     seed(
         &room,
@@ -147,9 +148,17 @@ async fn an_operator_message_settles_legacy_pause_cards_without_touching_another
         }),
     );
     room.start("ada").await.unwrap();
+    // A line about anything else is not the person's answer to the card.
     room.prompt("ada", "I am here; continue", None, None)
         .await
         .unwrap();
+    for whose in ["ada", "bob"] {
+        assert_eq!(cards(&room, whose)[0]["status"], "pending");
+    }
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    assert!(pair.paused);
+    assert_eq!(pair.exchanges, 12);
+    room.resume_exchange("ada", "bob").unwrap();
     for whose in ["ada", "bob"] {
         assert_eq!(cards(&room, whose)[0]["status"], "resumed");
         assert_eq!(cards(&room, whose)[0]["exchanges"], 12);

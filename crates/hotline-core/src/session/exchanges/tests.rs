@@ -165,6 +165,7 @@ fn seed(room: &Room, request: Request, count: i64, paused: bool) {
         b: "bob".into(),
         exchanges: count,
         paused,
+        stopped: false,
         requests: vec![request],
     })
     .unwrap();
@@ -418,6 +419,7 @@ async fn a_revoke_tells_the_sender_once_by_name_however_many_it_stopped() {
         b: "bob".into(),
         exchanges: 0,
         paused: false,
+        stopped: false,
         requests,
     })
     .unwrap();

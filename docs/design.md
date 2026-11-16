@@ -1228,8 +1228,13 @@ when the sender has moved on. Twelve items and replies between two
 teammates pause the pair, and nothing more is sent between them until the
 person decides. Receipts do not count. Queued requests and completed
 results wait without loss. The person's Keep going resets the counter; Stop
-exchange settles outstanding work and writes an explicit notice. Hearing from
-the person also resets the pair. These actions do not create new grants.
+exchange settles outstanding work, writes an explicit notice and holds the two
+apart: nothing is sent or answered between them, and no work is taken into a
+thread from one for the other, until the person next writes to one of them,
+which starts the count afresh. While the card is up only Keep going or Stop
+answers it: a line from the person about anything else leaves a paused pair
+paused. Hearing from the person resets the count of a pair that is not paused.
+These actions do not create new grants.
 A handoff stands until Stop exchange, a revocation or an unlink releases it,
 its result back or not, and its thread's link says when it no longer does
 (`handoffEnded`): the window shows only that, never inferring it. The request's

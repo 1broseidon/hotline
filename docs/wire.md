@@ -392,7 +392,9 @@ server's address or login, or a tool inventory.
 `teammates.exchange_resume {a,b}` and `teammates.exchange_stop {a,b}`
 answer a pair's `exchange_paused` card from either seat. Keep going resets
 the twelve-message count and releases queued asks, handoffs and replies;
-Stop exchange settles outstanding work without revoking collaboration.
+Stop exchange settles outstanding work without revoking collaboration, and
+nothing is sent between the two until the person next writes to one of them.
+A line the person writes while the card is up does not answer it.
 The card's status becomes `resumed` or `stopped`. These are operator
 commands, not teammate tools. There are no link commands or roster links.
 

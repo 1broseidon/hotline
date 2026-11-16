@@ -58,11 +58,43 @@ impl Request {
     }
 }
 
+/// Why nothing may pass between two teammates now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::session) enum Brake {
+    /// At the cap, until the person answers the card: Keep going or Stop.
+    Paused,
+    /// The person's Stop, until the person next writes to one of the two.
+    Stopped,
+}
+
+impl Brake {
+    /// The plain reason a teammate is refused, with `other` the colleague
+    /// and `nothing` what did not happen ("Nothing was sent.").
+    pub(in crate::session) fn refusal(self, other: &str, nothing: &str) -> String {
+        match self {
+            Self::Paused => format!(
+                "You and {other} have paused at {EXCHANGE_CAP} messages: the person has a card to let you keep going. {nothing}"
+            ),
+            Self::Stopped => format!(
+                "The person stopped the exchange between you and {other}: nothing passes between you until the person writes to one of you. {nothing}"
+            ),
+        }
+    }
+}
+
 impl Room {
-    /// Whether two teammates are at their brake: their exchange is paused
-    /// until the person says to keep going.
-    pub(in crate::session) fn brake_holds(&self, key: &str) -> bool {
-        self.exchange_pair(key).is_some_and(|pair| pair.paused)
+    /// Whether two teammates are at their brake, and which: paused until the
+    /// person answers its card, or stopped until the person next writes to
+    /// one of them.
+    pub(in crate::session) fn brake(&self, key: &str) -> Option<Brake> {
+        let pair = self.exchange_pair(key)?;
+        if pair.paused {
+            Some(Brake::Paused)
+        } else if pair.stopped {
+            Some(Brake::Stopped)
+        } else {
+            None
+        }
     }
 
     /// Counts a nudge's wake on two teammates' brake, as a reply is counted,
@@ -75,6 +107,7 @@ impl Room {
             b: to.to_string(),
             exchanges: 0,
             paused: false,
+            stopped: false,
             requests: vec![],
         });
         if pair.paused {

@@ -1914,8 +1914,14 @@ replies share the twelve-message brake across intents; receipts do not
 count. At twelve, both tapes receive an `exchange_paused` card. Further
 queued requests and completed results wait without being discarded.
 `teammates.exchange_resume {a,b}` resets the count and releases them;
-`teammates.exchange_stop {a,b}` stops outstanding exchanges. Both commands
-belong to the person, on desktop or phone. Hearing from the person also
+`teammates.exchange_stop {a,b}` stops outstanding exchanges and holds the
+pair (`stopped` on its record): `send` between the two, an `answer` from one
+to the other and work taken into a thread from one for the other are refused
+with a plain reason until the person next writes to either of them, which
+clears it and starts the count at nothing. Both commands belong to the
+person, on desktop or phone. While a pair is paused only those two commands
+change it: the person's line to either teammate leaves the pause and its card
+as they are (`Room::heard_from_person`); to a pair that is not paused it
 resets the count. Stopping cannot undo side effects already performed.
 
 A request ends only when someone ends it: Stop exchange, or a revocation of

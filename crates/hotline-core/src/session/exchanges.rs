@@ -18,6 +18,7 @@ use crate::linked;
 use crate::log::StreamId;
 use crate::paths::thread_key;
 use crate::thread::Opener;
+pub(super) use asides::Brake;
 use asides::{answer_of, last_message, said_last};
 use questions::Route;
 use serde::{Deserialize, Serialize};
@@ -663,6 +664,11 @@ struct Pair {
     b: String,
     exchanges: i64,
     paused: bool,
+    /// The person's Stop exchange: nothing passes between the two until the
+    /// person next writes to one of them. Left out while false, so a record
+    /// from before it reads as not stopped.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    stopped: bool,
     requests: Vec<Request>,
 }
 /// What a request's turn came to, for the thread it ran in.
@@ -781,13 +787,19 @@ impl Room {
             self.settle_pair_collaboration(a, b);
         }
         let _guard = lock(&self.exchange_lock);
-        let Some(mut pair) = self.exchange_pair(&key) else {
-            // A stop with nothing counted yet has settled all there was.
-            return if stop {
-                Ok(())
-            } else {
-                Err("There is no exchange for this pair".into())
-            };
+        let mut pair = match self.exchange_pair(&key) {
+            Some(pair) => pair,
+            // A stop with nothing counted yet still stops the two.
+            None if stop => Pair {
+                id: key.clone(),
+                a: a.to_string(),
+                b: b.to_string(),
+                exchanges: 0,
+                paused: false,
+                stopped: false,
+                requests: vec![],
+            },
+            None => return Err("There is no exchange for this pair".into()),
         };
         let mut ended = Vec::new();
         if stop {
@@ -809,6 +821,7 @@ impl Room {
         }
         pair.exchanges = 0;
         pair.paused = false;
+        pair.stopped = stop;
         self.save_pair(&pair)?;
         self.mark_handoffs(&ended);
         self.exchange_card(
@@ -821,14 +834,18 @@ impl Room {
         );
         Ok(())
     }
+    /// The person wrote to `persona`: each of its pairs counts afresh, and
+    /// one the person stopped may reach each other again. A pair paused at
+    /// the cap is left as it is: its card is the person's answer, and a line
+    /// about something else is not it.
     pub(super) fn heard_from_person(&self, persona: &str) {
         let _guard = lock(&self.exchange_lock);
         for mut pair in self.exchange_pairs() {
-            if pair.a != persona && pair.b != persona {
+            if (pair.a != persona && pair.b != persona) || pair.paused {
                 continue;
             }
             pair.exchanges = 0;
-            pair.paused = false;
+            pair.stopped = false;
             if let Err(error) = self.save_pair(&pair) {
                 eprintln!("reset exchange: {error}");
             }

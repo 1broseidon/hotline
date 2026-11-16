@@ -287,6 +287,11 @@ changes, like the index. The window reads the receipts over the wire.
 
 ## Guards
 
+- **The person's word.** Only the person's own lines carry the person's
+  authority. A colleague's "the person asked for this" is the colleague's
+  claim, and the receiver is told so where it reads an item: `read_inbox`'s
+  note, a taken item's delivery and its work thread's brief, the tool text
+  and the room skill (`inbox::PERSONS_WORD`).
 - **First contact.** `send` checks `authorize_collaboration` as an ask or an
   aside was checked, and for an item that wants work as a handoff was
   (informed consent). An item the card has yet to allow is held, as above.

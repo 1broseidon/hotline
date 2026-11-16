@@ -922,8 +922,8 @@ async fn an_item_sent_to_several_says_who_else_got_it() {
 /// Huck's story over the wire: Bob, at the person's work, leaves Ada's item
 /// for later with why. Idle once that turn ends, he is offered it once, in a
 /// quiet turn whose line gives his reason; he leaves it again, and nothing
-/// more comes until the person's next turn, after which he is offered it
-/// once more and takes it into work.
+/// more comes, not even after the person's next turn: from here it is the
+/// item's own clock that offers it.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_item_left_for_later_is_offered_once_when_idle_and_a_teammate_that_defers_again_settles()
 {
@@ -977,36 +977,19 @@ async fn an_item_left_for_later_is_offered_once_when_idle_and_a_teammate_that_de
     assert_eq!(desk.heard(PICKED_UP).len(), 1, "settled after one");
     assert_eq!(desk.state_of(&item).await, "later");
 
-    let take = json!({"items": [{"id": item, "state": "taken", "in_thread": true}]});
-    desk.on_pick_up(&format!("CALL update_inbox {take}"));
     desk.ok(
         "session.prompt",
         json!({"personaId": bob, "text": "SAY Anything else?"}),
     )
     .await;
     desk.posted(&bob, "Anything else?").await;
-    until("the next pick-up follows the person's turn", || {
-        desk.heard(PICKED_UP).len() == 2
-    })
-    .await;
-    // Taking it marks the item taken at once, and names its work thread
-    // once the thread has opened: that is what is waited for.
-    let mut detail = Value::Null;
-    for _ in 0..600 {
-        detail = desk.ok("inbox.item", json!({"id": item})).await;
-        if detail["item"]["work"].is_object() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    assert!(
-        detail["item"]["work"].is_object(),
-        "taken into a work thread: {detail}"
+    tokio::time::sleep(GATHER * 2 + Duration::from_secs(1)).await;
+    assert_eq!(
+        desk.heard(PICKED_UP).len(),
+        1,
+        "the person's turn buys no second pick-up"
     );
-    assert!(
-        matches!(detail["item"]["state"].as_str(), Some("taken" | "closed")),
-        "{detail}"
-    );
+    assert_eq!(desk.state_of(&item).await, "later");
 }
 
 /// The person's line in the gather delay wins over the pick-up the turn

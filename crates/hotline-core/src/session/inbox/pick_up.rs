@@ -13,12 +13,16 @@
 //!   turn has been offered yet are not its: they wake the conversation by
 //!   their own rule (`heard.rs`), and that wake wins.
 //! - **When.** A turn of the main conversation ends and the conversation is
-//!   idle; the gather delay later, if it is still idle with nothing queued
-//!   and the turn that armed it is still the last one, one quiet turn starts
-//!   whose line lists the items, each `later` one with its reason
-//!   ([`PICK_UP_LINE`]). Anything that starts a turn in between (the
-//!   person's line, a new item's wake, a post) wins, and that turn's end
-//!   arms its own pick-up.
+//!   idle with items set aside that no pick-up has offered yet; the gather
+//!   delay later, if it is still idle with nothing queued and the turn that
+//!   armed it is still the last one, one quiet turn starts whose line lists
+//!   those items, each `later` one with its reason ([`PICK_UP_LINE`]).
+//!   Anything that starts a turn in between (the person's line, a new
+//!   item's wake, a post) wins, and that turn's end arms its own pick-up.
+//! - **Once an item.** A turn's end offers an item once: the first time the
+//!   conversation goes idle after it was set aside or left unsorted. From
+//!   then on only its own clock offers it, however many turns the person
+//!   starts, so a busy conversation never buys a pick-up a turn.
 //! - **Never a loop.** A turn the pick-up started arms nothing when it ends
 //!   ([`PickUp::ended`]), whatever it leaves open: the next pick-up can only
 //!   follow a turn something else started. A turn the person stopped or
@@ -28,7 +32,7 @@
 //!   when it is offered next (`offer_again`: an hour after its first
 //!   pick-up, then a day after each); the clock (`clock.rs`) offers what has
 //!   come due in the same quiet turn ([`Due::Timed`]), and expires what stays
-//!   open three days.
+//!   open three days. A turn's end never offers a marked item.
 //! - **Nothing fires** for a teammate that is not running, was removed, or
 //!   whose room is closing; work threads and calls have no pick-up.
 //! - **When the desk opens** ([`Room::inbox_at_start`]), once the room has
@@ -150,7 +154,7 @@ impl Room {
         let Some(turn) = lock(&session.pick_up).armed() else {
             return;
         };
-        if self.set_aside(persona_id).is_empty() {
+        if self.offered_by(persona_id, Due::After(turn)).is_empty() {
             return;
         }
         let room = Arc::downgrade(self);
@@ -199,16 +203,22 @@ impl Room {
         self.offer_set_aside(persona_id, Due::After(turn)).await;
     }
 
-    /// The items a pick-up that is `due` offers: what is set aside, or for
-    /// a timed one, what of it has come due.
+    /// The items a pick-up that is `due` offers: after a turn, what is set
+    /// aside that no pick-up has offered yet, so a turn's end offers an item
+    /// once and its clock the rest; for a timed one, what has come due; at
+    /// start, all of it.
     fn offered_by(&self, persona_id: &str, due: Due) -> Vec<InboxItem> {
         let items = self.set_aside(persona_id);
         match due {
+            Due::After(_) => items
+                .into_iter()
+                .filter(|item| item.offer_again.is_none())
+                .collect(),
             Due::Timed(now) => items
                 .into_iter()
                 .filter(|item| item.offer_again.is_some_and(|at| at <= now))
                 .collect(),
-            Due::After(_) | Due::AtStart => items,
+            Due::AtStart => items,
         }
     }
 

@@ -162,25 +162,27 @@ async fn items_due_together_are_offered_in_one_turn_and_one_not_due_waits() {
     assert_eq!(item(&room, "bob", &third.id).offer_again, Some(due + 1));
 }
 
-/// Busy when its time comes, the conversation is offered the item by the
-/// pick-up that follows its turn, which counts as that offer: never both.
+/// Busy when its time comes, the conversation is not offered the item by
+/// the end of its turn, which never offers an item a second time: the
+/// clock's next look once it is idle makes the offer, once.
 #[tokio::test]
-async fn a_timed_offer_that_finds_the_conversation_busy_is_made_by_the_turns_end_and_not_doubled() {
+async fn a_timed_offer_that_finds_the_conversation_busy_is_made_by_the_clocks_next_look_once() {
     let (room, agents, gate, session) = gated("clock-busy").await;
     let (id, due) = first_pick_up(&room, &agents, &gate, &session).await;
     persons_turn(&room, &agents, "something else").await;
     room.inbox_due(due).await;
     assert_eq!(picked_up(&agents).len(), 1, "busy: nothing now");
     gate.add_permits(A_TURN);
-    until("the pick-up after the person's turn", || {
-        picked_up(&agents).len() == 2
-    })
-    .await;
+    idle(&session).await;
+    tokio::time::sleep(heard::gather_delay() * 3).await;
+    assert_eq!(picked_up(&agents).len(), 1, "no pick-up at the turn's end");
+    room.inbox_due(due + 1).await;
+    until("the clock's offer", || picked_up(&agents).len() == 2).await;
     gate.add_permits(A_TURN);
     idle(&session).await;
     let next = item(&room, "bob", &id).offer_again.unwrap();
-    assert!(next > due, "that pick-up was the offer that was due");
-    room.inbox_due(due).await;
+    assert_eq!(next, due + 1 + again_every(), "a day after that offer");
+    room.inbox_due(due + 1).await;
     assert!(!lock(&session.turns).running, "nothing due now");
     assert_eq!(picked_up(&agents).len(), 2, "{:?}", agents.told());
 }

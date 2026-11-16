@@ -1474,7 +1474,8 @@ by the same rule, so an item wakes its receiver once as new.
 **The pick-up** (`inbox/pick_up.rs`). What the main conversation set aside
 is offered to it again once, when it goes idle: when one of its turns ends
 and items heard there are `later`, or were offered or read and left unsorted,
-the gather delay later one quiet inbox turn starts (`Wired::pick_up`, quiet as
+and no pick-up has offered them yet (no `offerAgain`), the gather delay later
+one quiet inbox turn starts (`Wired::pick_up`, quiet as
 below) whose line says the teammate is idle now and lists those items as the
 index does, each `later` one with its reason, fenced as data. It starts only
 if the conversation is still idle with nothing queued and its turn is still
@@ -1502,10 +1503,11 @@ when it is offered next (`offerAgain`): an hour after its first pick-up
 runs the pick-up at start, and starts a task that reads the clock every 30
 seconds (`Room::inbox_due`): what has expired closes, and each teammate whose
 main conversation is idle with nothing queued is offered, in one quiet
-pick-up turn (`Due::Timed`), every set-aside item whose time has come. A busy
-conversation is offered it by its turn's own pick-up, which marks it anew, so
-nothing is offered twice for one time; a teammate not running is not started
-for it. An item still open (`new`, `noticed`, `seen`, `later`) three days
+pick-up turn (`Due::Timed`), every set-aside item whose time has come. A
+turn's end never offers an item that has an `offerAgain`, so after its first
+pick-up an item is offered by its own time alone, however many turns the
+person starts, and a busy conversation is offered it at the clock's first
+look once it is idle again; a teammate not running is not started for it. An item still open (`new`, `noticed`, `seen`, `later`) three days
 after it arrived (`HOTLINE_INBOX_EXPIRE_MS`) closes as `expired`, with its
 receipt; `taken` and held items never do. Its sender gets one item back,
 Hotline's notice (`notice: expired`, `replyTo` the item, `wants: nothing`,

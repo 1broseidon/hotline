@@ -100,9 +100,9 @@ new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (done | no
   `combined` the item folded into) are the receiver's sort. A `later` item can
   be taken or closed afterwards; a closed one is over. A `later` item heard in
   the main conversation, and one there the receiver was shown and left
-  unsorted (`noticed` or `seen`), is offered to it again, quietly, when the
-  conversation is next idle after a turn, an hour later, then daily (the
-  pick-up, below).
+  unsorted (`noticed` or `seen`), is offered to it again, quietly, the first
+  time the conversation is idle after a turn, then by its own clock alone, an
+  hour later and then daily (the pick-up, below).
 - `expired` is Hotline's outcome, never a sort: an item still open (`new`,
   `noticed`, `seen` or `later`) three days after it arrived closes by itself
   (the clock, below). A `taken` or held item never expires.
@@ -172,7 +172,8 @@ about that thread), else the receiver's main conversation.
 - **The pick-up** (`inbox/pick_up.rs`). When a turn of the main conversation
   ends and the conversation is idle, and items heard there are open that the
   teammate has not finished sorting (`later`, or offered or read and left
-  unsorted; not `taken`, not `closed`), it gets one quiet inbox turn, by the
+  unsorted; not `taken`, not `closed`) and that no pick-up has offered yet,
+  it gets one quiet inbox turn, by the
   same mechanism and with the same quietness and `post_to_chat` gate as the
   quiet turn above. It comes the gather delay after the turn ended, and only
   if the conversation is still idle with nothing queued and no turn has begun
@@ -186,6 +187,9 @@ about that thread), else the receiver's main conversation.
   - **No loops.** A turn the pick-up started arms no pick-up when it ends,
     whatever it leaves open: the next can only follow a turn something else
     started. A teammate that answers `later` every time settles after one.
+  - **Once an item.** A turn's end offers an item once. The person's turns
+    after that offer it nothing, however many there are: it has its own
+    times (below).
   - A turn the person stopped or interrupted, or one cancelled or failed, arms
     none, and the person's Stop while one waits disarms it. A teammate with
     nothing open, one not running or removed, and a room that is closing get
@@ -200,16 +204,18 @@ about that thread), else the receiver's main conversation.
     offered only while the conversation is idle with nothing queued and has
     had no turn since the desk opened (a turn it had offers by its own end,
     and a never-offered item's wake wins), once per launch, and its turn arms
-    nothing: a teammate that defers again waits for its next turn.
+    nothing: a teammate that defers again waits for its items' own times.
   - **Again, on the items' own time** (`inbox/clock.rs`). Each item a
     pick-up offers carries when it is offered next, `offerAgain`: an hour
     after its first pick-up, then a day after each. When that time has come
     and the main conversation is idle with nothing queued, one quiet pick-up
-    turn offers every item that is due (one not yet due waits). A busy
-    conversation is offered it by the pick-up that follows its turn, which
-    counts as that offer, so it is never offered twice for one time. The
-    times are the items', not a turn's, so the no-loop rule stands: a
-    pick-up's turn arms nothing. A teammate not running is not started for a
+    turn offers every item that is due (one not yet due waits). A turn's end
+    offers an item once, the first time the conversation is idle after it
+    was set aside; after that only its own time offers it, however many
+    turns the person starts, so a busy conversation is offered a due item at
+    the clock's first look once it is idle again. The times are the items',
+    not a turn's, so the no-loop rule stands: a pick-up's turn arms
+    nothing. A teammate not running is not started for a
     timed offer; a desk that was closed when one came due makes it at start,
     by the pick-up at start, which counts as the offer.
   - Work threads and calls have no pick-up.

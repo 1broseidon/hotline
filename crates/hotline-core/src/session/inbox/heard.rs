@@ -25,8 +25,8 @@
 //!   offered, because they landed mid-turn, wake the idle thread as above.
 //!   An item wakes its receiver once as new. What the main conversation was
 //!   shown and left open, `later` or unsorted, is offered once more, quietly,
-//!   when it goes idle after a turn something else started, and once when
-//!   the desk opens (`pick_up.rs`).
+//!   the first time it goes idle after a turn something else started, then
+//!   on the item's own clock, and once when the desk opens (`pick_up.rs`).
 
 use super::{Room, kept, lock, moved, now_ms, short};
 use crate::contract::{InboxItem, InboxState, ThreadId, ThreadKind};

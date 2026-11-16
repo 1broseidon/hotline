@@ -6,9 +6,10 @@
 //!   after its first pick-up ([`again_after_first`]), then a day after each
 //!   ([`again_every`]). When that time has come and the main conversation is
 //!   idle with nothing queued, one quiet pick-up turn offers every item that
-//!   is due. A busy conversation is offered it by the pick-up that follows
-//!   its turn, which counts as that offer. The times are the items' own, so
-//!   no turn arms the next and a pick-up's turn still arms nothing.
+//!   is due. A busy conversation is offered it at the clock's first look
+//!   once it is idle again: a turn's end never offers an item a pick-up has
+//!   offered before. The times are the items' own, so no turn arms the next
+//!   and a pick-up's turn still arms nothing.
 //! - **Expired.** An item left open (unread, read and unsorted, or `later`)
 //!   for [`expire_after`] since it arrived closes by itself as `expired`,
 //!   with its receipt; a `taken` or held one never does. Its sender gets one

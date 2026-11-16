@@ -145,8 +145,9 @@ async fn an_item_set_aside_while_busy_is_offered_once_quietly_when_idle_and_can_
 }
 
 /// A teammate that answers "later" every time settles after one pick-up:
-/// the turn the pick-up started arms none. The next follows only a turn
-/// something else started, here the person's.
+/// the turn the pick-up started arms none, and the person's next turn
+/// offers it nothing either, since the item has had its pick-up and waits
+/// for its own clock.
 #[tokio::test]
 async fn a_pick_up_turn_is_followed_by_no_other_however_much_it_leaves_open() {
     let (room, agents, gate, session) = gated("pick-up-no-loop").await;
@@ -182,19 +183,38 @@ async fn a_pick_up_turn_is_followed_by_no_other_however_much_it_leaves_open() {
         agents.told()[2]
     );
     gate.add_permits(A_TURN);
-    until("one pick-up after the person's turn", || {
-        picked_up(&agents).len() == 2
-    })
-    .await;
-    assert!(
-        picked_up(&agents)[1].contains(": \"still not now\""),
-        "{}",
-        picked_up(&agents)[1]
-    );
-    gate.add_permits(A_TURN);
     idle(&session).await;
     tokio::time::sleep(heard::gather_delay() * 3).await;
-    assert_eq!(agents.told().len(), 4, "settled again: {:?}", agents.told());
+    assert_eq!(picked_up(&agents).len(), 1, "{:?}", agents.told());
+    assert_eq!(agents.told().len(), 3, "its clock's: {:?}", agents.told());
+}
+
+/// However many turns the person starts, an item set aside is offered by a
+/// turn's end once: the first time the conversation goes idle after it was
+/// set aside. Every later offer is its own clock's.
+#[tokio::test]
+async fn ten_turns_of_the_persons_bring_one_pick_up_of_an_item_set_aside() {
+    let (room, agents, gate, session) = gated("pick-up-ten-turns").await;
+    persons_turn(&room, &agents, "turn 0").await;
+    let id = send(&room, "ada", "bob", "Keyboards", json!({})).await;
+    sort(
+        &room,
+        json!([{"id": id, "state": "later", "reason": "after the research"}]),
+    )
+    .await;
+    gate.add_permits(A_TURN);
+    until("the pick-up", || picked_up(&agents).len() == 1).await;
+    gate.add_permits(A_TURN);
+    idle(&session).await;
+    for turn in 1..10 {
+        persons_turn(&room, &agents, &format!("turn {turn}")).await;
+        gate.add_permits(A_TURN);
+        idle(&session).await;
+        tokio::time::sleep(heard::gather_delay() * 3).await;
+    }
+    assert_eq!(picked_up(&agents).len(), 1, "{:?}", agents.told());
+    assert_eq!(agents.told().len(), 11, "ten turns and one pick-up");
+    assert_eq!(item(&room, "bob", &id).state, InboxState::Later);
 }
 
 /// Nothing open, nothing offered: what the teammate closed, answered or is

@@ -45,6 +45,8 @@ beforeEach(async () => {
 	ada = `ada-${++made}`;
 	act = (await import("react")).act;
 	({ Transcript } = await import("../src/components/Transcript"));
+	// Captures are kept for the life of the page, and the files share one page's modules: each test starts with none.
+	(await import("../src/components/transcript/ComputerFrame")).forgetCaptures();
 	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
 	document.body.append(container);

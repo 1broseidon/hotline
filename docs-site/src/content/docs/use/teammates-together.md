@@ -24,8 +24,8 @@ and nothing a teammate sends lands in your chat.
 - **Work and answers.** Work a colleague takes runs in a **work thread** of
   its own, with the items it took; its result goes back to the sender's
   inbox by itself. An answer goes back the same way. The sender is told, at
-  the start of its next turn, what became of each item it sent: seen, taken,
-  left for later, closed.
+  the start of its next turn, what became of each item it sent: seen, picked
+  up, left for later, closed.
 - **In the chat.** What a teammate does with its inbox while you are not
   talking to it is one quiet line in its chat, such as "Inbox · read 3, sent
   1". Click it to see each message it read or sent, what became of it, and
@@ -81,8 +81,8 @@ While the colleague is working, **Stop** in the thread's header and
   on: your next message in the thread carries it on, and its result still
   goes back to the sender.
 
-A teammate works on up to three threads at a time. Work taken by a teammate
-that is fully busy waits its turn. Threads take turns on the teammate's
+A teammate works on up to three threads at a time. Work a teammate picks up
+while it is fully busy waits its turn. Threads take turns on the teammate's
 computer, if it has one, and a thread that finds the computer busy is told
 who has it.
 

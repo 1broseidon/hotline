@@ -9,6 +9,8 @@ import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
 import { Scroll } from "../ui/Scroll";
 import { BandKind, PaneHead, TaskCard } from "./thread/Pane";
+import { Clamped, Mark, type MarkKind, SectionRule, SpineHead, StateLine } from "./thread/Spine";
+import { Markdown } from "./Markdown";
 
 /*
  * A teammate's inbox in the right-hand pane (docs/design/agent-inbox.md, "On
@@ -90,7 +92,7 @@ export function InboxList({
 		const groups = openGroups(view);
 		body =
 			view.open.length === 0 ? (
-				<p className="px-2 py-3 text-sm text-ink-3">Nothing open.</p>
+				<p className="spine-empty">Nothing open.</p>
 			) : (
 				<>
 					<Group title="Unread" items={groups.unread} />
@@ -102,11 +104,11 @@ export function InboxList({
 				</>
 			);
 	} else if (view !== undefined && segment === "closed") {
-		body = view.closed.length === 0 ? <p className="px-2 py-3 text-sm text-ink-3">Nothing closed.</p> : view.closed.map((item) => row(item));
+		body = view.closed.length === 0 ? <p className="spine-empty">Nothing closed.</p> : view.closed.map((item) => row(item));
 	} else if (view !== undefined) {
 		body =
 			view.sent.length === 0 ? (
-				<p className="px-2 py-3 text-sm text-ink-3">Nothing sent.</p>
+				<p className="spine-empty">Nothing sent.</p>
 			) : (
 				sends(view.sent).map((send) =>
 					send.items.length === 1 ? (
@@ -123,18 +125,20 @@ export function InboxList({
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Inbox</h2>
 				<PaneClose onClose={onClose} />
 			</Band>
-			{view !== undefined && <p className="dock-note instrument">{listHeading(view, segment)}</p>}
-			<div className="list-span">
-				<div className="segmented" role="tablist" aria-label="Show" onKeyDown={onTablistKey}>
-					{SEGMENTS.map((one) => (
-						<button key={one.segment} type="button" role="tab" className="segment" aria-selected={segment === one.segment} onClick={() => onSegment(one.segment)}>
-							{one.word}
-						</button>
-					))}
+			<SpineHead className="spine-head-list">
+				{view !== undefined && <p className="spine-count instrument">{listHeading(view, segment)}</p>}
+				<div className="list-span">
+					<div className="segmented" role="tablist" aria-label="Show" onKeyDown={onTablistKey}>
+						{SEGMENTS.map((one) => (
+							<button key={one.segment} type="button" role="tab" className="segment" aria-selected={segment === one.segment} onClick={() => onSegment(one.segment)}>
+								{one.word}
+							</button>
+						))}
+					</div>
 				</div>
-			</div>
+			</SpineHead>
 			<Scroll>
-				<div className="px-2 pb-3">{body}</div>
+				<div className="spine-body">{body}</div>
 			</Scroll>
 		</section>
 	);
@@ -194,12 +198,7 @@ function SendRows({
 
 function Group({ title, items }: { title: string; items: InboxItem[] }) {
 	if (items.length === 0) return null;
-	return (
-		<h3 className="list-group">
-			<span>{title}</span>
-			<span>{items.length}</span>
-		</h3>
-	);
+	return <SectionRule level={3} className="list-group" title={title} count={items.length} />;
 }
 
 /**
@@ -266,8 +265,14 @@ function receiptTime(at: number, now: number = Date.now()): string {
 	return at >= today.getTime() ? clock.format(new Date(at)) : dated.format(new Date(at));
 }
 
+/** Where an item stands, as the one mark vocabulary says it: open and waiting on someone is a ring; closed is done, dropped failed, expired a dotted ring. */
+function itemMark(item: InboxItem): MarkKind {
+	if (item.state !== "closed") return "waiting";
+	return item.outcome === "dropped" ? "failed" : item.outcome === "expired" ? "expired" : "done";
+}
+
 /** The band's word over an item: where it is read, with Back to the list. */
-const INBOX_KIND = { glyph: "", word: "Inbox", family: "", watching: true };
+const INBOX_KIND = { glyph: "", word: "Inbox", watching: true };
 
 /**
  * One item in the pane: who sent it to whom and what it wants, its words,
@@ -297,14 +302,16 @@ export function InboxItemPane({
 	const held = itemsOf(useInbox(item?.to));
 	const answered = itemsOf(useInbox(item?.replyTo !== undefined ? item.from : undefined));
 	const titleOf = (id: string) => held.get(id)?.title ?? answered.get(id)?.title;
-	const tone = item?.state === "closed" ? (item.outcome === "dropped" ? "failed" : "done") : "quiet";
+	const receipts = item === undefined ? [] : receiptRows(item, titleOf);
+	// Who and what, in one line: "Goldie to Huck · wants work done".
+	const whoWhat = item === undefined ? "" : [`${senderWords(item, nameOf)} to ${nameOf(item.to)}`, alsoSentWords(item, (id) => people.get(id)?.name), wantsWords(item.wants)].filter((part) => part !== undefined && part !== "").join(" · ");
 	return (
 		<section className="dock-page" aria-label={item === undefined ? "Message" : `Message: ${item.title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
+				<button type="button" className="control btn-icon pane-back" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={INBOX_KIND} live={false} tone={tone} state={item === undefined ? "loading" : stateWord(item)} />
+				<BandKind kind={INBOX_KIND} state={item === undefined ? "loading" : stateWord(item)} />
 				<PaneClose onClose={onClose} />
 			</Band>
 			{item === undefined ? (
@@ -312,27 +319,31 @@ export function InboxItemPane({
 			) : (
 				<Scroll>
 					<PaneHead
-						kind={INBOX_KIND}
 						title={item.title}
-						state={stateWord(item)}
-						meta={[`${senderWords(item, nameOf)} to ${nameOf(item.to)}`, alsoSentWords(item, (id) => people.get(id)?.name), wantsWords(item.wants), item.waiting === true && `${nameOf(item.from)} is waiting`]}
+						line={<StateLine word={stateWord(item)} detail={item.waiting === true && item.state !== "closed" ? `${nameOf(item.from)} is waiting` : undefined} time={receiptTime(movedAt(item))} />}
 					/>
 					{item.held === true && <p className="dock-note">Waiting for you to allow it.</p>}
-					{item.body.trim() !== "" && <TaskCard eyebrow="Message" text={item.body} />}
-					<h4 className="pane-section eyebrow">Receipts</h4>
-					<ol className="inbox-receipts">
-						{receiptRows(item, titleOf).map((row) => (
+					{/* Who and what in one line at the end of the message's rule, or under the state line when there are no words: no facts of their own. */}
+					{item.body.trim() !== "" ? (
+						<TaskCard eyebrow="Message" text={item.body} aside={<span className="spine-rule-aside">{whoWhat}</span>} />
+					) : (
+						<p className="spine-who">{whoWhat}</p>
+					)}
+					<SectionRule title="Receipts" count={receipts.length} />
+					<ol className="inbox-receipts spine-list">
+						{receipts.map((row, at) => (
 							<li key={`${row.at}:${row.word}`}>
-								<span className="inbox-receipt-at">{receiptTime(row.at)}</span>
+								<Mark kind={at === receipts.length - 1 ? itemMark(item) : "done"} />
 								<span className="inbox-receipt-word">{row.word}</span>
 								{row.detail !== undefined && <span className="inbox-receipt-detail selectable">{row.detail}</span>}
+								<span className="inbox-receipt-at">{receiptTime(row.at)}</span>
 							</li>
 						))}
 					</ol>
 					{item.work !== undefined && (
 						<>
-							<h4 className="pane-section eyebrow">Work thread</h4>
-							<div className="px-2">
+							<SectionRule title="Work thread" />
+							<div className="spine-body">
 								<button type="button" className="list-row" onClick={() => onOpenThread(item.to, item.work!, item.title)}>
 									<span className="list-mark" aria-hidden="true">
 										≡
@@ -349,18 +360,25 @@ export function InboxItemPane({
 					)}
 					{item.replyTo !== undefined && (
 						<>
-							<h4 className="pane-section eyebrow">In reply to</h4>
-							<div className="px-2">
+							<SectionRule title="In reply to" />
+							<div className="spine-body">
 								<LinkedItem title={titleOf(item.replyTo) ?? "Original message"} line={`${nameOf(item.to)} to ${nameOf(item.from)}`} onOpen={() => onOpenItem(item.replyTo!)} />
 							</div>
 						</>
 					)}
 					{detail!.replies.length > 0 && (
 						<>
-							<h4 className="pane-section eyebrow">Replies</h4>
-							<div className="px-2 pb-3">
+							<SectionRule title="Replies" count={detail!.replies.length} />
+							<div className="spine-body">
 								{detail!.replies.map((reply) => (
-									<LinkedItem key={reply.id} title={reply.title} line={`${senderWords(reply, nameOf)} · ${asideTime(reply.ts)}`} onOpen={() => onOpenItem(reply.id)} />
+									<div key={reply.id} className="inbox-reply">
+										<LinkedItem title={reply.title} line={`${senderWords(reply, nameOf)} · ${asideTime(reply.ts)}`} onOpen={() => onOpenItem(reply.id)} />
+										{reply.body.trim() !== "" && (
+											<Clamped className="spine-said spine-said-quiet" watch={reply.body}>
+												<Markdown text={reply.body} />
+											</Clamped>
+										)}
+									</div>
 								))}
 							</div>
 						</>

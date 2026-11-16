@@ -226,8 +226,8 @@ describe("a handed-over thread's lines", () => {
 				expect(nameAbove(theirs)).toBe("Exec → Lead");
 			}
 			// The request is the handoff's task card, not a line of the stream.
-			expect(container.querySelector(".pane-task-body")?.textContent).toBe("Add mul to calc.py.");
-			expect(container.querySelector(".pane-task-from")?.textContent).toEndWith("from Lead");
+			expect(container.querySelector(".pane-task .spine-clamp")?.textContent).toBe("Add mul to calc.py.");
+			expect(container.querySelector(".pane-task-from")?.textContent).toEndWith("Lead");
 			expect(bubble("Add mul to calc.py.")).toBeUndefined();
 			expect(bubble("Add div too.")?.classList.contains("said-me")).toBe(true);
 			expect([...container.querySelectorAll(".said-name")].map((one) => one.textContent)).toContain("You");
@@ -300,11 +300,11 @@ describe("the head of a handed-over thread", () => {
 		test(`says it is a handoff, who it is from and to, and where answers go, in ${pane.name}'s pane`, async () => {
 			desk = { key: `work-head-${pane.id}`, state: "live", working: false };
 			await show(pane, false);
-			const head = container.querySelector(".pane-head");
-			expect(container.querySelector(".band-kind")?.textContent).toBe("⇄ Handoff");
-			expect(head?.querySelector(".pane-meta")?.textContent).toBe("from Lead · to Exec · answers go back to Lead");
+			expect(container.querySelector(".band-kind")?.textContent).toBe("Handoff");
+			const facts = [...container.querySelectorAll(".spine-facts > div")].map((row) => `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`);
+			expect(facts).toEqual(["From: Lead", "To: Exec", "Answers: go back to Lead"]);
 			// The band says the kind and the head the title, as on every thread's pane.
-			expect(head?.querySelector(".pane-title")?.textContent).not.toBe("");
+			expect(container.querySelector(".spine-head .spine-title")?.textContent).not.toBe("");
 		});
 	}
 });

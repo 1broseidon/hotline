@@ -180,7 +180,7 @@ describe("drawn", () => {
 		const outcome = container.querySelector(".trail-group .trail-outcome")!;
 		expect(outcome.getAttribute("data-mark")).toBe("partial");
 		expect(outcome.textContent).toBe("Aftercare form, 18 of 22 answers");
-		expect(container.querySelector(".work-heading.steps-heading")?.textContent).toBe("Steps · 2");
+		expect(container.querySelector(".spine-rule.steps-heading")?.textContent).toBe("Steps2");
 	});
 
 	test("waiting on its subagents the mark stays in the composer at rest with the teammate's words, and goes to sleep only when the turn ends", async () => {

@@ -12,6 +12,7 @@ import { type FileChange, type Source, type ToolStep, durationText, factOf, file
 import { Favicon, Favicons } from "../Favicon";
 import { pathOf, plainTitle, Read, Sources } from "./Sources";
 import { StepOutput } from "./Steps";
+import { SectionRule, type Status } from "../thread/Spine";
 
 /*
  * A turn's work as the right-hand pane reads it, simple where it can be and
@@ -85,7 +86,7 @@ export function TrailHead({ items, settled = false, hot }: { items: Step[]; sett
 	return (
 		<div className="work-sections work-head">
 			<Shape items={items} lines={lines} live={!settled} hot={hot} />
-			{sources.length > 0 && <Sources sources={sources} />}
+			{sources.length > 0 && <Sources sources={sources} ruled />}
 		</div>
 	);
 }
@@ -102,12 +103,18 @@ export function TrailSteps({
 	settled = false,
 	openId,
 	hot,
+	fold,
+	status,
 	onOpenThread,
 }: {
 	items: Step[];
 	settled?: boolean;
 	openId?: string | undefined;
 	hot: Hot;
+	/** Longer than this many lines, the path shows its latest and folds the earlier ones into one row that opens in place. */
+	fold?: number | undefined;
+	/** The page's one status mark, on the Steps heading (`SectionRule`). */
+	status?: Status | undefined;
 	/** Opens a helper or a command in the pane; without it their lines only say how they went. */
 	onOpenThread?: ((thread: ThreadRef) => void) | undefined;
 }) {
@@ -115,15 +122,28 @@ export function TrailSteps({
 	const files = useMemo(() => filesOf(items), [items]);
 	const groups = useMemo(() => pathGroups(items, !settled), [items, settled]);
 	const steps = pathLines(groups).reduce((n, line) => n + line.steps.length, 0);
+	const [unfolded, setUnfolded] = useState(false);
+	// Every entry in order, so the fold counts across the teammate's headings.
+	const entries = groups.flatMap((group) => group.entries);
+	const earlier = fold !== undefined && !unfolded && entries.length > fold ? entries.slice(0, entries.length - fold) : [];
+	// A line asked for on arrival is never folded away.
+	const hidden = new Set(earlier.some((one) => one.kind === "line" && one.line.ids.includes(openId ?? "")) ? [] : earlier);
+	const hiddenSteps = [...hidden].reduce((n, one) => n + (one.kind === "line" ? one.line.steps.length : one.kind === "helpers" ? one.links.length : one.kind === "command" ? 1 : 0), 0);
+	// A heading is folded with its lines, and so is one with none before the first line on show.
+	const firstShown = hidden.size === 0 ? 0 : groups.findIndex((group) => group.entries.some((one) => !hidden.has(one)));
+	// The one line that is live now, the newest of those running: the only one in mint.
+	const running = (one: PathEntry) => (one.kind === "line" ? one.line.live : one.kind === "helpers" ? one.links.some((link) => link.state !== "closed") : one.kind === "command" ? one.link.state !== "closed" : false);
+	const newest = entries.findLast(running);
+	const nowId = newest === undefined ? undefined : newest.kind === "line" ? newest.line.id : newest.kind === "helpers" ? newest.links[0]!.id : newest.kind === "command" ? newest.link.id : undefined;
 	if (files.length === 0 && groups.length === 0) return null;
 	const start = items[0]?.ts ?? 0;
 	const entry = (one: PathEntry) =>
 		one.kind === "line" ? (
-			<TrailLine key={one.line.id} line={one.line} sources={sources} startOpen={one.line.ids.includes(openId ?? "")} hot={hot} />
+			<TrailLine key={one.line.id} line={one.line} sources={sources} startOpen={one.line.ids.includes(openId ?? "")} hot={hot} now={nowId === one.line.id} />
 		) : one.kind === "helpers" ? (
-			<HelpersLine key={one.links[0]!.id} links={one.links} onOpen={onOpenThread} />
+			<HelpersLine key={one.links[0]!.id} links={one.links} onOpen={onOpenThread} now={nowId === one.links[0]!.id} />
 		) : one.kind === "command" ? (
-			<RunLine key={one.link.id} link={one.link} said={`Started a command: ${one.link.title}`} onOpen={onOpenThread} />
+			<RunLine key={one.link.id} link={one.link} said={`Started a command: ${one.link.title}`} onOpen={onOpenThread} now={nowId === one.link.id} />
 		) : (
 			<li key={one.outcome.id} className="trail-outcome outcome" data-step-id={one.outcome.id} data-mark={markOf(one.outcome)}>
 				{one.outcome.message}
@@ -133,7 +153,7 @@ export function TrailSteps({
 		<div className="work-sections">
 			{files.length > 0 && (
 				<section aria-label="Files changed">
-					<h3 className="work-heading">Files changed · {files.length}</h3>
+					<SectionRule title="Files changed" count={files.length} />
 					<ul className="file-list">
 						{files.map((file) => (
 							<FileRow key={file.path} file={file} />
@@ -143,21 +163,34 @@ export function TrailSteps({
 			)}
 			{groups.length > 0 && (
 				<section aria-label="Steps">
-					<h3 className="work-heading steps-heading">Steps{steps > 0 ? ` · ${steps}` : ""}</h3>
+					<SectionRule className="steps-heading" title="Steps" count={steps > 0 ? steps : undefined} status={status} />
 					<ol className="trail">
-						{groups.map((group) =>
-							group.heading === null ? (
-								group.entries.map(entry)
+						{hidden.size > 0 && (
+							<li className="trail-fold">
+								<button type="button" className="trail-head trail-fold-head" aria-expanded={false} onClick={() => setUnfolded(true)}>
+									<span aria-hidden="true" className="trail-dot trail-fold-dot" />
+									<span className="trail-said">
+										{hiddenSteps > 0 ? `${hiddenSteps} earlier ${hiddenSteps === 1 ? "step" : "steps"}` : `${hidden.size} earlier ${hidden.size === 1 ? "line" : "lines"}`}
+									</span>
+									<span className="trail-fact">Show</span>
+								</button>
+							</li>
+						)}
+						{groups.map((group, at) => {
+							const shown = group.entries.filter((one) => !hidden.has(one));
+							if (at < firstShown || (shown.length === 0 && group.entries.length > 0)) return null;
+							return group.heading === null ? (
+								shown.map(entry)
 							) : (
 								<li key={group.heading.id} className="trail-group" data-step-id={group.heading.id}>
 									<p className="trail-heading">
 										<span className="trail-heading-said">{group.heading.message}</span>
 										<span className="trail-fact">{sinceStart(group.heading.ts - start)}</span>
 									</p>
-									{group.entries.length > 0 && <ol className="trail trail-under">{group.entries.map(entry)}</ol>}
+									{shown.length > 0 && <ol className="trail trail-under">{shown.map(entry)}</ol>}
 								</li>
-							),
-						)}
+							);
+						})}
 					</ol>
 				</section>
 			)}
@@ -178,12 +211,12 @@ function runTone(link: RunLink): "in_progress" | "failed" | "completed" {
  * the right how it is going or how it ended and after how long. Pressed, it
  * opens that one's own activity in the pane.
  */
-function RunLine({ link, said, onOpen }: { link: RunLink; said: string; onOpen: ((thread: ThreadRef) => void) | undefined }) {
+function RunLine({ link, said, onOpen, now = false }: { link: RunLink; said: string; onOpen: ((thread: ThreadRef) => void) | undefined; now?: boolean }) {
 	const tone = runTone(link);
 	return (
-		<li className="trail-step" data-step-id={link.id} data-status={tone}>
+		<li className="trail-step" data-step-id={link.id} data-status={tone} data-now={now || undefined}>
 			<button type="button" className="trail-head" disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
-				<span aria-hidden="true" className={`trail-dot ${tone === "in_progress" ? "beat" : ""}`} />
+				<span aria-hidden="true" className={`trail-dot ${tone === "in_progress" && now ? "beat" : ""}`} />
 				<span className="trail-said">{said}</span>
 				<span className="trail-fact" data-tone={tone === "in_progress" ? "live" : tone === "failed" ? "danger" : undefined}>
 					{runStatus(link)}
@@ -201,15 +234,15 @@ function RunLine({ link, said, onOpen }: { link: RunLink; said: string; onOpen: 
  * activity. At the right, how many still run, else how many failed, else
  * that all are done.
  */
-function HelpersLine({ links, onOpen }: { links: RunLink[]; onOpen: ((thread: ThreadRef) => void) | undefined }) {
+function HelpersLine({ links, onOpen, now = false }: { links: RunLink[]; onOpen: ((thread: ThreadRef) => void) | undefined; now?: boolean }) {
 	const one = links.length === 1 ? links[0] : undefined;
-	if (one !== undefined) return <RunLine link={one} said={`Started a helper: ${one.title}`} onOpen={onOpen} />;
+	if (one !== undefined) return <RunLine link={one} said={`Started a helper: ${one.title}`} onOpen={onOpen} now={now} />;
 	const running = links.filter((link) => link.state !== "closed").length;
 	const failed = links.filter(linkFailed).length;
 	const status = running > 0 ? "in_progress" : failed > 0 ? "failed" : "completed";
 	const fact = running > 0 ? { text: `${running} running`, tone: "live" } : failed > 0 ? { text: `${failed} failed`, tone: "danger" } : { text: `${links.length} done`, tone: undefined };
 	return (
-		<FoldLine id={links[0]!.id} said={`Started ${links.length} helpers`} status={status} fact={fact}>
+		<FoldLine id={links[0]!.id} said={`Started ${links.length} helpers`} status={status} fact={fact} now={now}>
 			{links.map((link) => (
 				<button key={link.id} type="button" className="trail-row" data-step-id={link.id} disabled={onOpen === undefined} onClick={() => onOpen?.(runRef(link))}>
 					<span className="trail-page">{link.title}</span>
@@ -234,10 +267,13 @@ export function FoldLine({
 	status = "completed",
 	fact,
 	detail = "trail-detail",
+	now = true,
 	children,
 }: {
 	id: string;
 	said: string;
+	/** Running, it is the one line live now; a path marks only its newest (`TrailSteps`). */
+	now?: boolean;
 	status?: "in_progress" | "failed" | "completed";
 	fact?: { text: string; tone: string | undefined } | undefined;
 	detail?: string;
@@ -245,9 +281,9 @@ export function FoldLine({
 }) {
 	const [open, setOpen] = useState(false);
 	return (
-		<li className="trail-step" data-step-id={id} data-status={status}>
+		<li className="trail-step" data-step-id={id} data-status={status} data-now={now || undefined}>
 			<button type="button" className="trail-head" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-				<span aria-hidden="true" className={`trail-dot ${status === "in_progress" ? "beat" : ""}`} />
+				<span aria-hidden="true" className={`trail-dot ${status === "in_progress" && now ? "beat" : ""}`} />
 				<span className="trail-said">{said}</span>
 				{fact !== undefined && (
 					<span className="trail-fact" data-tone={fact.tone}>
@@ -351,7 +387,7 @@ function FileRow({ file }: { file: FileChange }) {
 }
 
 /** One line of steps: what was done, the fact at the right, and opened, each step as a person reads it. */
-function TrailLine({ line, sources, startOpen, hot }: { line: Glance; sources: Source[]; startOpen: boolean; hot: Hot }) {
+function TrailLine({ line, sources, startOpen, hot, now: newestLive = false }: { line: Glance; sources: Source[]; startOpen: boolean; hot: Hot; now?: boolean }) {
 	const now = useNow(line.live);
 	const newest = line.steps[line.steps.length - 1];
 	// The step running now counts its seconds up.
@@ -365,7 +401,7 @@ function TrailLine({ line, sources, startOpen, hot }: { line: Glance; sources: S
 	}, [startOpen]);
 	const status = line.live ? "in_progress" : line.failed ? "failed" : "completed";
 	return (
-		<li ref={node} className="trail-step" data-step-id={line.id} data-status={status}>
+		<li ref={node} className="trail-step" data-step-id={line.id} data-status={status} data-now={newestLive || undefined}>
 			<button
 				type="button"
 				className="trail-head"
@@ -376,7 +412,7 @@ function TrailLine({ line, sources, startOpen, hot }: { line: Glance; sources: S
 				onMouseEnter={() => hot.set(line.id)}
 				onMouseLeave={() => hot.set(null)}
 			>
-				<span aria-hidden="true" className={`trail-dot ${line.live ? "beat" : ""}`} />
+				<span aria-hidden="true" className={`trail-dot ${line.live && newestLive ? "beat" : ""}`} />
 				<span className="trail-said">{line.text}</span>
 				{fact !== null && (
 					<span className="trail-fact" data-tone={fact.tone}>

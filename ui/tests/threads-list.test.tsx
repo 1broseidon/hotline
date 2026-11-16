@@ -219,7 +219,8 @@ const pickKind = async (word: string) => {
 	const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] .menu-item')].find((one) => one.textContent?.startsWith(word))!;
 	await act(async () => item.click());
 };
-const headings = () => [...container.querySelectorAll(".list-group, .list-fold")].map((one) => [...one.children].map((part) => part.textContent));
+/** Each heading's words and count, the rule between them left out. */
+const headings = () => [...container.querySelectorAll(".list-group, .list-fold")].map((one) => [...one.children].filter((part) => !part.classList.contains("spine-rule-line")).map((part) => part.textContent));
 /** The rows under each heading, in order. */
 const sections = () => {
 	const out: Record<string, (string | null)[]> = {};

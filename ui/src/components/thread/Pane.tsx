@@ -1,31 +1,28 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { PaneKind } from "../../threadKinds";
 import { Avatar } from "../../ui/Avatar";
 import { FollowWindow } from "../FollowWindow";
 import { Markdown } from "../Markdown";
+import { Clamped, type FactRows, Facts, SectionRule, SpineHead } from "./Spine";
 
 /*
- * The frame every thread's pane is drawn in (docs/design/thread-panes.html):
- * a head that says what the thread is and what the person is to it, the task
- * or request it was handed, its work as it happens, and what came of it. Each
- * kind's pane is these parts in its own order; none of them knows the kind.
+ * The frame every thread's pane is drawn in (docs/design/thread-panes.html),
+ * on the pane's one skeleton (./Spine.tsx): a head that says what the thread
+ * is and how it stands, the task or request it was handed, its work as it
+ * happens, and what came of it. Each kind's pane is these parts in its own
+ * order; none of them knows the kind.
  */
 
 /**
- * The band's heading on a pane of its own: the kind, glyph and word, in the
- * place the state used to stand, with the dot saying the state (beating while
- * it runs, quiet once it rests, red when it failed). The band's instrument
- * already says how long and how much, so the word is the kind, and the state
- * is kept for a reader in the heading's name.
+ * The band's heading on a pane of its own: the kind's word alone, starting
+ * on the text edge. The state is the state line's under the band, so the
+ * band carries no dot or glyph; the state is kept for a reader in the
+ * heading's name.
  */
-export function BandKind({ kind, live, tone, state }: { kind: PaneKind; live: boolean; tone?: "done" | "quiet" | "failed" | undefined; state: string }) {
+export function BandKind({ kind, state }: { kind: PaneKind; state: string }) {
 	return (
-		<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink" aria-label={`${kind.word}, ${state}`}>
-			<span aria-hidden="true" className={`run-dot ${live ? "beat" : ""}`} data-tone={live ? "live" : (tone ?? "done")} />
-			<span className="band-kind truncate">
-				{kind.glyph !== "" && <span aria-hidden="true">{kind.glyph} </span>}
-				{kind.word}
-			</span>
+		<h2 className="band-kind min-w-0 flex-1 truncate pl-1 font-mono text-sm font-medium text-ink" aria-label={`${kind.word}, ${state}`}>
+			{kind.word}
 		</h2>
 	);
 }
@@ -34,83 +31,43 @@ export function BandKind({ kind, live, tone, state }: { kind: PaneKind; live: bo
 export type From = { personaId: string; name: string; hash?: string | undefined };
 
 /**
- * Under the band, on every thread's pane: the title, then one line of facts
- * joined by " · ", empty ones left out, led by the kind's own fact where it
- * has one ("Read only", "Started by Poe"). The band says the kind
- * ([`BandKind`]) and keeps the state and the keys; an inbox item, which has
- * no live state for the band to keep, says where it stands beside its title.
+ * Under the band, on every thread's pane: the title on the text edge, the
+ * state line under it (`StateLine`), then at most three facts as rows of a
+ * label and its value. Spacing, not a hairline, closes the head.
  */
-export function PaneHead({
-	kind,
-	family,
-	title,
-	state,
-	meta = [],
-}: {
-	kind: PaneKind;
-	/** Said in place of the kind's own fact: a job's "Loop", a run's nothing. */
-	family?: string | undefined;
-	title: string;
-	/** Where it stands, in a word after the title: an inbox item's "Taken". */
-	state?: string | undefined;
-	meta?: ReadonlyArray<string | false | null | undefined>;
-}) {
-	const facts = [family ?? kind.family, ...meta].filter((part): part is string => typeof part === "string" && part !== "");
+export function PaneHead({ title, line, facts = [] }: { title: string; line: ReactNode; facts?: FactRows }) {
 	return (
-		<header className="pane-head">
-			<h3 className="pane-title selectable">
-				{title}
-				{state !== undefined && (
-					<>
-						{" "}
-						<span className="pane-state">{state}</span>
-					</>
-				)}
-			</h3>
-			{facts.length > 0 && <p className="pane-meta selectable">{facts.join(" · ")}</p>}
-		</header>
+		<>
+			<SpineHead title={title} state={line} />
+			<Facts rows={facts} />
+		</>
 	);
 }
 
 /**
  * What the thread was handed, and by whom: a subagent's task, a handoff's
- * request. Three lines of it, with Show all only when there is more.
+ * request, an item's message. Its words at reading size on a rule, real
+ * bullets where it has a list; six lines of it, with Show all only when
+ * there is more (`Clamped`).
  */
-export function TaskCard({ eyebrow, from, text }: { eyebrow: string; from?: From | undefined; text: string }) {
-	const body = useRef<HTMLParagraphElement>(null);
-	const [open, setOpen] = useState(false);
-	const [clipped, setClipped] = useState(false);
-	// Measured while clamped, and again when the pane's width moves the lines.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: new words are new lines to measure.
-	useLayoutEffect(() => {
-		const el = body.current;
-		if (el === null || open) return;
-		const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
-		measure();
-		if (typeof ResizeObserver === "undefined") return;
-		const resized = new ResizeObserver(measure);
-		resized.observe(el);
-		return () => resized.disconnect();
-	}, [text, open]);
+export function TaskCard({ eyebrow, from, text, aside }: { eyebrow: string; from?: From | undefined; text: string; /** Said at the rule's end in place of the face: an item's who and what. */ aside?: ReactNode }) {
 	return (
 		<section className="pane-task" aria-label={eyebrow}>
-			<p className="pane-task-head">
-				<span className="eyebrow">{eyebrow}</span>
-				{from !== undefined && (
-					<span className="pane-task-from">
-						<Avatar id={from.personaId} name={from.name} size={16} hash={from.hash} />
-						from {from.name}
-					</span>
-				)}
-			</p>
-			<p ref={body} className="pane-task-body selectable" data-open={open || undefined}>
-				{text}
-			</p>
-			{clipped && (
-				<button type="button" className="pane-task-more" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-					{open ? "Show less" : "Show all"}
-				</button>
-			)}
+			<SectionRule
+				title={eyebrow}
+				aside={
+					aside ??
+					(from !== undefined && (
+						<span className="pane-task-from">
+							<Avatar id={from.personaId} name={from.name} size={16} hash={from.hash} />
+							{from.name}
+						</span>
+					))
+				}
+			/>
+			<Clamped className="spine-said" watch={text}>
+				<Markdown text={text} />
+			</Clamped>
 		</section>
 	);
 }
@@ -142,15 +99,12 @@ export function LiveStream({
 	);
 }
 
-/** What came of the work, closing the stream: an eyebrow ("Result · sent to Poe"), and the words. */
+/** What came of the work, closing the stream: a section ("Result", how long at the rule's end), and the words on a rule. */
 export function ResultCard({ eyebrow, aside, text }: { eyebrow: string; aside?: string | undefined; text: string }) {
 	return (
 		<section className="pane-result" aria-label={eyebrow}>
-			<p className="pane-result-head eyebrow">
-				<span>{eyebrow}</span>
-				{aside !== undefined && <span>{aside}</span>}
-			</p>
-			<div className="pane-result-body selectable">
+			<SectionRule title={eyebrow} count={aside} />
+			<div className="spine-said selectable">
 				<Markdown text={text} />
 			</div>
 		</section>

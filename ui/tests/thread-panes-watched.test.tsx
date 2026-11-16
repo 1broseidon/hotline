@@ -39,6 +39,10 @@ beforeEach(async () => {
 	output = null;
 	const installed = installDom({ ResizeObserver: NoResize, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 	teardown = installed.teardown;
+	measured = { scrollHeight: 0, clientHeight: 0 };
+	const proto = installed.dom.HTMLElement.prototype;
+	Object.defineProperty(proto, "scrollHeight", { configurable: true, get: () => measured.scrollHeight });
+	Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => measured.clientHeight });
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: unknown) => {
 		sent.push({ cmd, params });
 		if (cmd === "process.output") {
@@ -68,6 +72,8 @@ async function render(node: React.ReactNode) {
 	});
 }
 
+/** What every element measures, so a test can say whether words overflow their six lines. */
+let measured: { scrollHeight: number; clientHeight: number };
 const text = (selector: string) => container.querySelector(selector)?.textContent;
 const all = (selector: string) => [...container.querySelectorAll(selector)].map((one) => one.textContent);
 
@@ -83,14 +89,14 @@ describe("task-394 a handoff's pane", () => {
 	const reply: TranscriptEvent = { kind: "agent", id: "a1", ts: 3, text: "Two lines are stale." };
 	const stepIn: TranscriptEvent = { kind: "user", id: "u1", ts: 4, text: "Check the phone page too." };
 	const pane = (events: TranscriptEvent[], live: boolean, streaming: { messageId: string; kind: "agent" | "thought"; text: string; ts: number }[] = []) => (
-		<HandoffPane thread={thread} events={events} streaming={streaming} live={live} receiver={{ id: "poe", name: "Poe" }} sender={{ personaId: "elvis", name: "Elvis" }} people={new Map()} />
+		<HandoffPane thread={thread} events={events} streaming={streaming} live={live} status={live ? "live" : "stopped"} receiver={{ id: "poe", name: "Poe" }} sender={{ personaId: "elvis", name: "Elvis" }} people={new Map()} />
 	);
 
-	test("shows the request as the clamped task card", async () => {
+	test("shows the request as words on a rule, clamped, with who it is from at the rule's end", async () => {
 		await render(pane([request, read, reply], false));
 		expect(container.querySelector(".pane-task")?.getAttribute("aria-label")).toBe("Request");
-		expect(text(".pane-task-body")).toBe(request.kind === "delivery" ? request.text : "");
-		expect(text(".pane-task-from")).toEndWith("from Elvis");
+		expect(text(".pane-task .spine-clamp")).toBe(request.kind === "delivery" ? request.text : "");
+		expect(text(".spine-rule .pane-task-from")).toEndWith("Elvis");
 		// The request is the card, not a line of the stream as well.
 		expect(all(".speech").some((one) => one?.includes("old sign-in"))).toBe(false);
 	});
@@ -99,7 +105,10 @@ describe("task-394 a handoff's pane", () => {
 		// Words land a whole bubble at a time, as they do in the conversation.
 		await render(pane([request, read], true, [{ messageId: "m2", kind: "agent", text: "Sending Elvis the lines.\n\nThe first", ts: 5 }]));
 		expect(container.querySelector(".pane-stream .trail")).not.toBeNull();
-		expect(text(".pane-stream .steps-heading")).toBe("Steps · 1");
+		expect(text(".pane-stream .steps-heading")).toBe("Steps1");
+		// Activity carries the page's one status mark.
+		expect(container.querySelector(".spine-rule[data-status]")?.textContent).toBe("Activity");
+		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("live");
 		expect(all(".pane-stream .speech").some((one) => one?.includes("Sending Elvis the lines."))).toBe(true);
 		// After its words, a turn still running says it is at work; its open steps say so themselves.
 		await render(pane([request, read, reply], true));
@@ -135,18 +144,19 @@ describe("task-395 a pair's pane", () => {
 		<PairPane threadKey={key} self={poe} other={lou} row={row(state)} events={events} people={new Map()} onBack={() => {}} onClose={() => {}} />
 	);
 
-	test('says "◎ Pair" and "Read only", titled "<A> ↔ <B>" with a linked-desk teammate by its desk name', async () => {
+	test('says Pair alone in its band, "read only" in its state line, titled "<A> ↔ <B>" with a linked-desk teammate by its desk name', async () => {
 		await render(pane("live"));
-		expect(text(".band-kind")).toBe("◎ Pair");
-		expect(text(".pane-meta")).toStartWith("Read only · ");
-		expect(text(".pane-title")).toBe("Poe ↔ Lou on grizzly");
+		expect(text(".band-kind")).toBe("Pair");
+		expect(text(".spine-state")).toStartWith("Talking now· read only");
+		expect(text(".spine-title")).toBe("Poe ↔ Lou on grizzly");
+		expect(container.querySelectorAll(".spine-facts > div").length).toBeLessThanOrEqual(3);
 	});
 
-	test("draws lines on two sides, each with its teammate's face and name", async () => {
+	test("draws each line on the one text edge, in a well, under its teammate's name with their small face in the gutter", async () => {
 		await render(pane("live"));
 		const lines = [...container.querySelectorAll(".pair-line")];
 		expect(lines.map((line) => line.querySelector(".said-name")?.textContent)).toEqual(["Poe", "Lou on grizzly"]);
-		expect(lines.map((line) => line.hasAttribute("data-right"))).toEqual([false, true]);
+		expect(lines.map((line) => line.querySelector(".pair-line-said > .spine-clamp") !== null)).toEqual([true, true]);
 		expect(lines.map((line) => line.querySelector(".avatar")?.textContent)).toEqual(["P", "L"]);
 		expect(lines.map((line) => line.querySelector(".pair-line-said .markdown, .pair-line-said p:last-child")?.textContent)).toEqual([
 			"What does the phone say on a sign-in card?",
@@ -156,16 +166,36 @@ describe("task-395 a pair's pane", () => {
 		expect(pairLines(`${lou.id}~${poe.id}`, events, poe, lou).map((line) => (line.kind === "said" ? line.who.name : ""))).toEqual(["Lou on grizzly", "Poe"]);
 	});
 
+	test("a long line of the old conversation is clamped to six lines in its well, Show all opening it in place", async () => {
+		measured = { scrollHeight: 400, clientHeight: 132 };
+		await render(pane("closed"));
+		const first = container.querySelector(".pair-line-said")!;
+		expect(first.querySelector(".spine-clamp")?.hasAttribute("data-clipped")).toBe(true);
+		const more = first.querySelector<HTMLButtonElement>(".spine-more")!;
+		expect(more.textContent).toBe("Show all");
+		await act(async () => more.click());
+		expect(first.querySelector(".spine-clamp")?.hasAttribute("data-open")).toBe(true);
+		expect(more.textContent).toBe("Show less");
+		measured = { scrollHeight: 0, clientHeight: 0 };
+	});
+
+	test("a pause waiting on Keep going or Stop puts the amber ring on Lines", async () => {
+		const paused: TranscriptEvent = { kind: "exchange_paused", id: "x1", ts: 3, withPersonaId: lou.id, withName: lou.name, exchanges: 12, status: "pending" };
+		await act(async () => root.render(<PairPane threadKey={key} self={poe} other={lou} row={row("live")} events={[...events, paused]} people={new Map()} onBack={() => {}} onClose={() => {}} />));
+		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("blocked");
+	});
+
 	test("is live while talking, with Stop exchange in the band while the handoff stands, and none after", async () => {
 		await render(pane("live"));
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, talking");
-		expect(container.querySelector(".band h2 .beat")).not.toBeNull();
+		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("live");
 		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop the exchange"]');
 		expect(stop?.textContent).toBe("Stop exchange");
 		await act(async () => stop!.click());
 		expect(sent).toContainEqual({ cmd: "thread.cancel", params: { thread: { kind: "pair", key } } });
 		await render(pane("closed"));
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, ended");
+		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("stopped");
 		expect(container.querySelector('button[title="Stop the exchange"]')).toBeNull();
 	});
 
@@ -205,39 +235,43 @@ describe("task-396 a command left running", () => {
 		/>
 	);
 
-	test("reads as activity, not a chat: Activity over its output, no field, Stop only where the desk can stop it, and a foot saying whose it is", async () => {
+	test("reads as activity, not a chat: Output over what it wrote, no field, Stop at the foot only where the desk can stop it, and the foot saying whose it is", async () => {
 		// desk-threads, decision 2 (George, 2026-11-12).
 		output = { command: "make precheck", tail: "restore/full ........ ok\n" };
 		stops.length = 0;
 		await render(pane(run, [link("live")]));
-		expect(text(".pane-section")).toBe("Activity");
+		expect(text(".spine-rule .spine-rule-title")).toBe("Output");
+		expect(container.querySelector(".spine-rule")?.getAttribute("data-status")).toBe("live");
 		expect(container.querySelector("textarea, input, .speech")).toBeNull();
 		expect(container.querySelector('button[title="Stop this command"]')).toBeNull();
-		expect(text(".run-foot")).toBe("Left running by Poe.");
+		expect(text(".spine-foot")).toBe("Left running by Poe.");
 		await render(pane({ ...run, stoppable: true }, [link("live")]));
-		await act(async () => container.querySelector<HTMLButtonElement>('button[title="Stop this command"]')!.click());
+		await act(async () => container.querySelector<HTMLButtonElement>('.spine-foot button[title="Stop this command"]')!.click());
 		expect(stops).toEqual([1]);
 		// Ended, there is nothing to stop.
 		await render(pane(undefined, [link("closed")]));
 		expect(container.querySelector('button[title="Stop this command"]')).toBeNull();
 	});
 
-	test('opens as "$ Command" started by the teammate, titled by the command, "in <dir> · started <time>"', async () => {
+	test("opens as Command alone in its band, titled by the command, with three facts at most: In, Started", async () => {
 		output = { command: "make precheck", tail: "" };
 		await render(pane(run, [link("live")]));
-		expect(text(".band-kind")).toBe("$ Command");
-		expect(text(".pane-title")).toBe("make precheck");
-		expect(text(".pane-meta")).toMatch(/^Started by Poe · in hotline-wt-049 · started \d/);
+		expect(text(".band-kind")).toBe("Command");
+		expect(text(".spine-title")).toBe("make precheck");
+		const facts = all(".spine-facts dt");
+		expect(facts).toEqual(["In", "Started"]);
+		expect(text(".spine-facts dd")).toBe("hotline-wt-049");
 	});
 
 	test("shows the command line, then its output tail live in a terminal block", async () => {
 		output = { command: "make precheck", tail: "==> secrets\nsecrets     pass  0s\n" };
 		await render(pane(run, [link("live")]));
-		expect(text(".pane-command")).toBe("$make precheck");
-		expect(text(".pane-terminal")).toBe("==> secrets\nsecrets     pass  0s\n");
+		expect(text(".pane-terminal-command")).toBe("$make precheck");
+		expect(text(".pane-terminal")).toBe("$make precheck\n==> secrets\nsecrets     pass  0s\n");
 		expect(sent).toContainEqual({ cmd: "process.output", params: { personaId: "poe", id: runId } });
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Command, running");
-		expect(text(".band .instrument")).toMatch(/^1:0\d$/);
+		expect(text(".spine-state")).toMatch(/^Running now1:0\d$/);
+		expect(text(".spine-rule-count")).toBe("2 lines");
 	});
 
 	test("ended, keeps the last output it read, else the output its run kept", async () => {
@@ -245,13 +279,15 @@ describe("task-396 a command left running", () => {
 		await render(pane(run, [link("live")]));
 		await render(pane(undefined, [link("closed")]));
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Command, done");
-		expect(text(".band .instrument")).toBe("1:35");
-		expect(text(".pane-terminal")).toBe("ui          pass  27s\n");
+		expect(text(".spine-state")).toBe("Done1:35");
+		expect(container.querySelector(".spine-rule")?.getAttribute("data-status")).toBe("stopped");
+		expect(text(".pane-terminal")).toBe("$make precheck\nui          pass  27s\n");
+		expect(text(".spine-rule-count")).toBe("1 line");
 		await act(async () => root.unmount());
 		const { createRoot } = await import("react-dom/client");
 		root = createRoot(container);
 		await render(pane(undefined, [link("closed"), kept]));
-		expect(text(".pane-terminal")).toBe("precheck: all 8 legs pass in 95s\n");
+		expect(text(".pane-terminal")).toBe("$make precheck\nprecheck: all 8 legs pass in 95s\n");
 	});
 
 	test("it has no line in the conversation, and its row at the composer says Command, not Helper", async () => {

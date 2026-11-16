@@ -37,13 +37,14 @@ import { WorkPage } from "./Work";
 import { ThreadList } from "./ThreadList";
 import { LoopIn } from "./LoopIn";
 import { BandKind, PaneHead, TaskCard } from "./thread/Pane";
+import { SectionRule, StateLine, type Status, waitsOnPerson } from "./thread/Spine";
 import { RunPane } from "./thread/RunPane";
 import { HandoffPane } from "./thread/HandoffPane";
 import { PairPane } from "./thread/PairPane";
 import { CommandPane, runLink } from "./thread/CommandPane";
 import { CallPane } from "./thread/CallPane";
 import { JobPane } from "./thread/JobPane";
-import { startedWords, threadFamily } from "../threadKinds";
+import { clockWords, threadFamily } from "../threadKinds";
 import { type InboxSegment, useInbox, useInboxWork } from "../inbox";
 import { InboxItemPane, InboxList } from "./InboxPane";
 
@@ -325,7 +326,7 @@ function ThreadView({
 	const ownerEntry = roster.find((one) => one.persona.id === self.id);
 	const listedRun = id.kind === "run" ? ownerEntry?.subagents?.find((run) => run.runId === id.key) : undefined;
 	const runKind = id.kind === "run" ? (listedRun?.kind ?? runLink(events)?.runKind) : undefined;
-	const kind = threadFamily(id.kind, id.kind === "run" ? self.name : opener?.name, runKind);
+	const kind = threadFamily(id.kind, opener?.name, runKind);
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	// Taken from an inbox, the item's words that seeded it stand over the thread as its message, not as a line in it.
 	const lines = useMemo(
@@ -370,6 +371,9 @@ function ThreadView({
 		setRefused(null);
 		void resume().then(onChanged, refuse);
 	};
+	// The page's one status mark, on the heading over its work: blocked on the person before all else.
+	const status: Status | undefined =
+		row?.end === "failed" ? "failed" : closed ? "stopped" : row?.waiting === true || waitsOnPerson(lines) ? "blocked" : turning ? "live" : undefined;
 	// What a handoff asks the person, the oldest first: the one thing they say in it.
 	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");
 
@@ -402,10 +406,10 @@ function ThreadView({
 	return (
 		<section ref={root} className="dock-page" aria-label={`Thread with ${self.name}: ${title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
+				<button type="button" className="control btn-icon pane-back" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={kind} live={turning} state={turning ? "working" : state} tone={row?.end === "failed" ? "failed" : "quiet"} />
+				<BandKind kind={kind} state={turning ? "working" : state} />
                 {id.kind === "side" && !closed && sender === undefined && (
                     <button type="button" className="control btn-quiet px-2 text-sm" title="Call this thread" onClick={() => void startCall(undefined, { personaId: self.id, name: self.name, thread: id }).catch(refuse)}>Call</button>
                 )}
@@ -430,12 +434,25 @@ function ThreadView({
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
-				kind={kind}
 				title={title}
-				meta={
+				line={
+					<StateLine
+						word={turning ? "Working now" : closed ? "Ended" : parked ? "Parked" : row?.waiting === true ? "Needs you" : "Open"}
+						time={row !== undefined ? clockWords(row.updatedAt) : undefined}
+						you={!turning && !closed && row?.waiting === true}
+					/>
+				}
+				facts={
 					opener !== undefined
-						? [`from ${opener.name}`, `to ${self.name}`, row?.handoffEnded === true ? "the handoff has ended" : `answers go back to ${opener.name}`]
-						: [from === "" ? self.name : from, row !== undefined && startedWords(row.startedAt)]
+						? [
+								["From", opener.name],
+								["To", self.name],
+								["Answers", row?.handoffEnded === true ? "the handoff has ended" : `go back to ${opener.name}`],
+							]
+						: [
+								["With", from === "" ? self.name : from],
+								["Started", row !== undefined ? clockWords(row.startedAt) : undefined],
+							]
 				}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
@@ -443,24 +460,27 @@ function ThreadView({
 					<TaskCard eyebrow="Message" from={{ personaId: sender.personaId, name: sender.name, hash: people.get(sender.personaId)?.hash }} text={seeded.text} />
 				)}
 				{opener !== undefined ? (
-					<HandoffPane thread={id} events={lines} streaming={streaming} live={turning} receiver={{ id: self.id, name: self.name, hash: self.avatarHash }} sender={opener} people={people} />
+					<HandoffPane thread={id} events={lines} streaming={streaming} live={turning} status={status} receiver={{ id: self.id, name: self.name, hash: self.avatarHash }} sender={opener} people={people} />
 				) : (
-					<Transcript
-						key={`${id.kind}:${id.key}`}
-						personaId={self.id}
-						thread={id}
-						name={self.name}
-						avatarHash={self.avatarHash}
-						people={people}
-						events={lines}
-						streaming={streaming}
-						live={turning}
-						focus={null}
-						more={more}
-						onEarlier={earlier}
-						onOpenThread={onOpen}
-						onOpenInboxItem={onOpenInboxItem}
-					/>
+					<>
+						<SectionRule title="Conversation" status={status} />
+						<Transcript
+							key={`${id.kind}:${id.key}`}
+							personaId={self.id}
+							thread={id}
+							name={self.name}
+							avatarHash={self.avatarHash}
+							people={people}
+							events={lines}
+							streaming={streaming}
+							live={turning}
+							focus={null}
+							more={more}
+							onEarlier={earlier}
+							onOpenThread={onOpen}
+							onOpenInboxItem={onOpenInboxItem}
+						/>
+					</>
 				)}
 			</div>
 			{(refused ?? threadSends.notice) !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused ?? threadSends.notice}</p>}

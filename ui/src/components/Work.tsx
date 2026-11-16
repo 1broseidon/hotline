@@ -8,8 +8,9 @@ import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
 import { runEnding, stepRuns } from "./Transcript";
-import { workDetail } from "../turnFacts";
+import { workLine } from "../turnFacts";
 import { TrailHead, TrailSteps, useHot } from "./transcript/Trail";
+import { SpineHead, StateLine, type Status, waitsOnPerson } from "./thread/Spine";
 import type { ThreadRef } from "./Transcript";
 
 /**
@@ -87,7 +88,6 @@ export function ProcessWork({
 		<WorkCard
 			label="Running process"
 			heading={heading}
-			working={false}
 			{...(title !== undefined ? { detail: processLabel(title) } : {})}
 			docked={docked}
 			following={processId}
@@ -113,6 +113,9 @@ export function ProcessWork({
 	);
 }
 
+/** A path longer than this many lines shows its latest and folds the rest into one row that opens in place. */
+const FOLD_AFTER = 8;
+
 /** The turn just begun, as a place to step to before it has a run of its own. */
 const NOW = { id: "" };
 
@@ -137,7 +140,12 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
-	return { runs, run, latest, running, state, content, empty };
+	// What the person asked that started it: the last line they said before its first step.
+	const first = run?.items[0]?.ts;
+	// A turn nobody asked for (it worked quietly, from its inbox) has none: a turn's end comes first.
+	const ask = first === undefined ? undefined : events.findLast((event) => (event.kind === "user" || event.kind === "turn") && event.ts <= first);
+	const blocked = first !== undefined && waitsOnPerson(events, first);
+	return { runs, run, latest, running, state, content, empty, blocked, ask: ask?.kind === "user" && ask.scheduled === undefined ? ask.text : undefined };
 }
 
 /**
@@ -173,7 +181,7 @@ export function WorkPage({
 	 * as it starts; an id holds that turn, and stepping back in time is what
 	 * holds one. Opened on the latest turn's own caption, the pane follows. */
 	const [held, setHeld] = useState<string | null>(blockId);
-	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live, resting);
+	const { runs, run, latest, running, state, content, empty, ask, blocked } = useTurnWork(personaId, held, name, live, resting);
 	const settledOpen = useRef(false);
 	useEffect(() => {
 		if (settledOpen.current || latest === undefined) return;
@@ -191,6 +199,9 @@ export function WorkPage({
 	// Only the turn it opened at opens a line on arrival.
 	const openId = held === blockId ? stepId : undefined;
 	const hot = useHot();
+	const counts = run === undefined ? undefined : workLine(run.items);
+	// The page's one status mark, on Steps: blocked on the person before all else.
+	const status: Status = blocked ? "blocked" : state === "Working" || state === "Waiting" ? "live" : counts !== undefined && counts.failed > 0 ? "failed" : "stopped";
 	const actions = (runs.length > 1 || (fresh && runs.length > 0)) && (
 		<>
 			{held !== null && later !== undefined && (
@@ -209,11 +220,13 @@ export function WorkPage({
 	);
 	return (
 		<section className="work-page" aria-label={`${name}'s work`}>
-			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? workDetail(run.items) : undefined} actions={actions} onClose={onClose} />
-			{/* The turn's shape and its sources stay put; the steps, which run long, scroll. */}
-			{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
+			<WorkBand heading={state} actions={actions} onClose={onClose} />
+			{/* The turn's head: what was asked, how it stands, its shape and its sources stay put; the steps, which run long, scroll. */}
+			<SpineHead className="work-spine-head" title={ask} state={counts !== undefined && <StateLine word={counts.steps} detail={counts.failed > 0 ? `${counts.failed} failed` : undefined} time={counts.took} />}>
+				{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
+			</SpineHead>
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={openId === undefined}>
-				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} onOpenThread={(thread) => onOpenThread(thread, run.id)} />}
+				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} fold={FOLD_AFTER} status={status} onOpenThread={(thread) => onOpenThread(thread, run.id)} />}
 			</FollowWindow>
 		</section>
 	);
@@ -223,7 +236,6 @@ export function WorkPage({
 function WorkCard({
 	label,
 	heading,
-	working,
 	detail,
 	docked,
 	following: followKey,
@@ -235,7 +247,6 @@ function WorkCard({
 }: {
 	label: string;
 	heading: string;
-	working: boolean;
 	detail?: string;
 	docked: boolean;
 	/** What the window is following: a new one starts at its newest. */
@@ -250,7 +261,7 @@ function WorkCard({
 }) {
 	return (
 		<aside className={docked ? "work-float work-docked" : "work-float"} aria-label={label}>
-			<WorkBand heading={heading} working={working} detail={detail} actions={actions} onClose={onClose} />
+			<WorkBand heading={heading} detail={detail} actions={actions} onClose={onClose} />
 			<FollowWindow following={followKey} count={count} content={content}>
 				{children}
 			</FollowWindow>
@@ -259,10 +270,9 @@ function WorkCard({
 }
 
 /** Body updates do not repaint the card's controls. */
-const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onClose }: {
+const WorkBand = memo(function WorkBand({ heading, detail, actions, onClose }: {
 	heading: string;
-	working: boolean;
-	detail: string | undefined;
+	detail?: string | undefined;
 	actions: ReactNode;
 	onClose(): void;
 }) {
@@ -270,23 +280,11 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 		<Band>
 			{/* The heading is the run's state, so it reads in the instrument face, as states do.
 			 * It is the band's own h2, so a press on it or the space after it drags the window.
-			 * It is never cut: the counts beside it, which the steps repeat, give way first. */}
+			 * It is never cut: the label beside it gives way first. */}
 			<h2 className="flex min-w-fit flex-1 items-center gap-2 pl-1 font-mono text-sm font-medium text-ink">
-				{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 				<span className="whitespace-nowrap">{heading}</span>
 			</h2>
-			{detail !== undefined && (
-				<span className="instrument work-band-detail pr-1">
-					{/* A failure in the run's counts is the one part in red. A part
-					 * with no room is left out whole, never cut. */}
-					{detail.split(" · ").map((part, at) => (
-						<span key={part} className={/^\d+ failed$/.test(part) ? "text-danger" : undefined}>
-							{at > 0 && "· "}
-							{part}
-						</span>
-					))}
-				</span>
-			)}
+			{detail !== undefined && <span className="instrument work-band-detail pr-1">{detail}</span>}
 			{actions}
 			<PaneClose onClose={onClose} />
 		</Band>

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { ScheduleEntry, ScheduledRun, TranscriptEvent } from "../src/generated/contract";
-import { calendarWords, countdown, jobRuns, postingWords, scheduleWords } from "../src/jobRuns";
+import { calendarWords, countdown, jobRuns, scheduleWords } from "../src/jobRuns";
 import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
@@ -88,32 +88,36 @@ async function draw(props: Props = {}) {
 }
 
 const text = (selector: string) => [...container.querySelectorAll(selector)].map((el) => el.textContent);
+const fact = (label: string) => [...container.querySelectorAll(".spine-facts > div")].find((row) => row.querySelector("dt")?.textContent === label)?.querySelector("dd")?.textContent;
 const button = (words: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((one) => one.textContent === words);
 
 describe("a job's pane", () => {
-	test("says ↻ Job and Loop or Once, its title, and its teammate, schedule and posting rule", async () => {
+	test("says Job alone in its band, its title, how it stands, and three facts at most: Schedule, Next run, Last posted", async () => {
 		await draw();
-		expect(container.querySelector(".band-kind")?.textContent).toBe("↻ Job");
-		expect(container.querySelector(".pane-title")?.textContent).toBe("Watch CI on release/0.49.0");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Loop · Pork Chop · every 5 min · posts each run");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("Job");
+		expect(container.querySelector(".spine-title")?.textContent).toBe("Watch CI on release/0.49.0");
+		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Running now");
+		expect(text(".spine-facts dt")).toEqual(["Schedule", "Next run", "Last posted"]);
+		expect(fact("Schedule")).toBe("every 5 min");
 		const { every: _every, ...once } = watch;
-		await draw({ job: { ...once, kind: "schedule", when: at(21, 0), quiet: true } });
-		expect(container.querySelector(".pane-meta")?.textContent).toMatch(/^Once · Pork Chop · once at 9:00\s?PM · posts only what is worth posting$/);
+		await draw({ working: false, job: { ...once, kind: "schedule", when: at(21, 0), quiet: true } });
+		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Scheduled");
+		expect(fact("Schedule")).toMatch(/^once at 9:00\s?PM$/);
+		expect(container.querySelectorAll(".spine-facts > div").length).toBeLessThanOrEqual(3);
 	});
 
 	test("says when it runs next, counting down, and what it last posted", async () => {
 		await draw({ working: false });
-		expect(text(".job-facts dt")).toEqual(["Next run", "Last posted"]);
-		expect(text(".job-facts dd")[0]).toBe("4:59");
-		expect(text(".job-facts dd")[1]).toMatch(/^7:41\s?PM · Linux green$/);
+		expect(fact("Next run")).toBe("4:59");
+		expect(fact("Last posted")).toMatch(/^7:41\s?PM · Linux green$/);
 		await draw({ working: false, now: NOW + 1000 });
-		expect(text(".job-facts dd")[0]).toBe("4:58");
+		expect(fact("Next run")).toBe("4:58");
 		const { lastPost: _lastPost, ...unposted } = watch;
 		await draw({ working: false, job: unposted });
-		expect(text(".job-facts dd")[1]).toBe("Nothing yet");
+		expect(fact("Last posted")).toBe("Nothing yet");
 	});
 
-	test("each run is a collapsible section, newest first, with its state; the running one is open and live", async () => {
+	test("each run is a line on the spine, newest first, with its state; the running one is open and live, and Runs carries the status mark", async () => {
 		await draw();
 		const heads = [...container.querySelectorAll<HTMLButtonElement>(".job-run-head")];
 		expect(heads.map((head) => head.textContent?.replace(/\s+/g, " "))).toEqual([
@@ -123,8 +127,17 @@ describe("a job's pane", () => {
 		]);
 		expect(heads.map((head) => head.getAttribute("aria-expanded"))).toEqual(["true", "false", "false"]);
 		const running = container.querySelector(".job-run")!;
-		expect(running.querySelector(".job-run-dot")?.classList.contains("beat")).toBe(true);
+		expect(running.querySelector(".spine-mark")?.getAttribute("data-mark")).toBe("live");
+		expect(running.querySelector(".spine-mark")?.classList.contains("beat")).toBe(true);
 		expect(running.querySelector(".trail")?.textContent).toContain("Running gh run list");
+		expect([...container.querySelectorAll(".job-run > .job-run-head > .spine-mark")].map((mark) => mark.getAttribute("data-mark"))).toEqual(["live", "stopped", "done"]);
+		const runs = container.querySelector(".spine-rule");
+		expect(runs?.querySelector(".spine-rule-title")?.textContent).toBe("Runs");
+		expect(runs?.getAttribute("data-status")).toBe("live");
+		await draw({ working: false });
+		expect(container.querySelector(".spine-rule")?.hasAttribute("data-status")).toBe(false);
+		await draw({ working: false, ended: true });
+		expect(container.querySelector(".spine-rule")?.getAttribute("data-status")).toBe("stopped");
 	});
 
 	test("a run opens to what it found and its steps, and folds again", async () => {
@@ -144,7 +157,7 @@ describe("a job's pane", () => {
 	test("the band has End job while the job lives and Stop while a run runs, and no Run now, which the desk cannot do", async () => {
 		await draw();
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Job, running");
-		expect(container.querySelector(".band .instrument")?.textContent).toBe("every 5 min");
+		expect(container.querySelector(".band .instrument")).toBeNull();
 		expect(button("Run now")).toBeUndefined();
 		await act(async () => button("Stop")?.click());
 		await act(async () => button("End job")?.click());
@@ -161,7 +174,7 @@ describe("a job's pane", () => {
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Job, ended");
 		expect(container.querySelector('[aria-label="Message"]')).toBeNull();
 		expect(button("End job")).toBeUndefined();
-		expect(text(".job-facts dd")[0]).toBe("None");
+		expect(fact("Next run")).toBe("None");
 	});
 
 	test("an ended job has Remove, which takes it off the list, and a live one has none", async () => {
@@ -225,14 +238,13 @@ describe("a job's runs, from its thread", () => {
 		expect(jobRuns(open, false)[0]?.state).toBe("done");
 	});
 
-	test("its words: a countdown, a schedule and a posting rule", () => {
+	test("its words: a countdown and a schedule", () => {
 		expect(countdown(299_000)).toBe("4:59");
 		expect(countdown(3_899_000)).toBe("1:04:59");
 		expect(countdown(-5)).toBe("0:00");
 		expect(countdown(3 * 86_400_000)).toBe("3d");
 		expect(scheduleWords({ ...watch, every: 7_200_000 })).toBe("every 2 h");
 		expect(scheduleWords({ ...watch, every: 86_400_000 })).toBe("every 1 day");
-		expect(postingWords({ ...watch, quiet: true })).toBe("posts only what is worth posting");
 	});
 
 	test("a calendar loop is said as its days and time, not the day it carries as every", () => {

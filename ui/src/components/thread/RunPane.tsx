@@ -4,23 +4,28 @@ import { stopwatch } from "../../dock";
 import { ArrowLeftIcon } from "../../icons";
 import type { Block } from "../../scheduledRuns";
 import type { Streaming } from "../../tape";
-import { startedWords, threadFamily } from "../../threadKinds";
+import { clockWords, threadFamily } from "../../threadKinds";
 import { toBlocks, withStreaming } from "../../transcriptFolds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
 import type { ThreadRef } from "../Transcript";
 import { BandKind, PaneHead, ResultCard, TaskCard } from "./Pane";
 import { WorkStream } from "./WorkStream";
+import { SectionRule, SpineFoot, StateLine, type Status, waitsOnPerson } from "./Spine";
+
+/** A run's state as the status mark on its Activity says it. */
+const STATUS: Record<RunState, Status> = { Working: "live", Done: "stopped", Stopped: "stopped", Failed: "failed" };
 
 /*
  * A subagent's run, open in the right-hand pane (docs/design/thread-panes.html,
  * Subagent; desk-threads, George 2026-11-12: a run is activity, not a chat):
- * read, never spoken in, with no bubbles and no field. The band says how it
- * stands, how many steps it has taken and for how long, with Stop while it
- * works when the desk can stop it. Under the head, what its teammate asked of
+ * read, never spoken in, with no bubbles and no field. Its head says how it
+ * stands, how many steps it has taken and for how long, then who sent it,
+ * its model and when it started. Under the head, what its teammate asked of
  * it; then its Activity, its steps and words in the order they came,
  * following the newest; and, once it has reported, its last words as its
- * Result. The foot says whom it reports to.
+ * Result. The foot says whom it reports to, with Stop while it works when
+ * the desk can stop it.
  */
 
 /** How a run stands, as the band says it. */
@@ -132,34 +137,29 @@ export function RunPane({
 			setRefused(error instanceof Error ? error.message : String(error));
 		});
 	};
-	const counted = [`${steps} ${steps === 1 ? "step" : "steps"}`, took === undefined ? null : stopwatch(took)].filter((part) => part !== null).join(" · ");
 	const at = endedAt === undefined ? "" : ` at ${clock.format(new Date(endedAt))}`;
 	const foot = live ? `Reports to ${teammate.name} when it finishes.` : state === "Done" ? `Reported to ${teammate.name}${at}.` : `${state}${at}.`;
 
 	return (
 		<section className="dock-page run-pane" aria-label={`Helper of ${teammate.name}: ${title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
+				<button type="button" className="control btn-icon pane-back" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={threadFamily("run", teammate.name)} live={live} state={state} tone={state === "Failed" ? "failed" : state === "Stopped" ? "quiet" : "done"} />
-				<span className="instrument shrink-0 pr-1">{counted}</span>
-				{live && run?.stoppable === true && (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this helper" disabled={stopping} onClick={stop}>
-						Stop
-					</button>
-				)}
+				<BandKind kind={threadFamily("run")} state={state} />
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
-				kind={threadFamily("run", teammate.name)}
-				// Its foot says it is read only.
-				family=""
 				title={title}
-				meta={[`sent by ${teammate.name}`, run?.model, startedAt !== undefined && startedWords(startedAt)]}
+				line={<StateLine word={state === "Working" ? "Working now" : state} detail={`${steps} ${steps === 1 ? "step" : "steps"}`} time={took === undefined ? undefined : stopwatch(took)} />}
+				facts={[
+					["Sent by", teammate.name],
+					["Model", run?.model],
+					["Started", startedAt !== undefined ? clockWords(startedAt) : undefined],
+				]}
 			/>
 			{task !== undefined && <TaskCard eyebrow={`Asked by ${teammate.name}`} text={task} />}
-			<p className="pane-section eyebrow">Activity</p>
+			<SectionRule title="Activity" status={live && waitsOnPerson(events) ? "blocked" : STATUS[state]} />
 			<WorkStream
 				thread={id}
 				blocks={shown}
@@ -172,7 +172,18 @@ export function RunPane({
 				{shown.length === 0 && result === undefined && !live && <p className="work-empty">Nothing was written.</p>}
 			</WorkStream>
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-			<p className="run-foot">{foot}</p>
+			<SpineFoot
+				action={
+					live &&
+					run?.stoppable === true && (
+						<button type="button" className="control btn btn-sm" title="Stop this helper" disabled={stopping} onClick={stop}>
+							Stop
+						</button>
+					)
+				}
+			>
+				{foot}
+			</SpineFoot>
 		</section>
 	);
 }

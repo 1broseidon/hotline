@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { ScheduleEntry, ThreadSummary, TranscriptEvent } from "../../generated/contract";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon } from "../../icons";
-import { type JobRun, countdown, jobRuns, postingWords, scheduleWords, timeOfDay } from "../../jobRuns";
+import { type JobRun, countdown, jobRuns, scheduleWords, timeOfDay } from "../../jobRuns";
 import { firstLine } from "../../room";
 import { useThread } from "../../tape";
 import { wire } from "../../wire";
@@ -14,14 +14,14 @@ import type { ThreadRef } from "../Transcript";
 import { TrailSteps, useHot } from "../transcript/Trail";
 import { BandKind, PaneHead } from "./Pane";
 import { ThreadComposer } from "./ThreadComposer";
+import { Mark, type MarkKind, SectionRule, StateLine, waitsOnPerson } from "./Spine";
 
 /*
  * A job's pane (docs/design/thread-panes.html, tab Job): work the person
- * watches, on a schedule. Its head says Loop or Once, what it is, whose it
- * is, when it runs and what it posts; then when it runs next, counted down,
- * and what it last posted; then each run, newest first, as a section of its
- * own that opens to what it found and its steps, the one running open and
- * live. The band has Stop while a run is running and End job while the job
+ * watches, on a schedule. Its head says what it is and how it stands, then
+ * its schedule, when it runs next, counted down, and what it last posted;
+ * then its Runs, newest first, each a line on the pane's spine that opens to
+ * what it found and its steps, the one running open and live. The band has Stop while a run is running and End job while the job
  * lives, and Remove once it has ended, which takes it off the list. There is no Run now: the desk has no command that fires a job
  * early, and a key that does nothing is not drawn.
  */
@@ -126,11 +126,10 @@ export function JobPage({
 	return (
 		<section className="dock-page" aria-label={`Job of ${name}: ${title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
+				<button type="button" className="control btn-icon pane-back" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={threadFamily("job")} live={working} state={ended ? "ended" : working ? "running" : "scheduled"} tone={ended ? "quiet" : "done"} />
-				{schedule !== undefined && <span className="instrument shrink-0 text-ink-3">{schedule}</span>}
+				<BandKind kind={threadFamily("job")} state={ended ? "ended" : working ? "running" : "scheduled"} />
 				{working && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this run" onClick={onStop}>
 						Stop
@@ -149,24 +148,18 @@ export function JobPage({
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
-				kind={threadFamily("job")}
-				family={job === undefined ? undefined : job.kind === "loop" ? "Loop" : "Once"}
 				title={title}
-				meta={[name, schedule, job !== undefined && postingWords(job)]}
+				line={<StateLine word={ended ? "Ended" : working ? "Running now" : "Scheduled"} time={working && runs[0] !== undefined ? timeOfDay(runs[0].ts) : undefined} />}
+				facts={[
+					["Schedule", schedule],
+					["Next run", ended || job === undefined ? "None" : working ? "Running" : countdown(job.nextAt - now)],
+					["Last posted", job?.lastPost === undefined ? "Nothing yet" : `${timeOfDay(job.lastPost.at)} · ${firstLine(job.lastPost.text)}`],
+				]}
 			/>
 			{without !== "" && <p className="dock-note selectable">{without}</p>}
+			<SectionRule title="Runs" count={runs.length} status={working ? (waitsOnPerson(events, runs[0]?.ts ?? 0) ? "blocked" : "live") : ended ? "stopped" : undefined} />
 			<div className="pane-stream">
-				<dl className="job-facts">
-					<div>
-						<dt>Next run</dt>
-						<dd className="tabular-nums">{ended || job === undefined ? "None" : working ? "Running" : countdown(job.nextAt - now)}</dd>
-					</div>
-					<div>
-						<dt>Last posted</dt>
-						<dd className="truncate">{job?.lastPost === undefined ? "Nothing yet" : `${timeOfDay(job.lastPost.at)} · ${firstLine(job.lastPost.text)}`}</dd>
-					</div>
-				</dl>
-				<ol className="job-runs" aria-label="Runs">
+				<ol className="job-runs spine-list" aria-label="Runs">
 					{runs.map((run) => (
 						<RunSection key={run.id} run={run} numbered={!more} />
 					))}
@@ -199,6 +192,9 @@ function useNow(running: boolean): number {
 	return now;
 }
 
+/** A run's mark on the spine: posted is done, a run that posted nothing or was stopped is dim. */
+const RUN_MARKS: Record<JobRun["state"], MarkKind> = { working: "live", posted: "done", done: "stopped", stopped: "stopped", failed: "failed" };
+
 const STATE_WORDS: Record<JobRun["state"], string> = {
 	working: "working",
 	posted: "posted",
@@ -226,12 +222,12 @@ function RunSection({ run, numbered }: { run: JobRun; numbered: boolean }) {
 	return (
 		<li className="job-run" data-state={run.state} data-open={open || undefined}>
 			<button type="button" className="job-run-head" aria-expanded={hasBody ? open : undefined} disabled={!hasBody} onClick={() => setOpen((was) => !was)}>
-				<span aria-hidden="true" className={`job-run-dot ${live ? "beat" : ""}`} data-state={run.state} />
+				<Mark kind={RUN_MARKS[run.state]} />
 				<span className="min-w-0 truncate">
 					{runName(run, numbered)} · {STATE_WORDS[run.state]}
 				</span>
 				<span className="job-run-when">{live ? "now" : timeOfDay(run.ts)}</span>
-				{hasBody && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
+				{hasBody && (open ? <ChevronDownIcon className="spine-chevron" /> : <ChevronRightIcon className="spine-chevron" />)}
 			</button>
 			{open && hasBody && (
 				<div className="job-run-body">
@@ -245,7 +241,11 @@ function RunSection({ run, numbered }: { run: JobRun; numbered: boolean }) {
 							{notice.text}
 						</p>
 					))}
-					{run.steps.length > 0 && <TrailSteps items={run.steps} settled={!live} hot={hot} />}
+					{run.steps.length > 0 && (
+						<div className="spine-nested">
+							<TrailSteps items={run.steps} settled={!live} hot={hot} />
+						</div>
+					)}
 				</div>
 			)}
 		</li>

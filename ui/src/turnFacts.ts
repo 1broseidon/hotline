@@ -217,14 +217,11 @@ export function turnTook(items: Step[]): number | null {
 	return Math.max(...ends, ...items.map((item) => item.ts)) - items[0].ts;
 }
 
-/** The work band's line: "12 steps · 1 failed · 1m 04s". */
-export function workDetail(items: Step[]): string {
+/** A path's state line: its steps ("12 steps"), how many failed ("1 failed"), and how long it took ("1m 04s"). */
+export function workLine(items: Step[]): { steps: string; failed: number; took: string | undefined } {
 	const summary = summaryOf(items);
 	const took = turnTook(items);
-	const parts = [counted(summary.steps, "step", "steps")];
-	if (summary.failed > 0) parts.push(`${summary.failed} failed`);
-	if (took !== null) parts.push(durationText(took));
-	return parts.join(" · ");
+	return { steps: counted(summary.steps, "step", "steps"), failed: summary.failed, took: took === null ? undefined : durationText(took) };
 }
 
 function outputOf(step: ToolStep): string {

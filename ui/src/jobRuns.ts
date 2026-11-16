@@ -160,8 +160,3 @@ export function scheduleWords(job: ScheduleEntry): string {
 	const at = job.when ?? job.nextAt;
 	return `once at ${timeOfDay(at)}`;
 }
-
-/** What a job puts in the person's chat: each run's report, or only what it finds worth posting. */
-export function postingWords(job: ScheduleEntry): string {
-	return job.quiet === true ? "posts only what is worth posting" : "posts each run";
-}

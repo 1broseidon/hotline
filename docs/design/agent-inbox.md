@@ -470,12 +470,18 @@ stored state and the teammates' tools keep `taken`.
   none. The turn's end is marked `quiet` when the person never spoke into
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.
-- **The item pane.** Its title, with where it stands in a word beside it
-  (Sent, Seen, Picked up, Later, Answered, Done, Expired…, the sent row's word);
-  from whom to whom, whom else the send
-  reached ("also sent to Quill"), what it wants, and whether the sender
-  waits; the words; Receipts, a timeline of sent,
-  seen, picked up, later with its reason, closed with its outcome
+- **The item pane**, on the pane's skeleton (`ui/design.md`, "The
+  right-hand pane's skeleton"). Its title, then its state line: where it
+  stands in a word (Sent, Seen, Picked up, Later, Answered, Done, Expired…,
+  the sent row's word), whether the sender waits, and when it last moved. It
+  has no fact rows: from whom to whom, whom else the send reached ("also
+  sent to Quill") and what it wants are one line ("Goldie to Huck · wants
+  work done") at the end of the Message heading's rule, or under the state
+  line when it has no words. Its words, and each reply's under the reply's
+  row, read at the conversation's size, six lines until Show all; Receipts,
+  a timeline on the spine, each receipt's mark filled and the last one as
+  the item stands (a ring while open, a cross for dropped, a dotted ring for
+  expired): sent, seen, picked up, later with its reason, closed with its outcome
   (Expired, with "Not picked up in 3 days.", for one that expired; and
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's
@@ -493,7 +499,8 @@ stored state and the teammates' tools keep `taken`.
   ticked, a dropped one crossed, and an expired one, never picked up, keeps
   a dotted ring.
 - **The inbox pane.** Open (Unread: new, noticed and seen; Picked up; For
-  later), Closed and Sent, newest first, under a line for the tab on show:
+  later), Closed and Sent, newest first, each group headed on a rule with
+  its count at the rule's end, under a line for the tab on show, above the tabs:
   the open counts, "4 closed", "6 sent", or "Nothing open", "Nothing
   closed", "Nothing sent". On Sent, the items one `send` made for several
   teammates are one row, its title over whom it reached and where they

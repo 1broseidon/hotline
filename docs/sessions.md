@@ -1452,7 +1452,11 @@ to several makes an item each, and each names the others in `alsoTo`, which
 `read_inbox` and the item's pane say. Each item is kept on the receiver's own
 stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),
 written again under its id at each change with the change's time in its
-`receipts`. A teammate on a linked desk is refused; so is the sender itself.
+`receipts`. What a newer Hotline wrote on an item is left as it found it
+([log.md](log.md#the-room-stream)): a field this build does not know is
+written back at every move, and an item in a state or with an outcome it
+does not know is listed by `read_inbox` as written and never moved, expired
+or swept. A teammate on a linked desk is refused; so is the sender itself.
 The grant is checked as it is sent (Teammate collaboration, above): an item
 the person has yet to allow is kept `held`, unreadable to the receiver, until
 the card is answered, and dropped unseen on a no. Every item and every reply

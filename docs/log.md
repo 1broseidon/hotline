@@ -181,6 +181,21 @@ teammates here: an item between them, the person's Stop of them, and a
 taken item's work are refused, saying a newer Hotline saved their
 messages.
 
+An inbox item (`inbox_item` on a teammate's `inbox/<id>.jsonl`) is held to
+the same rule. One that carries a field this build does not know, on the
+item or on a receipt, is read and moved as any other, and every rewrite
+keeps that field as it was found (`InboxItem::newer`): a turn offering it,
+reading it, each sort, an answer, a work thread's start and result, its
+sender being told, the person's card, expiry and the pick-up. One this
+build cannot read at all, in a state or with an outcome (or any other
+value) it does not know, is never rewritten, expired, woken or swept:
+`read_inbox` lists it with its state and outcome as written, among the open
+items or, when its state is `closed`, the closed ones, and among its
+sender's sent ones; reading it with its id shows its words without marking
+it seen; and a sort or a reply that names it is refused, saying a newer
+Hotline saved it (`hotline_store::inbox::newer_of`). The window's inbox
+pane does not list it.
+
 A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
 (Hotline Agent), `chapterIdleHours` is `8`, `linkPreviews` is `true`, and
 `mcpServers` is an empty list.

@@ -4,6 +4,10 @@
 //! sent and again under the same id each time it changes, so the fold is the
 //! whole state: what was sent, and where it stands. The room writes them;
 //! this only reads.
+//!
+//! A build leaves alone what a newer build wrote: a field it does not know
+//! rides on the item and is written back with it, and an item line it cannot
+//! read at all is never an item here ([`newer_of`]).
 
 use crate::log::{Log, StreamId};
 use hotline_contract::{InboxItem, InboxView};
@@ -12,12 +16,18 @@ use serde_json::Value;
 /// The `kind` an item's line carries.
 pub const KIND: &str = "inbox_item";
 
-/// One item as its line on a stream holds it, or nothing for any other line.
+/// One item as its line on a stream holds it, or nothing for any other line
+/// and for an item line this build cannot read ([`newer_of`]). What a newer
+/// Hotline wrote on it that this build does not know is kept on the item
+/// (`InboxItem::newer`), and [`line`] writes it back.
 pub fn read(event: &Value) -> Option<InboxItem> {
     if event.get("kind").and_then(Value::as_str) != Some(KIND) {
         return None;
     }
-    serde_json::from_value(event.clone()).ok()
+    let mut item: InboxItem = serde_json::from_value(event.clone()).ok()?;
+    // The stream's own slot, which `line` writes.
+    item.newer.remove("kind");
+    Some(item)
 }
 
 /// An item as its line is written.
@@ -34,6 +44,18 @@ pub fn of(log: &Log, persona_id: &str) -> Vec<InboxItem> {
     log.load(&StreamId::Inbox(persona_id.to_string()))
         .iter()
         .filter_map(read)
+        .collect()
+}
+
+/// The item lines on the teammate's stream that this build cannot read, as
+/// a newer Hotline wrote them, oldest first: a state, an outcome or another
+/// value this build does not know. They are none of [`of`]'s, so nothing
+/// here moves, expires or sweeps them; they are only listed as they are.
+pub fn newer_of(log: &Log, persona_id: &str) -> Vec<Value> {
+    log.load(&StreamId::Inbox(persona_id.to_string()))
+        .into_iter()
+        .filter(|event| event.get("kind").and_then(Value::as_str) == Some(KIND))
+        .filter(|event| read(event).is_none())
         .collect()
 }
 

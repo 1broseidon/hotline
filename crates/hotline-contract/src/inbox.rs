@@ -146,6 +146,11 @@ pub struct InboxReceipt {
     /// For a combined item: the item it was folded into.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub into: Option<String>,
+    /// What a newer Hotline wrote on the receipt that this build does not
+    /// read, as on [`InboxItem::newer`].
+    #[serde(flatten)]
+    #[ts(skip)]
+    pub newer: serde_json::Map<String, serde_json::Value>,
 }
 
 /// One item, as it is kept on its receiver's own stream (`inbox/<id>`),
@@ -245,6 +250,17 @@ pub struct InboxItem {
     /// after a pick-up first offered it, then a day after each offer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer_again: Option<i64>,
+    /// What a newer Hotline wrote on the item that this build does not
+    /// read, written back exactly as it was found each time the item moves
+    /// here, so going back to that build finds it as it left it. Nothing
+    /// here reads or sets it, and `contract.ts` does not name it. An item
+    /// line this build cannot read at all (a state, an outcome or another
+    /// value it does not know) is no `InboxItem` here: the store hands it
+    /// over as it was found (`hotline_store::inbox::newer_of`) and nothing
+    /// moves it (`docs/log.md`, The room stream).
+    #[serde(flatten)]
+    #[ts(skip)]
+    pub newer: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A teammate's inbox as the window draws it (`inbox.list`, and the

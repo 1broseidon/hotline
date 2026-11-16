@@ -1709,9 +1709,12 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
 
 - **Default and old records:** nobody has an inbox item. An item is a line on
   the receiver's own stream, `inbox/<id>.jsonl`, rewritten under its id as it
-  moves. An exchange request saved before the inbox still loads: an ask still
-  open when this version starts is ended as unanswered and its sender told in
-  its inbox to send it again; a handoff runs as any work taken from the inbox,
+  moves, with any field a newer Hotline wrote on it kept; an item in a state
+  or with an outcome this build does not know is listed as written and never
+  moved, expired or swept ([log.md](log.md#the-room-stream)). An exchange
+  request saved before the inbox still loads: an ask still open when this
+  version starts is ended as unanswered and its sender told in its inbox to
+  send it again; a handoff runs as any work taken from the inbox,
   its result an item that answers no item. No standing sender grant is the
   default, and missing informed-consent records on legacy grants still do not
   let work through.

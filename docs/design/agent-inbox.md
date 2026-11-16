@@ -120,6 +120,15 @@ offered wakes its receiver, and what a teammate set aside is offered to it
 once (the pick-up at start, below), so a `later` item does not sit until the
 person next writes.
 
+An item a newer Hotline wrote is left as it found it, as a pair record is
+([log.md](../log.md#the-room-stream)): a field this build does not know, on
+the item or a receipt, is written back as it was at every move here, and an
+item in a state or with an outcome this build does not know is never moved,
+expired, woken or swept. `read_inbox` lists it with its state and outcome as
+written, reading it shows its words without marking it seen, and a sort or
+a reply that names it is refused, saying a newer Hotline saved it. The
+window's pane does not list it.
+
 ## When an item reaches the receiver
 
 An item is heard in one thread of the receiver's: the thread it is `about`

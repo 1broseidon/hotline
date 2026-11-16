@@ -68,6 +68,9 @@ pub(super) struct Hold {
     request: Option<String>,
     /// The inbox woke the turn: nobody reads it until the person speaks.
     quiet: bool,
+    /// The inbox items that woke a quiet turn: those its line offered, or
+    /// those its index offered for the first time.
+    woke: Vec<String>,
     /// The turn is a pick-up of what the teammate set aside, which no other
     /// pick-up follows.
     pick_up: bool,
@@ -151,6 +154,7 @@ impl Occupant for Session {
         let from_voice = wired.spoken;
         let quiet = wired.quiet;
         let pick_up = wired.pick_up;
+        let mut woke = wired.woke.clone();
         // A pick-up whose items were all sorted meanwhile has nothing to offer.
         if pick_up && room.set_aside(&session.persona_id).is_empty() {
             return Begin::Skip;
@@ -193,6 +197,7 @@ impl Occupant for Session {
             if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;
             }
+            woke.extend(inbox.offered);
             // Which sites it holds the person's cookies for, when that changed.
             text = room.with_cookie_news(&session.told_cookies, &session.persona_id, text);
             if let Some(index) = room.thread_index(
@@ -227,6 +232,7 @@ impl Occupant for Session {
             steered: Vec::new(),
             request,
             quiet,
+            woke,
             pick_up,
         })
     }
@@ -235,7 +241,7 @@ impl Occupant for Session {
         let source = held.source.take().expect("a turn is taken once");
         let _posting = room.open_posting(&self.thread(), None);
         if held.quiet {
-            room.set_quiet(&self.thread(), true);
+            room.quiet_turn(&self.thread(), &held.woke);
         }
         let mut heard = Heard {
             room,
@@ -496,6 +502,20 @@ impl Witness for Heard<'_> {
             TranscriptEvent::Agent { id, ts, text, .. } if self.quiet() => {
                 TranscriptEvent::Thought { id, ts, text }
             }
+            // A turn quiet to its end is one the person was not part of.
+            TranscriptEvent::Turn {
+                id,
+                ts,
+                stop_reason,
+                usage,
+                ..
+            } if self.quiet() => TranscriptEvent::Turn {
+                id,
+                ts,
+                stop_reason,
+                usage,
+                quiet: Some(true),
+            },
             event => event,
         };
         self.room.append(self.session, event);

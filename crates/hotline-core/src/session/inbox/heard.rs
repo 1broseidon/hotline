@@ -105,6 +105,8 @@ pub(super) fn since(ms: i64) -> String {
 pub(in crate::session) struct Told {
     pub text: Option<String>,
     pub news: bool,
+    /// The items offered for the first time, by id.
+    pub offered: Vec<String>,
 }
 
 impl Room {
@@ -345,8 +347,13 @@ impl Room {
         }
         let moved_sent = self.sent_moves(persona_id, thread);
         let news = !offered.is_empty() || !moved_sent.is_empty();
+        let offered_ids = offered.iter().map(|item| item.id.clone()).collect();
         if unread == 0 && later == 0 && moved_sent.is_empty() {
-            return Told { text: None, news };
+            return Told {
+                text: None,
+                news,
+                offered: offered_ids,
+            };
         }
         let mut lines = Vec::new();
         let counts = match (unread, later) {
@@ -367,6 +374,7 @@ impl Room {
         Told {
             text: Some(crate::fence::fenced("hotline_inbox", &lines.join("\n"))),
             news,
+            offered: offered_ids,
         }
     }
 

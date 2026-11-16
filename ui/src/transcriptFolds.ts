@@ -207,16 +207,20 @@ export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { i
 }
 
 /**
- * How a run of steps ended: still going, or stopped short by a turn that
- * did not end in its own time. Read from the first turn line after it.
+ * How a run of steps ended: still going, stopped short by a turn that did
+ * not end in its own time, or done quietly by a turn the person was not part
+ * of (the inbox woke it, and they never spoke into it). Read from the first
+ * turn line after it.
  */
-export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" {
+export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" | "quiet" {
 	const last = items[items.length - 1];
 	if (last === undefined) return "done";
 	const at = events.findIndex((event) => event.id === last.id);
 	if (at < 0) return "done";
 	for (const event of events.slice(at + 1)) {
-		if (event.kind === "turn") return event.stopReason === "end_turn" ? "done" : "stopped";
+		if (event.kind !== "turn") continue;
+		if (event.stopReason !== "end_turn") return "stopped";
+		return event.quiet === true ? "quiet" : "done";
 	}
 	return "done";
 }

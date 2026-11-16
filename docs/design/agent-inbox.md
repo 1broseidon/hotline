@@ -405,6 +405,16 @@ item, and no chat opens between teammates.
   reply; it does not split the turn's steps, which stay one run under the
   reply. A turn that ends without a new line in the chat posts no desktop
   toast (`ui/src/notify.ts`).
+- **Woken by its inbox.** A bubble the teammate posts from a quiet turn one
+  item woke carries one quiet line above it, "From Goldie's message · Rerun
+  the Linux build" (the sender's name, the item's title; "From Hotline's
+  notice" for the desk's own), a plain row with the tray in grey, which
+  opens the item. The desk stamps the post with the item (`fromItem`) when
+  exactly one item woke the turn: its line or its index offered that item
+  alone; several together could each be what it posts about, so it names
+  none. The turn's end is marked `quiet` when the person never spoke into
+  it, and the steps pane heads such a turn "Worked quietly", never "Done",
+  whatever turn is working now.
 - **The item pane.** Its title, with where it stands in a word beside it
   (Sent, Seen, Taken, Later, Answered, Done, Expired…, the sent row's word);
   from whom to whom, whom else the send
@@ -496,3 +506,7 @@ Transcript events (`TranscriptEvent`):
   notice?}` in the order given (`notice` on Hotline's own, whose sender is
   Hotline), and how many items are open and unread
   after it.
+- `agent.fromItem?`: on a post from a quiet turn one item woke, that item;
+  `turn.quiet?`: on the end of a turn quiet to its end. Both are added
+  fields a reader that does not know them passes over, so a tape stays the
+  reference tree's file.

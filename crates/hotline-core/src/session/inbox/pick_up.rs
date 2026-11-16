@@ -268,6 +268,7 @@ impl Room {
         let line = Wired {
             quiet: true,
             pick_up: true,
+            woke: items.iter().map(|item| item.id.clone()).collect(),
             ..Wired::words(timed(now_ms(), &self.pick_up_line(&items)))
         };
         let claimed = {

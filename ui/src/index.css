@@ -5321,6 +5321,23 @@
 		flex: 1;
 		flex-direction: column;
 	}
+	/* A run's counts in the steps pane's band, beside its state: the parts
+	 * that fit, each whole. One with no room wraps to a second line, which
+	 * is out of sight, so the state beside them is never cut. */
+	.work-band-detail {
+		display: flex;
+		flex-wrap: wrap;
+		min-width: 0;
+		height: 1lh;
+		overflow: hidden;
+		white-space: nowrap;
+	}
+	.work-band-detail::before {
+		content: "";
+	}
+	.work-band-detail > span + span {
+		margin-left: 1ch;
+	}
 	/* Holding an earlier turn: the way back to the one that follows the latest. */
 	.work-latest {
 		display: inline-flex;

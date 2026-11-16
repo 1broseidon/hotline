@@ -199,6 +199,18 @@ describe("a turn the inbox woke is drawn as path", () => {
 	});
 });
 
+describe("a teammate woken by its inbox", () => {
+	test("a turn the person was not part of ends Worked quietly in the steps pane, never Done; a stopped one is Stopped", async () => {
+		const { runEnding } = await import("../src/transcriptFolds");
+		const step: TranscriptEvent = { kind: "tool", id: "t1", ts: NOW, toolCallId: "t1", title: "update_inbox", status: "completed" };
+		const items = [{ kind: "tool", id: "t1" }] as unknown as import("../src/scheduledRuns").Step[];
+		const end = (more: Partial<Extract<TranscriptEvent, { kind: "turn" }>>): TranscriptEvent => ({ kind: "turn", id: "e1", ts: NOW, stopReason: "end_turn", ...more });
+		expect(runEnding([step, end({ quiet: true })], items)).toBe("quiet");
+		expect(runEnding([step, end({})], items)).toBe("done");
+		expect(runEnding([step, end({ quiet: true, stopReason: "cancelled" })], items)).toBe("stopped");
+	});
+});
+
 describe("task-456 the pane", () => {
 	test("groups what is open: not yet sorted, taken, for later; with the counts at its head", () => {
 		const shown = view({
@@ -562,6 +574,36 @@ describe("task-456 drawn", () => {
 		const row = container.querySelector("[data-teammate-row]")!;
 		expect(row.getAttribute("aria-label")).toBe("Juno");
 		expect(row.textContent).not.toContain("3");
+	});
+
+	test("a bubble posted from a turn one item woke has one quiet line over it, whose message and its title, that opens the item", async () => {
+		const { Transcript } = await import("../src/components/Transcript");
+		const woke = item("w", { from: "huck", title: "Rerun the Linux build", state: "closed", outcome: "noted" });
+		const notice = item("n", { from: "ivy", title: "Expired: Changelog wording", notice: "expired", state: "closed", outcome: "noted" });
+		spyOn(wire, "subscribe").mockImplementation(((target: { inbox?: string }, handlers: { snapshot(items: unknown): void }) => {
+			if (target.inbox === "juno") handlers.snapshot(view({ closed: [woke, notice] }));
+			return () => {};
+		}) as typeof wire.subscribe);
+		const opened: string[] = [];
+		const events: TranscriptEvent[] = [
+			{ kind: "agent", id: "p1", ts: NOW - 50_000, text: "The Linux build is green again.", fromItem: "w" },
+			{ kind: "turn", id: "e1", ts: NOW - 49_000, stopReason: "end_turn", quiet: true },
+			{ kind: "agent", id: "p2", ts: NOW - 40_000, text: "Ivy never picked up the changelog wording.", fromItem: "n" },
+			{ kind: "turn", id: "e2", ts: NOW - 39_000, stopReason: "end_turn", quiet: true },
+			{ kind: "user", id: "u1", ts: NOW - 30_000, text: "Thanks" },
+			{ kind: "agent", id: "a1", ts: NOW - 20_000, text: "Any time." },
+		];
+		await act(async () =>
+			root!.render(<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={(id) => opened.push(id)} />),
+		);
+		const rows = [...container.querySelectorAll<HTMLButtonElement>(".link-row[data-kind=inbox-from]")];
+		expect(rows.map((row) => row.querySelector(".link-row-words")?.textContent)).toEqual(["From Huck's message ·Rerun the Linux build", "From Hotline's notice ·Expired: Changelog wording"]);
+		// Over its own bubble, and over no other.
+		expect(rows[0]?.closest(".said-group")?.textContent).toContain("The Linux build is green again.");
+		expect(container.textContent).toContain("Any time.");
+		expect(container.querySelectorAll(".said-group .link-row[data-kind=inbox-from]")).toHaveLength(2);
+		await press(rows[0]!);
+		expect(opened).toEqual(["w"]);
 	});
 
 	test("a held item says it waits for the person to allow it", async () => {

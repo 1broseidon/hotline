@@ -2974,7 +2974,14 @@ from?: DeliveryFrom,
 /**
  * A post from a scheduled run: which job it came from.
  */
-scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, 
+scheduled?: ScheduledRun, 
+/**
+ * A post from a quiet turn of the main conversation that one inbox
+ * item woke: that item's id, so a client says whose message
+ * prompted it and opens it. Absent from any other message, and from
+ * a quiet turn several items woke.
+ */
+fromItem?: string, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, 
 /**
  * The step said in a few words, for a glance at a turn (the work
  * card and the peek, on the desk and the phone): the agent's own
@@ -3109,7 +3116,13 @@ seat?: PeerSeat, } | { "kind": "delivery", id: string, ts: number, cause: Delive
  * delivery written before this was kept, which is told apart by the
  * id it was written under.
  */
-from?: DeliveryFrom, } | { "kind": "exchange_paused", id: string, ts: number, withPersonaId: string, withName: string, exchanges: number, status: ExchangePauseStatus, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
+from?: DeliveryFrom, } | { "kind": "exchange_paused", id: string, ts: number, withPersonaId: string, withName: string, exchanges: number, status: ExchangePauseStatus, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, 
+/**
+ * The turn was quiet to its end: the inbox woke it and the person
+ * never spoke into it, so a client says it worked quietly. Absent on
+ * every other turn, and on one written before it was recorded.
+ */
+quiet?: boolean, } | { "kind": "subagent", id: string, 
 /**
  * When the run started. The line keeps its place as it is rewritten.
  */

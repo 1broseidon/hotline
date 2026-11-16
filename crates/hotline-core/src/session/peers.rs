@@ -654,6 +654,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             silent,
             from,
             scheduled,
+            from_item,
         } => TranscriptEvent::Agent {
             handoff_thread,
             id,
@@ -667,6 +668,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             silent,
             from,
             scheduled,
+            from_item,
         },
         TranscriptEvent::Delivery {
             id,

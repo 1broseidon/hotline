@@ -216,3 +216,70 @@ async fn a_notice_its_driver_did_not_take_mid_turn_starts_a_quiet_turn_with_no_b
         "the rail counts nothing of the notice's turn: {preview:?}"
     );
 }
+
+/// A post from a quiet turn one item woke names that item, so the window
+/// says whose message prompted it, and the turn's end says it was quiet;
+/// the person's own turn after it names nothing and is not quiet.
+#[tokio::test]
+async fn a_quiet_turns_post_names_the_item_that_woke_it_and_its_end_says_it_was_quiet() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on("inbox-quiet-woken-by", replies().gated(gate.clone()));
+    at_rest(&room, "bob").await;
+    let dm = ThreadId::dm("bob");
+    let id = send(&room, "ada", "bob", "Crane permit", json!({})).await;
+    until("bob woke", || agents.told().len() == 1).await;
+    room.post_to_chat("bob", &dm, "The crane permit needs your signature.", false)
+        .await
+        .unwrap();
+    gate.add_permits(2);
+    until("the quiet turn ended", || turn_ended(&room, "bob")).await;
+    let tape = room.tape("bob");
+    let post = tape.iter().find(|event| event["kind"] == "agent").unwrap();
+    assert_eq!(post["fromItem"], id.as_str(), "{post}");
+    let quiet_end = tape.iter().find(|event| event["kind"] == "turn").unwrap();
+    assert_eq!(quiet_end["quiet"], true, "{quiet_end}");
+
+    room.prompt("bob", "where is the crane", None, None)
+        .await
+        .unwrap();
+    until("the person's turn", || agents.prompts().len() == 2).await;
+    gate.add_permits(2);
+    until("the person's turn ended", || {
+        room.tape("bob")
+            .iter()
+            .filter(|event| event["kind"] == "turn")
+            .count()
+            == 2
+    })
+    .await;
+    let tape = room.tape("bob");
+    let loud_end = tape.iter().rfind(|event| event["kind"] == "turn").unwrap();
+    assert!(loud_end.get("quiet").is_none(), "{loud_end}");
+    let reply = tape.iter().rfind(|event| event["kind"] == "agent").unwrap();
+    assert!(reply.get("fromItem").is_none(), "{reply}");
+}
+
+/// A quiet turn that several items woke together could be posting about any
+/// of them, so its post names none.
+#[tokio::test]
+async fn a_post_from_a_quiet_turn_several_items_woke_names_none() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on("inbox-quiet-woken-by-two", replies().gated(gate.clone()));
+    at_rest(&room, "bob").await;
+    let dm = ThreadId::dm("bob");
+    send(&room, "ada", "bob", "Crane permit", json!({})).await;
+    send(&room, "ada", "bob", "Winch oil", json!({})).await;
+    until("bob woke once for both", || agents.told().len() == 1).await;
+    assert!(agents.told()[0].contains("NEW 2"), "{}", agents.told()[0]);
+    room.post_to_chat("bob", &dm, "Two things from Ada.", false)
+        .await
+        .unwrap();
+    let post = room
+        .tape("bob")
+        .into_iter()
+        .find(|event| event["kind"] == "agent")
+        .unwrap();
+    assert!(post.get("fromItem").is_none(), "{post}");
+    gate.add_permits(2);
+    until("the quiet turn ended", || turn_ended(&room, "bob")).await;
+}

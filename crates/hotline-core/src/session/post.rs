@@ -50,6 +50,8 @@ pub(super) struct Posting {
     /// A main conversation's turn that nobody reads: the inbox woke it, and
     /// the person has not spoken into it. Its one post is its way to them.
     quiet: bool,
+    /// The one inbox item that woke a quiet turn, which its post names.
+    woken_by: Option<String>,
     posted: bool,
     /// Voice detached while this turn was running; report once it finishes.
     pub(super) detached: bool,
@@ -120,6 +122,7 @@ impl Room {
                 credential_sites: std::collections::HashSet::new(),
                 job,
                 quiet: false,
+                woken_by: None,
                 posted: false,
                 detached: false,
                 file_sent: false,
@@ -236,6 +239,19 @@ impl Room {
         }
     }
 
+    /// Makes the turn in flight on `thread` quiet, woken by `items`: its post
+    /// names the item when one woke it, and none when several did, which it
+    /// could be about any of.
+    pub(super) fn quiet_turn(&self, thread: &ThreadId, items: &[String]) {
+        if let Some(turn) = lock(&self.posting).get_mut(thread) {
+            turn.quiet = true;
+            turn.woken_by = match items {
+                [one] => Some(one.clone()),
+                _ => None,
+            };
+        }
+    }
+
     /// Whether the turn in flight on `thread` has had its one post.
     pub(super) fn has_posted(&self, thread: &ThreadId) -> bool {
         lock(&self.posting)
@@ -305,6 +321,12 @@ impl Room {
     /// the DM's own, are noted on the job for its listing.
     pub(crate) fn post(&self, persona_id: &str, from: &ThreadId, post: Post) -> Result<(), String> {
         let elsewhere = from.kind != ThreadKind::Dm;
+        // A quiet turn's post says which item woke it; a loud one is the
+        // person's own conversation and names none.
+        let from_item = lock(&self.posting)
+            .get(from)
+            .filter(|turn| turn.quiet)
+            .and_then(|turn| turn.woken_by.clone());
         let job = post.scheduled.as_ref().map(|run| run.job_id.clone());
         let event = TranscriptEvent::Agent {
             handoff_thread: None,
@@ -326,6 +348,7 @@ impl Room {
                 source
             }),
             scheduled: post.scheduled,
+            from_item,
         };
         let event = serde_json::to_value(&event).map_err(|error| error.to_string())?;
         self.try_write_value(persona_id, &event)

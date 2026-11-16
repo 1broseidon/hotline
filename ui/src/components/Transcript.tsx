@@ -44,7 +44,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
-import { InboxRows, InboxSentRow, InboxSortedLine } from "./transcript/InboxLines";
+import { InboxFromRow, InboxRows, InboxSentRow, InboxSortedLine } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -238,7 +238,14 @@ export function Transcript({
 	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
 	/* The items this teammate sent or sorted, live from its own inbox: watched only once the tape has one. */
 	const sendsMail = useMemo(
-		() => events.some((event) => event.kind === "inbox_sent" || event.kind === "inbox_sorted" || (event.kind === "link" && event.openerId !== undefined)),
+		() =>
+			events.some(
+				(event) =>
+					event.kind === "inbox_sent" ||
+					event.kind === "inbox_sorted" ||
+					(event.kind === "link" && event.openerId !== undefined) ||
+					(event.kind === "agent" && event.fromItem !== undefined),
+			),
 		[events],
 	);
 	const inboxView = useInbox(sendsMail ? personaId : undefined);
@@ -872,6 +879,7 @@ const Row = memo(function Row({
 					run={run}
 					reactions={worn}
 					bubble={people?.get(personaId)?.bubble}
+					{...(event.fromItem !== undefined ? { prompted: <InboxFromRow itemId={event.fromItem} people={people} /> } : {})}
 					{...(onReply !== undefined ? { onReply } : {})}
 					{...(onReact !== undefined ? { onReact } : {})}
 				/>

@@ -647,6 +647,8 @@ struct Wired {
     /// main conversation went idle ([`inbox::PickUp`]): the turn it begins
     /// is followed by no other such line, whatever it leaves open.
     pick_up: bool,
+    /// The inbox items a pick-up's line offers, by id: what woke its turn.
+    woke: Vec<String>,
     /// The colleague's question this line's turn answers.
     request: Option<turns::RequestLine>,
 }
@@ -677,6 +679,7 @@ impl Wired {
             wake: false,
             quiet: false,
             pick_up: false,
+            woke: Vec::new(),
             request: None,
         }
     }

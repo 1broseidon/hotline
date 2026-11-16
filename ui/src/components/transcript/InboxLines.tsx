@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import type { InboxItem } from "../../generated/contract";
 import type { Person } from "../../avatars";
 import { ChevronRightIcon, InboxIcon } from "../../icons";
-import { type InboxSent, type InboxSorted, readWords, sentState, sortedWord, toWords } from "../../inbox";
+import { type InboxSent, type InboxSorted, readWords, senderWords, sentState, sortedWord, toWords } from "../../inbox";
 import { FoldLine } from "./Trail";
 
 /**
@@ -53,6 +53,41 @@ export function InboxSentRow({ title, sent, people }: { title: string; sent: Inb
 	}
 	return (
 		<button type="button" className="link-row" data-kind="inbox" aria-label={`${label}. Open it`} onClick={() => onOpen(sent[0]!.item)}>
+			{words}
+			<span className="link-row-open">Open ›</span>
+		</button>
+	);
+}
+
+/**
+ * Over a bubble a teammate posted from a turn one inbox item woke: one quiet
+ * line saying whose message prompted it and its title ("From Goldie's
+ * message · Rerun the Linux build"), Hotline's own notice as Hotline's. A
+ * press opens the item. Nothing until the teammate's inbox knows the item.
+ */
+export function InboxFromRow({ itemId, people }: { itemId: string; people: ReadonlyMap<string, Person> | undefined }) {
+	const { items, onOpen } = useContext(InboxRows);
+	const item = items.get(itemId);
+	if (item === undefined) return null;
+	const from = item.notice !== undefined ? "From Hotline's notice" : `From ${senderWords(item, (id) => people?.get(id)?.name)}'s message`;
+	const words = (
+		<>
+			<InboxIcon className="inbox-row-mark" />
+			<span className="link-row-words">
+				<span className="link-row-outcome">{from} ·</span>
+				<span className="link-row-title">{item.title}</span>
+			</span>
+		</>
+	);
+	if (onOpen === undefined) {
+		return (
+			<p className="link-row" data-kind="inbox-from">
+				{words}
+			</p>
+		);
+	}
+	return (
+		<button type="button" className="link-row" data-kind="inbox-from" aria-label={`${from}: ${item.title}. Open it`} onClick={() => onOpen(itemId)}>
 			{words}
 			<span className="link-row-open">Open ›</span>
 		</button>

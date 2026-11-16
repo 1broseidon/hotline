@@ -93,6 +93,13 @@ pub enum TranscriptEvent {
         /// A post from a scheduled run: which job it came from.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         scheduled: Option<ScheduledRun>,
+        /// A post from a quiet turn of the main conversation that one inbox
+        /// item woke: that item's id, so a client says whose message
+        /// prompted it and opens it. Absent from any other message, and from
+        /// a quiet turn several items woke.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        from_item: Option<String>,
     },
     Thought {
         id: String,
@@ -382,6 +389,12 @@ pub enum TranscriptEvent {
         stop_reason: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<TokenUsage>,
+        /// The turn was quiet to its end: the inbox woke it and the person
+        /// never spoke into it, so a client says it worked quietly. Absent on
+        /// every other turn, and on one written before it was recorded.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        quiet: Option<bool>,
     },
     /// A subagent this teammate started: one line on the teammate's tape,
     /// written again under the same id as the run goes, that opens the run's

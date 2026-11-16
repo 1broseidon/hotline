@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, memo, useMemo, useEffect, useRef, useState } from "react";
+import { type ReactNode, memo, useMemo, useEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
 import { PaneClose } from "../ui/PaneClose";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
@@ -131,7 +131,9 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const run = blockId === null ? (begun ? undefined : latest) : runs.find((one) => one.id === blockId);
 	const running = live && run !== undefined && run.open === true;
 	const waiting = blockId === null && live && run === undefined;
-	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
+	const ending = run === undefined ? "done" : runEnding(events, run.items);
+	// A turn the person was not part of worked quietly: never "Done" beside "Working now".
+	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : ending === "stopped" ? "Stopped" : ending === "quiet" ? "Worked quietly" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
@@ -267,19 +269,21 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 	return (
 		<Band>
 			{/* The heading is the run's state, so it reads in the instrument face, as states do.
-			 * It is the band's own h2, so a press on it or the space after it drags the window. */}
-			<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink">
+			 * It is the band's own h2, so a press on it or the space after it drags the window.
+			 * It is never cut: the counts beside it, which the steps repeat, give way first. */}
+			<h2 className="flex min-w-fit flex-1 items-center gap-2 pl-1 font-mono text-sm font-medium text-ink">
 				{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-				<span className="truncate">{heading}</span>
+				<span className="whitespace-nowrap">{heading}</span>
 			</h2>
 			{detail !== undefined && (
-				<span className="instrument min-w-0 truncate pr-1">
-					{/* A failure in the run's counts is the one part in red. */}
+				<span className="instrument work-band-detail pr-1">
+					{/* A failure in the run's counts is the one part in red. A part
+					 * with no room is left out whole, never cut. */}
 					{detail.split(" · ").map((part, at) => (
-						<Fragment key={part}>
-							{at > 0 && " · "}
-							<span className={/^\d+ failed$/.test(part) ? "text-danger" : undefined}>{part}</span>
-						</Fragment>
+						<span key={part} className={/^\d+ failed$/.test(part) ? "text-danger" : undefined}>
+							{at > 0 && "· "}
+							{part}
+						</span>
 					))}
 				</span>
 			)}

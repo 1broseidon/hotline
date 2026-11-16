@@ -131,6 +131,7 @@ impl Room {
                     wake: false,
                     quiet: false,
                     pick_up: false,
+                    woke: Vec::new(),
                     request: None,
                 },
                 attachments,
@@ -727,6 +728,7 @@ pub(super) fn event_of(
                             silent: None,
                             from: None,
                             scheduled: None,
+                            from_item: None,
                         })
                         .collect()
                 }
@@ -862,6 +864,7 @@ pub(super) fn event_of(
             ts: now_ms(),
             stop_reason,
             usage,
+            quiet: None,
         }],
         Update::Notice { level, text } => vec![TranscriptEvent::Notice {
             id: new_id(),

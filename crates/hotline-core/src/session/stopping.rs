@@ -307,6 +307,7 @@ impl Room {
                 wake: false,
                 quiet: false,
                 pick_up: false,
+                woke: Vec::new(),
                 request: None,
             },
         );

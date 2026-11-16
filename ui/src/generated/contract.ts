@@ -3060,7 +3060,14 @@ expiresAt?: number,
  * home tape with a mirrored status on the call; other work cards
  * stay on their thread. Absent on the tape's own cards.
  */
-thread?: string, } | { "kind": "credential_ask", from?: DeliveryFrom, id: string, ts: number, actionId: string, site: string, reason: string, credentialKind: CaptureKind, name: string, status: CredentialStatus, storedAs?: string, expiresAt: number, 
+thread?: string, 
+/**
+ * Only the desk answers it: its yes adds a standing outside source,
+ * which a paired phone may not (`wire/seat.rs`). A phone shows the
+ * card and says to answer it at the desk; its `human.answer` is
+ * refused with that reason. Absent on every other card.
+ */
+deskOnly?: boolean, } | { "kind": "credential_ask", from?: DeliveryFrom, id: string, ts: number, actionId: string, site: string, reason: string, credentialKind: CaptureKind, name: string, status: CredentialStatus, storedAs?: string, expiresAt: number, 
 /**
  * Names only; a username is a typed value and never belongs here.
  */

@@ -256,3 +256,68 @@ async fn a_longer_wait_is_honoured_up_to_a_day() {
     assert_eq!(seen_by(Seat::Desk, &desk, &log, &capped).await.1, "expired");
     until("Ada is told of both", || deliveries(&log) == 2).await;
 }
+
+/// A teammate's proposal of a standing outside source is a card the phone
+/// sees as the desk does, marked for the desk, and cannot answer either way:
+/// each of its answers is refused with where to give it, the card stays up
+/// and no source is added. The desk's yes adds it.
+#[tokio::test]
+async fn a_source_proposal_is_seen_on_the_phone_and_approved_at_the_desk_only() {
+    let (_root, room, desk, log) = asking_desk();
+    TeammateTools::new(&room, "ada")
+        .with_capability(crate::driver::CapabilityEpoch::default().lease())
+        .call(
+            "propose_inbound",
+            &json!({ "type": "webhook", "name": "deploys" }),
+        )
+        .await
+        .unwrap();
+    let card = log
+        .load(&StreamId::Tape("ada".into()))
+        .into_iter()
+        .rfind(|event| event["kind"] == "human_action")
+        .expect("the proposal is a card on Ada's tape");
+    assert_eq!(card["deskOnly"], true, "{card}");
+    let action_id = card["actionId"].as_str().unwrap().to_string();
+    let (waiting, status) = seen_by(Seat::Phone, &desk, &log, &action_id).await;
+    assert!(waiting, "the phone shows Ada waiting on the person");
+    assert_eq!(status, "pending");
+
+    let human = |status: &str| {
+        json!({ "cmd": "human.answer", "params": {
+            "personaId": "ada", "actionId": action_id, "status": status,
+        }})
+    };
+    let in_thread = json!({ "cmd": "thread.answer", "params": {
+        "thread": { "kind": "dm", "key": "ada" },
+        "answer": { "kind": "human", "actionId": action_id, "status": "done" },
+    }});
+    for mut frame in [human("done"), human("declined"), in_thread] {
+        frame["id"] = json!(9);
+        let refused =
+            remote_control_answer(Seat::Phone, &desk, &log, &Parts::default(), frame.clone()).await;
+        assert_eq!(refused["code"], FORBIDDEN, "{frame}: {refused}");
+        assert_eq!(
+            refused["error"],
+            super::super::seat::DESK_ONLY,
+            "{frame}: {refused}"
+        );
+    }
+    assert_eq!(
+        seen_by(Seat::Phone, &desk, &log, &action_id).await.1,
+        "pending"
+    );
+    assert_eq!(
+        hotline_room::inbound::sources(&log),
+        [],
+        "no source is added"
+    );
+
+    let mut yes = human("done");
+    yes["id"] = json!(10);
+    let answered = remote_control_answer(Seat::Desk, &desk, &log, &Parts::default(), yes).await;
+    assert_eq!(answered["ok"], true, "{answered}");
+    let added = hotline_room::inbound::sources(&log);
+    assert_eq!(added.len(), 1, "the desk's yes adds it");
+    assert_eq!(added[0].name, "deploys");
+}

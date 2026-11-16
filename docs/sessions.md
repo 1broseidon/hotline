@@ -1662,8 +1662,10 @@ already does nothing.
 `hotline_room::inbound`, the wire's [Inbound sources](wire.md#inbound-sources)).
 A place outside Hotline (a webhook, a mailbox, a GitHub repository) leaves a
 teammate asides only through a source the person added: from Settings or the
-wire (`inbound.add`), or by saying yes to a teammate's `propose_inbound` card,
-which names the source, whom it may aside and how loudly, and never a secret.
+wire (`inbound.add`), or by saying yes at the desk to a teammate's
+`propose_inbound` card, which names the source, whom it may aside and how
+loudly, and never a secret; a paired phone shows that card and cannot answer
+it.
 No transport is built yet. The one door one will call is
 `Room::inbound_aside`, which delivers only while the source exists and is not
 muted, to a teammate it names, with the level lowered to the source's

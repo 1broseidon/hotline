@@ -65,6 +65,7 @@ mod plan;
 mod post;
 mod preamble;
 pub(crate) use asides::ASIDE_CHARS;
+pub(crate) use asking::INBOUND_SOURCE_CARD;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
 

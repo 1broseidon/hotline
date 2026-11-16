@@ -408,7 +408,12 @@ commands, not teammate tools. There are no link commands or roster links.
 that `delivers` is answered off the tape at any time until it is settled,
 across restarts, and the answer reaches the teammate as a `delivery`. No tool
 waits on a card. One that expired, that somebody else answered first, or that
-the teammate withdrew (`withdrawn`) is refused. The
+the teammate withdrew (`withdrawn`) is refused. A card marked `deskOnly`, a
+teammate's `propose_inbound`, is answered from the desk or owner seat only:
+the phone reads it and its answer, by `human.answer` or `thread.answer`,
+either way, is refused with `"A new outside source is approved at your desk.
+Answer this card there."`, and its push carries no `categoryId`, so the
+notification has no keys. The
 tape still writes `dismissed` for a decline, which is the previous edition's
 word for that afterlife.
 
@@ -881,8 +886,11 @@ its own jobs.
 
 A command the room cannot read is `"This room cannot read that command:
 …"`. A seat that may not run one is `"That seat may not run this
-command."` A seat that may not subscribe to a target is `"That seat may
-not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
+command."`, except a phone's answer to a card only the desk answers (a
+`human_action` with `deskOnly`), which is `"A new outside source is approved
+at your desk. Answer this card there."` A seat that may not subscribe to a
+target is `"That seat may not subscribe to that."` Every seat refusal
+carries `"code": "forbidden"`.
 
 ## Subscriptions
 
@@ -1167,7 +1175,7 @@ allows more), `rate` how many asides an hour across them, `secret` the name of
 a stored secret a transport will use, never a value, and `wakes` the count on
 its brake. It is an `inbound` event on the room stream, folded by id, which
 only the `inbound.*` commands and a teammate's `propose_inbound` card, on the
-person's yes, write. Its asides carry `{"inbound": "<id>"}` as `from`
+person's yes at the desk, write. Its asides carry `{"inbound": "<id>"}` as `from`
 ([Asides](#asides)).
 
 ## The roster view

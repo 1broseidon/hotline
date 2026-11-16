@@ -588,7 +588,7 @@ async fn command(
             decline(
                 sender,
                 id,
-                Refused::because(FORBIDDEN, "That seat may not run this command."),
+                Refused::because(FORBIDDEN, seat.refusal(&command)),
             );
         }
         Ok(Command::LinkPreview { url }) => {

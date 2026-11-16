@@ -229,6 +229,12 @@ pub enum TranscriptEvent {
         /// stay on their thread. Absent on the tape's own cards.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<String>,
+        /// Only the desk answers it: its yes adds a standing outside source,
+        /// which a paired phone may not (`wire/seat.rs`). A phone shows the
+        /// card and says to answer it at the desk; its `human.answer` is
+        /// refused with that reason. Absent on every other card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        desk_only: Option<bool>,
     },
     /// A secure request for one origin. Typed values have no event field.
     CredentialAsk {

@@ -52,7 +52,10 @@ impl Seat {
             // someone. Capture is the one value-bearing answer: its live
             // card binds the origin and recipient before it can store and
             // grant a login or arm a passkey. Arbitrary secret management
-            // and passkey arming remain at the desk.
+            // and passkey arming remain at the desk, and so does the yes to
+            // a teammate's proposal of an outside source, which is a
+            // standing grant as `inbound.add` is: the phone reads that card
+            // and its answer is refused with where to give it.
             // Which model and how hard it thinks are settings the person
             // owns anywhere.
             //
@@ -82,10 +85,11 @@ impl Seat {
             // `session.retry` sends a line already on the tape once more and
             // writes nothing new, so it is no more than the phone already did.
             Seat::Phone => {
-                phone_thread_command(command)
-                    || matches!(
-                        command,
-                        Command::MobilePrompt { .. }
+                !answers_desk_only_card(command)
+                    && (phone_thread_command(command)
+                        || matches!(
+                            command,
+                            Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
                     | Command::MobilePushRegister { .. }
                     // A narrow create, confined in core rather than by
@@ -167,8 +171,18 @@ impl Seat {
                         rate: None,
                         ..
                     }
-                    )
+                        ))
             }
+        }
+    }
+
+    /// Why this seat may not run `command`, in words its person reads: for a
+    /// card only the desk answers, where to answer it.
+    pub(super) fn refusal(self, command: &Command) -> &'static str {
+        if self == Seat::Phone && answers_desk_only_card(command) {
+            DESK_ONLY
+        } else {
+            "That seat may not run this command."
         }
     }
 
@@ -255,6 +269,28 @@ impl Seat {
             }
         }
     }
+}
+
+/// What a phone is told when it answers a card only the desk answers.
+pub(super) const DESK_ONLY: &str =
+    "A new outside source is approved at your desk. Answer this card there.";
+
+/// Whether `command` answers a teammate's proposal of a standing outside
+/// source (`propose_inbound`), in the main conversation or a work thread.
+/// Its yes adds a grant that lets something outside Hotline reach the team,
+/// so it is the desk's to give, as adding a source with `inbound.add` is
+/// (`docs/security.md`, Inbound sources); a phone sees the card and may not
+/// answer it either way.
+fn answers_desk_only_card(command: &Command) -> bool {
+    let action_id = match command {
+        Command::HumanAnswer { action_id, .. } => action_id,
+        Command::ThreadAnswer {
+            answer: crate::contract::ThreadAnswer::Human { action_id, .. },
+            ..
+        } => action_id,
+        _ => return false,
+    };
+    action_id.starts_with(crate::session::INBOUND_SOURCE_CARD)
 }
 
 /// The commands only a linked desk sends.

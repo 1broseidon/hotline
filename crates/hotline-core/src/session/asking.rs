@@ -193,6 +193,7 @@ impl Room {
             matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
         self.link_handoff_human(work, &action_id)?;
         let informational = question.is_some();
+        let desk_only = action_id.starts_with(INBOUND_SOURCE_CARD);
         if let Some(question) = question {
             let mut questions = lock(&self.voice_questions);
             questions.retain(|_, question| question.capability.is_current());
@@ -213,8 +214,11 @@ impl Room {
                 delivers: Some(true),
                 expires_at: Some(ts + i64::from(hours) * 60 * 60_000),
                 thread: work.map(str::to_string),
+                desk_only: desk_only.then_some(true),
             },
         );
+        // A card only the desk answers is told to the phone as news, with no
+        // keys on the notification that would only be refused.
         self.push.notify_in(
             Some(&if home.kind == ThreadKind::Call {
                 ThreadId::dm(persona_id)
@@ -224,7 +228,7 @@ impl Room {
             &self.needs_you(persona_id),
             &reason,
             persona_id,
-            Some(crate::push::Waiting::Human {
+            (!desk_only).then(|| crate::push::Waiting::Human {
                 action_id: action_id.clone(),
             }),
         );
@@ -522,6 +526,7 @@ impl Room {
             delivers,
             expires_at,
             thread,
+            desk_only,
             ..
         } = card
         else {
@@ -543,6 +548,7 @@ impl Room {
                 delivers,
                 expires_at,
                 thread,
+                desk_only,
             },
         );
     }
@@ -605,4 +611,6 @@ pub(super) enum Approves {
 /// answer finds its settlement before the card is superseded.
 const PERSON_NAME_CARD: &str = "person-name:";
 const NEW_TEAMMATE_CARD: &str = "new-teammate:";
-const INBOUND_SOURCE_CARD: &str = "inbound-source:";
+/// A standing outside source's card: answered at the desk only
+/// (`wire/seat.rs`).
+pub(crate) const INBOUND_SOURCE_CARD: &str = "inbound-source:";

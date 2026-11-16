@@ -105,6 +105,7 @@ impl Room {
             request_id,
             title,
             options,
+            from_item,
             ..
         } = card
         else {
@@ -125,6 +126,7 @@ impl Room {
                 options,
                 decision: Some(option_id.to_string()),
                 decided_option_name,
+                from_item,
             },
         );
         Ok(())
@@ -215,6 +217,7 @@ impl Room {
                 expires_at: Some(ts + i64::from(hours) * 60 * 60_000),
                 thread: work.map(str::to_string),
                 desk_only: desk_only.then_some(true),
+                from_item: self.prompted_by(home),
             },
         );
         // A card only the desk answers is told to the phone as news, with no
@@ -527,6 +530,7 @@ impl Room {
             expires_at,
             thread,
             desk_only,
+            from_item,
             ..
         } = card
         else {
@@ -549,6 +553,7 @@ impl Room {
                 expires_at,
                 thread,
                 desk_only,
+                from_item,
             },
         );
     }

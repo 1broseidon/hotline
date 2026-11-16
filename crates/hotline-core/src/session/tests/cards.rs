@@ -564,6 +564,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             expires_at: None,
             thread: None,
             desk_only: None,
+            from_item: None,
         },
     );
     room.write(
@@ -581,6 +582,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             expires_at: None,
             thread: None,
             desk_only: None,
+            from_item: None,
         },
     );
 

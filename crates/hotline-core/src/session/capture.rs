@@ -34,6 +34,9 @@ pub(super) struct Capture {
     /// A teammate's cookie ask, whose Sign In this capture is: its card is
     /// the ask's, and so is its settlement.
     pub(super) ask: Option<super::cookie_asks::Parts>,
+    /// The inbox item that woke the quiet turn which asked, when one alone
+    /// did: every version of the card names it.
+    pub(super) from_item: Option<String>,
 }
 
 impl Capture {
@@ -67,6 +70,7 @@ impl Capture {
             expires_at: self.expires_at,
             existing: self.existing.clone(),
             armed: self.armed,
+            from_item: self.from_item.clone(),
         }
     }
 }
@@ -173,6 +177,7 @@ impl Room {
             armed: false,
             status: CredentialStatus::Pending,
             ask: None,
+            from_item: self.prompted_by(home),
         };
         let event = capture.event(None);
         lock(&self.captures).insert(id.clone(), Arc::new(tokio::sync::Mutex::new(capture)));

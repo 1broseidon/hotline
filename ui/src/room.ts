@@ -39,6 +39,7 @@ type RoomItem = {
 	createdAt?: number;
 	endedAt?: number;
 	awaiting?: unknown;
+	fromItem?: unknown;
 };
 
 /**
@@ -342,6 +343,7 @@ function jobFromEvent(item: RoomItem): ScheduledJob | null {
 		nextAt: item.nextAt,
 		createdAt: item.createdAt,
 		...(awaiting !== null ? { awaiting } : {}),
+		...(typeof item.fromItem === "string" && item.fromItem !== "" ? { fromItem: item.fromItem } : {}),
 	};
 }
 

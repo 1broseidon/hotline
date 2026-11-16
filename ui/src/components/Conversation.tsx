@@ -12,7 +12,7 @@ import { sends, unlanded, useReturned, useSends } from "../sends";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { useAsides, withAsides } from "../asides";
-import { unreadItems, unreadWords, useInbox, useInboxWork } from "../inbox";
+import { inboxWork, itemsOf, unreadItems, unreadWords, useInbox, useInboxWork } from "../inbox";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -28,6 +28,7 @@ import { SessionPickers } from "./Pickers";
 import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
 import { AskCard, askLine, nextLapse, openAsks } from "./transcript/AskCard";
+import { InboxRows } from "./transcript/InboxLines";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
@@ -219,6 +220,11 @@ export function Conversation({
 	/* What the teammate has not read in its inbox, for the composer's chip and its tray. */
 	const inbox = useInbox(personaId);
 	const unread = useMemo(() => unreadItems(inbox), [inbox]);
+	/* What the card in the composer names when a colleague's message prompted it. */
+	const askRows = useMemo(() => {
+		const items = itemsOf(inbox);
+		return { items, work: inboxWork(items), onOpen: onOpenInboxItem };
+	}, [inbox, onOpenInboxItem]);
 	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
 	// Every teammate's: work a sent item started runs in its receiver's thread, and the sender's row says so too.
 	const workingIds = roster.flatMap((one) => (one.sides ?? []).filter((side) => side.working).map((side) => side.sideId)).join(" ");
@@ -291,7 +297,9 @@ export function Conversation({
 						</button>
 					</div>
 				)}
-				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} ownerHash={persona.avatar?.hash} onOpenScreen={openScreen} />
+				<InboxRows.Provider value={askRows}>
+					<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} ownerHash={persona.avatar?.hash} onOpenScreen={openScreen} people={people} />
+				</InboxRows.Provider>
 			</div>
 		);
 	// Stable across renders, so the transcript's rows can skip a render while a reply streams.

@@ -841,6 +841,9 @@ pub(super) fn event_of(
             options,
             decision: None,
             decided_option_name: None,
+            // The main conversation's witness names the item that woke a
+            // quiet turn's card (`dm.rs`).
+            from_item: None,
         }],
         // The same card by the same id, so it is superseded where it stands,
         // settled as an answered card is: the outcome, and its words, which
@@ -858,6 +861,7 @@ pub(super) fn event_of(
             options,
             decision: Some("expired".to_string()),
             decided_option_name: Some("Expired unanswered".to_string()),
+            from_item: None,
         }],
         Update::Turn { stop_reason, usage } => vec![TranscriptEvent::Turn {
             id: new_id(),

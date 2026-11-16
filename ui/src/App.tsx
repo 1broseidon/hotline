@@ -702,6 +702,7 @@ export function App() {
 								jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 								roster={roster}
 								focusSchedules={focusSchedules}
+								onOpenInboxItem={openInboxItem}
 								onClose={() => setInspector(false)}
 								onDeleted={() => {
 									setSelectedId(null);

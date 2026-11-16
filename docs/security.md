@@ -167,7 +167,11 @@ decision for George, not a bug fix.
   shell, files, browser and network run without the person's attention. Its
   trail is kept (the "Inbox · read 3, sent 1" line, whose rows are the
   items it sorted and sent and the turn's steps), but nothing points the
-  person at it.
+  person at it. What it puts in front of the person (a post, a file, a card,
+  a job) says which colleague's message prompted it, in one line, when one
+  item alone woke the turn; a turn several woke names none, and the
+  browser's own cards never do (`docs/design/agent-inbox.md`, What a
+  colleague's message prompted).
 - **Cost has no desk-wide ceiling.** The brake is twelve items and replies
   per pair, counted afresh when the person says Keep going, or writes to
   either teammate, in any of its threads, while the two are not paused.

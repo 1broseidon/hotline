@@ -1480,6 +1480,9 @@ impl Room {
                 options,
                 decision: None,
                 decided_option_name: None,
+                // Raised by the browser, which does not know which of the
+                // teammate's turns asked it to open the page.
+                from_item: None,
             },
         );
         match tokio::time::timeout(HUMAN_DEADLINE, answered).await {
@@ -1541,6 +1544,7 @@ impl Room {
                 options: wait.asking.options(),
                 decision: Some(decision.to_string()),
                 decided_option_name: Some(option_name.to_string()),
+                from_item: None,
             },
         );
     }

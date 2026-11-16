@@ -1472,6 +1472,7 @@ impl Room {
             request_id,
             title,
             options,
+            from_item,
             ..
         }) = card
         {
@@ -1490,6 +1491,7 @@ impl Room {
                     options,
                     decision: Some(option_id.to_string()),
                     decided_option_name,
+                    from_item,
                 },
             );
         }
@@ -1833,6 +1835,7 @@ mod tests {
             ended_at: None,
             final_firing: None,
             awaiting: None,
+            from_item: None,
             skipped: None,
         };
         let text = firing_text(

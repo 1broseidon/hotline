@@ -1,7 +1,9 @@
+import type { Person } from "../../avatars";
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
 import { collaborationAsk, ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./Asks";
 import { CookieAskCard } from "./CookieAskCard";
 import { CredentialAsk } from "./CredentialAsk";
+import { Prompted } from "./InboxLines";
 import { SecretUseAsk } from "./SecretUseAsk";
 
 /** A card waiting on the person: the kinds that hold a turn, a teammate's computer, or two teammates paused together, until answered. */
@@ -77,8 +79,31 @@ export function askLine(ask: Ask): string {
 	}
 }
 
-/** The card itself, as the conversation draws it, to be answered where the person is. */
-export function AskCard({
+/**
+ * The card itself, as the conversation draws it, to be answered where the
+ * person is: under the line saying whose message prompted it, when a
+ * colleague's did (`fromItem`), as the conversation draws it there.
+ */
+export function AskCard(props: {
+	ask: Ask;
+	personaId: string;
+	thread: ThreadId;
+	ownerName: string;
+	/** The teammate's picture, for the face on the card. */
+	ownerHash?: string | undefined;
+	onOpenScreen?: (() => void) | undefined;
+	/** The team by id, to name the colleague whose message prompted the card. */
+	people?: ReadonlyMap<string, Person> | undefined;
+}) {
+	const { ask, people } = props;
+	return (
+		<Prompted itemId={"fromItem" in ask ? ask.fromItem : undefined} people={people}>
+			<AskBody {...props} />
+		</Prompted>
+	);
+}
+
+function AskBody({
 	ask,
 	personaId,
 	thread,
@@ -90,7 +115,6 @@ export function AskCard({
 	personaId: string;
 	thread: ThreadId;
 	ownerName: string;
-	/** The teammate's picture, for the face on the card. */
 	ownerHash?: string | undefined;
 	onOpenScreen?: (() => void) | undefined;
 }) {

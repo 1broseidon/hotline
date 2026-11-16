@@ -555,6 +555,10 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
         awaiting: event
             .get("awaiting")
             .and_then(|whom| serde_json::from_value(whom.clone()).ok()),
+        from_item: event
+            .get("fromItem")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         final_firing: event.get("finalFiring").and_then(Value::as_i64),
         skipped: event
             .get("skipped")
@@ -1241,6 +1245,7 @@ mod tests {
             ended_at: None,
             final_firing: None,
             awaiting: None,
+            from_item: None,
             skipped: None,
         }
     }

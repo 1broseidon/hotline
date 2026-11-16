@@ -45,7 +45,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
-import { InboxFromRow, InboxRows, InboxRun, InboxSentRow } from "./transcript/InboxLines";
+import { InboxFromRow, InboxRows, InboxRun, InboxSentRow, Prompted } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -245,7 +245,7 @@ export function Transcript({
 					event.kind === "inbox_sent" ||
 					event.kind === "inbox_sorted" ||
 					(event.kind === "link" && event.openerId !== undefined) ||
-					(event.kind === "agent" && event.fromItem !== undefined),
+					("fromItem" in event && event.fromItem !== undefined),
 			),
 		[events],
 	);
@@ -942,19 +942,35 @@ const Row = memo(function Row({
 			);
 
 		case "permission":
-			return <Permission thread={thread} event={event} who={who} />;
+			return (
+				<Prompted itemId={event.fromItem} people={people}>
+					<Permission thread={thread} event={event} who={who} />
+				</Prompted>
+			);
 
 		case "plan":
 			return <Plan entries={event.entries} />;
 
 		case "human_action":
-			return <HumanAction thread={thread} event={event} who={who} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+			return (
+				<Prompted itemId={event.fromItem} people={people}>
+					<HumanAction thread={thread} event={event} who={who} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />
+				</Prompted>
+			);
 
 		case "credential_ask":
-			return <CredentialAsk event={event} teammate={ownerName} />;
+			return (
+				<Prompted itemId={event.fromItem} people={people}>
+					<CredentialAsk event={event} teammate={ownerName} />
+				</Prompted>
+			);
 
 		case "cookie_ask":
-			return <CookieAskCard event={event} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />;
+			return (
+				<Prompted itemId={event.fromItem} people={people}>
+					<CookieAskCard event={event} personaId={personaId} teammate={ownerName} onOpenScreen={onOpenScreen} />
+				</Prompted>
+			);
 
 		/* A share record: the cookies the person shared, listed and removed
 		 * in the teammate's pane. The ask that led to it is the line here. */

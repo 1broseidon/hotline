@@ -120,6 +120,7 @@ fn job_from_legacy(value: &Value) -> Option<ScheduledJob> {
         ended_at: None,
         final_firing: None,
         awaiting: None,
+        from_item: None,
         skipped: None,
     })
 }

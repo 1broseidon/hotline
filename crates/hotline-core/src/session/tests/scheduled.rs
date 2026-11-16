@@ -150,6 +150,7 @@ fn due_job(
         ended_at: None,
         final_firing: None,
         awaiting: None,
+        from_item: None,
         skipped: None,
     }
 }

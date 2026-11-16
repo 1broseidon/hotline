@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePeople } from "../avatars";
 import { useCommitOnLeave } from "../commitOnLeave";
 import type { FolderGrant, Persona, ScheduledJob, SessionInfo } from "../generated/contract";
 import { PaneClose } from "../ui/PaneClose";
@@ -52,6 +53,7 @@ export function Teammate({
 	jobs,
 	roster,
 	focusSchedules,
+	onOpenInboxItem,
 	onClose,
 	onDeleted,
 }: {
@@ -60,10 +62,13 @@ export function Teammate({
 	jobs: ScheduledJob[];
 	roster: RosterEntry[];
 	focusSchedules: boolean;
+	/** Opens an inbox item in the right-hand pane: the message a job came from. */
+	onOpenInboxItem?: ((itemId: string) => void) | undefined;
 	onClose(): void;
 	onDeleted(): void;
 }) {
 	const servers = useRoomSettings().mcpServers;
+	const people = usePeople(roster);
 	const [name, setName] = useState(persona.name);
 	const [goal, setGoal] = useState(persona.goal);
 	const [pathShown, setPathShown] = useState(false);
@@ -402,7 +407,8 @@ export function Teammate({
 						jobs={jobs}
 						backgroundWork={persona.backgroundWork}
 						focus={focusSchedules}
-						nameOf={(id) => roster.find((entry) => entry.persona.id === id)?.persona.name ?? id}
+						people={people}
+						onOpenInboxItem={onOpenInboxItem}
 					/>
 
 					<div className="flex items-center gap-1 border-t border-line pt-3">

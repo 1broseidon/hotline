@@ -113,6 +113,9 @@ pub(crate) struct CollaborationWait {
     pub(crate) target_capability: CapabilityLease,
     pub(crate) scope: CollaborationScope,
     pub(crate) sender: oneshot::Sender<CollaborationDecision>,
+    /// The inbox item whose quiet turn made the request, which the card's
+    /// decision names as the card did.
+    pub(crate) from_item: Option<String>,
 }
 
 struct CollaborationRequest {
@@ -124,6 +127,7 @@ struct CollaborationRequest {
     caller_capability: CapabilityLease,
     target_capability: CapabilityLease,
     scope: CollaborationScope,
+    from_item: Option<String>,
 }
 
 /// Removes a collaboration wait if the delivery future is cancelled while
@@ -225,6 +229,7 @@ impl Peers {
                 caller_capability: request.caller_capability,
                 target_capability: request.target_capability,
                 scope: request.scope,
+                from_item: request.from_item,
             },
         );
         Ok(receiver)
@@ -653,7 +658,7 @@ fn read_receipt_updates(events: &[Value], event_ids: &[String]) -> Vec<Transcrip
         .collect()
 }
 
-mod delivery;
+pub(in crate::session) mod delivery;
 mod sessions;
 
 #[cfg(test)]

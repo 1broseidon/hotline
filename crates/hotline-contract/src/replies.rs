@@ -190,6 +190,10 @@ pub struct ScheduleEntry {
     /// says it: "Waiting on Huck". Absent while it is not waiting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub awaiting: Option<Vec<String>>,
+    /// The inbox item whose quiet turn made the job, when one alone woke it
+    /// (`ScheduledJob::from_item`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_item: Option<String>,
 }
 
 /// The views the core maintains. One so far.

@@ -218,7 +218,7 @@ async fn collaboration_rechecks_reach_after_discovery() {
                 &room.capability_lease("ada"),
                 &room.capability_lease("bob"),
                 false,
-                None,
+                crate::session::peers::delivery::Asked::default(),
             )
             .await
         })

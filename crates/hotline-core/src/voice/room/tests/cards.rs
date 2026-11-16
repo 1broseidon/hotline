@@ -275,6 +275,7 @@ async fn credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_a
         expires_at: crate::session::now_ms() + 1_800_000,
         existing: vec![],
         armed: false,
+        from_item: None,
     };
     room.write_home(&persona, &thread, &credential);
     let event_value = serde_json::to_value(&credential).unwrap();

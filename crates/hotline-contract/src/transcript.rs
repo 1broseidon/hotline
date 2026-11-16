@@ -153,6 +153,12 @@ pub enum TranscriptEvent {
         decision: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         decided_option_name: Option<String>,
+        /// The inbox item that woke the quiet turn this card was raised in,
+        /// when one alone did: a colleague's message, not the person, is
+        /// behind it, and a client says so in one line over the card ("From
+        /// Goldie's message · title"). Absent on any other card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_item: Option<String>,
     },
     Plan {
         id: String,
@@ -235,6 +241,12 @@ pub enum TranscriptEvent {
         /// refused with that reason. Absent on every other card.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         desk_only: Option<bool>,
+        /// The inbox item that woke the quiet turn this card was raised in,
+        /// when one alone did: a colleague's message, not the person, is
+        /// behind it, and a client says so in one line over the card ("From
+        /// Goldie's message · title"). Absent on any other card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_item: Option<String>,
     },
     /// A secure request for one origin. Typed values have no event field.
     CredentialAsk {
@@ -256,6 +268,12 @@ pub enum TranscriptEvent {
         /// The first answer armed a passkey; only its site's approval remains.
         #[serde(default)]
         armed: bool,
+        /// The inbox item that woke the quiet turn this card was raised in,
+        /// when one alone did: a colleague's message, not the person, is
+        /// behind it, and a client says so in one line over the card ("From
+        /// Goldie's message · title"). Absent on any other card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_item: Option<String>,
     },
     /// A teammate asks to be signed in to one site, in its own words. The
     /// card answers with the person's cookies from one of `sources`, a login
@@ -295,6 +313,12 @@ pub enum TranscriptEvent {
         #[ts(as = "Option<bool>", optional)]
         desk_browser: bool,
         expires_at: i64,
+        /// The inbox item that woke the quiet turn this card was raised in,
+        /// when one alone did: a colleague's message, not the person, is
+        /// behind it, and a client says so in one line over the card ("From
+        /// Goldie's message · title"). Absent on any other card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_item: Option<String>,
     },
     /// A lend record: one site's cookies copied from a host browser into a
     /// teammate's browser, kept so the lend can be listed and removed. No
@@ -1047,6 +1071,11 @@ pub struct ScheduledJob {
     /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub awaiting: Option<Vec<String>>,
+    /// The inbox item that woke the quiet turn the teammate made this job
+    /// in, when one alone did: a colleague's message, not the person, is
+    /// where it came from, and its row says so. Absent on any other job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_item: Option<String>,
     /// The latest run of a loop that was skipped for being too late: by the
     /// time the desk could start it, more than two hours had passed since
     /// its time, so the loop moved on to its next. None until that happens.

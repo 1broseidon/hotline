@@ -765,7 +765,10 @@ impl Room {
             a,
             b,
             request.intent == Intent::Handoff,
-            origin.as_ref(),
+            peers::delivery::Asked {
+                thread: origin.as_ref(),
+                prompted: None,
+            },
         )
         .await
     }

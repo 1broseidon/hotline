@@ -7,6 +7,15 @@
 use super::*;
 use crate::session::{new_id, now_ms};
 
+/// Where a request up in access was made: the thread it was said in (a
+/// call's card is the call's), and the inbox item whose quiet turn said it,
+/// which its card names.
+#[derive(Default)]
+pub(in crate::session) struct Asked<'a> {
+    pub(in crate::session) thread: Option<&'a crate::contract::ThreadId>,
+    pub(in crate::session) prompted: Option<String>,
+}
+
 impl Room {
     /// Checks the directional collaboration policy before anything is handed
     /// to the recipient ([`Room::collaboration_granted`]): a recipient with no
@@ -20,8 +29,12 @@ impl Room {
         caller_capability: &CapabilityLease,
         target_capability: &CapabilityLease,
         handoff: bool,
-        origin: Option<&crate::contract::ThreadId>,
+        asked: Asked<'_>,
     ) -> Result<(), String> {
+        let Asked {
+            thread: origin,
+            prompted,
+        } = asked;
         caller_capability.check()?;
         target_capability.check()?;
         // Discovery ran before these leases were captured. Re-read both
@@ -56,6 +69,7 @@ impl Room {
             caller_capability: caller_capability.clone(),
             target_capability: target_capability.clone(),
             scope,
+            from_item: prompted.clone(),
         })?;
         let _wait_guard = CollaborationWaitGuard {
             room: Arc::downgrade(self),
@@ -80,6 +94,7 @@ impl Room {
                 options,
                 decision: None,
                 decided_option_name: None,
+                from_item: prompted,
             },
         );
         let decision = match tokio::time::timeout(crate::session::HUMAN_DEADLINE, receiver).await {
@@ -159,6 +174,7 @@ impl Room {
                 options: collaboration_options(),
                 decision: Some(decision.to_string()),
                 decided_option_name: Some(option_name.to_string()),
+                from_item: wait.from_item.clone(),
             },
         );
     }

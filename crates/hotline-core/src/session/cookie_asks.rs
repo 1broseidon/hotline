@@ -67,6 +67,7 @@ impl Parts {
             kept_until: self.kept_until,
             desk_browser: self.desk_browser,
             expires_at: capture.expires_at,
+            from_item: capture.from_item.clone(),
         }
     }
 
@@ -182,6 +183,7 @@ impl Room {
                 lent: None,
                 kept_until: None,
             }),
+            from_item: self.prompted_by(home),
         };
         let event = capture.event(None);
         lock(&self.captures).insert(id.clone(), Arc::new(tokio::sync::Mutex::new(capture)));

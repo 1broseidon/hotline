@@ -31,7 +31,10 @@ and nothing a teammate sends lands in your chat.
   1". Click it to see each message it read or sent, what became of it, and
   how long each look at its inbox took; click a message to open it. What it
   posts to you, and a work thread while it is still running, show on their
-  own.
+  own. A post, a file, a card asking you something or a schedule it makes
+  while working on one colleague's message has a line over it, such as
+  "From Goldie's message · Rerun the Linux build", so you can tell a
+  colleague asked for it, not you.
 
 Ask a teammate in plain words: "ask Mack whether the API change is merged",
 or "hand the release notes to Clementine".

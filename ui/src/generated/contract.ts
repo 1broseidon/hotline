@@ -2252,7 +2252,12 @@ skipped?: SkippedRun,
  * Whom the job's last run is waiting on for a reply, by name, as a list
  * says it: "Waiting on Huck". Absent while it is not waiting.
  */
-awaiting?: Array<string>, };
+awaiting?: Array<string>, 
+/**
+ * The inbox item whose quiet turn made the job, when one alone woke it
+ * (`ScheduledJob::from_item`).
+ */
+fromItem?: string, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.
@@ -2344,6 +2349,12 @@ finalFiring?: number,
  * otherwise.
  */
 awaiting?: Array<string>, 
+/**
+ * The inbox item that woke the quiet turn the teammate made this job
+ * in, when one alone did: a colleague's message, not the person, is
+ * where it came from, and its row says so. Absent on any other job.
+ */
+fromItem?: string, 
 /**
  * The latest run of a loop that was skipped for being too late: by the
  * time the desk could start it, more than two hours had passed since
@@ -3031,7 +3042,14 @@ sources?: Array<WebSource>, } | { "kind": "permission",
 /**
  * The call that raised this card in the home chat.
  */
-from?: DeliveryFrom, id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+from?: DeliveryFrom, id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, 
+/**
+ * The inbox item that woke the quiet turn this card was raised in,
+ * when one alone did: a colleague's message, not the person, is
+ * behind it, and a client says so in one line over the card ("From
+ * Goldie's message · title"). Absent on any other card.
+ */
+fromItem?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
 /**
  * How long the pull took, once it is done.
  */
@@ -3079,7 +3097,14 @@ thread?: string,
  * card and says to answer it at the desk; its `human.answer` is
  * refused with that reason. Absent on every other card.
  */
-deskOnly?: boolean, } | { "kind": "credential_ask", from?: DeliveryFrom, id: string, ts: number, actionId: string, site: string, reason: string, credentialKind: CaptureKind, name: string, status: CredentialStatus, storedAs?: string, expiresAt: number, 
+deskOnly?: boolean, 
+/**
+ * The inbox item that woke the quiet turn this card was raised in,
+ * when one alone did: a colleague's message, not the person, is
+ * behind it, and a client says so in one line over the card ("From
+ * Goldie's message · title"). Absent on any other card.
+ */
+fromItem?: string, } | { "kind": "credential_ask", from?: DeliveryFrom, id: string, ts: number, actionId: string, site: string, reason: string, credentialKind: CaptureKind, name: string, status: CredentialStatus, storedAs?: string, expiresAt: number, 
 /**
  * Names only; a username is a typed value and never belongs here.
  */
@@ -3087,7 +3112,14 @@ existing: Array<string>,
 /**
  * The first answer armed a passkey; only its site's approval remains.
  */
-armed: boolean, } | { "kind": "cookie_ask", from?: DeliveryFrom, id: string, ts: number, 
+armed: boolean, 
+/**
+ * The inbox item that woke the quiet turn this card was raised in,
+ * when one alone did: a colleague's message, not the person, is
+ * behind it, and a client says so in one line over the card ("From
+ * Goldie's message · title"). Absent on any other card.
+ */
+fromItem?: string, } | { "kind": "cookie_ask", from?: DeliveryFrom, id: string, ts: number, 
 /**
  * The registrable domain, as `github.com`.
  */
@@ -3115,7 +3147,14 @@ keptUntil?: number,
  * The teammate's browser is the desk browser rather than its
  * computer's: Open Browser opens its pane.
  */
-deskBrowser?: boolean, expiresAt: number, } | { "kind": "cookie_offer", id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, 
+deskBrowser?: boolean, expiresAt: number, 
+/**
+ * The inbox item that woke the quiet turn this card was raised in,
+ * when one alone did: a colleague's message, not the person, is
+ * behind it, and a client says so in one line over the card ("From
+ * Goldie's message · title"). Absent on any other card.
+ */
+fromItem?: string, } | { "kind": "cookie_offer", id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, 
 /**
  * The lend is for the teammate's desk browser, its own web storage on
  * the desk, rather than its computer; Remove takes it back from there.

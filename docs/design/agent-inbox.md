@@ -543,6 +543,27 @@ item, and no chat opens between teammates.
   none. The turn's end is marked `quiet` when the person never spoke into
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.
+- **What a colleague's message prompted** (task-469). The same line, by the
+  same rule (`Room::prompted_by`), is over everything else such a turn makes
+  that the person sees, so a card that appears because a colleague asked
+  for it never looks like it came from the person's own request: a file it
+  sends (`send_file`, `generate_image`: the post carries `fromItem`); a card
+  it raises, a `request_human` or `ask_question` card (a source proposal, a
+  new teammate or the person's name included), a credential request, a
+  sign-in card (`ask_cookies`), a permission its harness asks, and the card
+  up in access its `send` raises ("Goldie wants Huck to do work"), each
+  drawn under the line in the conversation and in the composer's Needs you,
+  and kept on the card once it is answered; and a job it makes with
+  `schedule` or `loop`, which records the item (`fromItem`) and whose row in
+  Schedules has the line under it, or "From a colleague's message" once the
+  inbox no longer keeps it. Not covered: a turn several items woke, a quiet
+  turn the person spoke into (it is theirs from then), a work thread taken
+  from an item (its pane is headed by the item as its Message), a job's run
+  woken by a reply, the browser's own cards (a local address, a secret's
+  use, a passkey: raised by the browser, which cannot tell which of the
+  teammate's turns asked), a permission card's expired afterlife (its
+  harness rewrites it without the line), and a first-contact card raised
+  again after a restart.
 - **The item pane.** Its title, with where it stands in a word beside it
   (Sent, Seen, Taken, Later, Answered, Done, Expired…, the sent row's word);
   from whom to whom, whom else the send
@@ -661,7 +682,10 @@ Transcript events (`TranscriptEvent`):
   notice?}` in the order given (`notice` on Hotline's own, whose sender is
   Hotline), and how many items are open and unread
   after it.
-- `agent.fromItem?`: on a post from a quiet turn one item woke, that item;
-  `turn.quiet?`: on the end of a turn quiet to its end. Both are added
-  fields a reader that does not know them passes over, so a tape stays the
-  reference tree's file.
+- `agent.fromItem?`: on a post from a quiet turn one item woke, that item,
+  and the same on a `permission`, `human_action`, `credential_ask` and
+  `cookie_ask` card raised in such a turn; `turn.quiet?`: on the end of a
+  turn quiet to its end. Each is an added field a reader that does not know
+  it passes over, so a tape stays the reference tree's file.
+- `ScheduledJob.fromItem?` and `ScheduleEntry.fromItem?`: on a job such a
+  turn made, the item.

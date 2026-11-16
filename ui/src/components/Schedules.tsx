@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { Person } from "../avatars";
 import type { CalendarDay, ScheduledJob, SkippedRun } from "../generated/contract";
 import { CloseIcon, PlusIcon } from "../icons";
 import { calendarWords, DAY_NAMES, timeOfDay } from "../jobRuns";
+import { inboxWork, itemsOf, senderWords, useInbox } from "../inbox";
 import { durationText, firstLine, nextText } from "../room";
 import { onTablistKey, Picker } from "../ui/Menu";
 import { type Commands, wire } from "../wire";
+import { InboxRows } from "./transcript/InboxLines";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -52,19 +55,29 @@ export function Schedules({
 	jobs,
 	backgroundWork,
 	focus,
-	nameOf,
+	people,
+	onOpenInboxItem,
 }: {
 	personaId: string;
 	jobs: ScheduledJob[];
 	backgroundWork: boolean;
 	focus: boolean;
-	/** A teammate's name, for whom a job waits on. */
-	nameOf(personaId: string): string;
+	/** The team by id: whom a job waits on, and whose message one came from. */
+	people: ReadonlyMap<string, Person>;
+	/** Opens the message a job came from in the right-hand pane. */
+	onOpenInboxItem?: ((itemId: string) => void) | undefined;
 }) {
 	const heading = useRef<HTMLHeadingElement>(null);
 	const now = useNow();
 	const [adding, setAdding] = useState(false);
 	const paused = !backgroundWork && jobs.some((job) => !job.operatorCreated);
+	// The teammate's inbox, read only while a job came from a message in it.
+	const inbox = useInbox(jobs.some((job) => job.fromItem !== undefined) ? personaId : undefined);
+	const rows = useMemo(() => {
+		const items = itemsOf(inbox);
+		return { items, work: inboxWork(items), onOpen: onOpenInboxItem };
+	}, [inbox, onOpenInboxItem]);
+	const nameOf = (id: string) => people.get(id)?.name ?? id;
 
 	useEffect(() => {
 		if (!focus) return;
@@ -86,9 +99,11 @@ export function Schedules({
 			 * and an empty card would draw as a stray line over the form. */}
 			{(jobs.length > 0 || !adding) && (
 				<div className="grouped">
-					{jobs.map((job) => (
-						<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} nameOf={nameOf} />
-					))}
+					<InboxRows.Provider value={rows}>
+						{jobs.map((job) => (
+							<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} nameOf={nameOf} people={people} />
+						))}
+					</InboxRows.Provider>
 					{!adding && (
 						<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
 							<PlusIcon />
@@ -103,7 +118,19 @@ export function Schedules({
 	);
 }
 
-function JobRow({ job, now, backgroundWork, nameOf }: { job: ScheduledJob; now: number; backgroundWork: boolean; nameOf(personaId: string): string }) {
+function JobRow({
+	job,
+	now,
+	backgroundWork,
+	nameOf,
+	people,
+}: {
+	job: ScheduledJob;
+	now: number;
+	backgroundWork: boolean;
+	nameOf(personaId: string): string;
+	people: ReadonlyMap<string, Person>;
+}) {
 	const [busy, setBusy] = useState(false);
 	const [said, setSaid] = useState<string | null>(null);
 
@@ -168,6 +195,7 @@ function JobRow({ job, now, backgroundWork, nameOf }: { job: ScheduledJob; now: 
 					</span>
 				</span>
 				{job.kind === "loop" && job.skipped !== undefined && <span className="group-row-detail">{skippedText(job.skipped)}</span>}
+				{job.fromItem !== undefined && <JobSource itemId={job.fromItem} people={people} />}
 				<label className="mt-1.5 flex items-center gap-2 text-sm text-ink-2">
 					<input
 						type="checkbox"
@@ -191,6 +219,27 @@ function JobRow({ job, now, backgroundWork, nameOf }: { job: ScheduledJob; now: 
 				<CloseIcon />
 			</button>
 		</div>
+	);
+}
+
+/**
+ * Where a job a teammate made in a quiet turn came from, as one more line of
+ * the row's details that wraps as they do: whose message woke the turn and
+ * its title ("From Goldie's message · Rerun the Linux build"), which opens
+ * it, or, once the inbox no longer keeps that message, that it came from
+ * one.
+ */
+function JobSource({ itemId, people }: { itemId: string; people: ReadonlyMap<string, Person> }) {
+	const { items, onOpen } = useContext(InboxRows);
+	const item = items.get(itemId);
+	if (item === undefined) return <span className="group-row-detail">From a colleague&rsquo;s message</span>;
+	const from = item.notice !== undefined ? "From Hotline's notice" : `From ${senderWords(item, (id) => people.get(id)?.name)}'s message`;
+	const words = `${from} · ${item.title}`;
+	if (onOpen === undefined) return <span className="group-row-detail">{words}</span>;
+	return (
+		<button type="button" className="group-row-detail text-left hover:text-ink-2" title="Open message" onClick={() => onOpen(itemId)}>
+			{words}
+		</button>
 	);
 }
 

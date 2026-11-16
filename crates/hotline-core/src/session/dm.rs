@@ -502,6 +502,31 @@ impl Witness for Heard<'_> {
             TranscriptEvent::Agent { id, ts, text, .. } if self.quiet() => {
                 TranscriptEvent::Thought { id, ts, text }
             }
+            // A card the agent raises in a quiet turn one item woke names it:
+            // a colleague's message, not the person, is behind it.
+            TranscriptEvent::Permission {
+                from,
+                id,
+                ts,
+                request_id,
+                title,
+                options,
+                decision: None,
+                decided_option_name,
+                from_item: None,
+            } if self.quiet() => TranscriptEvent::Permission {
+                from,
+                id,
+                ts,
+                request_id,
+                title,
+                options,
+                decision: None,
+                decided_option_name,
+                from_item: self
+                    .room
+                    .prompted_by(&ThreadId::dm(&self.session.persona_id)),
+            },
             // A turn quiet to its end is one the person was not part of.
             TranscriptEvent::Turn {
                 id,

@@ -1490,6 +1490,7 @@ impl TeammateTools {
                     &self.persona_id,
                     brief,
                     flag(arguments, "reminder"),
+                    room.prompted_by(&self.thread),
                 )?))
             }
             LOOP => {
@@ -1524,6 +1525,7 @@ impl TeammateTools {
                     &self.persona_id,
                     brief,
                     flag(arguments, "reminder"),
+                    room.prompted_by(&self.thread),
                 )?))
             }
             LIST_SCHEDULES => {

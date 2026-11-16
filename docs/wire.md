@@ -1283,7 +1283,9 @@ not start tries again a minute later, and a loop counts its next interval
 from when a run ends. `quiet` is present and true when the job was asked to
 say nothing in the chat unless it finds something worth saying. `awaiting`
 is present while the job's last run waits on a colleague's reply to what it
-sent, naming them as a list says it (`["Huck"]`). There is no paused or
+sent, naming them as a list says it (`["Huck"]`). `fromItem` is the inbox
+item whose quiet turn made the job, on one a teammate made in a turn one
+item woke. There is no paused or
 failed state: a job is listed until its last run is over or it is
 cancelled. Who made a job is not part of the entry.
 

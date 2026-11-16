@@ -252,6 +252,18 @@ impl Room {
         }
     }
 
+    /// The one inbox item that woke the quiet turn in flight on `thread`,
+    /// when one alone did: where a post, a file, a card or a job made in that
+    /// turn came from (a colleague's message, not the person). None for a
+    /// turn the person reads, and for one several items woke together, which
+    /// it could be about any of.
+    pub(crate) fn prompted_by(&self, thread: &ThreadId) -> Option<String> {
+        lock(&self.posting)
+            .get(thread)
+            .filter(|turn| turn.quiet)
+            .and_then(|turn| turn.woken_by.clone())
+    }
+
     /// Whether the turn in flight on `thread` has had its one post.
     pub(super) fn has_posted(&self, thread: &ThreadId) -> bool {
         lock(&self.posting)
@@ -323,10 +335,7 @@ impl Room {
         let elsewhere = from.kind != ThreadKind::Dm;
         // A quiet turn's post says which item woke it; a loud one is the
         // person's own conversation and names none.
-        let from_item = lock(&self.posting)
-            .get(from)
-            .filter(|turn| turn.quiet)
-            .and_then(|turn| turn.woken_by.clone());
+        let from_item = self.prompted_by(from);
         let job = post.scheduled.as_ref().map(|run| run.job_id.clone());
         let event = TranscriptEvent::Agent {
             handoff_thread: None,

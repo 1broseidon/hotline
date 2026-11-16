@@ -986,6 +986,7 @@ mod clock;
 mod jobs;
 mod newer;
 mod pick_up;
+mod prompted;
 mod quiet;
 mod retention;
 mod taken;

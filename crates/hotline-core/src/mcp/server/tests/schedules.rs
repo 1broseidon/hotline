@@ -270,6 +270,7 @@ fn agent_loop(id: &str, next_at: i64) -> ScheduledJob {
         ended_at: None,
         final_firing: None,
         awaiting: None,
+        from_item: None,
         skipped: None,
     }
 }

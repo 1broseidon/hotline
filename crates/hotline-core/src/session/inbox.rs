@@ -431,6 +431,9 @@ impl Room {
         // What the person asked for is sent in a main conversation's turn
         // they read; a quiet turn's, a thread's or a job's is not theirs.
         let for_person = sent_from.kind == ThreadKind::Dm && self.is_read_turn(sent_from);
+        // A card this send raises names the colleague's item that woke the
+        // quiet turn sending it, when one alone did.
+        let prompted = self.prompted_by(sent_from);
         let mut sent = Vec::new();
         let mut held = Vec::new();
         for target in &targets {
@@ -467,7 +470,7 @@ impl Room {
                 new.files = self.hold(&held_key(&new.id), &files)?;
                 self.keep_item(&new)?;
                 held.push(target.name.clone());
-                self.await_consent(new.clone());
+                self.await_consent(new.clone(), prompted.clone());
             }
             self.threads().write(
                 sent_from,
@@ -553,8 +556,9 @@ impl Room {
 
     /// Waits on a task of its own for the person's first-contact card that
     /// a held item needs, and lets it in on yes, or closes it as dropped,
-    /// unseen by its receiver, on no.
-    fn await_consent(self: &Arc<Self>, item: InboxItem) {
+    /// unseen by its receiver, on no. `prompted` is the item whose quiet
+    /// turn sent it, which the card names.
+    fn await_consent(self: &Arc<Self>, item: InboxItem, prompted: Option<String>) {
         let room = self.clone();
         tokio::spawn(async move {
             let decided = async {
@@ -568,7 +572,10 @@ impl Room {
                     &caller_lease,
                     &target_lease,
                     item.wants == InboxWants::Work,
-                    Some(&item.from_thread),
+                    super::peers::delivery::Asked {
+                        thread: Some(&item.from_thread),
+                        prompted,
+                    },
                 )
                 .await
             }
@@ -1449,7 +1456,8 @@ impl Room {
         for persona in crate::room::roster(&self.log) {
             for item in kept::of(&self.log, &persona.id) {
                 if item.held && item.state != InboxState::Closed {
-                    self.await_consent(item);
+                    // What prompted it was the sending turn's, which is over.
+                    self.await_consent(item, None);
                 } else if !item.held && item.state.unread() && item.offered.is_none() {
                     self.arrived(&item);
                 }

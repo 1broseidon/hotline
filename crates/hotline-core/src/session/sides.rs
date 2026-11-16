@@ -1347,6 +1347,7 @@ impl Room {
             request_id,
             title,
             options,
+            from_item,
             ..
         }) = card
         else {
@@ -1367,6 +1368,7 @@ impl Room {
                 options,
                 decision: Some(option_id.to_string()),
                 decided_option_name,
+                from_item,
             },
         );
         Ok(())

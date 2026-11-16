@@ -414,6 +414,7 @@ pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
         without: job.without,
         skipped: job.skipped,
         awaiting: None,
+        from_item: job.from_item,
     }
 }
 
@@ -704,18 +705,22 @@ impl Room {
             brief,
             reminder,
             !crate::wire::commands::from_voice(),
+            None,
         )
     }
 
     /// Creates a job from one of the teammate's built-in tools. The tool is
     /// always scoped to its caller, and cannot choose operator provenance.
+    /// `from_item` is the inbox item that woke the quiet turn making it,
+    /// when one alone did, which the job keeps and its row shows.
     pub(crate) fn schedule_create_agent(
         &self,
         persona_id: &str,
         brief: Brief,
         reminder: bool,
+        from_item: Option<String>,
     ) -> Result<ScheduledJob, String> {
-        self.schedule_create_with_source(persona_id, brief, reminder, false)
+        self.schedule_create_with_source(persona_id, brief, reminder, false, from_item)
     }
 
     fn schedule_create_with_source(
@@ -724,6 +729,7 @@ impl Room {
         brief: Brief,
         reminder: bool,
         operator_created: bool,
+        from_item: Option<String>,
     ) -> Result<ScheduledJob, String> {
         let Brief {
             task,
@@ -838,6 +844,7 @@ impl Room {
             ended_at: None,
             final_firing: None,
             awaiting: None,
+            from_item,
             skipped: None,
         };
         room::append_schedule(&self.log, &job)?;

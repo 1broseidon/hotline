@@ -1,4 +1,4 @@
-import { createContext, memo, useContext } from "react";
+import { createContext, memo, type ReactNode, useContext } from "react";
 import type { InboxItem, InboxSortedEntry } from "../../generated/contract";
 import type { Person } from "../../avatars";
 import type { LinkEvent } from "../../dock";
@@ -96,6 +96,21 @@ export function InboxFromRow({ itemId, people }: { itemId: string; people: Reado
 			{words}
 			<span className="link-row-open">Open ›</span>
 		</button>
+	);
+}
+
+/**
+ * A card, a file or a job a teammate made in a quiet turn one inbox item
+ * woke (`fromItem`), with the line over it saying whose message prompted
+ * it: a colleague is behind it, not the person. Nothing over it otherwise.
+ */
+export function Prompted({ itemId, people, children }: { itemId: string | undefined; people: ReadonlyMap<string, Person> | undefined; children: ReactNode }) {
+	if (itemId === undefined) return children;
+	return (
+		<div data-kind="prompted">
+			<InboxFromRow itemId={itemId} people={people} />
+			{children}
+		</div>
 	);
 }
 

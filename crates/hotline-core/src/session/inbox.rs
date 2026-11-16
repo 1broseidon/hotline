@@ -41,6 +41,7 @@ use std::sync::Arc;
 mod clock;
 mod heard;
 mod pick_up;
+mod tidy;
 
 pub(in crate::session) use heard::QUIET_WAKE_LINE;
 pub(in crate::session) use pick_up::PickUp;
@@ -75,6 +76,10 @@ const TEAM: [&str; 3] = ["team", "everyone", "all"];
 /// The most items `read_inbox` lists of what is closed or what was sent:
 /// the newest, so the list stays a glance however long the inbox has run.
 const LISTED: usize = 20;
+
+/// The most open items `read_inbox` lists: the newest, with how many older
+/// ones there are, however many colleagues send at once.
+const OPEN_LISTED: usize = 50;
 
 /// Which items `read_inbox` lists without ids.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -357,6 +362,7 @@ fn item(
         notice: None,
         offer_again: None,
         newer: serde_json::Map::new(),
+        nested: serde_json::Map::new(),
     }
 }
 
@@ -850,7 +856,7 @@ impl Room {
         let shown: Vec<Value> = rows
             .into_iter()
             .take(if listing == Listing::Open {
-                usize::MAX
+                OPEN_LISTED
             } else {
                 LISTED
             })

@@ -987,5 +987,6 @@ mod jobs;
 mod newer;
 mod pick_up;
 mod quiet;
+mod retention;
 mod taken;
 mod titles;

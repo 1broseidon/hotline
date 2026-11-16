@@ -160,6 +160,59 @@ impl Room {
         Ok(())
     }
 
+    /// Lets go of the work items were taken into once it is over and its
+    /// items have left the receiver's inbox (`inbox/tidy.rs`): its request
+    /// leaves the two teammates' record, and its leases this process holds
+    /// go with it, as do those of any finished work, so neither list grows
+    /// with every item ever taken. A request that has not finished, one from
+    /// before the inbox, and a whole record a newer Hotline wrote anything
+    /// in, stay as they are.
+    pub(in crate::session) fn forget_finished_work(&self) {
+        let _guard = lock(&self.exchange_lock);
+        for mut pair in self.exchange_pairs() {
+            let finished = |request: &Request| {
+                !request.items.is_empty()
+                    && match request.state {
+                        State::Done { heard, .. } => heard,
+                        State::Stopped(stop) => stop.owed == Owed::Nobody && !stop.answering,
+                        _ => false,
+                    }
+            };
+            {
+                let mut leases = lock(&self.exchange_leases);
+                for request in pair.requests.iter().filter(|request| finished(request)) {
+                    leases.remove(&request.id);
+                }
+            }
+            // A record a newer build wrote in is left as it was found.
+            if !pair.newer.is_empty() {
+                continue;
+            }
+            let before = pair.requests.len();
+            pair.requests.retain(|request| {
+                if !finished(request) {
+                    return true;
+                }
+                // Read or not, an item of it still in the inbox keeps it.
+                let held: Vec<String> = crate::store::inbox::of(&self.log, &request.to)
+                    .into_iter()
+                    .map(|item| item.id)
+                    .chain(
+                        crate::store::inbox::newer_of(&self.log, &request.to)
+                            .into_iter()
+                            .filter_map(|line| line["id"].as_str().map(str::to_string)),
+                    )
+                    .collect();
+                request.items.iter().any(|id| held.contains(id))
+            });
+            if pair.requests.len() != before
+                && let Err(error) = self.save_pair(&pair)
+            {
+                eprintln!("finished work could not leave {}: {error}", pair.id);
+            }
+        }
+    }
+
     /// A taken item's request ended without a result: its items close as
     /// dropped, with what ended it, which their senders are told at their
     /// next turn's start.

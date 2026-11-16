@@ -74,8 +74,7 @@ const WOKEN: &str = "came into your inbox while you were idle";
 /// What a line that offered a teammate again the items it set aside says.
 const PICKED_UP: &str = "You are idle now. These items in your inbox are still open";
 
-/// The inbox's gather delay on a desk that sets none
-/// (`HOTLINE_INBOX_GATHER_MS`), which a pick-up waits as well.
+/// The inbox's gather delay, which a pick-up waits as well.
 const GATHER: Duration = Duration::from_secs(4);
 
 /// Ada's model: see the module. A subagent's report or the person's answer

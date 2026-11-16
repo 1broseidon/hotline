@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { InboxItem, InboxItemDetail, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
+import type { InboxItem, InboxItemDetail, InboxNewerItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
 import { wire } from "./wire";
 
 /*
@@ -315,9 +315,15 @@ export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.
 
 /** The pane's heading line for the list it shows: the open counts, else how many closed or sent, else that there are none. */
 export function listHeading(view: InboxView, segment: InboxSegment): string {
-	if (segment === "open") return openCounts(view) || "Nothing open";
-	const count = segment === "closed" ? view.closed.length : sends(view.sent).length;
+	const newer = newerIn(view, segment).length;
+	if (segment === "open") return [openCounts(view), newer > 0 && `${newer} from a newer version`].filter((part) => typeof part === "string" && part !== "").join(" · ") || "Nothing open";
+	const count = (segment === "closed" ? view.closed.length : sends(view.sent).length) + newer;
 	return count === 0 ? `Nothing ${segment}` : `${count} ${segment}`;
+}
+
+/** The items a newer Hotline saved that belong on a tab: held for the teammate, open or closed, or sent by it. */
+export function newerIn(view: InboxView, segment: InboxSegment): InboxNewerItem[] {
+	return (view.newer ?? []).filter((item) => (segment === "sent" ? item.from === view.personaId : item.to === view.personaId && (item.state === "closed") === (segment === "closed")));
 }
 
 /** The open count as the pane heads it: "2 unread · 1 taken · 1 for later". */

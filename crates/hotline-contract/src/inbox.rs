@@ -264,21 +264,50 @@ pub struct InboxItem {
     #[serde(flatten)]
     #[ts(skip)]
     pub newer: serde_json::Map<String, serde_json::Value>,
+    /// `fromThread`, `about` and `work` as they were found, by field, when a
+    /// newer Hotline wrote a field inside one that this build does not read:
+    /// the store writes such a thread back as it was found while it is still
+    /// the same thread (`hotline_store::inbox::line`). Never on the wire.
+    #[serde(skip)]
+    #[ts(skip)]
+    pub nested: serde_json::Map<String, serde_json::Value>,
+}
+
+/// An item a newer Hotline saved in a shape this build cannot read (a state
+/// or an outcome it does not know), as the window lists it: what can be said
+/// of it from what was written. It is never moved here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct InboxNewerItem {
+    pub id: String,
+    /// When it was sent.
+    pub ts: i64,
+    pub from: String,
+    pub to: String,
+    pub title: String,
+    /// Its state as the newer build wrote it, whatever it is.
+    pub state: String,
 }
 
 /// A teammate's inbox as the window draws it (`inbox.list`, and the
 /// `{"inbox": "<personaId>"}` subscription): what is open for it, newest
-/// first; what closed, newest first; what it sent others, newest first; and
-/// how many open items it has not read.
+/// first; what closed, newest first; what it sent others, newest first, the
+/// newest `hotline_store::inbox::VIEW_MOST` of each of the last two; how many
+/// open items it has not read; and the items a newer Hotline saved that this
+/// build cannot read, held for it or sent by it, newest first.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct InboxView {
     pub persona_id: String,
     pub open: Vec<InboxItem>,
     pub closed: Vec<InboxItem>,
     pub sent: Vec<InboxItem>,
     pub unread: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<InboxNewerItem>>", optional)]
+    pub newer: Vec<InboxNewerItem>,
 }
 
 /// One item with what came of it (`inbox.item`): the item, its receipts

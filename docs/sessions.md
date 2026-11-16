@@ -1475,12 +1475,12 @@ firing of it has begun since (`Room::job_run_open`). The job's thread is
 woken for it as an idle work thread is (`Room::wake_job_for_inbox`), a turn
 of that run whose words stay in the thread; once the next run begins or the
 job ends, what came back to the run and was never heard is the main
-conversation's, which is woken for it (`Room::inbox_left_job`). An idle thread is woken once, `HOTLINE_INBOX_GATHER_MS` (4 s)
+conversation's, which is woken for it (`Room::inbox_left_job`). An idle thread is woken once, the gather delay (4 s)
 after the first item lands, for everything that landed meanwhile, by a line
 that only wakes it (a teammate not running is started for it). A main
 conversation mid-turn is handed a one-line notice of the new titles when the
-gather delay is up, steered into the turn as the person's mid-turn line is
-(`HOTLINE_INBOX_MIDTURN=0` turns it off), and starts no turn and no thread
+gather delay is up, steered into the turn as the person's mid-turn line is,
+and starts no turn and no thread
 for them. The notice is queued marked quiet: a driver that cannot steer
 takes it as its next line, which begins the idle wake's quiet turn with the
 idle wake's line (`dm.rs`), never a loud one. Every turn of
@@ -1517,9 +1517,8 @@ had no turn yet; never-offered items still wake by their own rule
 (`recover_inbox`), which wins.
 
 **The clock** (`inbox/clock.rs`). A pick-up marks each item it offers with
-when it is offered next (`offerAgain`): an hour after its first pick-up
-(`HOTLINE_INBOX_OFFER_AGAIN_MS`), then a day after each
-(`HOTLINE_INBOX_OFFER_EVERY_MS`). `Room::inbox_at_start`, which
+when it is offered next (`offerAgain`): an hour after its first pick-up,
+then a day after each. `Room::inbox_at_start`, which
 `recover_exchanges` ends with, closes what expired while the desk was closed,
 runs the pick-up at start, and starts a task that reads the clock every 30
 seconds (`Room::inbox_due`): what has expired closes, and each teammate whose
@@ -1529,7 +1528,7 @@ turn's end never offers an item that has an `offerAgain`, so after its first
 pick-up an item is offered by its own time alone, however many turns the
 person starts, and a busy conversation is offered it at the clock's first
 look once it is idle again; a teammate not running is not started for it. An item still open (`new`, `noticed`, `seen`, `later`) three days
-after it arrived (`HOTLINE_INBOX_EXPIRE_MS`) closes as `expired`, with its
+after it arrived closes as `expired`, with its
 receipt; `taken` and held items never do. Its sender gets one item back,
 Hotline's notice (`notice: expired`, `replyTo` the item, `wants: nothing`,
 from the receiver, shown to teammates as from Hotline, the desk's words with
@@ -1565,7 +1564,7 @@ the person started changes nothing, and a work
 thread or a call the inbox wakes is told the words reach the person, as
 before.
 
-**Sorting.** `read_inbox` lists open items without their words, or, with
+**Sorting.** `read_inbox` lists the newest 50 open items without their words, or, with
 `list`, the newest 20 closed ones (with their outcome, `expired` among them) or the newest 20 the
 teammate sent (with whom each went to and where it stands now, and since
 when), or reads the ones named whole and marks them `seen`. `update_inbox` sorts several in one
@@ -1593,6 +1592,18 @@ queued, so it is taken into one work thread only: a second take, at once or
 later, in a thread or not, is refused with the thread that has it. Its
 result is an item in each sender's inbox that answers the one taken, which
 closes as done, or dropped when the work failed or the person stopped it.
+
+**What is kept** (`inbox/tidy.rs`). A closed item is kept as many days as
+the room's `inboxKeepDays` says (30 unless the person changed it in Settings,
+"Keep closed messages for"), counted from when it closed, and then removed
+by the clock and as the desk opens; open, taken and held items never are.
+As the desk opens (`Room::settle`) each teammate's inbox stream is written
+again with each item's latest line alone (`Log::tidy`), the work an item was
+taken into leaves the pair's record once it is over and its items are gone
+(`Room::forget_finished_work`, which also lets go of the leases finished work
+held), and the inbox's empty folders go. A line a newer Hotline wrote stays
+byte for byte and is never removed, however old. The window is sent the
+newest 200 closed and 200 sent items.
 
 ## Asides
 

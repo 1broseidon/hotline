@@ -1256,6 +1256,21 @@ offerAgain?: number, };
 export type InboxItemDetail = { item: InboxItem, replies: Array<InboxItem>, };
 
 /**
+ * An item a newer Hotline saved in a shape this build cannot read (a state
+ * or an outcome it does not know), as the window lists it: what can be said
+ * of it from what was written. It is never moved here.
+ */
+export type InboxNewerItem = { id: string, 
+/**
+ * When it was sent.
+ */
+ts: number, from: string, to: string, title: string, 
+/**
+ * Its state as the newer build wrote it, whatever it is.
+ */
+state: string, };
+
+/**
  * What Hotline's own notice in a teammate's inbox is about: never a
  * teammate's words, and never set by a teammate's tool. `expired`: an item
  * the teammate sent was closed as expired in its receiver's inbox.
@@ -1314,10 +1329,12 @@ export type InboxState = "new" | "noticed" | "seen" | "taken" | "later" | "close
 /**
  * A teammate's inbox as the window draws it (`inbox.list`, and the
  * `{"inbox": "<personaId>"}` subscription): what is open for it, newest
- * first; what closed, newest first; what it sent others, newest first; and
- * how many open items it has not read.
+ * first; what closed, newest first; what it sent others, newest first, the
+ * newest `hotline_store::inbox::VIEW_MOST` of each of the last two; how many
+ * open items it has not read; and the items a newer Hotline saved that this
+ * build cannot read, held for it or sent by it, newest first.
  */
-export type InboxView = { personaId: string, open: Array<InboxItem>, closed: Array<InboxItem>, sent: Array<InboxItem>, unread: number, };
+export type InboxView = { personaId: string, open: Array<InboxItem>, closed: Array<InboxItem>, sent: Array<InboxItem>, unread: number, newer?: Array<InboxNewerItem>, };
 
 /**
  * What the sender of an item wants from it: facts about the sender, not an

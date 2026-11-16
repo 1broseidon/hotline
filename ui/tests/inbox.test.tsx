@@ -680,6 +680,32 @@ describe("task-456 drawn", () => {
 		expect(opened.at(-1)).toBe("r");
 	});
 
+	test("an item a newer Hotline saved is a plain row where it belongs, saying so, that opens nothing", async () => {
+		const { InboxList } = await import("../src/components/InboxPane");
+		const newer = (id: string, more: Partial<import("../src/generated/contract").InboxNewerItem>) => ({ id, ts: NOW - 120_000, from: "chop", to: "juno", title: `Title ${id}`, state: "parked", ...more });
+		const shown = view({
+			open: [item("a")],
+			unread: 1,
+			newer: [newer("n-open", {}), newer("n-closed", { state: "closed" }), newer("n-sent", { from: "juno", to: "huck" })],
+		});
+		const opened: string[] = [];
+		const draw = (segment: "open" | "closed" | "sent") =>
+			act(async () => root!.render(<InboxList name="Juno" view={shown} segment={segment} people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={() => {}} onClose={() => {}} />));
+		await draw("open");
+		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-open"]);
+		expect(container.querySelector(".dock-note")?.textContent).toBe("1 unread · 1 from a newer version");
+		const row = container.querySelector("[data-newer=n-open]")!;
+		expect(row.tagName).toBe("DIV");
+		expect(row.querySelector(".list-line")?.textContent).toBe("Pork Chop · Saved by a newer version of Hotline. It can't be changed here.");
+		await draw("closed");
+		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-closed"]);
+		expect(container.querySelector(".dock-page p.text-ink-3")).toBeNull();
+		expect(container.querySelector(".dock-note")?.textContent).toBe("1 closed");
+		await draw("sent");
+		expect(container.querySelector("[data-newer=n-sent] .list-line")?.textContent).toBe("To Huck · Saved by a newer version of Hotline. It can't be changed here.");
+		expect(opened).toEqual([]);
+	});
+
 	test("on Sent, one send to three teammates is one row that opens to a row for each, each opening its item", async () => {
 		const { InboxList } = await import("../src/components/InboxPane");
 		const to = (id: string, who: string, others: string[], more: Partial<InboxItem> = {}) => item(id, { from: "juno", to: who, alsoTo: others, title: "Release moves to Thursday", ...more });

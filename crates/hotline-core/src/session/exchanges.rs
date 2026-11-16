@@ -1477,6 +1477,7 @@ impl Room {
             .collect();
         spent.extend(self.inbox_spent_keys());
         self.sweep_held(&spent);
+        self.sweep_empty_folders();
     }
     pub(super) fn recover_queued_exchanges(self: &Arc<Self>) {
         for pair in self.exchange_pairs() {

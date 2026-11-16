@@ -846,7 +846,7 @@ Where this differs from the design above:
   file on one desk may come to, because they cross in the one frame of what
   carries them and a link's frame is 1 MiB.
 
-**The agent inbox** (task-455, `proto/agent-inbox`,
+**The agent inbox** (task-455, from 0.50,
 [agent-inbox.md](design/agent-inbox.md)). One way to reach a teammate
 replaces the ask, the handoff and a colleague's aside built above: `send`
 puts an item in the colleague's inbox, the colleague's turns open with its

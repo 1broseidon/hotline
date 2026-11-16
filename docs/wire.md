@@ -213,7 +213,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
 | `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what an inbound source, or before the inbox a colleague, left the teammate without telling the person ([Asides](#asides)). The desk, owner and phone seats |
 | `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Threads list shown with its notes): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
-| `inbox.list` | `{personaId}` | `InboxView` `{personaId, open, closed, sent, unread}`: the teammate's open items and its closed ones, newest first, the items it sent others, newest first, and how many open ones it has not read ([The inbox](#the-inbox)). The desk, owner and phone seats |
+| `inbox.list` | `{personaId}` | `InboxView` `{personaId, open, closed, sent, unread, newer?}`: the teammate's open items and its closed ones, newest first, the items it sent others, newest first, how many open ones it has not read, and the items a newer Hotline saved that this desk cannot read ([The inbox](#the-inbox)). The desk, owner and phone seats |
 | `inbox.item` | `{id}` | `InboxItemDetail` `{item, replies}`: one item by id, wherever it is kept, with its receipts and the work thread it started, and the items that answer it. The desk, owner and phone seats |
 | `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: an item from the thread's teammate, sent from the thread, marked `loopedIn` and carrying the thread's last lines, lands in the colleague's inbox with no card, the person's act its grant; its answer is an item in the thread's teammate's inbox, heard in the thread while it is live, and the thread gets a looped-in `aside` line to draw. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
 | `inbound.list` | `{}` | `InboundSource[]`, oldest first: the desk's inbound sources ([Inbound sources](#inbound-sources)). The desk, owner and phone seats |
@@ -475,6 +475,10 @@ the patch. A patch that names `mcpServers` invalidates all main and peer
 sessions before persistence and reattaches live main sessions afterward.
 Policy updates are serialized across client sockets. One failed restart
 does not prevent the remaining teammates from applying the change.
+`inboxKeepDays` is how many days a closed message between teammates is
+kept before the desk removes it: a whole number from 1 to 3650, 30 by
+default, and a patch with anything else is refused
+([agent-inbox.md](design/agent-inbox.md#what-is-kept)).
 `linkPreviews` is `true` unless the person turned link previews off;
 `false` makes `link.preview` and `link.icon` answer `null` without the desk
 contacting any site ([security.md](security.md#link-previews)).
@@ -1104,7 +1108,11 @@ the core's own marks of what turns have been told.
 `inbox.list` and the `{"inbox": "<personaId>"}` subscription answer the
 teammate's `InboxView`: the subscription sends it as its snapshot and again,
 whole, whenever an item the teammate holds or sent changes, and `removed`
-when the teammate is deleted. `inbox.item` reads one item with its replies.
+when the teammate is deleted. Closed and sent are the newest 200 each, and
+`newer`, absent when empty, lists the items a newer Hotline saved that this
+desk cannot read, held for the teammate or sent by it, as `InboxNewerItem
+{id, ts, from, to, title, state}` with the state as written: a client lists
+each as a row it cannot open. `inbox.item` reads one item with its replies.
 The roster row counts the unread (`inbox`). On a thread, an item sent is an
 `{kind: "inbox_sent", id, ts, item, to, title}` line on the thread it was
 sent from, whose live state is the receiver's; each `update_inbox` is an

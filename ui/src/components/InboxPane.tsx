@@ -1,9 +1,9 @@
 import { Fragment, type ReactNode, useEffect, useState } from "react";
-import type { InboxItem, InboxView, ThreadId } from "../generated/contract";
+import type { InboxItem, InboxNewerItem, InboxView, ThreadId } from "../generated/contract";
 import { asideTime } from "../asides";
 import type { Person } from "../avatars";
 import { ArrowLeftIcon, ChevronRightIcon } from "../icons";
-import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
+import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, newerIn, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -95,11 +95,14 @@ export function InboxList({
 			</Fragment>
 		);
 	};
+	// What a newer Hotline saved that this build cannot read: listed where it belongs, never opened or moved.
+	const newer = view === undefined ? [] : newerIn(view, segment);
+	const newerRows = newer.map((item) => <NewerRow key={item.id} item={item} sent={segment === "sent"} now={now} nameOf={nameOf} />);
 	let body: ReactNode = null;
 	if (view !== undefined && segment === "open") {
 		const groups = openGroups(view);
 		body =
-			view.open.length === 0 ? (
+			view.open.length === 0 && newer.length === 0 ? (
 				<p className="px-2 py-3 text-sm text-ink-3">Nothing open.</p>
 			) : (
 				<>
@@ -109,22 +112,34 @@ export function InboxList({
 					{groups.taken.map((item) => row(item))}
 					<Group title="For later" items={groups.later} />
 					{groups.later.map((item) => row(item))}
+					{newerRows}
 				</>
 			);
 	} else if (view !== undefined && segment === "closed") {
-		body = view.closed.length === 0 ? <p className="px-2 py-3 text-sm text-ink-3">Nothing closed.</p> : view.closed.map((item) => row(item));
+		body =
+			view.closed.length === 0 && newer.length === 0 ? (
+				<p className="px-2 py-3 text-sm text-ink-3">Nothing closed.</p>
+			) : (
+				<>
+					{view.closed.map((item) => row(item))}
+					{newerRows}
+				</>
+			);
 	} else if (view !== undefined) {
 		body =
-			view.sent.length === 0 ? (
+			view.sent.length === 0 && newer.length === 0 ? (
 				<p className="px-2 py-3 text-sm text-ink-3">Nothing sent.</p>
 			) : (
-				sends(view.sent).map((send) =>
-					send.items.length === 1 ? (
-						row(send.items[0]!, true)
-					) : (
-						<SendRows key={send.items[0]!.id} send={send} now={now} nameOf={nameOf} open={unfolded.has(send.items[0]!.id)} onToggle={() => unfold(send.items[0]!.id)} onOpenItem={onOpenItem} />
-					),
-				)
+				<>
+					{sends(view.sent).map((send) =>
+						send.items.length === 1 ? (
+							row(send.items[0]!, true)
+						) : (
+							<SendRows key={send.items[0]!.id} send={send} now={now} nameOf={nameOf} open={unfolded.has(send.items[0]!.id)} onToggle={() => unfold(send.items[0]!.id)} onOpenItem={onOpenItem} />
+						),
+					)}
+					{newerRows}
+				</>
 			);
 	}
 	return (
@@ -263,6 +278,31 @@ function ItemRow({
 				{live && <span aria-hidden="true" className="dock-dot beat" data-state="running" />}
 			</span>
 		</button>
+	);
+}
+
+/**
+ * An item a newer Hotline saved in a shape this build cannot read: a plain
+ * row, its title and whom it is from (or to), that says so. Nothing here
+ * opens it, and nothing on this desk can change it.
+ */
+function NewerRow({ item, sent, now, nameOf }: { item: InboxNewerItem; sent: boolean; now: number; nameOf(personaId: string): string | undefined }) {
+	const who = sent ? `To ${toWords([item.to], nameOf)}` : (nameOf(item.from) ?? "A teammate");
+	const line = `${who} · Saved by a newer version of Hotline. It can't be changed here.`;
+	const when = asideTime(item.ts, now);
+	return (
+		<div className="list-row" data-newer={item.id}>
+			<span className="list-mark" aria-hidden="true">
+				·
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="list-title">
+					<span className="list-title-text">{item.title}</span>
+				</span>
+				<span className="list-line">{line}</span>
+			</span>
+			<span className="list-when">{when}</span>
+		</div>
 	);
 }
 

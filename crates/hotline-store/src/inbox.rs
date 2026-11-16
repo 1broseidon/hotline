@@ -10,11 +10,23 @@
 //! read at all is never an item here ([`newer_of`]).
 
 use crate::log::{Log, StreamId};
-use hotline_contract::{InboxItem, InboxView};
+use hotline_contract::{InboxItem, InboxNewerItem, InboxView};
 use serde_json::Value;
 
 /// The `kind` an item's line carries.
 pub const KIND: &str = "inbox_item";
+
+/// The most closed items, and the most sent ones, the window is sent of a
+/// teammate's inbox: the newest. Closed items leave the inbox once they have
+/// been kept as long as the desk keeps them, so this is only a ceiling.
+pub const VIEW_MOST: usize = 200;
+
+/// The fields of an item that hold a thread, whose own fields a newer build
+/// may add to.
+const THREADS: [&str; 3] = ["fromThread", "about", "work"];
+
+/// The fields of a thread this build reads.
+const THREAD_FIELDS: [&str; 3] = ["desk", "kind", "key"];
 
 /// One item as its line on a stream holds it, or nothing for any other line
 /// and for an item line this build cannot read ([`newer_of`]). What a newer
@@ -27,14 +39,39 @@ pub fn read(event: &Value) -> Option<InboxItem> {
     let mut item: InboxItem = serde_json::from_value(event.clone()).ok()?;
     // The stream's own slot, which `line` writes.
     item.newer.remove("kind");
+    // A thread with a field this build does not read is kept as found.
+    for field in THREADS {
+        if let Some(thread) = event.get(field).and_then(Value::as_object)
+            && thread
+                .keys()
+                .any(|key| !THREAD_FIELDS.contains(&key.as_str()))
+        {
+            item.nested
+                .insert(field.into(), Value::Object(thread.clone()));
+        }
+    }
     Some(item)
 }
 
-/// An item as its line is written.
+/// An item as its line is written: with what a newer build wrote on it, and
+/// each thread it names as it was found while it is still that thread.
 pub fn line(item: &InboxItem) -> Value {
     let mut value = serde_json::to_value(item).unwrap_or(Value::Null);
     if let Some(fields) = value.as_object_mut() {
         fields.insert("kind".into(), Value::from(KIND));
+        for (field, found) in &item.nested {
+            let same = fields
+                .get(field)
+                .and_then(Value::as_object)
+                .is_some_and(|now| {
+                    THREAD_FIELDS
+                        .iter()
+                        .all(|key| now.get(*key) == found.get(*key))
+                });
+            if same {
+                fields.insert(field.clone(), found.clone());
+            }
+        }
     }
     value
 }
@@ -122,14 +159,131 @@ pub fn view<'a>(
             open.push(item);
         }
     }
-    let mut sent = sent_by(log, persona_id, teammates);
+    let teammates: Vec<&str> = teammates.into_iter().collect();
+    let mut sent = sent_by(log, persona_id, teammates.iter().copied());
     sent.reverse();
+    closed.truncate(VIEW_MOST);
+    sent.truncate(VIEW_MOST);
     let unread = open.iter().filter(|item| item.state.unread()).count();
+    // What a newer build saved and this one cannot read: held for this
+    // teammate (but not held back for the person's card), or sent by it.
+    let mut newer: Vec<InboxNewerItem> = newer_of(log, persona_id)
+        .into_iter()
+        .filter(|line| line["held"] != true)
+        .chain(
+            teammates
+                .iter()
+                .filter(|teammate| **teammate != persona_id)
+                .flat_map(|teammate| newer_of(log, teammate))
+                .filter(|line| line["from"] == persona_id && line.get("notice").is_none()),
+        )
+        .map(|line| {
+            let text = |key: &str| line[key].as_str().unwrap_or_default().to_string();
+            InboxNewerItem {
+                id: text("id"),
+                ts: line["ts"].as_i64().unwrap_or_default(),
+                from: text("from"),
+                to: text("to"),
+                title: text("title"),
+                state: text("state"),
+            }
+        })
+        .collect();
+    newer.sort_by_key(|item| std::cmp::Reverse(item.ts));
     InboxView {
         persona_id: persona_id.to_string(),
         open,
         closed,
         sent,
         unread: u32::try_from(unread).unwrap_or(u32::MAX),
+        newer,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn scratch(name: &str) -> Log {
+        let root =
+            std::env::temp_dir().join(format!("hotline-store-inbox-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        Log::open(root)
+    }
+
+    /// An item line in Bob's inbox from `from`, in `state`, sent at `ts`.
+    fn written(id: &str, from: &str, state: &str, ts: i64) -> Value {
+        json!({"kind": KIND, "id": id, "ts": ts, "from": from,
+            "fromThread": {"kind": "dm", "key": from}, "to": "bob", "title": format!("Title of {id}"),
+            "body": "", "wants": "answer", "state": state, "receipts": [{"state": state, "at": ts}],
+            "senderTold": 0})
+    }
+
+    /// A field a newer build wrote inside `fromThread`, `about` or `work` is
+    /// written back while the item names the same thread, and not once this
+    /// build names another there.
+    #[test]
+    fn a_field_inside_a_thread_an_item_names_is_kept_while_it_names_that_thread() {
+        let mut line = written("i1", "ada", "taken", 1);
+        line["fromThread"]["lane"] = json!("quiet");
+        line["about"] = json!({"kind": "side", "key": "s1", "lane": "quiet"});
+        line["work"] = json!({"kind": "side", "key": "w1", "seat": 2});
+        let mut item = read(&line).unwrap();
+        assert_eq!(super::line(&item), line);
+        item.work = Some(hotline_contract::ThreadId {
+            desk: None,
+            kind: hotline_contract::ThreadKind::Side,
+            key: "w2".into(),
+        });
+        let moved = super::line(&item);
+        assert_eq!(moved["work"], json!({"kind": "side", "key": "w2"}));
+        assert_eq!(moved["about"]["lane"], "quiet");
+        assert_eq!(moved["fromThread"]["lane"], "quiet");
+    }
+
+    /// The window is sent the newest of what closed and what was sent, and
+    /// the items a newer build saved that this one cannot read: held for
+    /// the teammate, or sent by it, but not one held back for the person's
+    /// card or Hotline's own notice.
+    #[test]
+    fn the_view_caps_what_is_closed_and_sent_and_lists_what_a_newer_build_saved() {
+        let log = scratch("view");
+        for at in 0..(VIEW_MOST as i64 + 5) {
+            log.append(
+                &StreamId::Inbox("bob".into()),
+                &written(&format!("c{at}"), "ada", "closed", at),
+            )
+            .unwrap();
+        }
+        let bob = StreamId::Inbox("bob".into());
+        log.append(&bob, &written("parked", "ada", "parked", 900))
+            .unwrap();
+        let mut held = written("held", "ada", "parked", 901);
+        held["held"] = json!(true);
+        log.append(&bob, &held).unwrap();
+        let mut sent = written("sent-parked", "bob", "parked", 902);
+        sent["to"] = json!("ada");
+        log.append(&StreamId::Inbox("ada".into()), &sent).unwrap();
+        let mut notice = written("notice", "bob", "parked", 903);
+        notice["to"] = json!("ada");
+        notice["notice"] = json!("forwarded");
+        log.append(&StreamId::Inbox("ada".into()), &notice).unwrap();
+
+        let shown = view(&log, "bob", ["ada", "bob"]);
+        assert_eq!(shown.closed.len(), VIEW_MOST);
+        assert_eq!(
+            shown.closed[0].id,
+            format!("c{}", VIEW_MOST + 4),
+            "newest first"
+        );
+        let newer: Vec<(&str, &str)> = shown
+            .newer
+            .iter()
+            .map(|item| (item.id.as_str(), item.state.as_str()))
+            .collect();
+        assert_eq!(newer, [("sent-parked", "parked"), ("parked", "parked")]);
+        assert_eq!(shown.newer[0].to, "ada");
     }
 }

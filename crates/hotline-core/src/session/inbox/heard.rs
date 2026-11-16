@@ -5,14 +5,14 @@
 //! thread is about that thread), else the receiver's main conversation.
 //!
 //! - **Idle.** An item that lands while that thread is idle wakes it once, a
-//!   gather delay later ([`gather_delay`], `HOTLINE_INBOX_GATHER_MS`, 4 s
-//!   by default), so items that land together are heard in one turn. The
+//!   gather delay later ([`gather_delay`], 4 s), so items that land together
+//!   are heard in one turn. The
 //!   main conversation's turn it wakes is quiet ([`QUIET_WAKE_LINE`]):
 //!   nobody reads its words, and only `post_to_chat` reaches the person.
 //! - **Busy.** An item that lands while a turn runs starts nothing. When the
 //!   gather delay is up the turn in flight in the main conversation is handed
-//!   a one-line notice of the new titles, if its driver takes a line mid-turn
-//!   ([`midturn`], `HOTLINE_INBOX_MIDTURN=0` turns it off). A notice never
+//!   a one-line notice of the new titles, if its driver takes a line
+//!   mid-turn. A notice never
 //!   makes a turn loud: steered into a quiet turn it leaves it quiet, and
 //!   one a driver does not take mid-turn starts, as its next line, the same
 //!   quiet turn the idle wake starts, with [`QUIET_WAKE_LINE`].
@@ -35,9 +35,9 @@ use crate::session::{Wired, timed};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The gather delay when `HOTLINE_INBOX_GATHER_MS` does not say: long enough
-/// for a few items sent together to be heard together, short enough that a
-/// lone one behaves as a message. A test's own room gathers faster.
+/// The gather delay: long enough for a few items sent together to be heard
+/// together, short enough that a lone one behaves as a message. A test's own
+/// room gathers faster.
 const GATHER_MS: u64 = if cfg!(test) { 150 } else { 4_000 };
 
 /// Who reads a quiet turn of the main conversation, and when it posts: the
@@ -64,27 +64,7 @@ pub(super) const WAKE_LINE: &str = "New items came into your inbox while you wer
 
 /// How long an item waits for others before it wakes an idle receiver.
 pub(super) fn gather_delay() -> Duration {
-    Duration::from_millis(
-        std::env::var("HOTLINE_INBOX_GATHER_MS")
-            .ok()
-            .and_then(|ms| ms.trim().parse().ok())
-            .unwrap_or(GATHER_MS),
-    )
-}
-
-/// Whether a busy main conversation is handed the notice mid-turn: unless
-/// `HOTLINE_INBOX_MIDTURN` says `0`, `off` or `false`.
-fn midturn() -> bool {
-    midturn_from(std::env::var("HOTLINE_INBOX_MIDTURN").ok().as_deref())
-}
-
-fn midturn_from(switch: Option<&str>) -> bool {
-    !switch.is_some_and(|switch| {
-        matches!(
-            switch.trim().to_ascii_lowercase().as_str(),
-            "0" | "off" | "false"
-        )
-    })
+    Duration::from_millis(GATHER_MS)
 }
 
 /// How long ago, as a list says it: now, 4m, 3h, 2d.
@@ -201,7 +181,7 @@ impl Room {
                     .iter()
                     .filter(|item| item.state == InboxState::New)
                     .collect();
-                let notice = (midturn() && !fresh.is_empty()).then(|| self.notice(&fresh));
+                let notice = (!fresh.is_empty()).then(|| self.notice(&fresh));
                 let mut noticed = false;
                 let claimed = {
                     let mut turns = lock(&session.turns);
@@ -488,20 +468,5 @@ fn live_or_main(room: &Room, about: Option<&ThreadId>, persona_id: &str, since: 
             thread.clone()
         }
         _ => ThreadId::dm(persona_id),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_midturn_notice_is_on_unless_switched_off() {
-        assert!(midturn_from(None));
-        assert!(midturn_from(Some("1")));
-        assert!(midturn_from(Some("")));
-        for off in ["0", "off", "FALSE", " false "] {
-            assert!(!midturn_from(Some(off)), "{off}");
-        }
     }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCommitOnLeave } from "../../commitOnLeave";
 import type { BackendChoice, ConfigChoice } from "../../generated/contract";
-import { DEFAULT_IDLE_HOURS, useModelsRevision } from "../../room";
+import { DEFAULT_IDLE_HOURS, DEFAULT_KEEP_DAYS, useModelsRevision } from "../../room";
 import { Chips } from "../../ui/Chips";
 import { Fold, toggled } from "../../ui/Fold";
 import { Picker } from "../../ui/Menu";
@@ -14,6 +14,9 @@ import { HotkeysSection } from "../HotkeysSection";
 
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
+/** The days a closed message between teammates is kept: the desk takes 1 to 3650 (`inboxKeepDays`). */
+const MIN_KEEP_DAYS = 1;
+const MAX_KEEP_DAYS = 3650;
 
 function AppearanceSection({ accent, onAccent }: { accent: string; onAccent(accent: Accent): void }) {
 	const theme = useTheme();
@@ -47,6 +50,8 @@ export function GeneralSection({
 	defaultBackendId,
 	defaultModelId,
 	onIdleHours,
+	keepDays,
+	onKeepDays,
 	linkPreviews,
 	onLinkPreviews,
 	onBackend,
@@ -61,6 +66,8 @@ export function GeneralSection({
 	defaultBackendId: string;
 	defaultModelId: string | null;
 	onIdleHours(hours: number): void;
+	keepDays: number;
+	onKeepDays(days: number): void;
 	linkPreviews: boolean;
 	onLinkPreviews(on: boolean): void;
 	onBackend(id: string): void;
@@ -76,6 +83,14 @@ export function GeneralSection({
 	};
 	useCommitOnLeave(commitName);
 	const [hours, setHours] = useState(String(idleHours));
+	const [days, setDays] = useState(String(keepDays));
+	useEffect(() => setDays(String(keepDays)), [keepDays]);
+	const commitDays = (raw: string) => {
+		setDays(raw);
+		const next = Number(raw);
+		if (!Number.isInteger(next) || next < MIN_KEEP_DAYS || next > MAX_KEEP_DAYS) return;
+		if (next !== keepDays) onKeepDays(next);
+	};
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 
@@ -188,6 +203,26 @@ export function GeneralSection({
 								onChange={(event) => commitHours(event.target.value)}
 							/>
 							quiet hours
+						</span>
+					</div>
+					{/* A message between teammates that has closed is removed this many days after it closed. */}
+					<div className="group-row">
+						<label className="group-row-text" htmlFor="setting-keep-days">
+							<span className="group-row-title">Keep closed messages for</span>
+						</label>
+						<span className="flex items-center gap-2 text-sm text-ink-2">
+							<input
+								id="setting-keep-days"
+								type="number"
+								className="field w-16 text-right"
+								min={MIN_KEEP_DAYS}
+								max={MAX_KEEP_DAYS}
+								step={1}
+								placeholder={String(DEFAULT_KEEP_DAYS)}
+								value={days}
+								onChange={(event) => commitDays(event.target.value)}
+							/>
+							days
 						</span>
 					</div>
 					{/* Off, the desk contacts no site an agent linked to: no card, picture or icon. */}

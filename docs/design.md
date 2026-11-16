@@ -1196,8 +1196,7 @@ is read-only reference and is not modified by work here.
 ### Teammate messages: the inbox
 
 Teammates reach each other one way, an item in the colleague's inbox
-([design/agent-inbox.md](design/agent-inbox.md), task-455, a prototype on
-`proto/agent-inbox` to observe how models sort their own messages). It
+([design/agent-inbox.md](design/agent-inbox.md), task-455, from 0.50). It
 replaced `message_teammate`'s ask and handoff and a colleague's `aside`, under
 which the sender decided when the receiver was interrupted and concurrent
 messages were each handled blind to the others. `send(to, title, message,
@@ -1210,7 +1209,8 @@ conversation goes idle after a turn something other than that offer started. Wor
 its own, started by its sort and never by the sender, and answers and
 results come back as items in the sender's inbox; the sender is told at its
 next turn what became of each item. Nothing scores items or gates which
-notify, so raw behaviour can be watched, and no chat opens between the two.
+notify, and no chat opens between the two. Closed items are kept 30 days, a
+number the person can change, and the inbox is tidied as the desk opens.
 The turn of the main conversation that an idle receiver's inbox wakes is
 quiet by construction, as a quiet job is: its words are the path under the
 turn, not a reply, and only its one `post_to_chat` reaches the person, until

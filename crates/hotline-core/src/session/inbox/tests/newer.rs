@@ -3,8 +3,9 @@
 //! as it was found (`docs/log.md`, The room stream).
 //!
 //! No build newer than this one exists yet, so the fixtures stand for any: a
-//! field on an item and on its receipts this build does not know, and an
-//! item in a state or with an outcome no build has yet.
+//! field on an item, on its receipts and inside the thread it names this
+//! build does not know, and an item in a state or with an outcome no build
+//! has yet.
 
 use super::pick_up::reopened;
 use super::*;
@@ -15,7 +16,8 @@ const ITS_FIELD: (&str, &str) = ("lane", "quiet");
 const ITS_RECEIPT_FIELD: (&str, &str) = ("by", "the newer build");
 
 /// An item from Ada in Bob's inbox, kept as `shape` leaves it, as the newer
-/// build wrote it: with a field of its own on the item and on each receipt.
+/// build wrote it: with a field of its own on the item, on each receipt and
+/// inside the thread it was sent from.
 /// It wakes nobody, so only what the test does moves it.
 fn left_by_a_newer_build(
     room: &Room,
@@ -37,6 +39,7 @@ fn left_by_a_newer_build(
     shape(&mut kept);
     let mut line = kept::line(&kept);
     line[ITS_FIELD.0] = json!(ITS_FIELD.1);
+    line["fromThread"][ITS_FIELD.0] = json!(ITS_FIELD.1);
     for receipt in line["receipts"].as_array_mut().unwrap() {
         receipt[ITS_RECEIPT_FIELD.0] = json!(ITS_RECEIPT_FIELD.1);
     }
@@ -73,6 +76,10 @@ fn kept_its_fields(room: &Room, id: &str, receipts: usize, what: &str) {
     assert_eq!(
         carried, receipts,
         "{what} dropped a receipt's field: {line}"
+    );
+    assert_eq!(
+        line["fromThread"][ITS_FIELD.0], ITS_FIELD.1,
+        "{what} dropped the field inside the thread it was sent from: {line}"
     );
     let read = item(room, "bob", id);
     assert_eq!(read.newer.get(ITS_FIELD.0), Some(&json!(ITS_FIELD.1)));
@@ -199,6 +206,83 @@ async fn every_move_of_an_item_keeps_the_fields_a_newer_build_wrote_on_it() {
     })
     .await;
     kept_its_fields(&room, &set_aside, 2, "the pick-up at start");
+}
+
+/// The three moves of an item the test above leaves out keep what a newer
+/// build wrote on it too: the notice a busy receiver is handed mid-turn, the
+/// claim a take lets go of when its work could not be queued, and the
+/// person's Stop of the work it was taken into.
+#[tokio::test]
+async fn the_notice_the_failed_take_and_the_persons_stop_keep_the_fields_a_newer_build_wrote() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on(
+        "inbox-newer-three",
+        replies().gated(gate.clone()).consuming(),
+    );
+
+    // Bob is mid-turn when the item lands: it is noticed, not offered.
+    room.start("bob").await.unwrap();
+    room.prompt("bob", "the person's work", None, None)
+        .await
+        .unwrap();
+    until("bob is working", || agents.prompts().len() == 1).await;
+    let noticed = left_by_a_newer_build(&room, "Noticed", InboxWants::Answer, |_| {});
+    room.arrived(&item(&room, "bob", &noticed));
+    until("the notice reached the turn", || {
+        item(&room, "bob", &noticed).state == InboxState::Noticed
+    })
+    .await;
+    kept_its_fields(&room, &noticed, 1, "the mid-turn notice");
+    gate.add_permits(100);
+    until("bob is at rest", || {
+        !lock(&room.session("bob").unwrap().turns).running
+    })
+    .await;
+
+    // The work cannot be queued: the record of the two cannot be written.
+    let unqueued = left_by_a_newer_build(&room, "Unqueued", InboxWants::Work, |_| {});
+    let records = room.log.root().join("room.jsonl");
+    let writable = std::fs::metadata(&records).unwrap().permissions();
+    let mut read_only = writable.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&records, read_only).unwrap();
+    let refused = tool(
+        &room,
+        "bob",
+        "update_inbox",
+        json!({"items": [{"id": unqueued, "state": "taken"}]}),
+    )
+    .await;
+    std::fs::set_permissions(&records, writable).unwrap();
+    assert!(refused.is_err(), "{refused:?}");
+    let let_go = item(&room, "bob", &unqueued);
+    assert_eq!(let_go.state, InboxState::Taken, "it was claimed");
+    assert_eq!(let_go.request, None, "and the claim was let go of");
+    kept_its_fields(&room, &unqueued, 1, "letting go of a failed take");
+
+    // The person stops the two while the work runs.
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on(
+        "inbox-newer-stopped",
+        replies().gated(gate.clone()).consuming(),
+    );
+    let stopped = left_by_a_newer_build(&room, "Stopped", InboxWants::Work, |_| {});
+    tool(
+        &room,
+        "bob",
+        "update_inbox",
+        json!({"items": [{"id": stopped, "state": "taken"}]}),
+    )
+    .await
+    .unwrap();
+    until("the work runs", || agents.prompts().len() == 1).await;
+    room.stop_exchange("ada", "bob").unwrap();
+    until("the work is dropped", || {
+        item(&room, "bob", &stopped).outcome == Some(InboxOutcome::Dropped)
+    })
+    .await;
+    kept_its_fields(&room, &stopped, 1, "the person's Stop of its work");
+    gate.add_permits(100);
 }
 
 /// One line of Bob's inbox as a newer build wrote it, in a state or with

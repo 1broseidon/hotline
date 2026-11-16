@@ -1965,12 +1965,16 @@ impl ServerHandler for TeammateTools {
 
 /// Hotline's server, live on a loopback port for one child.
 ///
-/// Dropping it stops the endpoint, which is why it is held by the driver: the
-/// child's tools and the child itself end together.
+/// Dropping it closes the port and ends every MCP session the child opened on
+/// it, which is why it is held by the driver: the child's tools and the child
+/// itself end together. rmcp runs each session in tasks of its own, outside the
+/// one serving the port, so aborting that task alone would leave them running;
+/// the cancellation token handed to rmcp is what ends them.
 pub struct Served {
     url: String,
     token: String,
     serving: tokio::task::JoinHandle<()>,
+    _sessions: tokio_util::sync::DropGuard,
 }
 
 impl Served {
@@ -1997,13 +2001,22 @@ impl Drop for Served {
 /// session, so a second teammate's child cannot reach this one's tape by
 /// guessing a number: a request without this session's token is refused
 /// before rmcp ever sees it.
+///
+/// A session never ends for being idle. rmcp's default drops one after five
+/// minutes without a request, and a child that sat that long on a permission
+/// card then found every Hotline tool answering "session not found" for the
+/// rest of its life, because it did not open a new session. The endpoint's
+/// own life is the bound instead: its sessions end when [`Served`] is dropped.
 pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
     let token = uuid::Uuid::new_v4().to_string();
+    let mut sessions = LocalSessionManager::default();
+    sessions.session_config.keep_alive = None;
+    let ended = tokio_util::sync::CancellationToken::new();
     let service: StreamableHttpService<TeammateTools, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(tools.clone()),
-            Arc::new(LocalSessionManager::default()),
-            StreamableHttpServerConfig::default(),
+            Arc::new(sessions),
+            StreamableHttpServerConfig::default().with_cancellation_token(ended.clone()),
         );
     let expected = token.clone();
     let router = axum::Router::new()
@@ -2043,6 +2056,7 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
         url: format!("http://127.0.0.1:{port}{PATH}"),
         token,
         serving,
+        _sessions: ended.drop_guard(),
     })
 }
 
@@ -3333,6 +3347,7 @@ mod tests {
     }
 
     mod desk_browser;
+    mod sessions;
     // web_search over SearXNG -----------------------------------------------
 
     const SEARXNG_KEY: &str = "searxng-key-never-shown-0123";

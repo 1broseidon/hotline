@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A teammate on another agent, such as Codex, keeps Hotline's tools however
+  long it sits waiting, on a permission card or anything else. Before, five
+  minutes without using them ended its connection to them, and every call
+  after that failed with "session not found" until the teammate was
+  restarted. The connection now ends only when the teammate's agent does.
+
 ## [0.49.1] - 2026-11-13
 
 ### Changed

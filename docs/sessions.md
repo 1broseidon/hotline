@@ -1102,9 +1102,13 @@ the token is fresh per session. The server is named `hotline` in `session/new`,
 with the token as an `Authorization` header. The ledger is published before
 that `session/new` is sent, because a child that lists Hotline's tools during
 the handshake promotes rows that have to exist by then — a ledger written
-afterwards would overwrite what was watched with "declared". Dropping the
-driver stops the endpoint and kills the child — its whole process group on
-Unix, so a wrapper like `npx` cannot leave the real agent behind.
+afterwards would overwrite what was watched with "declared". A session the
+child opens there never ends for being idle: rmcp's default would end it after
+five minutes without a request, and a child that waited that long on a
+permission card would find every Hotline tool gone, as "session not found",
+for the rest of its life. Dropping the driver stops the endpoint, ends every
+session on it, and kills the child — its whole process group on Unix, so a
+wrapper like `npx` cannot leave the real agent behind.
 
 Granted third-party servers are named in the same `session/new` (stdio
 command, or HTTP URL). Hotline does not connect them for a child; the child

@@ -192,3 +192,68 @@ async fn files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reas
         "nothing is held"
     );
 }
+
+/// A job its home agent made `without` folders reads, for what it sends a
+/// colleague, only what its narrowing reaches: the working directory, never
+/// a granted folder nor, for a whole-machine teammate, the rest of the
+/// machine. The teammate's own conversation still sends the same file.
+#[tokio::test]
+async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
+    for reach in [
+        crate::contract::Reach::Workspace,
+        crate::contract::Reach::Machine,
+    ] {
+        let (room, _agents, ada, bob) = apart(&format!("files-narrowed-{reach:?}"));
+        room.allow_sender("bob", "ada").unwrap();
+        let granted = TempDir::new().unwrap();
+        let folder = granted.path().canonicalize().unwrap();
+        std::fs::write(folder.join("plan.md"), "the plan").unwrap();
+        std::fs::write(ada.path().join("notes.md"), "the notes").unwrap();
+        let mut persona = room.persona("ada").unwrap();
+        persona.reach = Some(reach);
+        persona.folders = Some(vec![crate::contract::FolderGrant {
+            path: folder.to_string_lossy().into_owned(),
+            writable: false,
+        }]);
+        crate::room::append_persona(&room.log, &persona).unwrap();
+        let job: crate::contract::ScheduledJob = serde_json::from_value(json!({
+            "id": "without-folders", "personaId": "ada", "kind": "schedule",
+            "prompt": "Send Bob the plan", "without": ["folders"],
+            "nextAt": now_ms() + 60_000, "createdAt": now_ms(),
+        }))
+        .unwrap();
+        crate::room::append_schedule(&room.log, &job).unwrap();
+        let from_job = TeammateTools::new(&room, "ada").for_job(&job.id);
+        let plan = folder.join("plan.md").to_string_lossy().into_owned();
+        let refused = from_job
+            .call(
+                "send",
+                &json!({"to": ["bob"], "title": "The plan", "files": [plan]}),
+            )
+            .await
+            .unwrap_err();
+        assert_ne!(refused, "", "{reach:?}");
+        assert!(
+            crate::store::inbox::of(&room.log, "bob").is_empty(),
+            "{reach:?}: nothing was sent"
+        );
+        // Inside its narrowing it sends, and the home conversation, which
+        // is not narrowed, sends the granted folder's file.
+        from_job
+            .call(
+                "send",
+                &json!({"to": ["bob"], "title": "The notes", "files": ["notes.md"]}),
+            )
+            .await
+            .unwrap();
+        call(
+            &room,
+            "send",
+            json!({"to": ["bob"], "title": "The plan", "files": [plan]}),
+        )
+        .await
+        .unwrap();
+        assert!(bob.path().join("inbox/ada/notes.md").exists(), "{reach:?}");
+        assert!(bob.path().join("inbox/ada/plan.md").exists(), "{reach:?}");
+    }
+}

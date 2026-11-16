@@ -1656,7 +1656,10 @@ An inbox item may carry files (`files: [path]` on `send`;
 `session/files_between.rs`; the design's §3). Each path is read as
 `send_file` reads one (`files::from_workspace`): where the sender's read tools
 find it, its working directory and the folders granted it, or anywhere under
-whole-machine reach; anything else is refused with the tool's reason. At most
+whole-machine reach, and from a job's thread only within what the job was
+narrowed to (`Room::reaching_from`: the job's `without` applied by
+`agent::clone_of`, as its agent was built); anything else is refused with
+the tool's reason. At most
 10 files, of plain names and none twice, coming to at most 25 MB together
 (`FILES_MAX`); more is refused before anything is sent or kept.
 

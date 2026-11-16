@@ -454,3 +454,36 @@ async fn automatic_call_files_keep_the_call_lease_reach_and_work_boundary() {
         "a revoked call cannot read or post"
     );
 }
+
+/// A job its home agent made `without` folders sends the person nothing
+/// from beyond its working directory, even for a whole-machine teammate;
+/// a job made without that narrowing sends the same file.
+#[tokio::test]
+async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
+    let (room, _) = workspace("send-job-narrowed");
+    let mut ada = room.persona("ada").unwrap();
+    ada.reach = Some(Reach::Machine);
+    crate::room::append_persona(&room.log, &ada).unwrap();
+    let elsewhere = tempfile::TempDir::new().unwrap();
+    let outside = elsewhere.path().join("keys.txt");
+    std::fs::write(&outside, "not the job's").unwrap();
+    for (id, without) in [("narrow", json!(["folders"])), ("wide", json!([]))] {
+        let job: crate::contract::ScheduledJob = serde_json::from_value(json!({
+            "id": id, "personaId": "ada", "kind": "schedule",
+            "prompt": "Send the keys", "without": without,
+            "nextAt": now_ms() + 60_000, "createdAt": now_ms(),
+        }))
+        .unwrap();
+        crate::room::append_schedule(&room.log, &job).unwrap();
+        let _turn = room.open_posting(&ThreadId::job(id), None);
+        let sent = TeammateTools::new(&room, "ada")
+            .for_job(id)
+            .call(
+                "send_file",
+                &json!({ "source": "workspace", "path": outside.to_string_lossy() }),
+            )
+            .await;
+        assert_eq!(sent.is_ok(), id == "wide", "{id}: {sent:?}");
+    }
+    assert_eq!(files_on(&room).len(), 1, "only the wide job's file");
+}

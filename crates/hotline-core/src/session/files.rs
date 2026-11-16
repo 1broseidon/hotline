@@ -16,7 +16,8 @@ use super::post::{AGAIN, Turn};
 use super::{Post, Room, lock, new_id, now_ms};
 use crate::computer::{self, Ready};
 use crate::contract::{
-    Attachment, AttachmentKind, NoticeLevel, Persona, ThreadId, ThreadKind, TranscriptEvent,
+    Ability, Attachment, AttachmentKind, NoticeLevel, Persona, ThreadId, ThreadKind,
+    TranscriptEvent,
 };
 use crate::driver::CapabilityLease;
 use crate::images::DECODERS;
@@ -70,7 +71,7 @@ impl Room {
         capability: Option<CapabilityLease>,
         thread: &ThreadId,
     ) -> Result<String, String> {
-        let persona = self.persona(persona_id)?;
+        let persona = self.reaching_from(persona_id, thread)?;
         let caption = caption.trim();
         if caption.chars().count() > MAX_CAPTION_CHARS {
             return Err(format!(
@@ -88,7 +89,7 @@ impl Room {
                 from_workspace(&persona, self.log.root(), &path, capability.clone(), false).await?
             }
             Source::Computer(path) => {
-                let ready = self.computer_to_send_from(persona_id).await?;
+                let ready = self.computer_to_send_from(&persona, thread).await?;
                 let path = computer::files::on_computer(&path);
                 let name = file_name(&path);
                 let bytes = computer::files::download(&ready, &path, sent::MAX_BYTES, |size| {
@@ -107,7 +108,7 @@ impl Room {
                 origin: "its desk browser".to_string(),
             },
             Source::Screen { window, region } => {
-                let ready = self.computer_to_send_from(persona_id).await?;
+                let ready = self.computer_to_send_from(&persona, thread).await?;
                 let bytes = computer::files::screenshot(&ready, window.as_deref(), region).await?;
                 Taken {
                     name: "screenshot.png".to_string(),
@@ -268,10 +269,57 @@ impl Room {
             .map_or_else(|| thread.clone(), |origin| ThreadId::call(&origin.call_id))
     }
 
-    async fn computer_to_send_from(&self, persona_id: &str) -> Result<Ready, String> {
-        self.computers.running(persona_id).await.ok_or_else(|| {
+    /// The computer `persona`, as it reaches on `thread`, sends from: none
+    /// for a job made without the computer.
+    async fn computer_to_send_from(
+        &self,
+        persona: &Persona,
+        thread: &ThreadId,
+    ) -> Result<Ready, String> {
+        if thread.kind == ThreadKind::Job
+            && !persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        {
+            return Err(
+                "This job was started without the computer, so it sends nothing from it."
+                    .to_string(),
+            );
+        }
+        self.computers.running(&persona.id).await.ok_or_else(|| {
             "Your computer is not running, so there is nothing on it to send. `computer_status` says where it is.".to_string()
         })
+    }
+}
+
+impl Room {
+    /// The teammate as a turn on `thread` reaches its files: its record, or
+    /// on a job's thread the clone the job runs as, narrowed by what its home
+    /// agent left out ([`super::agent::clone_of`]), so a job sends nothing
+    /// from beyond its narrowing. A job whose record cannot be read is left
+    /// every ability out, as a `without` a desk cannot read is.
+    pub(super) fn reaching_from(
+        &self,
+        persona_id: &str,
+        thread: &ThreadId,
+    ) -> Result<Persona, String> {
+        let persona = self.persona(persona_id)?;
+        if thread.kind != ThreadKind::Job {
+            return Ok(persona);
+        }
+        let without = crate::room::all_jobs(&self.log)
+            .into_iter()
+            .find(|job| job.id == thread.key && job.persona_id == persona_id)
+            .map_or_else(
+                || vec![Ability::Computer, Ability::Folders, Ability::McpServers],
+                |job| job.without.unwrap_or_default(),
+            );
+        Ok(super::agent::clone_of(
+            persona,
+            &self.info(persona_id),
+            &without,
+        ))
     }
 }
 

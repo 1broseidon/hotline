@@ -397,7 +397,7 @@ impl Room {
         let files = if sending.files.is_empty() {
             Vec::new()
         } else {
-            self.take_files(&caller.id, &sending.files, capability.clone())
+            self.take_files(&caller.id, sent_from, &sending.files, capability.clone())
                 .await?
         };
         // The lead answering a desk call hands named work on by the call's

@@ -3,7 +3,9 @@
 //! An inbox item may carry files. The sender's are read where its read
 //! tools find them, by the check `send_file` makes
 //! ([`super::files::from_workspace`]): its working directory and the folders
-//! granted it, or anywhere under whole-machine reach. They are read when the
+//! granted it, or anywhere under whole-machine reach, and from a job's
+//! thread only within what the job was narrowed to
+//! ([`Room::reaching_from`]). They are read when the
 //! teammate sends them, and land as the item does: at once when the two may
 //! already reach each other, else held on the desk (`files-between/<key>/`)
 //! until the person's first-contact card lets the item in. Then each is
@@ -13,7 +15,7 @@
 //! the item carrying it may.
 
 use super::Room;
-use crate::contract::Reach;
+use crate::contract::{Reach, ThreadId};
 use crate::driver::CapabilityLease;
 use crate::tools::Workspace;
 use std::path::{Path, PathBuf};
@@ -82,21 +84,23 @@ pub(super) fn files_line(sender: &str, paths: &[PathBuf]) -> String {
 }
 
 impl Room {
-    /// Reads the files `from` asks to send, at `paths`, as `send_file`
-    /// reads one, and answers each by name with its bytes. Refused, with
-    /// why: a path its read tools cannot reach, more than
+    /// Reads the files `from` asks to send from `thread`, at `paths`, as
+    /// `send_file` reads one there, and answers each by name with its bytes:
+    /// a job's thread reads only within what its job was narrowed to.
+    /// Refused, with why: a path its read tools cannot reach, more than
     /// [`FILES_COUNT_MAX`] files, two of one name, and files that come to
     /// more than [`FILES_MAX`].
     pub(crate) async fn take_files(
         &self,
         from: &str,
+        thread: &ThreadId,
         paths: &[String],
         capability: Option<CapabilityLease>,
     ) -> Result<Vec<(String, Vec<u8>)>, String> {
         if paths.len() > FILES_COUNT_MAX {
             return Err(format!("At most {FILES_COUNT_MAX} files go with one item."));
         }
-        let persona = self.persona(from)?;
+        let persona = self.reaching_from(from, thread)?;
         let mut taken: Vec<(String, Vec<u8>)> = Vec::new();
         let mut total = 0u64;
         for path in paths {

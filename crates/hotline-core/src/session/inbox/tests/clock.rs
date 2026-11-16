@@ -35,6 +35,16 @@ fn kept_item(
     kept
 }
 
+/// When an item arrived, as the clock reads it: its `new` receipt, which is
+/// written a moment after the item is made, never its `ts`.
+fn arrived(item: &InboxItem) -> i64 {
+    item.receipts
+        .iter()
+        .rfind(|receipt| receipt.state == InboxState::New)
+        .expect("an item that arrived has a new receipt")
+        .at
+}
+
 /// Left for later, with why, after its turn offered it.
 fn for_later(reason: &str) -> impl FnOnce(&mut InboxItem) {
     let reason = reason.to_string();
@@ -203,9 +213,9 @@ async fn an_item_open_three_days_expires_and_its_sender_alone_gets_one_marked_no
     );
     at_rest(&room, "ada").await;
 
-    room.inbox_due(kept.ts + expire_after() - 1).await;
+    room.inbox_due(arrived(&kept) + expire_after() - 1).await;
     assert_eq!(item(&room, "bob", &kept.id).state, InboxState::Later);
-    room.inbox_due(kept.ts + expire_after()).await;
+    room.inbox_due(arrived(&kept) + expire_after()).await;
     let expired = item(&room, "bob", &kept.id);
     assert_eq!(expired.state, InboxState::Closed);
     assert_eq!(expired.outcome, Some(InboxOutcome::Expired));
@@ -286,9 +296,9 @@ async fn an_expired_notice_sends_no_notice_of_its_own() {
         "Keyboards",
         for_later("after the research"),
     );
-    room.inbox_due(kept.ts + expire_after()).await;
+    room.inbox_due(arrived(&kept) + expire_after()).await;
     let notice = notices(&room, "ada").remove(0);
-    room.inbox_due(notice.ts + expire_after()).await;
+    room.inbox_due(arrived(&notice) + expire_after()).await;
     assert_eq!(
         item(&room, "ada", &notice.id).outcome,
         Some(InboxOutcome::Expired)

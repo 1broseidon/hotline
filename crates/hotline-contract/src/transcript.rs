@@ -899,11 +899,39 @@ pub enum Ability {
     McpServers,
 }
 
+/// When a calendar loop runs: a time of day on the desk machine's own clock,
+/// on chosen days of the week. Hotline works out each next run itself, on
+/// that clock, so the loop stays at that time of day through a late run, a
+/// restart and the clocks changing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Calendar {
+    /// The time of day, `HH:MM` on a 24-hour clock: `09:00`, `17:30`.
+    pub at: String,
+    /// The days it runs, Monday first, each once, never none.
+    pub days: Vec<CalendarDay>,
+}
+
+/// A day of the week, as a calendar loop names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CalendarDay {
+    Mon,
+    Tue,
+    Wed,
+    Thu,
+    Fri,
+    Sat,
+    Sun,
+}
+
 /// Work a teammate has asked Hotline to do later: a job (ADR 0008 §7).
 ///
-/// `schedule` is once. `loop` is every `every` milliseconds until cancelled
-/// or until its end. `nextAt` is the next fire, so the window can say when
-/// without doing the math. Each firing is a turn on the job's own thread
+/// `schedule` is once. `loop` is every `every` milliseconds, or at the times
+/// its `calendar` names, until cancelled or until its end. `nextAt` is the
+/// next fire, so the window can say when without doing the math. Each firing is a turn on the job's own thread
 /// (`ThreadId::job(id)`), never the teammate's DM; a reminder is posted to the
 /// DM as it is and has no thread. Jobs live on the room stream as events of
 /// kind `schedule`; that event kind is the stream's, not this `kind`, and a
@@ -920,9 +948,16 @@ pub struct ScheduledJob {
     /// The original fire time of a one-shot, milliseconds since epoch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<i64>,
-    /// The interval of a loop, in milliseconds.
+    /// The interval of a loop, in milliseconds. A calendar loop carries a
+    /// day here as well, so a build that knows only `every` still reads it
+    /// as a loop that runs once a day; a build that knows `calendar` goes by
+    /// that instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub every: Option<i64>,
+    /// A calendar loop's time of day and days: present, the loop runs at
+    /// those times and not every `every`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<Calendar>,
     pub prompt: String,
     /// The report policy: the job posts to the chat only what is worth
     /// telling, and a firing that finds nothing says nothing there. Absent

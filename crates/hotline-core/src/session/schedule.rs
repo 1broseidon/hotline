@@ -1,13 +1,15 @@
 //! Durable wakes for teammates: the clock of their jobs.
 //!
 //! Jobs live on the room stream. This module is the clock: it folds them,
-//! sleeps until the nearest `nextAt`, and fires each one. A plain reminder is
-//! posted to the teammate's chat as it was written ([`Room::post`]) and does
-//! no work; any other job's firing is a turn on the job's own thread
-//! ([`super::job_thread`]), never the teammate's DM. A missed tick while
-//! Hotline was closed fires once on reopen rather than catching up a pile of
-//! them — the teammate should do the work now, not replay every interval it
-//! slept through.
+//! sleeps until the nearest `nextAt`, and fires each one. A loop runs every
+//! interval, counted from when a firing starts, or at a time of day on
+//! chosen days ([`calendar`]), each next run worked out on the desk's clock.
+//! A plain reminder is posted to the teammate's chat as it was written
+//! ([`Room::post`]) and does no work; any other job's firing is a turn on
+//! the job's own thread ([`super::job_thread`]), never the teammate's DM. A
+//! missed tick while Hotline was closed fires once on reopen rather than
+//! catching up a pile of them — the teammate should do the work now, not
+//! replay every interval it slept through.
 //!
 //! A job and a subagent are one thing with one schema ([`Brief`], ADR 0008
 //! §7): the task, when it runs, whom it reports to, and what ends it. The
@@ -20,7 +22,9 @@
 //! strings and call this module.
 
 use super::{Post, Room, lock, now_ms};
-use crate::contract::{Ability, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId};
+use crate::contract::{
+    Ability, Calendar, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId,
+};
 use crate::log::Log;
 use crate::room;
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Timelike};
@@ -49,6 +53,11 @@ const RETRY_WAIT: i64 = 60_000;
 const LOOK_AGAIN: Duration = Duration::from_secs(60);
 /// Longer than this stops being a name and starts being the prompt again.
 const SCHEDULE_NAME_MAX: usize = 48;
+/// What a calendar loop writes as its `every`, so a build that knows only
+/// `every` still reads it as a loop that runs once a day.
+const DAY: i64 = 86_400_000;
+
+pub(crate) mod calendar;
 
 /// What a teammate is asked to do away from its home thread: one schema for
 /// a subagent and a job (ADR 0008 §7).
@@ -64,7 +73,7 @@ pub(crate) struct Brief {
 }
 
 /// When the work runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Trigger {
     /// At once: a subagent.
     Now,
@@ -72,6 +81,8 @@ pub(crate) enum Trigger {
     At(i64),
     /// Every this many milliseconds, until it ends.
     Every(i64),
+    /// At a time of day on chosen days, on the desk's clock, until it ends.
+    Calendar(Calendar),
 }
 
 /// Whom the work reports to, and how often.
@@ -317,6 +328,23 @@ pub(super) fn run_of(job: &ScheduledJob) -> ScheduledRun {
     }
 }
 
+/// When a loop that fired, or skipped a run, at `now` fires next: its
+/// calendar's next time after `now` on the desk's clock, or `every` after
+/// `now`.
+pub(super) fn next_after(job: &ScheduledJob, now: i64) -> i64 {
+    next_after_in(job, now, &Local)
+}
+
+/// [`next_after`] on `zone`'s clock. A calendar this build cannot work a
+/// time from, written by a newer one, falls back to its daily `every`.
+pub(super) fn next_after_in<Tz: TimeZone>(job: &ScheduledJob, now: i64, zone: &Tz) -> i64 {
+    let every = || now.saturating_add(job.every.unwrap_or(MIN_LOOP));
+    match &job.calendar {
+        Some(calendar) => calendar::next_slot(calendar, now, zone).unwrap_or_else(every),
+        None => every(),
+    }
+}
+
 /// A job as the schedules view lists it.
 pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
     ScheduleEntry {
@@ -327,6 +355,7 @@ pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
         prompt: job.prompt,
         when: job.when,
         every: job.every,
+        calendar: job.calendar,
         next_at: job.next_at,
         quiet: job.quiet,
         reminder: job.reminder,
@@ -539,7 +568,7 @@ fn finish(room: &Room, job_id: &str, ran: bool) {
         next.ended_at = Some(now);
     }
     if next.kind == ScheduleKind::Loop {
-        next.next_at = now.saturating_add(next.every.unwrap_or(MIN_LOOP));
+        next.next_at = next_after(&next, now);
         if ran {
             next.times = next.times.map(|times| times.saturating_sub(1));
         }
@@ -558,8 +587,7 @@ pub(super) fn fires_last(job: &ScheduledJob, now: i64) -> bool {
 
 /// Whether a loop's next slot after `now` would fall after its end date.
 fn next_after_end(job: &ScheduledJob, now: i64) -> bool {
-    let next_at = now.saturating_add(job.every.unwrap_or(MIN_LOOP));
-    job.until.is_some_and(|until| next_at > until)
+    job.until.is_some_and(|until| next_after(job, now) > until)
 }
 
 impl Room {
@@ -638,7 +666,7 @@ impl Room {
             ));
         }
         let now = now_ms();
-        let (kind, when, every, next_at) = match trigger {
+        let (kind, when, every, next_at, calendar) = match trigger {
             Trigger::Now => {
                 return Err(
                     "A job runs at a time or every interval; a subagent runs now.".to_string(),
@@ -651,7 +679,7 @@ impl Room {
                         "schedule must be between 1 second and 30 days from now".to_string()
                     );
                 }
-                (ScheduleKind::Schedule, Some(when), None, when)
+                (ScheduleKind::Schedule, Some(when), None, when, None)
             }
             Trigger::Every(every) => {
                 if !(MIN_LOOP..=MAX_LOOP).contains(&every) {
@@ -662,7 +690,15 @@ impl Room {
                     None,
                     Some(every),
                     now.saturating_add(every),
+                    None,
                 )
+            }
+            Trigger::Calendar(calendar) => {
+                calendar::check(&calendar)?;
+                let first = calendar::next_slot(&calendar, now, &Local).ok_or_else(|| {
+                    "This desk's clock has no next time for that calendar.".to_string()
+                })?;
+                (ScheduleKind::Loop, None, Some(DAY), first, Some(calendar))
             }
         };
         let quiet = match report {
@@ -687,6 +723,7 @@ impl Room {
             kind,
             when,
             every,
+            calendar,
             prompt: prompt.to_string(),
             quiet: quiet.then_some(true),
             reminder: reminder.then_some(true),

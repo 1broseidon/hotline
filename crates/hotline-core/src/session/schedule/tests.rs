@@ -263,6 +263,7 @@ async fn retry_receives_a_cancelled_job() {
         kind: ScheduleKind::Schedule,
         when: Some(now + 60_000),
         every: None,
+        calendar: None,
         prompt: "retry this".to_string(),
         quiet: Some(true),
         reminder: None,
@@ -298,6 +299,7 @@ async fn retry_and_finish_keep_the_latest_job_source_and_quiet_setting() {
         kind: ScheduleKind::Loop,
         when: None,
         every: Some(MIN_LOOP),
+        calendar: None,
         prompt: "keep this loop".to_string(),
         quiet: Some(true),
         reminder: None,
@@ -340,6 +342,7 @@ async fn a_skipped_slot_moves_a_loop_on_without_spending_its_count() {
         kind: ScheduleKind::Loop,
         when: None,
         every: Some(MIN_LOOP),
+        calendar: None,
         prompt: "post the time".to_string(),
         quiet: None,
         reminder: None,
@@ -380,6 +383,7 @@ async fn an_update_does_not_consume_or_reschedule_a_due_job() {
         kind: ScheduleKind::Schedule,
         when: Some(now_ms()),
         every: None,
+        calendar: None,
         prompt: "Resume after updating".into(),
         quiet: None,
         reminder: None,
@@ -400,4 +404,259 @@ async fn an_update_does_not_consume_or_reschedule_a_due_job() {
     assert_eq!(log.load(&crate::log::StreamId::Room), before);
     assert_eq!(room::schedules(&log).len(), 1);
     drop(held);
+}
+
+fn calendar(at: &str, days: &str) -> Calendar {
+    Calendar {
+        at: calendar::parse_at(at).unwrap(),
+        days: calendar::parse_days(&serde_json::json!(days)).unwrap(),
+    }
+}
+
+/// The next run after `after`, on New York's clock, as `2026-11-23 14:00`
+/// UTC.
+fn next_in_new_york(calendar: &Calendar, after: i64) -> String {
+    let next = calendar::next_slot(calendar, after, &NewYork).expect("a next time");
+    DateTime::from_timestamp_millis(next)
+        .unwrap()
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
+}
+
+/// 9:00 in New York in November is 14:00 UTC. 20 November 2026 is a Friday.
+#[test]
+fn weekdays_at_nine_go_from_friday_to_monday() {
+    let weekdays = calendar("09:00", "weekdays");
+    assert_eq!(
+        next_in_new_york(&weekdays, utc("2026-11-20 13:59")),
+        "2026-11-20 14:00"
+    );
+    // Strictly after: the run at 9:00 itself is followed by the next one.
+    assert_eq!(
+        next_in_new_york(&weekdays, utc("2026-11-20 14:00")),
+        "2026-11-23 14:00"
+    );
+    assert_eq!(
+        next_in_new_york(&weekdays, utc("2026-11-21 17:00")),
+        "2026-11-23 14:00"
+    );
+    assert_eq!(
+        next_in_new_york(&weekdays, utc("2026-11-23 14:00")),
+        "2026-11-24 14:00"
+    );
+}
+
+#[test]
+fn a_list_of_days_runs_on_those_days_alone() {
+    let three = calendar("18:00", "mon,wed,fri");
+    assert_eq!(calendar::describe(&three), "Mon, Wed and Fri at 18:00");
+    // 16 November 2026 is a Monday; 18:00 there is 23:00 UTC.
+    assert_eq!(
+        next_in_new_york(&three, utc("2026-11-16 23:00")),
+        "2026-11-18 23:00"
+    );
+    assert_eq!(
+        next_in_new_york(&three, utc("2026-11-18 23:00")),
+        "2026-11-20 23:00"
+    );
+    assert_eq!(
+        next_in_new_york(&three, utc("2026-11-20 23:00")),
+        "2026-11-23 23:00"
+    );
+    let sundays = calendar("10:00", "sunday");
+    assert_eq!(calendar::describe(&sundays), "Sundays at 10:00");
+    assert_eq!(
+        next_in_new_york(&sundays, utc("2026-11-16 12:00")),
+        "2026-11-22 15:00"
+    );
+    assert_eq!(
+        calendar::describe(&calendar("07:05", "daily")),
+        "Daily at 07:05"
+    );
+    assert_eq!(
+        calendar::describe(&calendar("07:05", "sat,sun")),
+        "Weekends at 07:05"
+    );
+}
+
+/// The clocks go forward on 8 March 2026: 9:00 is still 9:00, an hour
+/// sooner by UTC, and 2:30, which does not exist that morning, runs when
+/// the clocks change, 3:00, and is 2:30 again the morning after.
+#[test]
+fn a_calendar_loop_keeps_its_time_as_the_clocks_go_forward() {
+    let nine = calendar("09:00", "daily");
+    assert_eq!(
+        next_in_new_york(&nine, utc("2026-03-07 14:00")),
+        "2026-03-08 13:00"
+    );
+    let half_two = calendar("02:30", "daily");
+    assert_eq!(
+        next_in_new_york(&half_two, utc("2026-03-07 07:30")),
+        "2026-03-08 07:00"
+    );
+    assert_eq!(
+        next_in_new_york(&half_two, utc("2026-03-08 07:00")),
+        "2026-03-09 06:30"
+    );
+}
+
+/// The clocks go back on 1 November 2026: 9:00 is still 9:00, an hour later
+/// by UTC, and 1:30, which happens twice that morning, runs the first time
+/// and not again until the next day.
+#[test]
+fn a_calendar_loop_keeps_its_time_as_the_clocks_go_back() {
+    let nine = calendar("09:00", "daily");
+    assert_eq!(
+        next_in_new_york(&nine, utc("2026-10-31 13:00")),
+        "2026-11-01 14:00"
+    );
+    let half_one = calendar("01:30", "daily");
+    assert_eq!(
+        next_in_new_york(&half_one, utc("2026-10-31 05:30")),
+        "2026-11-01 05:30"
+    );
+    // The run at the first 1:30 is followed by the next day's, not the
+    // second 1:30 an hour later.
+    assert_eq!(
+        next_in_new_york(&half_one, utc("2026-11-01 05:30")),
+        "2026-11-02 06:30"
+    );
+}
+
+/// A run that starts late, or a desk that was closed past several runs,
+/// leaves the loop on its time: the next run is worked out from the
+/// calendar, never by adding a day to when the late one ran.
+#[test]
+fn a_late_run_does_not_move_a_calendar_loops_time() {
+    let nine = calendar("09:00", "daily");
+    assert_eq!(
+        next_in_new_york(&nine, utc("2026-11-16 14:47")),
+        "2026-11-17 14:00"
+    );
+    assert_eq!(
+        next_in_new_york(&nine, utc("2026-11-19 22:10")),
+        "2026-11-20 14:00"
+    );
+}
+
+/// A loop on an interval goes on as it always has: its next run is the
+/// interval after the moment it fired, whatever zone the desk is in.
+#[test]
+fn an_every_loop_still_runs_its_interval_after_it_fires() {
+    let mut job = ScheduledJob {
+        id: "every".to_string(),
+        persona_id: "ada".to_string(),
+        kind: ScheduleKind::Loop,
+        when: None,
+        every: Some(3_600_000),
+        calendar: None,
+        prompt: "sweep".to_string(),
+        quiet: None,
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
+        without: None,
+        operator_created: true,
+        next_at: 1,
+        created_at: 1,
+        last_post: None,
+        ended_at: None,
+        final_firing: None,
+    };
+    let fired = utc("2026-03-08 06:59");
+    assert_eq!(next_after_in(&job, fired, &NewYork), fired + 3_600_000);
+    assert_eq!(next_after_in(&job, fired, &Utc), fired + 3_600_000);
+    // A calendar this build cannot read a time from falls back to `every`.
+    job.calendar = Some(Calendar {
+        at: "nine".to_string(),
+        days: vec![crate::contract::CalendarDay::Mon],
+    });
+    assert_eq!(next_after_in(&job, fired, &NewYork), fired + 3_600_000);
+}
+
+#[test]
+fn a_time_of_day_and_its_days_are_read_as_a_teammate_writes_them() {
+    assert_eq!(calendar::parse_at("9:00").unwrap(), "09:00");
+    assert_eq!(calendar::parse_at(" 17:30 ").unwrap(), "17:30");
+    for refused in ["24:00", "9", "9am", "09:60", "0900", "9:5", ""] {
+        assert!(calendar::parse_at(refused).is_err(), "{refused}");
+    }
+    use crate::contract::CalendarDay::{Fri, Mon, Sat, Sun, Thu, Tue, Wed};
+    let days = |value: serde_json::Value| calendar::parse_days(&value);
+    assert_eq!(
+        days(serde_json::json!("daily")).unwrap(),
+        [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+    );
+    assert_eq!(
+        days(serde_json::json!("Weekdays")).unwrap(),
+        [Mon, Tue, Wed, Thu, Fri]
+    );
+    assert_eq!(
+        days(serde_json::json!("fri, mon,wed")).unwrap(),
+        [Mon, Wed, Fri]
+    );
+    assert_eq!(
+        days(serde_json::json!(["sun", "Saturday", "sun"])).unwrap(),
+        [Sat, Sun]
+    );
+    for refused in [
+        serde_json::json!(""),
+        serde_json::json!([]),
+        serde_json::json!("someday"),
+        serde_json::json!([1]),
+        serde_json::json!(5),
+    ] {
+        assert!(days(refused.clone()).is_err(), "{refused}");
+    }
+}
+
+fn calendar_job(id: &str, calendar: Calendar, next_at: i64) -> ScheduledJob {
+    ScheduledJob {
+        id: id.to_string(),
+        persona_id: "ada".to_string(),
+        kind: ScheduleKind::Loop,
+        when: None,
+        every: Some(86_400_000),
+        calendar: Some(calendar),
+        prompt: "read the overnight alerts".to_string(),
+        quiet: None,
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
+        without: None,
+        operator_created: true,
+        next_at,
+        created_at: next_at - 60_000,
+        last_post: None,
+        ended_at: None,
+        final_firing: None,
+    }
+}
+
+/// The room keeps a calendar loop through a restart, and however late its
+/// firing is finished, its next run is its next time on the desk's clock.
+#[tokio::test]
+async fn a_calendar_loop_survives_a_restart_and_a_late_run_on_its_time() {
+    let log = grant_log(true);
+    let noon = calendar("12:00", "daily");
+    let late = now_ms() - 47 * 60_000;
+    room::append_schedule(&log, &calendar_job("noon", noon.clone(), late)).unwrap();
+    // A second room on the same stream is what the desk opens after a
+    // restart: the job comes back whole.
+    let room = Room::new(log, Arc::new(NoKeys));
+    assert_eq!(room.schedule_list()[0].calendar, Some(noon.clone()));
+
+    finish(&room, "noon", true);
+    let next = room.schedule_list()[0].next_at;
+    let at = Local.timestamp_millis_opt(next).unwrap();
+    assert_eq!(at.format("%H:%M").to_string(), "12:00");
+    assert!(next > now_ms());
+    assert!(next <= now_ms() + 86_400_000 + 3_600_000, "{at}");
+    assert_eq!(
+        Some(next),
+        calendar::next_slot(&noon, next - 1, &Local),
+        "the next run is a time the calendar names"
+    );
 }

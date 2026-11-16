@@ -8,6 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate can set a job that repeats at a time of day on chosen days,
+  such as every weekday at 9:00, as well as one that repeats on an
+  interval. Hotline runs it again itself each time, on this computer's
+  clock, and keeps it at that time through a late run, a restart and the
+  clocks changing. Its row in the teammate's schedules says when it runs,
+  such as "Weekdays at 9:00 AM". A desk on an older version reads such a
+  job as one that runs once a day.
+
 ### Fixed
 
 - A time a teammate gives for a job without a time zone, such as

@@ -1,4 +1,4 @@
-import type { ScheduleEntry, TranscriptEvent } from "./generated/contract";
+import type { Calendar, ScheduleEntry, TranscriptEvent } from "./generated/contract";
 import type { Step } from "./scheduledRuns";
 
 /*
@@ -124,8 +124,38 @@ function every(ms: number): string {
 	return days === 1 ? "1 day" : `${days} days`;
 }
 
-/** When a job runs, in a few words: "every 5 min", or "once at 9:00 AM". */
+/**
+ * A calendar loop's times, on this clock's way of writing a time: "weekdays
+ * at 9:00 AM", "daily at 7:30 AM", "Mon, Wed and Fri at 6:00 PM". The time
+ * is the desk's, which is this computer's for the desk's own window.
+ */
+export function calendarWords(calendar: Calendar): string {
+	const [hours, minutes] = calendar.at.split(":").map(Number);
+	const at = clock.format(new Date(2000, 0, 1, hours, minutes));
+	const days = calendar.days.join(",");
+	if (days === "mon,tue,wed,thu,fri,sat,sun") return `daily at ${at}`;
+	if (days === "mon,tue,wed,thu,fri") return `weekdays at ${at}`;
+	if (days === "sat,sun") return `weekends at ${at}`;
+	const [only] = calendar.days;
+	if (calendar.days.length === 1 && only !== undefined) return `${DAY_NAMES[only][1]}s at ${at}`;
+	const named = calendar.days.map((day) => DAY_NAMES[day][0]);
+	return `${named.slice(0, -1).join(", ")} and ${named.at(-1)} at ${at}`;
+}
+
+/** Each day as a list says it, and whole. */
+const DAY_NAMES: Record<Calendar["days"][number], [string, string]> = {
+	mon: ["Mon", "Monday"],
+	tue: ["Tue", "Tuesday"],
+	wed: ["Wed", "Wednesday"],
+	thu: ["Thu", "Thursday"],
+	fri: ["Fri", "Friday"],
+	sat: ["Sat", "Saturday"],
+	sun: ["Sun", "Sunday"],
+};
+
+/** When a job runs, in a few words: "every 5 min", "weekdays at 9:00 AM", or "once at 9:00 AM". */
 export function scheduleWords(job: ScheduleEntry): string {
+	if (job.kind === "loop" && job.calendar !== undefined) return calendarWords(job.calendar);
 	if (job.kind === "loop" && job.every !== undefined) return `every ${every(job.every)}`;
 	const at = job.when ?? job.nextAt;
 	return `once at ${timeOfDay(at)}`;

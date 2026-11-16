@@ -827,16 +827,20 @@ fn suggested_every(took: i64, every: i64) -> i64 {
 }
 
 /// What a job's thread says of a firing it skipped at `at`: how long the one
-/// before had been running, or that it was still waiting its turn, and the
-/// interval that `fits`.
-fn skipped_text(at: &str, took: Option<i64>, fits: &str) -> String {
+/// before had been running, or that it was still waiting its turn, and, for
+/// a loop on an interval, the interval that `fits`. A calendar loop's times
+/// are the person's, so none is suggested.
+fn skipped_text(at: &str, took: Option<i64>, fits: Option<&str>) -> String {
     let before = match took {
         Some(took) => format!("was still going after {}", spoken(took)),
         None => "was still waiting its turn".to_string(),
     };
-    format!(
-        "Skipped the {at} run: the one before it {before}. Every {fits} would fit the time this takes."
-    )
+    match fits {
+        Some(fits) => format!(
+            "Skipped the {at} run: the one before it {before}. Every {fits} would fit the time this takes."
+        ),
+        None => format!("Skipped the {at} run: the one before it {before}."),
+    }
 }
 
 /// A span as a person says it: `45s`, `45m`, `2h`, `1h 30m`. It says what has
@@ -985,11 +989,14 @@ impl Room {
         took: Option<i64>,
     ) {
         let every = job.every.unwrap_or(MIN_LOOP);
-        let fits = spoken(suggested_every(took.unwrap_or(every), every));
+        let fits = job
+            .calendar
+            .is_none()
+            .then(|| spoken(suggested_every(took.unwrap_or(every), every)));
         live.notice(
             self,
             NoticeLevel::Warn,
-            skipped_text(&clock(now_ms()), took, &fits),
+            skipped_text(&clock(now_ms()), took, fits.as_deref()),
         );
         let tell = {
             let mut overruns = lock(&live.overruns);
@@ -999,11 +1006,17 @@ impl Room {
             tell
         };
         if tell {
-            let said = format!(
-                "\"{}\" keeps running past its {}: each run takes longer than that, so I have been skipping runs. Every {fits} would fit; ask me to change it.",
-                run.name,
-                spoken(every)
-            );
+            let said = match &fits {
+                Some(fits) => format!(
+                    "\"{}\" keeps running past its {}: each run takes longer than that, so I have been skipping runs. Every {fits} would fit; ask me to change it.",
+                    run.name,
+                    spoken(every)
+                ),
+                None => format!(
+                    "\"{}\" keeps running into its next time, so I have been skipping runs; ask me to change when it runs.",
+                    run.name
+                ),
+            };
             if let Err(error) = self.post(
                 &job.persona_id,
                 &ThreadId::job(&job.id),
@@ -1604,7 +1617,7 @@ mod tests {
         let said = skipped_text(
             "Tue 01:13",
             Some(60_500),
-            &spoken(suggested_every(60_500, 60_000)),
+            Some(&spoken(suggested_every(60_500, 60_000))),
         );
         assert_eq!(
             said,
@@ -1612,10 +1625,15 @@ mod tests {
         );
         assert_eq!(spoken(119_999), "1m");
         assert_eq!(spoken(59_999), "59s");
-        let waiting = skipped_text("Tue 01:13", None, "2m");
+        let waiting = skipped_text("Tue 01:13", None, Some("2m"));
         assert!(
             waiting.contains("the one before it was still waiting its turn."),
             "{waiting}"
+        );
+        // A calendar loop's times are the person's: no interval is suggested.
+        assert_eq!(
+            skipped_text("Mon 09:00", Some(3_600_000), None),
+            "Skipped the Mon 09:00 run: the one before it was still going after 1h."
         );
     }
 
@@ -1627,6 +1645,7 @@ mod tests {
             kind: ScheduleKind::Loop,
             when: None,
             every: Some(60_000),
+            calendar: None,
             prompt: "watch CI".to_string(),
             quiet: Some(true),
             reminder: None,

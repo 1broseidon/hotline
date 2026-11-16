@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduleKind, ScheduledJob } from "../generated/contract";
 import { CloseIcon, PlusIcon } from "../icons";
+import { calendarWords } from "../jobRuns";
 import { durationText, firstLine, nextText } from "../room";
 import { onTablistKey, Picker } from "../ui/Menu";
 import { wire } from "../wire";
@@ -24,7 +25,8 @@ const UNITS: { id: Unit; ms: number; name: string }[] = [
 /**
  * Work this teammate asked Hotline to wake it for — or that you set here.
  *
- * A job is once (`when`, ms since epoch) or a loop (`every`, ms). Quiet
+ * A job is once (`when`, ms since epoch) or a loop (`every`, ms, or a
+ * `calendar`'s time of day and days, which a teammate sets). Quiet
  * means the run's words go to the tape as thoughts, by event kind, not by
  * asking the model to stay quiet. The form to add one is closed until the
  * add row is pressed, because a teammate with nothing scheduled should
@@ -108,7 +110,7 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 		}
 	};
 
-	const kind = job.kind === "loop" && job.every !== undefined ? `Every ${durationText(job.every)}` : "Once";
+	const kind = repeatsText(job);
 	const source = job.operatorCreated ? "Added by you" : "Background work";
 	const status = !job.operatorCreated && !backgroundWork ? "Paused" : nextText(job.nextAt, now);
 
@@ -145,6 +147,16 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 			</button>
 		</div>
 	);
+}
+
+/** How often the row says the job runs: "Weekdays at 9:00 AM", "Every 2h", "Once". */
+function repeatsText(job: ScheduledJob): string {
+	if (job.kind !== "loop") return "Once";
+	if (job.calendar !== undefined) {
+		const words = calendarWords(job.calendar);
+		return words.charAt(0).toUpperCase() + words.slice(1);
+	}
+	return job.every !== undefined ? `Every ${durationText(job.every)}` : "Once";
 }
 
 function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {

@@ -99,6 +99,7 @@ fn job_from_legacy(value: &Value) -> Option<ScheduledJob> {
         kind,
         when,
         every,
+        calendar: None,
         prompt,
         quiet: value
             .get("quiet")

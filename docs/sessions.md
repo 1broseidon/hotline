@@ -2436,15 +2436,28 @@ firing is a turn on the job's own thread ([Jobs](#jobs)). A missed tick while
 Hotline was closed fires once on reopen rather than catching up a pile of
 them.
 
-`schedule` is once; `loop` is every `every` milliseconds until it is
+`schedule` is once; `loop` is every `every` milliseconds, or at a time of
+day on chosen days (`calendar`, `session/schedule/calendar.rs`), until it is
 cancelled or reaches its end. A loop is recovered from `every` being present
 — the event's `kind` is always `schedule`, because that slot is the stream's.
+A calendar loop carries a day as its `every` beside its `calendar`, so a
+build that knows only `every` reads it as a loop that runs once a day; this
+build goes by the calendar, and folds one it cannot read as that daily loop.
 A create wakes the clock so it does not wait for the nearest existing
 `nextAt`.
 
-A firing does not wait for the work: a loop counts its next interval from
-when a firing starts, so one still running when the next is due is what its
-thread skips. After its firing a one-shot ends; so does a loop whose count
+A calendar loop's next run is worked out afresh each time, on the desk
+machine's own clock (`chrono::Local`), as the first of its times strictly
+after the moment it fired: never by adding a day to the run before, so a run
+that started late, a restart and the clocks changing all leave it on its
+time. A time the clocks skip that day (2:30 on a morning they go from 2:00 to
+3:00) runs at the moment they change, and one they pass twice runs the first
+time, once. The functions take the zone, so the tests hand them one with
+clock changes of its own; the room hands them the desk's.
+
+A firing does not wait for the work: a loop on an interval counts its next
+interval from when a firing starts, so one still running when the next is
+due is what its thread skips. After its firing a one-shot ends; so does a loop whose count
 runs out or whose next firing would fall after its end date. An ended job is
 written again with `endedAt` rather than tombstoned: it fires no more, its
 thread stays readable, and it is still listed until the person cancels it
@@ -2496,8 +2509,8 @@ MCP server:
 | tool | strings | what it does |
 | --- | --- | --- |
 | `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or a date and time like `2026-11-16T09:00` |
-| `loop` | `every`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that fires on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
-| `list_schedules` | none | only the caller's jobs still to fire; a supplied `target` is refused |
+| `loop` | `at` or `every`, `days?`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that repeats until it ends, which Hotline runs again itself: at `at`, a time of day (`09:00`, 24-hour, the desk's clock), on `days` (`daily`, the default, `weekdays`, or the days, `mon,wed,fri` or a list), or on an interval, `every` (`15s`, `5m`, `1h`, `1d`). Exactly one of `at` and `every`; `days` only with `at` |
+| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`; a supplied `target` is refused |
 | `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |
 
 The pane labels a job from its prompt; the tools take no name. A string

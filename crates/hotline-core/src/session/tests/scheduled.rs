@@ -135,6 +135,7 @@ fn due_job(
         kind,
         when: (kind == ScheduleKind::Schedule).then_some(now - overdue_by),
         every: (kind == ScheduleKind::Loop).then_some(15_000),
+        calendar: None,
         prompt: prompt.to_string(),
         quiet: quiet.then_some(true),
         reminder: None,

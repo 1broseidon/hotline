@@ -106,6 +106,76 @@ async fn loop_takes_at_or_every_and_says_so() {
     assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
 }
 
+/// A loop on days at a time that the teammate's `loop` refuses, the desk's
+/// `schedule.create` refuses in the same words, since both read it with one
+/// function; and one both accept is the same calendar.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_desk_and_loop_read_a_calendar_the_same_way() {
+    let room = room_with_a_conversation("loop-desk-parity");
+    // The desk's `schedule.create` fields, as the wire hands them over.
+    let desk = |fields: Value| {
+        let days: Option<Vec<String>> = fields["days"].as_array().map(|days| {
+            days.iter()
+                .map(|day| day.as_str().unwrap().to_string())
+                .collect()
+        });
+        room.schedule_create(
+            "ada",
+            Brief::job(
+                ScheduleKind::Loop,
+                None,
+                fields["every"].as_i64(),
+                fields["at"].as_str(),
+                days.as_deref(),
+                "x",
+                false,
+            )?,
+            false,
+        )
+    };
+    let tool = |arguments: Value| {
+        let tools = tools(&room);
+        async move { tools.call(LOOP, &arguments).await }
+    };
+    let cases = [
+        (
+            json!({ "at": "12pm" }),
+            json!({ "at": "12pm", "prompt": "x" }),
+        ),
+        (
+            json!({ "at": "09:00", "days": ["mon", "someday"] }),
+            json!({ "at": "09:00", "days": ["mon", "someday"], "prompt": "x" }),
+        ),
+        (
+            json!({ "at": "09:00", "every": 3_600_000 }),
+            json!({ "at": "09:00", "every": "1h", "prompt": "x" }),
+        ),
+        (
+            json!({ "days": ["mon"], "every": 3_600_000 }),
+            json!({ "every": "1h", "days": ["mon"], "prompt": "x" }),
+        ),
+        (json!({}), json!({ "prompt": "x" })),
+    ];
+    for (fields, arguments) in cases {
+        let by_desk = desk(fields).unwrap_err();
+        let by_tool = tool(arguments.clone()).await.unwrap_err();
+        assert_eq!(by_desk, by_tool, "{arguments}");
+    }
+    assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
+
+    // `room_with_a_conversation` grants Background work, so the tool may
+    // create; the desk's job is the operator's either way.
+    let by_desk = desk(json!({ "at": "9:00", "days": ["weekdays"] })).unwrap();
+    tool(json!({ "at": "09:00", "days": ["mon", "tue", "wed", "thu", "fri"], "prompt": "x" }))
+        .await
+        .unwrap();
+    let jobs = room.schedule_list();
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[0].calendar, by_desk.calendar);
+    assert_eq!(jobs[1].calendar, by_desk.calendar);
+    assert_eq!(jobs[0].next_at, jobs[1].next_at);
+}
+
 /// The description a model reads says Hotline repeats the job and nothing
 /// re-arms it, with the weekday example; `schedule` sends repeats to `loop`.
 #[test]
@@ -148,7 +218,8 @@ fn the_loop_description_says_hotline_repeats_it() {
 }
 
 /// A loop's latest run skipped for being too late is said to the teammate
-/// as the time it was due, on this computer's clock.
+/// as the time it was due, on this computer's clock, and why, as the
+/// person's row says it.
 #[tokio::test(flavor = "multi_thread")]
 async fn list_schedules_says_a_loops_skipped_run() {
     let room = room_with_a_conversation("list-skipped");
@@ -171,6 +242,6 @@ async fn list_schedules_says_a_loops_skipped_run() {
     let due = Local.timestamp_millis_opt(slot).unwrap();
     assert_eq!(
         listed["jobs"][0]["skipped"],
-        due.format("%a %-d %b %Y, %H:%M").to_string()
+        format!("{}, over 2 hours late", due.format("%a %-d %b %Y, %H:%M"))
     );
 }

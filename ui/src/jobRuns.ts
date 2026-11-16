@@ -143,7 +143,7 @@ export function calendarWords(calendar: Calendar): string {
 }
 
 /** Each day as a list says it, and whole. */
-const DAY_NAMES: Record<Calendar["days"][number], [string, string]> = {
+export const DAY_NAMES: Record<Calendar["days"][number], [string, string]> = {
 	mon: ["Mon", "Monday"],
 	tue: ["Tue", "Tuesday"],
 	wed: ["Wed", "Wednesday"],

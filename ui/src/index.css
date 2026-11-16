@@ -646,6 +646,40 @@
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
+	/* A schedule's detail (Schedules.tsx): its parts wrap as whole units,
+	 * and the dot before each part after the first is drawn in that part's
+	 * left padding. The list is pulled left by that padding and the line
+	 * clips it, so a part that starts a line hides its dot: no line starts
+	 * or ends on one. 0.8em is " · " in the row’s face, so a line that fits
+	 * reads as the plain text would. The dot is decoration; the text has
+	 * its own " · ", visually hidden, for a screen reader. */
+	.schedule-detail {
+		--detail-dot: 0.8em;
+		white-space: normal;
+	}
+	.schedule-detail-parts {
+		display: flex;
+		flex-wrap: wrap;
+		margin-left: calc(-1 * var(--detail-dot));
+	}
+	.schedule-detail-parts > span {
+		position: relative;
+		min-width: 0;
+		overflow: hidden;
+		padding-left: var(--detail-dot);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.schedule-detail-parts > span::before {
+		content: "·" / "";
+		position: absolute;
+		left: 0;
+		width: var(--detail-dot);
+		text-align: center;
+	}
+	.schedule-detail-parts > span:first-child::before {
+		content: none;
+	}
 	/* A group's label, as the work pane labels its sections: small, tracked, upper case. */
 	.group-title {
 		margin: 0 0 8px 12px;
@@ -842,6 +876,41 @@
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line);
+	}
+
+	/* A day a schedule runs on, one of a week of toggles: off is a well like
+	 * the segmented control's, on is its selected segment's plane. */
+	.day-toggles {
+		display: flex;
+		min-inline-size: 0;
+		gap: 4px;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.day-toggle {
+		display: grid;
+		flex: 1;
+		min-width: 0;
+		height: 28px;
+		place-items: center;
+		border-radius: var(--radius-control);
+		background: var(--well);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--ink-3);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.day-toggle[aria-pressed="true"] {
+		background: var(--pop);
+		color: var(--ink);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong);
+	}
+	/* The keyboard's place, as a field shows it: a brighter edge. */
+	.day-toggle:focus-visible {
+		box-shadow: inset 0 0 0 var(--hairline) var(--ink-3);
 	}
 
 	/* ---------------------------------------------------------------- menu

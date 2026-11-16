@@ -1,6 +1,6 @@
 ---
 title: Schedules
-description: Wake a teammate once, or on an interval, from its pane or from the teammate itself.
+description: Wake a teammate once, on chosen days at a time, or on an interval, from its pane or from the teammate itself.
 ---
 
 A schedule is a message delivered to a teammate at a time. It arrives the
@@ -13,7 +13,10 @@ Open the teammate's pane (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>I</kbd>) and,
 under **Schedules**, choose **Add a schedule**:
 
 - **Once**: a day and a time (**At**), such as `9:30`, `14:00` or `2pm`.
-- **Repeating**: **Every** so many minutes, hours or days, starting from now.
+- **On days**: the **Days** it runs (weekdays to start with; at least one)
+  and the time (**At**), on this computer's clock. The line under the time
+  reads it back, such as "Weekdays at 9:00 AM".
+- **Every**: so many minutes, hours or days, starting from now.
 - **Say**: what to ask when it fires.
 - **Quiet**: the run's words land in the conversation as thoughts rather than
   as a reply that lights up the team list.
@@ -33,7 +36,8 @@ Bounds:
 | | |
 | --- | --- |
 | Once | 1 second to 30 days ahead |
-| Repeating | 15 seconds to 7 days (from the pane: whole minutes, hours or days) |
+| On days | any days of the week, at a time of day |
+| Every | 15 seconds to 7 days (from the pane: whole minutes, hours or days) |
 | Prompt | up to 8000 bytes (fewer characters in scripts outside basic Latin) |
 | Jobs per teammate | 20 |
 
@@ -51,5 +55,7 @@ pauses the jobs it made without deleting them; turning it on wakes them.
 
 Nothing fires while Hotline is not running. A schedule that came due while
 Hotline was closed fires once when it opens again, not once per missed
-interval. Closing the window does not close Hotline; quitting from the tray
+interval. A repeating schedule whose time passed more than two hours before
+Hotline could run it skips that run and waits for its next time; its row
+says "Skipped" with the day and time it was due until it next runs. Closing the window does not close Hotline; quitting from the tray
 or the menu does. A desk on a [server](/docs/server/) runs around the clock.

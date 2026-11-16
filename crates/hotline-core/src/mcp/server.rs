@@ -30,16 +30,14 @@
 use crate::contract::{
     Ability, Capabilities, LinkedTeammate, Profile, ThreadId, ThreadKind, WorkingOn,
 };
-use crate::contract::{
-    Calendar, ChapterClose, ScheduledJob, SessionInfo, SessionState, ToolSourceKind,
-};
+use crate::contract::{ChapterClose, ScheduledJob, SessionInfo, SessionState, ToolSourceKind};
 use crate::driver::CapabilityLease;
 use crate::mcp::{CallContent, CallImage};
 use crate::session::browser::BrowserAnswer;
 use crate::session::files::Source;
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;
-use crate::session::schedule::calendar;
+use crate::session::schedule::{self, calendar};
 use crate::session::{
     Brief, Ends, Report, Room, Trigger, ledger, now_ms, parse_duration, parse_when,
 };
@@ -2012,8 +2010,8 @@ fn without_of(arguments: &Value) -> Result<Vec<Ability>, String> {
 }
 
 /// What `loop` was asked to repeat on: a time of day on chosen days, or an
-/// interval. A `null`, which a strict caller sends for what it leaves out,
-/// is left out.
+/// interval, read by [`schedule::loop_trigger`] as the desk's are. A
+/// `null`, which a strict caller sends for what it leaves out, is left out.
 fn loop_trigger(arguments: &Value) -> Result<Trigger, String> {
     let given = |key: &str| {
         arguments
@@ -2021,32 +2019,15 @@ fn loop_trigger(arguments: &Value) -> Result<Trigger, String> {
             .filter(|value| !value.is_null())
             .filter(|value| value.as_str().is_none_or(|text| !text.trim().is_empty()))
     };
-    match (given("at"), given("every")) {
-        (Some(_), Some(_)) => Err(
-            "loop takes `at` or `every`, not both: `at` runs at a time of day on chosen days, `every` on an interval."
-                .to_string(),
-        ),
-        (None, None) => Err(
-            "loop needs `at`, a time of day like 09:00 (with `days`), or `every`, an interval like 2h."
-                .to_string(),
-        ),
-        (None, Some(every)) => {
-            if given("days").is_some() {
-                return Err("`days` goes with `at`; `every` runs on every day.".to_string());
-            }
+    let every = match given("every") {
+        Some(every) => {
             let every = every.as_str().unwrap_or_default().trim();
-            Ok(Trigger::Every(
-                parse_duration(every).ok_or_else(|| not_a_when(every))?,
-            ))
+            Some(parse_duration(every).ok_or_else(|| not_a_when(every))?)
         }
-        (Some(at), None) => Ok(Trigger::Calendar(Calendar {
-            at: calendar::parse_at(at.as_str().unwrap_or_default())?,
-            days: match given("days") {
-                Some(days) => calendar::parse_days(days)?,
-                None => calendar::parse_days(&json!("daily"))?,
-            },
-        })),
-    }
+        None => None,
+    };
+    let at = given("at").map(|at| at.as_str().unwrap_or_default());
+    schedule::loop_trigger(at, given("days"), every)
 }
 
 /// A moment as a teammate's messages are stamped with it, on this
@@ -2078,7 +2059,8 @@ fn created(job: ScheduledJob) -> String {
 /// stays a boolean so the agent does not have to treat absence as false. A
 /// calendar loop is said as its time and days; the day it carries as
 /// `every`, for older builds, is not its interval and is left out. A loop's
-/// latest run skipped for being too late is said as the time it was due.
+/// latest run skipped for being too late is said as the time it was due and
+/// why, as the person's row says it, until the loop next runs.
 fn listed_job(job: ScheduledJob) -> Value {
     let mut listed = json!({
         "id": job.id,
@@ -2101,7 +2083,7 @@ fn listed_job(job: ScheduledJob) -> Value {
         listed["when"] = json!(when);
     }
     if let Some(skipped) = job.skipped {
-        listed["skipped"] = json!(local_said(skipped.slot));
+        listed["skipped"] = json!(format!("{}, over 2 hours late", local_said(skipped.slot)));
     }
     listed
 }
@@ -2989,6 +2971,8 @@ mod tests {
                 ScheduleKind::Loop,
                 None,
                 Some(5 * 60_000),
+                None,
+                None,
                 "bob's sweep",
                 false,
             )
@@ -3041,6 +3025,8 @@ mod tests {
                     ScheduleKind::Schedule,
                     Some(now_ms() + 20 * 60_000),
                     None,
+                    None,
+                    None,
                     "operator check",
                     false,
                 )
@@ -3061,6 +3047,8 @@ mod tests {
                 Brief::job(
                     ScheduleKind::Schedule,
                     Some(now_ms() + 20 * 60_000),
+                    None,
+                    None,
                     None,
                     "bob's check",
                     false,
@@ -3138,7 +3126,16 @@ mod tests {
         let via_room = room
             .schedule_create(
                 "ada",
-                Brief::job(ScheduleKind::Loop, None, Some(5_000), "busy", false).unwrap(),
+                Brief::job(
+                    ScheduleKind::Loop,
+                    None,
+                    Some(5_000),
+                    None,
+                    None,
+                    "busy",
+                    false,
+                )
+                .unwrap(),
                 false,
             )
             .unwrap_err();
@@ -3151,6 +3148,8 @@ mod tests {
                 Brief::job(
                     ScheduleKind::Schedule,
                     Some(when + i),
+                    None,
+                    None,
                     None,
                     &format!("job {i}"),
                     false,
@@ -3170,6 +3169,8 @@ mod tests {
                 Brief::job(
                     ScheduleKind::Schedule,
                     Some(when + 21),
+                    None,
+                    None,
                     None,
                     "one more",
                     false,

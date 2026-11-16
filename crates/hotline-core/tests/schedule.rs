@@ -140,6 +140,108 @@ async fn a_loop_over_the_wire_carries_every_and_has_no_when() {
     assert!(job["result"].get("quiet").is_none(), "{job}");
 }
 
+/// The desk's form for a loop on chosen days sends `at` and `days`; the job
+/// is a calendar loop on the desk's clock, carrying a day as its `every` for
+/// an older reader. What the `loop` tool refuses, the wire refuses, and
+/// nothing refused is written.
+#[tokio::test]
+async fn a_loop_on_days_at_a_time_over_the_wire_is_a_calendar_loop() {
+    let port = open("calendar").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "goal": "Keep the harbour." } }),
+        )
+        .await;
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let create = |extra: Value| {
+        let mut params = json!({
+            "personaId": persona_id,
+            "kind": "loop",
+            "prompt": "summarise the merged pull requests",
+        });
+        params
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        params
+    };
+
+    let before = now();
+    let job = client
+        .call(
+            "schedule.create",
+            create(json!({ "at": "8:30", "days": ["fri", "mon", "wed"], "quiet": true })),
+        )
+        .await;
+    assert_eq!(job["ok"], true, "{job}");
+    assert_eq!(
+        job["result"]["calendar"],
+        json!({ "at": "08:30", "days": ["mon", "wed", "fri"] })
+    );
+    assert_eq!(job["result"]["every"], 86_400_000);
+    assert_eq!(job["result"]["quiet"], true);
+    assert_eq!(job["result"]["operatorCreated"], true);
+    assert!(job["result"].get("when").is_none(), "{job}");
+    let next_at = job["result"]["nextAt"].as_i64().unwrap();
+    assert!(
+        next_at > before && next_at <= before + 8 * 86_400_000,
+        "{job}"
+    );
+
+    let weekdays = client
+        .call(
+            "schedule.create",
+            create(json!({ "at": "09:00", "days": ["weekdays"] })),
+        )
+        .await;
+    assert_eq!(
+        weekdays["result"]["calendar"]["days"],
+        json!(["mon", "tue", "wed", "thu", "fri"]),
+        "{weekdays}"
+    );
+
+    let refusals = [
+        (json!({ "at": "25:00", "days": ["mon"] }), "24-hour"),
+        (
+            json!({ "at": "09:00", "days": ["mon", "someday"] }),
+            "weekdays",
+        ),
+        (json!({ "at": "09:00", "days": [] }), "weekdays"),
+        (json!({ "at": "09:00", "every": 3_600_000 }), "not both"),
+        (
+            json!({ "every": 3_600_000, "days": ["mon"] }),
+            "`days` goes with `at`",
+        ),
+        (json!({}), "loop needs `at`"),
+    ];
+    for (extra, why) in refusals {
+        let refused = client.call("schedule.create", create(extra.clone())).await;
+        assert_eq!(refused["ok"], false, "{extra}: {refused}");
+        assert!(
+            refused["error"].as_str().unwrap().contains(why),
+            "{extra}: {refused}"
+        );
+    }
+    let once = client
+        .call(
+            "schedule.create",
+            json!({
+                "personaId": persona_id,
+                "kind": "schedule",
+                "when": now() + 3_600_000,
+                "at": "09:00",
+                "prompt": "once",
+            }),
+        )
+        .await;
+    assert_eq!(once["ok"], false, "{once}");
+
+    let listed = client.call("schedule.list", json!({})).await;
+    assert_eq!(listed["result"].as_array().unwrap().len(), 2, "{listed}");
+}
+
 #[tokio::test]
 async fn an_old_job_on_the_wire_requires_the_background_grant() {
     let root = scratch("legacy-provenance");

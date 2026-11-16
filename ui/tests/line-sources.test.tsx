@@ -317,7 +317,7 @@ describe("Goldie's news turn: only the pages it opened are its sources", () => {
 	test("in the pane, the search keeps its six results with an eye on the two opened, and the browser's steps open to what they did", async () => {
 		const { Trail } = await import("../src/components/transcript/Trail");
 		await act(async () => root.render(<Trail items={goldieSteps} settled />));
-		expect(container.querySelector('section[aria-label="Sources"] .work-heading')?.textContent).toBe("Sources · 2");
+		expect(container.querySelector('section[aria-label="Sources"] .spine-rule')?.textContent).toBe("Sources2");
 		const lines = [...container.querySelectorAll<HTMLButtonElement>(".trail-head")];
 		expect(lines.map((head) => [head.querySelector(".trail-said")?.textContent, head.querySelector(".trail-fact")?.textContent])).toEqual([
 			["Searched the web", "6 results"],

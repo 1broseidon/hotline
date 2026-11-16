@@ -165,14 +165,14 @@ Helpers, Jobs, Calls, Pairs and Notes, the chip pressed on the pressed
 plane, Needs you in amber while something waits, and only Needs you and Live
 counted. A kind's chip shows all of that kind, live and ended, with an All ·
 Live · Ended switch under the chips. The chip last pressed is kept for each
-teammate, across the pane closing and the app restarting. The rows stand in groups, each headed in the instrument
-face: Needs you, Live, Recent (the last 24 hours) and Earlier, and only Needs you and Live are
+teammate, across the pane closing and the app restarting. The rows stand in groups, each heading in the instrument
+face on a hairline with its count at the rule's end: Needs you, Live, Recent (the last 24 hours) and Earlier, and only Needs you and Live are
 counted. The list opens on Active, where what is older than a day, what is
 routine (a finished command, a job run that posted nothing) and a note already
-read fold into one row, "Earlier and routine · N", that opens in place. Every row is one shape: the kind's mark in the instrument face
+read fold into one row, "Earlier and routine · N", that opens in place. Every row is one shape: the kind's mark in the gutter in the instrument face
 (≡ work thread, ⇄ handoff, ◆ helper, $ command, ◎ pair, ☏ call, ↻ job, ✎
 note; accent while it runs, amber while it waits on the person), the title
-over one line (its state, its latest step, or what came of it), and the time,
+on the text edge over one line (its state, its latest step, or what came of it), and the time on the right edge,
 the clock today and the day or date before, with the beat beside it while it
 runs. A live row's line is its latest step in the instrument face. A handoff's
 line opens with "from Mack". A note's row is its words, two lines at most,
@@ -186,10 +186,9 @@ credential or a handoff's written answer, has Open there instead. Nothing is fol
 conversation (a work thread's, a pair's, a call's or a job's: a helper and a
 command have none), or a helper's line in a turn's path, opens the thread in
 the pane under a band of its own with a back arrow, which goes back to the list,
-or to the path it was opened from. Every kind is the same page, the conversation's own transcript and
-cards, and only what can be done in it differs: a work thread has the composer,
+or to the path it was opened from. Every kind is drawn on the pane's one skeleton (below), and only what it holds and what can be done in it differs: a work thread has the composer,
 Archive in the band and Continue in its place once closed, and a parked one says
-it is parked and that saying something wakes it; a pair reads whole from the one press that opened it: an ask and its answer as plain lines under each speaker's face and name, a handoff as its request with a small Handoff chip by the name, the work thread's steps and words as they happen under it, and its result as that teammate's line with the same chip, with one plain line only if it failed or was stopped, and an aside between the two as a line with an Aside chip; a pair, a run and a call are
+it is parked and that saying something wakes it; a pair reads whole from the one press that opened it: an ask and its answer each a line in a quiet well under the speaker's name, their small face in the gutter, a handoff as its request with a small Handoff chip by the name, the work thread's steps and words as they happen under it, and its result as that teammate's line with the same chip, with one plain line only if it failed or was stopped, and an aside between the two as a line with an Aside chip; a pair, a run and a call are
 read-only, with no composer. Like the rail, its edge is the gutter beside it,
 dragged between 300 and 560px, remembered, put back to 360px by a double-click,
 and stepped by the arrows. One of it and the inspector stands there at a time,
@@ -198,6 +197,77 @@ would be left under 396px beside it, the pane lies over the conversation at the
 window's right on the menus' float shadow instead of squeezing it. Escape steps
 back to the list, or to the path a helper was opened from, then closes. The work card keeps only the current turn's
 steps, read-only, and stays a floating card that moves left of the pane.
+
+**The right-hand pane's skeleton** (`components/thread/Spine.tsx`,
+`pane-spine.css`). Every page of the pane, a thread of any kind, a turn's
+path, the Threads list, the inbox and an item, is drawn from the same parts,
+so the eye learns it once:
+
+- **Two columns.** The pane's column is set in 16px; in it a 20px gutter
+  holds the marks, and every heading, row, paragraph and field starts on
+  one text edge, 36px from the pane's side. Times and counts stand on one
+  right edge, 16px from the other side, in the mono with tabular figures. A
+  row's hover reaches 8px past both edges. Marks are 7px; spacing is on the
+  4px grid.
+- **The band** says the kind's word alone, no icon or dot: Helper, Job,
+  Call, Command, Pair, Handoff, Work thread, Inbox, Threads, and a turn's
+  state (Working, Done) over its path. Its word starts on the text edge; a
+  back arrow, when the page has one, sits in the gutter.
+- **The head:** the title, where the page has one (a path's is what the
+  person asked, two lines at most; a quiet turn nobody asked for has
+  none), then one state line in the instrument face: the state in a word or
+  two, a detail after it, and a time at the right edge (when it moved, or
+  how long it ran), with no dot. Waiting on the person the word is amber.
+  Spacing, not a hairline, closes the head.
+- **Facts are rows**, three at most: a mono label in the annotating ink
+  (4.5:1 on the pane in both themes) in an 88px column, its value on one
+  line. A helper has Sent by, Model, Started; a command In, Started; a call
+  With, From, Started; a job Schedule (with what it posts after it, "every
+  30 min · posts each run" or "posts only what is worth posting", the one
+  value that takes a second line rather than lose its end), Next run, Last
+  posted, and while its last run waits on a colleague's reply its state line
+  says so ("Waiting on Huck") and Next run is None; a work thread
+  With, Started; a handoff From, To, Answers. The rest is said by the title
+  and the state line. An inbox item has none: who and what ("Goldie to Huck
+  · wants work done") stands at the end of its Message heading's rule, or
+  under the state line when it has no words.
+- **Sections** are headed in the instrument face, sentence case, never
+  upper case, on a hairline that runs to the right edge with the count at
+  its end, 28px above and 8px below.
+- **The spine.** Things in order (a path's steps, an item's receipts, a
+  job's runs) hang on a thin line down the gutter with a mark each: filled
+  for done (dim on a path, whose words carry it), a ring for waiting, mint
+  for live now, a cross for failed, a dotted ring for expired. Mint is the
+  newest live line only.
+- **One status mark** per page, in the gutter beside the heading of the
+  section that holds its live work (Steps, Activity, Runs, Output,
+  Transcript, Lines, Conversation): mint and breathing while it works, an
+  amber ring while it is blocked on the person, a dim dot once stopped or
+  ended, a red cross when it failed.
+- **Words someone wrote** (an item's message and its replies, a helper's
+  task, a handoff's request, a result) read at the conversation's reading
+  size with a 2px rule down the gutter, real bullets with a hanging indent,
+  six lines at most with Show all and Show less opening them in place. A
+  pair's lines each sit in a quiet well, clamped the same way. A call's
+  transcript is plain lines, the speaker's name over what was said, whole.
+  A work thread's conversation keeps its bubbles and cards, set on the text
+  edge, each time on that edge over what it dates.
+- **Lists.** Threads has its search field straight under the band and no
+  state line; the inbox keeps its count line above its tabs. A row that
+  belongs to the row above it (a send's teammate, a picked-up item's
+  "Work thread") is one line on the text edge with no mark of its own,
+  tucked under its row; the row above wears the mark, in the accent while
+  the thread under it runs. A row that opens nothing (an item a newer
+  Hotline saved) keeps the row's shape with a plain dot in the gutter and
+  lets its line wrap.
+- **A link at a rule's end.** Where the words under a heading came from
+  somewhere the page can open (a work thread's Message, the item it was
+  picked up from), "Open ›" stands at the end of that heading's rule, after
+  who wrote them, in the rule's own face.
+- **A long path** shows its latest eight lines and one "N earlier steps"
+  row, a dotted ring in the gutter, that opens in place.
+- **The foot:** a helper and a command keep their one action, Stop, at the
+  foot beside a line of fact, under a hairline.
 
 ## Theme
 
@@ -426,6 +496,11 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-11-16 The right-hand pane on one skeleton (feat/right-pane, from the
+  mock George approved): two columns, the band's word alone, a state line,
+  three facts at most, sections on a rule, things in order on a spine, one
+  status mark, written words at reading size; Taken reads Picked up.
 
 - 2026-11-03 Message objects take one sheet (0.48, docs/design/inline-premium.html
   rows 1-5, signed off by The Dude).

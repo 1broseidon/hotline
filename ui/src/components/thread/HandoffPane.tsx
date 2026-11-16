@@ -5,6 +5,7 @@ import type { Streaming } from "../../tape";
 import { toBlocks, withStreaming } from "../../transcriptFolds";
 import { TaskCard } from "./Pane";
 import { WorkStream, type Worker } from "./WorkStream";
+import { SectionRule, type Status } from "./Spine";
 type Delivery = Extract<TranscriptEvent, { kind: "delivery" }>;
 
 /** The delivery that handed the thread over: the request its card shows. */
@@ -14,8 +15,9 @@ function handoffRequest(events: readonly TranscriptEvent[]): Delivery | undefine
 
 /**
  * A handoff's body (docs/design/thread-panes.html, Handoff): the request it
- * was handed, then the receiver's steps and words as they happen, the way a
- * subagent's pane shows its run, in the stream they share (WorkStream). The receiver's words go back to the sender,
+ * was handed, then under Activity, which carries the page's status mark, the
+ * receiver's steps and words as they happen, the way a subagent's pane shows
+ * its run, in the stream they share (WorkStream). The receiver's words go back to the sender,
  * so each says so ("Poe → Elvis"); the person's own lines are theirs, and a
  * card the receiver raises is answered here as anywhere. The band, the
  * composer and the bar above it stay the thread's.
@@ -25,6 +27,7 @@ export function HandoffPane({
 	events,
 	streaming,
 	live,
+	status,
 	receiver,
 	sender,
 	people,
@@ -35,6 +38,8 @@ export function HandoffPane({
 	streaming: Streaming[];
 	/** A turn of the receiver's is running. */
 	live: boolean;
+	/** How the thread's work stands, as the mark on Activity says it. */
+	status: Status | undefined;
 	receiver: Worker;
 	sender: { personaId: string; name: string };
 	people: ReadonlyMap<string, Person>;
@@ -50,6 +55,7 @@ export function HandoffPane({
 			{request !== undefined && (
 				<TaskCard eyebrow="Request" from={{ personaId: sender.personaId, name: sender.name, hash: people.get(sender.personaId)?.hash }} text={request.text} />
 			)}
+			<SectionRule title="Activity" status={status} />
 			<WorkStream
 				thread={thread}
 				blocks={blocks}

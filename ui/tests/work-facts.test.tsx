@@ -120,8 +120,13 @@ describe("the pane's sections, built from a recorded turn", () => {
 	test("Sources as cards with the page's title, Files changed with their lines, then Steps", async () => {
 		const { Trail } = await import("../src/components/transcript/Trail");
 		await act(async () => root.render(<Trail items={recorded()} settled />));
-		const headings = [...container.querySelectorAll(".work-heading")].map((one) => one.textContent);
-		expect(headings).toEqual(["Sources · 2", "Files changed · 2", "Steps · 7"]);
+		// Each section's name on a rule, its count at the rule's end.
+		const headings = [...container.querySelectorAll(".spine-rule")].map((one) => [one.querySelector(".spine-rule-title")?.textContent, one.querySelector(".spine-rule-count")?.textContent]);
+		expect(headings).toEqual([
+			["Sources", "2"],
+			["Files changed", "2"],
+			["Steps", "7"],
+		]);
 		const cards = [...container.querySelectorAll<HTMLAnchorElement>("a.source-card")];
 		// The pages opened, not github.com and vercel.com, which the search only listed.
 		expect(cards.map((card) => card.querySelector(".source-site")?.textContent)).toEqual(["nextjs.org", "stackoverflow.com"]);
@@ -151,7 +156,7 @@ describe("the pane's sections, built from a recorded turn", () => {
 		at = 0;
 		const old = before045().filter((one) => one.kind === "tool" && one.toolKind === "execute");
 		await act(async () => root.render(<Trail items={old} settled />));
-		expect([...container.querySelectorAll(".work-heading")].map((one) => one.textContent)).toEqual(["Steps · 2"]);
+		expect([...container.querySelectorAll(".spine-rule")].map((one) => one.textContent)).toEqual(["Steps2"]);
 	});
 });
 

@@ -6,7 +6,7 @@ import { powersOf } from "../../dock";
 import { useRoomRead } from "../../roomReads";
 import type { Block, Step } from "../../scheduledRuns";
 import { type Streaming, useThread } from "../../tape";
-import { startedWords, threadFamily } from "../../threadKinds";
+import { clockWords, threadFamily } from "../../threadKinds";
 import { heardOnce, toBlocks, withStreaming } from "../../transcriptFolds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
@@ -19,15 +19,17 @@ import type { ThreadRef } from "../Transcript";
 import { TrailSteps, useHot } from "../transcript/Trail";
 import { BandKind, LiveStream, PaneHead } from "./Pane";
 import { ThreadComposer } from "./ThreadComposer";
+import { Mark, SectionRule, StateLine } from "./Spine";
 
 /*
  * A call's pane (docs/design/thread-panes.html, tab Call): a thread the
- * person is in, so it stays a conversation, read as a transcript. Each line
- * is labelled by who said it, You or the teammate, in a column of its own,
- * and the work the teammate went off to do between two lines is folded
- * where it fell, one line saying what it checked and how many steps, that
- * opens to them. The band says whether the call is live, how long it has
- * run or ran, and the voice model, with End call while it is live.
+ * person is in, so it stays a conversation, read as a transcript, whole.
+ * Each line is the speaker's name over what they said, You or the
+ * teammate, and the work the teammate went off to do between two lines is
+ * folded where it fell, one line saying what it checked and how many steps,
+ * that opens to them. The head says whether the call is live, the voice
+ * model and how long it has run or ran; the band has End call while it is
+ * live.
  */
 
 /** How long a call has run, as a clock: 12:48, or 1:02:09 past the hour. */
@@ -100,7 +102,7 @@ export function CallPane({
 			title={row?.title ?? link?.title ?? open.title ?? "Call"}
 			personaId={teammate.id}
 			name={teammate.name}
-			from={placedOn === "phone" ? "from the phone" : placedOn === "desktop" ? "from the desktop" : undefined}
+			from={placedOn === "phone" ? "the phone" : placedOn === "desktop" ? "the desktop" : undefined}
 			live={live}
 			startedAt={startedAt}
 			endedAt={endedAt}
@@ -202,11 +204,10 @@ export function CallPage({
 	return (
 		<section className="dock-page" aria-label={`Call with ${name}: ${title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
+				<button type="button" className="control btn-icon pane-back" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={threadFamily("call")} live={live} state={live ? "live" : "ended"} tone="quiet" />
-				{(length !== undefined || model !== undefined) && <span className="instrument shrink-0 text-ink-3">{[length, model].filter(Boolean).join(" · ")}</span>}
+				<BandKind kind={threadFamily("call")} state={live ? "live" : "ended"} />
 				{onCall !== undefined && (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Take this call here" onClick={onCall}>
 						Call
@@ -219,14 +220,23 @@ export function CallPage({
 				)}
 				<PaneClose onClose={onClose} />
 			</Band>
-			<PaneHead kind={threadFamily("call")} title={title} meta={[from, name, startedAt !== undefined && startedWords(startedAt)]} />
+			<PaneHead
+				title={title}
+				line={<StateLine word={live ? "On the call now" : "Ended"} detail={model} time={length} />}
+				facts={[
+					["With", name],
+					["From", from],
+					["Started", startedAt !== undefined ? clockWords(startedAt) : undefined],
+				]}
+			/>
+			<SectionRule title="Transcript" status={live ? "live" : "stopped"} count={blocks.filter((block) => block.kind === "event" && (block.event.kind === "user" || block.event.kind === "agent")).length} />
 			<LiveStream following={`${thread.kind}:${thread.key}`} count={blocks.length} content={blocks} live={working}>
 				{more && onEarlier !== undefined && (
 					<button type="button" className="control btn btn-sm mb-3 self-center" onClick={() => void onEarlier()}>
 						Earlier lines
 					</button>
 				)}
-				<ol className="call-transcript" aria-label="Transcript">
+				<ol className="call-pane-transcript" aria-label="Transcript">
 					{blocks.map((block) => (
 						<CallRow key={block.kind === "event" ? block.event.id : block.id} block={block} personaId={personaId} name={name} live={working} onOpenThread={onOpenThread} />
 					))}
@@ -316,7 +326,7 @@ function CallRow({
 	}
 }
 
-/** A line said on the call: who said it in the left column, the words in the right. */
+/** A line said on the call: who said it, and under the name the words. */
 function CallLine({ who, mine = false, children }: { who: string; mine?: boolean; children: ReactNode }) {
 	return (
 		<li className="call-line" data-mine={mine || undefined}>
@@ -352,12 +362,16 @@ function CallWork({ items, live }: { items: Step[]; live: boolean }) {
 	return (
 		<div className="call-work">
 			<button type="button" className="call-work-head" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-				<span aria-hidden="true" className={`call-work-dot ${live ? "beat" : ""}`} data-live={live || undefined} />
+				<Mark kind={live ? "live" : "done"} />
 				<span className="min-w-0 truncate">{what}</span>
-				{steps > 0 && <span className="shrink-0 text-ink-3">· {steps === 1 ? "1 step" : `${steps} steps`}</span>}
-				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+				{steps > 0 && <span className="call-work-fact">{steps === 1 ? "1 step" : `${steps} steps`}</span>}
+				{open ? <ChevronDownIcon className="spine-chevron" /> : <ChevronRightIcon className="spine-chevron" />}
 			</button>
-			{open && <TrailSteps items={items} settled={!live} hot={hot} />}
+			{open && (
+				<div className="spine-nested">
+					<TrailSteps items={items} settled={!live} hot={hot} />
+				</div>
+			)}
 		</div>
 	);
 }

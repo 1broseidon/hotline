@@ -147,7 +147,7 @@ describe("task-501 a taken message and its work thread", () => {
 		const inbox: DockState = { open: null, inbox: {} };
 		await show(inbox);
 		const work = container.querySelector("[data-work=i-linux]");
-		expect(work?.textContent).toBe("≡Work thread · Running");
+		expect(work?.textContent).toBe("Work thread · Running");
 		await press(work);
 		expect(states.at(-1)).toEqual({ open: { thread: WORK, title: TITLE }, from: inbox });
 		// The row itself still opens the message.
@@ -168,13 +168,16 @@ describe("task-501 a taken message and its work thread", () => {
 		const thread: DockState = { open: { thread: WORK, title: TITLE }, from: inbox };
 		await show(thread);
 		// A work thread, with the message over it, not a handoff.
-		expect(container.querySelector(".band-kind")?.textContent).toBe("≡ Work thread");
-		expect(container.querySelector(".pane-task .eyebrow")?.textContent).toBe("Message");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("Work thread");
+		expect(container.querySelector(".pane-task .spine-rule-title")?.textContent).toBe("Message");
+		// The desk's two lines over the item's words keep their breaks, and the thread is with its teammate.
+		expect(container.querySelectorAll(".pane-task br")).toHaveLength(2);
+		expect([...container.querySelectorAll(".spine-facts dd")].map((one) => one.textContent)).toEqual(["Huck", expect.any(String)]);
 		await press(container.querySelector('.pane-task button[title="Open the message"]'));
 		const item = states.at(-1)!;
 		expect(item).toEqual({ open: null, inbox: { item: "i-linux" }, from: thread });
 		await show(item);
-		expect(container.querySelector(".pane-title")?.firstChild?.textContent).toBe(TITLE);
+		expect(container.querySelector(".spine-title")?.textContent).toBe(TITLE);
 		await press(container.querySelector('.band button[title="Back"]'));
 		expect(states.at(-1)).toEqual(thread);
 		await show(thread);

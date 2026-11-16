@@ -161,7 +161,8 @@ that wants an answer or work is still open, the job does not end: its agent
 is let go of, so it runs no turn and is not working, its thread says once
 "Waiting for Huck to reply. The job ends once the reply has come back.", and
 its record names whom it waits on (`awaiting`), which its row in Schedules
-and its pane say as "Waiting on Huck" in place of its next run. Each reply is
+says as "Waiting on Huck" in place of its next run, and its pane in its state
+line, its Next run fact saying None. Each reply is
 heard in the job, a turn told it is the job's last run, and the turn that
 hears the last one ends the job, its thread closed. A run that sent several
 items waits for each. It never waits for ever: an open item expires after
@@ -501,11 +502,14 @@ arriving here, and files crossing a link.
 
 The window draws the inbox from the contract below (task-456). The person
 reads; the teammates act: nothing on the desk sends, sorts or answers an
-item, and no chat opens between teammates.
+item, and no chat opens between teammates. Wherever the person reads it, an
+item in `taken` reads Picked up (its state word, its receipts, the inbox
+pane's group and count line, the sent rows and the conversation's rows); the
+stored state and the teammates' tools keep `taken`.
 
 - **Sent rows.** Each `inbox_sent` is a quiet row like a thread's link: the
   tray, the title, whom it went to and where it stands now ("To Juno ·
-  Taken"). The items one `send` made to several teammates under one title
+  Picked up"). The items one `send` made to several teammates under one title
   stand side by side on the tape and are one row ("To Juno, Ivy, Huck · 2 of
   3 seen", or the word they all share). The state is read live from the
   sender's `{"inbox"}` subscription, not from the line. A press opens the
@@ -588,12 +592,18 @@ item, and no chat opens between teammates.
   teammate's turns asked), a permission card's expired afterlife (its
   harness rewrites it without the line), and a first-contact card raised
   again after a restart.
-- **The item pane.** Its title, with where it stands in a word beside it
-  (Sent, Seen, Taken, Later, Answered, Done, Expired…, the sent row's word);
-  from whom to whom, whom else the send
-  reached ("also sent to Quill"), what it wants, and whether the sender
-  waits; the words; Receipts, a timeline of sent,
-  seen, taken, later with its reason, closed with its outcome
+- **The item pane**, on the pane's skeleton (`ui/design.md`, "The
+  right-hand pane's skeleton"). Its title, then its state line: where it
+  stands in a word (Sent, Seen, Picked up, Later, Answered, Done, Expired…,
+  the sent row's word), whether the sender waits, and when it last moved. It
+  has no fact rows: from whom to whom, whom else the send reached ("also
+  sent to Quill") and what it wants are one line ("Goldie to Huck · wants
+  work done") at the end of the Message heading's rule, or under the state
+  line when it has no words. Its words, and each reply's under the reply's
+  row, read at the conversation's size, six lines until Show all; Receipts,
+  a timeline on the spine, each receipt's mark filled and the last one as
+  the item stands (a ring while open, a cross for dropped, a dotted ring for
+  expired): sent, seen, picked up, later with its reason, closed with its outcome
   (Expired, with "Not picked up in 3 days.", for one that expired; and
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's
@@ -611,8 +621,9 @@ item, and no chat opens between teammates.
   and the receipts leave it out. In the Closed list a finished item is
   ticked, a dropped one crossed, and an expired one, never picked up, keeps
   a dotted ring.
-- **The inbox pane.** Open (Unread: new, noticed and seen; Taken; For
-  later), Closed and Sent, newest first, under a line for the tab on show:
+- **The inbox pane.** Open (Unread: new, noticed and seen; Picked up; For
+  later), Closed and Sent, newest first, each group headed on a rule with
+  its count at the rule's end, under a line for the tab on show, above the tabs:
   the open counts, "4 closed", "6 sent", or "Nothing open", "Nothing
   closed", "Nothing sent". On Sent, the items one `send` made for several
   teammates are one row, its title over whom it reached and where they
@@ -622,8 +633,10 @@ item, and no chat opens between teammates.
   says a time, when it was sent or last moved; an unsorted item whose
   sender waits says "waiting" in its line, as the composer's tray does,
   never a countdown. An item taken into a work thread has one row set in
-  under it, "Work thread" ("· Running" while a turn of it runs), which opens
-  the thread with Back to the inbox. It opens from
+  under it, "Work thread" ("· Running" while a turn of it runs), on the text
+  edge with no mark of its own (the item's ≡ in the gutter is the thread's,
+  in the accent while a turn of it runs), which opens the thread with Back
+  to the inbox. It opens from
   the teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.
 - **Work an item started.** The desk opens a taken item's work thread with

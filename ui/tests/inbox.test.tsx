@@ -83,7 +83,8 @@ describe("task-456 the sender's rows", () => {
 		expect(inbox.sentState(group, known([item("i1", { state: "seen" }), item("i2", { state: "taken" }), item("i3")]))).toBe("2 of 3 seen");
 		expect(inbox.sentState(group, known([item("i1", { state: "closed", outcome: "noted", receipts: [{ state: "seen", at: NOW }] }), item("i2", { state: "closed", outcome: "noted" }), item("i3", { state: "closed", outcome: "noted" })]))).toBe("Noted");
 		const one = { title: "Rerun the Linux build", sent: [sent("i4", "juno", "x")] as InboxSent[] };
-		expect(inbox.sentState(one, known([item("i4", { state: "taken" })]))).toBe("Taken");
+		// The person reads Taken as Picked up; the stored state stays taken.
+		expect(inbox.sentState(one, known([item("i4", { state: "taken" })]))).toBe("Picked up");
 		expect(inbox.sentState(one, known([item("i4", { state: "later", reason: "after the release" })]))).toBe("Later");
 		expect(inbox.sentState(one, known([item("i4", { held: true, receipts: [] })]))).toBe("Awaiting approval");
 		// One closed straight from its title, or dropped while held, was never seen.
@@ -108,7 +109,7 @@ describe("task-456 the sort's line", () => {
 				entry("spam", { state: "closed", outcome: "dropped" }),
 				entry("x", { state: "closed" }),
 			].map(inbox.sortedWord),
-		).toEqual(["Taken", "Later", "Noted", "Combined", "Answered", "Done", "Dropped", "Closed"]);
+		).toEqual(["Picked up", "Later", "Noted", "Combined", "Answered", "Done", "Dropped", "Closed"]);
 	});
 });
 
@@ -344,7 +345,7 @@ describe("a teammate woken by its inbox", () => {
 });
 
 describe("task-456 the pane", () => {
-	test("groups what is open: not yet sorted, taken, for later; with the counts at its head", () => {
+	test("groups what is open: not yet sorted, picked up, for later; with the counts at its head", () => {
 		const shown = view({
 			open: [item("a"), item("b", { state: "seen" }), item("c", { state: "taken" }), item("d", { state: "later", reason: "after" }), item("e", { state: "noticed" })],
 			unread: 2,
@@ -353,7 +354,7 @@ describe("task-456 the pane", () => {
 		expect(groups.unread.map((one) => one.id)).toEqual(["a", "b", "e"]);
 		expect(groups.taken.map((one) => one.id)).toEqual(["c"]);
 		expect(groups.later.map((one) => one.id)).toEqual(["d"]);
-		expect(inbox.listHeading(shown, "open")).toBe("2 unread · 1 taken · 1 for later");
+		expect(inbox.listHeading(shown, "open")).toBe("2 unread · 1 picked up · 1 for later");
 		// The composer's tray is only what the teammate has not read.
 		expect(inbox.unreadItems(shown).map((one) => one.id)).toEqual(["a", "e"]);
 	});
@@ -527,6 +528,27 @@ describe("task-456 drawn", () => {
 		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
 	});
 
+	test("Picked up in the chat's inbox rows: a sort's row and a sent row say it where the item was taken", async () => {
+		const { InboxRows, InboxRun, InboxSentRow } = await import("../src/components/transcript/InboxLines");
+		const run = await runOf([
+			{ kind: "inbox_sorted", id: "s", ts: NOW, open: 1, unread: 0, entries: [{ item: "build", title: "Rerun the Linux build", from: "chop", state: "taken" }] },
+			{ kind: "turn", id: "e", ts: NOW, stopReason: "end_turn", quiet: true },
+		]);
+		const taken = item("i1", { state: "taken" });
+		await act(async () =>
+			root!.render(
+				<InboxRows.Provider value={{ work: new Map(), items: new Map([["i1", taken]]), onOpen: () => {} }}>
+					<InboxRun run={run} owner="juno" people={people} onOpenWork={() => {}} />
+					<InboxSentRow title="Release" sent={[sent("i1", "juno", "Release")] as InboxSent[]} people={people} />
+				</InboxRows.Provider>,
+			),
+		);
+		expect(container.querySelector("button.link-row[data-kind=inbox]")?.textContent).toContain("To Juno · Picked up");
+		await press(container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-step > .trail-head")!);
+		expect(container.querySelector(".inbox-run-rows .link-row")?.textContent).toContain("From Pork Chop · Picked up");
+		expect(container.textContent).not.toContain("Taken");
+	});
+
 	test("a run's row for Hotline's notice credits Hotline, and an item's row does nothing where nothing opens it", async () => {
 		const { InboxRun } = await import("../src/components/transcript/InboxLines");
 		const run = await runOf([
@@ -609,7 +631,9 @@ describe("task-456 drawn", () => {
 				),
 			);
 		await list("open");
-		expect([...container.querySelectorAll(".list-group")].map((one) => one.textContent)).toEqual(["Unread1", "Taken1", "For later1"]);
+		// Each group's name on a rule, its count at the rule's end; what was taken reads Picked up.
+		expect([...container.querySelectorAll(".list-group")].map((one) => one.textContent)).toEqual(["Unread1", "Picked up1", "For later1"]);
+		expect(container.querySelector(".list-group .spine-rule-line")).not.toBeNull();
 		expect([...container.querySelectorAll("[data-inbox]")].map((one) => one.getAttribute("data-inbox"))).toEqual(["a", "t", "l"]);
 		// A waiting sender is said in the line, and the row's time is a time, as every row's is: no amber countdown.
 		expect(container.querySelector("[data-inbox=a] .list-line")?.textContent).toBe("Huck · waiting");
@@ -617,22 +641,26 @@ describe("task-456 drawn", () => {
 		expect(container.querySelector("[data-inbox=a] .list-when")?.textContent).toBe(asideTime(NOW - 60_000));
 		expect(container.querySelector("[data-inbox=a] .list-when")?.hasAttribute("data-waiting")).toBe(false);
 		expect(container.querySelector("[data-inbox=t] .dock-dot")).not.toBeNull();
-		// The taken item's work thread is a row under it, which opens the thread.
-		expect(container.querySelector("[data-work=t]")?.textContent).toBe("≡Work thread · Running");
+		// The picked-up item's work thread is a row under it, on the text edge with no mark of its own, which opens the thread.
+		expect(container.querySelector("[data-work=t]")?.textContent).toBe("Work thread · Running");
+		expect(container.querySelector("[data-work=t] .list-mark")).toBeNull();
+		expect(container.querySelector("[data-inbox=t]")?.hasAttribute("data-live")).toBe(true);
 		expect(container.querySelectorAll("[data-work]")).toHaveLength(1);
 		await press(container.querySelector("[data-work=t]")!);
 		expect(threads).toEqual(["juno side:s1"]);
 		threads.length = 0;
-		expect(container.querySelector(".dock-note")?.textContent).toBe("1 unread · 1 taken · 1 for later");
+		// The count line stays above the tabs.
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 unread · 1 picked up · 1 for later");
+		expect(container.querySelector(".spine-count + .list-span [role=tablist]")).not.toBeNull();
 		await press([...container.querySelectorAll("[role=tab]")].find((one) => one.textContent === "Sent")!);
 		expect(segments).toEqual(["sent"]);
 		await list("sent");
 		expect(container.querySelector("[data-inbox=s] .list-line")?.textContent).toBe("To Pork Chop · Seen");
 		// The heading follows the tab, and a sent row's arrow never takes its receiver's state's colour.
-		expect(container.querySelector(".dock-note")?.textContent).toBe("1 sent");
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 sent");
 		expect(container.querySelector("[data-inbox=s]")?.hasAttribute("data-state")).toBe(false);
 		await list("closed");
-		expect(container.querySelector(".dock-note")?.textContent).toBe("2 closed");
+		expect(container.querySelector(".spine-count")?.textContent).toBe("2 closed");
 		expect(container.querySelector("[data-inbox=c] .list-line")?.textContent).toBe("Pork Chop · Noted");
 		expect(container.querySelector("[data-inbox=c] .list-mark")?.textContent).toBe("✓");
 		expect(container.querySelector("[data-inbox=x] .list-mark")?.textContent).toBe("◌");
@@ -664,12 +692,19 @@ describe("task-456 drawn", () => {
 				<InboxItemPane itemId="o" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={(owner, thread) => threads.push(`${owner} ${thread.kind}:${thread.key}`)} />,
 			),
 		);
-		// Where it stands is the word beside its title.
-		expect(container.querySelector(".pane-title")?.firstChild?.textContent).toBe("Rerun the Linux build");
-		expect(container.querySelector(".pane-title .pane-state")?.textContent).toBe("Done");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · wants an answer");
-		expect(container.querySelector(".pane-task-body")?.textContent).toBe("The Linux build went red on the packaging step.");
-		expect([...container.querySelectorAll(".inbox-receipts li .inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent", "Seen", "Taken", "Done"]);
+		// Where it stands is the state line under its title.
+		expect(container.querySelector(".spine-title")?.textContent).toBe("Rerun the Linux build");
+		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Done");
+		// No fact rows: who and what stand at the end of the message's rule.
+		expect(container.querySelector(".spine-facts")).toBeNull();
+		const message = container.querySelector('section[aria-label="Message"] .spine-rule');
+		expect(message?.querySelector(".spine-rule-title")?.textContent).toBe("Message");
+		expect(message?.querySelector(".spine-rule-aside")?.textContent).toBe("Pork Chop to Juno · wants an answer");
+		expect(container.querySelector(".spine-who")).toBeNull();
+		expect(container.querySelector('section[aria-label="Message"] .spine-said')?.textContent).toBe("The Linux build went red on the packaging step.");
+		expect([...container.querySelectorAll(".inbox-receipts li .inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent", "Seen", "Picked up", "Done"]);
+		// Each receipt hangs on the spine: done ones filled, the last one as the item ended.
+		expect([...container.querySelectorAll(".inbox-receipts li > .spine-mark")].map((one) => one.getAttribute("data-mark"))).toEqual(["done", "done", "done", "done"]);
 		// Nothing here sends, sorts or answers.
 		expect(container.querySelector("textarea, input")).toBeNull();
 		const rows = [...container.querySelectorAll<HTMLButtonElement>(".dock-page .list-row")];
@@ -693,14 +728,16 @@ describe("task-456 drawn", () => {
 			act(async () => root!.render(<InboxList name="Juno" view={shown} segment={segment} people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={() => {}} onClose={() => {}} />));
 		await draw("open");
 		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-open"]);
-		expect(container.querySelector(".dock-note")?.textContent).toBe("1 unread · 1 from a newer version");
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 unread · 1 from a newer version");
 		const row = container.querySelector("[data-newer=n-open]")!;
 		expect(row.tagName).toBe("DIV");
 		expect(row.querySelector(".list-line")?.textContent).toBe("Pork Chop · Saved by a newer version of Hotline. It can't be changed here.");
+		// On Open it stands under its own heading on a rule, not under the group before it.
+		expect(row.previousElementSibling?.textContent).toBe("From a newer version1");
 		await draw("closed");
 		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-closed"]);
-		expect(container.querySelector(".dock-page p.text-ink-3")).toBeNull();
-		expect(container.querySelector(".dock-note")?.textContent).toBe("1 closed");
+		expect(container.querySelector(".spine-empty")).toBeNull();
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 closed");
 		await draw("sent");
 		expect(container.querySelector("[data-newer=n-sent] .list-line")?.textContent).toBe("To Huck · Saved by a newer version of Hotline. It can't be changed here.");
 		expect(opened).toEqual([]);
@@ -720,23 +757,28 @@ describe("task-456 drawn", () => {
 		await press(send);
 		expect(send.getAttribute("aria-expanded")).toBe("true");
 		const each = [...container.querySelectorAll<HTMLButtonElement>(".list-row-sub")];
-		expect(each.map((row) => row.textContent)).toEqual(["To Huck · Seen", "To Ivy · Sent", "To Pork Chop · Taken"]);
+		expect(each.map((row) => row.textContent)).toEqual(["To Huck · Seen", "To Ivy · Sent", "To Pork Chop · Picked up"]);
 		await press(each[2]!);
 		expect(opened).toEqual(["t3"]);
 		await press(send);
 		expect(container.querySelectorAll(".list-row-sub")).toHaveLength(0);
 	});
 
-	test("an item's pane says who else the send reached, and nothing for one sent to one", async () => {
+	test("an item's pane says who else the send reached, and nothing for one sent to one; with no words, its who and what stand under the state line", async () => {
 		const { InboxItemPane } = await import("../src/components/InboxPane");
 		const shared = item("shared", { alsoTo: ["ivy", "huck"], title: "Release moves to Thursday" });
 		const alone = item("alone");
-		spyOn(wire, "command").mockImplementation((async (_cmd: string, params: { id: string }) => ({ item: params.id === "shared" ? shared : alone, replies: [] })) as typeof wire.command);
+		const bare = item("bare", { body: "" });
+		spyOn(wire, "command").mockImplementation((async (_cmd: string, params: { id: string }) => ({ item: params.id === "shared" ? shared : params.id === "bare" ? bare : alone, replies: [] })) as typeof wire.command);
 		const draw = (itemId: string) => act(async () => root!.render(<InboxItemPane key={itemId} itemId={itemId} people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
+		const who = () => container.querySelector(".spine-rule-aside, .spine-who")?.textContent;
 		await draw("shared");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · also sent to Ivy, Huck · wants an answer");
+		expect(who()).toBe("Pork Chop to Juno · also sent to Ivy, Huck · wants an answer");
 		await draw("alone");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · wants an answer");
+		expect(who()).toBe("Pork Chop to Juno · wants an answer");
+		await draw("bare");
+		expect(container.querySelector(".spine-rule-aside")).toBeNull();
+		expect(container.querySelector(".spine-head + .spine-who")?.textContent).toBe("Pork Chop to Juno · wants an answer");
 	});
 
 	test("the receiver's conversation draws the work its sort started as a work-thread row, while an old handoff keeps its line", async () => {
@@ -813,6 +855,17 @@ describe("task-456 drawn", () => {
 		expect(opened).toEqual(["w"]);
 	});
 
+	test("an item taken says Picked up in its state line, and its sender waiting after it", async () => {
+		const { InboxItemPane } = await import("../src/components/InboxPane");
+		spyOn(wire, "command").mockImplementation((async () => ({ item: item("p", { state: "taken", waiting: true, receipts: [{ state: "new", at: NOW - 60_000 }, { state: "taken", at: NOW - 30_000 }] }), replies: [] })) as unknown as typeof wire.command);
+		await act(async () => root!.render(<InboxItemPane itemId="p" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
+		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Picked up");
+		expect(container.querySelector(".spine-state-detail")?.textContent).toBe("· Pork Chop is waiting");
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Inbox, Picked up");
+		// The receipts' last line is the item as it stands: open, so a ring.
+		expect([...container.querySelectorAll(".inbox-receipts li > .spine-mark")].map((one) => one.getAttribute("data-mark"))).toEqual(["done", "waiting"]);
+	});
+
 	test("a held item says it waits for the person to allow it", async () => {
 		const { InboxItemPane } = await import("../src/components/InboxPane");
 		spyOn(wire, "command").mockImplementation((async () => ({ item: item("h", { held: true, receipts: [] }), replies: [] })) as unknown as typeof wire.command);
@@ -831,7 +884,7 @@ describe("task-456 drawn", () => {
 		const later = item("l", { ts: sentAt, state: "later", reason: "after the release", receipts: [{ state: "new", at: sentAt }, { state: "later", at: today, reason: "after the release" }] });
 		spyOn(wire, "command").mockImplementation((async () => ({ item: later, replies: [] })) as unknown as typeof wire.command);
 		await act(async () => root!.render(<InboxItemPane itemId="l" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
-		expect(container.querySelector(".pane-title .pane-state")?.textContent).toBe("Later");
+		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Later");
 		const times = [...container.querySelectorAll(".inbox-receipt-at")].map((one) => one.textContent);
 		const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 		const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(sentAt));

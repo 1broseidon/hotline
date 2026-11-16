@@ -123,12 +123,27 @@ describe("a work thread's pane", () => {
 		listed = [summary({ thread: { kind: "side", key: "s1" }, title: "Release notes for 0.49" })];
 		await dock({ thread: { kind: "side", key: "s1" }, title: "Release notes for 0.49" }, [entry(pork)]);
 		// The band says the kind and the head the title, as on every thread's pane.
-		expect(container.querySelector(".band-kind")?.textContent).toBe("≡ Work thread");
-		expect(container.querySelector(".pane-head .pane-title")?.textContent).toBe("Release notes for 0.49");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("Work thread");
+		expect(container.querySelector(".spine-head .spine-title")?.textContent).toBe("Release notes for 0.49");
 		// Still the conversation it was: its composer, End thread, and not a run's pane.
 		expect(container.querySelector("textarea")).not.toBeNull();
 		expect(container.querySelector('button[title="End this thread"]')).not.toBeNull();
 		expect(container.querySelector(".run-pane")).toBeNull();
+	});
+});
+
+describe("a work thread waiting on the person", () => {
+	test("says Needs you in amber in its state line, and its Conversation carries the amber ring", async () => {
+		listed = [summary({ thread: { kind: "side", key: "s2" }, title: "Sign the Windows installer", waiting: true })];
+		await dock({ thread: { kind: "side", key: "s2" }, title: "Sign the Windows installer" }, [entry(pork)]);
+		expect(container.querySelector(".spine-state-word")?.textContent).toBe("Needs you");
+		expect(container.querySelector(".spine-state")?.hasAttribute("data-you")).toBe(true);
+		const rule = container.querySelector(".spine-rule");
+		expect(rule?.querySelector(".spine-rule-title")?.textContent).toBe("Conversation");
+		expect(rule?.getAttribute("data-status")).toBe("blocked");
+		expect(container.querySelectorAll(".spine-rule-mark")).toHaveLength(1);
+		const facts = [...container.querySelectorAll(".spine-facts dt")].map((one) => one.textContent);
+		expect(facts).toEqual(["With", "Started"]);
 	});
 });
 

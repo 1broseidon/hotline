@@ -102,7 +102,7 @@ describe("a pair's pane", () => {
 
 	test("a line written before lines were stamped stays a plain line, in its own words", () => {
 		const lines = pairLines(key, [user("r1", "Fix the badge.")], poe, mack);
-		expect(lines).toEqual([{ kind: "said", id: "r1", who: mack, right: true, text: "Fix the badge." }]);
+		expect(lines).toEqual([{ kind: "said", id: "r1", who: mack, text: "Fix the badge." }]);
 	});
 
 	test("a running handoff is its request in full and its steps as they land, with nothing to press", async () => {

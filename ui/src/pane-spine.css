@@ -1,0 +1,601 @@
+/* ---------------------------------------------------------------------------
+ * The right-hand pane on one skeleton (components/thread/Spine.tsx; ui/design.md,
+ * "The right-hand pane"): every page of it, a thread, a turn's path, a list,
+ * an inbox item, is drawn from the same parts, so the eye learns it once.
+ *
+ * Two columns. The pane's column is set in 16px (--px); in it a 20px gutter
+ * (--gutter) holds the marks, and every word starts on the one text edge
+ * after it, 36px from the pane's side. Times and counts stand on one right
+ * edge, 16px from the other side, in the mono with tabular figures. A row's
+ * hover fill reaches 8px past both (--over). Spacing is on the 4px grid.
+ *
+ * The parts only the pane draws are here. Where a part is shared with the
+ * conversation (a path's line, a list's row), the pane's look is said here
+ * under `.dock`, and the part's own rule in index.css stays the
+ * conversation's.
+ * ------------------------------------------------------------------------- */
+@layer components {
+	.dock {
+		--px: 16px;
+		--gutter: 20px;
+		--over: 8px;
+		--mark: 7px;
+		/* Where a mark's centre stands inside a row that reaches --over past the column. */
+		--mark-x: calc(var(--over) + var(--gutter) / 2 - var(--mark) / 2);
+		--spine: color-mix(in oklab, var(--ink-4) 55%, transparent);
+	}
+
+	/* ----------------------------------------------------------------- marks
+	 * One vocabulary for things in order: done a filled dot, waiting a ring,
+	 * live the mint dot, expired a dotted ring, failed a cross, stopped a
+	 * dim dot. Mint is the one line live now and the heading over it, never
+	 * more. */
+	.spine-mark,
+	.dock .trail-dot {
+		position: relative;
+		display: block;
+		flex-shrink: 0;
+		width: var(--mark);
+		height: var(--mark);
+		box-sizing: border-box;
+		border-radius: 50%;
+		background: var(--ink-3);
+		/* A mark hangs on the spine: a ring of the canvas parts the line around it. */
+		box-shadow: 0 0 0 3px var(--canvas);
+	}
+	/* A done line on a path is quieter than its words: the words carry it. */
+	.dock .trail-step[data-status="completed"] > .trail-head > .trail-dot {
+		background: var(--ink-4);
+	}
+	.spine-mark[data-mark="stopped"] {
+		background: var(--ink-4);
+	}
+	.spine-mark[data-mark="waiting"] {
+		background: var(--canvas);
+		border: 1.5px solid var(--ink-3);
+	}
+	.spine-mark[data-mark="expired"] {
+		background: var(--canvas);
+		border: 1.5px dotted var(--ink-3);
+	}
+	.spine-mark[data-blocked] {
+		border-color: var(--warn-ink);
+	}
+	.spine-mark[data-mark="live"],
+	.dock .trail-step[data-status="in_progress"][data-now] > .trail-head > .trail-dot {
+		background: var(--accent);
+	}
+	/* Still running but not the newest: ink, and its fact says so. */
+	.dock .trail-step[data-status="in_progress"]:not([data-now]) > .trail-head > .trail-dot {
+		background: var(--ink-2);
+	}
+	.dock .trail-step[data-status="in_progress"]:not([data-now]) > .trail-head > .trail-said {
+		animation: none;
+		background: none;
+		-webkit-text-fill-color: currentColor;
+		color: var(--ink);
+	}
+	.spine-mark[data-mark="failed"],
+	.dock .trail-step[data-status="failed"] > .trail-head > .trail-dot {
+		border-radius: 0;
+		background: var(--canvas);
+		box-shadow: 0 0 0 2px var(--canvas);
+	}
+	.spine-mark[data-mark="failed"]::before,
+	.spine-mark[data-mark="failed"]::after,
+	.dock .trail-step[data-status="failed"] > .trail-head > .trail-dot::before,
+	.dock .trail-step[data-status="failed"] > .trail-head > .trail-dot::after {
+		content: "";
+		position: absolute;
+		top: 50%;
+		left: -1px;
+		width: 9px;
+		height: 1.5px;
+		border-radius: 1px;
+		background: var(--danger);
+		transform: translateY(-50%) rotate(45deg);
+	}
+	.spine-mark[data-mark="failed"]::after,
+	.dock .trail-step[data-status="failed"] > .trail-head > .trail-dot::after {
+		transform: translateY(-50%) rotate(-45deg);
+	}
+
+	/* ------------------------------------------------------------------ band
+	 * The band's word stands on the text edge (its own 4px brings it there);
+	 * Back, where a page has it, sits in the gutter. */
+	.dock .band-row {
+		padding-left: calc(var(--px) + var(--gutter) - 4px);
+	}
+	/* A 14px arrow, centred 2px left of the gutter's middle, leaves 4px before the word. */
+	.pane-back {
+		position: absolute;
+		top: 50%;
+		left: calc(var(--px) + var(--gutter) / 2 - 15px);
+		width: 26px;
+		transform: translateY(-50%);
+	}
+	.pane-back svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	/* ------------------------------------------------------------------ head
+	 * Under the band: the title on the text edge, the state line, and what
+	 * else belongs to the head (a path's shape, a list's search and chips).
+	 * No hairline closes it: spacing parts it from what follows. */
+	.spine-head {
+		position: relative;
+		flex-shrink: 0;
+		margin: 0 var(--px);
+		padding: 4px 0 4px var(--gutter);
+	}
+	.spine-title {
+		margin-bottom: 4px;
+		font-size: var(--text-lg);
+		line-height: var(--text-lg--line-height);
+		font-weight: 600;
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.spine-state {
+		position: relative;
+		display: flex;
+		min-width: 0;
+		align-items: baseline;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 16px;
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+		white-space: nowrap;
+	}
+	.spine-state-word {
+		font-weight: 500;
+		color: var(--ink-2);
+	}
+	.spine-state[data-you] > .spine-state-word {
+		color: var(--warn-ink);
+	}
+	.spine-state-detail {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.spine-time {
+		margin-left: auto;
+		padding-left: 12px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* ----------------------------------------------------------------- facts
+	 * At most three: a mono label in a column 88px wide on the text edge, in
+	 * the annotating ink (4.5:1 on the pane in both themes), and the value
+	 * after it on one line. */
+	.spine-facts {
+		display: grid;
+		flex-shrink: 0;
+		grid-template-columns: 88px minmax(0, 1fr);
+		column-gap: 8px;
+		row-gap: 4px;
+		margin: 16px var(--px) 0;
+		padding-left: var(--gutter);
+	}
+	.spine-facts > div {
+		display: contents;
+	}
+	.spine-facts dt {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-md--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	.spine-facts dd {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink-2);
+	}
+	/* A value whose every word counts takes a second line rather than losing its end. */
+	.spine-facts dd[data-wraps] {
+		white-space: normal;
+	}
+
+	/* -------------------------------------------------------------- sections
+	 * A section's name in the instrument face, sentence case, on a hairline
+	 * that runs to the right edge, its count at the rule's end. */
+	.spine-rule {
+		position: relative;
+		display: flex;
+		min-width: 0;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 8px;
+		margin: 28px var(--px) 8px;
+		padding: 0 0 0 var(--gutter);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+	/* Inside a column already set in, the rule is too. */
+	:is(.pane-stream, .work-window, .spine-body, .pane-task, .pane-result, .work-head) .spine-rule {
+		margin-left: 0;
+		margin-right: 0;
+	}
+	.spine-rule-title {
+		flex-shrink: 0;
+	}
+	/* The page's one status mark, in the gutter beside the name of the section that holds the live work. */
+	.spine-rule-mark {
+		position: absolute;
+		top: 50%;
+		left: calc(var(--gutter) / 2 - var(--mark) / 2);
+		display: block;
+		transform: translateY(-50%);
+	}
+	.spine-rule-mark > .spine-mark {
+		box-shadow: none;
+	}
+	.spine-rule-line {
+		height: var(--hairline);
+		min-width: 12px;
+		flex: 1;
+		background: var(--line-strong);
+	}
+	/* An aside at the rule's end (an item's who and what): it gives way before the name does. */
+	.spine-rule-aside {
+		min-width: 0;
+		letter-spacing: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 400;
+	}
+	.spine-rule:has(.spine-rule-aside) .spine-rule-line {
+		flex: 0 1 24px;
+	}
+	.spine-rule-count {
+		flex-shrink: 0;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* --------------------------------------------------------- written words
+	 * What a person or a teammate wrote, at the conversation's reading size,
+	 * with a 2px rule down the gutter, not a box; real bullets with a
+	 * hanging indent. */
+	.spine-said {
+		position: relative;
+		padding-left: var(--gutter);
+		font-size: var(--text-read);
+		line-height: var(--text-read--line-height);
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.spine-said::before,
+	.pane-said::before {
+		content: "";
+		position: absolute;
+		top: 4px;
+		bottom: 4px;
+		left: calc(var(--gutter) / 2 - 1px);
+		width: 2px;
+		border-radius: 1px;
+		background: var(--line-strong);
+	}
+	.spine-said .md :is(ul, ol) > li {
+		padding-left: 16px;
+	}
+	/* Six lines at most (CLAMP_LINES; 6 × 22 = 132px), fading where it goes on; Show all opens it in place. */
+	.spine-clamp:not([data-open]) {
+		max-height: calc(var(--clamp-lines) * var(--text-read--line-height));
+		overflow: hidden;
+	}
+	.spine-clamp[data-clipped] {
+		-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+		mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+	}
+	.spine-more {
+		margin: 4px 0 0 var(--gutter);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	.spine-more:hover {
+		color: var(--ink);
+	}
+	/* A reply under its row, quieter than the message it answers. */
+	.spine-said-quiet {
+		margin-top: 2px;
+		color: var(--ink-2);
+	}
+	.inbox-reply + .inbox-reply {
+		margin-top: 12px;
+	}
+	/* An item with no words of its own says who and what under its state. */
+	.spine-who {
+		flex-shrink: 0;
+		margin: 4px var(--px) 0 calc(var(--px) + var(--gutter));
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+
+	/* ------------------------------------------------------------------ foot
+	 * The page's one action, pinned at its foot under a hairline. */
+	.spine-foot {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 12px;
+		min-height: 48px;
+		margin: 0 var(--px);
+		padding: 8px 0 8px var(--gutter);
+		border-top: var(--hairline) solid var(--line-strong);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+
+	/* ---------------------------------------------------------- the columns
+	 * A list's scrolling body is set in by --px; its rows reach --over past
+	 * it. What it says when it is empty starts on the text edge. */
+	.spine-body {
+		padding: 0 var(--px);
+	}
+	.spine-body:last-child {
+		padding-bottom: 24px;
+	}
+	.spine-empty {
+		padding: 12px 0 12px var(--gutter);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+
+	/* ------------------------------------------------------------- the spine
+	 * What happens in order hangs on a thin line down the gutter, the marks
+	 * on it; the line starts at the first mark and stops at the last. */
+	.spine-list,
+	.dock .trail:not(.trail-under) {
+		position: relative;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.spine-list::before,
+	.dock .trail:not(.trail-under)::before {
+		content: "";
+		position: absolute;
+		top: 14px;
+		bottom: 14px;
+		left: calc(var(--gutter) / 2 - 0.5px);
+		width: 1px;
+		background: var(--spine);
+	}
+	/* Nested in a job's run or a call's work: plain lines on the edge, no second spine. */
+	.spine-nested .trail::before,
+	.spine-nested .trail-dot {
+		display: none;
+	}
+	.dock .spine-nested .trail-head {
+		padding-left: var(--over);
+	}
+	.dock .spine-nested .trail-heading {
+		padding-left: 0;
+	}
+	.dock .spine-nested .trail-said {
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	/* A row on the spine: the mark in the gutter, the words on the text edge,
+	 * the fact on the right edge, and the chevron, seen on hover, before it. */
+	.dock .trail-head,
+	.job-run-head,
+	.call-work-head {
+		position: relative;
+		display: flex;
+		width: calc(100% + 2 * var(--over));
+		min-height: 28px;
+		align-items: center;
+		gap: 8px;
+		margin: 0 calc(-1 * var(--over));
+		padding: 5px var(--over) 5px calc(var(--over) + var(--gutter));
+		border-radius: var(--radius-control);
+		text-align: left;
+	}
+	.dock .trail-head > .trail-dot,
+	.job-run-head > .spine-mark,
+	.call-work-head > .spine-mark {
+		position: absolute;
+		top: 50%;
+		left: var(--mark-x);
+		transform: translateY(-50%);
+	}
+	.dock .trail-said {
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+	}
+	.dock .trail-fact,
+	.dock .trail-fact[data-tone="live"],
+	.dock .list-when {
+		order: 3;
+		margin-left: auto;
+		letter-spacing: 0.02em;
+		color: var(--ink-3);
+	}
+	/* A failure's fact stays red, the signal; a running one's is ink, since mint is the mark's. */
+	.dock .trail-fact[data-tone="danger"] {
+		color: var(--danger);
+	}
+	.dock .trail-chevron,
+	.spine-chevron {
+		order: 2;
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+		margin-left: auto;
+		color: var(--ink-4);
+		opacity: 0;
+	}
+	.dock .trail-chevron + .trail-fact,
+	.dock .trail-fact:has(+ .trail-chevron),
+	.job-run-when:has(~ .spine-chevron) {
+		margin-left: 0;
+	}
+	.dock :is(.trail-head, .job-run-head, .call-work-head):is(:hover, :focus-visible, [aria-expanded="true"]) > :is(.trail-chevron, .spine-chevron) {
+		opacity: 1;
+	}
+	/* The fold: the earlier lines of a long path, one row that opens in place. */
+	.dock .trail-fold-dot {
+		border: 1.5px dotted var(--ink-4);
+		background: var(--canvas);
+	}
+	.trail-fold-head .trail-said {
+		color: var(--ink-3);
+	}
+	.trail-fold-head .trail-fact {
+		color: var(--ink-2);
+	}
+	/* A watched thread's steps sit where they fell between its words. */
+	.dock .pane-stream .trail:not(.trail-under) {
+		margin: 4px 0;
+	}
+
+	/* ----------------------------------------------------------------- lists
+	 * The Threads list and the inbox: rows of one shape, the kind's mark in
+	 * the gutter, the title over its line on the text edge, the time on the
+	 * right edge. The composer's popovers keep the rows' own look. */
+	.spine-count {
+		color: var(--ink-3);
+	}
+	.spine-head-list > :is(.list-search, .list-chips, .list-span) {
+		margin-top: 12px;
+		padding: 0;
+	}
+	.spine-head-list > :first-child {
+		margin-top: 0;
+	}
+	/* A chip's fill reaches back over the gutter, so its word stands on the edge. */
+	.spine-head-list > .list-chips {
+		margin-left: -8px;
+	}
+	.dock .list-group {
+		margin: 24px 0 4px;
+		padding: 0 0 0 var(--gutter);
+		justify-content: flex-start;
+		font-weight: 500;
+	}
+	.dock .spine-body > .list-group:first-child {
+		margin-top: 16px;
+	}
+	.dock .list-row {
+		position: relative;
+		width: calc(100% + 2 * var(--over));
+		gap: 12px;
+		margin: 0 calc(-1 * var(--over));
+		padding: 8px var(--over) 8px calc(var(--over) + var(--gutter));
+	}
+	.dock .list-mark {
+		position: absolute;
+		top: 8px;
+		left: var(--over);
+		width: var(--gutter);
+	}
+	.dock .list-title {
+		font-size: var(--text-md);
+	}
+	.dock .list-line {
+		margin-top: 2px;
+	}
+	.dock .list-when {
+		padding-top: 2px;
+	}
+	.dock .list-keys {
+		padding: 0 0 8px var(--gutter);
+	}
+	.dock .list-row-sub {
+		padding-left: calc(var(--over) + var(--gutter));
+	}
+	/* Earlier and routine: the fold row a long path has, a dotted ring in the gutter. */
+	.dock .list-fold {
+		position: relative;
+		width: calc(100% + 2 * var(--over));
+		margin: 16px calc(-1 * var(--over)) 0;
+		padding: 8px var(--over) 8px calc(var(--over) + var(--gutter));
+	}
+	.dock .list-fold::before {
+		content: "";
+		position: absolute;
+		top: 50%;
+		left: var(--mark-x);
+		width: var(--mark);
+		height: var(--mark);
+		box-sizing: border-box;
+		border: 1.5px dotted var(--ink-4);
+		border-radius: 50%;
+		transform: translateY(-50%);
+	}
+	/* A live row's mark is already in the accent; the beat after its time would push the time off the edge. */
+	.dock .list-when .dock-dot {
+		display: none;
+	}
+	/* Unread is not live: its ring in ink, so mint stays on what runs. */
+	.dock .list-row[data-inbox][data-state="new"] .list-mark,
+	.dock .list-row[data-inbox][data-state="noticed"] .list-mark {
+		color: var(--ink);
+	}
+	/* A picked-up item whose work thread runs: its ≡ in the accent, as a running row's mark is. */
+	.dock .list-row[data-inbox][data-live] .list-mark {
+		color: var(--accent);
+	}
+	/* The work thread under its item: one line tucked under the item's, no mark of its own. */
+	.dock .list-row[data-work] {
+		padding-top: 0;
+	}
+	.dock .list-row[data-work] .list-line {
+		margin-top: 0;
+	}
+	/* "Open ›" at a rule's end, in the rule's own face: the message a work thread was picked up from. */
+	.pane-task-open {
+		flex-shrink: 0;
+		margin-left: 4px;
+		font: inherit;
+		letter-spacing: inherit;
+		color: var(--ink-3);
+		transition: color var(--dur-press) var(--ease-out);
+	}
+	.pane-task-open:hover {
+		color: var(--ink);
+	}
+
+	/* ------------------------------------------------- what a stream holds
+	 * A notice in a stream (a call ended, a run stopped): a quiet line on the
+	 * edge, not a centred rule. Speech in a watched thread keeps its bubbles,
+	 * theirs from the text edge. */
+	.dock .pane-stream .rule-line-plain {
+		justify-content: flex-start;
+		padding: 4px 0 4px var(--gutter);
+		text-align: left;
+	}
+	.dock .pane-stream .said-group {
+		padding-left: var(--gutter);
+	}
+	/* A work thread's conversation keeps its bubbles and cards, since the
+	 * person is in it, but on the pane's text edge (the column's own 24px
+	 * and 12 more), each time on that edge over what it dates. */
+	.dock .tape-row > * {
+		margin-left: 12px;
+	}
+	.dock .rule-line.tape-stamp {
+		justify-content: flex-start;
+	}
+}

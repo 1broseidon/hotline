@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Root } from "react-dom/client";
-import { startedWords, threadFamily } from "../src/threadKinds";
+import { clockWords, threadFamily } from "../src/threadKinds";
 import { installDom } from "./dom";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { PaneHead, TaskCard, LiveStream, ResultCard } = await import("../src/components/thread/Pane");
+const { BandKind, PaneHead, TaskCard, LiveStream, ResultCard } = await import("../src/components/thread/Pane");
+const { Clamped, SectionRule, StateLine } = await import("../src/components/thread/Spine");
 
 let act: typeof import("react").act;
 let root: Root;
@@ -36,83 +37,158 @@ async function render(node: React.ReactNode) {
 	await act(async () => root.render(node));
 }
 
-describe("a thread's kind and family", () => {
+describe("a thread's kind", () => {
 	test("a work thread the person is in is a conversation, and one handed over is a handoff they can step in to", () => {
-		expect(threadFamily("side")).toEqual({ glyph: "≡", word: "Work thread", family: "", watching: false });
-		expect(threadFamily("side", "Elvis")).toEqual({ glyph: "⇄", word: "Handoff", family: "", watching: true });
+		expect(threadFamily("side")).toEqual({ glyph: "≡", word: "Work thread", watching: false });
+		expect(threadFamily("side", "Elvis")).toEqual({ glyph: "⇄", word: "Handoff", watching: true });
 	});
 
-	test("a run is a subagent, read only, unless it is a command a teammate left running", () => {
-		expect(threadFamily("run", "Pork Chop")).toEqual({ glyph: "◆", word: "Helper", family: "Read only", watching: true });
-		expect(threadFamily("run", "Pork Chop", "shell")).toEqual({ glyph: "$", word: "Command", family: "Started by Pork Chop", watching: true });
-		expect(threadFamily("run", undefined, "shell").family).toBe("");
+	test("a run is a helper unless it is a command a teammate left running", () => {
+		expect(threadFamily("run")).toEqual({ glyph: "◆", word: "Helper", watching: true });
+		expect(threadFamily("run", undefined, "shell")).toEqual({ glyph: "$", word: "Command", watching: true });
 	});
 
 	test("a pair and a job are watched, a call is one the person is in", () => {
-		expect(threadFamily("pair")).toMatchObject({ glyph: "◎", word: "Pair", family: "Read only", watching: true });
-		expect(threadFamily("job")).toMatchObject({ glyph: "↻", word: "Job", watching: true });
-		expect(threadFamily("call")).toMatchObject({ glyph: "☏", word: "Call", family: "", watching: false });
+		expect(threadFamily("pair")).toEqual({ glyph: "◎", word: "Pair", watching: true });
+		expect(threadFamily("job")).toEqual({ glyph: "↻", word: "Job", watching: true });
+		expect(threadFamily("call")).toEqual({ glyph: "☏", word: "Call", watching: false });
 	});
 
-	test("a start today is its time, and an earlier one has its date", () => {
+	test("a time today is its time, and an earlier one has its date", () => {
 		const now = new Date(2026, 10, 7, 14, 0).getTime();
-		expect(startedWords(new Date(2026, 10, 7, 13, 57).getTime(), now)).toMatch(/^started 1:57\s?PM$/);
-		expect(startedWords(new Date(2026, 10, 3, 9, 5).getTime(), now)).toMatch(/^started Nov 3, 9:05\s?AM$/);
+		expect(clockWords(new Date(2026, 10, 7, 13, 57).getTime(), now)).toMatch(/^1:57\s?PM$/);
+		expect(clockWords(new Date(2026, 10, 3, 9, 5).getTime(), now)).toMatch(/^Nov 3, 9:05\s?AM$/);
+	});
+});
+
+describe("a pane's band", () => {
+	test("no kind icon in the top bar: the kind's word alone, its state kept for a reader", async () => {
+		for (const kind of [threadFamily("run"), threadFamily("run", undefined, "shell"), threadFamily("job"), threadFamily("call"), threadFamily("pair"), threadFamily("side", "Elvis")]) {
+			await render(<BandKind kind={kind} state="working" />);
+			const heading = container.querySelector("h2");
+			expect(heading?.textContent).toBe(kind.word);
+			expect(heading?.textContent).not.toContain(kind.glyph);
+			expect(heading?.querySelector(".run-dot, [aria-hidden]")).toBeNull();
+			expect(heading?.getAttribute("aria-label")).toBe(`${kind.word}, working`);
+		}
 	});
 });
 
 describe("a pane's head", () => {
-	test("says the title, then the kind's fact and the meta joined by dots without empty parts", async () => {
-		await render(<PaneHead kind={threadFamily("run", "Pork Chop")} title="Audit side-pane thread rows" meta={["sent by Pork Chop", "", undefined, false, "Sonnet 5.5", "started 1:57 PM"]} />);
-		expect(container.querySelector(".pane-title")?.textContent).toBe("Audit side-pane thread rows");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Read only · sent by Pork Chop · Sonnet 5.5 · started 1:57 PM");
+	test("says the title on the text edge, then one state line: its word, a detail, and a time at the right edge, with no dot", async () => {
+		await render(<PaneHead title="Audit side-pane thread rows" line={<StateLine word="Working now" detail="6 steps" time="5:27" />} />);
+		expect(container.querySelector(".spine-title")?.textContent).toBe("Audit side-pane thread rows");
+		const line = container.querySelector(".spine-state");
+		expect(line?.querySelector(".spine-state-word")?.textContent).toBe("Working now");
+		expect(line?.querySelector(".spine-state-detail")?.textContent).toBe("· 6 steps");
+		expect(line?.querySelector(".spine-time")?.textContent).toBe("5:27");
+		expect(container.querySelector(".spine-mark")).toBeNull();
+		// Spacing closes the head, not a hairline.
+		expect(container.querySelector("hr, .pane-head")).toBeNull();
 	});
 
-	test("a thread the person speaks in has no fact leading its meta: its composer says it", async () => {
-		await render(<PaneHead kind={threadFamily("side")} title="Release notes" meta={["Pork Chop"]} />);
-		expect(container.querySelector(".pane-title")?.textContent).toBe("Release notes");
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop");
+	test("waiting on the person, the state's word is the amber one", async () => {
+		await render(<PaneHead title="Sign the installer" line={<StateLine word="Needs you" time="11:39 AM" you />} />);
+		expect(container.querySelector(".spine-state")?.hasAttribute("data-you")).toBe(true);
 	});
 
-	test("a family said in its place wins over the kind's own", async () => {
-		await render(<PaneHead kind={threadFamily("job")} family="Loop" title="Watch CI" />);
-		expect(container.querySelector(".pane-meta")?.textContent).toBe("Loop");
+	test("its facts are rows of a label and a value, empty ones left out, at most three", async () => {
+		await render(<PaneHead title="Profile the cache" line={<StateLine word="Done" />} facts={[["Sent by", "Huck"], ["Model", undefined], ["Started", "11:36 AM"]]} />);
+		const rows = [...container.querySelectorAll(".spine-facts > div")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
+		expect(rows).toEqual([
+			["Sent by", "Huck"],
+			["Started", "11:36 AM"],
+		]);
+		// @ts-expect-error A fourth fact is refused: the title and the state line say the rest.
+		await render(<PaneHead title="Too many" line={null} facts={[["A", "1"], ["B", "2"], ["C", "3"], ["D", "4"]]} />);
 	});
 });
 
-describe("a task card", () => {
-	const task = "Read Dock.tsx, Conversation.tsx and LinkRow.tsx. List every place a subagent's run is shown.";
-	const more = () => [...container.querySelectorAll("button")].find((one) => one.textContent === "Show all" || one.textContent === "Show less");
-
-	test("names its eyebrow and who it came from, with their face", async () => {
-		await render(<TaskCard eyebrow="Task" from={{ personaId: "pc", name: "Pork Chop" }} text={task} />);
-		expect(container.querySelector(".pane-task-head .eyebrow")?.textContent).toBe("Task");
-		expect(container.querySelector(".pane-task-from")?.textContent).toContain("from Pork Chop");
-		expect(container.querySelector(".pane-task-from .avatar")).not.toBeNull();
-		expect(container.querySelector(".pane-task-body")?.textContent).toBe(task);
+describe("a section's heading", () => {
+	test("sits on a rule with its count at the rule's end, in sentence case", async () => {
+		await render(<SectionRule title="Receipts" count={4} />);
+		const rule = container.querySelector("h4.spine-rule");
+		expect(rule?.querySelector(".spine-rule-title")?.textContent).toBe("Receipts");
+		expect(rule?.querySelector(".spine-rule-line")).not.toBeNull();
+		expect(rule?.querySelector(".spine-rule-count")?.textContent).toBe("4");
+		expect(rule?.querySelector(".spine-rule-mark")).toBeNull();
 	});
 
-	test("has no Show all when its words fit in three lines", async () => {
-		measured = { scrollHeight: 54, clientHeight: 54 };
+	test("the status mark's four states: mint while active, an amber ring when blocked on the person, a dim dot once stopped, a red cross when it failed", async () => {
+		const drawn = { live: ["live", false], blocked: ["waiting", true], stopped: ["stopped", false], failed: ["failed", false] } as const;
+		for (const [status, [mark, blocked]] of Object.entries(drawn)) {
+			await render(<SectionRule title="Activity" status={status as keyof typeof drawn} />);
+			const rule = container.querySelector(".spine-rule");
+			expect(rule?.getAttribute("data-status")).toBe(status);
+			const dot = rule?.querySelector(".spine-rule-mark > .spine-mark");
+			expect(dot?.getAttribute("data-mark")).toBe(mark);
+			expect(dot?.hasAttribute("data-blocked")).toBe(blocked);
+			expect(dot?.classList.contains("beat")).toBe(status === "live");
+			expect(rule?.querySelectorAll(".spine-mark")).toHaveLength(1);
+		}
+		const words = [];
+		for (const status of ["live", "blocked", "stopped", "failed"] as const) {
+			await render(<SectionRule title="Activity" status={status} />);
+			words.push(container.querySelector(".spine-rule-mark")?.getAttribute("aria-label"));
+		}
+		expect(words).toEqual(["Active", "Needs you", "Ended", "Failed"]);
+	});
+});
+
+describe("words someone wrote", () => {
+	const more = () => [...container.querySelectorAll("button")].find((one) => one.textContent === "Show all" || one.textContent === "Show less");
+
+	test("a task names its section and who it came from, with their face, at the rule's end, and reads as markdown", async () => {
+		await render(<TaskCard eyebrow="Request" from={{ personaId: "pc", name: "Pork Chop" }} text={"Check these:\n\n- the numbers\n- the links"} />);
+		expect(container.querySelector(".pane-task .spine-rule-title")?.textContent).toBe("Request");
+		expect(container.querySelector(".spine-rule .pane-task-from")?.textContent).toEndWith("Pork Chop");
+		expect(container.querySelector(".pane-task-from .avatar")).not.toBeNull();
+		expect([...container.querySelectorAll(".spine-said li")].map((li) => li.textContent)).toEqual(["the numbers", "the links"]);
+	});
+
+	test("has no Show all when its words fit in six lines", async () => {
+		measured = { scrollHeight: 132, clientHeight: 132 };
 		await render(<TaskCard eyebrow="Request" text="Short." />);
 		expect(more()).toBeUndefined();
 	});
 
-	test("clamped past three lines, opens with Show all and closes with Show less", async () => {
-		measured = { scrollHeight: 160, clientHeight: 54 };
-		await render(<TaskCard eyebrow="Task" text={task} />);
-		const body = () => container.querySelector(".pane-task-body");
+	test("the six-line clamp: past six lines Show all opens it in place and Show less folds it again", async () => {
+		measured = { scrollHeight: 400, clientHeight: 132 };
+		await render(<TaskCard eyebrow="Asked by Huck" text="A long task." />);
+		const body = () => container.querySelector(".spine-clamp");
 		expect(body()?.hasAttribute("data-open")).toBe(false);
+		expect(body()?.hasAttribute("data-clipped")).toBe(true);
 		expect(more()?.textContent).toBe("Show all");
 		expect(more()?.getAttribute("aria-expanded")).toBe("false");
 
 		await act(async () => more()?.click());
 		expect(body()?.hasAttribute("data-open")).toBe(true);
+		expect(body()?.hasAttribute("data-clipped")).toBe(false);
 		expect(more()?.textContent).toBe("Show less");
 
 		await act(async () => more()?.click());
 		expect(body()?.hasAttribute("data-open")).toBe(false);
 		expect(more()?.textContent).toBe("Show all");
+	});
+
+	test("the clamp is six lines of the reading size, no fewer and no more", async () => {
+		await render(<TaskCard eyebrow="Request" text="Words." />);
+		expect((container.querySelector(".spine-clamp") as HTMLElement | null)?.style.getPropertyValue("--clamp-lines")).toBe("6");
+		const css = await Bun.file(new URL("../src/pane-spine.css", import.meta.url)).text();
+		expect(css).toContain("max-height: calc(var(--clamp-lines) * var(--text-read--line-height));");
+	});
+
+	test("any clamped words keep their own key: two on a page open one at a time", async () => {
+		measured = { scrollHeight: 400, clientHeight: 132 };
+		await render(
+			<>
+				<Clamped watch="a">one</Clamped>
+				<Clamped watch="b">two</Clamped>
+			</>,
+		);
+		const keys = () => [...container.querySelectorAll(".spine-more")];
+		await act(async () => (keys()[1] as HTMLButtonElement).click());
+		expect(keys().map((key) => key.textContent)).toEqual(["Show all", "Show less"]);
 	});
 });
 
@@ -139,13 +215,14 @@ describe("a live stream", () => {
 	});
 });
 
-describe("a result card", () => {
-	test("closes the stream with its eyebrow and its words as markdown", async () => {
-		await render(<ResultCard eyebrow="Result · sent to Pork Chop" aside="3:34" text={"A run is shown on **6 surfaces**.\n\n- Add `lastStep`"} />);
+describe("a result", () => {
+	test("closes the stream as a section, how long at the rule's end, and its words as markdown on a rule", async () => {
+		await render(<ResultCard eyebrow="Result" aside="3:34" text={"A run is shown on **6 surfaces**.\n\n- Add `lastStep`"} />);
 		const card = container.querySelector(".pane-result");
-		expect(card?.getAttribute("aria-label")).toBe("Result · sent to Pork Chop");
-		expect(card?.querySelector(".pane-result-head")?.textContent).toBe("Result · sent to Pork Chop3:34");
-		expect(card?.querySelector("strong")?.textContent).toBe("6 surfaces");
-		expect(card?.querySelector("li code")?.textContent).toBe("lastStep");
+		expect(card?.getAttribute("aria-label")).toBe("Result");
+		expect(card?.querySelector(".spine-rule-title")?.textContent).toBe("Result");
+		expect(card?.querySelector(".spine-rule-count")?.textContent).toBe("3:34");
+		expect(card?.querySelector(".spine-said strong")?.textContent).toBe("6 surfaces");
+		expect(card?.querySelector(".spine-said li code")?.textContent).toBe("lastStep");
 	});
 });

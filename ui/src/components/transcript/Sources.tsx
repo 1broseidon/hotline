@@ -3,6 +3,7 @@ import { EyeIcon } from "../../icons";
 import { openLink } from "../../native";
 import type { Source } from "../../turnFacts";
 import { Favicon } from "../Favicon";
+import { SectionRule } from "../thread/Spine";
 
 /*
  * The web pages a turn opened, by name, each a press away from the page in
@@ -14,13 +15,13 @@ import { Favicon } from "../Favicon";
 /** How many sources show before the rest are asked for: a turn most often reads a few. */
 const SOURCES_SHOWN = 4;
 
-/** The pages the turn opened: the first few as cards, the rest a press away. */
-export function Sources({ sources }: { sources: Source[] }) {
+/** The pages the turn opened: the first few as cards, the rest a press away. In the pane (`ruled`) its heading stands on a rule, as every section there does. */
+export function Sources({ sources, ruled = false }: { sources: Source[]; ruled?: boolean }) {
 	const [all, setAll] = useState(false);
 	const more = sources.length - SOURCES_SHOWN;
 	return (
 		<section aria-label="Sources">
-			<h3 className="work-heading">Sources · {sources.length}</h3>
+			{ruled ? <SectionRule title="Sources" count={sources.length} /> : <h3 className="work-heading">Sources · {sources.length}</h3>}
 			<div className="source-grid">
 				{(all ? sources : sources.slice(0, SOURCES_SHOWN)).map((source) => (
 					<SourceCard key={source.url} source={source} />

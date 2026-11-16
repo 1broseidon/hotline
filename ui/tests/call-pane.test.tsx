@@ -73,25 +73,50 @@ async function draw(props: Props = {}) {
 }
 
 const text = (selector: string) => [...container.querySelectorAll(selector)].map((el) => el.textContent);
+const facts = () => [...container.querySelectorAll(".spine-facts > div")].map((row) => `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`);
+const transcriptRule = () => [...container.querySelectorAll(".spine-rule")].find((rule) => rule.querySelector(".spine-rule-title")?.textContent === "Transcript");
 const button = (words: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((one) => one.textContent === words);
 
 describe("a call's pane", () => {
-	test("says ☏ Call with no family line, and the band says Live with how long and the voice model, and End call while live", async () => {
+	test("says Call alone in its band; its state line says it is on now, the voice model and how long; End call while live", async () => {
 		await draw();
-		expect(container.querySelector(".band-kind")?.textContent).toBe("☏ Call");
-		expect(container.querySelector(".pane-title")?.textContent).toBe("Live call on device-code login test");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("Call");
+		expect(container.querySelector(".spine-title")?.textContent).toBe("Live call on device-code login test");
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, live");
-		expect(container.querySelector(".band .instrument")?.textContent).toBe("12:48 · GPT-Live");
+		expect(container.querySelector(".band .instrument")).toBeNull();
+		expect(container.querySelector(".spine-state")?.textContent).toBe("On the call now· GPT-Live12:48");
+		expect(transcriptRule()?.getAttribute("data-status")).toBe("live");
 		await act(async () => button("End call")?.click());
 		expect(ended).toBe(1);
 	});
 
-	test("ended, the band says Ended and how long it ran, with no End call and no composer", async () => {
+	test("its facts are three rows at most: With, From, Started", async () => {
+		await draw({ from: "the phone", startedAt: new Date(2026, 10, 16, 10, 50).getTime(), now: new Date(2026, 10, 16, 11, 2).getTime() });
+		expect(facts()).toHaveLength(3);
+		expect(facts()[0]).toBe("With: Pork Chop");
+		expect(facts()[1]).toBe("From: the phone");
+		expect(facts()[2]).toMatch(/^Started: (Nov 16, )?10:50\s?AM$/);
+	});
+
+	test("ended, the state line says Ended and how long it ran, with no End call and no composer", async () => {
 		await draw({ live: false, endedAt: NOW - 60_000, model: undefined, composer: <textarea aria-label="Message" /> });
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, ended");
-		expect(container.querySelector(".band .instrument")?.textContent).toBe("11:48");
+		expect(container.querySelector(".spine-state")?.textContent).toBe("Ended11:48");
+		expect(transcriptRule()?.getAttribute("data-status")).toBe("stopped");
 		expect(button("End call")).toBeUndefined();
 		expect(container.querySelector('[aria-label="Message"]')).toBeNull();
+	});
+
+	test("the call pane shows its whole transcript: its own list, never the call card's capped box", async () => {
+		await draw();
+		const list = container.querySelector('ol[aria-label="Transcript"]');
+		expect(list?.className).toBe("call-pane-transcript");
+		expect(container.querySelector(".call-transcript")).toBeNull();
+		const css = await Bun.file(new URL("../src/index.css", import.meta.url)).text();
+		const rule = css.slice(css.indexOf(".call-pane-transcript {"), css.indexOf("}", css.indexOf(".call-pane-transcript {")));
+		expect(rule).not.toContain("max-height");
+		expect(rule).not.toContain("overflow");
+		expect(rule).not.toContain("border");
 	});
 
 	test("hung up with its thread still open, the band says Ended and the composer stays, as today", async () => {
@@ -101,7 +126,7 @@ describe("a call's pane", () => {
 		expect(container.querySelector('[aria-label="Message"]')).not.toBeNull();
 	});
 
-	test("lines are labelled by speaker, You or the teammate, in a two-column transcript", async () => {
+	test("lines are plain lines, each the speaker's name, You or the teammate, over what they said", async () => {
 		await draw();
 		expect(text(".call-line .call-who")).toEqual(["You", "Pork Chop", "Pork Chop"]);
 		expect(container.querySelector(".call-line")?.hasAttribute("data-mine")).toBe(true);
@@ -115,11 +140,12 @@ describe("a call's pane", () => {
 	test("delegated work is folded where it fell, saying what it checked and its steps, and opens to its steps", async () => {
 		await draw();
 		const fold = container.querySelector<HTMLButtonElement>(".call-work-head")!;
-		expect(fold.textContent).toBe("Searched the voice log, Read the logins· 2 steps");
+		expect(fold.textContent).toBe("Searched the voice log, Read the logins2 steps");
+		expect(fold.querySelector(".call-work-fact")?.textContent).toBe("2 steps");
 		expect(fold.getAttribute("aria-expanded")).toBe("false");
 		expect(container.querySelector(".trail")).toBeNull();
 		// It sits between the two lines it fell between.
-		const rows = [...container.querySelectorAll(".call-transcript > li")].map((li) => (li.querySelector(".call-work") ? "work" : li.querySelector(".call-who")?.textContent));
+		const rows = [...container.querySelectorAll(".call-pane-transcript > li")].map((li) => (li.querySelector(".call-work") ? "work" : li.querySelector(".call-who")?.textContent));
 		expect(rows).toEqual(["You", "Pork Chop", "work", "Pork Chop"]);
 		await act(async () => fold.click());
 		expect(fold.getAttribute("aria-expanded")).toBe("true");
@@ -131,7 +157,7 @@ describe("a call's pane", () => {
 		const running: TranscriptEvent[] = [transcript[0]!, { kind: "tool", id: "t9", ts: 3, toolCallId: "tc9", title: "cargo test", status: "in_progress", said: { key: "run", one: "Ran the tests", many: "Ran the tests {n} times", doing: "Running the tests" } }];
 		await draw({ events: running, working: true });
 		expect(container.querySelector(".call-work-head")?.textContent).toContain("Running the tests");
-		expect(container.querySelector(".call-work-dot")?.hasAttribute("data-live")).toBe(true);
+		expect(container.querySelector(".call-work-head > .spine-mark")?.getAttribute("data-mark")).toBe("live");
 	});
 
 	test("the composer is there while live, as today, and gone once the call ends", async () => {
@@ -182,7 +208,7 @@ describe("a call's pane", () => {
 
 	test("its own link line is not drawn as a line of the transcript", async () => {
 		await draw({ events: [{ kind: "link", id: "link:call:c1", ts: 1, thread: "c1", threadKind: "call", title: "Release checks", state: "live" }, transcript[0]!] });
-		expect(container.querySelectorAll(".call-transcript > li")).toHaveLength(1);
+		expect(container.querySelectorAll(".call-pane-transcript > li")).toHaveLength(1);
 	});
 });
 

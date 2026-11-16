@@ -21,7 +21,7 @@ describe("the pane's sources", () => {
 		expect(few.match(/class="source-card"/g)?.length).toBe(3);
 		expect(few).not.toContain("source-more");
 		const many = renderToStaticMarkup(<Trail items={opened(29)} settled />);
-		expect(many).toContain("Sources · 29");
+		expect(many).toContain('<span class="spine-rule-title">Sources</span><span aria-hidden="true" class="spine-rule-line"></span><span class="spine-rule-count">29</span>');
 		expect(many.match(/class="source-card"/g)?.length).toBe(4);
 		expect(many).toContain("Show 25 more");
 	});

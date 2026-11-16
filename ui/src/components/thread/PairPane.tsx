@@ -3,7 +3,7 @@ import type { Aside, DeliveryCause, ThreadId, ThreadSummary, TranscriptEvent } f
 import type { Person } from "../../avatars";
 import { conversationWith, type LinkEvent } from "../../dock";
 import { ArrowLeftIcon } from "../../icons";
-import { startedWords, threadFamily } from "../../threadKinds";
+import { clockWords, threadFamily } from "../../threadKinds";
 import { useThread } from "../../tape";
 import { toBlocks, withStreaming } from "../../transcriptFolds";
 import { Avatar } from "../../ui/Avatar";
@@ -12,6 +12,7 @@ import { PaneClose } from "../../ui/PaneClose";
 import { Markdown } from "../Markdown";
 import { ExchangePaused } from "../transcript/Asks";
 import { BandKind, LiveStream, PaneHead } from "./Pane";
+import { Clamped, SectionRule, StateLine } from "./Spine";
 import { WorkBlocks } from "./WorkStream";
 
 type Teammate = { id: string; name: string; hash?: string | undefined };
@@ -23,7 +24,7 @@ type HandedWork = { thread: string; receiver: Teammate; latest: boolean; result:
 
 /** One line of a pair: who said it, on which side, and what; or the card its exchange paused on. */
 export type PairLine =
-	| { kind: "said"; id: string; who: Teammate; right: boolean; text: string; chip?: "Handoff" | "Aside"; work?: HandedWork }
+	| { kind: "said"; id: string; who: Teammate; text: string; chip?: "Handoff" | "Aside"; work?: HandedWork }
 	| { kind: "paused"; id: string; event: Paused };
 
 /**
@@ -40,15 +41,15 @@ function betweenThem(aside: Aside, self: Teammate, other: Teammate): boolean {
  * A pair's lines, oldest first, each with the teammate who said it. A pair's
  * key is its two ids, and its stream writes the first's lines as `user` and
  * the second's as `agent`; a colleague's delivery into it is its sender's.
- * `self` is on the left, the teammate it is with on the right. A line the desk
- * stamped with a work thread is a handoff or its result (`result:<request>`);
- * the last request into a thread is the one still going on in it. The asides
- * between the two stand among the lines at their times.
+ * A line the desk stamped with a work thread is a handoff or its result
+ * (`result:<request>`); the last request into a thread is the one still
+ * going on in it. The asides between the two stand among the lines at their
+ * times.
  */
 export function pairLines(key: string, events: readonly TranscriptEvent[], self: Teammate, other: Teammate, asides: readonly Aside[] = []): PairLine[] {
 	const first = key.split("~")[0];
 	const whose = (id: string | undefined) => (id === self.id ? self : other);
-	const saidBy = (who: Teammate) => ({ who, right: who.id !== self.id });
+	const saidBy = (who: Teammate) => ({ who });
 	const left = asides.filter((aside) => betweenThem(aside, self, other)).sort((one, two) => one.ts - two.ts);
 	const lines: PairLine[] = [];
 	const asidesBefore = (ts: number) => {
@@ -151,13 +152,14 @@ function HandoffWork({ request, work, running, onGrew }: { request: string; work
 /**
  * A pair open in the pane (docs/design/thread-panes.html, Pair): a
  * conversation two teammates had before the inbox, "Conversation with
- * Goldie", kept to read. Each line on its speaker's side under their face
- * and name; a teammate on a linked desk by the name that says so ("Lou on
- * grizzly"). A handoff between them is its request, the work it became, and
- * its result, and an aside between them is a line too, each with a small chip
- * by the name: one press opened this, and nothing here needs another to be
- * read. It is read only: nothing here writes to it or starts it again, since
- * teammates reach each other through the inbox now.
+ * Goldie", kept to read. Each line in a quiet well on the text edge, the
+ * speaker's name over it and their small face in the gutter, six lines of it
+ * until Show all; a teammate on a linked desk by the name that says so ("Lou
+ * on grizzly"). A handoff between them is its request, the work it became,
+ * and its result, and an aside between them is a line too, each with a small
+ * chip by the name: one press opened this, and nothing here needs another to
+ * be read. It is read only: nothing here writes to it or starts it again,
+ * since teammates reach each other through the inbox now.
  */
 export function PairPane({
 	threadKey,
@@ -197,36 +199,43 @@ export function PairPane({
 	const shown = useMemo(() => ({ lines, grew }), [lines, grew]);
 	const working = lines.some((line) => line.kind === "said" && line.work?.latest === true && workingSides.includes(line.work.thread));
 	const said = lines.filter((line) => line.kind === "said").length;
+	// A pause waiting on Keep going or Stop is the person's to answer: the exchange is blocked on them.
+	const paused = lines.some((line) => line.kind === "paused" && line.event.status === "pending");
 	return (
 		<section className="dock-page" aria-label={conversationWith(other.name)}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
+				<button type="button" className="control btn-icon pane-back" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={threadFamily("pair")} live={false} state="earlier" tone="quiet" />
-				<span className="instrument shrink-0 pr-1">{said === 1 ? "1 line" : `${said} lines`}</span>
+				<BandKind kind={threadFamily("pair")} state="earlier" />
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
-				kind={threadFamily("pair")}
 				title={conversationWith(other.name)}
-				meta={[handoff !== undefined && `handed off by ${handoff.name}`, row !== undefined && startedWords(row.startedAt)]}
+				line={<StateLine word="Earlier" detail="read only" time={row !== undefined ? clockWords(row.updatedAt) : undefined} />}
+				facts={[
+					["Handed off by", handoff?.name],
+					["Started", row !== undefined ? clockWords(row.startedAt) : undefined],
+				]}
 			/>
+			<SectionRule title="Lines" count={said} status={paused ? "blocked" : working ? "live" : "stopped"} />
 			<LiveStream following={threadKey} count={lines.length} content={shown} live={working}>
 				{lines.map((line) =>
 					line.kind === "paused" ? (
 						<ExchangePaused key={line.id} personaId={self.id} ownerName={self.name} event={line.event} />
 					) : (
 						<div key={line.id}>
-							<div className="pair-line" data-right={line.right || undefined}>
-								<Avatar id={line.who.id} name={line.who.name} size={22} hash={line.who.hash ?? people.get(line.who.id)?.hash} />
+							<div className="pair-line">
+								<Avatar id={line.who.id} name={line.who.name} size={16} hash={line.who.hash ?? people.get(line.who.id)?.hash} />
 								<div className="pair-line-body">
 									<p className="said-name pair-line-name">
 										{line.who.name}
 										{line.chip !== undefined && <span className="pair-chip">{line.chip}</span>}
 									</p>
-									<div className="pair-line-said selectable">
-										<Markdown text={line.text} />
+									<div className="pair-line-said">
+										<Clamped watch={line.text}>
+											<Markdown text={line.text} />
+										</Clamped>
 									</div>
 								</div>
 							</div>

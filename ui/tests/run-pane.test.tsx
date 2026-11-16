@@ -30,7 +30,7 @@ let key = "r0";
 let serial = 0;
 const TASK = "Read Dock.tsx, Conversation.tsx and LinkRow.tsx. List every place a subagent's run is shown on the desk and what each shows today. Report back as a table.";
 
-const link = (state: "live" | "closed", end?: "done" | "cancelled", elapsedMs?: number): TranscriptEvent => ({
+const link = (state: "live" | "closed", end?: "done" | "cancelled" | "failed", elapsedMs?: number): TranscriptEvent => ({
 	kind: "link", id: `link:run:${key}`, ts: STARTED, thread: key, threadKind: "run", personaId: "pork", title: "Audit side-pane thread rows", state,
 	...(end !== undefined ? { end } : {}), ...(elapsedMs !== undefined ? { elapsedMs } : {}),
 });
@@ -143,20 +143,23 @@ async function show(run: RunningSubagent | undefined) {
 	await settle();
 }
 
-// The band says the kind; the state is the dot and the heading's name.
+// The band says the kind; the state is the head's line and the band heading's name.
 const band = () => container.querySelector(".run-pane h2")?.getAttribute("aria-label");
-const counted = () => container.querySelector(".run-pane .instrument")?.textContent;
+const stateLine = () => container.querySelector(".run-pane .spine-state")?.textContent;
+const foot = () => container.querySelector(".run-pane .spine-foot")?.textContent;
+const activity = () => [...container.querySelectorAll(".run-pane .spine-rule")].find((rule) => rule.querySelector(".spine-rule-title")?.textContent === "Activity");
 
-describe("the band", () => {
-	test("Band: state (Working / Done / Stopped) with beat dot, \"N steps · m:ss\", Stop while live", async () => {
+describe("the band and the head", () => {
+	test("the band says Helper alone; the state line says how it stands, its steps and how long; Stop is at the foot while live", async () => {
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx")];
 		await show(running());
 		expect(band()).toBe("Helper, Working");
-		expect(container.querySelector(".run-pane h2")?.textContent).toBe("◆ Helper");
-		expect(container.querySelector(".run-pane h2 .run-dot")?.className).toContain("beat");
-		expect(counted()).toMatch(/^1 step · \d+:\d\d/);
-		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop this helper"]');
+		expect(container.querySelector(".run-pane h2")?.textContent).toBe("Helper");
+		expect(container.querySelector(".run-pane .band .run-dot, .run-pane .band .beat")).toBeNull();
+		expect(stateLine()).toMatch(/^Working now· 1 step[\d:]+$/);
+		expect(container.querySelector('.band button[title="Stop this helper"]')).toBeNull();
+		const stop = container.querySelector<HTMLButtonElement>('.spine-foot button[title="Stop this helper"]');
 		expect(stop?.textContent).toBe("Stop");
 		await act(async () => stop!.click());
 		expect(sent).toEqual([{ cmd: "thread.cancel", params: { thread: { kind: "run", key } } }]);
@@ -170,8 +173,7 @@ describe("the band", () => {
 		first = [link("closed", "done", 214_000), task, read("t1", "c1", "Read Dock.tsx"), read("t2", "c2", "Read LinkRow.tsx"), said("a1", "Done.")];
 		await show(undefined);
 		expect(band()).toBe("Helper, Done");
-		expect(container.querySelector(".run-pane h2 .run-dot")?.className).not.toContain("beat");
-		expect(counted()).toBe("2 steps · 3:34");
+		expect(stateLine()).toBe("Done· 2 steps3:34");
 		expect(container.querySelector('button[title="Stop this helper"]')).toBeNull();
 
 		next();
@@ -181,35 +183,58 @@ describe("the band", () => {
 		expect(runStateOf(false, "failed")).toBe("Failed");
 		expect(stopwatch(3_723_000)).toBe("1:02:03");
 	});
-});
 
-describe("the head", () => {
-	test("\"◆ Helper\" kind label + \"Read only\"; title; \"sent by <teammate> · <model> · started <time>\"", async () => {
+	test("its facts are three rows at most: Sent by, Model, Started", async () => {
 		next();
 		first = [link("live"), task];
 		await show(running());
-		const head = container.querySelector(".run-pane .pane-head");
-		// The kind is the band's heading, and its foot says it is read only.
-		expect(head?.querySelector(".pane-title")?.textContent).toBe("Audit side-pane thread rows");
-		expect(head?.querySelector(".pane-meta")?.textContent).toMatch(/^sent by Pork Chop · Sonnet 5\.5 · started 1:57\s?PM$/);
+		expect(container.querySelector(".run-pane .spine-title")?.textContent).toBe("Audit side-pane thread rows");
+		const rows = [...container.querySelectorAll(".run-pane .spine-facts > div")].map((row) => `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`);
+		expect(rows).toHaveLength(3);
+		expect(rows[0]).toBe("Sent by: Pork Chop");
+		expect(rows[1]).toBe("Model: Sonnet 5.5");
+		expect(rows[2]).toMatch(/^Started: 1:57\s?PM$/);
+	});
+
+	test("the status mark is on Activity: mint while it works, a dim dot once done, a red cross when it failed, an amber ring while a card waits on the person", async () => {
+		next();
+		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx")];
+		await show(running());
+		expect(activity()?.getAttribute("data-status")).toBe("live");
+		expect(container.querySelectorAll(".run-pane .spine-rule-mark")).toHaveLength(1);
+
+		next();
+		first = [link("live"), task, { kind: "human_action", id: "h1", ts: STARTED + 2000, actionId: "act-1", reason: "Plug in the key", status: "pending" } as TranscriptEvent];
+		await show(running());
+		expect(activity()?.getAttribute("data-status")).toBe("blocked");
+
+		next();
+		first = [link("closed", "done", 214_000), task, said("a1", "Done.")];
+		await show(undefined);
+		expect(activity()?.getAttribute("data-status")).toBe("stopped");
+
+		next();
+		first = [link("closed", "failed", 9_000), task];
+		await show(undefined);
+		expect(activity()?.getAttribute("data-status")).toBe("failed");
 	});
 });
 
 describe("the task", () => {
-	test("The task it was given, clamped to 3 lines, Show all / Show less", async () => {
-		measured = { scrollHeight: 90, clientHeight: 54 };
+	test("The task it was given, Asked by its teammate, at reading size on a rule, six lines until Show all, Show less", async () => {
+		measured = { scrollHeight: 400, clientHeight: 132 };
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx")];
 		await show(running());
 		// desk-threads, decision 2: what it was asked, and by whom.
 		const card = container.querySelector('.run-pane section[aria-label="Asked by Pork Chop"]');
-		expect(card?.querySelector(".eyebrow")?.textContent).toBe("Asked by Pork Chop");
-		expect(card?.querySelector(".pane-task-body")?.textContent).toBe(TASK);
-		expect(card?.querySelector(".pane-task-body")?.hasAttribute("data-open")).toBe(false);
-		const more = card?.querySelector<HTMLButtonElement>(".pane-task-more");
+		expect(card?.querySelector(".spine-rule-title")?.textContent).toBe("Asked by Pork Chop");
+		expect(card?.querySelector(".spine-said")?.textContent).toBe(TASK);
+		expect(card?.querySelector(".spine-clamp")?.hasAttribute("data-open")).toBe(false);
+		const more = card?.querySelector<HTMLButtonElement>(".spine-more");
 		expect(more?.textContent).toBe("Show all");
 		await act(async () => more!.click());
-		expect(card?.querySelector(".pane-task-body")?.hasAttribute("data-open")).toBe(true);
+		expect(card?.querySelector(".spine-clamp")?.hasAttribute("data-open")).toBe(true);
 		expect(more?.textContent).toBe("Show less");
 		// The task is the card, not a line of the stream too.
 		expect(container.querySelector(".pane-stream")?.textContent).not.toContain(TASK);
@@ -226,7 +251,7 @@ describe("the stream", () => {
 		const parts = [...stream.querySelectorAll(".trail-step, .pane-said")].map((part) => part.className.includes("pane-said") ? "words" : "step");
 		expect(parts).toEqual(["step", "words"]);
 		// Its Activity: the words are the subagent's, a line of its work under its name, never a bubble.
-		expect(container.querySelector(".run-pane .pane-section")?.textContent).toBe("Activity");
+		expect(activity()?.querySelector(".spine-rule-title")?.textContent).toBe("Activity");
 		expect(stream.querySelector(".pane-said-who")?.textContent).toBe("Helper");
 		expect(stream.querySelector(".speech, .said-name")).toBeNull();
 		expect(container.querySelector(".run-pane textarea, .run-pane input")).toBeNull();
@@ -262,25 +287,25 @@ describe("the result", () => {
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx"), said("a1", "Looking at the rows.")];
 		await show(running());
 		expect(container.querySelector(".pane-result")).toBeNull();
-		expect(container.querySelector(".run-foot")?.textContent).toBe("Reports to Pork Chop when it finishes.");
+		expect(foot()).toBe("Reports to Pork Chop when it finishes.Stop");
 
 		next();
 		first = [link("closed", "done", 214_000), task, read("t1", "c1", "Read Dock.tsx"), said("a1", "Looking at the rows."), said("a2", "A run is shown on 6 surfaces.", STARTED + 200_000), { kind: "turn", id: "t9", ts: STARTED + 214_000, stopReason: "end_turn" }];
 		await show(undefined);
 		const result = container.querySelector(".pane-result");
-		expect(result?.querySelector(".pane-result-head")?.textContent).toBe("Result3:34");
-		expect(result?.querySelector(".pane-result-body")?.textContent).toContain("A run is shown on 6 surfaces.");
+		expect(result?.querySelector(".spine-rule")?.textContent).toBe("Result3:34");
+		expect(result?.querySelector(".spine-said")?.textContent).toContain("A run is shown on 6 surfaces.");
 		// The result closes the stream: the last thing in it, said once.
 		expect(container.querySelector(".pane-stream > :last-child")?.className).toContain("pane-result");
 		expect([...container.querySelectorAll(".pane-stream .pane-said-text")].map((one) => one.textContent)).toEqual(["Looking at the rows."]);
-		expect(container.querySelector(".run-foot")?.textContent).toMatch(/^Reported to Pork Chop at 2:00\s?PM\.$/);
+		expect(foot()).toMatch(/^Reported to Pork Chop at 2:00\s?PM\.$/);
 
 		// A run stopped before it reported has no result: it says it stopped.
 		next();
 		first = [link("closed", "cancelled", 60_000), task, said("a1", "Looking.")];
 		await show(undefined);
 		expect(container.querySelector(".pane-result")).toBeNull();
-		expect(container.querySelector(".run-foot")?.textContent).toMatch(/^Stopped at 1:58\s?PM\.$/);
+		expect(foot()).toMatch(/^Stopped at 1:58\s?PM\.$/);
 	});
 
 	test("a run's own link and its turn's end are not lines of its stream, and its words while live are never the result", () => {

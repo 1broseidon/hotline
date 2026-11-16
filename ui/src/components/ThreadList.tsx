@@ -8,6 +8,7 @@ import { MenuButton, onTablistKey } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
 import { NeedsYouRow } from "./NeedsYouRow";
+import { SectionRule, SpineHead } from "./thread/Spine";
 import type { ThreadRef } from "./Transcript";
 
 /** What is always one press away over the list, in their order. */
@@ -142,67 +143,69 @@ export function ThreadList({
 	if (entry === null) return <p className="px-4 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>;
 	return (
 		<>
-			<div className="list-search">
-				<input
-					type="search"
-					className="field"
-					placeholder="Search threads and asides"
-					aria-label="Search threads and asides"
-					autoComplete="off"
-					spellCheck={false}
-					value={query}
-					onChange={(change) => setQuery(change.target.value)}
-					onKeyDown={(key) => {
-						if (key.key === "Escape") setQuery("");
-					}}
-				/>
-			</div>
-			<fieldset className="list-chips chips" aria-label="Show">
-				{CHIPS.map((chip) => {
-					const count = chip.filter === "needs" ? counts.needs : chip.filter === "live" ? counts.live : undefined;
-					return (
-						<button
-							key={chip.filter}
-							type="button"
-							className="control btn-quiet btn-sm"
-							aria-pressed={filter === chip.filter}
-							data-tone={chip.filter === "needs" && counts.needs > 0 ? "warn" : undefined}
-							onClick={() => rememberFilter(entry.persona.id, chip.filter)}
-						>
-							{chip.word}
-							{count !== undefined && <span className="list-count">{count}</span>}
-						</button>
-					);
-				})}
-				<MenuButton
-					className="control btn-quiet btn-sm"
-					label="Filter by kind"
-					title="Filter by kind"
-					align="start"
-					pressed={KINDS.some((kind) => kind.filter === filter)}
-					entries={KINDS.map((kind) => ({ kind: "item", id: kind.filter, text: kind.word, checked: filter === kind.filter, onSelect: () => rememberFilter(entry.persona.id, kind.filter) }))}
-				>
-					{KINDS.find((kind) => kind.filter === filter)?.word ?? "Kind"}
-					<ChevronDownIcon />
-				</MenuButton>
-			</fieldset>
-			{spans(filter) && (
-				<div className="list-span">
-					<div className="segmented" role="tablist" aria-label="Live or ended" onKeyDown={onTablistKey}>
-						{SPANS.map((one) => (
-							<button key={one.span} type="button" role="tab" className="segment" aria-selected={span === one.span} onClick={() => setSpan(one.span)}>
-								{one.word}
-							</button>
-						))}
-					</div>
+			<SpineHead className="spine-head-list">
+				<div className="list-search">
+					<input
+						type="search"
+						className="field"
+						placeholder="Search threads and asides"
+						aria-label="Search threads and asides"
+						autoComplete="off"
+						spellCheck={false}
+						value={query}
+						onChange={(change) => setQuery(change.target.value)}
+						onKeyDown={(key) => {
+							if (key.key === "Escape") setQuery("");
+						}}
+					/>
 				</div>
-			)}
+				<fieldset className="list-chips chips" aria-label="Show">
+					{CHIPS.map((chip) => {
+						const count = chip.filter === "needs" ? counts.needs : chip.filter === "live" ? counts.live : undefined;
+						return (
+							<button
+								key={chip.filter}
+								type="button"
+								className="control btn-quiet btn-sm"
+								aria-pressed={filter === chip.filter}
+								data-tone={chip.filter === "needs" && counts.needs > 0 ? "warn" : undefined}
+								onClick={() => rememberFilter(entry.persona.id, chip.filter)}
+							>
+								{chip.word}
+								{count !== undefined && <span className="list-count">{count}</span>}
+							</button>
+						);
+					})}
+					<MenuButton
+						className="control btn-quiet btn-sm"
+						label="Filter by kind"
+						title="Filter by kind"
+						align="start"
+						pressed={KINDS.some((kind) => kind.filter === filter)}
+						entries={KINDS.map((kind) => ({ kind: "item", id: kind.filter, text: kind.word, checked: filter === kind.filter, onSelect: () => rememberFilter(entry.persona.id, kind.filter) }))}
+					>
+						{KINDS.find((kind) => kind.filter === filter)?.word ?? "Kind"}
+						<ChevronDownIcon />
+					</MenuButton>
+				</fieldset>
+				{spans(filter) && (
+					<div className="list-span">
+						<div className="segmented" role="tablist" aria-label="Live or ended" onKeyDown={onTablistKey}>
+							{SPANS.map((one) => (
+								<button key={one.span} type="button" role="tab" className="segment" aria-selected={span === one.span} onClick={() => setSpan(one.span)}>
+									{one.word}
+								</button>
+							))}
+						</div>
+					</div>
+				)}
+			</SpineHead>
 			<Scroll>
-				<div ref={root} className="px-2 pb-3">
+				<div ref={root} className="spine-body">
 					{!ready ? null : items.length === 0 ? (
-						<p className="px-2 py-3 text-sm text-ink-3">No threads with {entry.persona.name} yet.</p>
+						<p className="spine-empty">No threads with {entry.persona.name} yet.</p>
 					) : shown.length === 0 ? (
-						<p className="px-2 py-3 text-sm text-ink-3">{searching ? "No matches." : "Nothing here."}</p>
+						<p className="spine-empty">{searching ? "No matches." : "Nothing here."}</p>
 					) : (
 						<>
 							<Group title="Needs you" count={groups.needs.length} />
@@ -242,10 +245,7 @@ export function ThreadList({
 function Group({ title, count, items }: { title: string; count?: number; items?: ListItem[] }) {
 	if ((count ?? items?.length ?? 0) === 0) return null;
 	return (
-		<h3 className="list-group">
-			<span>{title}</span>
-			{count !== undefined && <span>{count}</span>}
-		</h3>
+		<SectionRule level={3} className="list-group" title={title} count={count} />
 	);
 }
 

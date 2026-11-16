@@ -5,6 +5,8 @@
 @import "./inline-lines.css";
 /* The bar above a teammate's desk browser, shared with its pane (browser.html). */
 @import "./browserBar.css";
+/* The right-hand pane's one skeleton (components/thread/Spine.tsx). */
+@import "./pane-spine.css";
 
 /* ---------------------------------------------------------------------------
  * The window: a well, and panes standing in it.
@@ -2169,13 +2171,12 @@
 		color: var(--ink-3);
 	}
 	/* The pane's work (Trail.tsx): Sources as cards, Files changed with the
-	 * lines in and out, then Steps as plain lines with a fact at the right;
-	 * a line opens to what ran and what came back, as labelled blocks. */
+	 * lines in and out, then Steps as plain lines on the pane's spine with a
+	 * fact at the right edge (pane-spine.css); a line opens to what ran and
+	 * what came back, as labelled blocks. */
 	.work-sections {
 		display: flex;
 		flex-direction: column;
-		gap: 18px;
-		padding: 8px 4px 8px;
 	}
 	.work-heading {
 		margin: 0 0 8px 6px;
@@ -2248,7 +2249,7 @@
 		min-height: 26px;
 		align-items: center;
 		gap: 12px;
-		padding: 2px 6px;
+		padding: 4px 0 4px var(--gutter);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
@@ -2283,33 +2284,31 @@
 		list-style: none;
 	}
 	/* What the teammate said it was on heads the steps it took meanwhile,
-	 * with when it began; the steps sit under it, set in. */
+	 * with when it began, on the text edge the steps' words start on. */
 	.trail-heading {
 		display: flex;
 		align-items: baseline;
-		gap: 10px;
-		padding: 4px 6px;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		gap: 8px;
+		margin-top: 12px;
+		padding: 4px 0 4px var(--gutter);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		font-weight: 500;
 		color: var(--ink);
+	}
+	.trail > li:first-child > .trail-heading {
+		margin-top: 0;
 	}
 	.trail-heading-said {
 		min-width: 0;
 		flex: 1;
 		overflow-wrap: anywhere;
 	}
-	.trail-group + .trail-group,
-	.trail-step + .trail-group {
-		margin-top: 6px;
-	}
-	.trail-under {
-		padding-left: 12px;
-	}
 	/* What the turn left behind, where the teammate said so. */
 	.trail-outcome {
-		padding: 4px 6px;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		padding: 5px 0 5px var(--gutter);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
 		color: var(--ink);
 	}
 	.step-heading,
@@ -2427,9 +2426,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		margin: 2px 6px 10px 18px;
-		padding-left: 10px;
-		border-left: var(--hairline) solid var(--line);
+		margin: 2px 0 8px var(--gutter);
 	}
 	.trail-thought {
 		display: -webkit-box;
@@ -2586,9 +2583,6 @@
 		color: var(--ink-2);
 	}
 	/* The turn's shape: a segment a step, as long as it took. */
-	.shape {
-		margin: 0 6px 4px;
-	}
 	.shape-bar {
 		display: flex;
 		height: 5px;
@@ -2606,11 +2600,12 @@
 		background: none;
 		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink-4) 55%, transparent);
 	}
+	/* Mint is the Steps heading's and the line live now: the bar keeps its shape in ink. */
 	.shape-bar > span[data-tone="web"] {
-		background: color-mix(in oklab, var(--accent), transparent 45%);
+		background: color-mix(in oklab, var(--ink-3) 70%, transparent);
 	}
 	.shape-bar > span[data-tone="live"] {
-		background: var(--accent);
+		background: var(--ink-3);
 		animation: beat var(--dur-breath) steps(6, jump-none) infinite;
 	}
 	.shape-bar > span[data-tone="failed"] {
@@ -4540,8 +4535,9 @@
 		flex-shrink: 0;
 		align-items: center;
 		gap: 12px;
-		padding: 12px 24px 16px;
-		border-top: 1px solid var(--line);
+		margin: 0 var(--px);
+		padding: 12px 0 12px var(--gutter);
+		border-top: var(--hairline) solid var(--line-strong);
 	}
 	.handoff-faces {
 		display: flex;
@@ -4557,7 +4553,7 @@
 		flex-shrink: 0;
 		flex-direction: column;
 		gap: 6px;
-		padding: 10px 24px 16px;
+		padding: 10px var(--px) 16px calc(var(--px) + var(--gutter));
 	}
 	.handoff-answer .field {
 		border-color: color-mix(in oklch, var(--warn) 60%, transparent);
@@ -4573,42 +4569,38 @@
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
-	/* A pair's line: the speaker's face beside their bubble, the one the pair
-	 * is with on the right, in the raised plane the other side's words take. */
+	/* A pair's line: the speaker's small face in the gutter, their name on
+	 * the text edge, and what they said under it in a quiet well of its
+	 * own, the column's width whoever said it, clamped like every message. */
 	.pair-line {
-		display: flex;
-		align-items: flex-end;
-		gap: 8px;
-		margin-top: 10px;
+		position: relative;
+		margin-top: 12px;
+		padding-left: var(--gutter);
 	}
-	.pair-line[data-right] {
-		flex-direction: row-reverse;
+	.pair-line > .avatar {
+		position: absolute;
+		top: 0;
+		left: calc(var(--gutter) / 2 - 10px);
 	}
 	.pair-line-body {
 		display: flex;
 		min-width: 0;
-		max-width: 80%;
 		flex-direction: column;
-		align-items: flex-start;
-	}
-	.pair-line[data-right] .pair-line-body {
-		align-items: flex-end;
 	}
 	.pair-line-said {
 		min-width: 0;
-		/* The column's cross axis: without it a long line is as wide as its
-		 * longest and, on the right, runs out of the pane's left edge. */
-		max-width: 100%;
 		padding: 8px 12px;
-		border-radius: var(--radius-bubble);
-		background: var(--said-them);
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
+		border-radius: var(--radius-card);
+		background: var(--fill-code);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		font-size: var(--text-read);
+		line-height: var(--text-read--line-height);
+		color: var(--ink-2);
 		overflow-wrap: anywhere;
 	}
-	.pair-line[data-right] .pair-line-said {
-		background: var(--raised);
-		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+	/* Clamped inside its well, so the well keeps its edge and Show all sits in it. */
+	.pair-line-said > .spine-more {
+		margin: 2px 0 0;
 	}
 	.pair-line-name {
 		display: flex;
@@ -4616,6 +4608,8 @@
 		gap: 6px;
 		margin-bottom: 2px;
 		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-3);
 	}
 	/* What a line of the pair is, when it is more than a line: Handoff, Aside. */
 	.pair-chip {
@@ -4628,7 +4622,6 @@
 	/* A handoff's work, under its request, in the pair's own window. */
 	.pair-work {
 		margin-top: 6px;
-		padding-left: 30px;
 	}
 	.pair-work:empty {
 		display: none;
@@ -4639,30 +4632,20 @@
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
-	/* A command left running: the command as typed, then its output in a
-	 * terminal sunk below the canvas, the one surface that is a terminal. */
-	.pane-command {
-		flex-shrink: 0;
-		margin: 0 16px 8px;
-		padding: 8px 10px;
-		border-radius: var(--radius-control);
-		background: var(--raised);
-		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink);
-		overflow-wrap: anywhere;
-	}
+	/* A command left running: its output in a terminal sunk below the
+	 * canvas, the one surface that is a terminal, the command as typed on
+	 * its first line. */
 	.pane-command-prompt {
 		margin-right: 8px;
-		color: var(--accent-ink);
+		color: var(--ink-4);
+	}
+	.pane-terminal-command {
+		color: var(--ink);
 	}
 	.pane-terminal {
-		min-height: 200px;
-		margin: 0;
+		margin: 0 0 0 var(--gutter);
 		padding: 10px 12px;
-		border-radius: var(--radius-pane);
+		border-radius: var(--radius-card);
 		background: var(--terminal);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 		font-family: var(--font-mono);
@@ -4682,144 +4665,51 @@
 	/* A line under a thread, above its composer: parked, archived, refused. */
 	.dock-note {
 		flex-shrink: 0;
-		padding: 0 24px 8px;
+		padding: 8px var(--px) 8px calc(var(--px) + var(--gutter));
 		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
-	/* A thread's head under its band (thread/Pane.tsx): what kind of thread
-	 * it is and what the person is to it, its title, and a line of facts.
-	 * A thread being watched marks its kind in the accent ink; one the person
-	 * is in, in the annotating ink, because it is a conversation like any. */
-	.pane-head {
-		flex-shrink: 0;
-		padding: 2px 24px 12px;
-	}
-	.pane-title {
-		font-size: var(--text-lg);
-		line-height: var(--text-lg--line-height);
-		font-weight: 600;
-		overflow-wrap: anywhere;
-	}
-	/* Where an inbox item stands, a word after its title, in the meta's ink. */
-	.pane-state {
-		font-size: var(--text-sm);
-		font-weight: 500;
-		white-space: nowrap;
-		color: var(--ink-3);
-	}
-	.pane-meta {
-		margin-top: 2px;
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-		overflow-wrap: anywhere;
-	}
-	/* What the thread was handed: three lines of it until Show all. */
+	/* What the thread was handed: a section of the column, its words on a
+	 * rule (pane-spine.css), six lines of them until Show all; who handed it,
+	 * by face and name, at the rule's end. */
 	.pane-task {
 		flex-shrink: 0;
-		margin: 0 16px 8px;
-		padding: 10px 12px 8px;
-		border-radius: var(--radius-card);
-		background: var(--raised);
-		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
-	}
-	.pane-task-head {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-bottom: 4px;
+		margin: 0 var(--px);
 	}
 	.pane-task-from {
 		display: inline-flex;
+		flex-shrink: 0;
 		align-items: center;
 		gap: 6px;
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-	}
-	.pane-task-body {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 3;
-		overflow: hidden;
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
-		color: var(--ink-2);
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-	}
-	.pane-task-body[data-open] {
-		display: block;
-		-webkit-line-clamp: unset;
-	}
-	.pane-task-more {
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--accent-ink);
-	}
-	.pane-task-more:hover {
-		color: var(--accent-hover);
-	}
-	/* The message a work thread was taken from opens in the pane. */
-	.pane-task-open {
-		margin-left: auto;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-		transition: color var(--dur-press) var(--ease-out);
-	}
-	.pane-task-open:hover {
-		color: var(--ink);
 	}
 	/* The work as it happens, on the pane's own canvas. */
 	.pane-stream {
 		min-height: 0;
 		flex: 1;
 		overflow-y: auto;
-		padding: 8px 16px 16px;
+		padding: 4px var(--px) 24px;
 	}
-	/* What came of it: the one card in the stream edged in the accent. */
-	.pane-result {
-		margin: 12px 0 4px;
-		padding: 10px 12px;
-		border-radius: var(--radius-card);
-		background: color-mix(in oklab, var(--accent) 6%, var(--raised));
-		box-shadow: inset 0 0 0 var(--hairline) color-mix(in oklab, var(--accent) 40%, transparent);
-	}
-	.pane-result-head {
-		display: flex;
-		justify-content: space-between;
-		gap: 8px;
-		color: var(--accent-ink);
-	}
-	.pane-result-body {
-		margin-top: 6px;
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
-	}
-	/* A call's transcript (thread/CallPane.tsx): who said each line in a
-	 * narrow column of its own, the words beside it, so the speakers read
-	 * down one edge. Yours are labelled in your words' mint and said in ink;
-	 * the teammate's in the annotating ink and said in ink-2. */
-	.call-transcript {
+	/* A call's transcript in its pane (thread/CallPane.tsx), whole, never
+	 * the call card's capped box: each line the speaker's name over what
+	 * they said, at reading size, on the text edge. Yours are labelled in
+	 * your words' mint and said in ink; the teammate's in the annotating ink
+	 * and said in ink-2. */
+	.call-pane-transcript {
 		display: flex;
 		flex-direction: column;
+		gap: 16px;
+		margin: 0;
+		padding: 4px 0 0;
+		list-style: none;
 	}
 	.call-line {
-		display: grid;
-		grid-template-columns: 72px minmax(0, 1fr);
-		gap: 8px;
-		margin: 8px 0;
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
+		padding-left: var(--gutter);
+		font-size: var(--text-read);
+		line-height: var(--text-read--line-height);
 	}
 	.call-who {
-		padding-top: 2px;
+		display: block;
 		overflow: hidden;
-		text-align: right;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-family: var(--font-mono);
@@ -4847,112 +4737,56 @@
 		color: var(--ink-3);
 		white-space: normal;
 	}
-	/* The work between two lines, folded where it fell, set under the words' column. */
-	.call-work {
-		margin: 4px 0 8px 80px;
-		padding: 4px 8px;
-		border-radius: var(--radius-card);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
-	}
+	/* The work between two lines, folded where it fell: a row on the
+	 * transcript's edge, its mark in the gutter (pane-spine.css), what it
+	 * did at a glance and its steps at the right edge. */
 	.call-work-head {
-		display: flex;
-		width: 100%;
-		min-width: 0;
-		align-items: center;
-		gap: 8px;
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-2);
-		text-align: left;
-	}
-	.call-work-head:hover {
-		color: var(--ink);
-	}
-	.call-work-dot,
-	.job-run-dot {
-		width: 7px;
-		height: 7px;
-		flex-shrink: 0;
-		border-radius: 50%;
-		background: var(--ink-4);
-	}
-	.call-work-dot[data-live],
-	.job-run-dot[data-state="working"],
-	.job-run-dot[data-state="posted"] {
-		background: var(--accent);
-	}
-	.job-run-dot[data-state="failed"] {
-		background: var(--danger);
-	}
-	/* A job's next run and last post, side by side over its runs (thread/JobPane.tsx). */
-	.job-facts {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 8px;
-		margin-bottom: 8px;
-	}
-	.job-facts > div {
-		min-width: 0;
-		padding: 8px 10px;
-		border-radius: var(--radius-card);
-		background: var(--raised);
-		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
-	}
-	.job-facts dt {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		letter-spacing: 0.04em;
-		color: var(--ink-3);
-	}
-	.job-facts dd {
-		margin-top: 2px;
 		font-size: var(--text-md);
 		line-height: var(--text-md--line-height);
-	}
-	/* Each run a section of its own, newest first, opening to what it found and its steps. */
-	.job-runs {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-	.job-run {
-		border-radius: var(--radius-card);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
-		overflow: hidden;
-	}
-	.job-run-head {
-		display: flex;
-		width: 100%;
-		min-width: 0;
-		align-items: center;
-		gap: 8px;
-		padding: 6px 10px;
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
 		color: var(--ink-2);
-		text-align: left;
+	}
+	.call-work-head:hover {
+		background: var(--fill-hover);
+	}
+	.call-work-fact {
+		order: 3;
+		margin-left: auto;
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	/* A job's runs, newest first, each a row on the spine that opens to what it found and its steps. */
+	.job-run-head {
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink-2);
 	}
 	.job-run-head:not(:disabled):hover {
 		background: var(--fill-hover);
 	}
+	.job-run[data-state="working"] .job-run-head {
+		color: var(--ink);
+	}
 	.job-run-when {
+		order: 3;
 		margin-left: auto;
 		flex-shrink: 0;
-		color: var(--ink-4);
-	}
-	.job-run[data-open] .job-run-head {
-		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		letter-spacing: 0.02em;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
 	}
 	.job-run-body {
-		padding: 8px 10px;
+		padding: 0 0 12px var(--gutter);
 	}
 	.job-run-found {
-		margin-bottom: 6px;
+		margin: 4px 0 8px;
 		font-size: var(--text-md);
 		line-height: var(--text-md--line-height);
+		color: var(--ink);
 	}
 	.job-run-notice {
 		margin-bottom: 6px;
@@ -4960,73 +4794,37 @@
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
-	/* A subagent's run (thread/RunPane.tsx): its state's dot in the band
-	 * and one line of fact at its foot. */
-	.run-dot {
-		flex-shrink: 0;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--accent);
-	}
-	.run-dot[data-state="Stopped"],
-	.run-dot[data-tone="quiet"] {
-		background: var(--ink-4);
-	}
-	.run-dot[data-tone="failed"] {
-		background: var(--danger);
-	}
-	.run-dot[data-state="Failed"] {
-		background: var(--danger);
-	}
 	/* A watched thread's steps (thread/WorkStream.tsx) are the work page's
-	 * lines where they fell between the words, without a heading over each run. */
-	.pane-stream .work-sections {
-		padding: 0;
-	}
+	 * lines where they fell between the words, without a heading over each
+	 * run; so are the steps a job's run or a call's work opens to. */
 	.pane-stream .steps-heading {
 		display: none;
 	}
-	/* A section's name in a watched thread's pane: the Activity over a run's
-	 * steps or a command's output, as the eyebrows of its task and result. */
-	.pane-section {
-		flex-shrink: 0;
-		margin: 4px 16px 0;
-	}
 	/* Words said between a run's steps: a line of its activity under who
-	 * said it, not a bubble, since nobody talks with a run. */
+	 * said it, on a rule down the gutter as written words are, not a
+	 * bubble, since nobody talks with a run. */
 	.pane-said {
-		margin-top: 10px;
+		position: relative;
+		margin: 8px 0;
+		padding-left: var(--gutter);
 	}
 	.pane-said-who {
+		margin-bottom: 2px;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
 	}
 	.pane-said-text {
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
 		color: var(--ink-2);
-	}
-	.run-foot {
-		flex-shrink: 0;
-		padding: 10px 24px;
-		box-shadow: inset 0 var(--hairline) 0 var(--line);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
 	}
 	/* The Threads list (ThreadList.tsx): the chips that narrow it, a group's
 	 * heading in the instrument face with its count at the right, the fold
 	 * of what is earlier and routine, and rows of one shape: the kind's mark,
-	 * the title over one line, and the time. */
-	.list-search {
-		padding: 0 12px 8px;
-	}
-	.list-chips {
-		padding: 0 12px 8px;
-	}
+	 * the title over one line, and the time. In the pane, on its skeleton
+	 * (pane-spine.css); the composer's popovers keep these. */
 	.list-chips .btn-sm {
 		gap: 6px;
 	}
@@ -5042,9 +4840,6 @@
 		font-size: var(--text-xs);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-4);
-	}
-	.list-span {
-		padding: 0 12px 8px;
 	}
 	.list-group,
 	.list-fold {
@@ -5204,44 +4999,53 @@
 	.list-row[data-inbox][data-state="noticed"] .list-mark {
 		color: var(--accent-ink);
 	}
-	/* An item's receipts in its pane: the time, the state, and why. */
-	/* A table of three columns, so a dated time and today's line up at the
-	 * right of one column, whichever rows carry a date. */
+	/* An item's receipts in its pane, on the spine: the state's mark in the
+	 * gutter, the state and why on the text edge, the time, dated before
+	 * today, on the right edge. */
 	.inbox-receipts {
 		flex-shrink: 0;
-		display: grid;
-		grid-template-columns: max-content max-content minmax(0, 1fr);
-		align-items: baseline;
-		column-gap: 8px;
-		row-gap: 6px;
-		padding: 5px 16px 11px 24px;
+		margin: 0 var(--px);
 	}
-	.inbox-receipts li {
-		display: contents;
+	.inbox-receipts > li {
+		position: relative;
+		display: flex;
+		min-height: 28px;
+		align-items: baseline;
+		gap: 8px;
+		padding: 5px 0 5px var(--gutter);
+	}
+	.inbox-receipts > li > .spine-mark {
+		position: absolute;
+		top: 50%;
+		left: calc(var(--gutter) / 2 - var(--mark) / 2);
+		transform: translateY(-50%);
 	}
 	.inbox-receipt-at {
-		grid-column: 1;
+		margin-left: auto;
+		flex-shrink: 0;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.02em;
 		font-variant-numeric: tabular-nums;
-		text-align: right;
-		color: var(--ink-4);
+		color: var(--ink-3);
 	}
 	.inbox-receipt-word {
 		flex-shrink: 0;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
 		font-weight: 500;
 		color: var(--ink);
 	}
 	.inbox-receipt-detail {
 		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
-		overflow-wrap: anywhere;
 	}
 	.list-when .dock-dot {
 		width: 6px;
@@ -5356,22 +5160,12 @@
 		flex: 1;
 		flex-direction: column;
 	}
-	/* A run's counts in the steps pane's band, beside its state: the parts
-	 * that fit, each whole. One with no room wraps to a second line, which
-	 * is out of sight, so the state beside them is never cut. */
+	/* A command's label in its card's band, beside its state: cut before the state is. */
 	.work-band-detail {
-		display: flex;
-		flex-wrap: wrap;
 		min-width: 0;
-		height: 1lh;
 		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.work-band-detail::before {
-		content: "";
-	}
-	.work-band-detail > span + span {
-		margin-left: 1ch;
 	}
 	/* Holding an earlier turn: the way back to the one that follows the latest. */
 	.work-latest {
@@ -5391,15 +5185,21 @@
 		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	/* The turn's shape and sources, fixed over the steps scrolling beneath. */
-	.work-page > .work-head {
-		flex: none;
-		max-height: 45%;
-		overflow-y: auto;
-		gap: 14px;
-		padding: 4px 12px 12px;
-		/* A hairline that fades out toward both edges, not a hard rule. */
-		background: linear-gradient(to right, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent) bottom / 100% var(--hairline) no-repeat;
+	/* The turn's head, fixed over the steps scrolling beneath: what the
+	 * person asked, two lines at most, how it stands, then its shape and
+	 * sources. A quiet turn nobody asked for has no title. */
+	.work-spine-head > .spine-title {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		overflow: hidden;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		font-weight: 500;
+	}
+	.work-spine-head > .work-head {
+		gap: 12px;
+		margin-top: 12px;
 	}
 	/* The steps' heading stays at the top while its steps scroll under it.
 	 * It starts where it sticks, with nothing above it in the window, so a
@@ -5409,20 +5209,17 @@
 		position: sticky;
 		top: 0;
 		z-index: 1;
-		margin: 0 -4px 4px;
-		padding: 12px 10px 8px;
+		margin: 0 0 4px;
+		padding: 16px 0 8px var(--gutter);
 		background: var(--canvas);
 	}
-	.work-page .work-window > .work-sections {
-		padding-top: 0;
-	}
-	/* Files changed, when the turn changed any, scroll above the steps. */
-	.work-page .work-window > .work-sections > [aria-label="Files changed"] {
-		padding-top: 12px;
+	/* Its padding is uneven, so its mark is set on the words' line: 16 above, half of 14 of line. */
+	.work-page .steps-heading > .spine-rule-mark {
+		top: 23px;
 	}
 	.work-page .work-window {
 		margin: 0;
-		padding: 0 8px 16px;
+		padding: 0 var(--px) 24px;
 		overscroll-behavior: none;
 		border-radius: 0;
 		background: transparent;
@@ -5926,6 +5723,16 @@
  * the flow: it adds room to scroll in and moves nothing. */
 .tape-column {
 	position: relative;
+}
+/* In the right-hand pane a work thread's conversation hangs under its
+ * Conversation heading, so a short one starts there instead of resting on
+ * the composer (the window's own conversation keeps `justify-end`). It only
+ * moves a column shorter than its scroller: a long one fills it either way,
+ * and following the latest line is the scroller's, not the column's. Out of
+ * the layers, as the utilities it overrides are in one. */
+.dock .tape-column {
+	justify-content: flex-start;
+	padding-top: 4px;
 }
 .tape-room {
 	position: absolute;

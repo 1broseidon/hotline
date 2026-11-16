@@ -1469,7 +1469,13 @@ counts on the pair's twelve, and nothing is sent between two that are paused.
 
 **Reaching the receiver** (`inbox/heard.rs`). An item is heard in the
 receiver's thread it is `about` while that is live, else its main
-conversation. An idle thread is woken once, `HOTLINE_INBOX_GATHER_MS` (4 s)
+conversation. A reply to an item a job sent is about the job, and heard in
+its thread while the run that sent it is still going: the job lives and no
+firing of it has begun since (`Room::job_run_open`). The job's thread is
+woken for it as an idle work thread is (`Room::wake_job_for_inbox`), a turn
+of that run whose words stay in the thread; once the next run begins or the
+job ends, what came back to the run and was never heard is the main
+conversation's, which is woken for it (`Room::inbox_left_job`). An idle thread is woken once, `HOTLINE_INBOX_GATHER_MS` (4 s)
 after the first item lands, for everything that landed meanwhile, by a line
 that only wakes it (a teammate not running is started for it). A main
 conversation mid-turn is handed a one-line notice of the new titles when the

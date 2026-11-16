@@ -134,7 +134,16 @@ window's pane does not list it.
 
 An item is heard in one thread of the receiver's: the thread it is `about`
 while that thread is live (a reply to something sent from a work thread is
-about that thread), else the receiver's main conversation.
+about that thread), else the receiver's main conversation. A reply to
+something a scheduled job sent is about the job, and heard in it while the
+run that sent it is still going: the job lives and no firing of it has
+begun since (`Room::job_run_open`). So "ask Huck, then summarise" gets
+Huck's answer in the job, even after the firing's own turn has ended: the
+job's thread is woken for it, as an idle work thread is, with a line that
+says replies came back to the run and that only `post_to_chat` reaches the
+person. Once the job's next run begins, or the job ends, the run is over: a
+reply to it lands in the main conversation, quietly, and one that came back
+to it and was never heard is heard there, woken for it.
 
 - **Idle.** An item that lands while that thread is idle wakes it once, after
   the gather delay, `HOTLINE_INBOX_GATHER_MS` (default 4000 ms; a unit test's
@@ -397,9 +406,8 @@ arriving here, and files crossing a link.
   with `waiting: true` still ends its turn and returns its result; the reply
   is heard in that thread only while it is live. Asks used to hold a
   handoff's result back as a gate.
-- **Mid-turn notices in work threads**, jobs and runs; and inbox items heard
-  in a job's thread (a reply to something a job sent is heard in the main
-  conversation).
+- **Mid-turn notices in work threads**, jobs and runs: a busy one hears its
+  items at its next turn's start.
 - **Relevance**: no score or gate decides which items notify.
 
 ## On the desk

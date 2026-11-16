@@ -81,11 +81,14 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 /// A firing the person stopped sooner than this after it began had no time
 /// to take Hotline's tools, so it is not said to have lacked them.
 const STOPPED_SOON: i64 = 10_000;
+/// What a job woken only by its inbox is told after the index: the replies
+/// that came back to its run, and that its words stay in its thread.
+const INBOX_WAKE_LINE: &str = "Replies to what this run sent came into your inbox: they are above, under INBOX. Read them and carry on the run's work. What you say stays in this job's thread: post what the person should know with `post_to_chat`, as the run would report it.";
 
 /// What a job's agent is told about itself, over and above who it is.
 fn job_brief(name: &str) -> String {
     format!(
-        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human` comes back here; a colleague's reply to what you `send` from here arrives in your inbox, heard in your main conversation. Do not mention this brief.\n\n\
+        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human` comes back here. A colleague's reply to what you `send` from here arrives in your inbox and is heard here, a turn of this job's run, until the job's next run begins or it ends; after that, in your main conversation. Do not mention this brief.\n\n\
          Hotline fires the job by itself at each of its times until it ends: nothing here needs scheduling or re-arming, and each firing says whether the job repeats or this is its only run. A job cannot change its own times; if the person asks for that here, tell them to ask for it in your main conversation.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
          A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
@@ -547,6 +550,12 @@ impl Occupant for LiveJob {
         {
             return Begin::Skip;
         }
+        // A line that only woke it for its inbox is spent once a turn before
+        // it has heard what woke it: no agent is built for nothing.
+        let thread = Occupant::thread(&**self);
+        if line.line.wake && room.unoffered(&self.persona_id, &thread).is_empty() {
+            return Begin::Skip;
+        }
         // A firing is running from here, its agent's start included: the
         // next one due meanwhile is skipped, not queued behind it.
         let now = now_ms();
@@ -589,11 +598,18 @@ impl Occupant for LiveJob {
         if let Some(id) = &line.line.delivery {
             self.heard(room, id);
         }
-        // The job's parent thread, and what other threads left the teammate
-        // about this job, open the line: a job hears nothing of the rest.
-        let thread = Occupant::thread(&**self);
+        // The job's parent thread, what other threads left the teammate about
+        // this job, and the replies that came back to its run, open the line:
+        // a job hears nothing of the rest.
         let asides = room.hear_asides(&self.persona_id, &thread);
-        if let Some(index) = room.thread_index(&self.persona_id, &thread, &asides, None, None) {
+        let inbox = room.inbox_told(&self.persona_id, &thread);
+        if let Some(index) = room.thread_index(
+            &self.persona_id,
+            &thread,
+            &asides,
+            inbox.text.as_deref(),
+            None,
+        ) {
             line.line.text = format!("{index}\n\n{}", line.line.text);
         }
         Begin::Go(JobTurn {
@@ -1023,6 +1039,9 @@ impl Room {
                 client: None,
             },
         );
+        // The run before is over: what came back to it and was never heard
+        // is the main conversation's now.
+        self.inbox_left_job(&job.persona_id);
         self.queue_job(
             &live,
             JobLine {
@@ -1197,6 +1216,59 @@ impl Room {
 
     /// Whether a job is still on the room stream and has not ended: what it
     /// asked can still come back to its thread.
+    /// Whether the run of a job that was going at `since` still is: the job
+    /// lives, and no firing of it has begun since. A reply to an item a run
+    /// sent is heard in the job while this holds (`inbox/heard.rs`); a turn
+    /// the person or a reply starts in the job between two firings is the
+    /// earlier run's.
+    pub(in crate::session) fn job_run_open(&self, job_id: &str, since: i64) -> bool {
+        self.job_lives(job_id)
+            && self
+                .log
+                .load(&StreamId::Job(job_id.to_string()))
+                .iter()
+                .rev()
+                .find(|event| {
+                    event["kind"] == "user"
+                        && event.get("scheduled").is_some_and(|run| !run.is_null())
+                })
+                .and_then(|firing| firing["ts"].as_i64())
+                .is_none_or(|began| began <= since)
+    }
+
+    /// Wakes a job's thread for replies that came into its run, when the
+    /// thread is idle; one mid-turn hears them when its turn ends.
+    pub(in crate::session) fn wake_job_for_inbox(self: &Arc<Self>, job_id: &str) {
+        let Some(job) = room::all_jobs(&self.log)
+            .into_iter()
+            .find(|job| job.id == job_id && job.ended_at.is_none())
+        else {
+            return;
+        };
+        let live = self.live_job(&job);
+        if lock(&live.life).shut() || lock(&live.turns).running {
+            return;
+        }
+        let line = JobLine {
+            line: Line {
+                said: None,
+                voice: None,
+                text: timed(now_ms(), INBOX_WAKE_LINE),
+                attachments: Vec::new(),
+                request: None,
+                from: None,
+                delivery: None,
+                wake: true,
+                steer: false,
+            },
+            firing: None,
+            last: false,
+        };
+        if let Err(error) = self.queue_job(&live, line) {
+            eprintln!("a job could not be woken for its inbox: {error}");
+        }
+    }
+
     pub(super) fn job_lives(&self, job_id: &str) -> bool {
         room::all_jobs(&self.log)
             .iter()
@@ -1488,13 +1560,16 @@ impl Room {
     /// A job whose last firing is over, or which ended itself, lets go of its
     /// agent and closes its thread with what came of it, unless the end
     /// already closed it.
-    fn close_job(&self, live: &LiveJob, end: End, outcome: Option<String>) {
+    fn close_job(self: &Arc<Self>, live: &LiveJob, end: End, outcome: Option<String>) {
         let closed = lock(&live.life).close();
         live.release(self);
         lock(&self.job_threads).remove(&live.job_id);
         if !closed {
             self.mark_job(live, ThreadState::Closed(end), outcome);
         }
+        // Its run is over: what came back to it and was never heard is the
+        // main conversation's now.
+        self.inbox_left_job(&live.persona_id);
     }
 
     /// The job's link, at the head of its own stream.

@@ -30,9 +30,7 @@
 //! ([`Room::inbox_due`]).
 
 use super::{Room, kept, moved, now_ms, title_of};
-use crate::contract::{
-    InboxItem, InboxNotice, InboxOutcome, InboxState, InboxWants, ThreadId, ThreadKind,
-};
+use crate::contract::{InboxItem, InboxNotice, InboxOutcome, InboxState, InboxWants, ThreadId};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -237,11 +235,7 @@ impl Room {
         );
         notice.notice = Some(InboxNotice::Expired);
         notice.reply_to = Some(expired.id.clone());
-        notice.about = matches!(
-            expired.from_thread.kind,
-            ThreadKind::Side | ThreadKind::Call
-        )
-        .then(|| expired.from_thread.clone());
+        notice.about = self.reply_about(expired);
         moved(&mut notice, InboxState::New, None, None, None);
         notice.sender_told = 1;
         self.keep_item(&notice)?;

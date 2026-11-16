@@ -1317,11 +1317,7 @@ impl Room {
             InboxWants::Nothing,
         );
         reply.reply_to = Some(original.id.clone());
-        reply.about = matches!(
-            original.from_thread.kind,
-            ThreadKind::Side | ThreadKind::Call
-        )
-        .then(|| original.from_thread.clone());
+        reply.about = self.reply_about(original);
         moved(&mut reply, InboxState::New, None, None, None);
         reply.sender_told = 1;
         self.keep_item(&reply)?;
@@ -1341,6 +1337,19 @@ impl Room {
         }
         self.arrived(&reply);
         Ok(reply)
+    }
+
+    /// Where a reply to `original` is heard by its sender: the work thread or
+    /// call it was sent from, while that is live, or the job it was sent
+    /// from, while the run that sent it is still going; else nowhere but the
+    /// sender's main conversation.
+    pub(super) fn reply_about(&self, original: &InboxItem) -> Option<ThreadId> {
+        let thread = &original.from_thread;
+        match thread.kind {
+            ThreadKind::Side | ThreadKind::Call => Some(thread.clone()),
+            ThreadKind::Job if self.job_run_open(&thread.key, original.ts) => Some(thread.clone()),
+            _ => None,
+        }
     }
 
     /// Hotline's notice to a teammate whose question to `colleague`, asked

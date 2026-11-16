@@ -111,9 +111,19 @@ pub(in crate::session) struct Told {
 
 impl Room {
     /// The thread an item is heard in: the receiver's thread it is about
-    /// while that thread is live, else the receiver's main conversation.
+    /// while that thread is live (a job's, while the run it arrived in is
+    /// still going), else the receiver's main conversation.
     pub(in crate::session) fn inbox_heard_in(&self, item: &InboxItem) -> ThreadId {
-        live_or_main(self, item.about.as_ref(), &item.to)
+        live_or_main(self, item.about.as_ref(), &item.to, item.ts)
+    }
+
+    /// A job's run is over: what came back to it and no turn was offered is
+    /// heard in the main conversation now, which is woken for it.
+    pub(in crate::session) fn inbox_left_job(self: &Arc<Self>, persona_id: &str) {
+        let main = ThreadId::dm(persona_id);
+        if !self.unoffered(persona_id, &main).is_empty() {
+            self.gather(persona_id, main);
+        }
     }
 
     /// An item has landed: the thread it is heard in is woken once the
@@ -145,7 +155,11 @@ impl Room {
 
     /// The unread items heard in `thread` that no turn's start has been
     /// offered yet, oldest first.
-    pub(super) fn unoffered(&self, persona_id: &str, thread: &ThreadId) -> Vec<InboxItem> {
+    pub(in crate::session) fn unoffered(
+        &self,
+        persona_id: &str,
+        thread: &ThreadId,
+    ) -> Vec<InboxItem> {
         kept::received(&self.log, persona_id)
             .into_iter()
             .filter(|item| {
@@ -227,6 +241,7 @@ impl Room {
                     None => session.input_ready.notify_one(),
                 }
             }
+            ThreadKind::Job => self.wake_job_for_inbox(&thread.key),
             ThreadKind::Side | ThreadKind::Call => {
                 let Some(side) = self.sides.get(&thread.key) else {
                     return;
@@ -414,7 +429,7 @@ impl Room {
         for item in sent {
             let told = usize::try_from(item.sender_told).unwrap_or(usize::MAX);
             if item.receipts.len() <= told
-                || live_or_main(self, Some(&item.from_thread), &item.from) != *thread
+                || live_or_main(self, Some(&item.from_thread), &item.from, item.ts) != *thread
             {
                 continue;
             }
@@ -456,8 +471,9 @@ impl Room {
 }
 
 /// `about` while it is a live thread of the teammate's, else its main
-/// conversation.
-fn live_or_main(room: &Room, about: Option<&ThreadId>, persona_id: &str) -> ThreadId {
+/// conversation. A job's thread is live for what came at `since` while the
+/// run that was going then still is ([`Room::job_run_open`]).
+fn live_or_main(room: &Room, about: Option<&ThreadId>, persona_id: &str, since: i64) -> ThreadId {
     match about {
         Some(thread)
             if matches!(thread.kind, ThreadKind::Side | ThreadKind::Call)
@@ -466,6 +482,9 @@ fn live_or_main(room: &Room, about: Option<&ThreadId>, persona_id: &str) -> Thre
                     .get(&thread.key)
                     .is_some_and(|side| side.thread == *thread) =>
         {
+            thread.clone()
+        }
+        Some(thread) if thread.kind == ThreadKind::Job && room.job_run_open(&thread.key, since) => {
             thread.clone()
         }
         _ => ThreadId::dm(persona_id),

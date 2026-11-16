@@ -3100,8 +3100,10 @@ thread, and reaching back into it with the home agent's own reading tools.
   its answer, like a colleague's answer to a request the job made before the
   inbox (`Request::reply_job`), comes back through
   `Room::deliver_into_job` while the job lives, else to the DM; a reply to
-  an item a job `send`s is an item in the teammate's inbox, heard in its
-  main conversation; one the
+  an item a job `send`s is an item in the teammate's inbox, heard in the
+  job's thread while the run that sent it is still going (the job lives and
+  no later firing has begun, `Room::job_run_open`), else in its main
+  conversation; one the
   last process wrote and had not handed over is handed over at start the
   same way (`Room::resume_job_deliveries`), so a restart neither drops it
   nor hands it to a job that has ended. A run

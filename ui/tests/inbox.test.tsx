@@ -375,7 +375,7 @@ describe("task-456 drawn", () => {
 		expect(row.disabled).toBe(true);
 	});
 
-	test("the composer counts what the teammate has not read only while there is some, and its tray opens an item or the whole inbox", async () => {
+	test("the composer counts what the teammate has not read only while there is some, its tray says when each arrived, and opens an item or the whole inbox", async () => {
 		const { Composer } = await import("../src/components/Composer");
 		const opened: string[] = [];
 		const draw = (items: InboxItem[]) =>
@@ -403,10 +403,10 @@ describe("task-456 drawn", () => {
 		await press(key()!);
 		const rows = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-inbox]")];
 		expect(rows.map((row) => row.querySelector(".list-line")?.textContent)).toEqual(["Huck · waiting", "Ivy"]);
-		// The sender waiting is counted in amber; one not waiting says when it was sent.
-		expect(rows[0]?.querySelector(".list-when")?.hasAttribute("data-waiting")).toBe(true);
-		expect(rows[0]?.querySelector(".list-when")?.textContent).toMatch(/^0:4\d$/);
-		expect(rows[1]?.querySelector(".list-when")?.hasAttribute("data-waiting")).toBe(false);
+		// A message whose sender is waiting says when it arrived, as every row does: "waiting" is in its line, not an amber count.
+		const { asideTime } = await import("../src/asides");
+		expect(rows.map((row) => row.querySelector(".list-when")?.textContent)).toEqual([asideTime(NOW - 40_000), asideTime(NOW - 60_000)]);
+		expect(rows.some((row) => row.querySelector(".list-when")?.hasAttribute("data-waiting"))).toBe(false);
 		await press(rows[0]!);
 		expect(opened).toEqual(["wipe"]);
 		expect(container.querySelector(".composer-threads-panel")).toBeNull();

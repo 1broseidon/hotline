@@ -434,8 +434,9 @@ item, and no chat opens between teammates.
   before the inbox keeps its old line and pane.
 - **The composer and the rail.** While the open teammate has unread items,
   the composer's bottom row has "N unread" with the tray, beside "N threads"
-  and in its style; it opens a tray of them (title, sender, amber age when
-  the sender waits) with a last row to the whole inbox. A rail row shows the
+  and in its style; it opens a tray of them (title, sender with "waiting"
+  when the sender waits, and when each arrived, the same on every row) with
+  a last row to the whole inbox. A rail row shows the
   teammate's `inbox` count while it is above zero.
 - **What was removed.** The teammate pane's Threads section, which listed a
   teammate's conversations with colleagues. Old pair threads and colleague

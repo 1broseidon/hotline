@@ -1,7 +1,6 @@
 import { type KeyboardEvent, type Ref, useEffect, useState } from "react";
 import type { InboxItem } from "../generated/contract";
 import { asideTime } from "../asides";
-import { stopwatch } from "../dock";
 import { ChevronRightIcon, InboxIcon } from "../icons";
 import { senderWords, unreadWords } from "../inbox";
 
@@ -47,10 +46,10 @@ export function InboxKey({
 
 /**
  * What the teammate has not read, in the pill's first row while the count is
- * open: each item's title over its sender, and how long the sender has
- * waited, in amber, where it stopped for it (else when it was sent). A row
- * opens the item in the pane; the last opens the whole inbox. Arrows, Home
- * and End walk the rows.
+ * open: each item's title over its sender, with "waiting" where the sender
+ * stopped for it, and when it arrived, the same on every row. A row opens
+ * the item in the pane; the last opens the whole inbox. Arrows, Home and End
+ * walk the rows.
  */
 export function InboxPanel({
 	id,
@@ -89,14 +88,14 @@ export function InboxPanel({
 				{items.map((item) => {
 					const waiting = item.waiting === true;
 					const from = senderWords(item, nameOf);
-					const when = waiting ? stopwatch(now - item.ts) : asideTime(item.ts, now);
+					const when = asideTime(item.ts, now);
 					return (
 						<li key={item.id}>
 							<button
 								type="button"
 								className="list-row"
 								data-inbox={item.id}
-								aria-label={`${item.title}, from ${from}${waiting ? `, waiting ${when}` : `, ${when}`}`}
+								aria-label={`${item.title}, from ${from}${waiting ? ", waiting" : ""}, ${when}`}
 								onClick={() => onOpen(item)}
 							>
 								<span className="list-mark composer-inbox-ring" aria-hidden="true">
@@ -108,9 +107,7 @@ export function InboxPanel({
 									</span>
 									<span className="list-line">{waiting ? `${from} · waiting` : from}</span>
 								</span>
-								<span className="list-when" data-waiting={waiting || undefined}>
-									{when}
-								</span>
+								<span className="list-when">{when}</span>
 							</button>
 						</li>
 					);

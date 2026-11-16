@@ -230,6 +230,13 @@ pub struct InboxItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub looped_in: bool,
+    /// Sent from a turn of the sender's main conversation that the person
+    /// read: something the person asked for, so its expiry is theirs to hear
+    /// from the sender. Absent on one sent from a quiet turn, a thread, or
+    /// before it was recorded.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub for_person: bool,
     /// Hotline's own notice, not a teammate's words: what it is about. Its
     /// `from` is the teammate it is about; only the desk sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -282,4 +289,7 @@ pub struct InboxSortedEntry {
     pub outcome: Option<InboxOutcome>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub into: Option<String>,
+    /// Hotline's own notice, whose sender is Hotline, not `from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<InboxNotice>,
 }

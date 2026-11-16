@@ -1232,6 +1232,13 @@ senderTold: number,
  */
 loopedIn?: boolean, 
 /**
+ * Sent from a turn of the sender's main conversation that the person
+ * read: something the person asked for, so its expiry is theirs to hear
+ * from the sender. Absent on one sent from a quiet turn, a thread, or
+ * before it was recorded.
+ */
+forPerson?: boolean, 
+/**
  * Hotline's own notice, not a teammate's words: what it is about. Its
  * `from` is the teammate it is about; only the desk sets it.
  */
@@ -1288,7 +1295,11 @@ export type InboxSortedEntry = { item: string, title: string,
 /**
  * The teammate it is from.
  */
-from: string, state: InboxState, reason?: string, outcome?: InboxOutcome, into?: string, };
+from: string, state: InboxState, reason?: string, outcome?: InboxOutcome, into?: string, 
+/**
+ * Hotline's own notice, whose sender is Hotline, not `from`.
+ */
+notice?: InboxNotice, };
 
 /**
  * Where an item stands, in the order it can move: `new` until its title is

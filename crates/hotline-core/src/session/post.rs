@@ -220,6 +220,14 @@ impl Room {
             .is_some_and(|turn| turn.quiet)
     }
 
+    /// Whether a turn is in flight on `thread` that the person reads: open,
+    /// and not quiet.
+    pub(super) fn is_read_turn(&self, thread: &ThreadId) -> bool {
+        lock(&self.posting)
+            .get(thread)
+            .is_some_and(|turn| !turn.quiet)
+    }
+
     /// Makes the turn in flight on `thread` quiet, or loud again once the
     /// person has spoken into it. Nothing for a thread with no turn open.
     pub(super) fn set_quiet(&self, thread: &ThreadId, quiet: bool) {

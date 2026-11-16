@@ -347,6 +347,7 @@ fn item(
         offered: None,
         sender_told: 0,
         looped_in: false,
+        for_person: false,
         notice: None,
         offer_again: None,
     }
@@ -413,6 +414,9 @@ impl Room {
         // The lead answering a desk call hands named work on by the call's
         // grant, as its handoffs always did.
         let lead = self.lead_call(&caller.id, sent_from);
+        // What the person asked for is sent in a main conversation's turn
+        // they read; a quiet turn's, a thread's or a job's is not theirs.
+        let for_person = sent_from.kind == ThreadKind::Dm && self.is_read_turn(sent_from);
         let mut sent = Vec::new();
         let mut held = Vec::new();
         for target in &targets {
@@ -425,6 +429,7 @@ impl Room {
                 sending.wants,
             );
             new.waiting = sending.waiting;
+            new.for_person = for_person;
             // Each receiver is told who else this send reached.
             new.also_to = targets
                 .iter()
@@ -892,6 +897,7 @@ impl Room {
                 reason: sorting.reason.clone(),
                 outcome: None,
                 into: None,
+                notice: item.notice,
             };
             if let Some(answer) = &sorting.answer {
                 self.reply_to_item(&me, said_in, item, answer.clone(), true)?;

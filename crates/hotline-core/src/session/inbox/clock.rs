@@ -217,8 +217,16 @@ impl Room {
                 crate::fence::quoted(&reason)
             )
         });
+        let tell = if expired.for_person {
+            format!(
+                " You sent it for something the person asked of you: tell them, in one line with `post_to_chat`, that {name} never picked it up."
+            )
+        } else {
+            " Tell the person only if it is theirs to know.".to_string()
+        };
         body.push_str(&because);
-        body.push_str(" Nothing more comes of it unless you send it again. Tell the person only if it is theirs to know.");
+        body.push_str(" Nothing more comes of it unless you send it again.");
+        body.push_str(&tell);
         let mut notice = super::item(
             &receiver,
             &ThreadId::dm(&receiver.id),

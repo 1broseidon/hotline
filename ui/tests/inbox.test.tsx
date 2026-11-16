@@ -363,6 +363,21 @@ describe("task-456 drawn", () => {
 		expect(container.querySelectorAll(".trail-row")).toHaveLength(0);
 	});
 
+	test("a sort's row for Hotline's notice credits Hotline, not the teammate it is about", async () => {
+		const { InboxSortedLine } = await import("../src/components/transcript/InboxLines");
+		const event = {
+			kind: "inbox_sorted" as const,
+			id: "s",
+			ts: NOW,
+			open: 0,
+			unread: 0,
+			entries: [{ item: "n", title: "Expired: Changelog wording", from: "huck", state: "closed" as const, outcome: "noted" as const, notice: "expired" as const }],
+		};
+		await act(async () => root!.render(<InboxSortedLine event={event} people={people} />));
+		await press(container.querySelector("[data-kind=inbox-sorted] .trail-head")!);
+		expect(container.querySelector(".trail-row")?.textContent).toBe("Expired: Changelog wording · HotlineNoted");
+	});
+
 	test("a sort of one item says so in the singular, and its row does nothing where nothing opens it", async () => {
 		const { InboxSortedLine } = await import("../src/components/transcript/InboxLines");
 		const event = { kind: "inbox_sorted" as const, id: "s", ts: NOW, open: 0, unread: 0, entries: [{ item: "x", title: "Nightly deploy is paused", from: "huck", state: "closed" as const, outcome: "noted" as const }] };

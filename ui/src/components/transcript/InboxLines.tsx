@@ -63,9 +63,10 @@ export function InboxSentRow({ title, sent, people }: { title: string; sent: Inb
  * The receiver's sort of what it read, on its main conversation: one quiet
  * line among the turn's, "Read 3 messages", drawn as a path line is
  * (Trail.tsx's FoldLine). Pressed, it unfolds to a row per item in the order
- * given: its title, its sender and a later's reason in the muted ink, and
- * what became of it at the right ("Answered", "Later", "Noted"). A press on
- * a row opens the item in the pane.
+ * given: its title, its sender (Hotline for the desk's own notice) and a
+ * later's reason in the muted ink, and what became of it at the right
+ * ("Answered", "Later", "Noted"). A press on a row opens the item in the
+ * pane.
  */
 export function InboxSortedLine({ event, people }: { event: InboxSorted; people: ReadonlyMap<string, Person> | undefined }) {
 	const { onOpen } = useContext(InboxRows);
@@ -74,7 +75,9 @@ export function InboxSortedLine({ event, people }: { event: InboxSorted; people:
 		<ol className="trail my-2" data-kind="inbox-sorted">
 			<FoldLine id={event.id} said={readWords(event.entries.length)}>
 				{event.entries.map((entry) => {
-					const muted = [nameOf(entry.from), entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
+					// Hotline's notice is the desk's, whoever it is about.
+					const from = entry.notice !== undefined ? "Hotline" : nameOf(entry.from);
+					const muted = [from, entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
 					const word = sortedWord(entry);
 					return (
 						<button

@@ -231,8 +231,14 @@ about that thread), else the receiver's main conversation.
   teammates as from Hotline, titled `Expired: <title>`, whose words are the
   desk's ("This is Hotline's notice, not Bob's words…") and give the
   receiver's last reason for later. It lands as any item does, so an idle
-  sender is woken quietly and decides whether the person needs to know. The
-  receiver is not woken. A notice can expire too, and an expired notice sends
+  sender is woken quietly. When the expired item came from something the
+  person asked for (`forPerson`: it was sent in a turn of the sender's main
+  conversation that the person read, not a quiet turn, a thread or a job),
+  the notice tells the sender to say so to the person in one line with
+  `post_to_chat`: that the colleague never picked it up. Otherwise the
+  sender decides whether the person needs to know. The rules are the same
+  either way: three days, unread items too, and a teammate not running is
+  still not started only to be offered a set-aside item again. The receiver is not woken. A notice can expire too, and an expired notice sends
   none. Notices count on no brake: they are no teammate's message, and they
   are not among what the receiver sent.
 - **The clock** looks when the desk opens (after the room has handed on what
@@ -412,8 +418,8 @@ item, and no chat opens between teammates.
   item it answers and the items that answer it. A held item says "Waiting
   for you to allow it." A receipt from before today gives its date as well
   as its time. Hotline's notice is from Hotline, by its mark,
-  wherever an item's sender is named (the pane, its rows, the composer's
-  tray). Back goes where it was opened from.
+  wherever an item's sender is named (the pane, its rows, the sort's row,
+  the composer's tray). Back goes where it was opened from.
 - **One word for each outcome.** An item a reply went back on is Answered
   and one whose work finished is Done, the same word on its sent row, its
   sort's row, the inbox pane and the item pane. Noticed, the desk showing
@@ -457,7 +463,8 @@ Types (`crates/hotline-contract/src/inbox.rs`, generated into
   `InboxState` `new | noticed | seen | taken | later | closed`; `InboxOutcome`
   `answered | done | noted | dropped | combined | expired`; `InboxNotice` `expired`;
   `InboxWants` `answer | work | nothing`. `InboxItem.notice?` marks Hotline's
-  own notice, `InboxItem.offerAgain?` is when a pick-up offers it next.
+  own notice, `InboxItem.offerAgain?` is when a pick-up offers it next, and
+  `InboxItem.forPerson?` marks one sent in a turn the person read.
 - `InboxView {personaId, open, closed, sent, unread}`: open and closed newest
   first, what the teammate sent others newest first, and its unread count.
 - `InboxItemDetail {item, replies}`: the item with its receipts and its `work`
@@ -485,6 +492,7 @@ Transcript events (`TranscriptEvent`):
   `inbox.item` or the subscription.
 - `inbox_sorted {id, ts, entries: InboxSortedEntry[], open, unread}` on the
   receiver's main conversation each time `update_inbox` runs, with
-  `InboxSortedEntry {item, title, from, state, reason?, outcome?, into?}` in
-  the order given, and how many items are open and unread
+  `InboxSortedEntry {item, title, from, state, reason?, outcome?, into?,
+  notice?}` in the order given (`notice` on Hotline's own, whose sender is
+  Hotline), and how many items are open and unread
   after it.

@@ -285,6 +285,77 @@ async fn an_item_open_three_days_expires_and_its_sender_alone_gets_one_marked_no
     );
 }
 
+/// An item sent in a turn of the sender's main conversation that the person
+/// read was something they asked for: when it expires, unread as it is,
+/// Hotline's notice tells the sender to say in one line that it was never
+/// picked up. One sent from a quiet turn leaves that to the sender, and both
+/// expire by the same three days.
+#[tokio::test]
+async fn an_expired_item_the_person_asked_for_has_its_sender_tell_them_it_was_never_picked_up() {
+    let (room, _) = room("clock-for-person");
+    let main = ThreadId::dm("ada");
+    let asked = {
+        let _turn = room.open_posting(&main, None);
+        send(&room, "ada", "bob", "Keyboards", json!({})).await
+    };
+    let unasked = {
+        let _turn = room.open_posting(&main, None);
+        room.set_quiet(&main, true);
+        send(&room, "ada", "bob", "Mice", json!({})).await
+    };
+    let outside = send(&room, "ada", "bob", "Trackpads", json!({})).await;
+    assert!(item(&room, "bob", &asked).for_person);
+    assert!(!item(&room, "bob", &unasked).for_person, "a quiet turn's");
+    assert!(!item(&room, "bob", &outside).for_person, "no turn's");
+
+    let first = item(&room, "bob", &asked);
+    room.inbox_due(arrived(&first) + expire_after() - 1).await;
+    assert!(notices(&room, "ada").is_empty(), "three days, not sooner");
+    room.inbox_due(now_ms() + expire_after()).await;
+    for id in [&asked, &unasked, &outside] {
+        assert_eq!(item(&room, "bob", id).outcome, Some(InboxOutcome::Expired));
+    }
+    let said = |id: &str| {
+        notices(&room, "ada")
+            .into_iter()
+            .find(|notice| notice.reply_to.as_deref() == Some(id))
+            .expect("a notice for each")
+            .body
+    };
+    let told = said(&asked);
+    assert!(
+        told.starts_with("This is Hotline's notice, not Bob's words.")
+            && told.contains(
+                "tell them, in one line with `post_to_chat`, that Bob never picked it up."
+            ),
+        "{told}"
+    );
+    for id in [&unasked, &outside] {
+        let left = said(id);
+        assert!(
+            left.ends_with("Tell the person only if it is theirs to know.")
+                && !left.contains("never picked it up"),
+            "{left}"
+        );
+    }
+    // The sort that reads the notice credits it to Hotline, not to Bob.
+    let notice = notices(&room, "ada").remove(0);
+    tool(
+        &room,
+        "ada",
+        "update_inbox",
+        json!({"items": [{"id": notice.id, "state": "closed", "outcome": "noted"}]}),
+    )
+    .await
+    .unwrap();
+    let sorted = room
+        .tape("ada")
+        .into_iter()
+        .rfind(|event| event["kind"] == "inbox_sorted")
+        .expect("the sort's line");
+    assert_eq!(sorted["entries"][0]["notice"], "expired", "{sorted}");
+}
+
 /// A notice that expires closes as any item does, and tells nobody.
 #[tokio::test]
 async fn an_expired_notice_sends_no_notice_of_its_own() {

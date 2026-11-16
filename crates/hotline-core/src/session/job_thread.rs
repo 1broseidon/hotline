@@ -1138,6 +1138,7 @@ impl Room {
             return Err("This job has ended. Its thread is kept to read.".to_string());
         }
         self.capability_lease(&job.persona_id).check()?;
+        self.heard_from_person(&job.persona_id);
         let live = self.live_job(&job);
         let fresh = lock(&live.up).is_none();
         let standing = fresh

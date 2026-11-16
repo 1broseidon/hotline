@@ -867,7 +867,10 @@ impl Room {
         );
         Ok(())
     }
-    /// The person wrote to `persona`: each of its pairs counts afresh, and
+    /// The person wrote to `persona`, in any thread of its: the main
+    /// conversation (`Room::prompt`), a work thread or a chat reply that goes
+    /// to one, a call (`Room::prompt_side_replying`, `prompt_call_work`) or a
+    /// job's thread (`Room::prompt_job`). Each of its pairs counts afresh, and
     /// one the person stopped may reach each other again. A pair paused at
     /// the cap is left as it is: its card is the person's answer, and a line
     /// about something else is not it.

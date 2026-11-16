@@ -98,14 +98,14 @@ you, both conversations show a **Paused** card, and nothing more is sent
 between them until you answer it. The card also waits in **Needs you** above
 the message field. **Keep going** lets them carry on, counting from zero.
 **Stop** ends the work they had going between them, and nothing passes
-between them until you next write to either of them in its main
-conversation; then they may reach each other again, counting from zero.
+between them until you next write to either of them, anywhere: in its chat,
+in one of its work threads, on a call, or in a reply that goes to one of its
+work threads. Then they may reach each other again, counting from zero.
 While the card is up, writing to either of them does not answer it: only
 Keep going or Stop does.
 
-Until they pause, anything you write to either of them in its main
-conversation starts the count again. A message in one of their work threads
-or calls does not.
+Until they pause, anything you write to either of them, wherever you write
+it, starts the count again.
 
 ## What it costs
 

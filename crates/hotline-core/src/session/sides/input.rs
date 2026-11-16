@@ -38,6 +38,7 @@ impl Room {
             Ok(side) => (side, None),
             Err(_) => self.wake_work(&thread.key, false, None).await?,
         };
+        self.heard_from_person(persona);
         let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
         let transcript = self.log.load(&stream);
         let work = format!(
@@ -109,6 +110,7 @@ impl Room {
             if attachments.is_some() {
                 return Err("Answer what it asked you first: your words are its card's note, and files cannot ride on it.".to_string());
             }
+            self.heard_from_person(&persona_id);
             return self.answer_human(
                 &persona_id,
                 &action,
@@ -120,6 +122,9 @@ impl Room {
             Ok(side) => (side, None),
             Err(_) => self.wake_work(side_id, false, None).await?,
         };
+        // The person's line in any thread of a teammate's is the person
+        // writing to it, as one in its main conversation is.
+        self.heard_from_person(&side.persona_id);
         self.say_in_side(&side, text, reply_to, attachments);
         if let Some(launch) = launch {
             self.launch(launch);

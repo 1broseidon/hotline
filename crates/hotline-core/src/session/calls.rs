@@ -118,7 +118,12 @@ impl Room {
         true
     }
 
+    /// A line of a call, written as it is said. The person's own is the
+    /// person speaking to the teammate, as a typed line is.
     pub(crate) fn call_said(&self, thread: &ThreadId, persona: &str, line: &Value) {
+        if line["kind"] == "user" {
+            self.heard_from_person(persona);
+        }
         self.threads().write(thread, persona, line);
     }
 

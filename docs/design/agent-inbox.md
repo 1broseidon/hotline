@@ -340,13 +340,13 @@ changes, like the index. The window reads the receipts over the wire.
   not, and leaves the count as it is. Keep going counts afresh. Stop ends
   their outstanding work and holds them apart: `send`, an `answer` and
   taking work into a thread between the two are refused with a plain reason
-  until the person next writes to one of them in its main conversation (at
-  the desk or on the phone), which lifts the stop and starts the count
-  afresh. Until they pause, the person's line in either one's main
-  conversation starts their count afresh too (`Room::heard_from_person`,
-  called from `Room::prompt`). A line in one of their work threads or calls,
-  or an answer to such a thread's post in the chat, which goes to that
-  thread, does neither. The card's keys are Keep going and Stop;
+  until the person next writes to one of them (at the desk or on the
+  phone), in any of its threads: its main conversation, a work thread, a
+  call, a job's thread, or an answer in the chat to a work thread's post,
+  which goes to that thread. That lifts the stop and starts the count
+  afresh. Until they pause, any such line starts their count afresh too
+  (`Room::heard_from_person`, called wherever the person's line enters a
+  thread). The card's keys are Keep going and Stop;
   while it waits it is one of the cards in Needs you, above the composer
   ("Needs you · Paused with Huck"), and after Stop it leaves one quiet line,
   "Stopped. Write to either of them to start again." Their open items stay

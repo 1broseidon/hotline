@@ -1230,12 +1230,13 @@ person decides. Receipts do not count. Queued requests and completed
 results wait without loss. The person's Keep going resets the counter; Stop
 settles outstanding work, writes an explicit notice and holds the two
 apart: nothing is sent or answered between them, and no work is taken into a
-thread from one for the other, until the person next writes to one of them
-in its main conversation, which starts the count afresh. While the card is up
-only Keep going or Stop answers it: a line from the person about anything
-else leaves a paused pair paused, at its count. The person's line in either
-one's main conversation resets the count of a pair that is not paused; a line
-in a work thread or call of theirs does not.
+thread from one for the other, until the person next writes to one of them,
+in any of its threads (its main conversation, a work thread, a call, a job's
+thread, or a chat reply that goes to a work thread), which starts the count
+afresh. While the card is up only Keep going or Stop answers it: a line from
+the person about anything else leaves a paused pair paused, at its count. The
+person's line to either one, in any of its threads, resets the count of a
+pair that is not paused.
 These actions do not create new grants.
 A handoff stands until Stop exchange, a revocation or an unlink releases it,
 its result back or not, and its thread's link says when it no longer does

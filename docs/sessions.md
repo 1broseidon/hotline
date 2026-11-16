@@ -1970,15 +1970,21 @@ queued requests and completed results wait without being discarded.
 `teammates.exchange_stop {a,b}` stops outstanding exchanges and holds the
 pair (`stopped` on its record): `send` between the two, an `answer` from one
 to the other and work taken into a thread from one for the other are refused
-with a plain reason until the person next writes to either of them in its
-main conversation, which clears it and starts the count at nothing. Both
+with a plain reason until the person next writes to either of them, in any
+of its threads, which clears it and starts the count at nothing. Both
 commands belong to the person, on desktop or phone. While a pair is paused
 only those two commands change it: the person's line to either teammate
 leaves the pause, its count and its card as they are
 (`Room::heard_from_person`); to a pair that is not paused it resets the
-count. Only a line in the main conversation counts as hearing from the
-person (`Room::prompt`): a line in a work thread or call, or a reply to such
-a thread's post, which goes to that thread, changes no pair. Stopping cannot undo side effects already performed.
+count. Every line the person writes to a teammate counts as hearing from
+the person, wherever it goes: its main conversation (`Room::prompt`), a work
+thread it is said in or opened with, a reply to such a thread's post, which
+goes to that thread, a typed call line (`Room::prompt_side_replying`,
+`Room::start_side`), the person's own line on a call and the work a call
+asks for (`Room::call_said`, `Room::prompt_call_work`), and a job's thread
+(`Room::prompt_job`). The phone's lines take the same paths (`mobile.prompt`
+and `thread.prompt` on a work thread). Stopping cannot undo side effects
+already performed.
 
 A request ends only when someone ends it: Stop exchange, or a revocation of
 either teammate (a policy change, a stop or a removal). Its two leases are

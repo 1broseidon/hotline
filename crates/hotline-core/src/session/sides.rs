@@ -872,6 +872,7 @@ impl Room {
             },
         )?;
         if !text.is_empty() {
+            self.heard_from_person(persona_id);
             self.say_in_side(&live, text, None, None);
         }
         self.launch(launch);

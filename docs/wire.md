@@ -393,10 +393,12 @@ server's address or login, or a tool inventory.
 answer a pair's `exchange_paused` card from either seat. Keep going resets
 the twelve-message count and releases queued asks, handoffs and replies;
 Stop settles outstanding work without revoking collaboration, and
-nothing is sent between the two until the person next writes to one of them
-in its main conversation (`thread.prompt` on its `dm`), which also starts the
-count afresh, as such a line does for any pair that is not paused. A line the
-person writes while the card is up does not answer it, and leaves the count.
+nothing is sent between the two until the person next writes to one of them,
+in any of its threads (`thread.prompt` on its `dm`, a work thread, a call or a
+job, `session.prompt`, `mobile.prompt`, or a line said on a call), which also
+starts the count afresh, as such a line does for any pair that is not paused.
+A line the person writes while the card is up does not answer it, and leaves
+the count.
 The card's status becomes `resumed` or `stopped`. These are operator
 commands, not teammate tools. There are no link commands or roster links.
 

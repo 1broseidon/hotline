@@ -214,10 +214,16 @@ impl Sorting {
                     Some("closed") => {
                         let outcome = text("outcome")
                             .and_then(|outcome| InboxOutcome::parse(&outcome))
-                            // `combined` has its own state, and `expired` is
-                            // Hotline's, never a teammate's.
+                            // `combined` has its own state, `answered` is an
+                            // `answer`, and `expired` is Hotline's, never a
+                            // teammate's.
                             .filter(|outcome| {
-                                !matches!(outcome, InboxOutcome::Combined | InboxOutcome::Expired)
+                                !matches!(
+                                    outcome,
+                                    InboxOutcome::Combined
+                                        | InboxOutcome::Answered
+                                        | InboxOutcome::Expired
+                                )
                             })
                             .ok_or("A closed item needs an `outcome`: done, noted or dropped.")?;
                         Some(Sort::Closed(outcome))
@@ -838,7 +844,7 @@ impl Room {
     /// order given, which is the order the receiver means to work them. Every
     /// entry is checked before any item moves, so a mistake in one changes
     /// none. An answer goes back to the sender's inbox and closes its item as
-    /// done; taking an item that wants work starts a work thread for it, with
+    /// answered; taking an item that wants work starts a work thread for it, with
     /// the items combined into it, unless `in_thread` is false.
     pub(crate) async fn update_inbox(
         self: &Arc<Self>,
@@ -886,13 +892,11 @@ impl Room {
                 reason: sorting.reason.clone(),
                 outcome: None,
                 into: None,
-                answered: false,
             };
             if let Some(answer) = &sorting.answer {
                 self.reply_to_item(&me, said_in, item, answer.clone(), true)?;
-                self.close_item(persona_id, &item.id, InboxOutcome::Done, None);
-                entry.outcome = Some(InboxOutcome::Done);
-                entry.answered = true;
+                self.close_item(persona_id, &item.id, InboxOutcome::Answered, None);
+                entry.outcome = Some(InboxOutcome::Answered);
                 entries.push(entry);
                 continue;
             }
@@ -1007,7 +1011,6 @@ impl Room {
                     "id": short(&entry.item),
                     "state": entry.state.name(),
                     "outcome": entry.outcome.map(InboxOutcome::name),
-                    "answered": entry.answered,
                 })
             })
             .collect();

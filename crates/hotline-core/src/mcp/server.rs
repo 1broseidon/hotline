@@ -733,7 +733,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             UPDATE_INBOX,
-            "Sort items in your inbox, several in one call, listed in the order you mean to work them. Each entry names an item by `id` and sets `state`: `taken` (you are doing it), `later` (with a `reason`: while it stays set aside it is offered to you again, quietly, when your main conversation is next idle after the work you are on, an hour after that, then daily, and three days after it arrived it closes as expired and its sender is told), `closed` (with an `outcome`: done, noted or dropped; `expired` is Hotline's alone) or `combined` (folded into the item named in `into`, and done with it). Give `answer` to reply to its sender: it reaches their inbox and the item closes as done. Taking an item that wants work starts a work thread of yours for it, seeded with it and the items combined into it, whose result goes back to the sender by itself; set `in_thread` false to do it in this turn instead, and close it with an `answer` when it is done.",
+            "Sort items in your inbox, several in one call, listed in the order you mean to work them. Each entry names an item by `id` and sets `state`: `taken` (you are doing it), `later` (with a `reason`: while it stays set aside it is offered to you again, quietly, when your main conversation is next idle after the work you are on, an hour after that, then daily, and three days after it arrived it closes as expired and its sender is told), `closed` (with an `outcome`: done, noted or dropped; `expired` is Hotline's alone) or `combined` (folded into the item named in `into`, and done with it). Give `answer` to reply to its sender: it reaches their inbox and the item closes as answered. Taking an item that wants work starts a work thread of yours for it, seeded with it and the items combined into it, whose result goes back to the sender by itself; set `in_thread` false to do it in this turn instead, and close it with an `answer` when it is done.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -748,7 +748,7 @@ fn descriptors() -> Vec<Tool> {
                                 "reason": { "type": "string", "maxLength": 500 },
                                 "outcome": { "type": "string", "enum": ["done", "noted", "dropped"] },
                                 "into": { "type": "string", "description": "For combined: the id of the item it folds into." },
-                                "answer": { "type": "string", "maxLength": crate::session::TEAMMATE_MESSAGE_MAX, "description": "Your reply to its sender. The item closes as done." },
+                                "answer": { "type": "string", "maxLength": crate::session::TEAMMATE_MESSAGE_MAX, "description": "Your reply to its sender. The item closes as answered." },
                                 "in_thread": { "type": "boolean", "description": "For taken: whether the work runs in a work thread of yours. True by default for an item that wants work, false otherwise." },
                             },
                             "required": ["id"],

@@ -127,9 +127,15 @@ export function useInboxWork(personaId: string | undefined): ReadonlySet<string>
 
 /* ----------------------------------------------------------- the words */
 
-/** How an item ended, as one word. */
+/**
+ * How an item ended, as one word, the same in the conversation, the inbox
+ * pane and the item pane: Answered when a reply went back, Done when its
+ * work finished.
+ */
 export function outcomeWord(outcome: InboxOutcome | undefined): string {
 	switch (outcome) {
+		case "answered":
+			return "Answered";
 		case "done":
 			return "Done";
 		case "noted":
@@ -153,14 +159,17 @@ export function senderWords(item: InboxItem, nameOf: (personaId: string) => stri
 	return item.notice !== undefined ? "Hotline" : (nameOf(item.from) ?? "A teammate");
 }
 
-/** Where an item stands, as its sender's row and the pane say it. */
+/**
+ * Where an item stands, as its sender's row and the panes say it. Noticed,
+ * the receiver being shown its title, is the desk's own step, so it reads
+ * as Sent until the receiver reads it.
+ */
 export function stateWord(item: InboxItem): string {
 	if (item.held) return "Awaiting approval";
 	switch (item.state) {
 		case "new":
-			return "Sent";
 		case "noticed":
-			return "Noticed";
+			return "Sent";
 		case "seen":
 			return "Seen";
 		case "taken":
@@ -238,7 +247,7 @@ export function sentState(group: SentGroup, items: ReadonlyMap<string, InboxItem
 export function sortedWord(entry: InboxSortedEntry): string {
 	if (entry.state === "taken") return "Taken";
 	if (entry.state === "later") return "Later";
-	if (entry.state === "closed") return entry.answered === true ? "Answered" : outcomeWord(entry.outcome);
+	if (entry.state === "closed") return outcomeWord(entry.outcome);
 	return entry.state.charAt(0).toUpperCase() + entry.state.slice(1);
 }
 
@@ -282,7 +291,7 @@ function receiptWord(receipt: InboxReceipt): string {
 		case "new":
 			return "Allowed";
 		case "noticed":
-			return "Noticed";
+			return "Sent";
 		case "seen":
 			return "Seen";
 		case "taken":
@@ -299,10 +308,12 @@ function receiptWord(receipt: InboxReceipt): string {
  * its time, a later's reason, a close's outcome and why, and what a
  * combined one was folded into. Landing in the inbox is the send itself;
  * landing long after it is the person's first-contact card letting it in.
+ * Being noticed is left out: it reads as Sent, which the first row says.
  */
 export function receiptRows(item: InboxItem, titleOf: (id: string) => string | undefined = () => undefined): ReceiptRow[] {
 	const rows: ReceiptRow[] = [{ at: item.ts, word: "Sent" }];
 	for (const receipt of item.receipts) {
+		if (receipt.state === "noticed") continue;
 		if (receipt.state === "new" && receipt.at - item.ts < LET_IN_AFTER) continue;
 		const into = receipt.into === undefined ? undefined : `into ${titleOf(receipt.into) ?? "another message"}`;
 		const detail = receipt.reason ?? into;

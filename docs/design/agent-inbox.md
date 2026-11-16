@@ -62,8 +62,9 @@ These are George's, and the prototype's acceptance criteria.
   `expired` is Hotline's and refused) or `combined` (with `into`, the item it
   folds into). An entry may not answer Hotline's notice or take it into a
   thread: there is no colleague behind it. An entry may carry an
-  `answer`, which replies and closes the item as done, at most as long as
-  a message. `in_thread` (with
+  `answer`, which replies and closes the item as `answered`, at most as long
+  as a message; `answered` is refused as an `outcome`, so an item reads
+  Answered only when a reply went back. `in_thread` (with
   `taken`) says whether the work runs in a work thread of the receiver's: true
   by default for an item that wants work, false otherwise. Every entry is
   checked before any moves, so one mistake changes nothing.
@@ -87,7 +88,7 @@ it carries when it is offered again (`offerAgain`), and Hotline's own notice
 carries what it is about (`notice`).
 
 ```
-new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (done | noted | dropped | combined)
+new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (answered | done | noted | dropped | combined)
   │        │          │        ▲
   └────────┴──────────┴──▶ later ──┘
   └────────┴──────────┴──────┴──▶ closed (expired: three days open, by Hotline)
@@ -269,8 +270,9 @@ an order (`post.rs` `Room::woken_by`).
 
 An `answer` on `update_inbox`, and the result of a work thread a taken item
 started, are new items in the original sender's inbox with `replyTo` set,
-`wants: nothing`. The original closes as `done` (as `dropped`, with the
-failure, when the work failed). A result goes to each sender whose item the
+`wants: nothing`. The original closes as `answered` for an answer and as
+`done` for a work thread's result (as `dropped`, with the failure, when the
+work failed). A result goes to each sender whose item the
 work carried, once. If the original was sent from a work thread that is
 still live, the reply is heard there; otherwise in the sender's main
 conversation. A reply wakes an idle sender by the same rule.
@@ -385,7 +387,8 @@ item, and no chat opens between teammates.
   path's "Started 4 helpers" line also is). Pressed, it unfolds to a plain
   row per item in the order given: its title, its sender and a later's
   reason in the muted ink, and what became of it at the right (Taken,
-  Later, Answered, Noted, Dropped, Combined). No card, header, counts or
+  Later, Answered, Done, Noted, Dropped, Combined, Expired: the item's
+  outcome, in the word the sent row and the panes use). No card, header, counts or
   numbering. A press on a row opens the item. Work a sort took is its own
   work-thread row (below).
 - **A quiet turn.** The turn the inbox woke draws as path, not as a reply:
@@ -399,7 +402,7 @@ item, and no chat opens between teammates.
 - **The item pane.** Its title; from whom to whom, whom else the send
   reached ("also sent to Quill"), what it wants, and whether the sender
   waits; the words; Receipts, a timeline of sent,
-  noticed, seen, taken, later with its reason, closed with its outcome
+  seen, taken, later with its reason, closed with its outcome
   (Expired, with "Not picked up in 3 days.", for one that expired; and
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's
@@ -408,6 +411,13 @@ item, and no chat opens between teammates.
   the first-contact card. Hotline's notice is from Hotline, by its mark,
   wherever an item's sender is named (the pane, its rows, the composer's
   tray). Back goes where it was opened from.
+- **One word for each outcome.** An item a reply went back on is Answered
+  and one whose work finished is Done, the same word on its sent row, its
+  sort's row, the inbox pane and the item pane. Noticed, the desk showing
+  the receiver a title, is the desk's own step: an item in it reads as Sent,
+  and the receipts leave it out. In the Closed list a finished item is
+  ticked, a dropped one crossed, and an expired one, never picked up, keeps
+  a dotted ring.
 - **The inbox pane.** Open (Unread: new, noticed and seen; Taken; For
   later), Closed and Sent, newest first, under a line of the open counts. An
   unsorted item whose sender waits counts how long in amber. It opens from
@@ -440,7 +450,7 @@ Types (`crates/hotline-contract/src/inbox.rs`, generated into
 
 - `InboxItem` as above; `InboxReceipt {state, at, reason?, outcome?, into?}`;
   `InboxState` `new | noticed | seen | taken | later | closed`; `InboxOutcome`
-  `done | noted | dropped | combined | expired`; `InboxNotice` `expired`;
+  `answered | done | noted | dropped | combined | expired`; `InboxNotice` `expired`;
   `InboxWants` `answer | work | nothing`. `InboxItem.notice?` marks Hotline's
   own notice, `InboxItem.offerAgain?` is when a pick-up offers it next.
 - `InboxView {personaId, open, closed, sent, unread}`: open and closed newest
@@ -469,6 +479,6 @@ Transcript events (`TranscriptEvent`):
   `inbox.item` or the subscription.
 - `inbox_sorted {id, ts, entries: InboxSortedEntry[], open, unread}` on the
   receiver's main conversation each time `update_inbox` runs, with
-  `InboxSortedEntry {item, title, from, state, reason?, outcome?, into?,
-  answered?}` in the order given, and how many items are open and unread
+  `InboxSortedEntry {item, title, from, state, reason?, outcome?, into?}` in
+  the order given, and how many items are open and unread
   after it.

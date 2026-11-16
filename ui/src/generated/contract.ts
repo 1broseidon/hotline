@@ -1256,14 +1256,16 @@ export type InboxItemDetail = { item: InboxItem, replies: Array<InboxItem>, };
 export type InboxNotice = "expired";
 
 /**
- * How a closed item ended: `done` (answered, or its work came back),
- * `noted` (read, nothing to do), `dropped` (not done, with a reason: the
- * receiver's, or the person's Stop of its work), `combined` (folded into
- * another item, `into`, and done with it), `expired` (left open or for later
- * too long after it arrived: Hotline closed it, and told its sender; never a
- * teammate's sort).
+ * How a closed item ended: `answered` (a reply went back with
+ * `update_inbox`'s `answer`), `done` (its work finished), `noted` (read,
+ * nothing to do), `dropped` (not done, with a reason: the receiver's, or the
+ * person's Stop of its work), `combined` (folded into another item, `into`,
+ * and done with it), `expired` (left open or for later too long after it
+ * arrived: Hotline closed it, and told its sender; never a teammate's sort).
+ * `answered` and `expired` are never a teammate's `outcome`: an answer is
+ * its own field, and expiry is the desk's.
  */
-export type InboxOutcome = "done" | "noted" | "dropped" | "combined" | "expired";
+export type InboxOutcome = "answered" | "done" | "noted" | "dropped" | "combined" | "expired";
 
 /**
  * One change of an item's state, when it happened, and why.
@@ -1286,11 +1288,7 @@ export type InboxSortedEntry = { item: string, title: string,
 /**
  * The teammate it is from.
  */
-from: string, state: InboxState, reason?: string, outcome?: InboxOutcome, into?: string, 
-/**
- * Whether its answer was sent back with this sort.
- */
-answered?: boolean, };
+from: string, state: InboxState, reason?: string, outcome?: InboxOutcome, into?: string, };
 
 /**
  * Where an item stands, in the order it can move: `new` until its title is

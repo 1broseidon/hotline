@@ -24,7 +24,11 @@ const SEGMENTS: { segment: InboxSegment; word: string }[] = [
 	{ segment: "sent", word: "Sent" },
 ];
 
-/** A row's mark: unread a ring, read a half; taken, later and closed as their own. */
+/**
+ * A row's mark: unread a ring, read a half; taken, later and closed as their
+ * own. A finished one is ticked; one that expired was never picked up, so
+ * it keeps an empty ring, dotted.
+ */
 function markOf(item: InboxItem, sent: boolean): string {
 	if (sent) return "↗";
 	switch (item.state) {
@@ -38,7 +42,7 @@ function markOf(item: InboxItem, sent: boolean): string {
 		case "later":
 			return "◷";
 		case "closed":
-			return item.outcome === "dropped" ? "✕" : "✓";
+			return item.outcome === "dropped" ? "✕" : item.outcome === "expired" ? "◌" : "✓";
 	}
 }
 

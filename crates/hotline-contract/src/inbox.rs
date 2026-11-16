@@ -75,16 +75,19 @@ impl InboxState {
     }
 }
 
-/// How a closed item ended: `done` (answered, or its work came back),
-/// `noted` (read, nothing to do), `dropped` (not done, with a reason: the
-/// receiver's, or the person's Stop of its work), `combined` (folded into
-/// another item, `into`, and done with it), `expired` (left open or for later
-/// too long after it arrived: Hotline closed it, and told its sender; never a
-/// teammate's sort).
+/// How a closed item ended: `answered` (a reply went back with
+/// `update_inbox`'s `answer`), `done` (its work finished), `noted` (read,
+/// nothing to do), `dropped` (not done, with a reason: the receiver's, or the
+/// person's Stop of its work), `combined` (folded into another item, `into`,
+/// and done with it), `expired` (left open or for later too long after it
+/// arrived: Hotline closed it, and told its sender; never a teammate's sort).
+/// `answered` and `expired` are never a teammate's `outcome`: an answer is
+/// its own field, and expiry is the desk's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum InboxOutcome {
+    Answered,
     Done,
     Noted,
     Dropped,
@@ -95,6 +98,7 @@ pub enum InboxOutcome {
 impl InboxOutcome {
     pub fn name(self) -> &'static str {
         match self {
+            Self::Answered => "answered",
             Self::Done => "done",
             Self::Noted => "noted",
             Self::Dropped => "dropped",
@@ -105,6 +109,7 @@ impl InboxOutcome {
 
     pub fn parse(name: &str) -> Option<Self> {
         [
+            Self::Answered,
             Self::Done,
             Self::Noted,
             Self::Dropped,
@@ -277,8 +282,4 @@ pub struct InboxSortedEntry {
     pub outcome: Option<InboxOutcome>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub into: Option<String>,
-    /// Whether its answer was sent back with this sort.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[ts(as = "Option<bool>", optional)]
-    pub answered: bool,
 }

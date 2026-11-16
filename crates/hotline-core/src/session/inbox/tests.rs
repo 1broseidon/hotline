@@ -655,7 +655,7 @@ async fn taking_work_opens_a_work_thread_seeded_with_what_was_combined_into_it_a
 }
 
 #[tokio::test]
-async fn work_done_in_the_turn_starts_no_thread_and_its_answer_closes_it() {
+async fn work_done_in_the_turn_starts_no_thread_and_its_answer_closes_it_as_answered() {
     let (room, _) = room("inbox-take-here");
     let id = send(
         &room,
@@ -685,13 +685,30 @@ async fn work_done_in_the_turn_starts_no_thread_and_its_answer_closes_it() {
     .await
     .unwrap();
     let done = item(&room, "bob", &id);
-    assert_eq!(done.outcome, Some(InboxOutcome::Done));
+    assert_eq!(done.outcome, Some(InboxOutcome::Answered));
     let reply = items(&room, "ada")
         .into_iter()
         .find(|reply| reply.reply_to.as_deref() == Some(id.as_str()))
         .unwrap();
     assert_eq!(reply.body, "Renamed it to crane.md.");
     assert_eq!(reply.wants, InboxWants::Nothing);
+}
+
+/// Answered is what an `answer` does, and Done what finished work does: a
+/// teammate closes nothing as answered by naming it, only by answering.
+#[test]
+fn a_teammate_cannot_close_an_item_as_answered_without_answering_it() {
+    let Err(refused) = Sorting::from_arguments(
+        &json!({"items": [{"id": "abcd", "state": "closed", "outcome": "answered"}]}),
+    ) else {
+        panic!("answered is not a teammate's outcome");
+    };
+    assert!(refused.contains("done, noted or dropped"), "{refused}");
+    let done = Sorting::from_arguments(
+        &json!({"items": [{"id": "abcd", "state": "closed", "outcome": "done"}]}),
+    )
+    .unwrap();
+    assert_eq!(done[0].sort, Some(Sort::Closed(InboxOutcome::Done)));
 }
 
 #[tokio::test]

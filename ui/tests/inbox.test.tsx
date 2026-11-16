@@ -105,11 +105,30 @@ describe("task-456 the sort's line", () => {
 				entry("notes", { state: "later", reason: "after the build is green" }),
 				entry("thursday", { state: "closed", outcome: "noted" }),
 				entry("red", { state: "closed", outcome: "combined", into: "build" }),
-				entry("wipe", { state: "closed", outcome: "done", answered: true }),
+				entry("wipe", { state: "closed", outcome: "answered" }),
+				entry("rerun", { state: "closed", outcome: "done" }),
 				entry("spam", { state: "closed", outcome: "dropped" }),
 				entry("x", { state: "closed" }),
 			].map(inbox.sortedWord),
-		).toEqual(["Taken", "Later", "Noted", "Combined", "Answered", "Dropped", "Closed"]);
+		).toEqual(["Taken", "Later", "Noted", "Combined", "Answered", "Done", "Dropped", "Closed"]);
+	});
+});
+
+describe("one word for each outcome", () => {
+	test("a reply that went back is Answered and finished work is Done, the same in the chat row, the sort's row and the pane", () => {
+		const answered = item("a", { state: "closed", outcome: "answered" });
+		const done = item("d", { state: "closed", outcome: "done" });
+		const one = (id: string) => ({ title: "x", sent: [sent(id, "juno", "x")] as InboxSent[] });
+		const known = new Map([answered, done].map((one) => [one.id, one]));
+		expect([inbox.sentState(one("a"), known), inbox.stateWord(answered), inbox.sortedWord({ item: "a", title: "x", from: "chop", state: "closed", outcome: "answered" })]).toEqual(["Answered", "Answered", "Answered"]);
+		expect([inbox.sentState(one("d"), known), inbox.stateWord(done), inbox.sortedWord({ item: "d", title: "x", from: "chop", state: "closed", outcome: "done" })]).toEqual(["Done", "Done", "Done"]);
+	});
+
+	test("noticed, the desk telling the receiver an item exists, reads as Sent, and is no row of its own in the receipts", () => {
+		const sentAt = NOW - 60_000;
+		const noticed = item("n", { ts: sentAt, state: "noticed", receipts: [{ state: "new", at: sentAt }, { state: "noticed", at: sentAt + 5_000 }] });
+		expect(inbox.stateWord(noticed)).toBe("Sent");
+		expect(inbox.receiptRows(noticed).map((row) => row.word)).toEqual(["Sent"]);
 	});
 });
 
@@ -120,7 +139,7 @@ describe("a turn the inbox woke is drawn as path", () => {
 		ts: NOW,
 		open: 0,
 		unread: 0,
-		entries: [{ item: "i1", title: "Test message", from: "chop", state: "closed", outcome: "done", answered: true }],
+		entries: [{ item: "i1", title: "Test message", from: "chop", state: "closed", outcome: "answered" }],
 	};
 	const tool = (id: string, title: string): TranscriptEvent => ({ kind: "tool", id, ts: NOW, toolCallId: id, title, status: "completed" });
 	const thought = (id: string, text: string): TranscriptEvent => ({ kind: "thought", id, ts: NOW, text });
@@ -212,7 +231,6 @@ describe("task-456 the pane", () => {
 		);
 		expect(rows).toEqual([
 			{ at: sentAt, word: "Sent" },
-			{ at: sentAt + 4_000, word: "Noticed" },
 			{ at: sentAt + 30_000, word: "Seen" },
 			{ at: sentAt + 31_000, word: "Later", detail: "after the release" },
 			{ at: sentAt + 90_000, word: "Combined", detail: "into Rerun the Linux build" },
@@ -314,7 +332,7 @@ describe("task-456 drawn", () => {
 			unread: 0,
 			entries: [
 				{ item: "thursday", title: "Release moves to Thursday", from: "ivy", state: "closed" as const, outcome: "noted" as const },
-				{ item: "wipe", title: "Is the staging database safe to wipe?", from: "huck", state: "closed" as const, outcome: "done" as const, answered: true },
+				{ item: "wipe", title: "Is the staging database safe to wipe?", from: "huck", state: "closed" as const, outcome: "answered" as const },
 				{ item: "notes", title: "Storage numbers", from: "chop", state: "later" as const, reason: "after this research" },
 			],
 		};
@@ -404,7 +422,7 @@ describe("task-456 drawn", () => {
 		const { InboxItemPane, InboxList } = await import("../src/components/InboxPane");
 		const shown = view({
 			open: [item("a", { title: "Is the staging database safe to wipe?", from: "huck", waiting: true }), item("t", { state: "taken", work: { kind: "side", key: "s1" } }), item("l", { state: "later", reason: "after the build" })],
-			closed: [item("c", { state: "closed", outcome: "noted", title: "Nightly deploy is paused" })],
+			closed: [item("c", { state: "closed", outcome: "noted", title: "Nightly deploy is paused" }), item("x", { state: "closed", outcome: "expired", title: "Old nightly artifacts" })],
 			sent: [item("s", { from: "juno", to: "chop", state: "seen", title: "Numbers are in" })],
 			unread: 1,
 		});
@@ -428,6 +446,8 @@ describe("task-456 drawn", () => {
 		expect(container.querySelector("[data-inbox=s] .list-line")?.textContent).toBe("To Pork Chop · Seen");
 		await list("closed");
 		expect(container.querySelector("[data-inbox=c] .list-line")?.textContent).toBe("Pork Chop · Noted");
+		expect(container.querySelector("[data-inbox=c] .list-mark")?.textContent).toBe("✓");
+		expect(container.querySelector("[data-inbox=x] .list-mark")?.textContent).toBe("◌");
 		await press(container.querySelector("[data-inbox=c]")!);
 		expect(opened).toEqual(["c"]);
 

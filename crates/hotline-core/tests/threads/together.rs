@@ -721,7 +721,7 @@ async fn an_item_crosses_the_wire_from_send_to_sort_and_its_answer_comes_back() 
             frame["sub"] == inbox && frame["snapshot"]["closed"][0]["id"] == item.as_str()
         })
         .await;
-    assert_eq!(closed["snapshot"]["closed"][0]["outcome"], "done");
+    assert_eq!(closed["snapshot"]["closed"][0]["outcome"], "answered");
     until("the sorted line on Bob's conversation", || {
         desk.log
             .load(&StreamId::Tape(bob.clone()))

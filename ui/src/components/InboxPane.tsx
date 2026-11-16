@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import type { InboxItem, InboxView, ThreadId } from "../generated/contract";
 import { asideTime } from "../asides";
 import type { Person } from "../avatars";
@@ -48,7 +48,8 @@ function markOf(item: InboxItem, sent: boolean): string {
 /**
  * One teammate's inbox: Open (unread, taken, for later), Closed and Sent,
  * each newest first, under a line that says what the list on show holds. A
- * row opens the item in the pane, with Back here; on Sent, one send to
+ * row opens the item in the pane, with Back here, and an item taken into a
+ * work thread has a row under it that opens the thread; on Sent, one send to
  * several teammates is one row that opens to a row for each.
  */
 export function InboxList({
@@ -59,6 +60,7 @@ export function InboxList({
 	working,
 	onSegment,
 	onOpenItem,
+	onOpenThread,
 	onClose,
 }: {
 	/** Whose inbox: the teammate open beside it. */
@@ -70,6 +72,8 @@ export function InboxList({
 	working: ReadonlySet<string>;
 	onSegment(segment: InboxSegment): void;
 	onOpenItem(itemId: string): void;
+	/** Opens the work thread taking an item started, which is its receiver's. */
+	onOpenThread(owner: string, thread: ThreadId, title: string): void;
 	onClose(): void;
 }) {
 	// Times of day and days, never a running count: a minute is fine enough.
@@ -82,9 +86,15 @@ export function InboxList({
 			return next;
 		});
 	const nameOf = (id: string) => people.get(id)?.name;
-	const row = (item: InboxItem, sent = false) => (
-		<ItemRow key={item.id} item={item} sent={sent} now={now} nameOf={nameOf} live={item.work !== undefined && working.has(item.work.key)} onOpen={() => onOpenItem(item.id)} />
-	);
+	const row = (item: InboxItem, sent = false) => {
+		const live = item.work !== undefined && working.has(item.work.key);
+		return (
+			<Fragment key={item.id}>
+				<ItemRow item={item} sent={sent} now={now} nameOf={nameOf} live={live} onOpen={() => onOpenItem(item.id)} />
+				{item.work !== undefined && <WorkRow item={item} live={live} onOpen={() => onOpenThread(item.to, item.work!, item.title)} />}
+			</Fragment>
+		);
+	};
 	let body: ReactNode = null;
 	if (view !== undefined && segment === "open") {
 		const groups = openGroups(view);
@@ -251,6 +261,23 @@ function ItemRow({
 			<span className="list-when">
 				{when}
 				{live && <span aria-hidden="true" className="dock-dot beat" data-state="running" />}
+			</span>
+		</button>
+	);
+}
+
+/**
+ * Under an item taken into a work thread, the thread: one row set in under
+ * it, as a send's rows are, that opens the thread with Back to the inbox.
+ */
+function WorkRow({ item, live, onOpen }: { item: InboxItem; live: boolean; onOpen(): void }) {
+	return (
+		<button type="button" className="list-row list-row-sub" data-work={item.id} aria-label={`Work thread: ${item.title}. Open it`} onClick={onOpen}>
+			<span className="list-mark" aria-hidden="true">
+				≡
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="list-line">Work thread{live ? " · Running" : ""}</span>
 			</span>
 		</button>
 	);

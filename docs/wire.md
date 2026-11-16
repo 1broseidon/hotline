@@ -1211,10 +1211,9 @@ and `steps` how many steps it has taken, each absent until there is one;
 row is sent again as each of them changes, so a client never asks. `sides` lists the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
-can be stopped; `workingPairs` the keys of the threads between this teammate
-and another with a request being answered now, the rule `thread.list` reads a
-pair's `working` by, sent again whenever the pair's record moves; each is
-absent when there are none. `asides` is how many
+can be stopped; each is absent when there are none. A pair, a conversation
+two teammates had before the inbox, is kept to read and never live, so no
+row carries one. `asides` is how many
 asides the teammate has been left that no turn of its has heard yet, absent
 when none, and `asidesNew` how many of them the person has not seen among its
 notes; the row is sent again when one is left, heard or seen. `inbox` is how

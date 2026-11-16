@@ -135,11 +135,11 @@ describe("task-395 a pair's pane", () => {
 		<PairPane threadKey={key} self={poe} other={lou} row={row(state)} events={events} people={new Map()} onBack={() => {}} onClose={() => {}} />
 	);
 
-	test('says "◎ Pair" and "Read only", titled "<A> ↔ <B>" with a linked-desk teammate by its desk name', async () => {
-		await render(pane("live"));
+	test('says "◎ Pair" and "Read only", titled "Conversation with <B>" with a linked-desk teammate by its desk name', async () => {
+		await render(pane("parked"));
 		expect(text(".band-kind")).toBe("◎ Pair");
 		expect(text(".pane-meta")).toStartWith("Read only · ");
-		expect(text(".pane-title")).toBe("Poe ↔ Lou on grizzly");
+		expect(text(".pane-title")).toBe("Conversation with Lou on grizzly");
 	});
 
 	test("draws lines on two sides, each with its teammate's face and name", async () => {
@@ -156,17 +156,14 @@ describe("task-395 a pair's pane", () => {
 		expect(pairLines(`${lou.id}~${poe.id}`, events, poe, lou).map((line) => (line.kind === "said" ? line.who.name : ""))).toEqual(["Lou on grizzly", "Poe"]);
 	});
 
-	test("is live while talking, with Stop exchange in the band while the handoff stands, and none after", async () => {
-		await render(pane("live"));
-		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, talking");
-		expect(container.querySelector(".band h2 .beat")).not.toBeNull();
-		const stop = container.querySelector<HTMLButtonElement>('button[title="Stop the exchange"]');
-		expect(stop?.textContent).toBe("Stop exchange");
-		await act(async () => stop!.click());
-		expect(sent).toContainEqual({ cmd: "thread.cancel", params: { thread: { kind: "pair", key } } });
-		await render(pane("closed"));
-		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, ended");
-		expect(container.querySelector('button[title="Stop the exchange"]')).toBeNull();
+	test("is read only: kept from before the inbox, with nothing that writes to it, stops it or starts it again", async () => {
+		await render(pane("parked"));
+		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, earlier");
+		expect(container.querySelector(".band h2 .beat")).toBeNull();
+		expect(container.querySelector("textarea, input, [contenteditable]")).toBeNull();
+		const keys = [...container.querySelectorAll<HTMLButtonElement>(".band button")].map((one) => one.getAttribute("title"));
+		expect(keys.map((key) => key?.split(" ")[0])).toEqual(["Back", "Close"]);
+		expect(sent).toEqual([]);
 	});
 
 	test("in the conversation that holds it, its link line is a pair's, and shows no kind word", async () => {

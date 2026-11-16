@@ -4763,6 +4763,17 @@
 	.pane-task-more:hover {
 		color: var(--accent-hover);
 	}
+	/* The message a work thread was taken from opens in the pane. */
+	.pane-task-open {
+		margin-left: auto;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		transition: color var(--dur-press) var(--ease-out);
+	}
+	.pane-task-open:hover {
+		color: var(--ink);
+	}
 	/* The work as it happens, on the pane's own canvas. */
 	.pane-stream {
 		min-height: 0;

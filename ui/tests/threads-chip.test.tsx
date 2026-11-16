@@ -28,7 +28,7 @@ const session = (personaId: string, state: "ready" | "thinking" = "ready") => ({
 	personaId, state, contextRestored: false, models: [], modes: [], configs: [], slashCommands: [],
 	capabilities: { activeInput: false, loadSession: false, resume: false, fork: false, mcpHttp: false, image: false, additionalDirectories: false },
 });
-type Going = { sides?: RunningSide[]; subagents?: RunningSubagent[]; workingJobs?: string[]; workingCalls?: string[]; workingPairs?: string[] };
+type Going = { sides?: RunningSide[]; subagents?: RunningSubagent[]; workingJobs?: string[]; workingCalls?: string[] };
 const entry = (going: Going = {}, state: "ready" | "thinking" = "ready", id = "ada", name = "Ada"): RosterEntry => ({
 	persona: persona(id, name), session: session(id, state), waiting: false, drawing: false,
 	...Object.fromEntries(Object.entries(going).filter(([, list]) => list.length > 0)),
@@ -61,7 +61,7 @@ const liveGroup = (row: RosterEntry, rows: ThreadSummary[], jobs: ScheduleEntry[
 
 /** Everything a teammate can have going: what runs, what rests, what waits and what has ended. */
 function busyAda() {
-	const row = entry({ sides: [notes, installer, idle, asking], subagents: [audit, fresh, crawl], workingJobs: ["j-digest"], workingCalls: ["c-1"], workingPairs: ["ada~lou"] }, "thinking");
+	const row = entry({ sides: [notes, installer, idle, asking], subagents: [audit, fresh, crawl], workingJobs: ["j-digest"], workingCalls: ["c-1"] }, "thinking");
 	const rows = [
 		...listOf([notes, installer, idle, asking], [audit, fresh, crawl]),
 		listed("call", "c-1", { title: "Standup", startedAt: NOW - 300_000 }),
@@ -101,7 +101,7 @@ describe("task-437 the count", () => {
 			expect(live.length).toBe(group.length);
 			expect(live.map((one) => one.id)).toEqual(group.map((item) => item.id));
 		}
-		expect(liveOf(busyAda().row, busyAda().rows, busyAda().jobs).length).toBe(8);
+		expect(liveOf(busyAda().row, busyAda().rows, busyAda().jobs).length).toBe(7);
 	});
 
 	test("lists only what runs now, each with its kind, what it is doing and how long it has run", () => {
@@ -116,29 +116,26 @@ describe("task-437 the count", () => {
 			"run:r-crawl": "Command · python3 crawl.py",
 			"call:c-1": "Call · Working",
 			"job:j-digest": "Job · Running",
-			"pair:ada~lou": "Pair · Working",
 		});
 		// At rest, waiting on the person (Needs you), or ended: not here.
 		expect(live.map((one) => one.id)).not.toContain("side:s-idle");
 		expect(live.map((one) => one.id)).not.toContain("side:s-ask");
+		// A conversation two teammates had before the inbox never runs, whatever an older list said.
+		expect(live.map((one) => one.id)).not.toContain("pair:ada~lou");
 		expect(live.map((one) => one.id)).not.toContain("pair:ada~mack");
 		expect(live.map((one) => one.id)).not.toContain("run:r-old");
-		// How long: since each started; a pair or a job, whose thread outlives its turns, has none.
+		// How long: since each started; a job, whose thread outlives its turns, has none.
 		expect(byId["run:r-audit"]?.since).toBe(audit.startedAt);
 		expect(byId["side:s-hand"]?.since).toBe(installer.startedAt);
-		expect(byId["pair:ada~lou"]?.since).toBeUndefined();
 		expect(byId["job:j-digest"]?.since).toBeUndefined();
 		// Each opens as the list's row does.
 		expect(byId["run:r-audit"]?.open).toEqual({ thread: { kind: "run", key: "r-audit" }, title: "Audit side-pane thread rows" });
 		expect(byId["job:j-digest"]?.open).toEqual({ thread: { kind: "job", key: "j-digest" }, title: "Morning digest" });
 	});
 
-	test("a pair runs while the roster says one of its two answers the other, whatever an older read of the list said", () => {
+	test("a pair, kept from before the inbox, never runs, whatever an older read of the list said", () => {
 		const rows = [listed("pair", "ada~lou", { withPersonaId: "lou", preview: "Is the deploy paused?" })];
 		expect(liveOf(entry(), rows)).toEqual([]);
-		const live = liveOf(entry({ workingPairs: ["ada~lou"] }), rows);
-		expect(live.map((one) => [one.id, one.line])).toEqual([["pair:ada~lou", "Pair · Working · Is the deploy paused?"]]);
-		// The list read mid-answer, the answer since in: the roster's word stands.
 		expect(liveOf(entry(), [{ ...rows[0]!, state: "live", working: true }])).toEqual([]);
 	});
 
@@ -408,12 +405,9 @@ describe("task-437 in the conversation", () => {
 	// Its own teammate: the window keeps each thread's store by desk and id for the
 	// process, so an "ada" another file opened would answer with that file's socket.
 	// A handoff and a subagent and a command run; a work thread rests.
-	/** Whether Nell's ask of Lou is being answered now: the core's word on her roster row and in her list. */
+	/** Whether an older core lists the thread between Nell and Lou as live, as it did while one answered the other. */
 	let pairAnswering = false;
-	const nell = (): RosterEntry => ({
-		...entry({ sides: [installer, idle], subagents: [audit, crawl] }, "thinking", "nell", "Nell"),
-		...(pairAnswering ? { workingPairs: ["lou~nell"] } : {}),
-	});
+	const nell = (): RosterEntry => entry({ sides: [installer, idle], subagents: [audit, crawl] }, "thinking", "nell", "Nell");
 	const nellsList = (): ThreadSummary[] => [
 		...listOf([installer, idle], [audit, crawl]).map((row) => ({ ...row, personaId: "nell" })),
 		// The thread between Nell and Lou, as `thread.list` says it: live only while an ask of it is answered.
@@ -426,20 +420,12 @@ describe("task-437 in the conversation", () => {
 		static listDelivered = false;
 		/** How many times the window asked for the list. */
 		static listReads = 0;
-		/** The socket open now, and its roster subscription: where a roster row is pushed. */
-		static open: FakeCore | null = null;
-		static rosterSub: unknown = null;
-		/** The core sends Nell's roster row again, as it does when her row changes. */
-		static pushRoster() {
-			FakeCore.open?.onmessage?.({ data: JSON.stringify({ sub: FakeCore.rosterSub, event: nell() }) });
-		}
 		readyState = 1;
 		onopen: (() => void) | null = null;
 		onmessage: ((message: { data: string }) => void) | null = null;
 		onclose: (() => void) | null = null;
 		onerror: (() => void) | null = null;
 		constructor(readonly url: string) {
-			FakeCore.open = this;
 			setTimeout(() => this.onopen?.(), 0);
 		}
 		send(data: string) {
@@ -448,7 +434,6 @@ describe("task-437 in the conversation", () => {
 			const reply = (answer: Record<string, unknown>) => setTimeout(() => this.onmessage?.({ data: JSON.stringify(answer) }), 0);
 			if ("sub" in frame) {
 				const target = JSON.stringify(frame["sub"]);
-				if (target.includes('"roster"')) FakeCore.rosterSub = id;
 				reply({ id, ok: true });
 				reply({ sub: id, snapshot: target.includes('"roster"') ? [nell()] : [] });
 				return;
@@ -614,9 +599,9 @@ describe("task-437 in the conversation", () => {
 		expect(slot().getAttribute("aria-expanded")).toBe("false");
 	});
 
-	test("a thread between two teammates joins the count while one answers the other, and leaves it when the answer is in", async () => {
-		// George's QA, 2026-11-12: a DM between agents never showed among the running threads.
-		// The list was read before the ask, and nothing the window heard made it read it again.
+	test("a conversation two teammates had before the inbox never joins the count, whatever an older list says of it", async () => {
+		// An older core lists the pair live while one of the two answers the other.
+		pairAnswering = true;
 		const { App } = await import("../src/App");
 		await act(async () => root!.render(<App />));
 		await settle();
@@ -625,16 +610,7 @@ describe("task-437 in the conversation", () => {
 		await settle();
 		const key = () => container.querySelector<HTMLButtonElement>("button.composer-threads");
 		expect(key()?.textContent).toBe("3 threads");
-		// Nell asks Lou; Lou answers. The core's word is her roster row, sent again.
-		pairAnswering = true;
-		await act(async () => FakeCore.pushRoster());
-		await until(() => key()?.textContent === "4 threads", "the pair in the count");
 		await act(async () => void key()!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
-		const pair = container.querySelector<HTMLButtonElement>('.composer-threads-panel .list-row[data-thread="pair:lou~nell"]');
-		expect(pair?.querySelector(".list-line")?.textContent).toBe("Pair · Working · Is the nightly deploy paused?");
-		// The answer is in: the row goes again, and the pair with it.
-		pairAnswering = false;
-		await act(async () => FakeCore.pushRoster());
-		await until(() => key()?.textContent === "3 threads", "the pair out of the count");
+		expect(container.querySelector('.composer-threads-panel .list-row[data-thread="pair:lou~nell"]')).toBeNull();
 	});
 });

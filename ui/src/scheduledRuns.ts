@@ -208,7 +208,7 @@ type Place = "member" | "beside" | "end";
  * quiet turn's time alone, a finished work thread alone) is drawn as its
  * rows were. `work` is the work threads inbox items started, by key.
  */
-export function foldInboxRuns(blocks: Block[], work: ReadonlySet<string>): Block[] {
+export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean }): Block[] {
 	const out: Block[] = [];
 	let run: { block: Block; member: boolean }[] | null = null;
 	// The turn going now: the person's line began it or was steered into it, and it posted a bubble.

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Aside, DeliveryCause, ThreadId, ThreadSummary, TranscriptEvent } from "../../generated/contract";
 import type { Person } from "../../avatars";
-import type { LinkEvent } from "../../dock";
+import { conversationWith, type LinkEvent } from "../../dock";
 import { ArrowLeftIcon } from "../../icons";
 import { startedWords, threadFamily } from "../../threadKinds";
 import { useThread } from "../../tape";
 import { toBlocks, withStreaming } from "../../transcriptFolds";
-import { wire } from "../../wire";
 import { Avatar } from "../../ui/Avatar";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
@@ -150,14 +149,15 @@ function HandoffWork({ request, work, running, onGrew }: { request: string; work
 }
 
 /**
- * A pair open in the pane (docs/design/thread-panes.html, Pair): two
- * teammates talking, read along as it happens. Each line on its speaker's
- * side under their face and name; a teammate on a linked desk by the name
- * that says so ("Lou on grizzly"). A handoff between them is its request, the
- * work it became as it happens, and its result, and an aside between them is
- * a line too, each with a small chip by the name: one press opened this, and
- * nothing here needs another to be read. While the exchange stands the band
- * says they are talking and offers Stop exchange, which is the person's to end.
+ * A pair open in the pane (docs/design/thread-panes.html, Pair): a
+ * conversation two teammates had before the inbox, "Conversation with
+ * Goldie", kept to read. Each line on its speaker's side under their face
+ * and name; a teammate on a linked desk by the name that says so ("Lou on
+ * grizzly"). A handoff between them is its request, the work it became, and
+ * its result, and an aside between them is a line too, each with a small chip
+ * by the name: one press opened this, and nothing here needs another to be
+ * read. It is read only: nothing here writes to it or starts it again, since
+ * teammates reach each other through the inbox now.
  */
 export function PairPane({
 	threadKey,
@@ -197,35 +197,22 @@ export function PairPane({
 	const shown = useMemo(() => ({ lines, grew }), [lines, grew]);
 	const working = lines.some((line) => line.kind === "said" && line.work?.latest === true && workingSides.includes(line.work.thread));
 	const said = lines.filter((line) => line.kind === "said").length;
-	// A pair is live in the desk's record while a request of it is being answered: the exchange stands.
-	const talking = row?.state === "live";
-	const state = talking ? "Talking" : row?.state === "closed" ? "Ended" : "Idle";
-	const [refused, setRefused] = useState<string | null>(null);
-	const stop = () => {
-		setRefused(null);
-		void wire.command("thread.cancel", { thread: { kind: "pair", key: threadKey } }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
-	};
 	return (
-		<section className="dock-page" aria-label={`Pair: ${self.name} and ${other.name}`}>
+		<section className="dock-page" aria-label={conversationWith(other.name)}>
 			<Band>
 				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
-				<BandKind kind={threadFamily("pair")} live={talking} state={state.toLowerCase()} tone="quiet" />
+				<BandKind kind={threadFamily("pair")} live={false} state="earlier" tone="quiet" />
 				<span className="instrument shrink-0 pr-1">{said === 1 ? "1 line" : `${said} lines`}</span>
-				{talking && (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop the exchange" onClick={stop}>
-						Stop exchange
-					</button>
-				)}
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
 				kind={threadFamily("pair")}
-				title={`${self.name} ↔ ${other.name}`}
+				title={conversationWith(other.name)}
 				meta={[handoff !== undefined && `handed off by ${handoff.name}`, row !== undefined && startedWords(row.startedAt)]}
 			/>
-			<LiveStream following={threadKey} count={lines.length} content={shown} live={talking || working}>
+			<LiveStream following={threadKey} count={lines.length} content={shown} live={working}>
 				{lines.map((line) =>
 					line.kind === "paused" ? (
 						<ExchangePaused key={line.id} personaId={self.id} ownerName={self.name} event={line.event} />
@@ -248,7 +235,6 @@ export function PairPane({
 					),
 				)}
 			</LiveStream>
-			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 		</section>
 	);
 }

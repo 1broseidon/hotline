@@ -8,6 +8,7 @@ import { sends, useReturned, useSends } from "../sends";
 import type { Refill } from "./Conversation";
 import {
 	clampDock,
+	conversationWith,
 	DOCK_MAX,
 	DOCK_MIN,
 	DOCK_STEP,
@@ -164,6 +165,7 @@ export function Dock({
 							working={working}
 							onSegment={(segment) => onState({ open: null, inbox: { segment } })}
 							onOpenItem={(item) => onState({ open: null, inbox: { item }, from: { open: null, inbox: { ...inbox } } })}
+							onOpenThread={openWork}
 							onClose={onClose}
 						/>
 					)
@@ -212,7 +214,7 @@ export function Dock({
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
 							onOpenInboxItem={openItem}
-							fromInbox={at.thread.kind === "side" && inboxWork.has(at.thread.key)}
+							inboxItem={at.thread.kind === "side" ? inboxWork.get(at.thread.key) : undefined}
 							onBack={() => onState(back)}
 							onClose={onClose}
 							onOpenTeammate={onOpenTeammate}
@@ -277,7 +279,7 @@ function ThreadView({
 	onChanged,
 	onOpen,
 	onOpenInboxItem,
-	fromInbox = false,
+	inboxItem,
 	onBack,
 	onClose,
 	onOpenTeammate,
@@ -295,15 +297,16 @@ function ThreadView({
 	/** The thread was archived or continued: the list reads itself again. */
 	onChanged(): void;
 	onOpen(open: ThreadRef): void;
-	/** Opens an item the thread sent in the pane, with Back here. */
+	/** Opens an item in the pane, with Back here: one the thread sent, or the one it was taken from. */
 	onOpenInboxItem(itemId: string): void;
-	/** Taking an inbox item started it: the work thread's own pane, with the item's words over it, not a handoff's. */
-	fromInbox?: boolean;
+	/** The inbox item taking which started it: the work thread's own pane, with the item's words over it, not a handoff's, and a way to the item. */
+	inboxItem?: string | undefined;
 	onBack(): void;
 	onClose(): void;
 	onOpenTeammate(personaId: string): void;
 }) {
 	const id = open.thread;
+	const fromInbox = inboxItem !== undefined;
 	const { events, streaming, more, earlier, prompt, cancel, interrupt, close, resume } = useThread(id);
 	const state = row?.state ?? "live";
 	// A teammate's handoff is the two teammates' work: the person speaks in it, and only its result ends it.
@@ -319,7 +322,7 @@ function ThreadView({
 	const turning = working && !closed;
 	const other = id.kind === "pair" ? pairWith(id.key, self.id) : undefined;
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
-	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
+	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : id.kind === "side" ? sideTitle(open.title) : id.kind === "pair" ? conversationWith(withName) : (open.title ?? "Thread");
 	const from = row === undefined ? "" : openerWords(row, teammate.id, nameOf);
 	// What the thread is, under the band: a run is a command when its roster row says so, or once it has ended its own line, and the teammate left it running.
 	const ownerEntry = roster.find((one) => one.persona.id === self.id);
@@ -440,7 +443,7 @@ function ThreadView({
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				{seeded !== undefined && sender !== undefined && (
-					<TaskCard eyebrow="Message" from={{ personaId: sender.personaId, name: sender.name, hash: people.get(sender.personaId)?.hash }} text={seeded.text} />
+					<TaskCard eyebrow="Message" from={{ personaId: sender.personaId, name: sender.name, hash: people.get(sender.personaId)?.hash }} text={seeded.text} onOpen={inboxItem === undefined ? undefined : () => onOpenInboxItem(inboxItem)} />
 				)}
 				{opener !== undefined ? (
 					<HandoffPane thread={id} events={lines} streaming={streaming} live={turning} receiver={{ id: self.id, name: self.name, hash: self.avatarHash }} sender={opener} people={people} />

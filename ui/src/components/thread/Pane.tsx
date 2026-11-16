@@ -74,9 +74,11 @@ export function PaneHead({
 
 /**
  * What the thread was handed, and by whom: a subagent's task, a handoff's
- * request. Three lines of it, with Show all only when there is more.
+ * request, the inbox message a work thread was taken from, which `onOpen`
+ * opens in the pane. Three lines of it, with Show all only when there is
+ * more.
  */
-export function TaskCard({ eyebrow, from, text }: { eyebrow: string; from?: From | undefined; text: string }) {
+export function TaskCard({ eyebrow, from, text, onOpen }: { eyebrow: string; from?: From | undefined; text: string; onOpen?: (() => void) | undefined }) {
 	const body = useRef<HTMLParagraphElement>(null);
 	const [open, setOpen] = useState(false);
 	const [clipped, setClipped] = useState(false);
@@ -101,6 +103,11 @@ export function TaskCard({ eyebrow, from, text }: { eyebrow: string; from?: From
 						<Avatar id={from.personaId} name={from.name} size={16} hash={from.hash} />
 						from {from.name}
 					</span>
+				)}
+				{onOpen !== undefined && (
+					<button type="button" className="pane-task-open" title="Open the message" onClick={onOpen}>
+						Open ›
+					</button>
 				)}
 			</p>
 			<p ref={body} className="pane-task-body selectable" data-open={open || undefined}>

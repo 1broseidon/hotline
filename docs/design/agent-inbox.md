@@ -494,7 +494,8 @@ item, and no chat opens between teammates.
   for you to allow it." A receipt from before today gives its date as well
   as its time. Hotline's notice is from Hotline, by its mark,
   wherever an item's sender is named (the pane, its rows, the sort's row,
-  the composer's tray). Back goes where it was opened from.
+  the composer's tray). Back goes where it was opened from (`DockState.from`):
+  the inbox, a thread, another item, or the work thread it was opened from.
 - **One word for each outcome.** An item a reply went back on is Answered
   and one whose work finished is Done, the same word on its sent row, its
   sort's row, the inbox pane and the item pane. Noticed, the desk showing
@@ -512,7 +513,9 @@ item, and no chat opens between teammates.
   grey: the accent is for what the teammate itself has not read. Every row
   says a time, when it was sent or last moved; an unsorted item whose
   sender waits says "waiting" in its line, as the composer's tray does,
-  never a countdown. It opens from
+  never a countdown. An item taken into a work thread has one row set in
+  under it, "Work thread" ("· Running" while a turn of it runs), which opens
+  the thread with Back to the inbox. It opens from
   the teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.
 - **Work an item started.** The desk opens a taken item's work thread with
@@ -522,8 +525,9 @@ item, and no chat opens between teammates.
   dot, its title and "Work thread · Running" (or Open, Parked, or what came
   of it), and on the sender's "Work thread · Juno · Running"; the Threads
   list and the composer's count list it as a work thread; its pane is the
-  work thread's, with the item's words over it as its Message. A handoff from
-  before the inbox keeps its old line and pane.
+  work thread's, with the item's words over it as its Message, whose Open ›
+  opens the item (the one taken, not one combined into it), with Back to the
+  thread. A handoff from before the inbox keeps its old line and pane.
 - **The composer and the rail.** While the open teammate has unread items,
   the composer's bottom row has "N unread" with the tray, beside "N threads"
   and in its style; it opens a tray of them (title, sender with "waiting"
@@ -531,11 +535,22 @@ item, and no chat opens between teammates.
   a last row to the whole inbox. The rail shows no inbox count: a
   teammate's unread is its own business, and the chip says it the moment
   the person opens that conversation.
+- **Conversations from before the inbox.** A conversation two teammates had
+  in 0.49 (a pair thread) is kept to read: in the Threads list it is always
+  under Earlier ("Earlier and routine" under Active), however recent, named
+  "Conversation with Goldie" for the other teammate, and its pane
+  (`PairPane`) has no composer and no key that writes to it, stops it or
+  starts it again. It is never live: the work a receiver takes from its
+  inbox runs on the pair's record but in the receiver's work thread, so the
+  pair's thread is always `Parked` and no roster row carries it. Nothing
+  starts a new one: no tool writes to a pair (`send` is the one way between
+  teammates), and the wire refuses a line, a Loop in or an End thread on one.
 - **What was removed.** The teammate pane's Threads section, which listed a
-  teammate's conversations with colleagues. Old pair threads and colleague
-  asides still on disk keep rendering where they always did (the Threads
-  list's Pairs and From teammates, `PairPane`, `AsideLine`), and inbound
-  sources' and Loop in's asides still draw as asides.
+  teammate's conversations with colleagues; a pair's Stop exchange and its
+  live state (`workingPairs` on the roster row). Colleague asides still on
+  disk keep rendering where they always did (the Threads list's From
+  teammates, `AsideLine`), and inbound sources' and Loop in's asides still
+  draw as asides.
 
 ## Contract
 

@@ -405,8 +405,7 @@ fn summarize(
             .iter()
             .any(|side| side.side_id == thread.id.key && side.working),
         ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
-        // A pair is live, in the room's own record, while a request of it
-        // is being answered.
+        // A pair, kept from before the inbox, is never live.
         ThreadKind::Pair | ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => room.thread_working(&thread.id),
     };

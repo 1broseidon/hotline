@@ -242,8 +242,8 @@ Where this differs from the design above:
   DMs. A run's parent is found from the marker on the teammate's tape, since
   the run's own marker does not name its owner.
 - **A record's word is the state.** A side or run a dead process left `Live`
-  loads as `Live`, a pair is `Live` while its `exchange_pair` has a request
-  running, and a DM is always `Live`. The room's settle still parks the
+  loads as `Live`, a pair, a conversation two teammates had before the inbox,
+  is always `Parked`, kept to read, and a DM is always `Live`. The room's settle still parks the
   orphans. The store cannot tell a stopped DM from a running one.
 - **`write` takes the teammate too**: `write(thread, persona_id, event)`. A
   run's id does not say whose it is, and the index, the push and the roster row
@@ -706,10 +706,8 @@ has one hook and one view.
   panel (its "2 threads ›" count is the Threads list's Live group, read from
   the same `thread.list` rows and roster by the same `listItems` and `filtered`
   rule: `liveThreads.ts`, `threadRows.ts`; its All threads row opens the
-  list; a pair is live there while the roster rows of both its teammates
-  carry its key in `workingPairs`, which the core sends again whenever the
-  pair's `exchange_pair` record moves, since a pair has no agent of its own
-  to follow), the More menu's Threads entry and its Start a side thread all open
+  list; a pair, a conversation two teammates had before the inbox, is never
+  live), the More menu's Threads entry and its Start a side thread all open
   the dock. The band's side-thread chips and the rail's nested subagent rows
   are gone (desk-threads mockup, 2026-11-12): an idle work thread is reached
   from its link row or the list. That

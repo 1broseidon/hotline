@@ -106,19 +106,25 @@ export function itemsOf(view: InboxView | undefined): ReadonlyMap<string, InboxI
 }
 
 /**
- * The work threads taking an item started, by key, out of what a view knows:
- * the receiver's own (open and closed) and those its sent items started.
- * The desk opens such a thread with the item's sender as its opener, as a
- * handoff was; this is how the window tells it from a handoff of old.
+ * The work threads taking an item started, by key, each with the item taken
+ * into it, out of what a view knows: the receiver's own (open and closed) and
+ * those its sent items started. The desk opens such a thread with the item's
+ * sender as its opener, as a handoff was; this is how the window tells it
+ * from a handoff of old, and how the thread's pane opens its message. Items
+ * combined into the taken one name the thread too; the one taken, which
+ * holds its request, is the thread's message.
  */
-export function inboxWork(items: ReadonlyMap<string, InboxItem>): ReadonlySet<string> {
-	const keys = new Set<string>();
-	for (const item of items.values()) if (item.work?.kind === "side") keys.add(item.work.key);
-	return keys;
+export function inboxWork(items: ReadonlyMap<string, InboxItem>): ReadonlyMap<string, string> {
+	const work = new Map<string, string>();
+	for (const item of items.values()) {
+		if (item.work?.kind !== "side") continue;
+		if (!work.has(item.work.key) || item.request !== undefined) work.set(item.work.key, item.id);
+	}
+	return work;
 }
 
 /** The same, for a teammate: live from its inbox. */
-export function useInboxWork(personaId: string | undefined): ReadonlySet<string> {
+export function useInboxWork(personaId: string | undefined): ReadonlyMap<string, string> {
 	const view = useInbox(personaId);
 	return useMemo(() => inboxWork(itemsOf(view)), [view]);
 }

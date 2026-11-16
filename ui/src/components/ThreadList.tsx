@@ -68,7 +68,7 @@ export function ThreadList({
 	/** The row a thread was last opened from. */
 	opened: RefObject<string | null>;
 	/** Work threads taking an inbox item started, by key: listed as work threads, not handoffs. */
-	inboxWork?: ReadonlySet<string> | undefined;
+	inboxWork?: ReadonlyMap<string, string> | undefined;
 	onOpen(open: ThreadRef): void;
 }) {
 	const root = useRef<HTMLDivElement>(null);

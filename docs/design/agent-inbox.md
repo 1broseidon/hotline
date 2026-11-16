@@ -249,7 +249,11 @@ runs it: a place among the receiver's live threads (`MAX_LIVE`, three,
 waiting its turn when every one is mid-turn), cards in the thread, the
 person's Stop and Interrupt, restarts. The receiver starts it; the sender's
 `send` never does. It needs no card of its own: the item's grant was checked
-when it was sent.
+when it was sent. An item is taken into one work thread only: it is claimed
+for its request under the inbox lock before the work starts, so of two takes
+at once one opens a thread, and any later take of it, in a thread or in the
+turn, is refused with the thread that has it (its title and key once it is
+open). The record of that thread is never overwritten.
 
 An `answer` on `update_inbox`, and the result of a work thread a taken item
 started, are new items in the original sender's inbox with `replyTo` set,

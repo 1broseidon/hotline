@@ -16,18 +16,19 @@ use super::*;
 use crate::contract::{InboxItem, InboxOutcome, Persona};
 
 impl Room {
-    /// Takes `items` into a work thread of `receiver`'s: the first is the
-    /// item taken, the rest those combined into it, whose words all seed the
-    /// thread. Answers the request's id; the thread is opened when the
-    /// request is let in.
+    /// Takes `items` into a work thread of `receiver`'s, as the request `id`
+    /// the taken item was claimed for: the first is the item taken, the
+    /// rest those combined into it, whose words all seed the thread. The
+    /// thread is opened when the request is let in.
     pub(in crate::session) fn take_into_work(
         self: &Arc<Self>,
         receiver: &Persona,
         items: &[InboxItem],
-    ) -> Result<String, String> {
+        id: &str,
+    ) -> Result<(), String> {
         let taken = items.first().ok_or("There is no item to take.")?;
         let key = thread_key(&taken.from, &receiver.id).ok_or("Invalid teammate pair")?;
-        let id = new_id();
+        let id = id.to_string();
         let leases = (
             self.request_lease(&taken.from),
             self.request_lease(&receiver.id),
@@ -89,10 +90,10 @@ impl Room {
                 items: items.iter().map(|item| item.id.clone()).collect(),
             });
             self.save_pair(&pair)?;
-            lock(&self.exchange_leases).insert(id.clone(), leases);
+            lock(&self.exchange_leases).insert(id, leases);
         }
         self.wake_exchange(&key);
-        Ok(id)
+        Ok(())
     }
 
     /// A taken item's work thread is open: each of its items says where.

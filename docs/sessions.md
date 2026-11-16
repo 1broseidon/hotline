@@ -1562,7 +1562,10 @@ request from its sender to the receiver carrying it and the items combined
 into it, which runs as a handoff always did ([Ask or hand off](#ask-or-hand-off)):
 a work thread of the receiver's seeded with their titles, senders and words,
 the place limit, cards, the person's Stop and Interrupt, restarts. The
-receiver starts it, never the sender, and it asks no card of its own. Its
+receiver starts it, never the sender, and it asks no card of its own. The
+item is claimed for its request under the inbox lock before the work is
+queued, so it is taken into one work thread only: a second take, at once or
+later, in a thread or not, is refused with the thread that has it. Its
 result is an item in each sender's inbox that answers the one taken, which
 closes as done, or dropped when the work failed or the person stopped it.
 

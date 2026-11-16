@@ -931,7 +931,26 @@ impl Room {
                 Sort::Taken => {
                     entry.state = InboxState::Taken;
                     let in_thread = sorting.in_thread.unwrap_or(item.wants == InboxWants::Work);
-                    let request = if in_thread {
+                    if in_thread {
+                        // The item is claimed for its work thread under the
+                        // inbox lock before the work starts, so of two takes
+                        // at once only one opens a thread.
+                        let request = new_id();
+                        let claimed = self.change_item(persona_id, &item.id, |kept| {
+                            if kept.state == InboxState::Closed || kept.request.is_some() {
+                                return false;
+                            }
+                            kept.request = Some(request.clone());
+                            moved(kept, InboxState::Taken, sorting.reason.clone(), None, None);
+                            true
+                        });
+                        if claimed.is_none() {
+                            let now = self.item_of(persona_id, &item.id)?;
+                            return Err(format!(
+                                "{} The entries before it in this call were sorted; the rest were not.",
+                                self.taken_already(&now)
+                            ));
+                        }
                         // What this call folds into it, wherever it is
                         // listed, and what was folded into it before.
                         let mut work = vec![item.clone()];
@@ -948,20 +967,26 @@ impl Room {
                                 work.push(before);
                             }
                         }
-                        let request = self.take_into_work(&me, &work)?;
-                        started.push(json!({ "id": short(&item.id), "request": request }));
-                        Some(request)
-                    } else {
-                        None
-                    };
-                    self.change_item(persona_id, &item.id, |kept| {
-                        if kept.state == InboxState::Closed {
-                            return false;
+                        if let Err(error) = self.take_into_work(&me, &work, &request) {
+                            // Nothing runs as that request: the item may be
+                            // taken again.
+                            self.change_item(persona_id, &item.id, |kept| {
+                                kept.request.take().is_some()
+                            });
+                            return Err(error);
                         }
-                        kept.request.clone_from(&request);
-                        moved(kept, InboxState::Taken, sorting.reason.clone(), None, None);
-                        true
-                    });
+                        started.push(json!({ "id": short(&item.id), "request": request }));
+                    } else {
+                        // Worked in the turn it is in; a work thread it was
+                        // taken into before is left to it.
+                        self.change_item(persona_id, &item.id, |kept| {
+                            if kept.state == InboxState::Closed {
+                                return false;
+                            }
+                            moved(kept, InboxState::Taken, sorting.reason.clone(), None, None);
+                            true
+                        });
+                    }
                 }
             }
             entries.push(entry);
@@ -1054,13 +1079,8 @@ impl Room {
                 }
                 _ => {}
             }
-            if sorting.sort == Some(Sort::Taken)
-                && item.request.is_some()
-                && sorting.in_thread != Some(false)
-            {
-                return Err(format!(
-                    "{named} is already taken into a work thread: its result comes back by itself."
-                ));
+            if sorting.sort == Some(Sort::Taken) && item.request.is_some() {
+                return Err(format!("{} Nothing was sorted.", self.taken_already(&item)));
             }
             if sorting.in_thread.is_some() && sorting.sort != Some(Sort::Taken) {
                 return Err(format!("{named}: `in_thread` goes with state taken."));
@@ -1093,6 +1113,31 @@ impl Room {
             }
         }
         Ok(resolved)
+    }
+
+    /// Why an item taken into a work thread is not taken again: the thread
+    /// that has it, by its title and the key `read_thread` takes, once it
+    /// is open.
+    fn taken_already(&self, item: &InboxItem) -> String {
+        let named = crate::fence::quoted(&item.title);
+        match &item.work {
+            Some(work) => {
+                let title = self
+                    .link_of(work)
+                    .map(|link| link.title)
+                    .filter(|title| !title.trim().is_empty())
+                    .map_or_else(String::new, |title| {
+                        format!(" {}", crate::fence::quoted(&title))
+                    });
+                format!(
+                    "{named} is already taken into the work thread{title} ({}): its result comes back by itself.",
+                    super::index::short(work)
+                )
+            }
+            None => format!(
+                "{named} is already taken into a work thread that is starting: its result comes back by itself."
+            ),
+        }
     }
 
     /// The items folded into `id`, oldest first.

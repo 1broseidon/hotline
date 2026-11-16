@@ -33,6 +33,7 @@ use crate::contract::{
 use crate::log::Log;
 use crate::room;
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Timelike};
+use serde_json::Value;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -134,18 +135,23 @@ impl Brief {
     }
 
     /// A job as the desk and the voice dispatcher say one: a one-shot at
-    /// `when`, or a loop of `every`, quiet or not.
+    /// `when`, or a loop of `every` or at `at` on `days`, quiet or not.
     pub(crate) fn job(
         kind: ScheduleKind,
         when: Option<i64>,
         every: Option<i64>,
+        at: Option<&str>,
+        days: Option<&[String]>,
         prompt: &str,
         quiet: bool,
     ) -> Result<Self, String> {
+        let days = days.map(|days| Value::from(days.to_vec()));
         let trigger = match kind {
             ScheduleKind::Schedule => {
-                if every.is_some() {
-                    return Err("A one-shot schedule cannot have every.".to_string());
+                if every.is_some() || at.is_some() || days.is_some() {
+                    return Err(
+                        "A one-shot schedule has a when, not every, at or days.".to_string()
+                    );
                 }
                 Trigger::At(when.ok_or_else(|| {
                     "A one-shot schedule needs when, in milliseconds since epoch.".to_string()
@@ -155,9 +161,7 @@ impl Brief {
                 if when.is_some() {
                     return Err("A loop cannot have when.".to_string());
                 }
-                Trigger::Every(
-                    every.ok_or_else(|| "A loop needs every, in milliseconds.".to_string())?,
-                )
+                loop_trigger(at, days.as_ref(), every)?
             }
         };
         Ok(Self {
@@ -171,6 +175,40 @@ impl Brief {
             ends: Ends::default(),
             without: Vec::new(),
         })
+    }
+}
+
+/// What a loop repeats on: `at`, a time of day, on `days` (daily when none
+/// are given), or `every` milliseconds. The teammate's `loop` tool and the
+/// desk's `schedule.create` both read a loop here, so a time or a day one
+/// refuses the other refuses in the same words.
+pub(crate) fn loop_trigger(
+    at: Option<&str>,
+    days: Option<&Value>,
+    every: Option<i64>,
+) -> Result<Trigger, String> {
+    match (at, every) {
+        (Some(_), Some(_)) => Err(
+            "loop takes `at` or `every`, not both: `at` runs at a time of day on chosen days, `every` on an interval."
+                .to_string(),
+        ),
+        (None, None) => Err(
+            "loop needs `at`, a time of day like 09:00 (with `days`), or `every`, an interval like 2h."
+                .to_string(),
+        ),
+        (None, Some(every)) => {
+            if days.is_some() {
+                return Err("`days` goes with `at`; `every` runs on every day.".to_string());
+            }
+            Ok(Trigger::Every(every))
+        }
+        (Some(at), None) => Ok(Trigger::Calendar(Calendar {
+            at: calendar::parse_at(at)?,
+            days: match days {
+                Some(days) => calendar::parse_days(days)?,
+                None => calendar::parse_days(&Value::from("daily"))?,
+            },
+        })),
     }
 }
 
@@ -588,7 +626,7 @@ fn tombstone_if_live(room: &Room, job_id: &str) {
 /// deleted, because its thread stays readable. A slot that was skipped, not
 /// run, moves the loop to its next slot without spending its count, so only
 /// its end date can end it; one skipped for being too late is kept on the
-/// job as its latest skip.
+/// job as its latest skip until the loop next runs.
 fn finish(room: &Room, job_id: &str, slot: Slot) {
     let _mutations = lock(&room.schedule_mutations);
     let Some(mut next) = room::schedules(&room.log)
@@ -599,11 +637,17 @@ fn finish(room: &Room, job_id: &str, slot: Slot) {
     };
     let now = now_ms();
     let ran = slot == Slot::Ran;
-    if slot == Slot::TooLate {
-        next.skipped = Some(SkippedRun {
-            slot: next.next_at,
-            at: now,
-        });
+    match slot {
+        Slot::TooLate => {
+            next.skipped = Some(SkippedRun {
+                slot: next.next_at,
+                at: now,
+            });
+        }
+        // A run that happened is the loop's latest news, so the skip before
+        // it is no longer worth saying.
+        Slot::Ran => next.skipped = None,
+        Slot::Overlapped => {}
     }
     let ends = if ran {
         fires_last(&next, now)

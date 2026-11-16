@@ -1136,13 +1136,15 @@ impl RoomHandle for Desk {
         kind: crate::contract::ScheduleKind,
         when: Option<i64>,
         every: Option<i64>,
+        at: Option<&str>,
+        days: Option<&[String]>,
         prompt: &str,
         quiet: bool,
         reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
         self.room.schedule_create(
             persona_id,
-            crate::session::Brief::job(kind, when, every, prompt, quiet)?,
+            crate::session::Brief::job(kind, when, every, at, days, prompt, quiet)?,
             reminder,
         )
     }

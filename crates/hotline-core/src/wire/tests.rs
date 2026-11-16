@@ -458,13 +458,15 @@ impl RoomHandle for CoreHandle {
         kind: crate::contract::ScheduleKind,
         when: Option<i64>,
         every: Option<i64>,
+        at: Option<&str>,
+        days: Option<&[String]>,
         prompt: &str,
         quiet: bool,
         reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
         self.room.schedule_create(
             persona_id,
-            crate::session::Brief::job(kind, when, every, prompt, quiet)?,
+            crate::session::Brief::job(kind, when, every, at, days, prompt, quiet)?,
             reminder,
         )
     }
@@ -945,6 +947,8 @@ impl RoomHandle for Quiet {
         _kind: crate::contract::ScheduleKind,
         _when: Option<i64>,
         _every: Option<i64>,
+        _at: Option<&str>,
+        _days: Option<&[String]>,
         _prompt: &str,
         _quiet: bool,
         _reminder: bool,

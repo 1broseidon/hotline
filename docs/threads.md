@@ -821,8 +821,9 @@ cross a link as their own delivery under the receiving desk's grant, a
 handed-over thread's notes reach a sender on another desk the same way, its
 question back reaches that sender with no card while the handoff stands, and
 the person's Stop or End thread of a linked colleague's handoff crosses as
-theirs. A message or an aside may carry files, copied into the recipient's
-received folder under `<sender>/`, over the link too up to a cap. How
+theirs. An inbox item may carry files, copied into the recipient's received
+folder under `<sender>/`; nothing of the inbox crosses a link, files
+included. How
 the core does it is in [sessions.md](sessions.md#asides) and
 [Files between teammates](sessions.md#files-between-teammates); the frames
 are in [wire.md](wire.md#linked-desks).

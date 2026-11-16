@@ -712,3 +712,32 @@ async fn a_run_skipped_for_being_late_is_kept_and_ends_only_a_loop_out_of_time()
     assert!(done.skipped.is_some());
     assert!(done.ended_at.is_some(), "its next time is past its end");
 }
+
+/// A skip is said until the loop next runs: a slot its thread skipped
+/// because the run before was still going leaves it, and the next run that
+/// happens clears it.
+#[tokio::test]
+async fn a_late_skip_is_kept_until_the_loop_next_runs() {
+    let log = grant_log(true);
+    let now = now_ms();
+    let job = calendar_job("kept", calendar("12:00", "daily"), now - 3 * 3_600_000);
+    room::append_schedule(&log, &job).unwrap();
+    let room = Room::new(log, Arc::new(NoKeys));
+    let kept = || {
+        room::all_jobs(&room.log)
+            .into_iter()
+            .find(|job| job.id == "kept")
+            .unwrap()
+    };
+
+    finish(&room, "kept", Slot::TooLate);
+    let skip = kept().skipped;
+    assert_eq!(skip.map(|skip| skip.slot), Some(job.next_at));
+
+    finish(&room, "kept", Slot::Overlapped);
+    assert_eq!(kept().skipped, skip, "an overlapped slot is not a run");
+
+    finish(&room, "kept", Slot::Ran);
+    assert_eq!(kept().skipped, None);
+    assert_eq!(kept().ended_at, None);
+}

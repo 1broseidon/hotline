@@ -2437,7 +2437,9 @@ was closed, the machine asleep or Background work off, and running it now
 would be work for a moment long gone. It is skipped instead, the loop moves
 on to its next time with its count unspent, and the job keeps the latest
 skip as `skipped`, `{slot, at}` (when it was due and when it was skipped),
-for the desk to show and `list_schedules` to say. A run late by two hours or
+for the desk to show and `list_schedules` to say, until the loop next runs:
+a run clears it, and a slot its thread skips because the run before is still
+going does not. A run late by two hours or
 less runs once, as before. A one-shot runs however late, since it has no
 next time to wait for. A start that failed and is retried a minute later
 counts its lateness from the retry.
@@ -2500,7 +2502,9 @@ into a crowd or a busy-loop:
 
 `quiet` and `reminder` are stored only when true. The parsers that take a
 string (`20m`, a date and time) live with the scheduler; they are not on the
-wire. A date and time with an offset (`Z`, `+01:00`) is that instant. One
+wire. A calendar loop's `at` and `days` are strings on both: the `loop`
+tool and the wire's `schedule.create` both read them with
+`schedule::loop_trigger`. A date and time with an offset (`Z`, `+01:00`) is that instant. One
 without, or a bare date (its midnight), is read on the desk machine's own
 clock, because that is the clock a teammate is shown: every line opens with
 the local time and no offset. A wall time the clocks pass twice as they go
@@ -2516,7 +2520,7 @@ MCP server:
 | --- | --- | --- |
 | `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or a date and time like `2026-11-16T09:00` |
 | `loop` | `at` or `every`, `days?`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that repeats until it ends, which Hotline runs again itself: at `at`, a time of day (`09:00`, 24-hour, the desk's clock), on `days` (`daily`, the default, `weekdays`, or the days, `mon,wed,fri` or a list), or on an interval, `every` (`15s`, `5m`, `1h`, `1d`). Exactly one of `at` and `every`; `days` only with `at` |
-| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`, and a loop's latest run skipped for being over two hours late as `skipped`, the time it was due; a supplied `target` is refused |
+| `list_schedules` | none | only the caller's jobs still to fire, each with its next run on the desk's clock (`next`), a calendar loop with `repeats` (`Weekdays at 09:00`), `at` and `days` and no `every`, and a loop's latest run skipped for being over two hours late as `skipped`, the time it was due and why, until the loop next runs; a supplied `target` is refused |
 | `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |
 
 The pane labels a job from its prompt; the tools take no name. A string

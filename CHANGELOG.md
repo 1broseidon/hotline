@@ -17,6 +17,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   clocks changing. Its row in the teammate's schedules says when it runs,
   such as "Weekdays at 9:00 AM". A desk on an older version reads such a
   job as one that runs once a day.
+- You can add such a job yourself: in a teammate's Schedules, Add a
+  schedule now offers Once, On days and Every. On days takes the days
+  (weekdays to start with) and a time, and reads the choice back under the
+  time as its row will say it.
+- A repeating job's row says when a run was skipped for being over two
+  hours late, such as "Skipped Fri 8:30 AM, over 2 hours late", until the
+  job next runs. A teammate's `list_schedules` says the same.
 
 ### Changed
 

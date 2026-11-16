@@ -186,7 +186,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `skills.add` | `{path}` | the `SkillEntry`; copies the skill folder at `path` into the gateway under its own name. Refused when it is not a skill or the gateway has one of that name |
 | `skills.remove` | `{name}` | none; removes a gateway skill. A teammate granted it loses it at its next start |
 | `skills.offer` | `{name, offered}` | the `SkillEntry`; offers one of the person's own skills to teammates, or withdraws it. Nothing is copied: the skill is read from the person's folder at every start |
-| `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?, reminder?}` | the created `ScheduledJob` |
+| `schedule.create` | `{personaId, kind, when?, every?, at?, days?, prompt, quiet?, reminder?}` | the created `ScheduledJob` |
 | `schedule.list` | `{}` | `ScheduledJob[]` still to fire, soonest first |
 | `schedule.cancel` | `{id}` | none; a living job ends with a final post, an ended one leaves the list |
 | `schedule.set_quiet` | `{id, quiet}` | none |
@@ -846,11 +846,17 @@ when it has never started under a Hotline that keeps a ledger, sent as
 [sessions.md](sessions.md).
 
 `schedule.create`'s `kind` is `"schedule"` (once) or `"loop"` (every
-interval until cancelled). Times are milliseconds: `when` is a one-shot's
-fire, milliseconds since epoch; `every` is a loop's interval. `quiet`
-defaults to false; `reminder` makes the job a plain reminder, its prompt
-posted to the chat when it fires and no work done. A one-shot cannot carry
-`every`; a loop cannot carry `when`. The job is an event on the room stream;
+interval, or at a time of day on chosen days, until cancelled). Times are
+milliseconds: `when` is a one-shot's fire, milliseconds since epoch; `every`
+is a loop's interval. A loop at a time of day gives `at` instead of `every`,
+a 24-hour `HH:MM` on the desk's clock, and `days`, the days it runs (`mon`
+to `sun`, or `weekdays` or `daily`; daily when left out). `at` and `days`
+are read by the same function as the teammate's `loop` tool, so the wire
+refuses what the tool refuses, in the same words. `quiet` defaults to false;
+`reminder` makes the job a plain reminder, its prompt posted to the chat
+when it fires and no work done. A one-shot carries only `when`; a loop
+cannot carry `when`, and carries `every` or `at`, never both. A client that
+sends no `at` or `days` is read as before. The job is an event on the room stream;
 each firing is a turn on the job's own thread, `{"kind": "job", "key": id}`,
 which `thread.prompt` speaks in, `thread.cancel` stops and `thread.close`
 cancels. A stopped turn posts no report and its thread says it was stopped;

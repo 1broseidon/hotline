@@ -44,7 +44,7 @@ fn brief(
     prompt: &str,
     quiet: bool,
 ) -> Brief {
-    Brief::job(kind, when, every, prompt, quiet).unwrap()
+    Brief::job(kind, when, every, None, None, prompt, quiet).unwrap()
 }
 
 /// Creating, silencing and cancelling a job go through the room, not around

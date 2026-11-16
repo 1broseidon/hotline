@@ -160,7 +160,8 @@ export function senderWords(item: InboxItem, nameOf: (personaId: string) => stri
 /**
  * Where an item stands, as its sender's row and the panes say it. Noticed,
  * the receiver being shown its title, is the desk's own step, so it reads
- * as Sent until the receiver reads it.
+ * as Sent until the receiver reads it. Taken reads as Picked up wherever the
+ * person reads it; the stored state and the teammates' own word stay taken.
  */
 export function stateWord(item: InboxItem): string {
 	if (item.held) return "Awaiting approval";
@@ -171,7 +172,7 @@ export function stateWord(item: InboxItem): string {
 		case "seen":
 			return "Seen";
 		case "taken":
-			return "Taken";
+			return "Picked up";
 		case "later":
 			return "Later";
 		case "closed":
@@ -280,7 +281,7 @@ export const sendState = (send: Send): string => together(send.items, send.items
 
 /** What became of an entry of a sort, in a word, at the right of its row. */
 export function sortedWord(entry: InboxSortedEntry): string {
-	if (entry.state === "taken") return "Taken";
+	if (entry.state === "taken") return "Picked up";
 	if (entry.state === "later") return "Later";
 	if (entry.state === "closed") return outcomeWord(entry.outcome);
 	return entry.state.charAt(0).toUpperCase() + entry.state.slice(1);
@@ -314,10 +315,10 @@ export function listHeading(view: InboxView, segment: InboxSegment): string {
 	return count === 0 ? `Nothing ${segment}` : `${count} ${segment}`;
 }
 
-/** The open count as the pane heads it: "2 unread · 1 taken · 1 for later". */
+/** The open count as the pane heads it: "2 unread · 1 picked up · 1 for later". */
 function openCounts(view: InboxView): string {
 	const { taken, later } = openGroups(view);
-	return [view.unread > 0 && `${view.unread} unread`, taken.length > 0 && `${taken.length} taken`, later.length > 0 && `${later.length} for later`]
+	return [view.unread > 0 && `${view.unread} unread`, taken.length > 0 && `${taken.length} picked up`, later.length > 0 && `${later.length} for later`]
 		.filter((part): part is string => part !== false)
 		.join(" · ");
 }
@@ -338,7 +339,7 @@ function receiptWord(receipt: InboxReceipt): string {
 		case "seen":
 			return "Seen";
 		case "taken":
-			return "Taken";
+			return "Picked up";
 		case "later":
 			return "Later";
 		case "closed":

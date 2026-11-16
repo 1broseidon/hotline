@@ -83,7 +83,8 @@ describe("task-456 the sender's rows", () => {
 		expect(inbox.sentState(group, known([item("i1", { state: "seen" }), item("i2", { state: "taken" }), item("i3")]))).toBe("2 of 3 seen");
 		expect(inbox.sentState(group, known([item("i1", { state: "closed", outcome: "noted", receipts: [{ state: "seen", at: NOW }] }), item("i2", { state: "closed", outcome: "noted" }), item("i3", { state: "closed", outcome: "noted" })]))).toBe("Noted");
 		const one = { title: "Rerun the Linux build", sent: [sent("i4", "juno", "x")] as InboxSent[] };
-		expect(inbox.sentState(one, known([item("i4", { state: "taken" })]))).toBe("Taken");
+		// The person reads Taken as Picked up; the stored state stays taken.
+		expect(inbox.sentState(one, known([item("i4", { state: "taken" })]))).toBe("Picked up");
 		expect(inbox.sentState(one, known([item("i4", { state: "later", reason: "after the release" })]))).toBe("Later");
 		expect(inbox.sentState(one, known([item("i4", { held: true, receipts: [] })]))).toBe("Awaiting approval");
 		// One closed straight from its title, or dropped while held, was never seen.
@@ -108,7 +109,7 @@ describe("task-456 the sort's line", () => {
 				entry("spam", { state: "closed", outcome: "dropped" }),
 				entry("x", { state: "closed" }),
 			].map(inbox.sortedWord),
-		).toEqual(["Taken", "Later", "Noted", "Combined", "Answered", "Done", "Dropped", "Closed"]);
+		).toEqual(["Picked up", "Later", "Noted", "Combined", "Answered", "Done", "Dropped", "Closed"]);
 	});
 });
 
@@ -344,7 +345,7 @@ describe("a teammate woken by its inbox", () => {
 });
 
 describe("task-456 the pane", () => {
-	test("groups what is open: not yet sorted, taken, for later; with the counts at its head", () => {
+	test("groups what is open: not yet sorted, picked up, for later; with the counts at its head", () => {
 		const shown = view({
 			open: [item("a"), item("b", { state: "seen" }), item("c", { state: "taken" }), item("d", { state: "later", reason: "after" }), item("e", { state: "noticed" })],
 			unread: 2,
@@ -353,7 +354,7 @@ describe("task-456 the pane", () => {
 		expect(groups.unread.map((one) => one.id)).toEqual(["a", "b", "e"]);
 		expect(groups.taken.map((one) => one.id)).toEqual(["c"]);
 		expect(groups.later.map((one) => one.id)).toEqual(["d"]);
-		expect(inbox.listHeading(shown, "open")).toBe("2 unread · 1 taken · 1 for later");
+		expect(inbox.listHeading(shown, "open")).toBe("2 unread · 1 picked up · 1 for later");
 		// The composer's tray is only what the teammate has not read.
 		expect(inbox.unreadItems(shown).map((one) => one.id)).toEqual(["a", "e"]);
 	});
@@ -527,6 +528,27 @@ describe("task-456 drawn", () => {
 		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
 	});
 
+	test("Picked up in the chat's inbox rows: a sort's row and a sent row say it where the item was taken", async () => {
+		const { InboxRows, InboxRun, InboxSentRow } = await import("../src/components/transcript/InboxLines");
+		const run = await runOf([
+			{ kind: "inbox_sorted", id: "s", ts: NOW, open: 1, unread: 0, entries: [{ item: "build", title: "Rerun the Linux build", from: "chop", state: "taken" }] },
+			{ kind: "turn", id: "e", ts: NOW, stopReason: "end_turn", quiet: true },
+		]);
+		const taken = item("i1", { state: "taken" });
+		await act(async () =>
+			root!.render(
+				<InboxRows.Provider value={{ work: new Set(), items: new Map([["i1", taken]]), onOpen: () => {} }}>
+					<InboxRun run={run} owner="juno" people={people} onOpenWork={() => {}} />
+					<InboxSentRow title="Release" sent={[sent("i1", "juno", "Release")] as InboxSent[]} people={people} />
+				</InboxRows.Provider>,
+			),
+		);
+		expect(container.querySelector("button.link-row[data-kind=inbox]")?.textContent).toContain("To Juno · Picked up");
+		await press(container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-step > .trail-head")!);
+		expect(container.querySelector(".inbox-run-rows .link-row")?.textContent).toContain("From Pork Chop · Picked up");
+		expect(container.textContent).not.toContain("Taken");
+	});
+
 	test("a run's row for Hotline's notice credits Hotline, and an item's row does nothing where nothing opens it", async () => {
 		const { InboxRun } = await import("../src/components/transcript/InboxLines");
 		const run = await runOf([
@@ -608,7 +630,7 @@ describe("task-456 drawn", () => {
 				),
 			);
 		await list("open");
-		expect([...container.querySelectorAll(".list-group")].map((one) => one.textContent)).toEqual(["Unread1", "Taken1", "For later1"]);
+		expect([...container.querySelectorAll(".list-group")].map((one) => one.textContent)).toEqual(["Unread1", "Picked up1", "For later1"]);
 		expect([...container.querySelectorAll("[data-inbox]")].map((one) => one.getAttribute("data-inbox"))).toEqual(["a", "t", "l"]);
 		// A waiting sender is said in the line, and the row's time is a time, as every row's is: no amber countdown.
 		expect(container.querySelector("[data-inbox=a] .list-line")?.textContent).toBe("Huck · waiting");
@@ -616,7 +638,7 @@ describe("task-456 drawn", () => {
 		expect(container.querySelector("[data-inbox=a] .list-when")?.textContent).toBe(asideTime(NOW - 60_000));
 		expect(container.querySelector("[data-inbox=a] .list-when")?.hasAttribute("data-waiting")).toBe(false);
 		expect(container.querySelector("[data-inbox=t] .dock-dot")).not.toBeNull();
-		expect(container.querySelector(".dock-note")?.textContent).toBe("1 unread · 1 taken · 1 for later");
+		expect(container.querySelector(".dock-note")?.textContent).toBe("1 unread · 1 picked up · 1 for later");
 		await press([...container.querySelectorAll("[role=tab]")].find((one) => one.textContent === "Sent")!);
 		expect(segments).toEqual(["sent"]);
 		await list("sent");
@@ -663,7 +685,7 @@ describe("task-456 drawn", () => {
 		expect(container.querySelector(".pane-title .pane-state")?.textContent).toBe("Done");
 		expect(container.querySelector(".pane-meta")?.textContent).toBe("Pork Chop to Juno · wants an answer");
 		expect(container.querySelector(".pane-task-body")?.textContent).toBe("The Linux build went red on the packaging step.");
-		expect([...container.querySelectorAll(".inbox-receipts li .inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent", "Seen", "Taken", "Done"]);
+		expect([...container.querySelectorAll(".inbox-receipts li .inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent", "Seen", "Picked up", "Done"]);
 		// Nothing here sends, sorts or answers.
 		expect(container.querySelector("textarea, input")).toBeNull();
 		const rows = [...container.querySelectorAll<HTMLButtonElement>(".dock-page .list-row")];
@@ -688,7 +710,7 @@ describe("task-456 drawn", () => {
 		await press(send);
 		expect(send.getAttribute("aria-expanded")).toBe("true");
 		const each = [...container.querySelectorAll<HTMLButtonElement>(".list-row-sub")];
-		expect(each.map((row) => row.textContent)).toEqual(["To Huck · Seen", "To Ivy · Sent", "To Pork Chop · Taken"]);
+		expect(each.map((row) => row.textContent)).toEqual(["To Huck · Seen", "To Ivy · Sent", "To Pork Chop · Picked up"]);
 		await press(each[2]!);
 		expect(opened).toEqual(["t3"]);
 		await press(send);
@@ -779,6 +801,14 @@ describe("task-456 drawn", () => {
 		expect(container.querySelectorAll(".said-group .link-row[data-kind=inbox-from]")).toHaveLength(2);
 		await press(rows[0]!);
 		expect(opened).toEqual(["w"]);
+	});
+
+	test("an item taken says Picked up where it stands", async () => {
+		const { InboxItemPane } = await import("../src/components/InboxPane");
+		spyOn(wire, "command").mockImplementation((async () => ({ item: item("p", { state: "taken", receipts: [{ state: "new", at: NOW - 60_000 }, { state: "taken", at: NOW - 30_000 }] }), replies: [] })) as unknown as typeof wire.command);
+		await act(async () => root!.render(<InboxItemPane itemId="p" people={people} onBack={() => {}} onClose={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} />));
+		expect(container.querySelector(".pane-title .pane-state")?.textContent).toBe("Picked up");
+		expect([...container.querySelectorAll(".inbox-receipt-word")].map((one) => one.textContent)).toEqual(["Sent", "Picked up"]);
 	});
 
 	test("a held item says it waits for the person to allow it", async () => {

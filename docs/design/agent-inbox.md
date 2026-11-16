@@ -401,11 +401,14 @@ arriving here, and files crossing a link.
 
 The window draws the inbox from the contract below (task-456). The person
 reads; the teammates act: nothing on the desk sends, sorts or answers an
-item, and no chat opens between teammates.
+item, and no chat opens between teammates. Wherever the person reads it, an
+item in `taken` reads Picked up (its state word, its receipts, the inbox
+pane's group and count line, the sent rows and the conversation's rows); the
+stored state and the teammates' tools keep `taken`.
 
 - **Sent rows.** Each `inbox_sent` is a quiet row like a thread's link: the
   tray, the title, whom it went to and where it stands now ("To Juno ·
-  Taken"). The items one `send` made to several teammates under one title
+  Picked up"). The items one `send` made to several teammates under one title
   stand side by side on the tape and are one row ("To Juno, Ivy, Huck · 2 of
   3 seen", or the word they all share). The state is read live from the
   sender's `{"inbox"}` subscription, not from the line. A press opens the
@@ -468,11 +471,11 @@ item, and no chat opens between teammates.
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.
 - **The item pane.** Its title, with where it stands in a word beside it
-  (Sent, Seen, Taken, Later, Answered, Done, Expired…, the sent row's word);
+  (Sent, Seen, Picked up, Later, Answered, Done, Expired…, the sent row's word);
   from whom to whom, whom else the send
   reached ("also sent to Quill"), what it wants, and whether the sender
   waits; the words; Receipts, a timeline of sent,
-  seen, taken, later with its reason, closed with its outcome
+  seen, picked up, later with its reason, closed with its outcome
   (Expired, with "Not picked up in 3 days.", for one that expired; and
   "Allowed" when the first-contact card let a held item in); the work thread
   taking it started, which opens that thread's pane (beside the receiver's
@@ -489,7 +492,7 @@ item, and no chat opens between teammates.
   and the receipts leave it out. In the Closed list a finished item is
   ticked, a dropped one crossed, and an expired one, never picked up, keeps
   a dotted ring.
-- **The inbox pane.** Open (Unread: new, noticed and seen; Taken; For
+- **The inbox pane.** Open (Unread: new, noticed and seen; Picked up; For
   later), Closed and Sent, newest first, under a line for the tab on show:
   the open counts, "4 closed", "6 sent", or "Nothing open", "Nothing
   closed", "Nothing sent". On Sent, the items one `send` made for several

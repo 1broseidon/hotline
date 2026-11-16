@@ -46,7 +46,7 @@ function markOf(item: InboxItem, sent: boolean): string {
 }
 
 /**
- * One teammate's inbox: Open (unread, taken, for later), Closed and Sent,
+ * One teammate's inbox: Open (unread, picked up, for later), Closed and Sent,
  * each newest first, under a line that says what the list on show holds. A
  * row opens the item in the pane, with Back here; on Sent, one send to
  * several teammates is one row that opens to a row for each.
@@ -95,7 +95,7 @@ export function InboxList({
 				<>
 					<Group title="Unread" items={groups.unread} />
 					{groups.unread.map((item) => row(item))}
-					<Group title="Taken" items={groups.taken} />
+					<Group title="Picked up" items={groups.taken} />
 					{groups.taken.map((item) => row(item))}
 					<Group title="For later" items={groups.later} />
 					{groups.later.map((item) => row(item))}

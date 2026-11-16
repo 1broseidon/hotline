@@ -235,9 +235,10 @@ function JobSource({ itemId, people }: { itemId: string; people: ReadonlyMap<str
 	if (item === undefined) return <span className="group-row-detail">From a colleague&rsquo;s message</span>;
 	const from = item.notice !== undefined ? "From Hotline's notice" : `From ${senderWords(item, (id) => people.get(id)?.name)}'s message`;
 	const words = `${from} · ${item.title}`;
-	if (onOpen === undefined) return <span className="group-row-detail">{words}</span>;
+	// The title wraps, as the row's details do, rather than run past the card's edge.
+	if (onOpen === undefined) return <span className="group-row-detail whitespace-normal">{words}</span>;
 	return (
-		<button type="button" className="group-row-detail text-left hover:text-ink-2" title="Open message" onClick={() => onOpen(itemId)}>
+		<button type="button" className="group-row-detail w-full whitespace-normal text-left hover:text-ink-2" title="Open message" onClick={() => onOpen(itemId)}>
 			{words}
 		</button>
 	);

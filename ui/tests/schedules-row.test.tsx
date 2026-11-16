@@ -101,3 +101,14 @@ test("a one-time job whose run waits on a colleague's reply says whom on in plac
 	await act(async () => root.render(<Schedules personaId="ada" jobs={[waiting]} backgroundWork focus={false} people={people} />));
 	expect(container.querySelector(".schedule-detail")?.textContent).toBe("Once · Added by you · Waiting on Huck, Quill");
 });
+
+test("the conversation's Schedules key says when the soonest job runs, never a waiting job's past time, and whom every job waits on when none will run", async () => {
+	const { scheduleSummary } = await import("../src/room");
+	const nameOf = (id: string) => (id === "huck" ? "Huck" : id);
+	const now = Date.now();
+	const waiting = job("once", { kind: "schedule", when: now - 60_000, nextAt: now - 60_000, awaiting: ["huck"] });
+	const daily = job("daily", { every: 86_400_000, nextAt: now + 2 * 3_600_000 });
+	expect(scheduleSummary([waiting, daily], true, nameOf, now)).toBe("Next in 2h");
+	expect(scheduleSummary([waiting], true, nameOf, now)).toBe("Waiting on Huck");
+	expect(scheduleSummary([{ ...daily, operatorCreated: false }], false, nameOf, now)).toBe("Paused");
+});

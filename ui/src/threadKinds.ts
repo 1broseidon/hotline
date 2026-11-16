@@ -33,7 +33,7 @@ export function threadFamily(kind: ThreadKind, opener?: string, run: RunKind = "
 				? { glyph: "$", word: "Command", watching: true }
 				: { glyph: "◆", word: "Helper", watching: true };
 		case "pair":
-			return { glyph: "◎", word: "Pair", watching: true };
+			return { glyph: "◎", word: "Conversation", watching: true };
 		case "call":
 			return { glyph: "☏", word: "Call", watching: false };
 		case "job":

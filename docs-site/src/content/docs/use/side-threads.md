@@ -79,7 +79,8 @@ beside the open teammate's main conversation:
 
 - its side threads, and work threads other teammates
   [handed it](/docs/use/teammates-together/#handoffs), first;
-- its conversations with other teammates (**Pair**);
+- its conversations with other teammates from before 0.50, read-only
+  (**Conversation**);
 - helpers (**Helper**);
 - calls (**Call**).
 

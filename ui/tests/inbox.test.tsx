@@ -332,6 +332,19 @@ describe("the three lists", () => {
 	});
 });
 
+describe("a work thread's Message", () => {
+	test("reads each item's title over its words, never the line the desk hands the teammate; a combined item from someone else says only whom it is from", () => {
+		const seeded = [
+			"Rerun the Linux build\nFrom Timo, item i5, wants work:\nIt failed overnight.",
+			"Check the runner disk\nFrom Timo, item i6, wants work:\n(No message beyond its title.)",
+			"Clear the cache\nFrom Quill, item i7, wants work:\nIt is full.",
+		].join("\n\n---\n\n");
+		expect(inbox.messageWords(seeded)).toBe(
+			["Rerun the Linux build  \nIt failed overnight.", "Check the runner disk", "Clear the cache  \nFrom Quill  \nIt is full."].join("\n\n---\n\n"),
+		);
+	});
+});
+
 describe("a teammate woken by its inbox", () => {
 	test("a turn the person was not part of ends Worked quietly in the steps pane, never Done; a stopped one is Stopped", async () => {
 		const { runEnding } = await import("../src/transcriptFolds");
@@ -728,7 +741,8 @@ describe("task-456 drawn", () => {
 			act(async () => root!.render(<InboxList name="Juno" view={shown} segment={segment} people={people} working={new Set()} onSegment={() => {}} onOpenItem={(id) => opened.push(id)} onOpenThread={() => {}} onClose={() => {}} />));
 		await draw("open");
 		expect([...container.querySelectorAll("[data-newer]")].map((one) => one.getAttribute("data-newer"))).toEqual(["n-open"]);
-		expect(container.querySelector(".spine-count")?.textContent).toBe("1 unread · 1 from a newer version");
+		// The count line stays one line: the newer item is counted by its own group's heading.
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 unread");
 		const row = container.querySelector("[data-newer=n-open]")!;
 		expect(row.tagName).toBe("DIV");
 		expect(row.querySelector(".list-line")?.textContent).toBe("Pork Chop · Saved by a newer version of Hotline. It can't be changed here.");
@@ -741,6 +755,10 @@ describe("task-456 drawn", () => {
 		await draw("sent");
 		expect(container.querySelector("[data-newer=n-sent] .list-line")?.textContent).toBe("To Huck · Saved by a newer version of Hotline. It can't be changed here.");
 		expect(opened).toEqual([]);
+		// With nothing else open, the count line says the newer item is open.
+		const alone = view({ open: [], unread: 0, newer: [newer("n-open", {})] });
+		await act(async () => root!.render(<InboxList name="Juno" view={alone} segment="open" people={people} working={new Set()} onSegment={() => {}} onOpenItem={() => {}} onOpenThread={() => {}} onClose={() => {}} />));
+		expect(container.querySelector(".spine-count")?.textContent).toBe("1 open");
 	});
 
 	test("on Sent, one send to three teammates is one row that opens to a row for each, each opening its item", async () => {

@@ -49,7 +49,7 @@ describe("a thread's kind", () => {
 	});
 
 	test("a pair and a job are watched, a call is one the person is in", () => {
-		expect(threadFamily("pair")).toEqual({ glyph: "◎", word: "Pair", watching: true });
+		expect(threadFamily("pair")).toEqual({ glyph: "◎", word: "Conversation", watching: true });
 		expect(threadFamily("job")).toEqual({ glyph: "↻", word: "Job", watching: true });
 		expect(threadFamily("call")).toEqual({ glyph: "☏", word: "Call", watching: false });
 	});

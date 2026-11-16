@@ -25,7 +25,7 @@ const KINDS: { filter: ListFilter; word: string }[] = [
 	{ filter: "subagents", word: "Helpers" },
 	{ filter: "jobs", word: "Jobs" },
 	{ filter: "calls", word: "Calls" },
-	{ filter: "pairs", word: "Pairs" },
+	{ filter: "pairs", word: "Conversations" },
 	{ filter: "teammates", word: "From teammates" },
 ];
 

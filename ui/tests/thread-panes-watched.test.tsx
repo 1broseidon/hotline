@@ -144,11 +144,12 @@ describe("task-395 a pair's pane", () => {
 		<PairPane threadKey={key} self={poe} other={lou} row={row(state)} events={events} people={new Map()} onBack={() => {}} onClose={() => {}} />
 	);
 
-	test('says Pair alone in its band, "read only" in its state line, titled "Conversation with <B>" with a linked-desk teammate by its desk name', async () => {
+	test('says Conversation alone in its band, "read only" in its state line, titled by the other teammate, a linked-desk teammate by its desk name', async () => {
 		await render(pane("parked"));
-		expect(text(".band-kind")).toBe("Pair");
+		expect(text(".band-kind")).toBe("Conversation");
 		expect(text(".spine-state")).toStartWith("Earlier· read only");
-		expect(text(".spine-title")).toBe("Conversation with Lou on grizzly");
+		expect(text(".spine-title")).toBe("Lou on grizzly");
+		expect(container.querySelector("section")?.getAttribute("aria-label")).toBe("Conversation with Lou on grizzly");
 		expect(container.querySelectorAll(".spine-facts > div").length).toBeLessThanOrEqual(3);
 	});
 
@@ -179,17 +180,27 @@ describe("task-395 a pair's pane", () => {
 		measured = { scrollHeight: 0, clientHeight: 0 };
 	});
 
-	test("a pause waiting on Keep going or Stop puts the amber ring on Lines", async () => {
+	test("a pause card met in it is a settled line with no keys, a waiting one too, and nothing on Lines asks for the person", async () => {
 		const paused: TranscriptEvent = { kind: "exchange_paused", id: "x1", ts: 3, withPersonaId: lou.id, withName: lou.name, exchanges: 12, status: "pending" };
-		await act(async () => root.render(<PairPane threadKey={key} self={poe} other={lou} row={row("parked")} events={[...events, paused]} people={new Map()} onBack={() => {}} onClose={() => {}} />));
-		expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("blocked");
+		for (const [status, words] of [
+			["pending", "Paused after 12 messages, not answered"],
+			["resumed", "Paused after 12 messages, then kept going"],
+			["stopped", "Paused after 12 messages, then stopped"],
+		] as const) {
+			await act(async () => root.render(<PairPane threadKey={key} self={poe} other={lou} row={row("parked")} events={[...events, { ...paused, status }]} people={new Map()} onBack={() => {}} onClose={() => {}} />));
+			expect(container.querySelector(".pane-stream .rule-line")?.textContent).toBe(words);
+			expect(container.querySelector(".pane-stream button, .card")).toBeNull();
+			expect(container.textContent).not.toContain("Keep going");
+			expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("stopped");
+		}
+		expect(sent).toEqual([]);
 	});
 
 	test("is read only: kept from before the inbox, with nothing that writes to it, stops it or starts it again", async () => {
 		// Even where an older desk's record still says live, it is never live here.
 		for (const state of ["live", "parked", "closed"] as const) {
 			await render(pane(state));
-			expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Pair, earlier");
+			expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Conversation, earlier");
 			expect(container.querySelector(".beat")).toBeNull();
 			expect(container.querySelector(".spine-rule[data-status]")?.getAttribute("data-status")).toBe("stopped");
 			expect(container.querySelector("textarea, input, [contenteditable]")).toBeNull();

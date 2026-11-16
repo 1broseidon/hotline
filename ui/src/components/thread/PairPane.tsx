@@ -10,7 +10,6 @@ import { Avatar } from "../../ui/Avatar";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
 import { Markdown } from "../Markdown";
-import { ExchangePaused } from "../transcript/Asks";
 import { BandKind, LiveStream, PaneHead } from "./Pane";
 import { Clamped, SectionRule, StateLine } from "./Spine";
 import { WorkBlocks } from "./WorkStream";
@@ -85,6 +84,23 @@ export function pairLines(key: string, events: readonly TranscriptEvent[], self:
 }
 
 /**
+ * A pause card the two met in this conversation, as a settled line: the
+ * conversation is read only, so a card still waiting here has no Keep going
+ * or Stop and says it was not answered.
+ */
+function pausedWords(event: Paused): string {
+	const paused = `Paused after ${event.exchanges} ${event.exchanges === 1 ? "message" : "messages"}`;
+	switch (event.status) {
+		case "pending":
+			return `${paused}, not answered`;
+		case "resumed":
+			return `${paused}, then kept going`;
+		case "stopped":
+			return `${paused}, then stopped`;
+	}
+}
+
+/**
  * What one handoff did, from its work thread's stream: what came after its
  * own delivery, up to the next handoff into the same thread. The thread's own
  * link is not work, and once the result is on the pair the words it was made
@@ -151,15 +167,16 @@ function HandoffWork({ request, work, running, onGrew }: { request: string; work
 
 /**
  * A pair open in the pane (docs/design/thread-panes.html, Pair): a
- * conversation two teammates had before the inbox, "Conversation with
- * Goldie", kept to read. Each line in a quiet well on the text edge, the
+ * conversation two teammates had before the inbox, kept to read, with
+ * Conversation in its band and the other teammate's name for its title. Each line in a quiet well on the text edge, the
  * speaker's name over it and their small face in the gutter, six lines of it
  * until Show all; a teammate on a linked desk by the name that says so ("Lou
  * on grizzly"). A handoff between them is its request, the work it became,
  * and its result, and an aside between them is a line too, each with a small
  * chip by the name: one press opened this, and nothing here needs another to
  * be read. It is read only: nothing here writes to it or starts it again,
- * since teammates reach each other through the inbox now.
+ * since teammates reach each other through the inbox now, and a pause card
+ * met in it is a settled line with no keys.
  */
 export function PairPane({
 	threadKey,
@@ -199,8 +216,6 @@ export function PairPane({
 	const shown = useMemo(() => ({ lines, grew }), [lines, grew]);
 	const working = lines.some((line) => line.kind === "said" && line.work?.latest === true && workingSides.includes(line.work.thread));
 	const said = lines.filter((line) => line.kind === "said").length;
-	// A pause waiting on Keep going or Stop is the person's to answer: the exchange is blocked on them.
-	const paused = lines.some((line) => line.kind === "paused" && line.event.status === "pending");
 	return (
 		<section className="dock-page" aria-label={conversationWith(other.name)}>
 			<Band>
@@ -211,18 +226,21 @@ export function PairPane({
 				<PaneClose onClose={onClose} />
 			</Band>
 			<PaneHead
-				title={conversationWith(other.name)}
+				// The band says Conversation: the title is whom it was with.
+				title={other.name}
 				line={<StateLine word="Earlier" detail="read only" time={row !== undefined ? clockWords(row.updatedAt) : undefined} />}
 				facts={[
 					["Handed off by", handoff?.name],
 					["Started", row !== undefined ? clockWords(row.startedAt) : undefined],
 				]}
 			/>
-			<SectionRule title="Lines" count={said} status={paused ? "blocked" : working ? "live" : "stopped"} />
+			<SectionRule title="Lines" count={said} status={working ? "live" : "stopped"} />
 			<LiveStream following={threadKey} count={lines.length} content={shown} live={working}>
 				{lines.map((line) =>
 					line.kind === "paused" ? (
-						<ExchangePaused key={line.id} personaId={self.id} ownerName={self.name} event={line.event} />
+						<p key={line.id} className="rule-line rule-line-plain pair-paused">
+							{pausedWords(line.event)}
+						</p>
 					) : (
 						<div key={line.id}>
 							<div className="pair-line">

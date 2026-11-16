@@ -9,7 +9,7 @@ import { ClockIcon, ComputerIcon, ProgressRing, WarningIcon } from "../icons";
 import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/call";
 import { carry } from "../serverFiles";
 import { sends, unlanded, useReturned, useSends } from "../sends";
-import { nextText } from "../room";
+import { scheduleSummary } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { useAsides, withAsides } from "../asides";
 import { inboxWork, itemsOf, unreadItems, unreadWords, useInbox, useInboxWork } from "../inbox";
@@ -451,11 +451,7 @@ const ConversationBand = memo(function ConversationBand({
 			.catch((error: Error) => setRefused(error.message))
 			.finally(() => setChapterBusy(false));
 	}, [personaId, setRefused]);
-	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
-		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
-		null,
-	);
-	const scheduleDetail = next === null ? "Paused" : `Next ${nextText(next.nextAt)}`;
+	const scheduleDetail = scheduleSummary(jobs, persona.backgroundWork === true, (id) => roster.find((one) => one.persona.id === id)?.persona.name ?? id);
 
 	// The plan gauge's card names the agent the login is for; opening it
 	// asks for a fresh reading, which the core takes only when it is old.

@@ -4619,6 +4619,10 @@
 		font-family: var(--font-sans);
 		color: var(--ink-2);
 	}
+	/* A pause card the pair met, settled to a line: 12px from the line above, as a line is. */
+	.pair-paused {
+		margin-top: 8px;
+	}
 	/* A handoff's work, under its request, in the pair's own window. */
 	.pair-work {
 		margin-top: 6px;

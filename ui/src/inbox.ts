@@ -314,10 +314,15 @@ export function openGroups(view: InboxView): { unread: InboxItem[]; taken: Inbox
 /** What the teammate has not read, newest first: the composer's tray. */
 export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.open ?? []).filter((item) => item.state === "new" || item.state === "noticed");
 
-/** The pane's heading line for the list it shows: the open counts, else how many closed or sent, else that there are none. */
+/**
+ * The pane's heading line for the list it shows, kept to one line: the open
+ * counts, else how many closed or sent, else that there are none. Items a
+ * newer Hotline saved are counted by their own group's heading, so on Open
+ * they stand in the line only when nothing else is open.
+ */
 export function listHeading(view: InboxView, segment: InboxSegment): string {
 	const newer = newerIn(view, segment).length;
-	if (segment === "open") return [openCounts(view), newer > 0 && `${newer} from a newer version`].filter((part) => typeof part === "string" && part !== "").join(" · ") || "Nothing open";
+	if (segment === "open") return openCounts(view) || (newer > 0 ? `${newer} open` : "Nothing open");
 	const count = (segment === "closed" ? view.closed.length : sends(view.sent).length) + newer;
 	return count === 0 ? `Nothing ${segment}` : `${count} ${segment}`;
 }
@@ -328,12 +333,22 @@ export function newerIn(view: InboxView, segment: InboxSegment): InboxNewerItem[
 }
 
 /**
- * The words that seeded a work thread, as its Message shows them: each item
- * the desk wrote in as its title, then "From Goldie, item i-linux, wants
- * work:", then its words. Those two lines keep their breaks when the words
- * are read as Markdown, which would run them into one paragraph.
+ * The words that seeded a work thread, as its Message shows them to the
+ * person: each item's title over its words. The desk hands the teammate a
+ * line between them, "From Goldie, item i-linux, wants work:", which the
+ * person does not read: the sender is on the Message's rule, and an item
+ * combined into it from someone else says "From Quill" alone. Nor does the
+ * person read the desk's stand-in for an item with no words. A title keeps
+ * its line when the words are read as Markdown, which would run it into them.
  */
-export const messageWords = (seeded: string): string => seeded.replace(/^(.+)\n(From .+, item \S+, wants [^:\n]+:)\n/gm, "$1  \n$2  \n");
+export function messageWords(seeded: string): string {
+	let first: string | undefined;
+	return seeded.replace(/^(.+)\nFrom (.+), item \S+, wants [^:\n]+:\n(\(No message beyond its title\.\)$)?/gm, (_whole, title: string, sender: string, none: string | undefined) => {
+		first ??= sender;
+		const lines = sender === first ? [title] : [title, `From ${sender}`];
+		return none === undefined ? `${lines.join("  \n")}  \n` : lines.join("  \n");
+	});
+}
 
 /** The open count as the pane heads it: "2 unread · 1 picked up · 1 for later". */
 function openCounts(view: InboxView): string {

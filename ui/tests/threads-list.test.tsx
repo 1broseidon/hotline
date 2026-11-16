@@ -249,7 +249,7 @@ describe("task-400 one row shape", () => {
 			"side:h1": "⇄ Handoff",
 			"run:r-audit": "◆ Helper",
 			"run:r-pre": "$ Command",
-			"pair:lou~pork": "◎ Pair",
+			"pair:lou~pork": "◎ Conversation",
 			"call:c1": "☏ Call",
 			"job:watch": "↻ Job",
 			"note:n1": "✎ Aside",
@@ -426,7 +426,7 @@ describe("task-402 filters and search", () => {
 	}
 	const span = (word: string) => [...container.querySelectorAll<HTMLButtonElement>('.list-span [role="tab"]')].find((one) => one.textContent === word);
 
-	test("Chips: Active, All, Needs you, Live, and a Kind menu of Threads, Helpers, Jobs, Calls, Pairs, From teammates. A kind shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
+	test("Chips: Active, All, Needs you, Live, and a Kind menu of Threads, Helpers, Jobs, Calls, Conversations, From teammates. A kind shows every thread of that kind, live and ended, with a Live / Ended switch inside it", async () => {
 		await dock(aDay());
 		const words = [...container.querySelectorAll(".list-chips button")].map((one) => one.firstChild?.textContent);
 		expect(words).toEqual(["Active", "All", "Needs you", "Live", "Kind"]);
@@ -453,7 +453,7 @@ describe("task-402 filters and search", () => {
 		expect(rowIds()).toEqual(["job:watch", "job:sweep"]);
 		await act(async () => span("Ended")!.click());
 		expect(container.textContent).toContain("Nothing here.");
-		await pickKind("Pairs");
+		await pickKind("Conversations");
 		expect(rowIds()).toEqual([`pair:lou~pork`]);
 		await pickKind("Calls");
 		expect(rowIds()).toEqual([]);

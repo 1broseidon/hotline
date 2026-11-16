@@ -294,6 +294,23 @@ export function nextText(at: number, now = Date.now()): string {
 	return `in ${Math.round(delta / 86_400_000)}d`;
 }
 
+/**
+ * What the conversation's Schedules key says after its count: when the
+ * soonest job runs next ("Next in 2h"); whom the jobs wait on when every job
+ * that runs is waiting on a colleague's reply, with no run to come ("Waiting
+ * on Huck"); or Paused while background work is off and only the
+ * teammate's own jobs remain.
+ */
+export function scheduleSummary(jobs: readonly ScheduledJob[], backgroundWork: boolean, nameOf: (personaId: string) => string, now = Date.now()): string {
+	const running = jobs.filter((job) => job.operatorCreated || backgroundWork);
+	const next = running
+		.filter((job) => job.awaiting === undefined)
+		.reduce<ScheduledJob | null>((soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest), null);
+	if (next !== null) return `Next ${nextText(next.nextAt, now)}`;
+	const waiting = [...new Set(running.flatMap((job) => job.awaiting ?? []))];
+	return waiting.length > 0 ? `Waiting on ${waiting.map(nameOf).join(", ")}` : "Paused";
+}
+
 /** An interval as a person would say it. */
 export function durationText(ms: number): string {
 	if (ms < 60_000) return `${Math.round(ms / 1_000)}s`;

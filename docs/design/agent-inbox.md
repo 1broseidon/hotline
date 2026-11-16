@@ -138,7 +138,9 @@ names that thread (`hotline_store::inbox::line`). The window's pane lists
 such an item where it belongs (Open, Closed or Sent, by the state as
 written) as a plain row that opens nothing: its title, whom it is from or
 to, and "Saved by a newer version of Hotline. It can't be changed here.";
-the pane's heading counts it ("1 from a newer version" on Open).
+the count line over the tabs counts it on Closed and Sent; on Open its
+group's heading, From a newer version, counts it, and the count line, kept
+to one line, says it ("1 open") only when nothing else is open.
 
 ## When an item reaches the receiver
 
@@ -162,7 +164,9 @@ is let go of, so it runs no turn and is not working, its thread says once
 "Waiting for Huck to reply. The job ends once the reply has come back.", and
 its record names whom it waits on (`awaiting`), which its row in Schedules
 says as "Waiting on Huck" in place of its next run, and its pane in its state
-line, its Next run fact saying None. Each reply is
+line, its Next run fact saying None; the conversation's Schedules key counts
+the soonest of the other jobs as next, or says "Waiting on Huck" when every
+job is waiting. Each reply is
 heard in the job, a turn told it is the job's last run, and the turn that
 hears the last one ends the job, its thread closed. A run that sent several
 items waits for each. It never waits for ever: an open item expires after
@@ -660,8 +664,10 @@ stored state and the teammates' tools keep `taken`.
   in 0.49 (a pair thread) is kept to read: in the Threads list it is always
   under Earlier ("Earlier and routine" under Active), however recent, named
   "Conversation with Goldie" for the other teammate, and its pane
-  (`PairPane`) has no composer and no key that writes to it, stops it or
-  starts it again. It is never live: the work a receiver takes from its
+  (`PairPane`), Conversation in its band and the other teammate's name its
+  title, has no composer and no key that writes to it, stops it or starts it
+  again: a pause card left waiting in it is a plain line saying it was never
+  answered, with no Keep going or Stop. It is never live: the work a receiver takes from its
   inbox runs on the pair's record but in the receiver's work thread, so the
   pair's thread is always `Parked` and no roster row carries it. Nothing
   starts a new one: no tool writes to a pair (`send` is the one way between

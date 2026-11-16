@@ -170,8 +170,14 @@ describe("task-501 a taken message and its work thread", () => {
 		// A work thread, with the message over it, not a handoff.
 		expect(container.querySelector(".band-kind")?.textContent).toBe("Work thread");
 		expect(container.querySelector(".pane-task .spine-rule-title")?.textContent).toBe("Message");
-		// The desk's two lines over the item's words keep their breaks, and the thread is with its teammate.
-		expect(container.querySelectorAll(".pane-task br")).toHaveLength(2);
+		// The item's title keeps its line over its words; the line the desk hands the teammate is not the person's to read.
+		expect(container.querySelectorAll(".pane-task br")).toHaveLength(1);
+		const message = container.querySelector(".pane-task .spine-clamp")?.textContent ?? "";
+		expect(message).toStartWith(TITLE);
+		expect(message).toContain(taken.body);
+		expect(message).not.toContain("From Goldie");
+		expect(message).not.toContain("i-linux");
+		// The thread is with its teammate.
 		expect([...container.querySelectorAll(".spine-facts dd")].map((one) => one.textContent)).toEqual(["Huck", expect.any(String)]);
 		await press(container.querySelector('.pane-task button[title="Open the message"]'));
 		const item = states.at(-1)!;

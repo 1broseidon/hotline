@@ -161,7 +161,7 @@ threads and notes) reads every row, the folded ones too, by its title, its
 line, what was said in it or came of it, and a note's words; Escape in it
 clears it. Under the search, chips narrow the list:
 Active, All, Needs you, Live, Threads (work threads, handoffs and commands),
-Helpers, Jobs, Calls, Pairs and Notes, the chip pressed on the pressed
+Helpers, Jobs, Calls, Conversations and Notes, the chip pressed on the pressed
 plane, Needs you in amber while something waits, and only Needs you and Live
 counted. A kind's chip shows all of that kind, live and ended, with an All ·
 Live · Ended switch under the chips. The chip last pressed is kept for each
@@ -170,7 +170,7 @@ face on a hairline with its count at the rule's end: Needs you, Live, Recent (th
 counted. The list opens on Active, where what is older than a day, what is
 routine (a finished command, a job run that posted nothing) and a note already
 read fold into one row, "Earlier and routine · N", that opens in place. Every row is one shape: the kind's mark in the gutter in the instrument face
-(≡ work thread, ⇄ handoff, ◆ helper, $ command, ◎ pair, ☏ call, ↻ job, ✎
+(≡ work thread, ⇄ handoff, ◆ helper, $ command, ◎ conversation with a teammate, ☏ call, ↻ job, ✎
 note; accent while it runs, amber while it waits on the person), the title
 on the text edge over one line (its state, its latest step, or what came of it), and the time on the right edge,
 the clock today and the day or date before, with the beat beside it while it
@@ -210,9 +210,10 @@ so the eye learns it once:
   row's hover reaches 8px past both edges. Marks are 7px; spacing is on the
   4px grid.
 - **The band** says the kind's word alone, no icon or dot: Helper, Job,
-  Call, Command, Pair, Handoff, Work thread, Inbox, Threads, and a turn's
-  state (Working, Done) over its path. Its word starts on the text edge; a
-  back arrow, when the page has one, sits in the gutter.
+  Call, Command, Conversation (one two teammates had before the inbox, its
+  title the other teammate's name), Handoff, Work thread, Inbox, Threads,
+  and a turn's state (Working, Done) over its path. Its word starts on the
+  text edge; a back arrow, when the page has one, sits in the gutter.
 - **The head:** the title, where the page has one (a path's is what the
   person asked, two lines at most; a quiet turn nobody asked for has
   none), then one state line in the instrument face: the state in a word or

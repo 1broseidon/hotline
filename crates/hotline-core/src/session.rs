@@ -821,6 +821,11 @@ pub struct Room {
     /// The quiet turns each teammate's main conversation began in the last
     /// hour, by teammate, for its hourly limit (`session/inbox/limit.rs`).
     quiet_turns: Mutex<HashMap<String, inbox::QuietTurns>>,
+    /// One rewrite of a person's line in a main conversation at a time: its
+    /// read receipt and the teammate's reaction each write the line again
+    /// from its newest version, so neither drops the other's
+    /// ([`Room::mark_read`], [`Room::react`]).
+    person_lines: Mutex<()>,
     /// How long a test's pick-up waits in place of the gather delay, so a
     /// test can act inside the wait (`session/inbox/pick_up.rs`).
     #[cfg(test)]
@@ -1029,6 +1034,7 @@ impl Room {
             inbox_lock: Mutex::new(()),
             inbox_gathers: Mutex::default(),
             quiet_turns: Mutex::default(),
+            person_lines: Mutex::default(),
             #[cfg(test)]
             pick_up_delay: Mutex::new(None),
             inbox_started: std::sync::atomic::AtomicBool::new(false),

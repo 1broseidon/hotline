@@ -354,6 +354,9 @@ impl Room {
         if taken.is_empty() {
             return;
         }
+        // Read and written under the line lock, so a reaction written in
+        // between is kept.
+        let _rewriting = lock(&self.person_lines);
         let tape = self.tape(&session.persona_id);
         for id in taken {
             let Some(line) = tape.iter().rev().find(|event| event["id"] == id.as_str()) else {
@@ -376,6 +379,7 @@ impl Room {
             return Err("react needs one emoji.".to_string());
         }
         let session = self.session(persona_id)?;
+        let _rewriting = lock(&self.person_lines);
         let tape = self.tape(&session.persona_id);
         let line = tape
             .iter()

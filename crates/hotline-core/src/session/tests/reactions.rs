@@ -198,3 +198,37 @@ async fn a_line_handed_back_is_heard_without_the_working_mark() {
     assert!(heard.contains("how far along?"), "{heard}");
     assert!(!heard.contains(MID_TURN), "{heard}");
 }
+
+/// A reaction is often the teammate's first act on the person's line, and
+/// the line's read receipt is written at that same moment: both rewrite the
+/// line, and neither drops the other's.
+#[tokio::test]
+async fn a_reaction_and_the_read_receipt_written_together_both_stand() {
+    let room = room(
+        "reaction-and-receipt",
+        Fake::new(Scripted::new(vec![ends()])),
+    );
+    room.start("ada").await.unwrap();
+    let session = room.session("ada").unwrap();
+    for round in 0..100 {
+        let id = format!("u{round}");
+        room.write(
+            "ada",
+            &serde_json::from_value(
+                json!({"kind": "user", "id": id, "ts": round, "text": "👍", "receipt": "sent"}),
+            )
+            .unwrap(),
+        );
+        lock(&session.unread).push(id.clone());
+        std::thread::scope(|both| {
+            both.spawn(|| room.react("ada", "👍").unwrap());
+            both.spawn(|| room.mark_read(&session));
+        });
+        let line = tape(&room, "ada")
+            .into_iter()
+            .rfind(|event| event["id"] == id.as_str())
+            .unwrap();
+        assert_eq!(line["receipt"], "read", "round {round}: {line}");
+        assert_eq!(line["reactions"], json!(["👍"]), "round {round}: {line}");
+    }
+}

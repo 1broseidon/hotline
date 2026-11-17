@@ -13,18 +13,6 @@ import { wire, type RosterEntry } from "../wire";
 const HOTLINE_AGENT = "hotline";
 
 /**
- * Hotline Agent's Fast row at rest, on a model whose listing gives it a
- * speed tier: off and on, as a harness's switch says. A running session
- * says the model's own speeds, Ultrafast among them where its account
- * lists it; at rest the desk knows only that the model has one, so the row
- * is the switch, on for any speed kept.
- */
-const RESTING_FAST: ConfigChoice[] = [
-	{ id: "off", name: "Standard" },
-	{ id: "on", name: "Fast" },
-];
-
-/**
  * The open teammate's model and effort, on the window's top strip, in the
  * pill that is the teammate's menu too. They name what a turn would run on
  * whether or not a session is up, and offer the same choices: a harness
@@ -98,9 +86,7 @@ export function SessionPickers({
 								},
 							]
 						: []),
-					...(resting && modelChoices.find((choice) => choice.id === currentModel)?.fast === true
-						? [{ id: "fast", name: "Fast", category: "fast" as const, currentId: persona.configChoices?.["fast"] === undefined ? "off" : "on", options: RESTING_FAST }]
-						: []),
+					...(resting ? restingSpeed(modelChoices.find((choice) => choice.id === currentModel)?.speeds, persona.configChoices?.["fast"]) : []),
 				];
 	// A model switch lands on an effort the core chooses, the teammate's or
 	// the desk's last for the model, else the nearest level not above the
@@ -193,10 +179,12 @@ export function SessionPickers({
 	const fastOn = fastConfig?.options.find((option) => option.id === "on" || option.id === "true")?.id ?? "on";
 	const fastOff = fastConfig?.options.find((option) => option.id === "off" || option.id === "false")?.id ?? "off";
 	const hint = fastHint(persona.backendId, currentModel);
-	// Hotline Agent on a model whose ChatGPT listing gives Ultrafast offers
-	// it beside off and on: a choice of speeds in the switch's place.
+	// One rule for every agent, at rest and running: more than one speed
+	// beyond Standard (Fast and Ultrafast) is a choice of speeds in the
+	// switch's place; Fast alone is the switch; none is no row.
+	const faster = fastConfig?.options.filter((option) => option.id !== fastOff) ?? [];
 	const speed: Speed | null =
-		fastConfig?.options.some((option) => option.id === "ultrafast") === true
+		fastConfig !== undefined && faster.length > 1
 			? { value: fastConfig.currentId ?? fastOff, standard: fastOff, choices: fastConfig.options, hint }
 			: null;
 	const fast: Fast | null =
@@ -254,6 +242,19 @@ export function SessionPickers({
 			/>
 		</>
 	);
+}
+
+/**
+ * Hotline Agent's Fast row at rest: the speeds the desk says the model
+ * runs at, the row its session would offer, at the speed the teammate kept
+ * when the model still has it, else Standard, as its session would start.
+ * None for a model with no speed beyond Standard.
+ */
+function restingSpeed(speeds: ConfigChoice[] | undefined, kept: string | undefined): SessionConfig[] {
+	const standard = speeds?.[0];
+	if (speeds === undefined || standard === undefined || speeds.length < 2) return [];
+	const currentId = kept !== undefined && speeds.some((speed) => speed.id === kept) ? kept : standard.id;
+	return [{ id: "fast", name: "Fast", category: "fast", currentId, options: speeds }];
 }
 
 /**

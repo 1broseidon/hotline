@@ -1070,9 +1070,18 @@ next refresh. A teammate with no effort stored still starts at `high` where
 offered, not at the provider's own default. The same listing names each
 model's speed tiers (`service_tiers`), kept beside its levels: a model with
 Fast alone shows the menu's Fast switch, one with Ultrafast too a choice of
-Standard, Fast and Ultrafast, and one with neither no row. At rest the desk
-says only that a model has a tier, so the menu shows the switch until a
-session names them. The row's ids are the desk's own, `off`, `on` and
+Standard, Fast and Ultrafast, and one with neither no row. That is the
+rule for every agent's Fast row, at rest and running: more than one speed
+beyond Standard is the choice, Fast alone the switch. At rest each model
+the menu lists carries the row its session would offer (`speeds`, beside
+`fast`, which a client that knows only the switch reads), so a teammate at
+rest is shown the same row. A Codex teammate's models list Fast alone:
+Codex's ACP adapter (codex-acp 1.12.0) offers only an on/off `fast-mode`
+and sends every turn's tier as Fast or Standard, so Ultrafast, which
+Codex's `model/list` names for some models, is a speed it cannot be told
+and is not shown (`adapter_speeds` in
+`crates/hotline-core/src/driver/acp/plan/codex_server.rs` says where).
+The row's ids are the desk's own, `off`, `on` and
 `ultrafast`, as a harness's Fast switch says them, so a client that knows
 only an on/off switch turns Fast on and off (it shows Ultrafast as off).
 The choice is the teammate's (`configChoices.fast`, `on` or `ultrafast`),

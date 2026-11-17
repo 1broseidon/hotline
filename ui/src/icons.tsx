@@ -124,6 +124,13 @@ export const FolderIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* Opens in another app: an arrow out of a box, on a key whose file leaves Hotline. */
+export const OpenOutsideIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M6.5 3.5h-2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-2M9 3.5h3.5V7M12.5 3.5 7.5 8.5" />
+	</Icon>
+);
+
 /* Save a copy: down into a tray. */
 export const SaveIcon = ({ className }: IconProps) => (
 	<Icon className={className}>

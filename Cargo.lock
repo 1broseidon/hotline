@@ -4358,6 +4358,7 @@ dependencies = [
  "webkit2gtk",
  "webview2-com",
  "windows 0.61.3",
+ "zip",
 ]
 
 [[package]]
@@ -4561,6 +4562,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "zip",
 ]
 
 [[package]]

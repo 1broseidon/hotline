@@ -237,7 +237,7 @@ const COMPONENTS: Components = {
 };
 
 /** A count and its noun: 1 row, 7 rows. */
-const count = (n: number, noun: string) => `${n} ${n === 1 ? noun : `${noun}s`}`;
+export const count = (n: number, noun: string) => `${n} ${n === 1 ? noun : `${noun}s`}`;
 
 /**
  * The sentence that introduced an object, for the open view's caption: the

@@ -585,9 +585,7 @@ impl Vault {
                 .flatten()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|listed| {
-                    !crate::providers::chatgpt::offered_tiers(&listed.tiers).is_empty()
-                })
+                .filter(|listed| !crate::driver::rig::offered_tiers(&listed.tiers).is_empty())
                 .map(|listed| format!("{provider}/{}", listed.id))
                 .collect();
             by_provider
@@ -656,14 +654,15 @@ impl Vault {
     }
 
     /// The speed tiers besides Standard a model offers on the account its
-    /// id names, else on its provider's default account: those of
-    /// [`crate::providers::chatgpt::SPEEDS`] that account's last listing
-    /// gave the model, in that order. The snapshot names none, so a model
+    /// id names, else on its provider's default account, by the ids a
+    /// request sends: those Hotline Agent offers
+    /// ([`crate::driver::rig::offered_tiers`]) of what that account's last
+    /// listing gave the model. The snapshot names none, so a model
     /// no listing speaks of runs at Standard alone, as does every provider
     /// but ChatGPT.
     pub(crate) fn tiers(&self, model_id: &str) -> Vec<String> {
         self.listed(model_id)
-            .map(|listed| crate::providers::chatgpt::offered_tiers(&listed.tiers))
+            .map(|listed| crate::driver::rig::offered_tiers(&listed.tiers))
             .unwrap_or_default()
     }
 

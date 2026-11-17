@@ -18,6 +18,7 @@ use build::{
     Reuse, agent_builder, completion_model, copilot_responses, effort_config, request_settings,
     speed_config,
 };
+pub(crate) use build::{choice_of, is_standard, offered_tiers, tier_of};
 use history::{chunk_into, elide, flush, hand_to_model, images_to_model, keep, plain, send};
 use images::Input;
 #[cfg(test)]
@@ -208,7 +209,8 @@ type UnconsumedInputs = Vec<(String, Vec<Attachment>)>;
 
 /// The id of Hotline Agent's speed setting: the Fast row, on a model whose
 /// listing gives it a speed tier. The teammate's choice is kept under it in
-/// `configChoices`, by the tier's id, so a restart puts it back.
+/// `configChoices`, by the row's id (`on`, `ultrafast`), so a restart puts
+/// it back.
 pub(crate) const FAST_CONFIG: &str = "fast";
 
 /// The Fast row's Standard: no tier asked for, and nothing sent.
@@ -332,20 +334,23 @@ impl InProcess {
         })
     }
 
-    /// The Fast row chosen: Standard (or nothing) asks for no tier; any
-    /// other value must be a tier the model's listing gives it.
+    /// The Fast row chosen: Standard (`off`, `false` or nothing) asks for
+    /// no tier; `on` (or `true`) and `ultrafast` ask for theirs, when the
+    /// model's listing gives it.
     fn set_tier(&self, value: &str) -> Result<DriverInfo, String> {
         let keys = self.keys.provider_auth();
         let model = lock(&self.model).clone();
-        if value.is_empty() || value == STANDARD {
+        if is_standard(value) {
             *lock(&self.tier) = None;
             return Ok(self.info(&keys));
         }
-        if !self.keys.tiers(&model).iter().any(|tier| tier == value) {
+        let Some(tier) =
+            tier_of(value).filter(|tier| self.keys.tiers(&model).iter().any(|one| one == tier))
+        else {
             let label = models::label_of(&model).unwrap_or(model);
             return Err(format!("{value} is not a speed {label} offers."));
-        }
-        *lock(&self.tier) = Some(value.to_string());
+        };
+        *lock(&self.tier) = Some(tier.to_string());
         Ok(self.info(&keys))
     }
 
@@ -428,8 +433,9 @@ impl Driver for InProcess {
         *lock(&self.tier) = persona
             .config_choices
             .get(FAST_CONFIG)
-            .filter(|tier| tiers.contains(tier))
-            .cloned();
+            .and_then(|chosen| tier_of(chosen))
+            .filter(|tier| tiers.iter().any(|one| one == tier))
+            .map(str::to_string);
         let connected = mcp::connect_with_capability_and_vault(
             &persona.id,
             &self.mcp_servers,

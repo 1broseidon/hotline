@@ -62,24 +62,6 @@ struct Tier {
     id: Option<String>,
 }
 
-/// The speed tiers Hotline Agent offers on a ChatGPT sign-in, by the id a
-/// listing names and a request sends, with the name the menu gives each,
-/// in the menu's order after Standard. A tier a listing names that is not
-/// here is kept with the listing and offered nowhere. Which of these a
-/// model has comes from its own account's listing, never a plan: Fast is
-/// on every plan's models that list it, Ultrafast only where the listing
-/// says.
-pub(crate) const SPEEDS: &[(&str, &str)] = &[("priority", "Fast"), ("ultrafast", "Ultrafast")];
-
-/// Those of a listing's tiers Hotline Agent offers, in [`SPEEDS`]' order.
-pub(crate) fn offered_tiers(listed: &[String]) -> Vec<String> {
-    SPEEDS
-        .iter()
-        .map(|(id, _)| id.to_string())
-        .filter(|id| listed.contains(id))
-        .collect()
-}
-
 /// A model's tiers as the desk keeps them: each once, in the listing's
 /// order, and only those [`discovery::effort_id_ok`] lets through.
 fn tiers(listed: Option<Vec<Tier>>) -> Vec<String> {
@@ -197,7 +179,7 @@ pub(crate) async fn list_models_at(
 /// the request; the transport signs it with the login's live token and
 /// account as it goes. At a speed tier each request also carries the
 /// routing hint the Codex CLI sends with one (`x-codex-routing-hint`, see
-/// the request's `service_tier` in `driver/rig/build.rs`); Codex sends the
+/// `SPEEDS` in `driver/rig/build.rs`); Codex sends the
 /// hint with the model alone at Standard, which Hotline leaves out, so a
 /// Standard request is the one it always was.
 pub(crate) fn model(

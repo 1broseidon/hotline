@@ -1072,9 +1072,12 @@ model's speed tiers (`service_tiers`), kept beside its levels: a model with
 Fast alone shows the menu's Fast switch, one with Ultrafast too a choice of
 Standard, Fast and Ultrafast, and one with neither no row. At rest the desk
 says only that a model has a tier, so the menu shows the switch until a
-session names them. The choice is the teammate's (`configChoices.fast`, by
-the tier's id), and each request carries it as the Codex CLI sends it: the
-body's `service_tier` (`priority` for Fast, `ultrafast`) and the
+session names them. The row's ids are the desk's own, `off`, `on` and
+`ultrafast`, as a harness's Fast switch says them, so a client that knows
+only an on/off switch turns Fast on and off (it shows Ultrafast as off).
+The choice is the teammate's (`configChoices.fast`, `on` or `ultrafast`),
+and each request carries it as the Codex CLI sends it: the body's
+`service_tier` (`priority` for Fast, `ultrafast`) and the
 `x-codex-routing-hint` header. Standard sends neither. A kept tier the model
 or the account's listing no longer gives is not sent, and the row stands at
 Standard. Missing metadata stays unspecified, with a notice

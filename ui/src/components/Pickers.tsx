@@ -14,14 +14,14 @@ const HOTLINE_AGENT = "hotline";
 
 /**
  * Hotline Agent's Fast row at rest, on a model whose listing gives it a
- * speed tier: Standard (`off`) or Fast, by the id ChatGPT's request sends
- * (`priority`). A running session says the model's own tiers, Ultrafast
- * among them where its account lists it; at rest the desk knows only that
- * the model has one, so the row is the switch, on for any tier kept.
+ * speed tier: off and on, as a harness's switch says. A running session
+ * says the model's own speeds, Ultrafast among them where its account
+ * lists it; at rest the desk knows only that the model has one, so the row
+ * is the switch, on for any speed kept.
  */
 const RESTING_FAST: ConfigChoice[] = [
 	{ id: "off", name: "Standard" },
-	{ id: "priority", name: "Fast" },
+	{ id: "on", name: "Fast" },
 ];
 
 /**
@@ -99,7 +99,7 @@ export function SessionPickers({
 							]
 						: []),
 					...(resting && modelChoices.find((choice) => choice.id === currentModel)?.fast === true
-						? [{ id: "fast", name: "Fast", category: "fast" as const, currentId: persona.configChoices?.["fast"] ?? "off", options: RESTING_FAST }]
+						? [{ id: "fast", name: "Fast", category: "fast" as const, currentId: persona.configChoices?.["fast"] === undefined ? "off" : "on", options: RESTING_FAST }]
 						: []),
 				];
 	// A model switch lands on an effort the core chooses, the teammate's or
@@ -189,22 +189,21 @@ export function SessionPickers({
 				: null;
 	// Fast mode is the menu's toggle, not a picker of its own.
 	const fastConfig = configs.find((config) => config.category === "fast");
-	// Claude Code, Codex and Hotline Agent say off; Cursor says false. On
-	// is the other choice: on, true, or Hotline Agent's tier (`priority`).
+	// Claude Code, Codex and Hotline Agent say on and off; Cursor says true and false.
+	const fastOn = fastConfig?.options.find((option) => option.id === "on" || option.id === "true")?.id ?? "on";
 	const fastOff = fastConfig?.options.find((option) => option.id === "off" || option.id === "false")?.id ?? "off";
-	const fastOn = fastConfig?.options.find((option) => option.id !== fastOff)?.id ?? "on";
 	const hint = fastHint(persona.backendId, currentModel);
-	// More than one speed besides off (Hotline Agent on ChatGPT: Fast and
-	// Ultrafast) is a choice of speeds in the toggle's place.
+	// Hotline Agent on a model whose ChatGPT listing gives Ultrafast offers
+	// it beside off and on: a choice of speeds in the switch's place.
 	const speed: Speed | null =
-		fastConfig !== undefined && fastConfig.options.length > 2
+		fastConfig?.options.some((option) => option.id === "ultrafast") === true
 			? { value: fastConfig.currentId ?? fastOff, standard: fastOff, choices: fastConfig.options, hint }
 			: null;
 	const fast: Fast | null =
 		fastConfig === undefined || speed !== null
 			? null
 			: {
-					on: fastConfig.currentId !== undefined && fastConfig.currentId !== null && fastConfig.currentId !== "" && fastConfig.currentId !== fastOff,
+					on: fastConfig.currentId === fastOn,
 					hint,
 					...(fastConfig.note !== undefined ? { note: fastConfig.note } : {}),
 				};

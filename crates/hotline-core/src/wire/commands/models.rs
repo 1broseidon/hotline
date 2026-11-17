@@ -5,7 +5,7 @@ use super::settings::update_settings;
 use crate::contract::{Persona, SessionConfigCategory, SessionInfo, SessionState};
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::driver::acp::catalog;
-use crate::driver::rig::{FAST_CONFIG, STANDARD};
+use crate::driver::rig::{FAST_CONFIG, choice_of, is_standard, tier_of};
 use crate::log::Log;
 use crate::room;
 use crate::wire::RoomHandle;
@@ -113,8 +113,9 @@ pub(super) async fn set_model(
         // Hotline Agent's speed tier goes with a model that lacks it, back
         // to Standard, as the session would run it.
         if persona.backend_id == HOTLINE_BACKEND_ID
-            && let Some(tier) = persona.config_choices.get(FAST_CONFIG)
-            && !room.models_tiers(model_id).contains(tier)
+            && let Some(chosen) = persona.config_choices.get(FAST_CONFIG)
+            && !tier_of(chosen)
+                .is_some_and(|tier| room.models_tiers(model_id).iter().any(|one| one == tier))
         {
             let mut choices = living(log, persona_id)?.config_choices;
             choices.remove(FAST_CONFIG);
@@ -521,9 +522,10 @@ pub(super) async fn set_config(
     Ok(room.info(persona_id))
 }
 
-/// Hotline Agent's speed tier, kept on the teammate by its id under
-/// [`FAST_CONFIG`] so its next session asks for it: Standard (or nothing) is
-/// kept as no choice at all. A tier the model's listing does not give it is
+/// Hotline Agent's speed, kept on the teammate under [`FAST_CONFIG`] by the
+/// row's id (`on` for Fast, `ultrafast`; `true` is kept as `on`) so its
+/// next session asks for it: Standard (`off`, `false` or nothing) is kept as
+/// no choice at all. A speed the model's listing does not give it is
 /// refused. With a session up it is set on the session too, and the answer
 /// is the session's.
 async fn set_speed(
@@ -532,28 +534,34 @@ async fn set_speed(
     persona: &Persona,
     value: &str,
 ) -> Result<SessionInfo, String> {
-    let standard = value.is_empty() || value == STANDARD;
+    let standard = is_standard(value);
     let model_id = room
         .info(&persona.id)
         .current_model_id
         .filter(|model| !model.is_empty())
         .or(persona.model_id.clone());
-    if let Some(model_id) = &model_id
-        && !standard
-        && !room.models_tiers(model_id).iter().any(|tier| tier == value)
-    {
-        let label = crate::models::label_of(model_id).unwrap_or(model_id.clone());
+    let tier = tier_of(value);
+    let offered = match (&model_id, tier) {
+        (Some(model_id), Some(tier)) => room.models_tiers(model_id).iter().any(|one| one == tier),
+        (None, Some(_)) => true,
+        (_, None) => false,
+    };
+    if !standard && !offered {
+        let label = model_id
+            .as_deref()
+            .and_then(crate::models::label_of)
+            .or(model_id.clone())
+            .unwrap_or_else(|| "This model".to_string());
         return Err(format!("{value} is not a speed {label} offers."));
     }
     {
         let gate = room.policy_update_lock();
         let _held = gate.lock().await;
         let mut choices = living(log, &persona.id)?.config_choices;
-        if standard {
-            choices.remove(FAST_CONFIG);
-        } else {
-            choices.insert(FAST_CONFIG.to_string(), value.to_string());
-        }
+        match tier.and_then(choice_of).filter(|_| !standard) {
+            Some(chosen) => choices.insert(FAST_CONFIG.to_string(), chosen.to_string()),
+            None => choices.remove(FAST_CONFIG),
+        };
         update_persona(log, room, &persona.id, &json!({ "configChoices": choices }))?;
     }
     if is_running(room.info(&persona.id).state) {

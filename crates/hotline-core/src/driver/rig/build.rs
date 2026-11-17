@@ -65,10 +65,12 @@ pub(super) fn effort_config(levels: Vec<String>, current: Option<&str>) -> Vec<S
     }]
 }
 
-/// The Fast row when the model's listing gives it a speed tier: Standard,
-/// then each tier, by the ids a request sends. With one tier it is the
-/// menu's Fast switch (Standard is off), with two the three-way choice; a
-/// model with none has no row.
+/// The Fast row when the model's listing gives it a speed tier: Standard
+/// (`off`), then each speed by the desk's own id ([`SPEEDS`]): `on` for
+/// Fast, `ultrafast` for Ultrafast. With Fast alone it is the menu's Fast
+/// switch, on and off as a harness's is, which the phone's switch reads too;
+/// with Ultrafast as well, the three-way choice. A model with none has no
+/// row. `tiers` are the listing's, `current` the tier asked for now.
 pub(super) fn speed_config(tiers: Vec<String>, current: Option<&str>) -> Option<SessionConfig> {
     if tiers.is_empty() {
         return None;
@@ -83,21 +85,22 @@ pub(super) fn speed_config(tiers: Vec<String>, current: Option<&str>) -> Option<
         default_effort: None,
         fast: None,
     };
-    let named = |id: &str| {
-        crate::providers::chatgpt::SPEEDS
-            .iter()
-            .find(|(tier, _)| *tier == id)
-            .map_or(id, |(_, name)| name)
-            .to_string()
-    };
     let options = std::iter::once(choice(super::STANDARD, "Standard"))
-        .chain(tiers.iter().map(|id| choice(id, &named(id))))
+        .chain(
+            SPEEDS
+                .iter()
+                .filter(|(_, tier, _)| tiers.iter().any(|listed| listed == tier))
+                .map(|(id, _, name)| choice(id, name)),
+        )
         .collect();
+    let current_id = current
+        .and_then(|tier| SPEEDS.iter().find(|(_, listed, _)| *listed == tier))
+        .map_or(super::STANDARD, |(id, _, _)| id);
     Some(SessionConfig {
         id: super::FAST_CONFIG.to_string(),
         name: "Fast".to_string(),
         category: Some(crate::contract::SessionConfigCategory::Fast),
-        current_id: Some(current.unwrap_or(super::STANDARD).to_string()),
+        current_id: Some(current_id.to_string()),
         options,
         note: None,
     })
@@ -437,9 +440,17 @@ pub(super) fn request_settings(
     })
 }
 
-/// A ChatGPT request at a speed tier, sent as the Codex CLI sends it. Read
-/// in openai/codex at tag `rust-v0.169.0` (d32063f9), the release the desk's
-/// `codex --version` said when this was written:
+/// Each speed Hotline Agent offers on a ChatGPT sign-in besides Standard:
+/// the Fast row's id for it, the tier its request sends, and the menu's
+/// name. The row's ids are the desk's own (`on`, as every harness's Fast
+/// switch says, and `ultrafast`), so a client that knows only an on/off
+/// switch (the phone) turns Fast on and off; the tier is what ChatGPT reads,
+/// mapped here and nowhere else. A speed is offered only where the model's
+/// own account's listing gives its tier, never by plan.
+///
+/// What a request sends was read in openai/codex at tag `rust-v0.169.0`
+/// (d32063f9), the release the desk's `codex --version` said when this was
+/// written:
 ///
 /// - `codex-rs/core/src/client.rs`, `build_responses_request`: the tier is
 ///   the body's top-level `service_tier`, a string, after
@@ -457,6 +468,46 @@ pub(super) fn request_settings(
 ///   `x-codex-routing-hint: model=<slug>;tier=<id>` (`model=<slug>` alone
 ///   at Standard; `build_routing_hint_header` in `client.rs`), which
 ///   [`crate::providers::chatgpt::model`] puts on a request with a tier.
+pub(crate) const SPEEDS: &[(&str, &str, &str)] = &[
+    ("on", "priority", "Fast"),
+    ("ultrafast", "ultrafast", "Ultrafast"),
+];
+
+/// Those of a listing's tiers Hotline Agent offers, in [`SPEEDS`]' order.
+pub(crate) fn offered_tiers(listed: &[String]) -> Vec<String> {
+    SPEEDS
+        .iter()
+        .filter(|(_, tier, _)| listed.iter().any(|one| one == tier))
+        .map(|(_, tier, _)| tier.to_string())
+        .collect()
+}
+
+/// Whether a Fast row value is Standard: `off`, `false` (Cursor's word, which
+/// a client may send for any switch), or nothing.
+pub(crate) fn is_standard(value: &str) -> bool {
+    matches!(value, "" | "off" | "false")
+}
+
+/// The tier a Fast row value asks for: `on` (or `true`) is Fast, `ultrafast`
+/// Ultrafast. None for Standard and for anything that is no speed.
+pub(crate) fn tier_of(value: &str) -> Option<&'static str> {
+    let value = if value == "true" { "on" } else { value };
+    SPEEDS
+        .iter()
+        .find(|(id, _, _)| *id == value)
+        .map(|(_, tier, _)| *tier)
+}
+
+/// The Fast row's id for a tier, as the teammate's choice is kept.
+pub(crate) fn choice_of(tier: &str) -> Option<&'static str> {
+    SPEEDS
+        .iter()
+        .find(|(_, listed, _)| *listed == tier)
+        .map(|(id, _, _)| *id)
+}
+
+/// A ChatGPT request at a speed tier, as [`SPEEDS`] says the Codex CLI
+/// sends it: the body's `service_tier`.
 fn with_service_tier(params: Option<Value>, tier: &str) -> Value {
     let mut params = params.unwrap_or_else(|| serde_json::json!({}));
     if let Some(body) = params.as_object_mut() {

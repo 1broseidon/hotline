@@ -1017,12 +1017,15 @@ fn a_chosen_tier_is_a_chatgpt_requests_service_tier_and_standard_sends_none() {
     }
 }
 
-/// The Fast row is Standard and each tier the listing gives the model, by
-/// the ids a request sends: two choices for a model with Fast alone, which
-/// the menu shows as its switch, three with Ultrafast too, and no row for
-/// a model with none. A teammate with no tier is at Standard.
+/// The Fast row is Standard and each speed the listing gives the model, by
+/// the desk's own ids, the ones a harness's switch and the phone's say:
+/// `off` and `on` for a model with Fast alone, which the menu shows as its
+/// switch, `ultrafast` as well where the listing gives it, and no row for a
+/// model with none. Each id maps to the tier its request sends, in one
+/// place: `on` (and `true`) to `priority`, `ultrafast` to itself; `off`,
+/// `false` and nothing are Standard, which sends none.
 #[test]
-fn the_fast_row_is_standard_and_each_listed_tier() {
+fn the_fast_row_is_standard_and_each_listed_speed_by_the_desks_ids() {
     let row = |tiers: &[&str], current: Option<&str>| {
         speed_config(tiers.iter().map(ToString::to_string).collect(), current).map(|config| {
             assert_eq!(config.id, FAST_CONFIG);
@@ -1038,25 +1041,48 @@ fn the_fast_row_is_standard_and_each_listed_tier() {
             (options, config.current_id.unwrap_or_default())
         })
     };
+    let owned = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
     assert_eq!(
         row(&["priority"], None),
-        Some((
-            vec!["off:Standard".into(), "priority:Fast".into()],
-            "off".into()
-        ))
+        Some((owned(&["off:Standard", "on:Fast"]), "off".into()))
     );
     assert_eq!(
-        row(&["priority", "ultrafast"], Some("ultrafast")),
+        row(&["priority"], Some("priority")),
+        Some((owned(&["off:Standard", "on:Fast"]), "on".into()))
+    );
+    assert_eq!(
+        row(&["ultrafast", "priority"], Some("ultrafast")),
         Some((
-            vec![
-                "off:Standard".into(),
-                "priority:Fast".into(),
-                "ultrafast:Ultrafast".into()
-            ],
+            owned(&["off:Standard", "on:Fast", "ultrafast:Ultrafast"]),
             "ultrafast".into()
         ))
     );
+    assert_eq!(
+        row(&["ultrafast"], None),
+        Some((
+            owned(&["off:Standard", "ultrafast:Ultrafast"]),
+            "off".into()
+        )),
+        "no Fast listed, no on"
+    );
     assert_eq!(row(&[], None), None);
+
+    assert_eq!(tier_of("on"), Some("priority"));
+    assert_eq!(tier_of("true"), Some("priority"));
+    assert_eq!(tier_of("ultrafast"), Some("ultrafast"));
+    for neither in ["priority", "fast", "flex", "off", "false", ""] {
+        assert_eq!(tier_of(neither), None, "{neither}");
+    }
+    for standard in ["off", "false", ""] {
+        assert!(is_standard(standard));
+    }
+    assert!(!is_standard("on"));
+    assert_eq!(choice_of("priority"), Some("on"));
+    assert_eq!(choice_of("ultrafast"), Some("ultrafast"));
+    assert_eq!(
+        offered_tiers(&owned(&["flex", "ultrafast", "priority"])),
+        ["priority", "ultrafast"]
+    );
 }
 
 #[test]

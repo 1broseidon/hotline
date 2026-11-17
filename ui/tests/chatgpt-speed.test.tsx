@@ -92,7 +92,7 @@ const speeds = (ids: string[], currentId: string): SessionConfig => ({
 	name: "Fast",
 	category: "fast",
 	currentId,
-	options: [{ id: "off", name: "Standard" }, ...ids.map((id) => ({ id, name: id === "priority" ? "Fast" : "Ultrafast" }))],
+	options: [{ id: "off", name: "Standard" }, ...ids.map((id) => ({ id, name: id === "on" ? "Fast" : "Ultrafast" }))],
 });
 
 function entry({ backendId = "hotline", modelId = SOL, configs = [] as SessionConfig[], live = true, configChoices = {} as Record<string, string> }): RosterEntry {
@@ -126,18 +126,18 @@ const pill = () => container.querySelector<HTMLButtonElement>('[aria-haspopup="m
 const core = () => FakeCore.all[0]!;
 
 test("a ChatGPT model that lists Fast alone has the Fast switch, saying it uses more of the plan, and a flip asks for the tier", async () => {
-	await show(entry({ configs: [effort, speeds(["priority"], "off")] }));
+	await show(entry({ configs: [effort, speeds(["on"], "off")] }));
 	expect(speedRow()).toBeNull();
 	expect(toggle()?.textContent).toBe("FastUses more of plan");
 	expect(toggle()?.getAttribute("aria-checked")).toBe("false");
 	await act(async () => toggle()!.click());
-	expect(core().settings()).toEqual(["fast=priority"]);
+	expect(core().settings()).toEqual(["fast=on"]);
 	expect(toggle()?.getAttribute("aria-checked")).toBe("true");
 	expect(pill().querySelector(".model-pill-fast")).not.toBeNull();
 });
 
 test("a model that lists Ultrafast too has Standard, Fast and Ultrafast in the switch's place, and a choice asks for its tier", async () => {
-	await show(entry({ configs: [effort, speeds(["priority", "ultrafast"], "off")] }));
+	await show(entry({ configs: [effort, speeds(["on", "ultrafast"], "off")] }));
 	expect(toggle()).toBeNull();
 	const row = speedRow()!;
 	expect(row.title).toBe("Uses more of plan");
@@ -172,7 +172,7 @@ test("at rest the switch stands for a model the desk says has a tier, on for any
 	await act(async () => toggle()!.click());
 	expect(core().settings()).toEqual(["fast=off"]);
 	await act(async () => toggle()!.click());
-	expect(core().settings()).toEqual(["fast=off", "fast=priority"]);
+	expect(core().settings()).toEqual(["fast=off", "fast=on"]);
 	await act(async () => root.unmount());
 	root = (await import("react-dom/client")).createRoot(container);
 

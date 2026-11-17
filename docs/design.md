@@ -777,6 +777,10 @@ message" and the answer with its time. The sent row already says what went
 and where it stands, so a turn whose only work was the inbox draws no
 outcome line under a reply while its row is drawn, and a turn the person
 asked for with no bubble draws no time either: the row stands for the turn.
+What reaching a colleague takes on the way is no work of its own: both
+agents look before nearly every send (George's own tape read the room's
+skill and the team first; Claude Code loads Hotline's tools), and counting it
+would leave the line under every such turn.
 A quiet turn that posts folds its inbox line into the bubble: what it read
 and sent is under Inbox in the path that bubble's time opens, and a quiet
 turn that posts nothing keeps its "Inbox · read 1". An answer straight

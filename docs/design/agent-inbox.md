@@ -541,7 +541,9 @@ stored state and the teammates' tools keep `taken`.
   the tray in grey, its state word kept, since it is what came of their ask.
   So it is the turn's receipt (task-505): a turn whose only work was the
   inbox (`send`, `read_inbox`, `update_inbox`; saying what came of it, a
-  reaction and a post are no work) draws no outcome line under a reply
+  reaction and a post are no work, nor is what reaching a colleague takes
+  on the way: a look at the team, Claude Code loading its tools, Hotline
+  Agent reading the room's skill) draws no outcome line under a reply
   while one of its sent rows is drawn, only its time, and a turn the person
   asked for that also put no bubble in the chat draws no time either: the
   row stands for the turn (`sentRowsSay` in `ui/src/scheduledRuns.ts`). An

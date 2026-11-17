@@ -93,6 +93,20 @@ describe("task-505 rule 2: a turn whose only work was the inbox has no outcome l
 		).toEqual(["u1", "row:Score?"]);
 	});
 
+	test("what reaching a colleague takes on the way is no work: a look at the team, the room's skill, Claude Code loading its tools", () => {
+		const looked = (id: string, title: string, key: string, one: string): TranscriptEvent => ({ ...tool(id, title, key), said: { key, one, many: one, doing: one } } as TranscriptEvent);
+		// Hotline Agent, as George's own tape has it.
+		const hotlineAgent = [ask("u1", "ask timo"), tool("r1", "read .agents/skills/hotline-room/SKILL.md", "read"), tool("r2", "list_teammates", "team"), send("t1"), sent("score", "timo", "Score?"), outcome("o1", "Asked Timo"), ended("e1")];
+		expect(shape(drawn(hotlineAgent))).toEqual(["u1", "row:Score?"]);
+		const claudeCode = [ask("u1", "ask timo"), looked("r1", "ToolSearch", "tools", "Looked up its tools"), send("t1"), sent("score", "timo", "Score?"), outcome("o1", "Asked Timo"), ended("e1")];
+		expect(shape(drawn(claudeCode))).toEqual(["u1", "row:Score?"]);
+		// Another file read, or a tool used through call_tool, is work.
+		const read = [ask("u1", "ask timo"), tool("r1", "read notes/games.md", "read"), send("t1"), sent("score", "timo", "Score?"), outcome("o1", "Asked Timo"), ended("e1")];
+		expect(shape(drawn(read))).toEqual(["u1", "row:Score?", "steps:r1"]);
+		const used = [ask("u1", "ask timo"), looked("r1", "call_tool", "tools", "Used a tool"), send("t1"), sent("score", "timo", "Score?"), outcome("o1", "Asked Timo"), ended("e1")];
+		expect(shape(drawn(used))).toEqual(["u1", "row:Score?", "steps:r1"]);
+	});
+
 	test("other work in the turn keeps its outcome line, and so does a failure", () => {
 		const searched = drawn([
 			ask("u1", "find the score and send it to timo"),

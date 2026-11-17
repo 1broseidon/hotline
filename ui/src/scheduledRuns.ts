@@ -227,7 +227,10 @@ function answeredQuietly(turn: Turn): boolean {
  * Steps whose every tool call was the inbox's (`send`, `read_inbox`,
  * `update_inbox`), with at least one. Saying what it was on or what came of
  * it, a reaction and a post to the chat are no work of their own; a helper or
- * a command started is.
+ * a command started is. Nor is what reaching a colleague takes on the way,
+ * which both agents do before nearly every send: a look at the team
+ * (`list_teammates`), Claude Code loading Hotline's tools (`ToolSearch`), and
+ * Hotline Agent reading the room's own skill on how to reach one.
  */
 function inboxWorkOnly(items: Step[]): boolean {
 	let inbox = false;
@@ -236,10 +239,19 @@ function inboxWorkOnly(items: Step[]): boolean {
 		if (item.kind !== "tool") continue;
 		const key = item.said?.key;
 		if (key === "colleague") inbox = true;
-		else if (key !== "react" && key !== "post") return false;
+		else if (!NO_WORK.has(key ?? "") && !lookedUpTools(item) && !(key === "read" && ROOM_SKILL.test(item.title))) return false;
 	}
 	return inbox;
 }
+
+/** The step groups that are no work of their own beside a send: a reaction, a post, a look at the team. */
+const NO_WORK = new Set(["react", "post", "team"]);
+
+/** The agent looking up its own tools, in the desk's words for it (a tool called through `call_tool` is work). */
+const lookedUpTools = (item: Extract<Step, { kind: "tool" }>) => item.said?.key === "tools" && item.said.one === "Looked up its tools";
+
+/** Hotline's skill for working in the room, which Hotline Agent reads before reaching a colleague. */
+const ROOM_SKILL = /skills\/hotline-room\/SKILL\.md$/;
 
 /**
  * A turn whose only work was the inbox, and that has a sent row in the chat,

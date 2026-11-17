@@ -405,7 +405,7 @@ export async function setUpdateTrack(track: UpdateTrack): Promise<void> {
 export async function installUpdate(version: string): Promise<void> { await invoke("install_update", { version }); }
 export async function cancelUpdate(): Promise<void> { await invoke("cancel_update"); }
 
-/** Opens a PDF, a picture or a Word, Excel or PowerPoint file a teammate sent in its own app. The shell opens nothing else. */
+/** Opens a PDF, a picture, a web page or a Word, Excel or PowerPoint file a teammate sent in its own app. The shell opens nothing else. */
 export async function openSentFile(path: string): Promise<void> {
 	if (!isDesktop()) throw new Error("Open the desktop application to open this.");
 	await invoke("open_sent_file", { path });

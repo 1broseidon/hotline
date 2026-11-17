@@ -7,7 +7,7 @@
 //!   shell's own dialog or dropped it on the window. Anything else is
 //!   refused, so a page that is talked into asking cannot read the disk.
 //! - Down: bytes land in a file the person chose in the save dialog, or, to
-//!   open a PDF, a picture or an Office file, in a fresh private temporary directory, and the
+//!   open a PDF, a picture, a web page or an Office file, in a fresh private temporary directory, and the
 //!   system is asked to open it only under the same rules as a kept copy.
 
 use base64::{Engine, engine::general_purpose::STANDARD};

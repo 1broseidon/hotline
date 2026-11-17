@@ -200,3 +200,53 @@ describe("files an earlier desk kept, which named a file by its ending alone", (
 		}
 	});
 });
+
+describe("a web page a teammate sent", () => {
+	const untyped: Attachment = { kind: "file", name: "old.htm", path: "/data/files/ada/pack/old.htm", size: 1024 };
+	const PAGES: Attachment[] = [file("week-46.html", "text/html"), file("kept-before.htm", "text/html"), untyped];
+
+	test("opens outside Hotline in the browser, its Open carrying the arrow, and never in the viewer", async () => {
+		const { wire } = await import("../src/wire");
+		const reads = spyOn(wire, "command");
+		await draw([sent(PAGES)]);
+		for (const page of PAGES) {
+			const key = open(page.name);
+			expect(key?.getAttribute("title")).toBe("Opens outside Hotline");
+			expect(key?.querySelector("svg")).not.toBeNull();
+			shell = [];
+			await act(async () => key!.click());
+			expect(shell).toEqual([{ cmd: "open_sent_file", args: { path: page.path } }]);
+			expect(document.querySelector('[role="dialog"]')).toBeNull();
+		}
+		expect(reads).not.toHaveBeenCalled();
+	});
+
+	test("on a server desk it is brought down and opened the way a PDF is", async () => {
+		desks.replaceDesks([{ id: "srv", name: "Build box", kind: "remote", origin: "http://127.0.0.1:1", token: "t" }]);
+		desks.setActiveDesk("srv");
+		const { wire } = await import("../src/wire");
+		const reads: unknown[] = [];
+		spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
+			reads.push({ cmd, ...params });
+			return { data: btoa("<p>Week 46</p>") };
+		}) as unknown as typeof wire.command);
+		await draw([sent(PAGES)]);
+		await act(async () => open("week-46.html")!.click());
+		expect(reads).toEqual([{ cmd: "file.read", personaId: "ada", eventId: "pack", index: 0, offset: 0 }]);
+		expect(shell.map(({ cmd, args }) => [cmd, cmd === "transfer_write" ? args["data"] : args])).toEqual([
+			["transfer_begin", { name: "week-46.html", open: true }],
+			["transfer_write", btoa("<p>Week 46</p>")],
+			["transfer_end", { id: "download-1", finished: true }],
+		]);
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+	});
+
+	test("your own web page opens as it always has", async () => {
+		await draw([{ kind: "user", id: "u1", ts: 1, text: "For you.", attachments: [file("mine.html", "text/html")] }]);
+		const key = open("mine.html");
+		expect(key?.getAttribute("title")).toBeNull();
+		expect(keys("mine.html")).toHaveLength(1);
+		await act(async () => key!.click());
+		expect(shell).toEqual([{ cmd: "open_sent_file", args: { path: "/data/files/ada/pack/mine.html" } }]);
+	});
+});

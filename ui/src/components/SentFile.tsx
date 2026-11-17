@@ -19,8 +19,9 @@ export type SentItem = { eventId: string; index: number; file: Attachment };
  *
  * A teammate's file is read over the wire by its message, the way a phone
  * reads it, and nothing opens on its own: a picture opens in the window's own
- * viewer when pressed, text in the window's preview, and a PDF or a Word,
- * Excel or PowerPoint file in its own app outside Hotline, which its Open
+ * viewer when pressed, text in the window's preview, and a PDF, a web page
+ * or a Word, Excel or PowerPoint file in its own app outside Hotline (a page
+ * in the default browser), which its Open
  * key's arrow says; anything else has no Open (`opensIn`). Any of them can
  * be saved where the person chooses or shown in its folder. On a desk on a
  * server the file is brought down to open or save it, and its folder is the

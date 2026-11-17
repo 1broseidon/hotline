@@ -1498,23 +1498,27 @@ picture that policy cannot make is sent as the file it is, and the
 teammate is told why. Anything else is kept byte for byte, up to 25 MB; a
 larger file is refused in a sentence that names the cap. No kind of file
 is refused for what it is, because the desk never opens one on its own: a
-picture, a PDF, or a Word, Excel or PowerPoint file opens in the system's
-own app when the person presses it, and only when its name and its
-contents agree — the system picks the program by the name, so a PDF is
-always kept under a `.pdf` name, a script that starts like a PDF is never
-handed over as one, and a `.docx`, `.xlsx` or `.pptx` must be a ZIP whose
-entries are that kind's (`sent/office.rs` reads their names and extracts
-nothing; the macro-enabled kinds never open). Text, told by its first 8 KB
+picture, a PDF, a web page, or a Word, Excel or PowerPoint file opens in
+the system's own app when the person presses it, and only when its name
+and its contents agree — the system picks the program by the name, so a
+PDF is always kept under a `.pdf` name, a script that starts like a PDF is
+never handed over as one, a `.html` or `.htm` page must be text by the rule
+below, and a `.docx`, `.xlsx` or `.pptx` must be a ZIP whose entries are
+that kind's (`sent/office.rs` reads their names and extracts nothing; the
+macro-enabled kinds never open). A web page goes to the default browser
+and is never drawn in the window, since a scripted page in a frame of the
+window can send data out; in the browser it runs apart from Hotline, as
+any page the person saves and opens does. Other text, told by its first 8 KB
 being UTF-8 without a NUL whatever its name says, opens in the window's
 viewer: Markdown as a document and a CSV or TSV as a table, each with its
 source a press away, until it passes 2 MB, the table 5,000 rows, or a byte
 that is not UTF-8, when it reads as text a page at a time like any other
-text; anything else has no Open. A file's `mimeType` says which: the
-desk gives the PDF and Office types only by contents, and a `text/` type
-only to text. A desk before 0.50 typed a file by its name alone, so the
-window also opens as text a source or config file it kept under a type
-that is not text (`.ts`, `.go`, `Dockerfile` and the like). Any file can be saved where the person picks, or shown in
-its folder.
+text; anything else has no Open. A file's `mimeType` says which: the desk
+gives the PDF and Office types only by contents, and a `text/` type only
+to text. A desk before 0.50 typed a file by its name alone, so the window
+also opens as text a source or config file it kept under a type that is
+not text (`.ts`, `.go`, `Dockerfile` and the like). Any file can be saved
+where the person picks, or shown in its folder.
 `attachments[].origin` says where the file came from, in words.
 
 Every file is posted through the chat's one door (`Room::post`), whatever

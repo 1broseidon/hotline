@@ -56,17 +56,21 @@ const SOURCE_NAME =
 
 /**
  * Where Open takes a teammate's file: out of Hotline to the system's own app
- * for a PDF or a Word, Excel or PowerPoint file, which the shell opens only
- * when the name and the contents agree (files.rs); into the viewer for text;
+ * for a PDF, a web page, or a Word, Excel or PowerPoint file, which the shell
+ * opens only when the name and the contents agree (files.rs); a web page
+ * goes to the default browser and is never drawn in the window, since a
+ * scripted page in a frame of the window can send data out. Into the viewer
+ * for other text;
  * nowhere for anything else, which is only saved or shown in its folder. A
- * file with no type, from a desk that gave none, opens as text, and so does
- * a source or config file an earlier desk gave a type that is not text
- * (`SOURCE_NAME`).
+ * file with no type, from a desk that gave none, goes by its name: a page
+ * named `.html` or `.htm` to the browser, anything else into the viewer as
+ * text. A source or config file an earlier desk gave a type that is not
+ * text opens as text too (`SOURCE_NAME`).
  */
 export function opensIn(file: Pick<Attachment, "name" | "mimeType">): "outside" | "viewer" | null {
 	const type = file.mimeType;
-	if (type === undefined) return "viewer";
-	if (type === "application/pdf" || OFFICE_TYPES.has(type)) return "outside";
+	if (type === undefined) return /\.html?$/i.test(file.name) ? "outside" : "viewer";
+	if (type === "application/pdf" || type === "text/html" || OFFICE_TYPES.has(type)) return "outside";
 	return TEXT_TYPE.test(type) || SOURCE_NAME.test(file.name) ? "viewer" : null;
 }
 
@@ -74,7 +78,8 @@ export function opensIn(file: Pick<Attachment, "name" | "mimeType">): "outside" 
 type Shape = { rows: number; columns: number };
 
 /**
- * A sent file opened on the desk: only text reaches it (`opensIn`). Markdown
+ * A sent file opened on the desk: only text other than a web page reaches it
+ * (`opensIn`), and nothing in it is drawn as HTML. Markdown
  * is rendered as a document, and a CSV or TSV as a table, each with its
  * source a press away; any other text is read as text, never as HTML or an
  * executable file association, a page at a time.

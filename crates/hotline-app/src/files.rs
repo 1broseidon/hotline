@@ -1,18 +1,24 @@
-//! The desk's hands on a file a teammate sent (BRO-98): open a PDF or a
-//! Word, Excel or PowerPoint file in the system's own app, or save a copy
-//! where the person chooses.
+//! The desk's hands on a file a teammate sent (BRO-98): open a PDF, a web
+//! page, or a Word, Excel or PowerPoint file in the system's own app, or
+//! save a copy where the person chooses.
 //!
 //! Both take the path the conversation names, and both refuse anything that
 //! is not one of the desk's own kept copies, under `files/` in the data
 //! directory. The page asks; the shell decides what it will touch. Only a
-//! PDF, a picture or one of those three Office kinds is ever opened, and
-//! only when its name and its contents agree: the system picks the program
-//! by the name, so the bytes alone would let a script that starts like a
-//! PDF run, and the name alone would hand any archive called `.docx` to
-//! Word. The macro-enabled kinds (`.docm` and the like) are never opened.
+//! PDF, a picture, a web page or one of those three Office kinds is ever
+//! opened, and only when its name and its contents agree: the system picks
+//! the program by the name, so the bytes alone would let a script that
+//! starts like a PDF run, and the name alone would hand any archive called
+//! `.docx` to Word or any program called `.html` to the browser. The
+//! macro-enabled kinds (`.docm` and the like) are never opened.
+//!
+//! A web page goes to the default browser and is never drawn in the window:
+//! a run showed a scripted page in a frame of the window can send data out
+//! (docs/design/doc-viewer/README.md). In the browser it runs as any page
+//! the person saves and opens does, apart from Hotline.
 
 use hotline_core::paths::{data_root, sent_files_dir};
-use hotline_core::sent::office;
+use hotline_core::sent::{self, office};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri_plugin_dialog::DialogExt;
@@ -38,8 +44,9 @@ fn kept_under(files: &Path, path: &str) -> Result<PathBuf, String> {
 }
 
 /// Whether the system may be asked to open this: a PDF named `.pdf`, a
-/// JPEG named `.jpg` or `.jpeg`, which is every picture the desk keeps, or
-/// a `.docx`, `.xlsx` or `.pptx` whose ZIP holds that kind's parts.
+/// JPEG named `.jpg` or `.jpeg`, which is every picture the desk keeps, a
+/// page named `.html` or `.htm` that is text by the rule the desk types text
+/// with, or a `.docx`, `.xlsx` or `.pptx` whose ZIP holds that kind's parts.
 pub(crate) fn openable(path: &Path) -> bool {
     let extension = path
         .extension()
@@ -55,6 +62,9 @@ pub(crate) fn openable(path: &Path) -> bool {
     match extension.as_str() {
         "pdf" => &head == b"%PDF-",
         "jpg" | "jpeg" => head[..3] == [0xFF, 0xD8, 0xFF],
+        "html" | "htm" => std::fs::File::open(path)
+            .and_then(|mut file| sent::starts_as_text(&mut file))
+            .unwrap_or(false),
         "docx" | "xlsx" | "pptx" => std::fs::File::open(path).is_ok_and(|mut file| {
             office::office_type(&path.to_string_lossy(), &mut file).is_some()
         }),
@@ -63,9 +73,9 @@ pub(crate) fn openable(path: &Path) -> bool {
 }
 
 /// Why a file the system may not open was not opened.
-pub(crate) const NOT_OPENABLE: &str = "Only a PDF, a picture or a Word, Excel or PowerPoint file opens from the conversation; save anything else.";
+pub(crate) const NOT_OPENABLE: &str = "Only a PDF, a picture, a web page or a Word, Excel or PowerPoint file opens from the conversation; save anything else.";
 
-/// Opens a PDF, a picture or an Office file a teammate sent in the system's own app.
+/// Opens a PDF, a picture, a web page or an Office file a teammate sent in the system's own app.
 #[tauri::command]
 pub fn open_sent_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let path = kept(&path)?;
@@ -204,6 +214,46 @@ mod tests {
         assert!(openable(&kept_as(&root, "pitch.pptx", &deck)));
         // One kind's package under another kind's name.
         assert!(!openable(&kept_as(&root, "brief-sheet.docx", &sheet)));
+    }
+
+    #[test]
+    fn a_web_page_opens_in_the_browser() {
+        let root = scratch("page");
+        let page = "<!doctype html><meta charset=\"utf-8\"><title>Week 46</title><p>Sign-ups: 1,284 \u{2014} up 12%</p>\n";
+        assert!(openable(&kept_as(&root, "week-46.html", page.as_bytes())));
+        assert!(openable(&kept_as(&root, "Week-46.HTML", page.as_bytes())));
+    }
+
+    #[test]
+    fn a_web_page_named_htm_opens_in_the_browser() {
+        let root = scratch("htm");
+        assert!(openable(&kept_as(
+            &root,
+            "index.htm",
+            b"<html><body>Hi</body></html>\n"
+        )));
+    }
+
+    #[test]
+    fn a_binary_named_html_is_refused() {
+        let root = scratch("binary-html");
+        assert!(!openable(&kept_as(
+            &root,
+            "page.html",
+            b"MZ\x90\x00\x03\x00\x00\x00\x04\x00"
+        )));
+        assert!(!openable(&kept_as(
+            &root,
+            "page.htm",
+            b"<html>\x00\x01</html>"
+        )));
+        assert!(!openable(&kept_as(&root, "latin.html", b"<p>caf\xe9</p>")));
+        // A page is text by its name too: the same text named a script is not opened.
+        assert!(!openable(&kept_as(
+            &root,
+            "page.sh",
+            b"<html>echo hi</html>"
+        )));
     }
 
     #[test]

@@ -152,6 +152,15 @@ pub fn mime_type(name: &str, file: &mut (impl Read + Seek)) -> io::Result<String
     })
 }
 
+/// Whether the file read from here is text by the rule [`mime_type`] types
+/// text with: its first [`TEXT_HEAD_BYTES`] are UTF-8 without a NUL. The
+/// shell asks it before it hands a web page to the browser.
+pub fn starts_as_text(file: &mut impl Read) -> io::Result<bool> {
+    let mut head = Vec::new();
+    file.take(TEXT_HEAD_BYTES).read_to_end(&mut head)?;
+    Ok(is_text(&head))
+}
+
 /// Whether a file's start reads as text: UTF-8, with no NUL in it. A
 /// character cut off by the end of the start still counts.
 fn is_text(head: &[u8]) -> bool {
@@ -693,6 +702,10 @@ mod tests {
         assert_eq!(kind("log.txt", b"\x00\x01\x02"), "application/octet-stream");
         assert_eq!(kind("latin.txt", b"caf\xe9\n"), "application/octet-stream");
         assert_eq!(kind("pack.zip", b"PK\x03\x04\x00\x00"), "application/zip");
+        // The shell asks the same rule before it hands a page to the browser.
+        assert!(starts_as_text(&mut &long[..]).unwrap());
+        assert!(!starts_as_text(&mut &b"<p>\x00</p>"[..]).unwrap());
+        assert!(!starts_as_text(&mut &b"caf\xe9 au lait"[..]).unwrap());
 
         // An Office file by its name and its entries together.
         let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));

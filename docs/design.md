@@ -669,7 +669,11 @@ back to a teammate nobody is waiting on, Hotline adds one line of its own
 with the facts the standing text cannot know (it came back by itself, how
 many messages the teammate has sent since the person last wrote, the phone)
 and the rule in a sentence (`session/returns.rs`); a result that lands while
-the teammate works on the person's request gets nothing.
+the teammate works on the person's request gets nothing. One return is the person
+writing: their own answer to a page, a form or a card, which can come back
+through a command Hotline cannot see into. Read as work that came back, it
+had the teammate act on the person's marks without a word, so the texts name
+it, and it gets the opening line or a reaction before the work.
 
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads

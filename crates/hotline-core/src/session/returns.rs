@@ -27,6 +27,13 @@
 //! request gets nothing: that turn is already a reply, and the line would
 //! only repeat itself every round. Neither does a line of the person's or a
 //! colleague's, which somebody is waiting on.
+//!
+//! The person's own answer to something the teammate gave them is the
+//! person writing, not work that came back. A card's answer is a delivery,
+//! like their line, and gets nothing. An answer that comes back through a
+//! command (marks on a page the teammate is waiting on) Hotline cannot tell
+//! from any other command's end, so the line goes with it and names that
+//! case in its rule, as the finished command's line and the house style do.
 
 use super::{Room, StreamId};
 use crate::contract::{ThreadId, ThreadKind};
@@ -55,7 +62,7 @@ pub(crate) fn note(sent: usize, phone: bool) -> String {
         ),
     };
     line.push_str(
-        " Speak only if it gives them what they asked for or you need them; otherwise write nothing.",
+        " Speak only if it gives them what they asked for, you need them, or it is their own answer to you; otherwise write nothing.",
     );
     line
 }
@@ -99,7 +106,7 @@ mod tests {
     #[test]
     fn the_note_is_short_and_says_only_the_facts_that_hold() {
         let fullest = note(12, true);
-        assert!(fullest.split_whitespace().count() < 45, "{fullest}");
+        assert!(fullest.split_whitespace().count() < 55, "{fullest}");
         assert!(
             fullest.starts_with("Hotline: this came back by itself; nobody is waiting on a reply.")
         );
@@ -107,7 +114,7 @@ mod tests {
             "The person is on their phone. You have sent 12 messages since they last wrote."
         ));
         assert!(fullest.ends_with(
-            "Speak only if it gives them what they asked for or you need them; otherwise write nothing."
+            "Speak only if it gives them what they asked for, you need them, or it is their own answer to you; otherwise write nothing."
         ));
         let quiet = note(0, false);
         assert!(!quiet.contains("sent"), "{quiet}");

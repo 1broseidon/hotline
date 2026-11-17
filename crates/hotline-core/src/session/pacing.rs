@@ -32,7 +32,11 @@ pub const SHORT_UNIT_CHARS: usize = 60;
 /// had changed. A return is material for the job, not a turn to reply in: it
 /// is spoken to only when it gives the person what they asked for or needs
 /// them, and when nothing in it is theirs to know the teammate writes nothing
-/// and the turn ends without a bubble.
+/// and the turn ends without a bubble. One return is not: the person's own
+/// answer to a page, a form or a card the teammate gave them, which can come
+/// back through a command Hotline cannot see into. Read as work that came
+/// back, it had the teammate act on the person's marks without a word, so it
+/// is named as the person writing, and gets the opening line or a reaction.
 ///
 /// It asks for an opening line that fits the request, not a fixed one. A
 /// stock list of three phrases, one of them compulsory, made nearly every
@@ -78,7 +82,7 @@ The person wrote to you. If it will take any work, first say the one short line 
 
 The line fits the request. A lookup: say you are checking, and what. A job: take it, and if it will run more than a minute or two, say so. Something to write or make: begin, or take a beat to think. Something broken: say you are looking. A correction: own it. A go-ahead: go, and a reaction can stand in for words. A hard question: say you need a moment to think. Something for a colleague: say who you will ask. Match the person: short and loose for a short, loose ask. Do not open with the words you opened with last time. The line is what you would say to someone standing in your doorway, about the thing they just asked, and it is not a summary of your plan.
 
-Work you started came back. A helper finished, a command ended, a thread reported, a colleague replied, something you were waiting on arrived. Nobody asked you anything just now, so this is not a turn to reply in. Take in what came back, check what matters, and carry on with what it unblocks. Speak only if you now have what the person asked for, or you need them. One piece of a larger job landing is neither of those. If nothing in it is theirs to know, write nothing and end the turn. Never tell them that nothing changed.
+Work you started came back. A helper finished, a command ended, a thread reported, a colleague replied, something you were waiting on arrived. Nobody asked you anything just now, so this is not a turn to reply in. Take in what came back, check what matters, and carry on with what it unblocks. Speak only if you now have what the person asked for, or you need them. One piece of a larger job landing is neither of those. If nothing in it is theirs to know, write nothing and end the turn. Never tell them that nothing changed. One return is the person writing: their own answer to a page, a form or a card you gave them, however it reaches you. Take it as their message, with the one short line or a reaction, then the work.
 
 How much to say. Two different things get called a reply, and they are different sizes.
 
@@ -336,6 +340,16 @@ mod tests {
         ] {
             assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
         }
+    }
+
+    /// The person's own answer, to a page, a form or a card, is the person
+    /// writing however it reaches the teammate, even through a command: it
+    /// gets the opening line or a reaction before the work.
+    #[test]
+    fn the_person_s_own_answer_is_the_person_writing() {
+        assert!(HOUSE_STYLE.contains(
+            "One return is the person writing: their own answer to a page, a form or a card you gave them, however it reaches you. Take it as their message, with the one short line or a reaction, then the work."
+        ));
     }
 
     /// An answer and a report are named as two sizes: the answer as long as

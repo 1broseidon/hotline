@@ -404,6 +404,9 @@ line of Hotline's (never written to the tape as the person's), queued behind
 anything waiting and said on a live call to the teammate as well as written.
 Nobody asked for that turn, so the line says to speak only when the result
 is what the person waits for or a failure that changes what they should do,
+unless the output is the person's own answer to something the teammate gave
+them (marks on a page), which is the person writing and gets the opening line
+or a reaction,
 with the line of the moment after it ([When work comes back](#when-work-comes-back)),
 and a model that answers with nothing ends the turn there: no bubble, no
 notice, the teammate at rest. Any line of Hotline's that begins a turn this
@@ -423,7 +426,8 @@ that it came back by itself and nobody is waiting on a reply, how many
 messages the teammate has sent since the person last wrote (left out when
 none), that the person is on their phone when their last line came from it,
 and then the rule in a sentence: speak only if it gives them what they asked
-for or you need them, otherwise write nothing. The facts are read off the
+for, you need them, or it is their own answer to you, otherwise write
+nothing. The facts are read off the
 thread when the line is said; nothing else in it varies. It goes with:
 
 - a line of Hotline's that begins a turn (`Wired::back`): a command left
@@ -437,7 +441,12 @@ thread when the line is said; nothing else in it varies. It goes with:
 A result that comes back while the teammate works on the person's own
 request, or one it asked for with `wait_jobs`, gets nothing: that turn is a
 reply already. Neither does the person's line, a colleague's, a subagent's
-brief or a job's firing. A teammate on another agent hears the line on the
+brief or a job's firing. The person's answer to a card is a delivery, their line, and
+gets nothing either; an answer that reaches the teammate through a command
+is one Hotline cannot tell from any other command's end, so the house style,
+the finished command's line and this line each name it: the person's own
+answer to a page, a form or a card is the person writing, however it
+arrives. A teammate on another agent hears the line on the
 wake lines Hotline sends it; when its own program wakes it for its own helper
 or background command, Hotline sends nothing and has nothing to add to.
 

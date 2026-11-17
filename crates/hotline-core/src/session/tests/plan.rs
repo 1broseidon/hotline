@@ -265,6 +265,7 @@ fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     crate::driver::acp::catalog::Catalog {
         models: vec![ConfigChoice {

@@ -3,7 +3,7 @@
 //! login directories, read and written by Rig through Hotline's store
 //! ([`crate::providers::rig_login`]).
 
-use crate::contract::{Credential, CredentialKind};
+use crate::contract::{ConfigChoice, Credential, CredentialKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
 use crate::mcp::McpOAuthRegistration;
@@ -577,23 +577,27 @@ impl Vault {
                 shared,
             };
             // A model this account's listing gives a speed tier says so,
-            // for the menu of a teammate at rest; every other says nothing.
-            let speedy: Vec<String> = sources
+            // and which speeds, for the menu of a teammate at rest: the row
+            // its session would offer. Every other says nothing.
+            let speedy: HashMap<String, Vec<ConfigChoice>> = sources
                 .discovered
                 .get(&credential.id)
                 .cloned()
                 .flatten()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|listed| !crate::driver::rig::offered_tiers(&listed.tiers).is_empty())
-                .map(|listed| format!("{provider}/{}", listed.id))
+                .filter_map(|listed| {
+                    let speeds = crate::driver::rig::speed_choices(&listed.tiers)?;
+                    Some((format!("{provider}/{}", listed.id), speeds))
+                })
                 .collect();
             by_provider
                 .entry(provider)
                 .or_default()
                 .extend(choices.into_iter().map(|mut choice| {
-                    if speedy.contains(&choice.id) {
+                    if let Some(speeds) = speedy.get(&choice.id) {
                         choice.fast = Some(true);
+                        choice.speeds = Some(speeds.clone());
                     }
                     if shared {
                         choice.id = crate::models::on_account(&choice.id, &account.id);
@@ -1615,18 +1619,34 @@ mod tests {
                 vault.efforts(&format!("openai-codex#{small}/gpt-6.2-sol")),
                 ["low", "high"]
             );
-            let fast: Vec<(String, Option<bool>)> = vault
+            // And the row each would offer, by the row's ids.
+            let fast: Vec<(String, Option<bool>, Option<Vec<String>>)> = vault
                 .model_choices()
                 .into_iter()
-                .map(|choice| (choice.id, choice.fast))
+                .map(|choice| {
+                    let speeds = choice
+                        .speeds
+                        .map(|speeds| speeds.into_iter().map(|speed| speed.id).collect());
+                    (choice.id, choice.fast, speeds)
+                })
                 .collect();
-            for (id, said) in [
-                (format!("openai-codex#{big}/gpt-6.2-sol"), Some(true)),
-                (format!("openai-codex#{big}/gpt-6-sol"), Some(true)),
-                (format!("openai-codex#{big}/gpt-daybreak-blue-latest"), None),
-                (format!("openai-codex#{small}/gpt-6.2-sol"), Some(true)),
+            let three = Some(owned(&["off", "on", "ultrafast"]));
+            let two = Some(owned(&["off", "on"]));
+            for (id, said, speeds) in [
+                (format!("openai-codex#{big}/gpt-6.2-sol"), Some(true), three),
+                (
+                    format!("openai-codex#{big}/gpt-6-sol"),
+                    Some(true),
+                    two.clone(),
+                ),
+                (
+                    format!("openai-codex#{big}/gpt-daybreak-blue-latest"),
+                    None,
+                    None,
+                ),
+                (format!("openai-codex#{small}/gpt-6.2-sol"), Some(true), two),
             ] {
-                assert!(fast.contains(&(id.clone(), said)), "{id}: {fast:?}");
+                assert!(fast.contains(&(id.clone(), said, speeds)), "{id}: {fast:?}");
             }
         };
         expect(&vault);
@@ -1645,7 +1665,9 @@ mod tests {
                 reopened
                     .model_choices()
                     .iter()
-                    .any(|choice| choice.id == on_small && choice.fast.is_none())
+                    .any(|choice| choice.id == on_small
+                        && choice.fast.is_none()
+                        && choice.speeds.is_none())
             );
             assert_eq!(reopened.tiers(&on_small), [] as [String; 0]);
         }
@@ -1660,7 +1682,7 @@ mod tests {
                 .model_choices()
                 .iter()
                 .filter(|choice| choice.id.starts_with("anthropic"))
-                .all(|choice| choice.fast.is_none())
+                .all(|choice| choice.fast.is_none() && choice.speeds.is_none())
         );
     }
 

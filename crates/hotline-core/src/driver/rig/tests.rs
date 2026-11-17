@@ -25,6 +25,7 @@ fn choice(id: &str) -> ConfigChoice {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     }
 }
 
@@ -1027,7 +1028,11 @@ fn a_chosen_tier_is_a_chatgpt_requests_service_tier_and_standard_sends_none() {
 #[test]
 fn the_fast_row_is_standard_and_each_listed_speed_by_the_desks_ids() {
     let row = |tiers: &[&str], current: Option<&str>| {
-        speed_config(tiers.iter().map(ToString::to_string).collect(), current).map(|config| {
+        speed_config(
+            &tiers.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            current,
+        )
+        .map(|config| {
             assert_eq!(config.id, FAST_CONFIG);
             assert_eq!(
                 config.category,

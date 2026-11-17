@@ -170,6 +170,7 @@ pub(crate) fn catalog(listed: &[Value]) -> Option<Catalog> {
                     efforts: None,
                     default_effort: None,
                     fast: None,
+                    speeds: None,
                 })
             })
             .collect();
@@ -187,6 +188,7 @@ pub(crate) fn catalog(listed: &[Value]) -> Option<Catalog> {
         if model.get("isDefault").and_then(Value::as_bool) == Some(true) {
             catalog.default_model = Some(id.to_string());
         }
+        let speeds = adapter_speeds(model);
         catalog.models.push(ConfigChoice {
             id: id.to_string(),
             name: display_name(text("displayName").unwrap_or(id)),
@@ -195,16 +197,42 @@ pub(crate) fn catalog(listed: &[Value]) -> Option<Catalog> {
             account: None,
             efforts: Some(crate::models::tidy_efforts(efforts)),
             default_effort,
-            // A model that can run fast lists the tier beside its own.
-            fast: Some(
-                model
-                    .get("additionalSpeedTiers")
-                    .and_then(Value::as_array)
-                    .is_some_and(|tiers| tiers.iter().any(|tier| tier.as_str() == Some("fast"))),
-            ),
+            fast: Some(speeds.is_some()),
+            speeds,
         });
     }
     (!catalog.models.is_empty()).then_some(catalog)
+}
+
+/// The speeds a Codex teammate on `model` can be set to, as its Fast row
+/// offers them: Fast where Codex's ACP adapter offers its switch, and no
+/// other. Read in `@agentclientprotocol/codex-acp` 1.12.0 (a7afd2ae,
+/// `src/FastModeConfig.ts`, `src/CodexAcpServer.ts`), the adapter Hotline
+/// runs:
+///
+/// - It offers `fast-mode` only on a model whose `model/list` entry has
+///   `fast` among `additionalSpeedTiers` (`modelSupportsFast`), with the
+///   values `off` and `on` and no other (`applyFastModeChange` refuses
+///   anything else), so that list, not `serviceTiers`, says Fast here.
+/// - Every turn it starts sends `serviceTier` as `"fast"` when the switch
+///   is on and as `null` when it is off (`resolveFastServiceTier`, then
+///   `CodexAcpClient.sendPrompt`). Codex 0.169.0's `turn/start` reads that
+///   `null` as Standard from this turn on (`TurnStartParams.service_tier`,
+///   a double option, in
+///   `codex-rs/app-server-protocol/src/protocol/v2/turn.rs`), so a
+///   `service_tier` given at launch, in `config.toml`, `-c` or the
+///   adapter's `CODEX_CONFIG`, lasts until the first prompt.
+/// - It reads no other speed setting, no per-turn `serviceTierForTurn`,
+///   and no `_meta` on a prompt.
+///
+/// So the Ultrafast `serviceTiers` lists (for `gpt-6.2-sol` on a Pro plan)
+/// is a speed no Codex teammate can be told, and is not offered.
+fn adapter_speeds(model: &Value) -> Option<Vec<ConfigChoice>> {
+    let fast = model
+        .get("additionalSpeedTiers")
+        .and_then(Value::as_array)
+        .is_some_and(|tiers| tiers.iter().any(|tier| tier.as_str() == Some("fast")));
+    crate::models::speed_choices(fast.then_some(("on", "Fast")))
 }
 
 /// A model's name as Codex's ACP adapter shows it: past a leading "gpt-",
@@ -483,6 +511,62 @@ pub(crate) mod tests {
         );
         assert_eq!(catalog.effort_id, "reasoning_effort");
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    /// `model/list` entries as Codex 0.169.0 gives them for a Pro plan (the
+    /// shape of `~/.codex/models_cache.json`): each keeps the speeds its
+    /// Codex teammate can be told. Fast where `additionalSpeedTiers` says
+    /// `fast`, as the adapter offers its switch; Ultrafast, which
+    /// `serviceTiers` lists for `gpt-6.2-sol`, never, since the adapter has
+    /// no way to ask for it; a model that lists `priority` in `serviceTiers`
+    /// alone has no switch from the adapter, so none here; none on a model
+    /// with no tier.
+    #[test]
+    fn a_codex_model_keeps_only_the_speeds_its_adapter_can_be_told() {
+        let tier = |id: &str, name: &str| json!({"id": id, "name": name, "description": ""});
+        let entry = |id: &str, speed: &[&str], service: Vec<Value>| {
+            json!({"id": id, "model": id, "displayName": id, "description": "", "hidden": false,
+                "isDefault": false, "defaultReasoningEffort": "low", "supportedReasoningEfforts": [],
+                "additionalSpeedTiers": speed, "serviceTiers": service, "defaultServiceTier": null})
+        };
+        let listed = [
+            entry(
+                "gpt-6.2-sol",
+                &["fast", "ultrafast"],
+                vec![tier("priority", "Fast"), tier("ultrafast", "Ultrafast")],
+            ),
+            entry("gpt-6-sol", &["fast"], vec![tier("priority", "Fast")]),
+            entry("gpt-next", &[], vec![tier("priority", "Fast")]),
+            entry("gpt-daybreak-blue-latest", &[], Vec::new()),
+        ];
+        let catalog = catalog(&listed).unwrap();
+        let speeds: Vec<_> = catalog
+            .models
+            .iter()
+            .map(|model| {
+                let ids = model
+                    .speeds
+                    .as_ref()
+                    .map(|speeds| speeds.iter().map(|speed| speed.id.as_str()).collect());
+                (model.id.as_str(), model.fast, ids)
+            })
+            .collect();
+        assert_eq!(
+            speeds,
+            [
+                ("gpt-6.2-sol", Some(true), Some(vec!["off", "on"])),
+                ("gpt-6-sol", Some(true), Some(vec!["off", "on"])),
+                ("gpt-next", Some(false), None),
+                ("gpt-daybreak-blue-latest", Some(false), None),
+            ]
+        );
+        let names: Vec<&str> = catalog.models[0]
+            .speeds
+            .iter()
+            .flatten()
+            .map(|speed| speed.name.as_str())
+            .collect();
+        assert_eq!(names, ["Standard", "Fast"]);
     }
 
     #[test]

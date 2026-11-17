@@ -593,6 +593,7 @@ pub fn choices(
                 efforts: None,
                 default_effort: None,
                 fast: None,
+                speeds: None,
             })
             .collect::<Vec<_>>()
         })
@@ -620,6 +621,7 @@ pub fn choices(
                     efforts: None,
                     default_effort: None,
                     fast: None,
+                    speeds: None,
                 }),
         );
     }
@@ -849,8 +851,41 @@ pub fn effort_choices(levels: Vec<String>) -> Vec<ConfigChoice> {
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         })
         .collect()
+}
+
+/// The Fast row's Standard, as every agent's switch says it: no speed asked
+/// for.
+pub const STANDARD_SPEED: &str = "off";
+
+/// A model's speeds as the Fast row a session on it offers them, by the
+/// desk's ids: Standard first, then each faster `(id, name)` in order.
+/// `None` when nothing is faster than Standard, as such a model has no row.
+pub fn speed_choices<'a>(
+    faster: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<Vec<ConfigChoice>> {
+    let choice = |id: &str, name: &str| ConfigChoice {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+        fast: None,
+        speeds: None,
+    };
+    let faster: Vec<ConfigChoice> = faster
+        .into_iter()
+        .map(|(id, name)| choice(id, name))
+        .collect();
+    (!faster.is_empty()).then(|| {
+        std::iter::once(choice(STANDARD_SPEED, "Standard"))
+            .chain(faster)
+            .collect()
+    })
 }
 
 /// The most tokens one answer from a `provider/model` may hold, when the
@@ -879,6 +914,7 @@ mod tests {
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         };
         let shown = |levels: Vec<ConfigChoice>| {
             tidy_efforts(levels)

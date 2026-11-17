@@ -228,6 +228,7 @@ impl Scripted {
                 efforts: None,
                 default_effort: None,
                 fast: None,
+                speeds: None,
             }],
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),

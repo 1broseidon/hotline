@@ -385,6 +385,17 @@ pub struct ConfigChoice {
     /// it out of band. Absent where that is not known here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast: Option<bool>,
+    /// The speeds a model runs at, as the Fast row a session on it would
+    /// offer them, by the desk's ids: Standard (`off`) first, then Fast
+    /// (`on`) and Ultrafast (`ultrafast`) where the model has them, each
+    /// with its name. So a model at rest shows the row its session would:
+    /// Fast alone is a switch, Fast and Ultrafast a choice of speeds. Only
+    /// speeds the model's agent can be told are listed. Absent for a model
+    /// with no speed beyond Standard, and where that is not known here;
+    /// `fast` still says whether it has one, for a client that knows only
+    /// the switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speeds: Option<Vec<ConfigChoice>>,
 }
 
 /// Which of the person's accounts serves a model choice: a credential, by

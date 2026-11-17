@@ -71,28 +71,8 @@ pub(super) fn effort_config(levels: Vec<String>, current: Option<&str>) -> Vec<S
 /// switch, on and off as a harness's is, which the phone's switch reads too;
 /// with Ultrafast as well, the three-way choice. A model with none has no
 /// row. `tiers` are the listing's, `current` the tier asked for now.
-pub(super) fn speed_config(tiers: Vec<String>, current: Option<&str>) -> Option<SessionConfig> {
-    if tiers.is_empty() {
-        return None;
-    }
-    let choice = |id: &str, name: &str| ConfigChoice {
-        id: id.to_string(),
-        name: name.to_string(),
-        description: None,
-        group: None,
-        account: None,
-        efforts: None,
-        default_effort: None,
-        fast: None,
-    };
-    let options = std::iter::once(choice(super::STANDARD, "Standard"))
-        .chain(
-            SPEEDS
-                .iter()
-                .filter(|(_, tier, _)| tiers.iter().any(|listed| listed == tier))
-                .map(|(id, _, name)| choice(id, name)),
-        )
-        .collect();
+pub(super) fn speed_config(tiers: &[String], current: Option<&str>) -> Option<SessionConfig> {
+    let options = speed_choices(tiers)?;
     let current_id = current
         .and_then(|tier| SPEEDS.iter().find(|(_, listed, _)| *listed == tier))
         .map_or(super::STANDARD, |(id, _, _)| id);
@@ -480,6 +460,19 @@ pub(crate) fn offered_tiers(listed: &[String]) -> Vec<String> {
         .filter(|(_, tier, _)| listed.iter().any(|one| one == tier))
         .map(|(_, tier, _)| tier.to_string())
         .collect()
+}
+
+/// A model's speeds as its Fast row offers them, for a listing's `tiers`:
+/// Standard, then those of [`SPEEDS`] it gives, by the row's ids. The same
+/// list a teammate at rest is shown (`ConfigChoice::speeds`) and a running
+/// session offers, so the two draw one row. `None` for a model with none.
+pub(crate) fn speed_choices(tiers: &[String]) -> Option<Vec<ConfigChoice>> {
+    models::speed_choices(
+        SPEEDS
+            .iter()
+            .filter(|(_, tier, _)| tiers.iter().any(|listed| listed == tier))
+            .map(|(id, _, name)| (*id, *name)),
+    )
 }
 
 /// Whether a Fast row value is Standard: `off`, `false` (Cursor's word, which

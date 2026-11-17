@@ -275,6 +275,7 @@ pub(crate) fn catalog(initialized: &Value) -> Option<Catalog> {
             default_effort: has_levels.then(|| DEFAULT.to_string()),
             // Only the models that can run fast say so.
             fast: Some(model.get("supportsFastMode").and_then(Value::as_bool) == Some(true)),
+            speeds: None,
         });
     }
     if catalog.models.is_empty() {
@@ -301,6 +302,7 @@ fn effort_level(id: &str, name: &str) -> ConfigChoice {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     }
 }
 

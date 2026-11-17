@@ -907,6 +907,7 @@ impl RoomHandle for Quiet {
                 efforts: None,
                 default_effort: None,
                 fast: None,
+                speeds: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
@@ -917,6 +918,7 @@ impl RoomHandle for Quiet {
                 efforts: None,
                 default_effort: None,
                 fast: None,
+                speeds: None,
             },
         ]
     }

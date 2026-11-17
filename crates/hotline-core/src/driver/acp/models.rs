@@ -547,6 +547,7 @@ mod tests {
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         }
     }
 

@@ -1073,6 +1073,7 @@ impl Disposition {
                     efforts: None,
                     default_effort: None,
                     fast: None,
+                    speeds: None,
                 })
                 .collect();
             disposition.current_mode_id = Some(state.current_mode_id.0.to_string());
@@ -1237,6 +1238,7 @@ fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigC
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         })
         .collect()
 }

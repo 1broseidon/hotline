@@ -38,6 +38,7 @@ pub(crate) fn add(backend_id: &str, modes: &mut Vec<ConfigChoice>) {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     });
 }
 
@@ -79,6 +80,7 @@ mod tests {
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         }
     }
 

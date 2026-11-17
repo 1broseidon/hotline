@@ -708,7 +708,19 @@ defaultEffort?: string,
  * Whether a harness model can run in fast mode, as its harness lists
  * it out of band. Absent where that is not known here.
  */
-fast?: boolean, };
+fast?: boolean, 
+/**
+ * The speeds a model runs at, as the Fast row a session on it would
+ * offer them, by the desk's ids: Standard (`off`) first, then Fast
+ * (`on`) and Ultrafast (`ultrafast`) where the model has them, each
+ * with its name. So a model at rest shows the row its session would:
+ * Fast alone is a switch, Fast and Ultrafast a choice of speeds. Only
+ * speeds the model's agent can be told are listed. Absent for a model
+ * with no speed beyond Standard, and where that is not known here;
+ * `fast` still says whether it has one, for a client that knows only
+ * the switch.
+ */
+speeds?: Array<ConfigChoice>, };
 
 /**
  * Where a teammate's cookie ask stands. Pending is the card; every other

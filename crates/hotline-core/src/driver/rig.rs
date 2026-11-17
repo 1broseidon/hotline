@@ -18,7 +18,7 @@ use build::{
     Reuse, agent_builder, completion_model, copilot_responses, effort_config, request_settings,
     speed_config,
 };
-pub(crate) use build::{choice_of, is_standard, offered_tiers, tier_of};
+pub(crate) use build::{choice_of, is_standard, offered_tiers, speed_choices, tier_of};
 use history::{chunk_into, elide, flush, hand_to_model, images_to_model, keep, plain, send};
 use images::Input;
 #[cfg(test)]
@@ -214,7 +214,7 @@ type UnconsumedInputs = Vec<(String, Vec<Attachment>)>;
 pub(crate) const FAST_CONFIG: &str = "fast";
 
 /// The Fast row's Standard: no tier asked for, and nothing sent.
-pub(crate) const STANDARD: &str = "off";
+pub(crate) const STANDARD: &str = models::STANDARD_SPEED;
 
 /// Hotline Agent for one teammate.
 pub struct InProcess {
@@ -360,7 +360,7 @@ impl InProcess {
         let tier = lock(&self.tier).clone();
         let metadata = self.keys.model_metadata();
         let mut configs = effort_config(self.keys.efforts(&model), effort.as_deref());
-        configs.extend(speed_config(self.keys.tiers(&model), tier.as_deref()));
+        configs.extend(speed_config(&self.keys.tiers(&model), tier.as_deref()));
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
             capabilities: crate::contract::SessionCapabilities {

@@ -1743,6 +1743,73 @@ async fn chatgpt_listed_speed_tiers_reach_both_pickers_and_the_request() {
     server.abort();
 }
 
+/// A teammate at rest is shown the Fast row its session would offer: the
+/// idle menu's models carry their speeds (`speeds`, by the row's ids, with
+/// names), Standard, Fast and Ultrafast on the model whose listing gives
+/// Ultrafast, Standard and Fast on the one with Fast alone, and none on the
+/// one with neither, while `fast` says what it always said. A running
+/// session's row on each model is the same list.
+#[tokio::test(flavor = "multi_thread")]
+async fn chatgpt_models_at_rest_carry_the_speeds_their_session_offers() {
+    let ChatGptTiers {
+        root,
+        server,
+        _origin,
+        ..
+    } = chatgpt_tiers("chatgpt-resting-speeds", &["priority", "ultrafast"]).await;
+    let (port, serving) = serve_closable(&root);
+    let mut client = Client::connect(port, TOKEN).await;
+    let listed = client.call("models.list", json!({})).await;
+    let resting = |id: &str| {
+        let choice = listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|choice| choice["id"] == format!("openai-codex/{id}"))
+            .unwrap_or_else(|| panic!("no {id}: {listed}"))
+            .clone();
+        let speeds = choice.get("speeds").map(|speeds| {
+            speeds
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|one| {
+                    format!(
+                        "{}:{}",
+                        one["id"].as_str().unwrap(),
+                        one["name"].as_str().unwrap()
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        (choice["fast"].clone(), speeds)
+    };
+    let three = owned(&["off:Standard", "on:Fast", "ultrafast:Ultrafast"]);
+    let two = owned(&["off:Standard", "on:Fast"]);
+    assert_eq!(resting("gpt-6.2-sol"), (json!(true), Some(three.clone())));
+    assert_eq!(resting("gpt-6-sol"), (json!(true), Some(two.clone())));
+    assert_eq!(resting("gpt-daybreak-blue-latest"), (Value::Null, None));
+
+    let persona = tier_teammate(&mut client, &root, "gpt-6.2-sol").await;
+    let started = client
+        .call("session.start", json!({"personaId": persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(fast_row(&started["result"]).map(|row| row.0), Some(three));
+    for (model, row) in [("gpt-6-sol", Some(two)), ("gpt-daybreak-blue-latest", None)] {
+        let moved = client
+            .call(
+                "session.set_model",
+                json!({"personaId": persona, "modelId": format!("openai-codex/{model}")}),
+            )
+            .await;
+        assert_eq!(moved["ok"], true, "{moved}");
+        assert_eq!(fast_row(&moved["result"]).map(|row| row.0), row, "{model}");
+    }
+    serving.abort();
+    server.abort();
+}
+
 /// What the phone does, which knows Fast only as an on/off switch: it reads
 /// the row's `on` and `off` (or `true` and `false`) and sends them back. On
 /// a model with Fast alone, `on` is Fast, reads back as `on`, and the next

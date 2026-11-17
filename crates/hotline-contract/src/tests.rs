@@ -248,3 +248,35 @@ fn what_crosses_a_link_grows_only_by_fields_an_older_desk_leaves_out() {
             .contains("teammates: Array<LinkedTeammate>, features?: Array<string>")
     );
 }
+
+/// A model's speeds are an optional field beside `fast`: a choice kept or
+/// sent before it (an agent's offer on disk, a catalogue, a reply the
+/// phone reads) reads with none and writes back as it was, `fast`
+/// untouched; one with speeds says them, Standard first, and the type says
+/// the field may be absent.
+#[test]
+fn a_models_speeds_are_an_additive_optional_field_beside_fast() {
+    for kept in [
+        json!({"id":"gpt-6-sol","name":"6 Sol","fast":true}),
+        json!({"id":"gpt-daybreak","name":"Daybreak","efforts":[{"id":"low","name":"Low"}]}),
+    ] {
+        let read: ConfigChoice = serde_json::from_value(kept.clone()).unwrap();
+        assert_eq!(read.speeds, None, "{kept}");
+        assert_eq!(serde_json::to_value(&read).unwrap(), kept);
+    }
+    let with = json!({"id":"gpt-6.2-sol","name":"6.2 Sol","fast":true,"speeds":[
+        {"id":"off","name":"Standard"},{"id":"on","name":"Fast"},{"id":"ultrafast","name":"Ultrafast"}]});
+    let read: ConfigChoice = serde_json::from_value(with.clone()).unwrap();
+    assert_eq!(read.fast, Some(true));
+    let ids: Vec<&str> = read
+        .speeds
+        .iter()
+        .flatten()
+        .map(|speed| speed.id.as_str())
+        .collect();
+    assert_eq!(ids, ["off", "on", "ultrafast"]);
+    assert_eq!(serde_json::to_value(&read).unwrap(), with);
+    let decl = ConfigChoice::decl(&ts_rs::Config::default());
+    assert!(decl.contains("fast?: boolean"), "{decl}");
+    assert!(decl.contains("speeds?: Array<ConfigChoice>"), "{decl}");
+}

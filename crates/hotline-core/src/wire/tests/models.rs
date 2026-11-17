@@ -493,6 +493,7 @@ fn claude_offer() -> crate::contract::BackendOffer {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     crate::contract::BackendOffer {
         models: vec![choice("opus", "Opus 5.5"), choice("sonnet", "Sonnet 5.5")],
@@ -724,6 +725,7 @@ fn codex_catalog() -> crate::driver::acp::catalog::Catalog {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     let model = |id: &str, levels: &[&str], default: &str| ConfigChoice {
         efforts: Some(levels.iter().map(|id| level(id)).collect()),
@@ -876,6 +878,7 @@ fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     let model = |id: &str, levels: &[&str]| ConfigChoice {
         efforts: Some(levels.iter().map(|id| level(id)).collect()),
@@ -1068,6 +1071,7 @@ async fn a_live_switch_sets_the_model_then_the_landed_effort() {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     });
     let level = |id: &str| ConfigChoice {
         id: id.to_string(),
@@ -1078,6 +1082,7 @@ async fn a_live_switch_sets_the_model_then_the_landed_effort() {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     let picker = |current: &str, levels: &[&str]| crate::contract::SessionConfig {
         id: "effort".to_string(),
@@ -1182,6 +1187,7 @@ fn fast_toggle(current: &str) -> crate::contract::SessionConfig {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     crate::contract::SessionConfig {
         id: "fast".to_string(),
@@ -1261,6 +1267,105 @@ async fn fast_mode_is_the_teammates_choice_on_the_models_that_have_it() {
     );
 }
 
+/// Codex's Fast switch from a client that knows only on and off, as the
+/// phone does (`on` is the option `on` or `true`, `off` is `off` or
+/// `false`): at rest and live, `on` is Fast and `off` Standard, set on the
+/// adapter's own `fast-mode` by those very values and kept on the teammate.
+/// The models the menu reads, from Codex 0.169.0's `model/list`, say Fast
+/// alone (`speeds` Standard and Fast) even where `serviceTiers` lists
+/// Ultrafast, and the adapter's switch refuses `ultrafast`, so no client is
+/// shown a speed Codex cannot be told.
+#[tokio::test]
+async fn codex_fast_works_from_an_on_off_switch() {
+    let tier = |id: &str, name: &str| json!({"id": id, "name": name, "description": ""});
+    let listed = [
+        json!({"id": "gpt-6.2-sol", "model": "gpt-6.2-sol", "displayName": "GPT-6.2-Sol",
+            "description": "", "hidden": false, "isDefault": true, "defaultReasoningEffort": "low",
+            "supportedReasoningEfforts": [{"reasoningEffort": "low", "description": ""}],
+            "additionalSpeedTiers": ["fast", "ultrafast"],
+            "serviceTiers": [tier("priority", "Fast"), tier("ultrafast", "Ultrafast")]}),
+        json!({"id": "gpt-daybreak-blue-latest", "model": "gpt-daybreak-blue-latest",
+            "displayName": "Daybreak Blue", "description": "", "hidden": false, "isDefault": false,
+            "defaultReasoningEffort": "low", "supportedReasoningEfforts": [],
+            "additionalSpeedTiers": [], "serviceTiers": []}),
+    ];
+    let catalog = crate::driver::acp::plan::codex_server::catalog(&listed).unwrap();
+    // The adapter's switch, off and on, as codex-acp 1.12.0 offers it.
+    let switch = |current: &str| crate::contract::SessionConfig {
+        id: "fast-mode".to_string(),
+        ..fast_toggle(current)
+    };
+    let mut offer = crate::contract::BackendOffer::default();
+    crate::driver::acp::catalog::fill(&mut offer, Some(&catalog));
+    offer.configs.push(switch("off"));
+    let quiet = Arc::new(Quiet::new().offering("codex-acp", offer.clone()));
+    let (_root, log, port) = door_with("codex-fast-switch", quiet.clone());
+    let mut socket = desk(port).await;
+    let cy = create_on(&mut socket, 1, "Cy", "codex-acp").await;
+    let cy = cy["id"].as_str().unwrap();
+    let set = |value: &str| json!({ "personaId": cy, "configId": "fast-mode", "value": value });
+    let kept = || {
+        room::roster(&log)
+            .into_iter()
+            .next()
+            .unwrap()
+            .config_choices
+            .get("fast-mode")
+            .cloned()
+    };
+
+    let on = command(&mut socket, 2, "session.set_config", set("on")).await;
+    assert_eq!(fast_of(&on), Some(json!("on")), "{on}");
+    assert_eq!(kept().as_deref(), Some("on"));
+    let speeds = |answer: &Value, model: &str| -> Option<Vec<String>> {
+        let choice = answer["result"]["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|choice| choice["id"] == model)
+            .unwrap_or_else(|| panic!("no {model}: {answer}"))
+            .clone();
+        choice.get("speeds").map(|speeds| {
+            speeds
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|speed| speed["id"].as_str().unwrap().to_string())
+                .collect()
+        })
+    };
+    assert_eq!(
+        speeds(&on, "gpt-6.2-sol"),
+        Some(vec!["off".to_string(), "on".to_string()]),
+        "Fast alone, though Ultrafast is listed"
+    );
+    assert_eq!(speeds(&on, "gpt-daybreak-blue-latest"), None);
+    let off = command(&mut socket, 3, "session.set_config", set("off")).await;
+    assert_eq!(fast_of(&off), Some(json!("off")), "{off}");
+    assert_eq!(kept().as_deref(), Some("off"));
+    let refused = command(&mut socket, 4, "session.set_config", set("ultrafast")).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(kept().as_deref(), Some("off"));
+
+    // Live, each value is the adapter's own, sent as the client said it.
+    let mut live = idle(cy);
+    live.state = SessionState::Ready;
+    live.session_id = Some("s-1".to_string());
+    live.models = offer.models.clone();
+    live.current_model_id = Some("gpt-6.2-sol".to_string());
+    live.configs = vec![switch("off")];
+    quiet.set_info(live);
+    let on = command(&mut socket, 5, "session.set_config", set("on")).await;
+    assert_eq!(fast_of(&on), Some(json!("on")), "{on}");
+    let off = command(&mut socket, 6, "session.set_config", set("off")).await;
+    assert_eq!(fast_of(&off), Some(json!("off")), "{off}");
+    assert_eq!(
+        quiet.calls(),
+        ["set_config fast-mode on", "set_config fast-mode off"]
+    );
+    assert_eq!(kept().as_deref(), Some("off"));
+}
+
 /// Cursor's Run Everything is a launch, not a session mode: a live Cursor
 /// teammate moving into it is kept in it and started again, never asked to
 /// set it on its session; moving back out starts it again too.
@@ -1276,6 +1381,7 @@ async fn a_live_cursor_teammate_moving_into_run_everything_is_started_again() {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     };
     let quiet = Arc::new(Quiet::new());
     let (_root, log, port) = door_with("cursor-run-everything", quiet.clone());

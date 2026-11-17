@@ -19,6 +19,7 @@ async fn a_live_session_takes_a_changed_model_list_without_restarting() {
         efforts: None,
         default_effort: None,
         fast: None,
+        speeds: None,
     });
     // A setting that has nothing to do with models is not a reason to look.
     room.log
@@ -638,6 +639,7 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         }],
         current_model_id: "anthropic/sonnet".to_string(),
         model_label: Some("Model".to_string()),
@@ -650,6 +652,7 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
             efforts: None,
             default_effort: None,
             fast: None,
+            speeds: None,
         }],
         current_mode_id: Some("build".to_string()),
         mode_label: Some("Runtime mode".to_string()),
@@ -667,6 +670,7 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
                 efforts: None,
                 default_effort: None,
                 fast: None,
+                speeds: None,
             }],
             note: None,
         }],

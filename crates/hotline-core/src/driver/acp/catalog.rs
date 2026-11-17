@@ -73,10 +73,11 @@ pub(crate) fn fill(offer: &mut BackendOffer, catalog: Option<&Catalog>) {
         offer.models = merged(std::mem::take(&mut offer.models), catalog);
     }
     for model in &mut offer.models {
-        if model.fast.is_none() {
-            model.fast = catalog
-                .and_then(|catalog| catalog.model(&model.id))
-                .and_then(|listed| listed.fast);
+        if model.fast.is_none()
+            && let Some(listed) = catalog.and_then(|catalog| catalog.model(&model.id))
+        {
+            model.fast = listed.fast;
+            model.speeds.clone_from(&listed.speeds);
         }
         if let Some(config) = &reported
             && offer.current_model_id.as_ref() == Some(&model.id)
@@ -149,11 +150,11 @@ pub(crate) fn with_levels(
 ) {
     let reported = effort_config(configs);
     for model in models {
-        if model.fast.is_none() {
-            model.fast = offered
-                .iter()
-                .find(|one| one.id == model.id)
-                .and_then(|listed| listed.fast);
+        if model.fast.is_none()
+            && let Some(listed) = offered.iter().find(|one| one.id == model.id)
+        {
+            model.fast = listed.fast;
+            model.speeds.clone_from(&listed.speeds);
         }
         if model.id == current_model_id {
             model.efforts = Some(
@@ -240,6 +241,7 @@ mod tests {
             efforts: levels.map(|levels| levels.iter().map(|id| level(id)).collect()),
             default_effort: levels.and_then(|levels| levels.first().map(|id| (*id).to_string())),
             fast: None,
+            speeds: None,
         }
     }
 

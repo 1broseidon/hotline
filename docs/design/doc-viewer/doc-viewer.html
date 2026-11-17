@@ -1,0 +1,87 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Opening documents on the desk</title><style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0c0d10;color:#e9eaee;font:16px/1.55 -apple-system,"Segoe UI",system-ui,sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:760px;margin:0 auto;padding:28px 18px 64px}
+h1{font-size:26px;line-height:1.2;margin:0 0 12px}
+h2{font-size:20px;margin:44px 0 14px;padding-top:18px;border-top:1px solid #23252b}
+h3{font-size:18px;line-height:1.3;margin:2px 0 10px}
+p{margin:0 0 10px}
+.lede{color:#c4c6cf}
+.meta{color:#8a8d98;font-size:13px;margin-top:14px}
+.shot{display:block;width:100%;height:auto;border-radius:10px;border:1px solid #23252b;margin:22px 0 10px}
+.shot.narrow{max-width:520px}
+.cap{color:#c4c6cf;font-size:14.5px;margin:0 0 26px}
+.cap b{color:#e9eaee}
+.choice{background:#15161a;border:1px solid #23252b;border-radius:12px;padding:14px 16px 8px;margin:10px 0 26px}
+.num{font:600 12px/1 ui-monospace,Menlo,monospace;letter-spacing:.04em;color:#8a8d98;margin:0 0 6px}
+.lab{font:600 12px/1 ui-monospace,Menlo,monospace;letter-spacing:.04em;color:#8a8d98;margin:12px 0 4px}
+.lab.pick{color:#5fd3a4}
+table{border-collapse:collapse;width:100%;margin:6px 0 18px;font-size:14.5px}
+th,td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid #23252b;vertical-align:top}
+th{color:#8a8d98;font-weight:600}
+td:first-child{white-space:nowrap}
+</style></head>
+<body><main>
+<h1>Opening documents on the desk</h1>
+<p class="lede">Today the desk renders Markdown and pictures, hands a PDF to the Mac’s viewer, and shows everything else as text or as raw bytes. The drawings below add HTML and CSV in the app, send Office files to their own app, and drop the raw bytes.</p>
+<p class="lede"><b>How to answer:</b> pick under each choice and add a note where you want one. Click a picture to pin a note, or drag across it to draw a box. Press Done when you are finished. <b>A choice left blank takes my pick.</b> Nothing here is built.</p>
+<p class="meta">7 choices · drawn from the app’s own styles, dark theme · desk only, the phone follows later · 17 Nov 2026</p>
+
+<h2>Today</h2>
+<img class="shot" alt="Today: a Word file opened on the desk" src="shots/today-docx.png"><p class="cap"><b>A Word file today.</b> The first bytes of the file, sixteen to a line.</p>
+<img class="shot" alt="Today: an HTML page opened on the desk" src="shots/today-html.png"><p class="cap"><b>An HTML page today.</b> Its source, as text.</p>
+
+<h2>Proposed</h2>
+<img class="shot narrow" alt="Proposed: the file rows in a conversation" src="shots/rows.png"><p class="cap"><b>The rows.</b> Nothing new is added to a row. Open on Markdown, HTML and CSV opens the viewer. Open on a PDF or an Office file carries an arrow, because it leaves Hotline for that file’s own app. A file Hotline cannot show has no Open: only Save and its folder, as on the zip.</p>
+<img class="shot" alt="Proposed: an HTML page rendered in the viewer" src="shots/html.png"><p class="cap"><b>An HTML page, rendered.</b> The same band as Markdown, with the same Source key.</p>
+<img class="shot" alt="Proposed: the HTML page with Source pressed" src="shots/html-source.png"><p class="cap"><b>Source pressed.</b> What you get today, one press away.</p>
+<img class="shot" alt="Proposed: a CSV file as a table" src="shots/csv.png"><p class="cap"><b>A CSV file.</b> The table the app already draws for a Markdown table. The band says its rows and columns.</p>
+
+<h2>Where each kind opens</h2>
+<table>
+<tr><th>Kind</th><th>Today</th><th>Proposed</th></tr>
+<tr><td>Pictures</td><td>In the app</td><td>The same</td></tr>
+<tr><td>Markdown</td><td>Rendered in the app</td><td>The same</td></tr>
+<tr><td>HTML</td><td>Source as text</td><td>Rendered in the app, Source a press away</td></tr>
+<tr><td>CSV</td><td>Text</td><td>A table in the app</td></tr>
+<tr><td>Text and code</td><td>Text</td><td>The same</td></tr>
+<tr><td>PDF</td><td>The system’s viewer</td><td>The same</td></tr>
+<tr><td>Word, Excel, PowerPoint</td><td>Raw bytes</td><td>That file’s own app</td></tr>
+<tr><td>Anything else</td><td>Raw bytes</td><td>No Open. Save, or show in its folder</td></tr>
+</table>
+<p class="cap">The app decides a file’s kind from its first bytes as well as its name, as it does for a PDF today. A file named <code>.docx</code> that is not a Word file is treated as “anything else”.</p>
+
+<h2>The choices</h2>
+
+<div class="choice" data-choice="1"><p class="num">CHOICE 1</p><h3>Where an HTML page opens</h3>
+<p class="lab pick">MY PICK</p><p data-option="pick" data-option-label="Pork Chop’s pick">Rendered in the viewer, in a frame that is cut off from the rest of the app. One piece of code for every teammate.</p>
+<p class="lab">OR</p><p data-option="browser" data-option-label="In the teammate’s browser">In the teammate’s in-app browser. A real page with tabs and links, but built twice: once for the in-app browser and once for a teammate whose browser is in its computer.</p>
+<p class="lab">OR</p><p data-option="today" data-option-label="Keep today’s">Leave HTML as source.</p>
+<p class="lab">WAITS ON</p><p>One check, running now: that a page in that frame cannot call the app’s own commands. If it can, my pick changes to the browser.</p></div>
+
+<div class="choice" data-choice="2"><p class="num">CHOICE 2</p><h3>What a rendered page may do</h3><p>A page a teammate made can carry scripts. Charts and anything you click need them.</p>
+<p class="lab pick">MY PICK</p><p data-option="pick" data-option-label="Pork Chop’s pick">Scripts run. The page cannot reach the network or the app, so it can show you things and send nothing anywhere.</p>
+<p class="lab">OR</p><p data-option="static" data-option-label="No scripts">No scripts. Safest, and interactive pages show up half-working.</p>
+<p class="lab">OR</p><p data-option="network" data-option-label="Scripts and network">Scripts and the network. Pages that load fonts or charts from the web work, and a page could send out whatever is in it.</p></div>
+
+<div class="choice" data-choice="3"><p class="num">CHOICE 3</p><h3>CSV as a table</h3>
+<p class="lab pick">MY PICK</p><p data-option="pick" data-option-label="Pork Chop’s pick">A table in the viewer, with Source for the raw text. Past a few thousand rows it falls back to text, a page at a time.</p>
+<p class="lab">OR</p><p data-option="today" data-option-label="Keep today’s">Leave CSV as text.</p></div>
+
+<div class="choice" data-choice="4"><p class="num">CHOICE 4</p><h3>Word, Excel and PowerPoint files</h3>
+<p class="lab pick">MY PICK</p><p data-option="pick" data-option-label="Pork Chop’s pick">Open hands the file to its own app. A fixed list: docx, xlsx, pptx. Never the macro-enabled kinds, and never by extension alone. On a server desk the file is brought down first, as a PDF is today.</p>
+<p class="lab">OR</p><p data-option="quicklook" data-option-label="Quick Look on the Mac">On the Mac, show it in Quick Look instead, which previews it without opening Word. Mac only; Windows and Linux would still use the file’s own app.</p>
+<p class="lab">OR</p><p data-option="today" data-option-label="Save only">No Open for these. Save, then open it yourself.</p></div>
+
+<div class="choice" data-choice="5"><p class="num">CHOICE 5</p><h3>PDF</h3>
+<p class="lab pick">MY PICK</p><p data-option="pick" data-option-label="Pork Chop’s pick">Stays in the system’s viewer for 0.50.</p>
+<p class="lab">OR</p><p data-option="inapp" data-option-label="In the app now">Render it in the app. That needs a PDF library bundled into the window, on all three systems.</p></div>
+
+<div class="choice" data-choice="6"><p class="num">CHOICE 6</p><h3>A file Hotline cannot show</h3>
+<p class="lab pick">MY PICK</p><p data-option="pick" data-option-label="Pork Chop’s pick">The row has no Open, as on the zip above. The raw-bytes view goes.</p>
+<p class="lab">OR</p><p data-option="line" data-option-label="Open to a plain line">Keep Open, and it shows one line: “Hotline can’t show this kind of file”, with Save and the folder.</p>
+<p class="lab">OR</p><p data-option="today" data-option-label="Keep the bytes">Keep the raw bytes.</p></div>
+
+<div class="choice" data-choice="7" data-choice-title="Where a PDF showed as binary"><p class="num">QUESTION</p><h3>Where a PDF showed as binary</h3><p>By the code, a real PDF a teammate sends already opens in Preview. If you saw one as raw bytes, say where you opened it from, and which teammate if you remember. Leave it blank if it was only Office files.</p></div>
+</main></body></html>

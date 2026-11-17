@@ -1,14 +1,18 @@
-//! The desk's hands on a file a teammate sent (BRO-98): open a PDF in the
-//! system's viewer, or save a copy where the person chooses.
+//! The desk's hands on a file a teammate sent (BRO-98): open a PDF or a
+//! Word, Excel or PowerPoint file in the system's own app, or save a copy
+//! where the person chooses.
 //!
 //! Both take the path the conversation names, and both refuse anything that
 //! is not one of the desk's own kept copies, under `files/` in the data
 //! directory. The page asks; the shell decides what it will touch. Only a
-//! PDF or a picture is ever opened, and only when its name and its first
-//! bytes agree: the system picks the program by the name, so the bytes
-//! alone would let a script that starts like a PDF run.
+//! PDF, a picture or one of those three Office kinds is ever opened, and
+//! only when its name and its contents agree: the system picks the program
+//! by the name, so the bytes alone would let a script that starts like a
+//! PDF run, and the name alone would hand any archive called `.docx` to
+//! Word. The macro-enabled kinds (`.docm` and the like) are never opened.
 
 use hotline_core::paths::{data_root, sent_files_dir};
+use hotline_core::sent::office;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri_plugin_dialog::DialogExt;
@@ -33,8 +37,9 @@ fn kept_under(files: &Path, path: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Whether the system may be asked to open this: a PDF named `.pdf`, or a
-/// JPEG named `.jpg` or `.jpeg`, which is every picture the desk keeps.
+/// Whether the system may be asked to open this: a PDF named `.pdf`, a
+/// JPEG named `.jpg` or `.jpeg`, which is every picture the desk keeps, or
+/// a `.docx`, `.xlsx` or `.pptx` whose ZIP holds that kind's parts.
 pub(crate) fn openable(path: &Path) -> bool {
     let extension = path
         .extension()
@@ -50,18 +55,22 @@ pub(crate) fn openable(path: &Path) -> bool {
     match extension.as_str() {
         "pdf" => &head == b"%PDF-",
         "jpg" | "jpeg" => head[..3] == [0xFF, 0xD8, 0xFF],
+        "docx" | "xlsx" | "pptx" => std::fs::File::open(path).is_ok_and(|mut file| {
+            office::office_type(&path.to_string_lossy(), &mut file).is_some()
+        }),
         _ => false,
     }
 }
 
-/// Opens a PDF or a picture a teammate sent in the system's own viewer.
+/// Why a file the system may not open was not opened.
+pub(crate) const NOT_OPENABLE: &str = "Only a PDF, a picture or a Word, Excel or PowerPoint file opens from the conversation; save anything else.";
+
+/// Opens a PDF, a picture or an Office file a teammate sent in the system's own app.
 #[tauri::command]
 pub fn open_sent_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let path = kept(&path)?;
     if !openable(&path) {
-        return Err(
-            "Only a PDF or a picture opens from the conversation; save anything else.".to_string(),
-        );
+        return Err(NOT_OPENABLE.to_string());
     }
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
@@ -163,5 +172,83 @@ mod tests {
         assert!(!openable(&at("chart.png.jpg", b"\x89PNG\r\n\x1a\n")));
         assert!(!openable(&at("tiny.pdf", b"%PD")));
         assert!(!openable(&root.join("files/ada/e1/absent.pdf")));
+    }
+
+    /// A ZIP holding these entries, as an Office package is written.
+    fn package(entries: &[&str]) -> Vec<u8> {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for entry in entries {
+            writer
+                .start_file(*entry, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"<x/>").unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    fn kept_as(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = root.join("files/ada/e1").join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_word_excel_or_powerpoint_file_opens_when_its_zip_says_it_is_that_kind() {
+        let root = scratch("office");
+        let word = package(&["[Content_Types].xml", "_rels/.rels", "word/document.xml"]);
+        let sheet = package(&["[Content_Types].xml", "xl/workbook.xml"]);
+        let deck = package(&["[Content_Types].xml", "ppt/presentation.xml"]);
+        assert!(openable(&kept_as(&root, "brief.docx", &word)));
+        assert!(openable(&kept_as(&root, "Q3.XLSX", &sheet)));
+        assert!(openable(&kept_as(&root, "pitch.pptx", &deck)));
+        // One kind's package under another kind's name.
+        assert!(!openable(&kept_as(&root, "brief-sheet.docx", &sheet)));
+    }
+
+    #[test]
+    fn a_macro_enabled_office_file_is_refused() {
+        let root = scratch("macros");
+        let word = package(&["[Content_Types].xml", "word/document.xml"]);
+        let sheet = package(&["[Content_Types].xml", "xl/workbook.xml"]);
+        let deck = package(&["[Content_Types].xml", "ppt/presentation.xml"]);
+        assert!(!openable(&kept_as(&root, "brief.docm", &word)));
+        assert!(!openable(&kept_as(&root, "q3.xlsm", &sheet)));
+        assert!(!openable(&kept_as(&root, "pitch.pptm", &deck)));
+        // Macros inside a file named as a plain kind.
+        let macros = package(&[
+            "[Content_Types].xml",
+            "word/document.xml",
+            "word/vbaProject.bin",
+        ]);
+        assert!(!openable(&kept_as(&root, "brief.docx", &macros)));
+    }
+
+    #[test]
+    fn a_zip_renamed_docx_is_refused() {
+        let root = scratch("renamed");
+        let archive = package(&["notes.txt", "photos/1.jpg"]);
+        assert!(!openable(&kept_as(&root, "brief.docx", &archive)));
+        assert!(!openable(&kept_as(&root, "notes.zip", &archive)));
+    }
+
+    #[test]
+    fn a_docx_that_is_not_a_zip_is_refused() {
+        let root = scratch("not-zip");
+        assert!(!openable(&kept_as(
+            &root,
+            "brief.docx",
+            b"#!/bin/sh\necho hi\n"
+        )));
+        assert!(!openable(&kept_as(&root, "brief.docx", b"%PDF-1.7\n")));
+        assert!(!openable(&kept_as(
+            &root,
+            "brief.docx",
+            b"PK\x03\x04 cut short"
+        )));
+        // A real package behind a program's first bytes.
+        let mut prefixed = b"MZ\x90\x00".to_vec();
+        prefixed.extend(package(&["[Content_Types].xml", "word/document.xml"]));
+        assert!(!openable(&kept_as(&root, "brief.docx", &prefixed)));
     }
 }

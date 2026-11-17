@@ -1498,11 +1498,18 @@ picture that policy cannot make is sent as the file it is, and the
 teammate is told why. Anything else is kept byte for byte, up to 25 MB; a
 larger file is refused in a sentence that names the cap. No kind of file
 is refused for what it is, because the desk never opens one on its own: a
-picture or a PDF opens in the system's viewer when the person presses it,
-and only when its name and its first bytes agree — the system picks the
-program by the name, so a PDF is always kept under a `.pdf` name, and a
-script that starts like a PDF is never handed over as one. Any file can be
-saved where the person picks, or shown in its folder.
+picture, a PDF, or a Word, Excel or PowerPoint file opens in the system's
+own app when the person presses it, and only when its name and its
+contents agree — the system picks the program by the name, so a PDF is
+always kept under a `.pdf` name, a script that starts like a PDF is never
+handed over as one, and a `.docx`, `.xlsx` or `.pptx` must be a ZIP whose
+entries are that kind's (`sent/office.rs` reads their names and extracts
+nothing; the macro-enabled kinds never open). Text, told by its first 8 KB
+being UTF-8 without a NUL whatever its name says, opens in the window's
+viewer; anything else has no Open. A file's `mimeType` says which: the
+desk gives the PDF and Office types only by contents, and a `text/` type
+only to text. Any file can be saved where the person picks, or shown in
+its folder.
 `attachments[].origin` says where the file came from, in words.
 
 Every file is posted through the chat's one door (`Room::post`), whatever

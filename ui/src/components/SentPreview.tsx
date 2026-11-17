@@ -17,10 +17,39 @@ export function isMarkdown(file: Pick<Attachment, "name" | "mimeType">): boolean
 	return file.mimeType === "text/markdown" || /\.(md|markdown|mdown|mkd)$/i.test(file.name);
 }
 
+/** The Word, Excel and PowerPoint types, which the desk gives a file only when its ZIP says it is that kind (sent/office.rs). */
+const OFFICE_TYPES = new Set([
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+]);
+
 /**
- * A sent file opened on the desk. Markdown is rendered as a document, with its
- * source a press away; anything else is read as text, never as HTML or an
- * executable file association, a page at a time.
+ * Text, by its type. The desk names text by its bytes, always as `text/…`;
+ * a desk before 0.50 named it by its ending, and gave JSON, scripts and
+ * XML these types too.
+ */
+const TEXT_TYPE = /^text\/|^application\/(json|javascript|xml|x-sh|x-sql)$|\+(json|xml)$/;
+
+/**
+ * Where Open takes a teammate's file: out of Hotline to the system's own app
+ * for a PDF or a Word, Excel or PowerPoint file, which the shell opens only
+ * when the name and the contents agree (files.rs); into the viewer for text;
+ * nowhere for anything else, which is only saved or shown in its folder. A
+ * file with no type, from a desk that gave none, opens as text.
+ */
+export function opensIn(file: Pick<Attachment, "mimeType">): "outside" | "viewer" | null {
+	const type = file.mimeType;
+	if (type === undefined) return "viewer";
+	if (type === "application/pdf" || OFFICE_TYPES.has(type)) return "outside";
+	return TEXT_TYPE.test(type) ? "viewer" : null;
+}
+
+/**
+ * A sent file opened on the desk: only text reaches it (`opensIn`). Markdown
+ * is rendered as a document, with its source a press away; any other text is
+ * read as text, never as HTML or an executable file association, a page at
+ * a time.
  */
 export function SentPreview({ sent, actions, onClose }: { sent: Sent; actions: ReactNode; onClose(): void }) {
 	const { file } = sent;
@@ -92,7 +121,10 @@ function DocumentPage({ sent, onUnreadable }: { sent: Sent; onUnreadable(): void
 	);
 }
 
-/** The file as text, or as bytes when it is not text, a part at a time. */
+/**
+ * The file as text, a part at a time. The desk called it text by its start,
+ * so a byte further on that is not text shows as a mark in its place.
+ */
 function TextPages({ sent }: { sent: Sent }) {
 	const { personaId, eventId, index } = sent;
 	const [page, setPage] = useState<{ text: string; label: string; next?: number } | null>(null);
@@ -106,23 +138,8 @@ function TextPages({ sent }: { sent: Sent }) {
 		wire.command("file.read", { personaId, eventId, index, offset }).then(chunk => {
 			if (gone) return;
 			const bytes = bytesOf(chunk.data);
-			let text: string;
-			let binary = false;
-			try {
-				text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-				binary = text.includes("\0");
-			} catch {
-				text = "";
-				binary = true;
-			}
-			if (binary) {
-				const lines: string[] = [];
-				for (let start = 0; start < bytes.length; start += 16) {
-					lines.push(`${(offset + start).toString(16).padStart(8, "0")}  ${Array.from(bytes.subarray(start, start + 16), byte => byte.toString(16).padStart(2, "0")).join(" ")}`);
-				}
-				text = lines.join("\n");
-			}
-			setPage({ text, label: `${binary ? "Binary preview" : "Text preview"} · ${sizeText(bytes.length)}${offset ? ` from byte ${offset}` : ""}`, ...(chunk.next !== undefined ? { next: chunk.next } : {}) });
+			const text = new TextDecoder("utf-8").decode(bytes);
+			setPage({ text, label: `Text preview · ${sizeText(bytes.length)}${offset ? ` from byte ${offset}` : ""}`, ...(chunk.next !== undefined ? { next: chunk.next } : {}) });
 		}).catch((failure: unknown) => {
 			if (!gone) setError(failure instanceof Error ? failure.message : String(failure));
 		});

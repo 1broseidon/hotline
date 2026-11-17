@@ -28,6 +28,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 pub mod generated;
+pub mod office;
 
 /// The most a file may weigh, whatever it is.
 pub const MAX_BYTES: u64 = 25 * 1024 * 1024;
@@ -77,7 +78,8 @@ pub fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err(too_large(&name, Some(bytes.len() as u64)));
     }
-    let mime_type = mime_type(&name, &bytes);
+    let mime_type =
+        mime_type(&name, &mut io::Cursor::new(&bytes)).map_err(|error| error.to_string())?;
     let name = match mime_type.as_str() {
         "application/pdf" => as_pdf(&name),
         _ => name,
@@ -107,21 +109,57 @@ pub fn too_large(name: &str, size: Option<u64>) -> String {
     }
 }
 
-/// What a file is, from its first bytes where they say, and otherwise from
-/// its name. A PDF is one only by its bytes, since the desk offers to open it.
-pub fn mime_type(name: &str, bytes: &[u8]) -> String {
-    if bytes.starts_with(b"%PDF-") {
-        return "application/pdf".to_string();
+/// How much of a file's start says whether it is text: as much as Git reads
+/// to tell a binary file.
+const TEXT_HEAD_BYTES: u64 = 8 * 1024;
+
+/// What a file is, from its bytes where they say, and otherwise from its
+/// name. A PDF is one only by its bytes, and a Word, Excel or PowerPoint
+/// file only by its name and its entries together ([`office`]), since the
+/// desk offers to open them in the system's app. Text is told by its bytes
+/// too, since the window's viewer opens text and a file it can neither draw
+/// nor hand over has no Open: a start that is UTF-8 without a NUL is text
+/// whatever its name guesses (a `.ts` file is not a video), and a start that
+/// is not is never called text.
+pub fn mime_type(name: &str, file: &mut (impl Read + Seek)) -> io::Result<String> {
+    let mut head = Vec::new();
+    file.seek(SeekFrom::Start(0))?;
+    file.by_ref().take(TEXT_HEAD_BYTES).read_to_end(&mut head)?;
+    if head.starts_with(b"%PDF-") {
+        return Ok("application/pdf".to_string());
     }
-    if let Ok(format) = image::guess_format(bytes)
-        && images::readable(bytes)
+    if let Ok(format) = image::guess_format(&head)
+        && images::readable(&head)
     {
-        return format.to_mime_type().to_string();
+        return Ok(format.to_mime_type().to_string());
     }
-    match mime_guess::from_path(name).first_raw() {
-        Some("application/pdf") | None => "application/octet-stream".to_string(),
-        Some(guessed) => guessed.to_string(),
+    if let Some(office) = office::office_type(name, file) {
+        return Ok(office.to_string());
     }
+    let guessed = mime_guess::from_path(name).first_raw();
+    // Named a PDF or an Office file without being one: it is anything else,
+    // or the desk would offer to open it as one.
+    if guessed
+        .is_some_and(|guessed| guessed == "application/pdf" || office::is_office_type(guessed))
+    {
+        return Ok("application/octet-stream".to_string());
+    }
+    Ok(match (is_text(&head), guessed) {
+        (true, Some(guessed)) if guessed.starts_with("text/") => guessed.to_string(),
+        (true, _) => "text/plain".to_string(),
+        (false, Some(guessed)) if !guessed.starts_with("text/") => guessed.to_string(),
+        (false, _) => "application/octet-stream".to_string(),
+    })
+}
+
+/// Whether a file's start reads as text: UTF-8, with no NUL in it. A
+/// character cut off by the end of the start still counts.
+fn is_text(head: &[u8]) -> bool {
+    !head.contains(&0)
+        && match std::str::from_utf8(head) {
+            Ok(_) => true,
+            Err(error) => error.error_len().is_none(),
+        }
 }
 
 /// A size in the words a person reads it in.
@@ -529,6 +567,11 @@ pub fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk
     if image_only && !images::readable(&head) {
         return Err("The retained attachment is not a supported image.".to_string());
     }
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mime_type = mime_type(&name, &mut file).map_err(|error| error.to_string())?;
     file.seek(SeekFrom::Start(start))
         .map_err(|error| error.to_string())?;
     let mut data = Vec::new();
@@ -539,12 +582,8 @@ pub fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk
         return Err("The kept file changed while it was being read.".to_string());
     }
     let end = start + data.len() as u64;
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
     Ok(FileChunk {
-        mime_type: mime_type(&name, &head),
+        mime_type,
         name,
         size: size as i64,
         offset: start as i64,
@@ -639,6 +678,52 @@ mod tests {
     }
 
     #[test]
+    fn text_is_told_by_its_bytes_and_so_is_an_office_file() {
+        let kind = |name: &str, bytes: &[u8]| prepare(name, bytes.to_vec()).unwrap().mime_type;
+        // Text whatever the name guesses, and its own text type where it has one.
+        assert_eq!(kind("app.ts", b"export const a = 1;\n"), "text/plain");
+        assert_eq!(kind("data.json", b"{\"a\": 1}\n"), "text/plain");
+        assert_eq!(kind("notes", "caf\u{e9}\n".as_bytes()), "text/plain");
+        assert_eq!(kind("table.tsv", b"a\tb\n"), "text/tab-separated-values");
+        // A character cut by the end of the start read still counts as text.
+        let mut long = vec![b'a'; TEXT_HEAD_BYTES as usize - 1];
+        long.extend("\u{e9}".as_bytes());
+        assert_eq!(kind("long.txt", &long), "text/plain");
+        // Bytes that are not text are never called text, whatever the name.
+        assert_eq!(kind("log.txt", b"\x00\x01\x02"), "application/octet-stream");
+        assert_eq!(kind("latin.txt", b"caf\xe9\n"), "application/octet-stream");
+        assert_eq!(kind("pack.zip", b"PK\x03\x04\x00\x00"), "application/zip");
+
+        // An Office file by its name and its entries together.
+        let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        for entry in ["[Content_Types].xml", "word/document.xml"] {
+            writer
+                .start_file(entry, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"<x/>").unwrap();
+        }
+        let docx = writer.finish().unwrap().into_inner();
+        let word = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        assert_eq!(kind("brief.docx", &docx), word);
+        // A docx that is not one is anything else, and a macro kind is never one.
+        assert_eq!(kind("brief.docx", b"not a zip"), "application/octet-stream");
+        assert!(!office::is_office_type(&kind("brief.docm", &docx)));
+
+        // Read back, a part says the same.
+        let root = tempfile::tempdir().unwrap();
+        let event = "3c0d9a7e-51b2-4f60-8e1c-7a2b9d4e6f10";
+        let path = store(
+            root.path(),
+            "ada",
+            event,
+            &prepare("brief.docx", docx).unwrap(),
+        )
+        .unwrap();
+        assert!(path.ends_with("brief.docx"));
+        assert_eq!(read(root.path(), "ada", event, 0).unwrap().mime_type, word);
+    }
+
+    #[test]
     fn a_picture_the_policy_cannot_make_is_sent_as_the_file_it_is() {
         let mut broken = png(4, 4);
         broken.truncate(40);
@@ -699,7 +784,9 @@ mod tests {
     fn a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message() {
         let root = tempfile::tempdir().unwrap();
         let event = "9f2b7c1e-0d4a-4e8b-9c55-2f1d3a6b7e80";
-        let bytes: Vec<u8> = (0..CHUNK_BYTES + 100).map(|at| (at % 251) as u8).collect();
+        let bytes: Vec<u8> = (0..CHUNK_BYTES + 100)
+            .map(|at| b' ' + (at % 95) as u8)
+            .collect();
         let file = prepare("log.txt", bytes.clone()).unwrap();
         let path = store(root.path(), "ada", event, &file).unwrap();
         assert!(path.ends_with(format!("files/ada/{event}/log.txt")));

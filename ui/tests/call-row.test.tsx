@@ -142,7 +142,7 @@ test("every call file opens its own stored bytes as text without executing marku
 	} finally { command.mockRestore(); }
 });
 
-test("a stored-file preview pages forward and back and shows binary bytes without opening them", async () => {
+test("a stored-file preview pages forward and back as text, and never as a dump of bytes", async () => {
 	const { wire } = await import("../src/wire");
 	const { SentPreview } = await import("../src/components/SentPreview");
 	const offsets: number[] = [];
@@ -158,8 +158,9 @@ test("a stored-file preview pages forward and back and shows binary bytes withou
 		};
 		expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Bramble");
 		await press("Next");
-		expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Binary preview");
-		expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe("00000007  00 01 02");
+		expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Text preview · 3 B from byte 7");
+		expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain("Binary preview");
+		expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe("\0\x01\x02");
 		await press("Previous");
 		expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe("Bramble");
 		expect(offsets).toEqual([0, 7, 0]);

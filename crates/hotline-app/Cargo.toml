@@ -128,6 +128,9 @@ objc2-user-notifications = { version = "0.3", features = [
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 tokio = { workspace = true, features = ["test-util"] }
+# Office files for the tests of what the system may open: the same ZIP 9
+# hotline-store reads them with.
+zip = { version = "9", default-features = false }
 
 # `cargo machete --with-metadata` (make check) reads a crate's targets but
 # never its build script, so a build dependency used only there looks unused.

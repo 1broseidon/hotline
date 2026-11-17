@@ -32,7 +32,7 @@ mod providers;
 pub(crate) mod push;
 pub mod remote;
 pub use hotline_room::room;
-use hotline_store::sent;
+pub use hotline_store::sent;
 pub(crate) mod session;
 pub(crate) mod skills;
 pub(crate) mod spending;

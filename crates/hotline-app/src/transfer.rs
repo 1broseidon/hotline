@@ -7,7 +7,7 @@
 //!   shell's own dialog or dropped it on the window. Anything else is
 //!   refused, so a page that is talked into asking cannot read the disk.
 //! - Down: bytes land in a file the person chose in the save dialog, or, to
-//!   open a PDF or a picture, in a fresh private temporary directory, and the
+//!   open a PDF, a picture or an Office file, in a fresh private temporary directory, and the
 //!   system is asked to open it only under the same rules as a kept copy.
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -244,10 +244,7 @@ pub async fn transfer_end(
         }
         if download.open {
             if !crate::files::openable(&download.path) {
-                return Err(
-                    "Only a PDF or a picture opens from the conversation; save anything else."
-                        .to_string(),
-                );
+                return Err(crate::files::NOT_OPENABLE.to_string());
             }
             app.opener()
                 .open_path(download.path.to_string_lossy(), None::<&str>)

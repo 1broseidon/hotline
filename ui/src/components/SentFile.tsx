@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { Attachment, FileChunk } from "../generated/contract";
-import { FolderIcon, SaveIcon } from "../icons";
+import { FolderIcon, OpenOutsideIcon, SaveIcon } from "../icons";
 import { openSentFile } from "../native";
 import { onServer, openSent, saveSent, showPath, type Sent } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { Viewer } from "../ui/Viewer";
 import { wire } from "../wire";
-import { SentPreview, isMarkdown } from "./SentPreview";
+import { SentPreview, isMarkdown, opensIn } from "./SentPreview";
 
 /** One file a message carried: the message, its place in it, and the file. */
 export type SentItem = { eventId: string; index: number; file: Attachment };
@@ -19,10 +19,12 @@ export type SentItem = { eventId: string; index: number; file: Attachment };
  *
  * A teammate's file is read over the wire by its message, the way a phone
  * reads it, and nothing opens on its own: a picture opens in the window's own
- * viewer when pressed, a PDF in the system's, anything else in the window's
- * preview; any of them can be saved where the person chooses or shown in its
- * folder. On a desk on a server the file is brought down to open or save it,
- * and its folder is the server's (serverFiles.ts).
+ * viewer when pressed, text in the window's preview, and a PDF or a Word,
+ * Excel or PowerPoint file in its own app outside Hotline, which its Open
+ * key's arrow says; anything else has no Open (`opensIn`). Any of them can
+ * be saved where the person chooses or shown in its folder. On a desk on a
+ * server the file is brought down to open or save it, and its folder is the
+ * server's (serverFiles.ts).
  *
  * Yours (`mine`) is read back from the copy the desk kept when it was sent,
  * at the phone's size, and full size on a press; a file that is not a
@@ -120,15 +122,17 @@ function FileBlock({ personaId, items, mine }: { personaId: string; items: SentI
 								)
 							) : (
 								<>
-									<button
-										type="button"
-										className="line-key"
-										onClick={() =>
-											item.file.mimeType === "application/pdf" ? act(() => openSent(sent(item))) : setPreviewing(sent(item))
-										}
-									>
-										Open
-									</button>
+									{opensIn(item.file) === "outside" && (
+										<button type="button" className="line-key" title="Opens outside Hotline" onClick={() => act(() => openSent(sent(item)))}>
+											<OpenOutsideIcon />
+											Open
+										</button>
+									)}
+									{opensIn(item.file) === "viewer" && (
+										<button type="button" className="line-key" onClick={() => setPreviewing(sent(item))}>
+											Open
+										</button>
+									)}
 									<SentKeys sent={sent(item)} act={act} />
 								</>
 							)}

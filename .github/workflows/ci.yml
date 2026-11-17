@@ -200,9 +200,11 @@ jobs:
       - name: Check Cargo.lock against the advisory database and the reviewed licenses
         run: cargo deny --locked check advisories licenses
 
+      # The one advisory let through is the Makefile's BUN_AUDIT_IGNORE, with
+      # its reason there: keep the two the same.
       - name: Check the window's lockfile against the advisory database
         working-directory: ui
-        run: bun audit
+        run: bun audit --ignore=GHSA-fc5q-39xc-vjpf
 
   # macOS-only code (the keychain, notifications, the Finder PATH test) is
   # compiled nowhere else before a tag, and the release only builds: a slip

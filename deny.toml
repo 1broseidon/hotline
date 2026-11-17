@@ -52,6 +52,16 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant 5.15 via zbus 5.19 (notification and opener plugins on Linux); review when they take a zbus without it" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names 4.3 via zbus 5.19 (notification and opener plugins on Linux); review when they take a zbus without it" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5.15 via zbus 5.19 (notification and opener plugins on Linux); review when they take a zbus without it" },
+
+    # Run time, everywhere: chrono 0.4.45, declared unmaintained with no
+    # vulnerability reported (RUSTSEC-2026-0543, chronotope/chrono#1768).
+    # Hotline's own crates use it for timestamps and schedule times, and
+    # lancedb, datafusion, arrow, object_store, rmcp, oauth2, schemars and
+    # serde_with bring it in themselves, so taking it out of our code would
+    # not take it out of the build. This entry lets through that one notice
+    # only: a vulnerability filed against chrono still fails the check. Look
+    # again when those crates move to jiff or time.
+    { id = "RUSTSEC-2026-0543", reason = "chrono 0.4.45 unmaintained, used by our crates and via lancedb, datafusion, arrow, object_store, rmcp, oauth2, schemars, serde_with; review when they move to jiff or time" },
 ]
 
 [licenses]

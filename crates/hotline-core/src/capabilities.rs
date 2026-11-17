@@ -127,7 +127,7 @@ fn dispatcher(
         if !is_chat(model) {
             continue;
         }
-        let efforts = crate::models::efforts(&choice.id);
+        let efforts = vault.efforts(&choice.id);
         let entry = CapabilityModel {
             id: model.to_string(),
             label: Some(choice.name.clone()).filter(|name| name != model),

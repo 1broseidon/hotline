@@ -49,9 +49,9 @@ pub(super) fn effort_params(client: Client, effort: &str) -> Option<serde_json::
     }
 }
 
-/// One Effort picker when the model lists any, otherwise none.
-pub(super) fn effort_config(model_id: &str, current: Option<&str>) -> Vec<SessionConfig> {
-    let options = models::effort_choices(model_id);
+/// One Effort picker when the model offers any levels, otherwise none.
+pub(super) fn effort_config(levels: Vec<String>, current: Option<&str>) -> Vec<SessionConfig> {
+    let options = models::effort_choices(levels);
     if options.is_empty() {
         return Vec::new();
     }

@@ -38,6 +38,46 @@ struct Entry {
     visibility: Option<String>,
     supported_in_api: Option<bool>,
     context_window: Option<u64>,
+    /// The levels this model takes. The listing's `default_reasoning_level`
+    /// is not read: a teammate with no effort stored starts at the desk's
+    /// own default (`models::DEFAULT_EFFORT`).
+    supported_reasoning_levels: Option<Vec<Level>>,
+}
+
+#[derive(Deserialize)]
+struct Level {
+    effort: Option<String>,
+}
+
+/// Levels ChatGPT lists that only its Codex harness can use, which Hotline
+/// Agent neither offers nor sends. Empty: every listed level is offered as
+/// ChatGPT lists it. A level found to fail when Hotline Agent sends it
+/// (`ultra` delegates to subagents in Codex, and may be one) goes here. The
+/// kept listing still records it, and the vault drops it as the listing is
+/// read ([`offered_by_hotline`]), so it leaves every picker and request
+/// without waiting for a refresh.
+const HARNESS_ONLY_EFFORTS: &[&str] = &[];
+
+/// Whether Hotline Agent offers and sends a level a listing names.
+pub(crate) fn offered_by_hotline(level: &str) -> bool {
+    !HARNESS_ONLY_EFFORTS.contains(&level)
+}
+
+/// A model's levels as the desk keeps them: least first, each once, and only
+/// those [`discovery::effort_id_ok`] lets through, so one odd level never
+/// costs the whole listing.
+fn efforts(levels: Option<Vec<Level>>) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for effort in levels
+        .into_iter()
+        .flatten()
+        .filter_map(|level| level.effort)
+    {
+        if discovery::effort_id_ok(&effort) && !kept.contains(&effort) {
+            kept.push(effort);
+        }
+    }
+    crate::models::least_first(kept)
 }
 
 pub(crate) async fn list_models(token_dir: &Path) -> Result<Vec<ListedModel>, String> {
@@ -176,6 +216,7 @@ fn listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                 name: entry.display_name,
                 context_limit: entry.context_window,
                 output_limit: None,
+                efforts: efforts(entry.supported_reasoning_levels),
             };
             (model, Said::Nothing)
         })
@@ -208,16 +249,59 @@ mod tests {
                     name: None,
                     context_limit: None,
                     output_limit: None,
+                    efforts: Vec::new(),
                 },
                 ListedModel {
                     id: "gpt-6-sol".into(),
                     name: Some("GPT-6-Sol".into()),
                     context_limit: Some(272_000),
                     output_limit: None,
+                    efforts: Vec::new(),
                 },
             ]
         );
         assert!(listing(b"<html>").is_err());
+    }
+
+    /// Each model keeps the levels ChatGPT lists for it, least first, the
+    /// listing's own default not taken. An entry the shape of the live
+    /// listing (the Codex CLI's cached copy of the same endpoint).
+    #[test]
+    fn each_listed_model_keeps_its_own_effort_levels_least_first() {
+        let level = |effort: &str| json!({"effort": effort, "description": "…"});
+        let body = json!({"models": [
+            {"slug": "gpt-6.2-sol", "display_name": "GPT-6.2-Sol", "visibility": "list",
+             "supported_in_api": true, "context_window": 500_000,
+             "default_reasoning_level": "low",
+             "supported_reasoning_levels": [level("low"), level("medium"), level("high"),
+                 level("xhigh"), level("max"), level("ultra")],
+             "supports_reasoning_effort_updates": true},
+            // Most first, a level twice, and one no picker could show.
+            {"slug": "gpt-shuffled", "visibility": "list",
+             "supported_reasoning_levels": [level("high"), level("low"), level("high"),
+                 level("Bad Level\n"), {"description": "no effort"}]},
+            {"slug": "gpt-unsaid", "visibility": "list"},
+            {"slug": "gpt-null", "visibility": "list", "supported_reasoning_levels": null},
+        ]})
+        .to_string();
+        let levels: Vec<(String, Vec<String>)> = listing(body.as_bytes())
+            .unwrap()
+            .into_iter()
+            .map(|model| (model.id, model.efforts))
+            .collect();
+        let owned = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            levels,
+            [
+                (
+                    "gpt-6.2-sol".into(),
+                    owned(&["low", "medium", "high", "xhigh", "max", "ultra"])
+                ),
+                ("gpt-null".into(), Vec::new()),
+                ("gpt-shuffled".into(), owned(&["low", "high"])),
+                ("gpt-unsaid".into(), Vec::new()),
+            ]
+        );
     }
 
     #[test]

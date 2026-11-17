@@ -184,7 +184,7 @@ impl CallRoom for RoomSide {
         )
     }
     fn model_efforts(&self, model: &str) -> Vec<String> {
-        crate::models::efforts(model)
+        self.vault.efforts(model)
     }
     async fn completion_builder(
         &self,

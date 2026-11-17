@@ -155,6 +155,7 @@ async fn fetch_models(session: &Session) -> Result<(Vec<ListedModel>, Endpoints)
             name: entry.name,
             context_limit: None,
             output_limit: None,
+            efforts: Vec::new(),
         });
     }
     discovery::validate(&models)?;

@@ -230,6 +230,14 @@ pub trait ProviderKeys: Send + Sync {
         HashMap::new()
     }
 
+    /// The effort levels a model offers on the account its id names: what
+    /// that account's listing gave it, else the snapshot's. The desk reads
+    /// the kept listing each time (`Vault::efforts`); test doubles have no
+    /// listings, so the snapshot's.
+    fn efforts(&self, model_id: &str) -> Vec<String> {
+        crate::models::efforts(model_id)
+    }
+
     /// The API key saved for each web search provider that has one. The desk
     /// reads them from the vault each time, so a key saved in Settings is in
     /// force on the next search. Test doubles have none: every provider keyless.

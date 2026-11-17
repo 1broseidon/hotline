@@ -335,7 +335,7 @@ impl InProcess {
                 .map(|model| model.name.clone())
                 .or_else(|| models::label_of(&model)),
             current_model_id: model.clone(),
-            configs: effort_config(&model, effort.as_deref()),
+            configs: effort_config(self.keys.efforts(&model), effort.as_deref()),
             ..DriverInfo::default()
         }
     }
@@ -383,11 +383,12 @@ impl Driver for InProcess {
         // The stored effort when the model lists it, else the blank's
         // default, so a fresh teammate is never sent without a level the
         // model offers.
+        let levels = self.keys.efforts(&model);
         *lock(&self.effort) = persona
             .effort_id
             .clone()
-            .filter(|id| models::efforts(&model).iter().any(|offered| offered == id))
-            .or_else(|| models::default_effort(&model));
+            .filter(|id| levels.contains(id))
+            .or_else(|| models::default_effort(&levels));
         let connected = mcp::connect_with_capability_and_vault(
             &persona.id,
             &self.mcp_servers,
@@ -502,12 +503,13 @@ impl Driver for InProcess {
         // A model switch keeps the effort only when the new model lists it;
         // otherwise the new model's blank default stands.
         {
+            let levels = self.keys.efforts(model_id);
             let mut effort = lock(&self.effort);
-            let kept = effort
+            if !effort
                 .as_ref()
-                .is_some_and(|current| models::efforts(model_id).iter().any(|id| id == current));
-            if !kept {
-                *effort = models::default_effort(model_id);
+                .is_some_and(|current| levels.contains(current))
+            {
+                *effort = models::default_effort(&levels);
             }
         }
         Ok(self.info(&keys))
@@ -519,11 +521,12 @@ impl Driver for InProcess {
         }
         let keys = self.keys.provider_auth();
         let model = lock(&self.model).clone();
+        let levels = self.keys.efforts(&model);
         if value.is_empty() {
-            *lock(&self.effort) = models::default_effort(&model);
+            *lock(&self.effort) = models::default_effort(&levels);
             return Ok(self.info(&keys));
         }
-        if !models::efforts(&model).iter().any(|id| id == value) {
+        if !levels.iter().any(|id| id == value) {
             let label = models::label_of(&model).unwrap_or(model);
             return Err(format!("{value} is not an effort {label} offers."));
         }

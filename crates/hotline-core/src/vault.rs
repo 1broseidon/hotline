@@ -625,12 +625,42 @@ impl Vault {
         self.model_sources().model_metadata()
     }
 
+    /// The effort levels a model offers on the account its id names, else
+    /// on its provider's default account: the levels that account's last
+    /// listing gave the model, else the snapshot's
+    /// ([`crate::models::efforts`]). A listing is kept per account, so each
+    /// ChatGPT sign-in offers what its own listing said, and a restart reads
+    /// the kept listing before the next one.
+    pub(crate) fn efforts(&self, model_id: &str) -> Vec<String> {
+        let (base, account) = crate::models::split_account(model_id);
+        let listed = base.split_once('/').and_then(|(provider, model)| {
+            let accounts = self.accounts_from(&self.log.load(&StreamId::Room));
+            let (credential, _) = match account {
+                Some(account) => accounts.into_iter().find(|(credential, _)| {
+                    credential.id == account && credential.provider_id == provider
+                })?,
+                None => Self::defaults(accounts).remove(provider)?,
+            };
+            self.read_discovery(&credential.id)?
+                .into_iter()
+                .find(|listed| listed.id == model)
+                .map(|listed| listed.efforts)
+                .filter(|levels| !levels.is_empty())
+        });
+        listed.unwrap_or_else(|| crate::models::efforts(&base))
+    }
+
     pub(crate) fn read_discovery(&self, credential_id: &str) -> Option<Vec<ListedModel>> {
         let dir = self.checked_model_directory(credential_id).ok()?;
         if let Ok(bytes) = read_model_file(&dir.join("discovery.json"))
-            && let Ok(models) = serde_json::from_slice::<Vec<ListedModel>>(&bytes)
+            && let Ok(mut models) = serde_json::from_slice::<Vec<ListedModel>>(&bytes)
             && discovery::validate(&models).is_ok()
         {
+            for model in &mut models {
+                model
+                    .efforts
+                    .retain(|level| crate::providers::chatgpt::offered_by_hotline(level));
+            }
             return Some(models);
         }
         // Pre-discovery releases wrote only ids. Reading that file never
@@ -645,6 +675,7 @@ impl Vault {
                     name: None,
                     context_limit: None,
                     output_limit: None,
+                    efforts: Vec::new(),
                 })
                 .collect(),
         )
@@ -1323,6 +1354,7 @@ mod tests {
             name: None,
             context_limit: None,
             output_limit: None,
+            efforts: Vec::new(),
         }
     }
 
@@ -1385,6 +1417,107 @@ mod tests {
             vault
                 .cache_discovery(&second.id, &[listed("stale-result")])
                 .is_err()
+        );
+    }
+
+    /// A ChatGPT sign-in's listing names each model's effort levels, and
+    /// those are the levels the desk offers for it: for a model the snapshot
+    /// never heard of, over the snapshot's own when the two differ, on the
+    /// account the id names, and after the desk opens again. A model the
+    /// listing gave no levels keeps the snapshot's.
+    #[test]
+    fn listed_effort_levels_win_per_account_and_survive_a_reopen() {
+        let root = scratch("listed-efforts");
+        let vault = Vault::open(&root, Log::open(&root)).unwrap();
+        let levels = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let with = |id: &str, efforts: Vec<String>| ListedModel {
+            efforts,
+            ..listed(id)
+        };
+        let login = |label: &str| {
+            let (id, _) = vault.begin_login().unwrap();
+            vault.finish_login(&id, "openai-codex", label).unwrap();
+            id
+        };
+        let first = login("Work");
+        let second = login("Personal");
+        let sol = levels(&["low", "medium", "high", "xhigh", "max", "ultra"]);
+        vault
+            .cache_discovery(
+                &first,
+                &[
+                    with("gpt-6.2-sol", sol.clone()),
+                    with("gpt-6-sol", sol.clone()),
+                    listed("gpt-6-luna"),
+                ],
+            )
+            .unwrap();
+        vault
+            .cache_discovery(&second, &[with("gpt-6.2-sol", levels(&["low", "high"]))])
+            .unwrap();
+
+        let snapshot_sol = crate::models::efforts("openai-codex/gpt-6-sol");
+        assert!(
+            snapshot_sol.contains(&"none".to_string())
+                && !snapshot_sol.contains(&"ultra".to_string())
+        );
+        assert_eq!(
+            crate::models::efforts("openai-codex/gpt-6.2-sol"),
+            [] as [String; 0]
+        );
+        let expect = |vault: &Vault| {
+            assert_eq!(vault.efforts("openai-codex/gpt-6.2-sol"), sol);
+            assert_eq!(
+                vault.efforts("openai-codex/gpt-6-sol"),
+                sol,
+                "the listing wins"
+            );
+            assert_eq!(
+                vault.efforts("openai-codex/gpt-6-luna"),
+                crate::models::efforts("openai-codex/gpt-6-luna"),
+                "no levels listed: the snapshot's"
+            );
+            assert_eq!(
+                vault.efforts(&format!("openai-codex#{first}/gpt-6.2-sol")),
+                sol
+            );
+            assert_eq!(
+                vault.efforts(&format!("openai-codex#{second}/gpt-6.2-sol")),
+                ["low", "high"]
+            );
+            assert_eq!(
+                vault.model_metadata()["openai-codex/gpt-6.2-sol"]
+                    .efforts
+                    .as_ref(),
+                Some(&sol)
+            );
+        };
+        expect(&vault);
+        drop(vault);
+        let reopened = Vault::open(&root, Log::open(&root)).unwrap();
+        expect(&reopened);
+
+        // A listing kept by a desk before levels were listed still reads.
+        fs::write(
+            reopened.login_dir(&first).join("discovery.json"),
+            br#"[{"id":"gpt-6-sol","name":"GPT-6-Sol"}]"#,
+        )
+        .unwrap();
+        assert_eq!(reopened.account_models()["openai-codex"], ["gpt-6-sol"]);
+        assert_eq!(reopened.efforts("openai-codex/gpt-6-sol"), snapshot_sol);
+        // Other providers read the snapshot, as before.
+        let key = reopened.create("anthropic", "Key", "test-key").unwrap();
+        reopened
+            .cache_discovery(&key.id, &[listed("claude-x")])
+            .unwrap();
+        let known = crate::models::catalog().providers["anthropic"]
+            .models
+            .keys()
+            .next()
+            .unwrap();
+        assert_eq!(
+            reopened.efforts(&format!("anthropic/{known}")),
+            crate::models::efforts(&format!("anthropic/{known}"))
         );
     }
 

@@ -98,8 +98,8 @@ pub(super) async fn set_model(
     }
 
     let before = offered_info(log, room, persona_id);
-    let place = Placing::new(log, &persona, &before, model_id);
-    let landed = levels_of(&persona, &before, model_id)
+    let place = Placing::new(log, room, &persona, &before, model_id);
+    let landed = levels_of(room, &persona, &before, model_id)
         .and_then(|(levels, default)| place.land(&levels, default.as_deref()));
     {
         let gate = room.policy_update_lock();
@@ -201,7 +201,13 @@ struct Placing {
 }
 
 impl Placing {
-    fn new(log: &Log, persona: &Persona, before: &SessionInfo, model_id: &str) -> Self {
+    fn new(
+        log: &Log,
+        room: &Arc<dyn RoomHandle>,
+        persona: &Persona,
+        before: &SessionInfo,
+        model_id: &str,
+    ) -> Self {
         let key = effort::key(&persona.backend_id, model_id);
         let desk = room::settings(log)
             .get(effort::DESK_SETTING)
@@ -221,12 +227,13 @@ impl Placing {
                     .clone()
                     .or(persona.model_id.clone())
                     .unwrap_or_default();
+                let levels = hotline_levels(room, &model);
                 (
                     persona
                         .effort_id
                         .clone()
-                        .or_else(|| crate::models::default_effort(&model)),
-                    crate::models::efforts(&model),
+                        .or_else(|| crate::models::default_effort(&levels)),
+                    levels,
                 )
             }
             None => (persona.effort_id.clone(), Vec::new()),
@@ -252,25 +259,26 @@ impl Placing {
     }
 }
 
-/// A model's levels and default as the desk knows them before switching:
-/// Hotline Agent's from the catalogue, a harness's as its offer lists them.
-/// None when a harness has not said, which only a session on it can.
 /// Whether a session stands behind this state. A teammate that is not running
 /// reads as idle, or as stopped (with the reason, if its start failed).
 fn is_running(state: SessionState) -> bool {
     !matches!(state, SessionState::Idle | SessionState::Stopped)
 }
 
+/// A model's levels and default as the desk knows them before switching:
+/// Hotline Agent's as the desk offers them ([`hotline_levels`]), a harness's
+/// as its offer lists them. None when a harness has not said, which only a
+/// session on it can.
 fn levels_of(
+    room: &Arc<dyn RoomHandle>,
     persona: &Persona,
     before: &SessionInfo,
     model_id: &str,
 ) -> Option<(Vec<String>, Option<String>)> {
     if persona.backend_id == HOTLINE_BACKEND_ID {
-        return Some((
-            crate::models::efforts(model_id),
-            crate::models::default_effort(model_id),
-        ));
+        let levels = hotline_levels(room, model_id);
+        let default = crate::models::default_effort(&levels);
+        return Some((levels, default));
     }
     let model = before.models.iter().find(|model| model.id == model_id)?;
     let levels = model.efforts.as_ref()?;
@@ -278,6 +286,17 @@ fn levels_of(
         levels.iter().map(|level| level.id.clone()).collect(),
         model.default_effort.clone(),
     ))
+}
+
+/// A Hotline Agent model's effort levels as the desk offers them: its
+/// account's listing's, else the snapshot's, the same levels the idle
+/// picker and the running session show.
+fn hotline_levels(room: &Arc<dyn RoomHandle>, model_id: &str) -> Vec<String> {
+    room.models_efforts(model_id)
+        .choices
+        .into_iter()
+        .map(|choice| choice.id)
+        .collect()
 }
 
 /// An effort a switch landed on once the session said the model's levels:
@@ -457,12 +476,10 @@ pub(super) async fn set_config(
         .or(persona.model_id.clone());
     if let Some(model_id) = &model_id
         && !value.is_empty()
+        && !hotline_levels(room, model_id).iter().any(|id| id == value)
     {
-        let listed = crate::models::efforts(model_id);
-        if !listed.iter().any(|id| id == value) {
-            let label = crate::models::label_of(model_id).unwrap_or(model_id.clone());
-            return Err(format!("{value} is not an effort {label} offers."));
-        }
+        let label = crate::models::label_of(model_id).unwrap_or(model_id.clone());
+        return Err(format!("{value} is not an effort {label} offers."));
     }
 
     // A level chosen is remembered for the model, on the teammate and the

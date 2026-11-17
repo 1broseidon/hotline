@@ -1228,3 +1228,181 @@ async fn a_lagging_client_recovers_its_window_and_keeps_receiving_the_core() {
     assert_eq!(client.call("ping", json!({})).await["ok"], true);
     serving.abort();
 }
+
+/// The levels a ChatGPT sign-in's listing gives a model are what Hotline
+/// Agent offers and sends for it, over the wire the window uses: the idle
+/// picker, the running session's Effort picker and the request, for a model
+/// the bundled snapshot never heard of and over the snapshot's levels where
+/// the two differ. A teammate with no effort starts at high, not at the
+/// listing's own default; a stored effort the model no longer offers gives
+/// way to high, as it always has. The listing is the one the desk kept, so
+/// none of this waits on a fresh one.
+#[tokio::test(flavor = "multi_thread")]
+async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
+    use axum::{Router, body::Bytes};
+    use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
+    use hotline_core::{log::Log, provider_fixture::Origin};
+    let root = scratch("chatgpt-listed-efforts");
+    let vault = common::open_vault(&root, Log::open(&root)).unwrap();
+    let (login, dir) = vault.begin_login().unwrap();
+    let expires = chrono::Utc::now().timestamp() + 3600;
+    let claims = BASE64_URL_SAFE_NO_PAD.encode(
+        json!({"exp":expires,"https://api.openai.com/auth":{"chatgpt_account_id":"effort-account"}})
+            .to_string(),
+    );
+    std::fs::write(
+        dir.join("auth.json"),
+        json!({"access_token":format!("e30.{claims}.effort-access"),"refresh_token":"effort-refresh",
+               "id_token":null,"expires_at":expires,"account_id":"effort-account"})
+        .to_string(),
+    )
+    .unwrap();
+    let sol = ["low", "medium", "high", "xhigh", "max", "ultra"];
+    std::fs::write(
+        dir.join("discovery.json"),
+        json!([
+            {"id":"gpt-6-luna","name":"GPT-6-Luna"},
+            {"id":"gpt-6-sol","name":"GPT-6-Sol","efforts":sol},
+            {"id":"gpt-6.2-sol","name":"GPT-6.2-Sol","context_limit":500_000,"efforts":sol},
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    vault
+        .finish_login(&login, "openai-codex", "ChatGPT")
+        .unwrap();
+    drop(vault);
+
+    let (sent, mut requests) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let app = Router::new().fallback(move |body: Bytes| {
+        let sent = sent.clone();
+        async move {
+            sent.send(serde_json::from_slice(&body).unwrap()).unwrap();
+            let item = json!({"type":"message","id":"msg_effort","status":"completed","role":"assistant",
+                "content":[{"type":"output_text","text":"Thought about it.","annotations":[]}]});
+            let events = [
+                json!({"type":"response.output_item.done","output_index":0,"item":item}),
+                json!({"type":"response.completed","response":{"id":"resp_effort","status":"completed",
+                    "output":[item],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}),
+            ];
+            let mut body: String = events.iter().map(|event| format!("data: {event}\n\n")).collect();
+            body.push_str("data: [DONE]\n\n");
+            ([("content-type", "text/event-stream")], body)
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let _origin = Origin::new(dir.to_string_lossy(), &url);
+    let mut client = Client::connect(open_at(&root), TOKEN).await;
+    let ids = |levels: &Value| -> Vec<String> {
+        levels
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|level| level["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    // The idle picker.
+    let idle = client
+        .call(
+            "models.efforts",
+            json!({"modelId":"openai-codex/gpt-6.2-sol"}),
+        )
+        .await;
+    assert_eq!(ids(&idle["result"]["choices"]), sol, "{idle}");
+    assert_eq!(idle["result"]["choices"][3]["name"], "Extra high");
+    assert_eq!(idle["result"]["defaultId"], "high");
+    let differs = client
+        .call(
+            "models.efforts",
+            json!({"modelId":"openai-codex/gpt-6-sol"}),
+        )
+        .await;
+    assert_eq!(
+        ids(&differs["result"]["choices"]),
+        sol,
+        "ChatGPT's win: {differs}"
+    );
+    let unsaid = client
+        .call(
+            "models.efforts",
+            json!({"modelId":"openai-codex/gpt-6-luna"}),
+        )
+        .await;
+    assert_eq!(
+        ids(&unsaid["result"]["choices"]),
+        hotline_core::models::efforts("openai-codex/gpt-6-luna"),
+        "no levels listed: the snapshot's"
+    );
+    let catalog = client
+        .call("models.catalog", json!({"providerId":"openai-codex"}))
+        .await;
+    let listed = catalog["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "gpt-6.2-sol")
+        .unwrap();
+    assert_eq!(listed["efforts"], json!(sol));
+
+    // A teammate whose stored effort the listing no longer offers.
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let made = client
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Sol", "cwd":workspace, "modelId":"openai-codex/gpt-6.2-sol",
+                            "effortId":"none"}}),
+        )
+        .await;
+    assert_eq!(made["ok"], true, "{made}");
+    let persona = made["result"]["id"].as_str().unwrap().to_string();
+    let tape = client.subscribe(json!({"tape": persona})).await;
+    let started = client
+        .call("session.start", json!({"personaId": persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let picker = started["result"]["configs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|config| config["category"] == "effort")
+        .unwrap_or_else(|| panic!("no Effort picker: {started}"));
+    assert_eq!(ids(&picker["options"]), sol);
+    assert_eq!(picker["currentId"], "high", "{picker}");
+
+    // The effort each request carries.
+    for (chosen, expected) in [(None, "high"), (Some("ultra"), "ultra")] {
+        if let Some(level) = chosen {
+            let set = client
+                .call(
+                    "session.set_config",
+                    json!({"personaId": persona, "configId": "effort", "value": level}),
+                )
+                .await;
+            assert_eq!(set["ok"], true, "{set}");
+        }
+        let prompt = client
+            .call(
+                "session.prompt",
+                json!({"personaId": persona, "text": "Think it over."}),
+            )
+            .await;
+        assert_eq!(prompt["ok"], true, "{prompt}");
+        let turn = client
+            .next_where(common::ANSWER, |frame| {
+                is_sub(frame, tape, "event") && frame["event"]["kind"] == "turn"
+            })
+            .await;
+        assert_eq!(turn["event"]["stopReason"], "end_turn", "{turn}");
+        let request = tokio::time::timeout(common::ANSWER, requests.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request["model"], "gpt-6.2-sol");
+        assert_eq!(request["reasoning"]["effort"], expected, "{request}");
+    }
+    server.abort();
+}

@@ -1063,7 +1063,11 @@ model IDs in Edit connection. No advanced metadata form is required.
 
 Hotline matches IDs against its bundled models.dev snapshot for effort options,
 limits, capabilities, and pricing. Provider-reported names and limits take
-precedence where available. Missing metadata stays unspecified, with a notice
+precedence where available, and so do effort levels: a ChatGPT sign-in's
+listing names each model's levels, which the pickers offer and the requests
+send for that sign-in, kept with the listing so a restart has them before the
+next refresh. A teammate with no effort stored still starts at `high` where
+offered, not at the provider's own default. Missing metadata stays unspecified, with a notice
 when the model has no catalogue match. Unknown Anthropic models receive a
 conservative 4,096-token request ceiling because that API requires one; this
 is a request default, not a claim about the model's maximum output. Hotline does not infer tool support from the fact

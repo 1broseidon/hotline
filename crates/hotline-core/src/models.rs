@@ -3,9 +3,10 @@
 //! Provider connections discover current ids through native Rig clients. The
 //! checked-in `models.json` snapshot from models.dev supplies exact identity
 //! metadata and fallback choices before a successful discovery. Unknown ids
-//! remain usable without invented capabilities or limits. Live provider limits
-//! and labels take precedence; catalogue effort and price metadata is joined
-//! only by exact provider and model id.
+//! remain usable without invented capabilities or limits. Live provider limits,
+//! labels and effort levels (only ChatGPT's listing names levels) take
+//! precedence; catalogue effort and price metadata is joined only by exact
+//! provider and model id.
 //!
 //! `hotline-models-sync` updates the bundled snapshot. Connection discovery and
 //! manual additions live in the vault, so a release cannot replace them.
@@ -731,8 +732,10 @@ pub fn label_of(model_id: &str) -> Option<String> {
     model_of(provider, model).map(|model| model.name.clone())
 }
 
-/// The effort levels a `provider/model` offers, empty when the id is unknown
-/// or the model has no `effort` option.
+/// The effort levels the snapshot gives a `provider/model`, empty when the id
+/// is unknown or the model has no `effort` option. A provider whose listing
+/// names a model's levels (ChatGPT's) is read through the desk instead,
+/// `Vault::efforts`, which falls back to this.
 pub fn efforts(model_id: &str) -> Vec<String> {
     let model_id = &*base_id(model_id);
     let Some((provider, model)) = model_id.split_once('/') else {
@@ -750,18 +753,22 @@ pub fn efforts(model_id: &str) -> Vec<String> {
 /// has no such level, including the models with no effort list at all.
 pub const DEFAULT_EFFORT: &str = "high";
 
-pub fn default_effort(model_id: &str) -> Option<String> {
-    efforts(model_id)
-        .into_iter()
-        .find(|offered| offered == DEFAULT_EFFORT)
+/// [`DEFAULT_EFFORT`] when a model's levels hold it. Never the provider's
+/// own default (ChatGPT's listing names one): that is the level it picks
+/// when nothing is sent, which is what this blank is there to avoid.
+pub fn default_effort(levels: &[String]) -> Option<String> {
+    levels
+        .iter()
+        .find(|offered| *offered == DEFAULT_EFFORT)
+        .cloned()
 }
 
-/// The idle picker's reply for a model: its efforts, and which one a
-/// teammate with none stored runs at.
-pub fn effort_choices_with_default(model_id: &str) -> EffortChoices {
+/// The idle picker's reply for a model's levels: the choices, and which one
+/// a teammate with none stored runs at.
+pub fn effort_choices_with_default(levels: Vec<String>) -> EffortChoices {
     EffortChoices {
-        choices: effort_choices(model_id),
-        default_id: default_effort(model_id),
+        default_id: default_effort(&levels),
+        choices: effort_choices(levels),
     }
 }
 
@@ -795,25 +802,43 @@ pub fn effort_label(id: &str) -> String {
 /// A list with a level the desk cannot place keeps the agent's order, and
 /// such a level keeps the agent's name.
 pub fn tidy_efforts(mut levels: Vec<ConfigChoice>) -> Vec<ConfigChoice> {
-    let auto = |id: &str| id.eq_ignore_ascii_case("default") || id.eq_ignore_ascii_case("auto");
-    let rank = |id: &str| EFFORT_LADDER.iter().position(|one| *one == id);
     for level in &mut levels {
-        if rank(&level.id).is_some() {
+        if ladder_rank(&level.id).is_some() {
             level.name = effort_label(&level.id);
         }
     }
-    if levels
-        .iter()
-        .all(|level| auto(&level.id) || rank(&level.id).is_some())
-    {
-        levels.sort_by_key(|level| rank(&level.id).map_or(0, |at| at + 1));
+    if levels.iter().all(|level| ladder_place(&level.id).is_some()) {
+        levels.sort_by_key(|level| ladder_place(&level.id));
     }
     levels
 }
 
-/// The idle picker's choices for a model's efforts.
-pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
-    efforts(model_id)
+/// Effort ids least first by the same rule as [`tidy_efforts`], for a
+/// provider's listing of them.
+pub fn least_first(mut levels: Vec<String>) -> Vec<String> {
+    if levels.iter().all(|level| ladder_place(level).is_some()) {
+        levels.sort_by_key(|level| ladder_place(level));
+    }
+    levels
+}
+
+/// Where a level sits on [`EFFORT_LADDER`].
+fn ladder_rank(id: &str) -> Option<usize> {
+    EFFORT_LADDER.iter().position(|one| *one == id)
+}
+
+/// Where a level sorts: the agent's own choice ("default", "auto") before
+/// all, then the ladder. None for a level the desk cannot place.
+fn ladder_place(id: &str) -> Option<usize> {
+    if id.eq_ignore_ascii_case("default") || id.eq_ignore_ascii_case("auto") {
+        return Some(0);
+    }
+    ladder_rank(id).map(|at| at + 1)
+}
+
+/// The pickers' choices for a model's effort levels.
+pub fn effort_choices(levels: Vec<String>) -> Vec<ConfigChoice> {
+    levels
         .into_iter()
         .map(|id| ConfigChoice {
             name: effort_label(&id),
@@ -885,6 +910,39 @@ mod tests {
         assert_eq!(
             shown(vec![level("deep", "Deep think"), level("low", "LOW")]),
             ["deep:Deep think", "low:Low"]
+        );
+    }
+
+    /// A provider's listed levels sort as a harness's do, and a teammate with
+    /// none stored starts at high wherever it is offered, whatever the
+    /// provider would pick: ChatGPT lists `low` as its own default.
+    #[test]
+    fn listed_levels_sort_least_first_and_the_blank_is_high() {
+        let owned = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            least_first(owned(&["ultra", "low", "xhigh", "high", "max", "medium"])),
+            ["low", "medium", "high", "xhigh", "max", "ultra"]
+        );
+        assert_eq!(least_first(owned(&["deep", "low"])), ["deep", "low"]);
+        let sol = owned(&["low", "medium", "high", "xhigh", "max", "ultra"]);
+        assert_eq!(default_effort(&sol).as_deref(), Some("high"));
+        assert_eq!(default_effort(&owned(&["low", "medium"])), None);
+        let reply = effort_choices_with_default(sol);
+        assert_eq!(reply.default_id.as_deref(), Some("high"));
+        assert_eq!(
+            reply
+                .choices
+                .iter()
+                .map(|one| format!("{}:{}", one.id, one.name))
+                .collect::<Vec<_>>(),
+            [
+                "low:Low",
+                "medium:Medium",
+                "high:High",
+                "xhigh:Extra high",
+                "max:Max",
+                "ultra:Ultra"
+            ]
         );
     }
 
@@ -1557,13 +1615,16 @@ mod tests {
                 })
             })
             .expect("the snapshot has a model that offers high");
-        assert_eq!(default_effort(&with_high).as_deref(), Some("high"));
-        let reply = effort_choices_with_default(&with_high);
+        assert_eq!(
+            default_effort(&efforts(&with_high)).as_deref(),
+            Some("high")
+        );
+        let reply = effort_choices_with_default(efforts(&with_high));
         assert_eq!(reply.default_id.as_deref(), Some("high"));
         assert!(reply.choices.iter().any(|one| one.id == "high"));
-        assert_eq!(default_effort("nope/nope"), None);
+        assert_eq!(default_effort(&efforts("nope/nope")), None);
         assert_eq!(
-            effort_choices_with_default("nope/nope").choices,
+            effort_choices_with_default(efforts("nope/nope")).choices,
             [] as [ConfigChoice; 0]
         );
     }

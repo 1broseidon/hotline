@@ -74,6 +74,9 @@ impl ModelSources {
                     }
                     model.context_limit = listed.context_limit.or(model.context_limit);
                     model.output_limit = listed.output_limit.or(model.output_limit);
+                    if !listed.efforts.is_empty() {
+                        model.efforts = Some(listed.efforts.clone());
+                    }
                 }
                 result.insert(format!("{provider_id}/{}", model.id), model);
             }

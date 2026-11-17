@@ -28,6 +28,25 @@ pub(crate) struct ListedModel {
     pub context_limit: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_limit: Option<u64>,
+    /// The effort levels the provider's own listing gives this model, least
+    /// first. Only ChatGPT's listing says; empty means the listing named
+    /// none, and the snapshot's levels stand. A file kept before this field
+    /// reads as empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<String>,
+}
+
+/// The most effort levels one listed model may carry.
+const MAX_EFFORTS: usize = 16;
+
+/// Whether a listing's effort level is one the desk will show and send: a
+/// short lowercase word, as every provider's levels are. A level is shown by
+/// its id when the desk has no name for it, so nothing else gets through.
+pub(crate) fn effort_id_ok(id: &str) -> bool {
+    (1..=32).contains(&id.len())
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_".contains(&byte))
 }
 
 pub(crate) fn validate_ids(ids: &[String]) -> Result<Vec<String>, String> {
@@ -69,7 +88,9 @@ pub(crate) fn validate(models: &[ListedModel]) -> Result<(), String> {
                 c.is_control() || matches!(c, '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}')
             })
         }) || model.context_limit.is_some_and(|limit| !(1..=MAX_CONTEXT).contains(&limit))
-            || model.output_limit.is_some_and(|limit| !(1..=MAX_OUTPUT).contains(&limit)) {
+            || model.output_limit.is_some_and(|limit| !(1..=MAX_OUTPUT).contains(&limit))
+            || model.efforts.len() > MAX_EFFORTS
+            || !model.efforts.iter().all(|level| effort_id_ok(level)) {
             return Err("The provider returned invalid model metadata.".into());
         }
     }
@@ -217,6 +238,7 @@ pub(crate) async fn collect(
                     name: model.name,
                     context_limit: model.context_length.map(u64::from),
                     output_limit: model.max_output_tokens.map(u64::from),
+                    efforts: Vec::new(),
                 };
                 (model, said)
             })
@@ -340,6 +362,7 @@ fn openrouter_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                     name: model.name,
                     context_limit: model.context_length,
                     output_limit: model.top_provider.and_then(|top| top.max_completion_tokens),
+                    efforts: Vec::new(),
                 };
                 (model, said)
             })
@@ -396,6 +419,7 @@ fn ollama_listing(provider_id: &str, body: &[u8]) -> Result<Vec<ListedModel>, St
                     name: Some(tag.name),
                     context_limit: None,
                     output_limit: None,
+                    efforts: Vec::new(),
                 };
                 (model, said)
             })
@@ -486,6 +510,7 @@ pub(crate) fn xai_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                     name: None,
                     context_limit: None,
                     output_limit: None,
+                    efforts: Vec::new(),
                 };
                 (model, said)
             })
@@ -597,12 +622,14 @@ mod tests {
                     name: Some("llama3.1:8b".into()),
                     context_limit: None,
                     output_limit: None,
+                    efforts: Vec::new(),
                 },
                 ListedModel {
                     id: "old:latest".into(),
                     name: Some("old:latest".into()),
                     context_limit: None,
                     output_limit: None,
+                    efforts: Vec::new(),
                 },
             ]
         );
@@ -750,7 +777,8 @@ mod tests {
                     id: "new-coder".into(),
                     name: name.map(str::to_string),
                     context_limit: context,
-                    output_limit: output
+                    output_limit: output,
+                    efforts: Vec::new(),
                 }],
                 "{provider:?}"
             );
@@ -870,24 +898,28 @@ mod tests {
                 name: Some("Click\nRun".into()),
                 context_limit: None,
                 output_limit: None,
+                efforts: Vec::new(),
             },
             ListedModel {
                 id: "coder".into(),
                 name: Some("Fake\u{202e} provider".into()),
                 context_limit: None,
                 output_limit: None,
+                efforts: Vec::new(),
             },
             ListedModel {
                 id: "coder".into(),
                 name: None,
                 context_limit: Some(0),
                 output_limit: None,
+                efforts: Vec::new(),
             },
             ListedModel {
                 id: "coder".into(),
                 name: None,
                 context_limit: None,
                 output_limit: Some(MAX_OUTPUT + 1),
+                efforts: Vec::new(),
             },
         ] {
             assert!(validate(&[model]).is_err());
@@ -897,6 +929,47 @@ mod tests {
                 json!({"id":"coder","endpoint":"https://evil.example"})
             )
             .is_err()
+        );
+        for efforts in [
+            vec!["High".to_string()],
+            vec!["high\n".to_string()],
+            vec![String::new()],
+            vec!["x".repeat(33)],
+            vec!["high".to_string(); MAX_EFFORTS + 1],
+        ] {
+            let model = ListedModel {
+                id: "coder".into(),
+                name: None,
+                context_limit: None,
+                output_limit: None,
+                efforts,
+            };
+            assert!(validate(&[model]).is_err());
+        }
+    }
+
+    /// A listing kept before models carried effort levels reads with none,
+    /// and a model with none is kept as it always was, so no other
+    /// provider's file changes by a byte.
+    #[test]
+    fn a_listing_kept_before_effort_levels_reads_and_writes_as_it_did() {
+        let kept = r#"[{"id":"gpt-6-sol","name":"GPT-6-Sol","context_limit":272000}]"#;
+        let read: Vec<ListedModel> = serde_json::from_str(kept).unwrap();
+        assert_eq!(read[0].efforts, [] as [String; 0]);
+        assert!(validate(&read).is_ok());
+        assert_eq!(serde_json::to_string(&read).unwrap(), kept);
+        let listed = ListedModel {
+            efforts: vec!["low".into(), "ultra".into()],
+            ..read[0].clone()
+        };
+        let written = serde_json::to_string(&listed).unwrap();
+        assert!(
+            written.contains(r#""efforts":["low","ultra"]"#),
+            "{written}"
+        );
+        assert_eq!(
+            serde_json::from_str::<ListedModel>(&written).unwrap(),
+            listed
         );
     }
 }

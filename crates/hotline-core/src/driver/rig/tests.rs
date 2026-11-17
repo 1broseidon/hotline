@@ -929,6 +929,37 @@ fn an_mcp_image_block_reaches_the_rig_output() {
     );
 }
 
+/// A level ChatGPT lists for a model the snapshot does not know goes out
+/// as chosen: the request is built from the effort the session holds, never
+/// checked again against the snapshot.
+#[test]
+fn a_listed_level_the_snapshot_lacks_is_sent_as_chosen() {
+    let keys = HashMap::from([(
+        "openai-codex".to_string(),
+        ProviderAuth::Login {
+            token_dir: PathBuf::from("/nonexistent"),
+        },
+    )]);
+    assert_eq!(
+        models::efforts("openai-codex/gpt-6.2-sol"),
+        [] as [String; 0]
+    );
+    for level in ["ultra", "max", "low"] {
+        let settings = request_settings(
+            &keys,
+            "openai-codex/gpt-6.2-sol",
+            Some(level),
+            None,
+            Reuse::Rounds,
+        )
+        .unwrap();
+        assert_eq!(
+            settings.additional_params,
+            Some(json!({"reasoning": {"effort": level}}))
+        );
+    }
+}
+
 #[test]
 fn effort_params_per_client() {
     assert_eq!(

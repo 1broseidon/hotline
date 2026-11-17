@@ -329,7 +329,7 @@ impl RoomHandle for CoreHandle {
     }
 
     fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
-        crate::models::effort_choices_with_default(model_id)
+        crate::models::effort_choices_with_default(crate::models::efforts(model_id))
     }
 
     async fn answer_permission(
@@ -756,7 +756,7 @@ impl RoomHandle for Quiet {
     }
 
     fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
-        crate::models::effort_choices_with_default(model_id)
+        crate::models::effort_choices_with_default(crate::models::efforts(model_id))
     }
 
     async fn answer_permission(

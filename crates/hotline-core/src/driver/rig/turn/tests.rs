@@ -116,6 +116,7 @@ fn fixture() -> (Turn, Template) {
         delegate: None,
         meter: None,
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
+        asked: true,
     };
     let template = Template {
         tools: Vec::new(),
@@ -1357,4 +1358,88 @@ async fn hand_off_a_full_context(model_id: &str, usage: rig::completion::Usage) 
             return usage.expect("every round reported its usage");
         }
     }
+}
+
+/// Every update a finished turn sent, in order.
+async fn updates_of(mut receiver: mpsc::Receiver<Update>) -> Vec<Update> {
+    let mut updates = Vec::new();
+    while let Some(update) = receiver.recv().await {
+        updates.push(update);
+    }
+    updates
+}
+
+/// Work that came back, or a wake, answered with nothing: nobody waits on
+/// a reply, so the turn ends there, with no message, no notice and no
+/// second request.
+#[tokio::test]
+async fn an_unasked_turn_answered_with_nothing_ends_without_a_word() {
+    let (mut turn, request) = fixture();
+    turn.asked = false;
+    let (seen, mut requests) = mpsc::unbounded_channel();
+    let (chunks, stream) = mpsc::channel(8);
+    let model = scripted(seen, [Some(stream)]);
+    let (updates, receiver) = mpsc::channel(64);
+    let task = tokio::spawn(async move {
+        run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+    });
+    receive(&mut requests).await;
+    chunks
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
+        ))))
+        .await
+        .unwrap();
+    drop(chunks);
+    task.await.unwrap().unwrap();
+    let updates = updates_of(receiver).await;
+    assert!(
+        !updates.iter().any(|update| matches!(
+            update,
+            Update::Message {
+                kind: MessageKind::Agent,
+                ..
+            } | Update::Notice { .. }
+        )),
+        "{updates:?}"
+    );
+    assert!(matches!(
+        updates.last(),
+        Some(Update::Turn { stop_reason, .. }) if stop_reason == "end_turn"
+    ));
+    assert!(requests.try_recv().is_err(), "the model was asked once");
+}
+
+/// The person's line answered with nothing is a stream that broke: the
+/// model is asked again, and its answer is the reply.
+#[tokio::test]
+async fn an_asked_turn_answered_with_nothing_is_asked_again() {
+    let (turn, request) = fixture();
+    let (seen, mut requests) = mpsc::unbounded_channel();
+    let (empty, first) = mpsc::channel(8);
+    let (chunks, second) = mpsc::channel(8);
+    let model = scripted(seen, [Some(first), Some(second)]);
+    let (updates, receiver) = mpsc::channel(64);
+    let task = tokio::spawn(async move {
+        run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+    });
+    receive(&mut requests).await;
+    empty
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
+        ))))
+        .await
+        .unwrap();
+    drop(empty);
+    receive(&mut requests).await;
+    answer(chunks).await;
+    task.await.unwrap().unwrap();
+    let updates = updates_of(receiver).await;
+    assert!(
+        updates.iter().any(|update| matches!(
+            update,
+            Update::Message { kind: MessageKind::Agent, text, .. } if text == "the new direction"
+        )),
+        "{updates:?}"
+    );
 }

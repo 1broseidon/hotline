@@ -648,7 +648,23 @@ so the declaration stands until the turn truly ends or another replaces it.
 The house style asks for that wait to be said with `activity` and not in the
 chat, for no word when a helper reports until there is an outcome, and for
 outcomes and replies written for a person (no process ids, raw paths or
-commands to run unless asked; offer to do it instead).
+commands to run unless asked).
+
+What started the turn decides how much is said (George, 2026-11-16, the
+reply-rules page). A teammate doing dev work sent fifteen replies in two
+hours, ten of them set off by work coming back rather than by the person, and
+two only saying nothing had changed: the house style read a return as
+something to reply to. Now it tells the two apart. A return (a helper, a
+command, a thread, a colleague) is material for the job, spoken to only when
+it gives the person what they asked for or needs them, and otherwise the
+teammate writes nothing and the turn ends with no bubble. The two sizes are
+named: an answer is as long as the question needs, a report on work is a
+receipt of one message, two at most, with the rest under the reply and in the
+thread the work ran in. A failure is always said, something not checked only
+when it changes what the person should do, and the closing line of what is
+still running or what comes next is gone. The lines that wake a teammate (a
+command that ended, asides or inbox items heard while idle) say the same, and
+a person on the phone is read a sentence or two.
 
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads

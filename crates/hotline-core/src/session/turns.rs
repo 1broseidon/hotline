@@ -166,6 +166,11 @@ pub(super) enum Source {
     Say {
         text: String,
         attachments: Vec<Attachment>,
+        /// Whether somebody waits on the reply: the person's line, or a
+        /// colleague's. A line of Hotline's own (work that came back, a line
+        /// that only wakes the agent) is not, and the agent may answer it
+        /// with nothing ([`Driver::prompt_unasked`]).
+        asked: bool,
     },
     /// The turn that failed on this line, run again (`Driver::retry`).
     Retry {
@@ -178,6 +183,7 @@ pub(super) enum Source {
 impl From<Line> for Source {
     fn from(line: Line) -> Self {
         Self::Say {
+            asked: line.said.is_some() || line.delivery.is_some(),
             text: line.text,
             attachments: line.attachments,
         }
@@ -504,7 +510,16 @@ impl Threads<'_> {
         witness: &mut impl Witness,
     ) -> Driven {
         let updates = match source {
-            Source::Say { text, attachments } => driver.prompt(text, attachments, reach).await,
+            Source::Say {
+                text,
+                attachments,
+                asked: true,
+            } => driver.prompt(text, attachments, reach).await,
+            Source::Say {
+                text,
+                attachments,
+                asked: false,
+            } => driver.prompt_unasked(text, attachments, reach).await,
             Source::Retry { text, attachments } => driver.retry(text, attachments, reach).await,
             Source::Updates(updates) => updates,
         };

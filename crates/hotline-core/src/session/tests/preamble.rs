@@ -81,10 +81,12 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(walled.contains(".agents/skills/hotline-room/SKILL.md"));
     let tools_at = walled.find("`search_thread`").unwrap();
     let skills_at = walled.find("You have skills").unwrap();
-    let style_at = walled.find("Hotline shows your reply as chat").unwrap();
+    let style_at = walled
+        .find("Each paragraph you write is its own message")
+        .unwrap();
     assert!(tools_at < skills_at && skills_at < style_at, "{walled}");
     assert!(
-        walled.contains("Hotline shows your reply as chat"),
+        walled.contains("Each paragraph you write is its own message"),
         "both kinds of agent are told the house style: {walled}"
     );
 
@@ -108,7 +110,7 @@ fn the_preamble_says_who_where_how_far_and_when() {
         "File operations delegated to Hotline through ACP stay inside your working directory."
     ));
     assert!(
-        child.contains("Hotline shows your reply as chat"),
+        child.contains("Each paragraph you write is its own message"),
         "an ACP child hears the same house style in its preamble: {child}"
     );
 

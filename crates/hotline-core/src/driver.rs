@@ -367,6 +367,20 @@ pub trait Driver: Send + Sync {
         reach: Reach,
     ) -> mpsc::Receiver<Update>;
 
+    /// Runs one turn on a line of Hotline's own rather than the person's:
+    /// work that came back, or a line that only wakes the agent. Nobody is
+    /// waiting on a reply, so an agent that answers it with nothing has ended
+    /// the turn rather than failed it. A driver that cannot tell an answer of
+    /// nothing from a failed one runs it as any line, which is the default.
+    async fn prompt_unasked(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        self.prompt(text, attachments, reach).await
+    }
+
     /// Runs the turn that just failed again, for the person's Retry. The
     /// words and attachments are the line that started it, already on the
     /// tape. A driver that keeps its own history re-runs it without adding

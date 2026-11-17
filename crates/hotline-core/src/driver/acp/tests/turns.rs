@@ -437,7 +437,7 @@ async fn a_turn_becomes_updates_in_the_order_the_agent_sent_them() {
     let prompted = heard.prompted.lock().unwrap().clone();
     assert_eq!(prompted[0][0], briefing);
     assert!(
-        prompted[0][0].contains("Hotline shows your reply as chat"),
+        prompted[0][0].contains("Each paragraph you write is its own message"),
         "the first prompt carries the house style: {}",
         prompted[0][0]
     );

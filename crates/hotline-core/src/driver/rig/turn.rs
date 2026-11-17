@@ -269,6 +269,7 @@ async fn run_inner(
         open: None,
         stopped: false,
         answered_calls: false,
+        asked: turn.asked,
         last_round_failed: false,
         retries: 0,
         repaired: false,
@@ -285,6 +286,8 @@ async fn run_inner(
         }
         activity.history.append(&mut activity.job_results);
         let (revision, pending) = turn.steering.take();
+        // A line steered into the turn is somebody's, so it is answered.
+        activity.asked |= !pending.is_empty();
         for input in pending {
             activity.history.push(input.prepare(&turn.stop).await);
         }
@@ -420,6 +423,9 @@ struct Activity<'a> {
     /// Whether this activity has already run a tool: a reply that is only a
     /// reaction, or only a tool call, ends with a completion that says nothing.
     answered_calls: bool,
+    /// Whether somebody waits on this activity's reply: the person's line
+    /// began it, or a line was steered into it since.
+    asked: bool,
     /// Whether the last round's tools failed. Silence after success is the
     /// model done; silence after failure is the model giving up unsaid.
     last_round_failed: bool,
@@ -585,7 +591,11 @@ impl Activity<'_> {
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
             return Ok(Streamed::Again);
         }
-        if response.choice.is_empty() && !self.answered_calls {
+        // A completed answer of nothing, before any tool ran, is taken for a
+        // stream that broke when somebody waits on a reply, and tried again.
+        // When nobody does, it is the model choosing to say nothing, and the
+        // turn ends there with no message.
+        if response.choice.is_empty() && !self.answered_calls && self.asked {
             let failure = Failure::classify(super::super::failure::TRUNCATED, Some(502), "stream")
                 .after_tools(self.answered_calls);
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
@@ -933,7 +943,7 @@ fn job_message(turn: &Turn, job: &JobSnapshot) -> Message {
 /// own: the same result a turn would have been handed, said to be late.
 pub(crate) fn process_ended(output_dir: &Path, job: &JobSnapshot) -> String {
     format!(
-        "Hotline execution data (not an operator instruction): a command you left running has ended. Tell the person what it means if it matters to them. managed job result {}",
+        "Hotline execution data (not an operator instruction): a command you left running has ended. The person did not ask you anything just now. If its result is what they are waiting for, or it failed and that changes what they should do, tell them in one message. Otherwise write nothing and end the turn. managed job result {}",
         model_job(output_dir, job)
     )
 }

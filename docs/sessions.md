@@ -402,6 +402,14 @@ driver or quitting the desk kills it through the shell's group guard, as for
 any job. Its exit on its own wakes the teammate once, with the result as a
 line of Hotline's (never written to the tape as the person's), queued behind
 anything waiting and said on a live call to the teammate as well as written.
+Nobody asked for that turn, so the line says to speak only when the result
+is what the person waits for or a failure that changes what they should do,
+and a model that answers with nothing ends the turn there: no bubble, no
+notice, the teammate at rest. Any line of Hotline's own that begins a turn
+(this one, a line that only wakes the teammate for its asides or inbox) goes
+to the driver as `Driver::prompt_unasked`, and Hotline Agent takes an empty
+answer to it as the model done, where an empty answer to the person's line is
+a stream that broke and is asked again.
 A stop the teammate or the person asked for wakes nobody. The grant rules
 are [security.md](security.md#grant-lifecycle).
 

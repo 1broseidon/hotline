@@ -118,6 +118,48 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     );
 }
 
+/// A command's end the teammate answers with nothing: nobody asked, so the
+/// turn ends with no bubble, no error, no second request and the teammate at
+/// rest.
+#[tokio::test(flavor = "multi_thread")]
+async fn running_process_whose_end_is_answered_with_nothing_leaves_no_bubble() {
+    let mut desk = Desk::open().await;
+    let build = "while [ ! -e go ]; do sleep 0.05; done; echo done";
+    desk.script([
+        tool_call("shell", json!({"command": build}), "call_build"),
+        text("The build is going."),
+        nothing(),
+    ]);
+    desk.prompt("build it").await;
+    desk.request().await;
+    desk.request().await;
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    desk.client.subscribe(json!({"view": "roster"})).await;
+    std::fs::write(desk.workspace.join("go"), "").unwrap();
+
+    let woke = desk.request().await;
+    assert!(
+        woke.to_string()
+            .contains("a command you left running has ended"),
+        "{woke}"
+    );
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    desk.quiet_for(Duration::from_secs(3)).await;
+    session_where(&mut desk, |session| session["state"] == "ready").await;
+    let tape = desk
+        .log
+        .load(&hotline_core::log::StreamId::Tape(desk.persona.clone()));
+    let said: Vec<&Value> = tape
+        .iter()
+        .filter(|event| event["kind"] == "agent")
+        .collect();
+    assert_eq!(said.len(), 1, "only the first turn spoke: {said:?}");
+    assert!(
+        !tape.iter().any(|event| event["kind"] == "notice"),
+        "no error and no notice: {tape:?}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_dies_with_its_stopped_session() {
     let mut desk = Desk::open().await;
@@ -733,6 +775,13 @@ fn text(words: &str) -> Vec<Value> {
     vec![
         json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","content":words},"finish_reason":null}]}),
         json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+    ]
+}
+
+/// An answer that says nothing at all.
+fn nothing() -> Vec<Value> {
+    vec![
+        json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":"stop"}]}),
     ]
 }
 

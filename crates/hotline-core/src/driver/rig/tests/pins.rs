@@ -147,6 +147,7 @@ fn turn_on(
         capability: None,
         delegate: None,
         processes: crate::session::jobs::Processes::new(scratch.join("processes")),
+        asked: true,
     }
 }
 

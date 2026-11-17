@@ -60,7 +60,7 @@ pub(in crate::session) const QUIET_WAKE_LINE: &str = concat!(
 
 /// What a work thread or a call woken only by its inbox is told after the
 /// index: the person reads it.
-pub(super) const WAKE_LINE: &str = "New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. What you say here reaches the person, so if nothing needs them, say so in a line.";
+pub(super) const WAKE_LINE: &str = "New items came into your inbox while you were idle: they are above, under INBOX. Read and sort them as suits your work, or leave them for later. What you say here reaches the person, so write only what is theirs to know or decide, in one message. If nothing is, write nothing and end the turn.";
 
 /// How long an item waits for others before it wakes an idle receiver.
 pub(super) fn gather_delay() -> Duration {

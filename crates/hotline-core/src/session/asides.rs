@@ -34,7 +34,7 @@ use std::sync::Arc;
 pub(crate) const ASIDE_CHARS: usize = 1_000;
 
 /// What a turn woken only by asides is told after them.
-const WAKE_LINE: &str = "The asides above came in while you were idle. Act on what needs you. What you say here reaches the person, so if nothing needs them, say so in a line.";
+const WAKE_LINE: &str = "The asides above came in while you were idle. Act on what needs you. What you say here reaches the person, so write only what is theirs to know or decide, in one message. If nothing is, write nothing and end the turn.";
 
 /// The asides a turn hears, as the thread index that opens its line says
 /// them ([`Room::thread_index`]): one line each,

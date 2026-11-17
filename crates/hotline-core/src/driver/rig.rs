@@ -420,7 +420,17 @@ impl Driver for InProcess {
         attachments: Vec<Attachment>,
         reach: Reach,
     ) -> mpsc::Receiver<Update> {
-        self.start(Some(Input::Attachments(text, attachments)), reach)
+        self.start(Some(Input::Attachments(text, attachments)), reach, true)
+            .await
+    }
+
+    async fn prompt_unasked(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        self.start(Some(Input::Attachments(text, attachments)), reach, false)
             .await
     }
 
@@ -437,7 +447,7 @@ impl Driver for InProcess {
     ) -> mpsc::Receiver<Update> {
         let resumable = matches!(self.history.lock().await.last(), Some(Message::User { .. }));
         let message = (!resumable).then(|| Input::Attachments(text, attachments));
-        self.start(message, reach).await
+        self.start(message, reach, true).await
     }
 
     fn steer(&self, text: String, attachments: Vec<Attachment>) -> bool {
@@ -578,7 +588,13 @@ impl Stop {
 
 impl InProcess {
     /// One turn: a new message, or none to go again on the history as it is.
-    async fn start(&self, message: Option<Input>, reach: Reach) -> mpsc::Receiver<Update> {
+    /// `asked` is whether the person is waiting on its reply ([`Turn::asked`]).
+    async fn start(
+        &self,
+        message: Option<Input>,
+        reach: Reach,
+        asked: bool,
+    ) -> mpsc::Receiver<Update> {
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
         if let Some(capability) = &self.capability
             && let Err(error) = capability.check()
@@ -658,6 +674,7 @@ impl InProcess {
             capability: self.capability.clone(),
             delegate: self.teammate.delegate(),
             processes: self.processes.clone(),
+            asked,
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
@@ -745,6 +762,10 @@ struct Turn {
     delegate: Option<Arc<dyn crate::session::jobs::Delegate>>,
     /// Where a command the turn leaves running goes.
     processes: Arc<crate::session::jobs::Processes>,
+    /// Whether the person is waiting on this turn's reply: it began on
+    /// their line, or a Retry of it. A turn begun on a line of Hotline's own
+    /// (work that came back, a wake) may end with the model saying nothing.
+    asked: bool,
 }
 
 impl Turn {

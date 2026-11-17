@@ -217,6 +217,7 @@ impl Occupant for Session {
             Source::Say {
                 text,
                 attachments: wired.attachments,
+                asked: wired.said.is_some(),
             }
         };
         // Nothing refuses the turn from here: the result it hears is spent.

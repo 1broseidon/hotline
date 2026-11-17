@@ -298,10 +298,12 @@ thinking; only the first message of a turn and its last are chat. An answer
 to a line said mid-turn is, by its place, a message between two tool calls,
 so it was written as thinking, and with an empty last answer the turn could
 end with nothing in the chat. So when a line of the person's joins the turn
-the runner tells the turn's voice (`Voice::heard_person`), which treats the
-next message as it treats a turn's first: it is said, whatever follows it.
-A reaction is a tool call, so a line answered with one leaves no message to
-promote, and narration after the answer is thinking as before. This holds
+the runner tells the turn's voice (`Voice::heard_person`) that an answer is
+owed: the next message is said, whatever tools the agent used to find the
+answer first and whatever follow it. A reaction (`react`, by Hotline Agent's
+kind or an ACP agent's MCP name) pays the debt too, so a line answered with
+one leaves no message to promote, and narration after the answer is
+thinking as before. This holds
 for any driver, since both take the line through `Driver::steer`; a work
 thread's runner does not yet tell its voice.
 

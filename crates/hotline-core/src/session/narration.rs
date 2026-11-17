@@ -22,7 +22,8 @@
 //! says you were heard — and an answer that needs no tool is a message
 //! nothing follows anyway. The same holds for the first message after the
 //! person speaks into a turn already at work ([`Voice::heard_person`]): it
-//! answers them, and is chat even when more tool calls follow it. By its
+//! answers them, and is chat whatever tools the agent used to find the
+//! answer and whatever follow it, unless the agent answered with a reaction. By its
 //! place alone it is a message between two tool calls, and taken for
 //! narration it was written as thinking, so a question asked mid-turn was
 //! answered where nobody saw it and the turn could end with no bubble at all.
@@ -38,6 +39,10 @@ pub struct Voice {
     spoken: bool,
     /// An agent message waiting to learn whether it was narration.
     held: Option<(String, String)>,
+    /// The person spoke into the turn and has had neither words nor a
+    /// reaction since: the next message answers them, whatever the agent
+    /// looked at before it and whatever follows it.
+    owed: bool,
 }
 
 impl Voice {
@@ -51,15 +56,16 @@ impl Voice {
     /// the window must not type a bubble that then vanishes; it shows thinking
     /// and the report lands whole.
     pub fn mutes_deltas(&self) -> bool {
-        self.worked || self.spoken
+        !self.owed && (self.worked || self.spoken)
     }
 
     /// The person spoke into the turn. Their line is answered by the next
-    /// message, as the turn's first is: it is said, whatever follows it.
-    /// A line held from before stays held, to be read by what comes next.
+    /// message: it is said, whatever tools the agent used to find the answer
+    /// and whatever follows it, until the agent has answered in words or
+    /// with a reaction. A line held from before stays held, to be read by
+    /// what comes next.
     pub fn heard_person(&mut self) {
-        self.worked = false;
-        self.spoken = false;
+        self.owed = true;
     }
 
     /// One update in, the updates to write in its place, in order.
@@ -71,7 +77,8 @@ impl Voice {
                 text,
             } => {
                 let mut out = self.release(MessageKind::Agent);
-                if !self.worked && !self.spoken {
+                if self.owed || (!self.worked && !self.spoken) {
+                    self.owed = false;
                     self.spoken = true;
                     out.push(Update::Message {
                         kind: MessageKind::Agent,
@@ -84,6 +91,12 @@ impl Voice {
                 out
             }
             update @ Update::ToolCall { .. } => {
+                // A reaction is an answer to the person's line too.
+                if let Update::ToolCall { title, kind, .. } = &update
+                    && reacts(title, kind)
+                {
+                    self.owed = false;
+                }
                 self.worked = true;
                 let mut out = self.release(MessageKind::Thought);
                 out.push(update);
@@ -137,6 +150,12 @@ impl Voice {
             .into_iter()
             .collect()
     }
+}
+
+/// Whether a tool call is Hotline's `react`: Hotline Agent names it by its
+/// kind, an ACP agent by its MCP name.
+fn reacts(title: &str, kind: &str) -> bool {
+    kind == "react" || title == "react" || title.contains("__react")
 }
 
 #[cfg(test)]
@@ -405,6 +424,8 @@ mod tests {
             &mut voice,
             vec![
                 returns("c2"),
+                calls("c-look"),
+                returns("c-look"),
                 says("m3", "About halfway: the row is in, the pane is next."),
                 calls("c3"),
                 returns("c3"),
@@ -418,6 +439,8 @@ mod tests {
             out,
             [
                 "result:c2",
+                "call:c-look",
+                "result:c-look",
                 "agent:About halfway: the row is in, the pane is next.",
                 "call:c3",
                 "result:c3",
@@ -439,7 +462,11 @@ mod tests {
         let out = run(
             &mut voice,
             vec![
-                calls("react"),
+                Update::ToolCall {
+                    call_id: "react".into(),
+                    title: "react".into(),
+                    kind: "react".into(),
+                },
                 returns("react"),
                 says("m2", "back to the build"),
                 calls("c2"),

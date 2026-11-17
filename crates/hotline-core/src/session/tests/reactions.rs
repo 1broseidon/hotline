@@ -136,7 +136,11 @@ async fn an_emoji_said_mid_turn_answered_with_a_reaction_leaves_no_stray_bubble(
         says("m-ack", "On it."),
         calls("c1"),
         returns("c1"),
-        calls("react"),
+        Update::ToolCall {
+            call_id: "react".to_string(),
+            title: "mcp__hotline__react".to_string(),
+            kind: "other".to_string(),
+        },
         returns("react"),
         says("m-narrate", "Back to the build."),
         calls("c2"),

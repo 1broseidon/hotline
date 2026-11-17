@@ -1,7 +1,7 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, foldInboxRuns, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, foldInboxRuns, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink, sentRowsSay } from "../scheduledRuns";
 import { inboxWork, itemsOf, useInbox } from "../inbox";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
@@ -502,7 +502,9 @@ export function Transcript({
 	// A block that holds what it held is the block it was (keepBlocks), so
 	// its row is handed what it was handed before and is not drawn again.
 	// In the teammate's own conversation a run of its inbox activity is one
-	// line (foldInboxRuns), made of the blocks it was, kept the same way.
+	// line (foldInboxRuns), made of the blocks it was, kept the same way, and
+	// a turn whose only work was the inbox lets its sent row say what came of
+	// it (sentRowsSay).
 	const drawnBefore = useRef<Block[]>([]);
 	const blocks = useMemo(() => {
 		const grouped = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(groupInbox(
@@ -524,7 +526,7 @@ export function Transcript({
 			drawnBefore.current = grouped;
 			return grouped;
 		}
-		const drawn = keepBlocks(drawnBefore.current, foldInboxRuns(grouped, inboxRows.work));
+		const drawn = keepBlocks(drawnBefore.current, foldInboxRuns(sentRowsSay(grouped), inboxRows.work));
 		drawnBefore.current = [...drawn, ...drawn.flatMap((block) => (block.kind === "inboxRun" ? block.members : []))];
 		return drawn;
 	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId, inboxRows.work, thread]);
@@ -623,6 +625,7 @@ export function Transcript({
 						// A turn open only for its helpers is not over: no line under it until it is (the mark below is the line).
 						live={(live || waiting) && block.open === true}
 						shown={workShown}
+						rowSays={block.rowSays}
 						{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 					/>
 				) : block.kind === "sent" ? (

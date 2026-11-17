@@ -533,6 +533,14 @@ stored state and the teammates' tools keep `taken`.
   teammate's main conversation it is in a run (below), or, sent in a turn
   the person asked for, a quiet row of its own: the title in plain weight,
   the tray in grey, its state word kept, since it is what came of their ask.
+  So it is the turn's receipt (task-505): a turn whose only work was the
+  inbox (`send`, `read_inbox`, `update_inbox`; saying what came of it, a
+  reaction and a post are no work) draws no outcome line under a reply
+  while one of its sent rows is drawn, only its time, and a turn the person
+  asked for that also put no bubble in the chat draws no time either: the
+  row stands for the turn (`sentRowsSay` in `ui/src/scheduledRuns.ts`). An
+  outcome that failed or only partly happened keeps the line. It is the
+  window's drawing: the tape, the wire and the phone's line are unchanged.
 - **A run of inbox activity.** In the teammate's main conversation, its
   inbox activity between two things the person should read is one quiet
   line, "Inbox · read 3, sent 1", drawn as a line of a turn's path is (the

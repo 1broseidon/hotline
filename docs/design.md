@@ -769,6 +769,17 @@ at the column's far edge, and under a turn with nothing else to say a lone
 as the conversation's other quiet lines do, and the time wraps with the
 words before it rather than alone on a row (`inline-lines.css`).
 
+Asking a colleague is one row (George, 2026-11-16, task-505). "Ask Timo
+what the score of the last game was" drew eight things before the answer:
+two bubbles saying it would ask and had asked, the sent row, the outcome
+"Asked Timo", the quiet turn's inbox line, the answer's "From Timo's
+message" and the answer with its time. The sent row already says what went
+and where it stands, so a turn whose only work was the inbox draws no
+outcome line under a reply while its row is drawn, and a turn the person
+asked for with no bubble draws no time either: the row stands for the turn.
+It is the window's drawing; the tape, the wire and the phone are unchanged,
+since the phone has no inbox rows yet.
+
 A teammate that waits on its helpers is one phone notification per ask
 (George, 2026-11-13, 0.49.1). A four-helper job pushed what the teammate
 said as it started them and again as each reported, four or five

@@ -154,6 +154,7 @@ export const InboxRun = memo(function InboxRun({
 								items={member.items}
 								live={false}
 								shown={false}
+								rowSays={member.rowSays}
 								{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === member.id } : {})}
 							/>
 						);

@@ -38,7 +38,8 @@ type AgentEvent = Extract<TranscriptEvent, { kind: "agent" }>;
  */
 export type Block =
 	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
-	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean }
+	/** `rowSays`: the turn's only work was the inbox, and its sent row says what came of it (`sentRowsSay`). */
+	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean; rowSays?: true }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] }
 	| { kind: "sent"; id: string; ts: number; messages: AgentEvent[]; files: { eventId: string; index: number; file: Attachment }[] }
@@ -185,6 +186,69 @@ export function groupInbox(blocks: Block[]): Block[] {
 		out.push({ kind: "inbox", id: sent.id, ts: sent.ts, title: sent.title, sent: [sent] });
 	}
 	return out;
+}
+
+/**
+ * A turn's part of the blocks, from the line after the last person's line or
+ * turn's end to the next: `asked` when the person's own line began it (a
+ * scheduled one is no ask), `said` when it put a bubble in the chat, and
+ * `sent` when it holds a sent row.
+ */
+type Turn = { asked: boolean; said: boolean; sent: boolean };
+
+/** The turn each block belongs to, by its index. A person's line or a turn's end starts the next. */
+function turnsOf(blocks: Block[]): Turn[] {
+	const of: Turn[] = [];
+	let turn: Turn = { asked: false, said: false, sent: false };
+	for (const block of blocks) {
+		const event = block.kind === "event" ? block.event : undefined;
+		if (event?.kind === "user" || event?.kind === "turn") {
+			turn = { asked: event.kind === "user" && event.scheduled === undefined, said: false, sent: false };
+		}
+		if (block.kind === "sent" || event?.kind === "agent") turn.said = true;
+		if (block.kind === "inbox") turn.sent = true;
+		of.push(turn);
+	}
+	return of;
+}
+
+/**
+ * Steps whose every tool call was the inbox's (`send`, `read_inbox`,
+ * `update_inbox`), with at least one. Saying what it was on or what came of
+ * it, a reaction and a post to the chat are no work of their own; a helper or
+ * a command started is.
+ */
+function inboxWorkOnly(items: Step[]): boolean {
+	let inbox = false;
+	for (const item of items) {
+		if (item.kind === "link") return false;
+		if (item.kind !== "tool") continue;
+		const key = item.said?.key;
+		if (key === "colleague") inbox = true;
+		else if (key !== "react" && key !== "post") return false;
+	}
+	return inbox;
+}
+
+/**
+ * A turn whose only work was the inbox, and that has a sent row in the chat,
+ * draws no outcome line: the row says what went and where it stands
+ * (`rowSays`, its steps' line its time alone). A turn the person asked for
+ * that also put no bubble in the chat draws no time either: the row stands
+ * for the turn, and its path is still a turn of the pane's. Only the window
+ * draws it so; what the desk keeps and sends, and the phone's line, do not
+ * change. An outcome that failed, or only partly happened, keeps the line:
+ * a failure is never left out.
+ */
+export function sentRowsSay(blocks: Block[]): Block[] {
+	const turns = turnsOf(blocks);
+	return blocks.flatMap((block, at) => {
+		const turn = turns[at]!;
+		if (block.kind !== "steps" || block.open === true || !turn.sent || !inboxWorkOnly(block.items)) return [block];
+		if (block.items.some((item) => item.kind === "outcome" && (item.state === "failed" || item.state === "partial"))) return [block];
+		if (turn.asked && !turn.said) return [];
+		return [{ ...block, rowSays: true }];
+	});
 }
 
 /** A blocks' line as its fold reads it: one that joins the run, one that stands beside it, or one that ends it. */

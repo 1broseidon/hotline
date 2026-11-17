@@ -183,7 +183,7 @@ function sameBlock(was: Block, now: Block): boolean {
 			// A streamed bubble is a new line each time it is worked out: the same while it says the same.
 			return was.live === true && was.event.kind === "agent" && now.event.kind === "agent" && was.event.text === now.event.text && was.event.ts === now.event.ts;
 		case "steps":
-			return now.kind === "steps" && was.open === now.open && was.ts === now.ts && sameMembers(was.items, now.items);
+			return now.kind === "steps" && was.open === now.open && was.rowSays === now.rowSays && was.ts === now.ts && sameMembers(was.items, now.items);
 		case "scheduled":
 			return now.kind === "scheduled" && sameMembers(was.runs, now.runs);
 		case "calls":

@@ -23,7 +23,9 @@ import { Sources } from "./Sources";
  * from the left as one short line of text, a dot between each, and the time
  * and the chevron come straight after the last of them, as on the phone: the
  * line is about the reply above it, so it sits where the reply does, and the
- * press hugs it as the conversation's other quiet lines do. It is always the
+ * press hugs it as the conversation's other quiet lines do. A turn whose only
+ * work was the inbox, under its sent row (`rowSays`), says no outcomes: the
+ * row says what went and where it stands. It is always the
  * way in: pressed, it opens the path the turn took, in the pane beside a
  * conversation (`onOpenWork`) or in place in a thread or a run, where the
  * live rows show only if you pressed the mark; either way the path lists
@@ -37,18 +39,21 @@ export const Steps = memo(function Steps({
 	shown,
 	onOpenWork,
 	open: paneOpen,
+	rowSays = false,
 }: {
 	id: string;
 	items: Step[];
 	live: boolean;
 	shown: boolean;
+	/** The turn's sent row says what came of it (`sentRowsSay`): no outcomes on the line. */
+	rowSays?: boolean | undefined;
 	onOpenWork?(blockId: string): void;
 	open?: boolean;
 }) {
 	const [toggled, setToggled] = useState(false);
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
-	const outcomes = useMemo(() => outcomesOf(items), [items]);
+	const outcomes = useMemo(() => (rowSays ? [] : outcomesOf(items)), [items, rowSays]);
 	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
 	const sites = useMemo(() => sitesOf(items), [items]);
 	const took = useMemo(() => turnTook(items), [items]);

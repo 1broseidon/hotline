@@ -50,7 +50,13 @@ These are George's, and what the inbox holds to.
   until this is answered), `about` (a thread of the receiver's, `kind:key`),
   `reply_to` (an item in the sender's own inbox), `files`. It returns at once
   with each item's id. `wants` and `waiting` are described to agents as facts
-  about the sender, never as urgency.
+  about the sender, never as urgency. Sent in a turn the person reads, its
+  result adds that the person sees the message as a row with where it
+  stands, so the teammate does not say it sent it or will pass on its
+  answer, and says only what the row does not, or nothing (task-505); the
+  house style's opening line for something to pass to a colleague is the
+  send itself, with no words, for the same reason. A quiet turn's send is
+  told no such thing.
 - **`read_inbox`** without `ids` lists the open items, the newest 50 with
   how many older ones there are, newest first: id, title,
   sender, `wants`, `waiting`, who else the send reached (`alsoTo`), state and

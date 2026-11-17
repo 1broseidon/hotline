@@ -295,6 +295,12 @@ fn short_line(text: &str, most: usize) -> String {
     super::sides::cut(&line, most)
 }
 
+/// Said with a send in a turn the person reads: the desk draws the item there
+/// as a row that says where it stands, so a line saying it was sent, or that
+/// its answer will follow, says nothing the person cannot see. A quiet
+/// turn's send needs no such word, as the turn is quiet already.
+const ROW_IS_THE_RECEIPT: &str = "The person sees this as a row in their chat with where it stands, so do not say you sent it or will pass on its answer. Say only what the row does not, or end your turn with nothing.";
+
 /// The part of an id the index and notices show.
 pub(super) fn short(id: &str) -> &str {
     id.get(..SHORT_ID).unwrap_or(id)
@@ -488,6 +494,9 @@ impl Room {
             sent.push(json!({ "id": new.id, "to": target.name }));
         }
         let mut note = "In their inbox. They see its title and who sent it, and read it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. Carry on, or end your turn to wait; do not send it again.".to_string();
+        if for_person {
+            note = format!("{note} {ROW_IS_THE_RECEIPT}");
+        }
         if !held.is_empty() {
             note = format!(
                 "{note} The person has not yet allowed you to reach {}: a card asks them, and the item waits for their answer.",

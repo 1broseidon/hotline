@@ -981,6 +981,52 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
     assert_eq!(team["sent"].as_array().unwrap().len(), 1, "{team}");
 }
 
+/// A send in a turn the person reads is drawn there as a row that says where
+/// the item stands, so its result tells the teammate the row is the receipt:
+/// no line saying it was sent, only what the row does not say, or nothing.
+/// A quiet turn's send, and one made outside any turn, are told no such thing.
+#[tokio::test]
+async fn the_send_result_says_the_row_is_the_receipt_in_a_turn_the_person_reads() {
+    let (room, _) = room("send-receipt");
+    let main = ThreadId::dm("ada");
+    let note = |sent: Value| sent["note"].as_str().unwrap().to_string();
+    let send_now = |title: &str| {
+        let room = room.clone();
+        let title = title.to_string();
+        async move {
+            tool(
+                &room,
+                "ada",
+                "send",
+                json!({"to": ["bob"], "title": title, "message": "?"}),
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let asked = {
+        let _turn = room.open_posting(&main, None);
+        note(send_now("Score of the last game?").await)
+    };
+    assert!(
+        asked.ends_with(
+            "do not send it again. The person sees this as a row in their chat with where it stands, so do not say you sent it or will pass on its answer. Say only what the row does not, or end your turn with nothing."
+        ),
+        "{asked}"
+    );
+    assert!(ROW_IS_THE_RECEIPT.split_whitespace().count() <= 40);
+    let quiet = {
+        let _turn = room.open_posting(&main, None);
+        room.set_quiet(&main, true);
+        note(send_now("Thursday review").await)
+    };
+    let outside = note(send_now("Standup").await);
+    for unread in [&quiet, &outside] {
+        assert!(!unread.contains("row"), "{unread}");
+        assert!(unread.ends_with("do not send it again."), "{unread}");
+    }
+}
+
 mod brake;
 mod clock;
 mod jobs;

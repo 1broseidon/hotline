@@ -1258,6 +1258,8 @@ async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
     )
     .unwrap();
     let sol = ["low", "medium", "high", "xhigh", "max", "ultra"];
+    // What Hotline Agent offers of them: `ultra` is the Codex harness's.
+    let offered = ["low", "medium", "high", "xhigh", "max"];
     std::fs::write(
         dir.join("discovery.json"),
         json!([
@@ -1311,7 +1313,7 @@ async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
             json!({"modelId":"openai-codex/gpt-6.2-sol"}),
         )
         .await;
-    assert_eq!(ids(&idle["result"]["choices"]), sol, "{idle}");
+    assert_eq!(ids(&idle["result"]["choices"]), offered, "{idle}");
     assert_eq!(idle["result"]["choices"][3]["name"], "Extra high");
     assert_eq!(idle["result"]["defaultId"], "high");
     let differs = client
@@ -1322,7 +1324,7 @@ async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
         .await;
     assert_eq!(
         ids(&differs["result"]["choices"]),
-        sol,
+        offered,
         "ChatGPT's win: {differs}"
     );
     let unsaid = client
@@ -1345,7 +1347,7 @@ async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
         .iter()
         .find(|model| model["id"] == "gpt-6.2-sol")
         .unwrap();
-    assert_eq!(listed["efforts"], json!(sol));
+    assert_eq!(listed["efforts"], json!(offered));
 
     // A teammate whose stored effort the listing no longer offers.
     let workspace = root.join("workspace");
@@ -1370,11 +1372,13 @@ async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
         .iter()
         .find(|config| config["category"] == "effort")
         .unwrap_or_else(|| panic!("no Effort picker: {started}"));
-    assert_eq!(ids(&picker["options"]), sol);
+    // Kept as ChatGPT lists them, offered without `ultra`, which is the
+    // Codex harness's own setting and is refused from Hotline Agent.
+    assert_eq!(ids(&picker["options"]), offered);
     assert_eq!(picker["currentId"], "high", "{picker}");
 
     // The effort each request carries.
-    for (chosen, expected) in [(None, "high"), (Some("ultra"), "ultra")] {
+    for (chosen, expected) in [(None, "high"), (Some("max"), "max")] {
         if let Some(level) = chosen {
             let set = client
                 .call(

@@ -944,7 +944,7 @@ fn a_listed_level_the_snapshot_lacks_is_sent_as_chosen() {
         models::efforts("openai-codex/gpt-6.2-sol"),
         [] as [String; 0]
     );
-    for level in ["ultra", "max", "low"] {
+    for level in ["xhigh", "max", "low"] {
         let settings = request_settings(
             &keys,
             "openai-codex/gpt-6.2-sol",

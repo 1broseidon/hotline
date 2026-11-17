@@ -50,13 +50,14 @@ struct Level {
 }
 
 /// Levels ChatGPT lists that only its Codex harness can use, which Hotline
-/// Agent neither offers nor sends. Empty: every listed level is offered as
-/// ChatGPT lists it. A level found to fail when Hotline Agent sends it
-/// (`ultra` delegates to subagents in Codex, and may be one) goes here. The
-/// kept listing still records it, and the vault drops it as the listing is
-/// read ([`offered_by_hotline`]), so it leaves every picker and request
-/// without waiting for a refresh.
-const HARNESS_ONLY_EFFORTS: &[&str] = &[];
+/// Agent neither offers nor sends. `ultra` ("maximum reasoning with automatic
+/// task delegation") is Codex handing work to subagents, not a level the
+/// model takes: a Hotline Agent request carrying it was rejected by ChatGPT
+/// (checked on a desk, 2026-11-17). The kept listing still records it, and
+/// the vault drops it as the listing is read ([`offered_by_hotline`]), so a
+/// level added here leaves every picker and request without waiting for a
+/// refresh.
+const HARNESS_ONLY_EFFORTS: &[&str] = &["ultra"];
 
 /// Whether Hotline Agent offers and sends a level a listing names.
 pub(crate) fn offered_by_hotline(level: &str) -> bool {

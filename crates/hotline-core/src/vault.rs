@@ -1442,6 +1442,8 @@ mod tests {
         let first = login("Work");
         let second = login("Personal");
         let sol = levels(&["low", "medium", "high", "xhigh", "max", "ultra"]);
+        // What Hotline Agent offers of them: `ultra` is the Codex harness's.
+        let offered = levels(&["low", "medium", "high", "xhigh", "max"]);
         vault
             .cache_discovery(
                 &first,
@@ -1466,11 +1468,11 @@ mod tests {
             [] as [String; 0]
         );
         let expect = |vault: &Vault| {
-            assert_eq!(vault.efforts("openai-codex/gpt-6.2-sol"), sol);
+            assert_eq!(vault.efforts("openai-codex/gpt-6.2-sol"), offered);
             assert_eq!(
                 vault.efforts("openai-codex/gpt-6-sol"),
-                sol,
-                "the listing wins"
+                offered,
+                "the listing wins, less the harness's own level"
             );
             assert_eq!(
                 vault.efforts("openai-codex/gpt-6-luna"),
@@ -1479,7 +1481,7 @@ mod tests {
             );
             assert_eq!(
                 vault.efforts(&format!("openai-codex#{first}/gpt-6.2-sol")),
-                sol
+                offered
             );
             assert_eq!(
                 vault.efforts(&format!("openai-codex#{second}/gpt-6.2-sol")),
@@ -1489,7 +1491,7 @@ mod tests {
                 vault.model_metadata()["openai-codex/gpt-6.2-sol"]
                     .efforts
                     .as_ref(),
-                Some(&sol)
+                Some(&offered)
             );
         };
         expect(&vault);

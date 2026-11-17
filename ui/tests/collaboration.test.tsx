@@ -123,6 +123,17 @@ describe("Ask or hand off", () => {
 		expect(settled).not.toContain("<button");
 	});
 
+	test("a request to a teammate on another agent says which agent sets its access, with Allow, Always and Deny", async () => {
+		const onAgent = { ...upInAccess, title: "Goldie wants Huck to do work\n\nHuck runs on Codex, which sets its own access. If you allow this, Huck does the work with that access." };
+		const html = renderToStaticMarkup(<Transcript personaId="goldie" name="Goldie" events={[onAgent]} streaming={[]} live={false} focus={null} />);
+		expect(html).toContain('data-kind="collaboration"');
+		expect(html).toContain("<b>Goldie</b> wants <b>Huck</b> to do work");
+		expect(html).toContain(">Huck runs on Codex, which sets its own access. If you allow this, Huck does the work with that access.<");
+		expect([...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((match) => match[1])).toEqual(["Allow", "Always", "Deny"]);
+		const { askLine, openAsks } = await import("../src/components/transcript/AskCard");
+		expect(askLine(openAsks([onAgent])[0]!, "Goldie")).toBe("Allow Huck to do work for Goldie?");
+	});
+
 	test("task-470 in Needs you a request up in access is one short question", async () => {
 		const { askLine, openAsks } = await import("../src/components/transcript/AskCard");
 		expect(askLine(openAsks([upInAccess])[0]!, "Goldie")).toBe("Allow Huck to do work for Goldie?");

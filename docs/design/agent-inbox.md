@@ -398,7 +398,14 @@ changes, like the index. The window reads the receipts over the wire.
   access: your whole Mac.", with Allow (this item only: the next asks
   again), Always (this direction, until the receiver's access grows; the
   informed consent an item that wants work needs) and Deny (the item is
-  dropped unseen, and its sender told). In Needs you it is one question,
+  dropped unseen, and its sender told). A receiver on another agent (an
+  ACP harness) sets its own access, which Hotline cannot see, so asking one
+  raises the same card unless the sender has the whole machine, which
+  nothing is above; a sender on another agent is not known to have it and
+  is asked about too (`consent::asks_the_person`). Its words name the
+  agent as its settings do: "Huck runs on Codex, which sets its own access.
+  If you allow this, Huck does the work with that access." Always for it
+  stands until the receiver's access grows or it moves to a different agent. In Needs you it is one question,
   "Allow Huck to do work for Goldie?". An item the card has yet to allow is
   held, as above. The card stands for any item, whatever it wants: a
   receiver may take an item that wanted an answer into work, and the card

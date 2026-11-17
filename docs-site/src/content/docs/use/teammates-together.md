@@ -5,7 +5,8 @@ description: How one teammate reaches another through its inbox, what you approv
 
 Teammates reach each other one way: an item in the colleague's **inbox**.
 You are asked only when a teammate asks one with more access than itself,
-and nothing a teammate sends lands in your chat.
+or one that runs on another agent, and nothing a teammate sends lands in
+your chat.
 
 ## The inbox
 
@@ -52,9 +53,16 @@ for example, "Goldie wants Huck to do work: Huck has more access than
 Goldie. If you allow this, Huck does the work with its own access: your
 whole Mac." It also waits in **Needs you** above the message field.
 
+You are also asked when a teammate asks a colleague that runs on another
+agent, such as Claude Code, Codex or Cursor, since Hotline can't see what
+that agent can reach. The card says, for example, "Goldie wants Huck to do
+work: Huck runs on Codex, which sets its own access. If you allow this, Huck
+does the work with that access." A teammate with **Whole machine** on is
+never asked about: nothing reaches further.
+
 - **Allow** lets this one request through. The next one asks again.
 - **Always** lets Goldie ask Huck from now on, until Huck is given more
-  access, when you are asked again.
+  access or moved to a different agent, when you are asked again.
 - **Deny** drops the request. Huck never sees it, and Goldie is told.
 
 An answer goes one way. Allowing Goldie to ask Huck does not let Huck ask

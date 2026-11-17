@@ -1389,21 +1389,28 @@ nothing deletes them while the conversation they belong to is kept.
 
 `send` is authority to ask another teammate to use its own workspace and
 enabled tools, so the room checks collaboration before an item lands in the
-recipient's inbox ([The inbox](#the-inbox)). The person is asked only when
-the request goes up in access (`consent::more_access`): the recipient has
+recipient's inbox ([The inbox](#the-inbox)). The person is asked when the
+request goes up in access, or to a teammate on another agent, from a caller
+without the whole machine (`consent::asks_the_person`): the recipient has
 the whole machine (a Hotline Agent with Whole machine reach) and the caller
-only its own folders. Between equals, or when the recipient has less, nothing
-is asked and the item lands: the recipient can do nothing the caller could
-not. A teammate on another agent counts at its own folders, as Hotline's
-callbacks hold it there whatever its record says: ACP trust or mode labels
-and the separate Computer capability do not count as Whole machine reach. A
-caller on a linked desk is always asked about.
+only its own folders, or the recipient runs on another agent (an ACP
+harness), which sets its own access that Hotline cannot see. A caller with
+the whole machine is never asked about, nothing being above it; a caller on
+another agent is not known to have it, so asking a recipient on another
+agent asks too. Between equals, or when the recipient has less, nothing is
+asked and the item lands: the recipient can do nothing the caller could
+not. As a caller, a teammate on another agent counts at its own folders: ACP
+trust or mode labels and the separate Computer capability do not count as
+Whole machine reach. A caller on a linked desk is always asked about.
 
 The card, on the caller's chat (a `collab:<id>` permission), says `<caller>
 wants <recipient> to do work`, then `<recipient> has more access than
 <caller>. If you allow this, <recipient> does the work with its own access:
 your whole Mac.` (on a desk that is not a Mac, `the whole machine`;
-`consent::access_words`). Its keys are `Allow`, `Always` and `Deny`. `Allow`
+`consent::access_words`); for a recipient on another agent, `<recipient>
+runs on <agent>, which sets its own access. If you allow this, <recipient>
+does the work with that access.`, the agent by the name its settings show
+(`registry::name_of`). Its keys are `Allow`, `Always` and `Deny`. `Allow`
 lets this one request through and keeps nothing: the next request up in
 access asks again. `Always` appends the caller's stable id to the
 recipient's `allowedSenders` list and records, in a `collaboration_informed`
@@ -1417,15 +1424,16 @@ and queued delegated work. New and imported records have an empty list.
 
 An Always grant stands until the person removes it or the recipient comes to
 reach more than it did (`session/consent.rs`): its reach set to the whole
-machine, its workspace moved, a folder or a computer mount added or made
-writable, a secret granted to its computer, its computer turned on, or an MCP
-server granted, by its policy or by a server added to the desk while its
-policy grants all. Then every caller leaves its `allowedSenders` and each
-direction's informed event is tombstoned with what grew, so the settings
-never say Always where a handoff would ask, and the next request up in
-access asks again, with the card's own words. Nothing
-else clears it: a goal edited, a model or agent switched, a reattach, a
-restart, a chapter, a narrowing, or an MCP sign-in or sign-out. The check
+machine, its agent switched (`session.set_backend` or a `backendId` patch:
+the access the person agreed to was the old agent's), its workspace moved, a
+folder or a computer mount added or made writable, a secret granted to its
+computer, its computer turned on, or an MCP server granted, by its policy or
+by a server added to the desk while its policy grants all. Then every caller
+leaves its `allowedSenders` and each direction's informed event is
+tombstoned with what grew, so the settings never say Always where a handoff
+would ask, and the next request that needs the card asks again, with the
+card's own words. Nothing else clears it: a goal edited, a model switched, a
+reattach, a restart, a chapter, a narrowing, or an MCP sign-in or sign-out. The check
 reads the room stream's fold by id, so a tombstone counts the moment it is
 written and the same after the stream is compacted. Deleting a teammate
 forgets its informed consent in both directions.

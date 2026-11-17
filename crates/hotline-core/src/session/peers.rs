@@ -1,10 +1,12 @@
 //! Teammates talking to each other: the person's grant one needs to ask
 //! another, the thread each pair keeps, and the words a delivery is told in.
 //!
-//! - **The grant.** A teammate asks one with more access than its own only
-//!   with the person's yes, for that one request or standing (Always), held
-//!   against the live leases of both sides ([`Room::authorize_collaboration`]);
-//!   between equals, or down in access, nothing asks.
+//! - **The grant.** A teammate asks one with more access than its own, or one
+//!   on another agent, whose access Hotline cannot see, only with the
+//!   person's yes, for that one request or standing (Always), held against
+//!   the live leases of both sides ([`Room::authorize_collaboration`]);
+//!   between equals, or down in access, nothing asks, and a sender with the
+//!   whole machine is never asked about.
 //! - **The thread.** [`StreamId::Pair`] of [`thread_key`], which is one file
 //!   per pair and belongs to neither side: the core writes each question and
 //!   its answer there, and the pair conversations older versions held stay
@@ -71,14 +73,22 @@ fn collaboration_options() -> Vec<PermissionOption> {
 }
 
 /// The card's words: its heading, then why it asks, naming the receiver's
-/// access as its settings do ([`crate::session::consent::access_words`]).
-/// The heading is the card's first paragraph.
-fn collaboration_title(caller_name: &str, target: &Persona) -> String {
+/// access as its settings do ([`crate::session::consent::access_words`]),
+/// or, for a receiver on another agent, that agent by the name its settings
+/// show (`agent`), which sets its own access. The heading is the card's
+/// first paragraph.
+fn collaboration_title(caller_name: &str, target: &Persona, agent: Option<&str>) -> String {
     let target_name = &target.name;
-    format!(
-        "{caller_name} wants {target_name} to do work\n\n{target_name} has more access than {caller_name}. If you allow this, {target_name} does the work with its own access: {}.",
-        crate::session::consent::access_words(target)
-    )
+    let why = match agent {
+        Some(agent) => format!(
+            "{target_name} runs on {agent}, which sets its own access. If you allow this, {target_name} does the work with that access."
+        ),
+        None => format!(
+            "{target_name} has more access than {caller_name}. If you allow this, {target_name} does the work with its own access: {}.",
+            crate::session::consent::access_words(target)
+        ),
+    };
+    format!("{caller_name} wants {target_name} to do work\n\n{why}")
 }
 
 pub(super) fn collaboration_decision(option_id: &str) -> Option<(CollaborationDecision, String)> {

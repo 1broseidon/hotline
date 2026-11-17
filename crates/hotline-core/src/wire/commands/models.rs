@@ -337,7 +337,9 @@ const SWITCH_PATIENCE: std::time::Duration = std::time::Duration::from_hours(6);
 /// first: the teammate starts it fresh, seeded from the chapter like any
 /// new session, and never reopens one it left earlier (A→B→A). A turn in
 /// progress is not cut short: the live session restarts on the new agent
-/// once the teammate is idle, and the switch lands on its next turn.
+/// once the teammate is idle, and the switch lands on its next turn. The
+/// person's Always for colleagues to hand it work goes: it was given for the
+/// agent it ran on.
 pub(super) async fn set_backend(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -382,6 +384,7 @@ pub(super) async fn set_backend(
         let gate = room.policy_update_lock();
         let _held = gate.lock().await;
         let mut moved = living(log, persona_id)?;
+        let previous = moved.clone();
         moved.backend_id = backend_id.to_string();
         // A model is the new agent's when named; otherwise the agent's own.
         // Its effort and settings are its own too: the old agent's ids mean
@@ -390,6 +393,12 @@ pub(super) async fn set_backend(
         moved.effort_id = None;
         moved.config_choices.clear();
         moved.updated_at = chrono::Utc::now().timestamp_millis();
+        // The person's Always to hand it work was given for the agent it ran
+        // on; on another one it asks again (`session/consent.rs`).
+        let servers = super::settings::server_ids(log);
+        if let Some(why) = crate::session::consent::widened(&previous, &moved, &servers, &servers) {
+            crate::session::consent::clear(log, &mut moved, why)?;
+        }
         room::append_persona(log, &moved)?;
         room::clear_checkpoint(log, persona_id, backend_id)?;
     }

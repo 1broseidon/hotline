@@ -377,14 +377,18 @@ answered first — so a stale card cannot silently let an agent through.
 
 The same command answers a room-owned `collab:<id>` card before any driver is
 asked. It is raised only for a request up in access, a caller with its own
-folders asking a recipient with the whole machine; between equals or down,
-there is none. Its title is the heading, `<caller> wants <recipient> to do
-work`, a blank line, and `<recipient> has more access than <caller>. If you
-allow this, <recipient> does the work with its own access: your whole Mac.`
-Its options are `allow` ("Allow", this request only), `allow_always`
-("Always") and `deny` ("Deny"). An always choice appends the caller's stable
-id to the recipient's `allowedSenders` list, until the recipient's access
-grows. ACP mode and Computer access do not imply Whole machine authority. `list_teammates` returns each other teammate's
+folders asking a recipient with the whole machine, or for a request to a
+recipient on another agent from a caller without the whole machine; between
+equals or down, there is none. Its title is the heading, `<caller> wants
+<recipient> to do work`, a blank line, and `<recipient> has more access than
+<caller>. If you allow this, <recipient> does the work with its own access:
+your whole Mac.`, or for a recipient on another agent `<recipient> runs on
+<agent>, which sets its own access. If you allow this, <recipient> does the
+work with that access.` Its options are `allow` ("Allow", this request
+only), `allow_always` ("Always") and `deny` ("Deny"). An always choice
+appends the caller's stable id to the recipient's `allowedSenders` list,
+until the recipient's access grows or it moves to another agent
+(`session.set_backend`). ACP mode and Computer access do not imply Whole machine authority. `list_teammates` returns each other teammate's
 `personaId` and `name`, plus what the roster already knows about it: `state`
 (`idle`, `working`, `waiting` or `stopped`), the running tool's title as
 `activity`, and `workingOn` (`title` — the open chapter's or the goal's,

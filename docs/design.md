@@ -530,7 +530,11 @@ nothing the sender could not. Up in access, the person is asked each time,
 by a card in the sender's chat: "Goldie wants Huck to do work", "Huck has
 more access than Goldie. If you allow this, Huck does the work with its own
 access: your whole Mac.", with Allow (this request only), Always (this
-direction, until the recipient's access grows) and Deny. Always is an
+direction, until the recipient's access grows) and Deny. A recipient on
+another agent sets its own access, which Hotline cannot see, so asking one
+raises the card too, unless the sender has the whole machine: "Huck runs on
+Codex, which sets its own access. If you allow this, Huck does the work with
+that access.", and Always for it also ends when it moves to another agent. Always is an
 `allowedSenders` id on the recipient; it survives rename and restart.
 Revocation clears waits and queued work. An authorized reply does not grant
 the reverse direction or any third party. Discovery gives any caller only

@@ -1,7 +1,7 @@
 //! "Always allow" through the wire: `persona.update` and `settings.update`
 //! clear the person's standing consent to hand a teammate work only when its
-//! access grows, and clear `allowedSenders` with it, so the settings never
-//! say Always when a handoff would ask.
+//! access grows or it moves to another agent, and clear `allowedSenders`
+//! with it, so the settings never say Always when a handoff would ask.
 
 use super::commands;
 use super::*;
@@ -60,7 +60,7 @@ fn always(log: &Log) -> (bool, bool) {
 async fn a_persona_update_clears_always_only_when_the_recipients_access_grows() {
     for (patch, grows) in [
         (json!({"goal": "Ship the release."}), false),
-        (json!({"backendId": "claude-code"}), false),
+        (json!({"backendId": "claude-acp"}), true),
         (json!({"modelId": "anthropic/claude"}), false),
         (json!({"reach": "machine"}), true),
         (json!({"mcpPolicy": {"mode": "all", "serverIds": []}}), true),

@@ -426,6 +426,45 @@ async fn session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn() {
     assert_eq!(quiet.reattached(), vec![id]);
 }
 
+/// Moving a teammate to another agent takes away the person's Always for a
+/// colleague to hand it work: it was given for the agent it ran on, and the
+/// next request asks again. Settings stop listing it.
+#[tokio::test]
+async fn session_set_backend_takes_away_always_for_the_agent_it_left() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("set-backend-always", quiet.clone());
+    let mut socket = desk(port).await;
+    let goldie = create(&mut socket, 1, "Goldie").await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let huck = create(&mut socket, 2, "Huck").await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut record = room::roster(&log)
+        .into_iter()
+        .find(|persona| persona.id == huck)
+        .unwrap();
+    record.allowed_senders = vec![goldie.clone()];
+    room::append_persona(&log, &record).unwrap();
+    crate::session::consent::record_informed(&log, &goldie, &huck).unwrap();
+
+    let moved = set_backend(&mut socket, 3, &huck, "codex").await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    let huck_now = room::roster(&log)
+        .into_iter()
+        .find(|persona| persona.id == huck)
+        .unwrap();
+    assert_eq!(huck_now.backend_id, "codex");
+    assert!(huck_now.allowed_senders.is_empty(), "{huck_now:?}");
+    assert!(!crate::session::consent::informed(
+        &log.load(&StreamId::Room),
+        &goldie,
+        &huck
+    ));
+}
+
 #[tokio::test]
 async fn session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there() {
     let quiet = Arc::new(Quiet::new());

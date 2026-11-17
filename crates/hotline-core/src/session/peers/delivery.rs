@@ -1,8 +1,10 @@
 //! What one teammate needs to ask another to work: nothing when the other
 //! has no more access than it, else the person's card, "Goldie wants Huck to
 //! do work", answered Allow (this request), Always (this direction, until the
-//! receiver's access grows) or Deny; and the decision written back when the
-//! card is answered or expires.
+//! receiver's access grows or it moves to another agent) or Deny; and the
+//! decision written back when the card is answered or expires. A receiver on
+//! another agent sets its own access, which Hotline cannot see, so asking one
+//! raises the card too, unless the sender has the whole machine.
 
 use super::*;
 use crate::session::{new_id, now_ms};
@@ -50,7 +52,11 @@ impl Room {
         }
         let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
         let caller_name = crate::session::links::shown(&caller);
-        let title = collaboration_title(&caller_name, &target);
+        let agent = crate::session::consent::another_agent(&target).then(|| {
+            crate::driver::acp::registry::name_of(self.log.root(), &target.backend_id)
+                .unwrap_or_else(|| target.backend_id.clone())
+        });
+        let title = collaboration_title(&caller_name, &target, agent.as_deref());
         let options = collaboration_options();
         // The card is the person's, on the desk whose teammate would do the
         // work: the caller's tape, or the recipient's when the caller lives
@@ -190,7 +196,9 @@ impl Room {
 
     /// Whether `caller` may ask `target` to work without the person's card:
     /// when `target` has no more access than `caller`, it gains nothing a
-    /// card would guard, so nothing asks; up in access, only the person's
+    /// card would guard, so nothing asks; up in access, or to a teammate on
+    /// another agent from one without the whole machine
+    /// ([`crate::session::consent::asks_the_person`]), only the person's
     /// Always for this direction (`allowedSenders`, and for work the informed
     /// record beside it) lets it through unasked.
     pub(in crate::session) fn collaboration_granted(
@@ -201,7 +209,7 @@ impl Room {
     ) -> bool {
         // Whatever a teammate may do on its own desk, it gains nothing by
         // crossing a link: one on a linked desk is always asked about.
-        if caller.node.is_none() && !crate::session::consent::more_access(caller, target) {
+        if caller.node.is_none() && !crate::session::consent::asks_the_person(caller, target) {
             return true;
         }
         let room = self.log.load(&StreamId::Room);

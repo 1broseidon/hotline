@@ -557,8 +557,10 @@ function HarnessRows({
 
 /**
  * Who may hand this teammate work without asking first. Only a teammate
- * with less access than this one is asked about at all, and the answer
- * Always lands here as a row you can revoke.
+ * with less access than this one, or, for a teammate on another agent, any
+ * without the whole machine, is asked about at all, and the answer Always
+ * lands here as a row you can revoke, until this one's access grows or it
+ * moves to another agent.
  */
 function CollaborationRows({
 	allowed,

@@ -3,20 +3,23 @@
 //! clears it: the recipient's access growing.
 //!
 //! A teammate's access is the level its settings give it: its own folders,
-//! or the whole machine (Hotline Agent's Whole machine switch, `reach`). Only a request
-//! up in access asks the person ([`more_access`]); between equals, or down,
-//! the receiver can do nothing the sender could not, so nothing asks.
+//! or the whole machine (Hotline Agent's Whole machine switch, `reach`). A
+//! teammate that runs on another agent sets its own access, which Hotline
+//! cannot see. A request up in access asks the person, and so does one to a
+//! teammate on another agent, unless the sender has the whole machine, which
+//! nothing is above ([`asks_the_person`]); between equals, or down, the
+//! receiver can do nothing the sender could not, so nothing asks.
 //!
 //! "Always" on that card is two records. The caller's id in the recipient's
 //! `allowedSenders`, which lets it ask, and a `collaboration_informed` room
 //! event for the direction, which says the person was shown what a handoff
 //! means and lets it hand work over. Both stand until the person takes them
 //! away (Permissions › Collaboration, Revoke) or the recipient comes to reach
-//! more than it did when they were given: then the work the person agreed
-//! to could do more than they agreed to, so both go, and the next request up
-//! in access asks again. A goal edited, a model or agent switched, a
-//! restart, a chapter, a rebuild or a sign-out that narrows nothing leaves
-//! them alone.
+//! more than it did when they were given, or moves to another agent, whose
+//! access the person was not shown: then the work the person agreed to could
+//! do more than they agreed to, so both go, and the next request asks again.
+//! A goal edited, a model switched, a restart, a chapter, a rebuild or a
+//! sign-out that narrows nothing leaves them alone.
 
 use crate::contract::{Persona, PolicyMode, Reach};
 use crate::log::{Log, StreamId};
@@ -53,10 +56,20 @@ pub(crate) fn record_informed(log: &Log, caller: &str, target: &str) -> Result<(
     .map_err(|error| error.to_string())
 }
 
-/// Whether `target` has more access than `caller`, by the level each one's
-/// settings give it: the whole machine is more than its own folders.
-pub(crate) fn more_access(caller: &Persona, target: &Persona) -> bool {
-    whole_machine(target) && !whole_machine(caller)
+/// Whether `caller` asking `target` to work needs the person's card: when
+/// `target` has more access, the whole machine being more than its own
+/// folders, or runs on another agent, whose access Hotline cannot see; and
+/// never when `caller` has the whole machine, which nothing is above. A
+/// caller on another agent is not known to have it, so it is asked about.
+pub(crate) fn asks_the_person(caller: &Persona, target: &Persona) -> bool {
+    !whole_machine(caller) && (whole_machine(target) || another_agent(target))
+}
+
+/// Whether a teammate of this desk runs on another agent (an ACP harness),
+/// which sets its own access ("Your harness manages the permissions of its
+/// own tools"). A teammate on a linked desk is that desk's to ask about.
+pub(crate) fn another_agent(persona: &Persona) -> bool {
+    persona.node.is_none() && persona.backend_id != crate::driver::HOTLINE_BACKEND_ID
 }
 
 /// Whether a teammate has the whole machine: Hotline Agent with Whole
@@ -71,7 +84,8 @@ fn whole_machine(persona: &Persona) -> bool {
 /// settings, for the card that asks before one with more of it does work:
 /// the whole machine (the Whole machine switch), else its own folders (its
 /// Folders). A card up in access names the whole machine; only a caller on
-/// a linked desk, always asked about, can meet the other.
+/// a linked desk, always asked about, can meet the other. A teammate on
+/// another agent has its own card's words (`peers::collaboration_title`).
 pub(crate) fn access_words(target: &Persona) -> &'static str {
     if !whole_machine(target) {
         "its own folders"
@@ -87,6 +101,7 @@ pub(crate) fn access_words(target: &Persona) -> &'static str {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Widening {
     Machine,
+    Agent,
     Workspace,
     Folder,
     McpServer,
@@ -98,6 +113,7 @@ impl Widening {
     fn code(self) -> &'static str {
         match self {
             Self::Machine => "machine",
+            Self::Agent => "agent",
             Self::Workspace => "workspace",
             Self::Folder => "folder",
             Self::McpServer => "mcp",
@@ -124,8 +140,9 @@ fn granted<'a>(persona: &'a Persona, servers: &'a [String]) -> HashSet<&'a str> 
 /// Whether `updated` reaches more than `previous` did, and how. `before` and
 /// `after` are the desk's MCP servers around the change: the same list for a
 /// teammate's own update, two for a server added in settings. Only what lets
-/// the teammate touch more counts; a narrowing, its goal, its model or its
-/// agent do not.
+/// the teammate touch more counts, and a move to another agent, whose access
+/// the person agreed to was not this one's; a narrowing, its goal or its
+/// model do not.
 pub(crate) fn widened(
     previous: &Persona,
     updated: &Persona,
@@ -135,6 +152,9 @@ pub(crate) fn widened(
     let machine = |persona: &Persona| persona.reach.unwrap_or_default() == Reach::Machine;
     if machine(updated) && !machine(previous) {
         return Some(Widening::Machine);
+    }
+    if updated.backend_id != previous.backend_id {
+        return Some(Widening::Agent);
     }
     if updated.cwd != previous.cwd {
         return Some(Widening::Workspace);

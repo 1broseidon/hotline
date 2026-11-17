@@ -16,7 +16,7 @@ conversation:
 | Tool | What it does |
 | --- | --- |
 | `request_human` | Asks you for something only a person can do, as a **Needs you** card. It does not wait: your answer arrives later as a message. |
-| `send`, `read_inbox`, `update_inbox`, `list_teammates` | Puts an item in a colleague's inbox, reads and sorts its own, and sees who is idle, working or waiting. A request to a colleague with more access (a Hotline Agent teammate with **Whole machine**, from one without) waits for you to allow it. See [Teammates working together](/docs/use/teammates-together/). |
+| `send`, `read_inbox`, `update_inbox`, `list_teammates` | Puts an item in a colleague's inbox, reads and sorts its own, and sees who is idle, working or waiting. A request to a colleague with more access (a Hotline Agent teammate with **Whole machine**, from one without), or to one that runs on another agent, from a teammate without **Whole machine**, waits for you to allow it. See [Teammates working together](/docs/use/teammates-together/). |
 | `send_file` | Sends you a file in the conversation: a report, a chart, a screenshot of its computer. Pictures up to 2000 pixels, other files up to 25 MB. |
 | `react` | Puts an emoji on your last message instead of a reply. |
 | `open_link` | Opens a link in your own browser when you ask for it — your default, or the one you name ("open it in Brave") — only while you are at the desktop app. What a teammate opens to work on goes in its own browser. |

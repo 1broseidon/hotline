@@ -57,6 +57,11 @@ fn each_widening_of_the_recipients_access_is_named() {
         Some(Widening::Machine)
     );
     assert_eq!(
+        after(|bob| bob.backend_id = "claude-acp".into()),
+        Some(Widening::Agent),
+        "moved to another agent, whose access the person was not shown"
+    );
+    assert_eq!(
         after(|bob| bob.cwd = "/srv/elsewhere".into()),
         Some(Widening::Workspace)
     );
@@ -126,7 +131,6 @@ fn each_widening_of_the_recipients_access_is_named() {
 fn nothing_that_leaves_the_recipient_reaching_as_far_clears_consent() {
     assert_eq!(after(|bob| bob.goal = "Something else.".into()), None);
     assert_eq!(after(|bob| bob.model_id = Some("gpt".into())), None);
-    assert_eq!(after(|bob| bob.backend_id = "claude-code".into()), None);
     assert_eq!(after(|bob| bob.name = "Robert".into()), None);
     assert_eq!(after(|bob| bob.folders = None), None, "a folder removed");
     assert_eq!(

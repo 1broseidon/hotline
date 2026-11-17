@@ -264,6 +264,141 @@ async fn between_equals_or_down_in_access_nothing_asks() {
     }
 }
 
+/// Ada and Bob each on the agent and reach given: `hotline` is Hotline
+/// Agent, any other id another agent.
+fn agent_room(
+    name: &str,
+    agents: Arc<Fake>,
+    ada: (&str, Option<crate::contract::Reach>),
+    bob: (&str, Option<crate::contract::Reach>),
+) -> Arc<Room> {
+    let log = scratch(name);
+    for (id, shown, (backend, reach)) in [("ada", "Ada", ada), ("bob", "Bob", bob)] {
+        let mut teammate = persona(id);
+        teammate.name = shown.to_string();
+        teammate.backend_id = backend.to_string();
+        teammate.reach = reach;
+        enrol(&log, &teammate);
+    }
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
+}
+
+/// Bob moves to `backend` the way Settings moves him
+/// (`wire/commands/models.rs`, `set_backend`): the person's Always for him
+/// goes with the agent it was given for.
+fn move_bob_to(room: &Room, backend: &str) {
+    let previous = room.persona("bob").unwrap();
+    let mut moved = previous.clone();
+    moved.backend_id = backend.to_string();
+    if let Some(why) = crate::session::consent::widened(&previous, &moved, &[], &[]) {
+        crate::session::consent::clear(&room.log, &mut moved, why).unwrap();
+    }
+    crate::room::append_persona(&room.log, &moved).unwrap();
+}
+
+/// A teammate on another agent sets its own access, which Hotline cannot
+/// see, so asking one raises the card, in its own words, from a Hotline
+/// Agent teammate with its own folders and from one on another agent alike;
+/// a sender with the whole machine, which nothing is above, is not asked
+/// about.
+#[tokio::test]
+async fn asking_a_teammate_on_another_agent_asks_the_person_unless_the_sender_has_the_whole_machine()
+ {
+    use crate::contract::Reach;
+    for (name, ada, card) in [
+        (
+            "folders-to-agent",
+            ("hotline", Some(Reach::Workspace)),
+            true,
+        ),
+        ("agent-to-agent", ("claude-acp", None), true),
+        ("machine-to-agent", ("hotline", Some(Reach::Machine)), false),
+    ] {
+        let room = agent_room(
+            &format!("other-agent-{name}"),
+            Fake::new(Scripted::new(answers("a1", "done"))),
+            ada,
+            ("codex-acp", None),
+        );
+        let id = ask(&room, "ada", "bob", "check the harbour").await.unwrap();
+        if card {
+            let card = collaboration_card(&room, "ada").await;
+            assert_eq!(
+                card["title"],
+                "Ada wants Bob to do work\n\nBob runs on Codex, which sets its own access. If you allow this, Bob does the work with that access.",
+                "{name}"
+            );
+            let names: Vec<&str> = card["options"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|option| option["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(names, ["Allow", "Always", "Deny"], "{name}");
+            room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW)
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            answer(&room, "ada", &id).await["cause"]["status"],
+            "done",
+            "{name}"
+        );
+        assert_eq!(permission_cards(&room, "ada"), usize::from(card), "{name}");
+    }
+}
+
+/// Always for a teammate on another agent lets the next request through
+/// unasked, until it moves to a different agent, whose access the person
+/// was not shown: then the next request asks again.
+#[tokio::test]
+async fn always_for_a_teammate_on_another_agent_holds_until_it_moves_to_another() {
+    let room = agent_room(
+        "other-agent-always",
+        Fake::new(Scripted::new(answers("a1", "done"))),
+        ("hotline", Some(crate::contract::Reach::Workspace)),
+        ("codex-acp", None),
+    );
+    let first = ask(&room, "ada", "bob", "one").await.unwrap();
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_ALWAYS)
+        .await
+        .unwrap();
+    assert_eq!(
+        answer(&room, "ada", &first).await["cause"]["status"],
+        "done"
+    );
+    assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
+
+    let second = ask(&room, "ada", "bob", "two").await.unwrap();
+    assert_eq!(
+        answer(&room, "ada", &second).await["cause"]["status"],
+        "done"
+    );
+    assert_eq!(permission_cards(&room, "ada"), 1, "Always asks no more");
+
+    room.stop("bob").unwrap();
+    move_bob_to(&room, "claude-acp");
+    assert_eq!(
+        room.persona("bob").unwrap().allowed_senders,
+        [] as [String; 0],
+        "Always went with the agent it was given for"
+    );
+    let third = ask(&room, "ada", "bob", "three").await.unwrap();
+    let card = collaboration_card(&room, "ada").await;
+    assert_eq!(
+        card["title"],
+        "Ada wants Bob to do work\n\nBob runs on Claude Code, which sets its own access. If you allow this, Bob does the work with that access."
+    );
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), DENY)
+        .await
+        .unwrap();
+    assert_eq!(
+        answer(&room, "ada", &third).await["cause"]["status"],
+        "failed"
+    );
+}
+
 /// Allow lets this one request through; the next one up in access asks
 /// again, and Allow answers it again.
 #[tokio::test]

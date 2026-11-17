@@ -1506,7 +1506,10 @@ handed over as one, and a `.docx`, `.xlsx` or `.pptx` must be a ZIP whose
 entries are that kind's (`sent/office.rs` reads their names and extracts
 nothing; the macro-enabled kinds never open). Text, told by its first 8 KB
 being UTF-8 without a NUL whatever its name says, opens in the window's
-viewer; anything else has no Open. A file's `mimeType` says which: the
+viewer: Markdown as a document and a CSV or TSV as a table, each with its
+source a press away, until it passes 2 MB, the table 5,000 rows, or a byte
+that is not UTF-8, when it reads as text a page at a time like any other
+text; anything else has no Open. A file's `mimeType` says which: the
 desk gives the PDF and Office types only by contents, and a `text/` type
 only to text. Any file can be saved where the person picks, or shown in
 its folder.

@@ -6,15 +6,26 @@ import { sizeText } from "../sizes";
 import { wire } from "../wire";
 import { ViewerBar } from "../ui/Viewer";
 import { SourceIcon } from "../icons";
-import { MarkdownDocument } from "./Markdown";
+import { parseDelimited } from "../delimited";
+import { count, MarkdownDocument } from "./Markdown";
 import { SheetKey } from "./Sheet";
 
-/** The most of a markdown file read whole to render it; past it, it reads as text a page at a time. */
+/** The most of a markdown or table file read whole to render it; past it, it reads as text a page at a time. */
 const DOCUMENT_BYTES = 2 * 1024 * 1024;
+
+/** The most rows a table file is drawn with; past it, it reads as text a page at a time. */
+const TABLE_ROWS = 5000;
 
 /** A markdown file, by its type or its name's ending. */
 export function isMarkdown(file: Pick<Attachment, "name" | "mimeType">): boolean {
 	return file.mimeType === "text/markdown" || /\.(md|markdown|mdown|mkd)$/i.test(file.name);
+}
+
+/** What separates a table file's cells, by its type or its name's ending: a CSV's comma, a TSV's tab; none for any other file. */
+function separatorOf(file: Pick<Attachment, "name" | "mimeType">): "," | "\t" | null {
+	if (file.mimeType === "text/csv" || /\.csv$/i.test(file.name)) return ",";
+	if (file.mimeType === "text/tab-separated-values" || /\.tsv$/i.test(file.name)) return "\t";
+	return null;
 }
 
 /** The Word, Excel and PowerPoint types, which the desk gives a file only when its ZIP says it is that kind (sent/office.rs). */
@@ -45,19 +56,25 @@ export function opensIn(file: Pick<Attachment, "mimeType">): "outside" | "viewer
 	return TEXT_TYPE.test(type) ? "viewer" : null;
 }
 
+/** How big a table file is, for the band: its rows under the head, and its widest row's cells. */
+type Shape = { rows: number; columns: number };
+
 /**
  * A sent file opened on the desk: only text reaches it (`opensIn`). Markdown
- * is rendered as a document, with its source a press away; any other text is
- * read as text, never as HTML or an executable file association, a page at
- * a time.
+ * is rendered as a document, and a CSV or TSV as a table, each with its
+ * source a press away; any other text is read as text, never as HTML or an
+ * executable file association, a page at a time.
  */
 export function SentPreview({ sent, actions, onClose }: { sent: Sent; actions: ReactNode; onClose(): void }) {
 	const { file } = sent;
-	const renders = isMarkdown(file) && (file.size === undefined || file.size <= DOCUMENT_BYTES);
+	const separator = separatorOf(file);
+	const renders = (isMarkdown(file) || separator !== null) && (file.size === undefined || file.size <= DOCUMENT_BYTES);
 	const [source, setSource] = useState(false);
 	const [unreadable, setUnreadable] = useState(false);
+	const [shape, setShape] = useState<Shape | null>(null);
 	const rendered = renders && !source && !unreadable;
 	const giveUp = useCallback(() => setUnreadable(true), []);
+	const fact = shape !== null && !unreadable ? `${count(shape.rows, "row")} × ${count(shape.columns, "column")}` : file.size !== undefined ? sizeText(file.size) : null;
 	useEffect(() => {
 		const close = (event: KeyboardEvent) => {
 			if (event.key === "Escape") { event.stopPropagation(); onClose(); }
@@ -67,21 +84,25 @@ export function SentPreview({ sent, actions, onClose }: { sent: Sent; actions: R
 	}, [onClose]);
 	return createPortal(
 		<div className="viewer" role="dialog" aria-modal="true" aria-label={file.name}>
-			<ViewerBar fact={[file.name, file.size !== undefined ? sizeText(file.size) : null].filter(Boolean).join(" · ")} onClose={onClose}>
+			<ViewerBar fact={[file.name, fact].filter(Boolean).join(" · ")} onClose={onClose}>
 				{renders && !unreadable && (
 					<SheetKey icon={<SourceIcon />} label="Source" title={source ? "Show it rendered" : "Show the source"} pressed={source} onClick={() => setSource((was) => !was)} />
 				)}
 				{actions}
 			</ViewerBar>
-			{rendered ? <DocumentPage sent={sent} onUnreadable={giveUp} /> : <TextPages sent={sent} />}
+			{rendered ? <DocumentPage sent={sent} separator={separator} onShape={setShape} onUnreadable={giveUp} /> : <TextPages sent={sent} />}
 		</div>, document.body,
 	);
 }
 
-/** The whole file read, then rendered as a document; a file that is not text goes to the text view. */
-function DocumentPage({ sent, onUnreadable }: { sent: Sent; onUnreadable(): void }) {
+/**
+ * The whole file read, then rendered: as a table when it has a separator,
+ * else as a markdown document. A file that is not UTF-8, or a table of more
+ * than `TABLE_ROWS` rows, goes to the text view.
+ */
+function DocumentPage({ sent, separator, onShape, onUnreadable }: { sent: Sent; separator: "," | "\t" | null; onShape(shape: Shape): void; onUnreadable(): void }) {
 	const { personaId, eventId, index } = sent;
-	const [text, setText] = useState<string | null>(null);
+	const [drawn, setDrawn] = useState<{ markdown: string } | { table: string[][] } | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	useEffect(() => {
 		let gone = false;
@@ -104,20 +125,66 @@ function DocumentPage({ sent, onUnreadable }: { sent: Sent; onUnreadable(): void
 				whole.set(part, at);
 				at += part.length;
 			}
+			let text: string;
 			try {
-				setText(new TextDecoder("utf-8", { fatal: true }).decode(whole));
+				text = new TextDecoder("utf-8", { fatal: true }).decode(whole);
 			} catch {
-				onUnreadable();
+				return onUnreadable();
 			}
+			if (separator === null) return setDrawn({ markdown: text });
+			const table = parseDelimited(text, separator);
+			if (table.length === 0 || table.length - 1 > TABLE_ROWS) return onUnreadable();
+			onShape({ rows: table.length - 1, columns: Math.max(...table.map((row) => row.length)) });
+			setDrawn({ table });
 		})().catch((failure: unknown) => {
 			if (!gone) setError(failure instanceof Error ? failure.message : String(failure));
 		});
 		return () => { gone = true; };
-	}, [personaId, eventId, index, onUnreadable]);
+	}, [personaId, eventId, index, separator, onShape, onUnreadable]);
 	return (
 		<div className="m-4 min-h-0 flex-1 overflow-auto rounded bg-canvas px-8 py-6 text-ink">
-			{text !== null ? <MarkdownDocument text={text} /> : <p className="text-ink-3">{error ?? "Reading file…"}</p>}
+			{drawn === null ? (
+				<p className="text-ink-3">{error ?? "Reading file…"}</p>
+			) : "markdown" in drawn ? (
+				<MarkdownDocument text={drawn.markdown} />
+			) : (
+				<ValuesTable rows={drawn.table} />
+			)}
 		</div>
+	);
+}
+
+/**
+ * A table file drawn as the app draws a Markdown table in a document: its
+ * first row the head, and every row as wide as the widest, a short one
+ * filled out with empty cells.
+ */
+function ValuesTable({ rows }: { rows: string[][] }) {
+	const columns = Math.max(...rows.map((row) => row.length));
+	const cells = (row: string[]) => Array.from({ length: columns }, (_, column) => row[column] ?? "");
+	const [head = [], ...body] = rows;
+	return (
+		<article className="md md-doc">
+			<div className="md-table">
+				<table>
+					<thead>
+						<tr>
+							{/* biome-ignore lint/suspicious/noArrayIndexKey: a column is its place; the file never changes under it. */}
+							{cells(head).map((cell, column) => <th key={column}>{cell}</th>)}
+						</tr>
+					</thead>
+					<tbody>
+						{body.map((row, line) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: a row is its place; the file never changes under it.
+							<tr key={line}>
+								{/* biome-ignore lint/suspicious/noArrayIndexKey: a column is its place; the file never changes under it. */}
+								{cells(row).map((cell, column) => <td key={column}>{cell}</td>)}
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</article>
 	);
 }
 

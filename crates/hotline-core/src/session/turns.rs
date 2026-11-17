@@ -285,12 +285,13 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         ));
     }
 
-    fn steer(&mut self) {
+    fn steer(&mut self) -> bool {
         if (self.open)()
             && let Some(steer) = self.seat.steer
         {
             steer();
         }
+        false
     }
 
     fn write(&mut self, event: TranscriptEvent, _asked: bool) {

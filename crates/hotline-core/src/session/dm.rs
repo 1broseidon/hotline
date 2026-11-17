@@ -233,10 +233,13 @@ impl Occupant for Session {
                     room.return_note(&session.persona_id, &session.thread())
                 );
             }
+            // The person's emoji alone is a reaction, said so, and waits on
+            // no reply ([`super::marks`]).
+            let reaction = wired.person == Some(super::marks::Person::Reaction);
             Source::Say {
-                text,
+                text: super::marks::at_the_door(text, wired.person),
                 attachments: wired.attachments,
-                asked: !wired.back,
+                asked: !wired.back && !reaction,
             }
         };
         // Nothing refuses the turn from here: the result it hears is spent.
@@ -304,10 +307,10 @@ impl Occupant for Session {
             // Drivers return the input's contents, not its tape identity.
             // Match from the end because replay is requeued in reverse;
             // identical inputs must keep their original order and origin.
-            let wire = if let Some(index) = steered
-                .iter()
-                .rposition(|wire| wire.text == text && wire.attachments == attachments)
-            {
+            let wire = if let Some(index) = steered.iter().rposition(|wire| {
+                super::marks::steered(&wire.text, wire.person) == text
+                    && wire.attachments == attachments
+            }) {
                 steered.remove(index)
             } else {
                 let mut wire = Wired::words(text);
@@ -591,10 +594,8 @@ impl Witness for Heard<'_> {
         }
     }
 
-    fn steer(&mut self) {
-        if !self.answering_a_question {
-            self.room.steer_waiting(self.session, self.steered);
-        }
+    fn steer(&mut self) -> bool {
+        !self.answering_a_question && self.room.steer_waiting(self.session, self.steered)
     }
 }
 
@@ -609,18 +610,27 @@ impl Room {
         }
     }
 
-    fn steer_waiting(&self, session: &Arc<Session>, steered_inputs: &mut Vec<Wired>) {
+    /// Hands the driver the lines waiting that may join the turn in flight,
+    /// the person's with the mark of the moment ([`super::marks`]), and says
+    /// whether one of them was the person's.
+    fn steer_waiting(&self, session: &Arc<Session>, steered_inputs: &mut Vec<Wired>) -> bool {
         if !session.capability.is_current() || !self.current_session(session) {
-            return;
+            return false;
         }
         let taken = lock(&session.turns).steer_into(
             session.driver.as_ref(),
             |wire| wire.steer,
-            |wire| (wire.text.clone(), wire.attachments.clone()),
+            |wire| {
+                (
+                    super::marks::steered(&wire.text, wire.person),
+                    wire.attachments.clone(),
+                )
+            },
         );
         if taken.is_empty() {
-            return;
+            return false;
         }
+        let person = taken.iter().any(|wire| wire.person.is_some());
         for wire in &taken {
             *lock(&session.voice_origin) = call_origin(wire);
             if let Some(said) = wire.said.clone() {
@@ -636,6 +646,7 @@ impl Room {
         // A turn that was only waiting on its subagents has a line to
         // answer now, so it is working again.
         self.await_subagents(session, false);
+        person
     }
 }
 

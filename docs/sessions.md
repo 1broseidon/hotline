@@ -263,6 +263,48 @@ the tape as a reply rather than held as possible narration: the driver sends
 `Update::Parked` just before it waits, and the person reads that line while
 the work goes on.
 
+### The person's line, a reaction, and a line said mid-turn
+
+Hotline marks two moments in a line of its own said with the person's words
+(`session/marks.rs`), so that the permission to answer with a reaction comes
+with the situation and never as a habit:
+
+- **Emoji alone.** A line of the person's that is emoji and nothing else,
+  with nothing attached, is said to be a reaction to what the teammate last
+  said, not a question: no reply is needed, a yes to something it asked is
+  acted on, and it writes something only when there is something important
+  the person does not yet know. The test is the window's own for a line
+  drawn large (Extended_Pictographic, skin tones, the joiner and the
+  presentation selector); a bare "ok" or "thanks" is words and gets no
+  mark, since no rule tells a closing remark from an answer without
+  guessing. The turn goes to the driver as `prompt_unasked`, so Hotline
+  Agent ends one answered with nothing with no bubble and no retry. Claude
+  Code makes its model write a line after an empty answer, which is a
+  bubble there.
+- **Said while the teammate works.** A line of the person's steered into a
+  running turn (Hotline Agent's loop takes it at its next request; an ACP
+  agent that offers steering has it injected, [Steering an ACP
+  turn](#steering-an-acp-turn)) carries a mark that it arrived while the
+  teammate was working: a question, a change of direction or something to
+  decide gets its answer now, in words, which are shown; a line that changes
+  nothing, or a small addition it will fold in, may have a reaction. An
+  emoji alone carries the reaction's mark instead. A line the driver hands
+  back unused runs as a turn of its own with neither mark.
+
+The answer to a line said mid-turn is chat. Once a turn has called a tool,
+the narration rule (`session/narration.rs`) holds each message until the
+next update, and a message followed by another tool call is written as
+thinking; only the first message of a turn and its last are chat. An answer
+to a line said mid-turn is, by its place, a message between two tool calls,
+so it was written as thinking, and with an empty last answer the turn could
+end with nothing in the chat. So when a line of the person's joins the turn
+the runner tells the turn's voice (`Voice::heard_person`), which treats the
+next message as it treats a turn's first: it is said, whatever follows it.
+A reaction is a tool call, so a line answered with one leaves no message to
+promote, and narration after the answer is thinking as before. This holds
+for any driver, since both take the line through `Driver::steer`; a work
+thread's runner does not yet tell its voice.
+
 ### Subagents
 
 A Hotline Agent teammate's own session can hand a task to a **subagent**

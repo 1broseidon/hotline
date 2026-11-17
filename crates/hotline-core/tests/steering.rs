@@ -157,6 +157,151 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
     }
 }
 
+/// A question the person asks while the teammate works is answered at once,
+/// and the answer is chat although a tool call follows it in the same answer
+/// and the turn ends with nothing more said; narration later in the turn is
+/// still thinking. Through the real core and Hotline Agent's real loop.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_answer_to_a_question_asked_mid_turn_reaches_the_chat() {
+    let api = "chat_completions";
+    let (seen, mut requests) = tokio::sync::mpsc::channel(8);
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |body: Bytes| {
+            let seen = seen.clone();
+            async move {
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                let serialized = request.to_string();
+                let asked = serialized.contains("How far along are you?");
+                let reads = serialized.matches("a confirmed fact").count();
+                seen.send(request).await.unwrap();
+                let chunk = |delta: Value, finish: Value| {
+                    json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":delta,"finish_reason":finish}]})
+                };
+                let read = |id: &str| json!({"index":0,"id":id,"type":"function","function":{"name":"read","arguments":"{\"path\":\"note.txt\"}"}});
+                let events = match (asked, reads) {
+                    (false, 0) => tool_events(api, "read", json!({"path":"note.txt"}), "call_first"),
+                    // Still working when the person asks: this request waits
+                    // until the question restarts it.
+                    (false, _) => std::future::pending().await,
+                    // The answer, and more work in the same breath.
+                    (true, 1) => vec![
+                        chunk(json!({"role":"assistant","content":"About halfway: the note is read, the summary is next."}), Value::Null),
+                        chunk(json!({"tool_calls":[read("call_second")]}), Value::Null),
+                        chunk(json!({}), json!("tool_calls")),
+                    ],
+                    // Narration, then more work.
+                    (true, 2) => vec![
+                        chunk(json!({"role":"assistant","content":"Reading it once more."}), Value::Null),
+                        chunk(json!({"tool_calls":[read("call_third")]}), Value::Null),
+                        chunk(json!({}), json!("tool_calls")),
+                    ],
+                    // Nothing more to say.
+                    _ => vec![chunk(json!({"role":"assistant","content":""}), Value::Null), chunk(json!({}), json!("stop"))],
+                };
+                let body = events
+                    .into_iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect::<String>();
+                (
+                    [("Content-Type", "text/event-stream")],
+                    format!("{body}data: [DONE]\n\n"),
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = tempfile::tempdir().unwrap();
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::write(workspace.join("note.txt"), "a confirmed fact").unwrap();
+    let desk = common::open_desk(root.path()).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let door_task = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    let saved = client
+        .call(
+            "credential.custom_save",
+            json!({"draft": {
+                "name":api, "baseUrl":base, "api":api, "models":["vendor/coder"]
+            }}),
+        )
+        .await;
+    assert_eq!(saved["ok"], true, "{saved}");
+    let made = client
+        .call(
+            "persona.create",
+            json!({"draft": {
+                "name":"Asked mid-turn", "goal":"Answer while working", "cwd":workspace.to_string_lossy()
+            }}),
+        )
+        .await;
+    let persona = made["result"]["id"].as_str().unwrap().to_owned();
+    let tape = client.subscribe(json!({"tape":persona})).await;
+    assert_eq!(
+        client
+            .call("session.start", json!({"personaId":persona}))
+            .await["ok"],
+        true
+    );
+    assert_eq!(
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"Read note.txt and summarise it"})
+            )
+            .await["ok"],
+        true
+    );
+    next_request(&mut requests).await;
+    next_request(&mut requests).await;
+    assert_eq!(
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"How far along are you?"})
+            )
+            .await["ok"],
+        true
+    );
+    let resumed = next_request(&mut requests).await;
+    assert!(
+        resumed
+            .to_string()
+            .contains("gets its answer now, in words"),
+        "the line carries the working mark: {resumed}"
+    );
+    let ended = client
+        .next_where(common::ANSWER, |frame| {
+            frame["sub"] == tape && frame["event"]["kind"] == "turn"
+        })
+        .await;
+    assert_eq!(ended["event"]["stopReason"], "end_turn", "{ended}");
+    let written = Log::open(root.path()).load(&StreamId::Tape(persona.clone()));
+    let kind_of = |text: &str| {
+        written
+            .iter()
+            .find(|event| event["text"] == text)
+            .map(|event| event["kind"].clone())
+    };
+    assert_eq!(
+        kind_of("About halfway: the note is read, the summary is next."),
+        Some(json!("agent")),
+        "the answer is chat: {written:?}"
+    );
+    assert_eq!(
+        kind_of("Reading it once more."),
+        Some(json!("thought")),
+        "narration is still thinking: {written:?}"
+    );
+    door_task.abort();
+    server.abort();
+}
+
 /// Reproduces the operator's screenshot with a real process: shell returns a
 /// handle, wait_jobs is interrupted, and cancel_job reaches the process tree.
 #[tokio::test(flavor = "multi_thread")]

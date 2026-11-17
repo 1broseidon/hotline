@@ -689,6 +689,19 @@ have", written as words instead of posted. Those words are kept, marked
 `said`, and the turn's existing line opens a path that shows them whole:
 no new element in the chat, and nothing silently dropped.
 
+Reactions, both ways (George, 2026-11-16): "When I send a thumbs up it
+doesn't always need a reply", and a follow-up mid-turn that is small can
+have a reaction, "tricky though to not make that the default". So the house
+style allows a reaction only for the opening line or a bare acknowledgement,
+only where Hotline says it is enough or after a go-ahead, never for
+anything the person must read, never beside a reply and never for
+everything; and Hotline says it is enough in two marked moments: the
+person's emoji alone (a reaction, no reply needed) and a line said while
+the teammate works (a reaction for what changes nothing, words now for a
+question or a change). An answer said mid-turn is chat even when tool calls
+follow it, since the narration rule had taken it for narration by its
+place.
+
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads
 count while it ran, was pushed up as the person kept talking, and stood

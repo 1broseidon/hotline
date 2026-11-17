@@ -106,8 +106,11 @@ pub(super) trait Witness {
     fn write(&mut self, event: TranscriptEvent, asked: bool);
 
     /// A look at the lines waiting behind the turn, between one update and the
-    /// next, for a kind whose person can steer a turn in flight.
-    fn steer(&mut self) {}
+    /// next, for a kind whose person can steer a turn in flight: whether a
+    /// line of the person's joined the turn.
+    fn steer(&mut self) -> bool {
+        false
+    }
 }
 
 /// One chunk of a message's words as they arrive.
@@ -149,7 +152,11 @@ pub(super) async fn drive_updates(
     // the message is whole.
     let mut shown: HashMap<String, Shown> = HashMap::new();
     loop {
-        witness.steer();
+        // The person spoke into the turn: what the agent says next answers
+        // them, and is chat whatever follows it.
+        if witness.steer() {
+            voice.heard_person();
+        }
         let received = tokio::select! {
             biased;
             () = async {

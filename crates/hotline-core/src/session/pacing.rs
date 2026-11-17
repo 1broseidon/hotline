@@ -53,6 +53,13 @@ pub const SHORT_UNIT_CHARS: usize = 60;
 /// described rather than quoted, because a model copies an example it is
 /// given.
 ///
+/// A reaction may stand in for the opening line or a bare acknowledgement,
+/// never for anything the person must read. The permission is tied to the
+/// situation (a line of Hotline's says when a reaction is enough,
+/// [`super::marks`], and a go-ahead), because a teammate told in general that
+/// it may react reacts by habit, to a fresh request as readily as to a
+/// thumbs up.
+///
 /// It names two sizes. An answer is as long as the question needs, because an
 /// agent told to be short will otherwise shorten the explanation somebody
 /// asked for rather than the packaging around it. A report on work is a
@@ -88,6 +95,8 @@ Before you write, notice what started this turn. It decides how much you say.
 The person wrote to you. If it will take any work, first say the one short line a person would say on hearing it. Then work in silence. Then say what came of it. If you can answer with no work, answer and skip the line. If you are about to ask a question or decline, do that and skip the line.
 
 The line fits the request. A lookup: say you are checking, and what. A job: take it, and if it will run more than a minute or two, say so. Something to write or make: begin, or take a beat to think. Something broken: say you are looking. A correction: own it. A go-ahead: go, and a reaction can stand in for words. A hard question: say you need a moment to think. Something for a colleague: say who you will ask. Match the person: short and loose for a short, loose ask. Do not open with the words you opened with last time. The line is what you would say to someone standing in your doorway, about the thing they just asked, and it is not a summary of your plan.
+
+A reaction can stand in for the opening line or a bare acknowledgement, and only where Hotline says it is enough or the person gave you a go-ahead. It never stands in for an answer, a result, a refusal or anything the person must read. Do not react and also reply, and do not react to everything.
 
 Work you started came back. A helper finished, a command ended, a thread reported, a colleague replied, something you were waiting on arrived. Nobody asked you anything just now, so this is not a turn to reply in. Take in what came back, check what matters, and carry on with what it unblocks. Speak only if you now have what the person asked for, or you need them. One piece of a larger job landing is neither of those. If nothing in it is theirs to know, write nothing and end the turn. Never tell them that nothing changed. One return is the person writing: their own answer to a page, a form or a card you gave them, however it reaches you. Take it as their message, with the one short line or a reaction, then the work.
 
@@ -349,6 +358,15 @@ mod tests {
         ] {
             assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
         }
+    }
+
+    /// A reaction is for where Hotline says it is enough, never for what the
+    /// person must read, never beside a reply and never for everything.
+    #[test]
+    fn a_reaction_stands_in_only_where_it_is_enough() {
+        assert!(HOUSE_STYLE.contains(
+            "A reaction can stand in for the opening line or a bare acknowledgement, and only where Hotline says it is enough or the person gave you a go-ahead. It never stands in for an answer, a result, a refusal or anything the person must read. Do not react and also reply, and do not react to everything."
+        ));
     }
 
     /// A quiet turn's words reach nobody: the house style says so, and that

@@ -33,6 +33,7 @@ mod plan;
 mod posting;
 mod preamble;
 mod quiet_returns;
+mod reactions;
 mod reading;
 mod run_state;
 mod runs;
@@ -88,6 +89,9 @@ pub(crate) struct Scripted {
     heard: Arc<Mutex<Vec<String>>>,
     /// Each retry, by its words, apart from the prompts it also counts as.
     retried: Arc<Mutex<Vec<String>>>,
+    /// Each line said as one nobody waits on (`prompt_unasked`), by its
+    /// words, apart from the prompts it also counts as.
+    unasked: Arc<Mutex<Vec<String>>>,
     /// One permit lets one start finish, so a start can be caught while the
     /// harness is still coming up. `None` starts at once.
     start_gate: Option<Arc<Semaphore>>,
@@ -140,6 +144,7 @@ impl Scripted {
             steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
+            unasked: Arc::default(),
             start_gate: None,
             start_error: Mutex::new(None),
             plan: Arc::new(Mutex::new(None)),
@@ -280,6 +285,16 @@ impl Driver for Scripted {
         reach: Reach,
     ) -> mpsc::Receiver<Update> {
         lock(&self.retried).push(words_of(&text));
+        self.prompt(text, attachments, reach).await
+    }
+
+    async fn prompt_unasked(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        lock(&self.unasked).push(words_of(&text));
         self.prompt(text, attachments, reach).await
     }
 
@@ -500,6 +515,11 @@ impl Fake {
             .iter()
             .map(|heard| stamped(heard))
             .collect()
+    }
+
+    /// Every line said as one nobody waits on, in order.
+    pub(super) fn unasked(&self) -> Vec<String> {
+        lock(&self.driver.unasked).clone()
     }
 
     /// Every line steered into a turn in flight, in order.

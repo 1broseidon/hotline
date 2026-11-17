@@ -310,6 +310,7 @@ impl Room {
                 pick_up: false,
                 woke: Vec::new(),
                 request: None,
+                person: None,
             },
         );
         Ok(())

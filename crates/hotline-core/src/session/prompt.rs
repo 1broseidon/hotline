@@ -134,6 +134,10 @@ impl Room {
                     pick_up: false,
                     woke: Vec::new(),
                     request: None,
+                    person: Some(super::marks::person(
+                        text,
+                        attachments.as_ref().is_some_and(|files| !files.is_empty()),
+                    )),
                 },
                 attachments,
             },

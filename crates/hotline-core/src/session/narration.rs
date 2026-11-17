@@ -20,7 +20,12 @@
 //! What is never held: the first message of a turn, before any tool has been
 //! called. "On it" is the one line the house style asks for — the word that
 //! says you were heard — and an answer that needs no tool is a message
-//! nothing follows anyway.
+//! nothing follows anyway. The same holds for the first message after the
+//! person speaks into a turn already at work ([`Voice::heard_person`]): it
+//! answers them, and is chat even when more tool calls follow it. By its
+//! place alone it is a message between two tool calls, and taken for
+//! narration it was written as thinking, so a question asked mid-turn was
+//! answered where nobody saw it and the turn could end with no bubble at all.
 
 use crate::driver::{MessageKind, Update};
 
@@ -47,6 +52,14 @@ impl Voice {
     /// and the report lands whole.
     pub fn mutes_deltas(&self) -> bool {
         self.worked || self.spoken
+    }
+
+    /// The person spoke into the turn. Their line is answered by the next
+    /// message, as the turn's first is: it is said, whatever follows it.
+    /// A line held from before stays held, to be read by what comes next.
+    pub fn heard_person(&mut self) {
+        self.worked = false;
+        self.spoken = false;
     }
 
     /// One update in, the updates to write in its place, in order.
@@ -359,5 +372,89 @@ mod tests {
             vec![says("m2", "sure"), calls("c2"), says("m3", "done"), turn()],
         );
         assert_eq!(out, ["agent:sure", "call:c2", "agent:done", "turn"]);
+    }
+
+    /// The person asks something while the turn works: the answer that
+    /// follows is said even though more tool calls follow it and the turn
+    /// ends with nothing more, and narration after it is still thought.
+    #[test]
+    fn the_answer_to_a_line_said_mid_turn_is_said_whatever_follows_it() {
+        let mut voice = Voice::new();
+        let out = run(
+            &mut voice,
+            vec![
+                says("m1", "on it"),
+                calls("c1"),
+                returns("c1"),
+                says("m2", "reading the logs"),
+                calls("c2"),
+            ],
+        );
+        assert_eq!(
+            out,
+            [
+                "agent:on it",
+                "call:c1",
+                "result:c1",
+                "thought:reading the logs",
+                "call:c2"
+            ]
+        );
+        voice.heard_person();
+        let out = run(
+            &mut voice,
+            vec![
+                returns("c2"),
+                says("m3", "About halfway: the row is in, the pane is next."),
+                calls("c3"),
+                returns("c3"),
+                says("m4", "now the pane"),
+                calls("c4"),
+                returns("c4"),
+                turn(),
+            ],
+        );
+        assert_eq!(
+            out,
+            [
+                "result:c2",
+                "agent:About halfway: the row is in, the pane is next.",
+                "call:c3",
+                "result:c3",
+                "thought:now the pane",
+                "call:c4",
+                "result:c4",
+                "turn",
+            ]
+        );
+    }
+
+    /// A line answered with a reaction, a tool call, leaves no message to
+    /// promote: the narration after it is thought as before.
+    #[test]
+    fn a_line_answered_with_a_reaction_leaves_no_stray_message() {
+        let mut voice = Voice::new();
+        run(&mut voice, vec![says("m1", "on it"), calls("c1")]);
+        voice.heard_person();
+        let out = run(
+            &mut voice,
+            vec![
+                calls("react"),
+                returns("react"),
+                says("m2", "back to the build"),
+                calls("c2"),
+                turn(),
+            ],
+        );
+        assert_eq!(
+            out,
+            [
+                "call:react",
+                "result:react",
+                "thought:back to the build",
+                "call:c2",
+                "turn"
+            ]
+        );
     }
 }

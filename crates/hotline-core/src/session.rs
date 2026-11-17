@@ -56,6 +56,7 @@ pub(crate) use hotline_room::tool_ledger as ledger;
 mod calls;
 mod lifecycle;
 mod links;
+mod marks;
 mod narration;
 pub(crate) mod new_teammate;
 mod pacing;
@@ -659,6 +660,9 @@ struct Wired {
     woke: Vec<String>,
     /// The colleague's question this line's turn answers.
     request: Option<turns::RequestLine>,
+    /// The person's own typed line, and whether it is only emoji: the turn
+    /// it begins, or joins, is told so in a line of Hotline's ([`marks`]).
+    person: Option<marks::Person>,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
@@ -690,6 +694,7 @@ impl Wired {
             pick_up: false,
             woke: Vec::new(),
             request: None,
+            person: None,
         }
     }
 

@@ -279,8 +279,11 @@ with the situation and never as a habit:
   mark, since no rule tells a closing remark from an answer without
   guessing. The turn goes to the driver as `prompt_unasked`, so Hotline
   Agent ends one answered with nothing with no bubble and no retry. Claude
-  Code makes its model write a line after an empty answer, which is a
-  bubble there.
+  Code makes its model write a line after an empty answer; when that line,
+  or any message of the turn, is an emoji alone, it is put on the person's
+  line as a reaction rather than written as a bubble (`dm.rs`), and the
+  turn's words stream as thinking until they are whole. A line in words
+  after an empty answer is still a bubble there.
 - **Said while the teammate works.** A line of the person's steered into a
   running turn (Hotline Agent's loop takes it at its next request; an ACP
   agent that offers steering has it injected, [Steering an ACP

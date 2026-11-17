@@ -81,6 +81,9 @@ pub(super) struct Hold {
     /// The turn is a pick-up of what the teammate set aside, which no other
     /// pick-up follows.
     pick_up: bool,
+    /// The person's emoji alone began the turn: an emoji alone said back is
+    /// a reaction to it, not a message.
+    reaction: bool,
 }
 
 impl Occupant for Session {
@@ -159,6 +162,7 @@ impl Occupant for Session {
             lock(&session.unread).push(said);
         }
         let from_voice = wired.spoken;
+        let reaction = wired.person == Some(super::marks::Person::Reaction);
         // Work that came back, or the agent's own work between turns, begins
         // a turn nobody started: quiet as the inbox's is, though no inbox
         // limit counts it. One said on a call is heard there.
@@ -235,7 +239,6 @@ impl Occupant for Session {
             }
             // The person's emoji alone is a reaction, said so, and waits on
             // no reply ([`super::marks`]).
-            let reaction = wired.person == Some(super::marks::Person::Reaction);
             Source::Say {
                 text: super::marks::at_the_door(text, wired.person),
                 attachments: wired.attachments,
@@ -262,6 +265,7 @@ impl Occupant for Session {
             quiet: wired.quiet || returning,
             woke,
             pick_up,
+            reaction,
         })
     }
 
@@ -277,6 +281,7 @@ impl Occupant for Session {
             steered: &mut held.steered,
             card: None,
             answering_a_question: held.request.is_some(),
+            reaction: held.reaction,
         };
         room.threads()
             .drive(
@@ -370,6 +375,8 @@ struct Heard<'a> {
     /// Whether the turn answers a colleague's question, whose whole reply
     /// goes to them: nothing the person says is steered into it.
     answering_a_question: bool,
+    /// The person's emoji alone began the turn ([`Hold::reaction`]).
+    reaction: bool,
 }
 
 impl Heard<'_> {
@@ -385,6 +392,14 @@ impl Heard<'_> {
     /// turn and the person has not spoken into it.
     fn quiet(&self) -> bool {
         self.room.is_quiet(&self.session.thread())
+    }
+
+    /// Whether `text` is an emoji said back to the person's emoji alone:
+    /// a reaction on their line, never a bubble. Claude Code makes its model
+    /// write something after an empty answer, and to a thumbs up that is
+    /// often a thumbs up.
+    fn reacts_back(&self, text: &str) -> bool {
+        self.reaction && super::marks::emoji_only(text)
     }
 }
 
@@ -435,7 +450,7 @@ impl Witness for Heard<'_> {
                 kind: MessageKind::Agent,
                 id,
                 text,
-            } if !text.trim().is_empty() && !self.quiet() => {
+            } if !text.trim().is_empty() && !self.quiet() && !self.reacts_back(text) => {
                 // narration::Voice has committed this as an acknowledgement or
                 // report. On a call to this teammate it is said now rather than
                 // when tool work ends: the words already said as it streamed
@@ -501,8 +516,10 @@ impl Witness for Heard<'_> {
     }
 
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
-        // A quiet turn's words stream as the thinking they are written as.
-        let muted = muted || self.quiet();
+        // A quiet turn's words stream as the thinking they are written as,
+        // and a turn the person's emoji began streams none as a bubble that
+        // may yet be a reaction.
+        let muted = muted || self.quiet() || self.reaction;
         // Words the window types as they come are said as they come, from
         // what the agent wrote, tags and all; a message that may yet turn out
         // to be narration waits to be whole.
@@ -531,6 +548,17 @@ impl Witness for Heard<'_> {
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {
         let card = if asked { self.card.take() } else { None };
+        // An emoji said back to the person's emoji is a reaction on their
+        // line; one that cannot be put there is written as it was said.
+        if let TranscriptEvent::Agent { text, .. } = &event
+            && self.reacts_back(text)
+            && self
+                .room
+                .react(&self.session.persona_id, text.trim())
+                .is_ok()
+        {
+            return;
+        }
         // A quiet turn's words are no reply: they are kept as thinking, the
         // path under the turn, which no rail, phone or call takes as one.
         let event = match event {

@@ -232,3 +232,38 @@ async fn a_reaction_and_the_read_receipt_written_together_both_stand() {
         assert_eq!(line["reactions"], json!(["👍"]), "round {round}: {line}");
     }
 }
+
+/// An emoji said back to the person's emoji alone is a reaction on their
+/// line, not a bubble: Claude Code makes its model write something after an
+/// empty answer, and to a thumbs up that is often a thumbs up. Words are
+/// written as words.
+#[tokio::test]
+async fn an_emoji_said_back_to_an_emoji_is_a_reaction_on_the_line() {
+    let agents = Fake::new(Scripted::turns(vec![
+        vec![says("m-back", "👍"), ends()],
+        vec![says("m-words", "Glad it works."), ends()],
+    ]));
+    let room = room("reaction-back", agents.clone());
+    pair_a_phone(&room);
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "👍", None, None).await.unwrap();
+    until_state(&room, "ada", SessionState::Ready).await;
+    until("the turn ended", || {
+        tape(&room, "ada")
+            .iter()
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
+    assert_eq!(kind_of(&room, "m-back"), None, "no bubble");
+    let line = tape(&room, "ada")
+        .into_iter()
+        .rfind(|event| event["kind"] == "user")
+        .unwrap();
+    assert_eq!(line["reactions"], json!(["👍"]), "{line}");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(lock(&room.push.sent).is_empty(), "no push");
+
+    room.prompt("ada", "🎉", None, None).await.unwrap();
+    until("the words", || kind_of(&room, "m-words").is_some()).await;
+    assert_eq!(kind_of(&room, "m-words").as_deref(), Some("agent"));
+}

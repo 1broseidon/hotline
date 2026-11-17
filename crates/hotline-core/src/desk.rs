@@ -67,6 +67,10 @@ impl ProviderKeys for DeskCredentials {
         self.vault.efforts(model_id)
     }
 
+    fn tiers(&self, model_id: &str) -> Vec<String> {
+        self.vault.tiers(model_id)
+    }
+
     fn web_search_keys(&self) -> crate::websearch::Keys {
         self.vault.web_search_keys()
     }
@@ -576,6 +580,10 @@ impl RoomHandle for Desk {
 
     fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
         crate::models::effort_choices_with_default(self.vault.efforts(model_id))
+    }
+
+    fn models_tiers(&self, model_id: &str) -> Vec<String> {
+        self.vault.tiers(model_id)
     }
 
     async fn answer_permission(

@@ -21,6 +21,8 @@ pub(crate) struct Outgoing {
     login: Option<Login>,
     mend: fn(Bytes) -> Bytes,
     mend_stream: fn(BoxedStream) -> BoxedStream,
+    /// Headers every request carries besides the ones Rig wrote.
+    headers: http::HeaderMap,
     http: ReqwestClient,
 }
 
@@ -54,8 +56,15 @@ impl Outgoing {
             login,
             mend,
             mend_stream: std::convert::identity,
+            headers: http::HeaderMap::new(),
             http: ReqwestClient::from(http),
         })
+    }
+
+    /// Every request carries `name: value` too.
+    pub(crate) fn with_header(mut self, name: &'static str, value: http::HeaderValue) -> Self {
+        self.headers.insert(name, value);
+        self
     }
 
     /// A streamed reply read through `mend` on its way back to Rig.
@@ -73,6 +82,7 @@ impl Outgoing {
         request: http::Request<Bytes>,
     ) -> http_client::Result<http::Request<Bytes>> {
         let (mut parts, body) = request.into_parts();
+        parts.headers.extend(self.headers.clone());
         if let Some(login) = &self.login {
             let context = login.context().await.map_err(refused)?;
             let token = context.api_key.expose();

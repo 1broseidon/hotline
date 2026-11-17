@@ -83,7 +83,8 @@ async fn native_anthropic_requests_use_live_limits_or_a_conservative_unknown_bud
         (known.as_str(), Some(1234), 1234),
     ] {
         let model_id = format!("anthropic/{id}");
-        let settings = request_settings(&keys, &model_id, None, live_limit, Reuse::Once).unwrap();
+        let settings =
+            request_settings(&keys, &model_id, None, None, live_limit, Reuse::Once).unwrap();
         let agent = settings
             .on_agent(rig::agent::AgentBuilder::new(client.completion(id)))
             .build();
@@ -469,6 +470,7 @@ async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() 
         identity: "nope/none".to_string(),
         model: "nope/none".to_string(),
         effort: None,
+        tier: None,
         preamble: "you are Ada".to_string(),
         cwd: root.clone(),
         folders: Vec::new(),
@@ -691,7 +693,7 @@ async fn a_responses_only_copilot_model_takes_the_responses_route() {
     assert_eq!(body["model"], "claude-sonnet-5");
 
     let effort = |model: &str| {
-        request_settings(&keys, model, Some("high"), None, Reuse::Rounds)
+        request_settings(&keys, model, Some("high"), None, None, Reuse::Rounds)
             .unwrap()
             .additional_params
     };
@@ -709,7 +711,7 @@ async fn a_responses_only_copilot_model_takes_the_responses_route() {
     );
 
     // Tools on the Responses route are strict, as on Rig's own route.
-    let model = completion_model(&keys, "github-copilot/grok-4.6", Reuse::Rounds)
+    let model = completion_model(&keys, "github-copilot/grok-4.6", None, Reuse::Rounds)
         .await
         .unwrap();
     let request = rig::completion::CompletionRequest::new("read it").tool(
@@ -950,6 +952,7 @@ fn a_listed_level_the_snapshot_lacks_is_sent_as_chosen() {
             "openai-codex/gpt-6.2-sol",
             Some(level),
             None,
+            None,
             Reuse::Rounds,
         )
         .unwrap();
@@ -958,6 +961,102 @@ fn a_listed_level_the_snapshot_lacks_is_sent_as_chosen() {
             Some(json!({"reasoning": {"effort": level}}))
         );
     }
+}
+
+/// A tier the teammate chose goes out as the Codex CLI sends it: the body's
+/// top-level `service_tier`, by the listing's id (`priority` for Fast,
+/// `ultrafast`), beside the effort or alone. Standard sends no
+/// `service_tier`, and the request is the one it was before tiers. Only a
+/// ChatGPT request carries one: another provider's is untouched by a tier.
+#[test]
+fn a_chosen_tier_is_a_chatgpt_requests_service_tier_and_standard_sends_none() {
+    let keys = HashMap::from([
+        (
+            "openai-codex".to_string(),
+            ProviderAuth::Login {
+                token_dir: PathBuf::from("/nonexistent"),
+            },
+        ),
+        (
+            "openai".to_string(),
+            ProviderAuth::ApiKey("test-key".into()),
+        ),
+        (
+            "anthropic".to_string(),
+            ProviderAuth::ApiKey("test-key".into()),
+        ),
+    ]);
+    let params = |model: &str, effort: Option<&str>, tier: Option<&str>| {
+        request_settings(&keys, model, effort, tier, None, Reuse::Rounds)
+            .unwrap()
+            .additional_params
+    };
+    let sol = "openai-codex/gpt-6.2-sol";
+    for tier in ["priority", "ultrafast"] {
+        assert_eq!(
+            params(sol, Some("high"), Some(tier)),
+            Some(json!({"reasoning": {"effort": "high"}, "service_tier": tier}))
+        );
+        assert_eq!(
+            params(sol, None, Some(tier)),
+            Some(json!({"service_tier": tier}))
+        );
+    }
+    assert_eq!(
+        params(sol, Some("high"), None),
+        Some(json!({"reasoning": {"effort": "high"}})),
+        "Standard"
+    );
+    assert_eq!(params(sol, None, None), None, "Standard");
+    for other in ["openai/gpt-6", "anthropic/claude-opus-5"] {
+        assert_eq!(
+            params(other, Some("high"), Some("priority")),
+            params(other, Some("high"), None),
+            "{other}"
+        );
+    }
+}
+
+/// The Fast row is Standard and each tier the listing gives the model, by
+/// the ids a request sends: two choices for a model with Fast alone, which
+/// the menu shows as its switch, three with Ultrafast too, and no row for
+/// a model with none. A teammate with no tier is at Standard.
+#[test]
+fn the_fast_row_is_standard_and_each_listed_tier() {
+    let row = |tiers: &[&str], current: Option<&str>| {
+        speed_config(tiers.iter().map(ToString::to_string).collect(), current).map(|config| {
+            assert_eq!(config.id, FAST_CONFIG);
+            assert_eq!(
+                config.category,
+                Some(crate::contract::SessionConfigCategory::Fast)
+            );
+            let options: Vec<String> = config
+                .options
+                .iter()
+                .map(|one| format!("{}:{}", one.id, one.name))
+                .collect();
+            (options, config.current_id.unwrap_or_default())
+        })
+    };
+    assert_eq!(
+        row(&["priority"], None),
+        Some((
+            vec!["off:Standard".into(), "priority:Fast".into()],
+            "off".into()
+        ))
+    );
+    assert_eq!(
+        row(&["priority", "ultrafast"], Some("ultrafast")),
+        Some((
+            vec![
+                "off:Standard".into(),
+                "priority:Fast".into(),
+                "ultrafast:Ultrafast".into()
+            ],
+            "ultrafast".into()
+        ))
+    );
+    assert_eq!(row(&[], None), None);
 }
 
 #[test]
@@ -1074,6 +1173,7 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
         identity: "github-copilot/claude-opus-5.5".to_string(),
         model: "github-copilot/claude-opus-5.5".to_string(),
         effort: None,
+        tier: None,
         preamble: "you are Ada".to_string(),
         cwd: root.clone(),
         folders: Vec::new(),

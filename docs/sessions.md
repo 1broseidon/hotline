@@ -1067,7 +1067,17 @@ precedence where available, and so do effort levels: a ChatGPT sign-in's
 listing names each model's levels, which the pickers offer and the requests
 send for that sign-in, kept with the listing so a restart has them before the
 next refresh. A teammate with no effort stored still starts at `high` where
-offered, not at the provider's own default. Missing metadata stays unspecified, with a notice
+offered, not at the provider's own default. The same listing names each
+model's speed tiers (`service_tiers`), kept beside its levels: a model with
+Fast alone shows the menu's Fast switch, one with Ultrafast too a choice of
+Standard, Fast and Ultrafast, and one with neither no row. At rest the desk
+says only that a model has a tier, so the menu shows the switch until a
+session names them. The choice is the teammate's (`configChoices.fast`, by
+the tier's id), and each request carries it as the Codex CLI sends it: the
+body's `service_tier` (`priority` for Fast, `ultrafast`) and the
+`x-codex-routing-hint` header. Standard sends neither. A kept tier the model
+or the account's listing no longer gives is not sent, and the row stands at
+Standard. Missing metadata stays unspecified, with a notice
 when the model has no catalogue match. Unknown Anthropic models receive a
 conservative 4,096-token request ceiling because that API requires one; this
 is a request default, not a claim about the model's maximum output. Hotline does not infer tool support from the fact

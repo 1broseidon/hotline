@@ -103,6 +103,7 @@ fn fixture() -> (Turn, Template) {
         output_limit: None,
         context_limit: None,
         effort: None,
+        tier: None,
         preamble: "Follow the operator".into(),
         cwd: PathBuf::new(),
         folders: Vec::new(),

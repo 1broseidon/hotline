@@ -135,6 +135,7 @@ fn turn_on(
         output_limit: None,
         context_limit: None,
         effort: None,
+        tier: None,
         preamble: PREAMBLE.into(),
         cwd: scratch.to_path_buf(),
         folders: Vec::new(),
@@ -173,6 +174,7 @@ async fn run_on(model: &DynModel<Completion>, turn: &Turn) -> (Result<(), Failur
             &turn.keys,
             &turn.model,
             turn.effort.as_deref(),
+            turn.tier.as_deref(),
             None,
             Reuse::Rounds,
         )
@@ -370,7 +372,7 @@ async fn rig_pin_claude_cache_reads_fill_the_context_threshold() {
         tools: tools.tool_definitions(),
         settings: RequestSettings {
             max_tokens: Some(64),
-            ..request_settings(&turn.keys, &turn.model, None, None, Reuse::Rounds).unwrap()
+            ..request_settings(&turn.keys, &turn.model, None, None, None, Reuse::Rounds).unwrap()
         },
     };
     let (sender, mut receiver) = mpsc::channel(1024);

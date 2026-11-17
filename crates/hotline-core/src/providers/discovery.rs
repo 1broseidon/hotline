@@ -34,14 +34,22 @@ pub(crate) struct ListedModel {
     /// reads as empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub efforts: Vec<String>,
+    /// The speed tiers the provider's own listing gives this model, by the
+    /// id a request names each with (ChatGPT's `service_tiers`, where
+    /// `priority` is Fast), in the listing's order. Only ChatGPT's listing
+    /// says; empty means the model runs at Standard alone. A file kept
+    /// before this field reads as empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tiers: Vec<String>,
 }
 
-/// The most effort levels one listed model may carry.
+/// The most effort levels, or speed tiers, one listed model may carry.
 const MAX_EFFORTS: usize = 16;
 
-/// Whether a listing's effort level is one the desk will show and send: a
-/// short lowercase word, as every provider's levels are. A level is shown by
-/// its id when the desk has no name for it, so nothing else gets through.
+/// Whether a listing's effort level or speed tier is one the desk will show
+/// and send: a short lowercase word, as every provider's levels are. A level
+/// is shown by its id when the desk has no name for it, so nothing else
+/// gets through.
 pub(crate) fn effort_id_ok(id: &str) -> bool {
     (1..=32).contains(&id.len())
         && id
@@ -90,7 +98,9 @@ pub(crate) fn validate(models: &[ListedModel]) -> Result<(), String> {
         }) || model.context_limit.is_some_and(|limit| !(1..=MAX_CONTEXT).contains(&limit))
             || model.output_limit.is_some_and(|limit| !(1..=MAX_OUTPUT).contains(&limit))
             || model.efforts.len() > MAX_EFFORTS
-            || !model.efforts.iter().all(|level| effort_id_ok(level)) {
+            || !model.efforts.iter().all(|level| effort_id_ok(level))
+            || model.tiers.len() > MAX_EFFORTS
+            || !model.tiers.iter().all(|tier| effort_id_ok(tier)) {
             return Err("The provider returned invalid model metadata.".into());
         }
     }
@@ -239,6 +249,7 @@ pub(crate) async fn collect(
                     context_limit: model.context_length.map(u64::from),
                     output_limit: model.max_output_tokens.map(u64::from),
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 };
                 (model, said)
             })
@@ -363,6 +374,7 @@ fn openrouter_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                     context_limit: model.context_length,
                     output_limit: model.top_provider.and_then(|top| top.max_completion_tokens),
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 };
                 (model, said)
             })
@@ -420,6 +432,7 @@ fn ollama_listing(provider_id: &str, body: &[u8]) -> Result<Vec<ListedModel>, St
                     context_limit: None,
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 };
                 (model, said)
             })
@@ -511,6 +524,7 @@ pub(crate) fn xai_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                     context_limit: None,
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 };
                 (model, said)
             })
@@ -623,6 +637,7 @@ mod tests {
                     context_limit: None,
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 },
                 ListedModel {
                     id: "old:latest".into(),
@@ -630,6 +645,7 @@ mod tests {
                     context_limit: None,
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 },
             ]
         );
@@ -779,6 +795,7 @@ mod tests {
                     context_limit: context,
                     output_limit: output,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 }],
                 "{provider:?}"
             );
@@ -899,6 +916,7 @@ mod tests {
                 context_limit: None,
                 output_limit: None,
                 efforts: Vec::new(),
+                tiers: Vec::new(),
             },
             ListedModel {
                 id: "coder".into(),
@@ -906,6 +924,7 @@ mod tests {
                 context_limit: None,
                 output_limit: None,
                 efforts: Vec::new(),
+                tiers: Vec::new(),
             },
             ListedModel {
                 id: "coder".into(),
@@ -913,6 +932,7 @@ mod tests {
                 context_limit: Some(0),
                 output_limit: None,
                 efforts: Vec::new(),
+                tiers: Vec::new(),
             },
             ListedModel {
                 id: "coder".into(),
@@ -920,6 +940,7 @@ mod tests {
                 context_limit: None,
                 output_limit: Some(MAX_OUTPUT + 1),
                 efforts: Vec::new(),
+                tiers: Vec::new(),
             },
         ] {
             assert!(validate(&[model]).is_err());
@@ -942,9 +963,22 @@ mod tests {
                 name: None,
                 context_limit: None,
                 output_limit: None,
-                efforts,
+                efforts: efforts.clone(),
+                tiers: Vec::new(),
             };
             assert!(validate(&[model]).is_err());
+            let model = ListedModel {
+                id: "coder".into(),
+                name: None,
+                context_limit: None,
+                output_limit: None,
+                efforts: Vec::new(),
+                tiers: efforts,
+            };
+            assert!(
+                validate(&[model]).is_err(),
+                "a tier is checked as a level is"
+            );
         }
     }
 
@@ -965,6 +999,40 @@ mod tests {
         let written = serde_json::to_string(&listed).unwrap();
         assert!(
             written.contains(r#""efforts":["low","ultra"]"#),
+            "{written}"
+        );
+        assert_eq!(
+            serde_json::from_str::<ListedModel>(&written).unwrap(),
+            listed
+        );
+    }
+
+    /// Speed tiers are kept beside the levels: a listing kept before either
+    /// (the release before task-511) and one kept with levels alone (the
+    /// release before this field) both read, with no tiers, and write back
+    /// byte for byte; one with tiers keeps them in the listing's order.
+    #[test]
+    fn a_listing_kept_before_speed_tiers_reads_and_writes_as_it_did() {
+        for kept in [
+            r#"[{"id":"gpt-6-sol","name":"GPT-6-Sol","context_limit":272000}]"#,
+            r#"[{"id":"gpt-6-sol","name":"GPT-6-Sol","efforts":["low","high"]}]"#,
+        ] {
+            let read: Vec<ListedModel> = serde_json::from_str(kept).unwrap();
+            assert_eq!(read[0].tiers, [] as [String; 0], "{kept}");
+            assert!(validate(&read).is_ok());
+            assert_eq!(serde_json::to_string(&read).unwrap(), kept);
+        }
+        let listed = ListedModel {
+            id: "gpt-6.2-sol".into(),
+            name: None,
+            context_limit: None,
+            output_limit: None,
+            efforts: vec!["low".into()],
+            tiers: vec!["priority".into(), "ultrafast".into()],
+        };
+        let written = serde_json::to_string(&listed).unwrap();
+        assert!(
+            written.ends_with(r#""efforts":["low"],"tiers":["priority","ultrafast"]}"#),
             "{written}"
         );
         assert_eq!(

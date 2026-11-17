@@ -12,6 +12,10 @@ use std::path::Path;
 
 const MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 
+/// The header the Codex CLI names a request's model and speed tier in
+/// (`X_CODEX_ROUTING_HINT_HEADER` in openai/codex `codex-rs/core/src/client.rs`).
+pub(crate) const ROUTING_HINT: &str = "x-codex-routing-hint";
+
 /// The backend leaves out any model newer than the client that asks, so a
 /// listing asks as the Codex CLI installed on the desk, which the person
 /// keeps current, and as this release when there is none or it is older.
@@ -42,11 +46,50 @@ struct Entry {
     /// is not read: a teammate with no effort stored starts at the desk's
     /// own default (`models::DEFAULT_EFFORT`).
     supported_reasoning_levels: Option<Vec<Level>>,
+    /// The speed tiers this model runs at besides Standard. The listing's
+    /// `additional_speed_tiers` (`fast`) is not read: Codex marks it
+    /// deprecated for this field, whose ids are what a request sends.
+    service_tiers: Option<Vec<Tier>>,
 }
 
 #[derive(Deserialize)]
 struct Level {
     effort: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Tier {
+    id: Option<String>,
+}
+
+/// The speed tiers Hotline Agent offers on a ChatGPT sign-in, by the id a
+/// listing names and a request sends, with the name the menu gives each,
+/// in the menu's order after Standard. A tier a listing names that is not
+/// here is kept with the listing and offered nowhere. Which of these a
+/// model has comes from its own account's listing, never a plan: Fast is
+/// on every plan's models that list it, Ultrafast only where the listing
+/// says.
+pub(crate) const SPEEDS: &[(&str, &str)] = &[("priority", "Fast"), ("ultrafast", "Ultrafast")];
+
+/// Those of a listing's tiers Hotline Agent offers, in [`SPEEDS`]' order.
+pub(crate) fn offered_tiers(listed: &[String]) -> Vec<String> {
+    SPEEDS
+        .iter()
+        .map(|(id, _)| id.to_string())
+        .filter(|id| listed.contains(id))
+        .collect()
+}
+
+/// A model's tiers as the desk keeps them: each once, in the listing's
+/// order, and only those [`discovery::effort_id_ok`] lets through.
+fn tiers(listed: Option<Vec<Tier>>) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for id in listed.into_iter().flatten().filter_map(|tier| tier.id) {
+        if discovery::effort_id_ok(&id) && !kept.contains(&id) {
+            kept.push(id);
+        }
+    }
+    kept
 }
 
 /// Levels ChatGPT lists that only its Codex harness can use, which Hotline
@@ -152,15 +195,25 @@ pub(crate) async fn list_models_at(
 
 /// `model` on the ChatGPT login in `token_dir`. Rig's ChatGPT dialect writes
 /// the request; the transport signs it with the login's live token and
-/// account as it goes.
+/// account as it goes. At a speed tier each request also carries the
+/// routing hint the Codex CLI sends with one (`x-codex-routing-hint`, see
+/// the request's `service_tier` in `driver/rig/build.rs`); Codex sends the
+/// hint with the model alone at Standard, which Hotline leaves out, so a
+/// Standard request is the one it always was.
 pub(crate) fn model(
     token_dir: &Path,
     model: &str,
+    tier: Option<&str>,
 ) -> Result<rig::DynModel<rig::operation::Completion>, String> {
-    let transport = super::outgoing::Outgoing::signed(
+    let mut transport = super::outgoing::Outgoing::signed(
         super::rig_login::chatgpt(token_dir),
         std::convert::identity,
     )?;
+    if let Some(tier) = tier {
+        let hint = http::HeaderValue::from_str(&format!("model={model};tier={tier}"))
+            .map_err(|_| format!("{tier} is not a speed tier a request can carry."))?;
+        transport = transport.with_header(ROUTING_HINT, hint);
+    }
     let config =
         rig::providers::openai::OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "");
     #[cfg(feature = "test-support")]
@@ -218,6 +271,7 @@ fn listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                 context_limit: entry.context_window,
                 output_limit: None,
                 efforts: efforts(entry.supported_reasoning_levels),
+                tiers: tiers(entry.service_tiers),
             };
             (model, Said::Nothing)
         })
@@ -251,6 +305,7 @@ mod tests {
                     context_limit: None,
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 },
                 ListedModel {
                     id: "gpt-6-sol".into(),
@@ -258,6 +313,7 @@ mod tests {
                     context_limit: Some(272_000),
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 },
             ]
         );
@@ -300,6 +356,47 @@ mod tests {
                 ),
                 ("gpt-null".into(), Vec::new()),
                 ("gpt-shuffled".into(), owned(&["low", "high"])),
+                ("gpt-unsaid".into(), Vec::new()),
+            ]
+        );
+    }
+
+    /// Each model keeps the speed tiers ChatGPT lists for it, by the ids a
+    /// request sends, in the listing's order: Fast and Ultrafast on one,
+    /// Fast alone on another, none on a model that lists none or an empty
+    /// list. `additional_speed_tiers` is not what is kept. Entries the shape
+    /// of the live listing (the Codex CLI's cached copy of the endpoint).
+    #[test]
+    fn each_listed_model_keeps_its_own_speed_tiers() {
+        let fast = || json!({"id": "priority", "name": "Fast", "description": "2x speed, increased usage"});
+        let ultrafast = json!({"id": "ultrafast", "name": "Ultrafast",
+            "description": "The fastest available responses for latency-sensitive work."});
+        let body = json!({"models": [
+            {"slug": "gpt-6.2-sol", "visibility": "list",
+             "service_tiers": [fast(), ultrafast], "additional_speed_tiers": ["fast", "ultrafast"]},
+            {"slug": "gpt-6-sol", "visibility": "list",
+             "service_tiers": [fast()], "additional_speed_tiers": ["fast"]},
+            {"slug": "gpt-daybreak-blue-latest", "visibility": "list",
+             "service_tiers": [], "additional_speed_tiers": []},
+            // Said only the old way, a tier twice, and ids no request could carry.
+            {"slug": "gpt-odd", "visibility": "list", "additional_speed_tiers": ["fast"],
+             "service_tiers": [fast(), fast(), {"id": "Priority Now\n"}, {"name": "no id"}]},
+            {"slug": "gpt-unsaid", "visibility": "list"},
+        ]})
+        .to_string();
+        let tiers: Vec<(String, Vec<String>)> = listing(body.as_bytes())
+            .unwrap()
+            .into_iter()
+            .map(|model| (model.id, model.tiers))
+            .collect();
+        let owned = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            tiers,
+            [
+                ("gpt-6-sol".into(), owned(&["priority"])),
+                ("gpt-6.2-sol".into(), owned(&["priority", "ultrafast"])),
+                ("gpt-daybreak-blue-latest".into(), Vec::new()),
+                ("gpt-odd".into(), owned(&["priority"])),
                 ("gpt-unsaid".into(), Vec::new()),
             ]
         );

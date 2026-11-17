@@ -238,6 +238,13 @@ pub trait ProviderKeys: Send + Sync {
         crate::models::efforts(model_id)
     }
 
+    /// The speed tiers besides Standard a model offers on the account its
+    /// id names, by the ids a request sends: what that account's listing
+    /// gave it (`Vault::tiers`). Test doubles have no listings, so none.
+    fn tiers(&self, _model_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     /// The API key saved for each web search provider that has one. The desk
     /// reads them from the vault each time, so a key saved in Settings is in
     /// force on the next search. Test doubles have none: every provider keyless.

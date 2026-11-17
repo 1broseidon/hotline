@@ -2,7 +2,7 @@
 //! model on its provider's client, the reasoning effort each client takes,
 //! and the request settings a provider needs.
 
-use crate::contract::SessionConfig;
+use crate::contract::{ConfigChoice, SessionConfig};
 use crate::models::{self, Client};
 use crate::session::ProviderAuth;
 use bytes::Bytes;
@@ -63,6 +63,44 @@ pub(super) fn effort_config(levels: Vec<String>, current: Option<&str>) -> Vec<S
         options,
         note: None,
     }]
+}
+
+/// The Fast row when the model's listing gives it a speed tier: Standard,
+/// then each tier, by the ids a request sends. With one tier it is the
+/// menu's Fast switch (Standard is off), with two the three-way choice; a
+/// model with none has no row.
+pub(super) fn speed_config(tiers: Vec<String>, current: Option<&str>) -> Option<SessionConfig> {
+    if tiers.is_empty() {
+        return None;
+    }
+    let choice = |id: &str, name: &str| ConfigChoice {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+        fast: None,
+    };
+    let named = |id: &str| {
+        crate::providers::chatgpt::SPEEDS
+            .iter()
+            .find(|(tier, _)| *tier == id)
+            .map_or(id, |(_, name)| name)
+            .to_string()
+    };
+    let options = std::iter::once(choice(super::STANDARD, "Standard"))
+        .chain(tiers.iter().map(|id| choice(id, &named(id))))
+        .collect();
+    Some(SessionConfig {
+        id: super::FAST_CONFIG.to_string(),
+        name: "Fast".to_string(),
+        category: Some(crate::contract::SessionConfigCategory::Fast),
+        current_id: Some(current.unwrap_or(super::STANDARD).to_string()),
+        options,
+        note: None,
+    })
 }
 
 /// How often the requests a builder makes go out. A turn resends the tools,
@@ -209,8 +247,8 @@ pub(super) async fn agent_builder(
     output_limit: Option<u64>,
     reuse: Reuse,
 ) -> Result<AgentBuilder, String> {
-    let builder = AgentBuilder::new(completion_model(keys, model_id, reuse).await?);
-    let settings = request_settings(keys, model_id, effort, output_limit, reuse)?;
+    let builder = AgentBuilder::new(completion_model(keys, model_id, None, reuse).await?);
+    let settings = request_settings(keys, model_id, effort, None, output_limit, reuse)?;
     Ok(settings.on_agent(builder))
 }
 
@@ -221,9 +259,13 @@ fn vendor(dialect: &wire::Dialect, key: &str) -> OpenAI {
 
 /// One model on the provider whose credential the desk holds. A turn sends
 /// its own requests to it; an agent wraps it for a single answer.
+///
+/// `tier` is the speed tier its requests ask for, which ChatGPT's transport
+/// names in a header as well as the body ([`request_settings`]).
 pub(super) async fn completion_model(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
+    tier: Option<&str>,
     reuse: Reuse,
 ) -> Result<DynModel<Completion>, String> {
     let (provider, model) = model_id
@@ -257,7 +299,7 @@ pub(super) async fn completion_model(
             return Err("This model needs its saved custom connection.".into());
         }
         (Client::ChatGpt, ProviderAuth::Login { token_dir }) => {
-            crate::providers::chatgpt::model(token_dir, model)?
+            crate::providers::chatgpt::model(token_dir, model, tier)?
         }
         (Client::Copilot, ProviderAuth::Login { token_dir }) => {
             crate::providers::copilot::ensure_endpoints(token_dir).await;
@@ -354,10 +396,15 @@ pub(super) fn copilot_responses(
         )
 }
 
+///
+/// `tier` is the speed tier the teammate chose (Fast is `priority`), sent
+/// only to ChatGPT, whose listing is the only one that names tiers; `None`
+/// is Standard, and sends nothing.
 pub(super) fn request_settings(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
+    tier: Option<&str>,
     output_limit: Option<u64>,
     reuse: Reuse,
 ) -> Result<RequestSettings, String> {
@@ -377,6 +424,10 @@ pub(super) fn request_settings(
             effort_params(wiring.client, effort)
         }
     });
+    let params = match tier.filter(|_| wiring.client == Client::ChatGpt) {
+        Some(tier) => Some(with_service_tier(params, tier)),
+        None => params,
+    };
     let cache = (reuse == Reuse::Rounds && caches_when_asked(wiring.client, model))
         .then_some(CacheRetention::Short);
     Ok(RequestSettings {
@@ -384,4 +435,32 @@ pub(super) fn request_settings(
         additional_params: params,
         cache,
     })
+}
+
+/// A ChatGPT request at a speed tier, sent as the Codex CLI sends it. Read
+/// in openai/codex at tag `rust-v0.169.0` (d32063f9), the release the desk's
+/// `codex --version` said when this was written:
+///
+/// - `codex-rs/core/src/client.rs`, `build_responses_request`: the tier is
+///   the body's top-level `service_tier`, a string, after
+///   `ModelInfo::service_tier_for_request`
+///   (`codex-rs/protocol/src/openai_models.rs`) keeps it only when it is
+///   one of the model's listed `service_tiers[].id`. So the listing's id is
+///   what goes out: `priority` for Fast (`ServiceTier::Fast.request_value()`
+///   in `codex-rs/protocol/src/config_types.rs`), `ultrafast` for Ultrafast.
+///   `additional_speed_tiers` (`fast`) is marked deprecated there, and is
+///   never sent.
+/// - Standard sends no `service_tier` at all: the field is
+///   `skip_serializing_if = "Option::is_none"` (`codex-rs/codex-api/src/common.rs`),
+///   and the explicit `default` choice is dropped before the request.
+/// - The same endpoint either way. On the ChatGPT backend Codex also sends
+///   `x-codex-routing-hint: model=<slug>;tier=<id>` (`model=<slug>` alone
+///   at Standard; `build_routing_hint_header` in `client.rs`), which
+///   [`crate::providers::chatgpt::model`] puts on a request with a tier.
+fn with_service_tier(params: Option<Value>, tier: &str) -> Value {
+    let mut params = params.unwrap_or_else(|| serde_json::json!({}));
+    if let Some(body) = params.as_object_mut() {
+        body.insert("service_tier".to_string(), Value::String(tier.to_string()));
+    }
+    params
 }

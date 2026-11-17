@@ -1410,3 +1410,287 @@ async fn chatgpt_listed_effort_levels_reach_both_pickers_and_the_request() {
     }
     server.abort();
 }
+
+/// The speed tiers a ChatGPT sign-in's listing gives a model are what Hotline
+/// Agent offers and sends for it, over the wire the window uses: the idle
+/// menu is told which models have one, the running session's Fast row is
+/// Standard and Fast on a model that lists Fast alone, Standard, Fast and
+/// Ultrafast on one that lists Ultrafast too, and absent on one with none.
+/// The teammate's choice, made at rest or live, is kept on it and comes back
+/// after the desk restarts; each request carries it as the Codex CLI sends
+/// it (the body's `service_tier`, by the listing's id, and the routing hint
+/// with the tier), and Standard sends neither. A choice the model, or later
+/// the account's listing, no longer gives falls back to Standard, quietly.
+#[tokio::test(flavor = "multi_thread")]
+async fn chatgpt_listed_speed_tiers_reach_both_pickers_and_the_request() {
+    use axum::{Router, body::Bytes, http::HeaderMap};
+    use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
+    use hotline_core::{log::Log, provider_fixture::Origin};
+    let root = scratch("chatgpt-listed-tiers");
+    let vault = common::open_vault(&root, Log::open(&root)).unwrap();
+    let (login, dir) = vault.begin_login().unwrap();
+    let expires = chrono::Utc::now().timestamp() + 3600;
+    let claims = BASE64_URL_SAFE_NO_PAD.encode(
+        json!({"exp":expires,"https://api.openai.com/auth":{"chatgpt_account_id":"tier-account"}})
+            .to_string(),
+    );
+    std::fs::write(
+        dir.join("auth.json"),
+        json!({"access_token":format!("e30.{claims}.tier-access"),"refresh_token":"tier-refresh",
+               "id_token":null,"expires_at":expires,"account_id":"tier-account"})
+        .to_string(),
+    )
+    .unwrap();
+    let listing = |sol_tiers: &[&str]| {
+        json!([
+            {"id":"gpt-daybreak-blue-latest","name":"Daybreak Blue"},
+            {"id":"gpt-6-sol","name":"GPT-6-Sol","efforts":["low","high"],"tiers":["priority"]},
+            {"id":"gpt-6.2-sol","name":"GPT-6.2-Sol","efforts":["low","high"],"tiers":sol_tiers},
+        ])
+        .to_string()
+    };
+    std::fs::write(
+        dir.join("discovery.json"),
+        listing(&["priority", "ultrafast"]),
+    )
+    .unwrap();
+    vault
+        .finish_login(&login, "openai-codex", "ChatGPT")
+        .unwrap();
+    drop(vault);
+
+    // Each request as the backend saw it: the routing hint, and the body.
+    let (sent, mut requests) = tokio::sync::mpsc::unbounded_channel::<(Option<String>, Value)>();
+    let app = Router::new().fallback(move |headers: HeaderMap, body: Bytes| {
+        let sent = sent.clone();
+        async move {
+            let hint = headers
+                .get("x-codex-routing-hint")
+                .map(|value| value.to_str().unwrap().to_string());
+            sent.send((hint, serde_json::from_slice(&body).unwrap()))
+                .unwrap();
+            let item = json!({"type":"message","id":"msg_tier","status":"completed","role":"assistant",
+                "content":[{"type":"output_text","text":"Quick.","annotations":[]}]});
+            let events = [
+                json!({"type":"response.output_item.done","output_index":0,"item":item}),
+                json!({"type":"response.completed","response":{"id":"resp_tier","status":"completed",
+                    "output":[item],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}),
+            ];
+            let mut body: String = events.iter().map(|event| format!("data: {event}\n\n")).collect();
+            body.push_str("data: [DONE]\n\n");
+            ([("content-type", "text/event-stream")], body)
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let _origin = Origin::new(dir.to_string_lossy(), &url);
+    // A desk that can be closed, so the next one opens on what it kept.
+    let serve = |root: &std::path::Path| {
+        let desk = Arc::new(common::open_desk(root).unwrap());
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone(), desk.parts()).unwrap();
+        (door.port(), tokio::spawn(door.run()))
+    };
+    let (port, serving) = serve(&root);
+    let mut client = Client::connect(port, TOKEN).await;
+    let row = |info: &Value| -> Option<(Vec<String>, String)> {
+        let config = info["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|config| config["category"] == "fast")?;
+        assert_eq!(config["id"], "fast", "{config}");
+        let options = config["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| {
+                format!(
+                    "{}:{}",
+                    one["id"].as_str().unwrap(),
+                    one["name"].as_str().unwrap()
+                )
+            })
+            .collect();
+        Some((options, config["currentId"].as_str().unwrap().to_string()))
+    };
+    let owned = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let three = owned(&["off:Standard", "priority:Fast", "ultrafast:Ultrafast"]);
+    let two = owned(&["off:Standard", "priority:Fast"]);
+
+    // The idle menu: which models have a speed tier.
+    let listed = client.call("models.list", json!({})).await;
+    let fast = |id: &str| {
+        listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|choice| choice["id"] == format!("openai-codex/{id}"))
+            .unwrap_or_else(|| panic!("no {id}: {listed}"))["fast"]
+            .clone()
+    };
+    assert_eq!(fast("gpt-6.2-sol"), true);
+    assert_eq!(fast("gpt-6-sol"), true);
+    assert_eq!(fast("gpt-daybreak-blue-latest"), Value::Null);
+
+    // A teammate at rest chooses Ultrafast; a speed the model lacks is refused.
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let made = client
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Sol", "cwd":workspace, "modelId":"openai-codex/gpt-6.2-sol"}}),
+        )
+        .await;
+    assert_eq!(made["ok"], true, "{made}");
+    let persona = made["result"]["id"].as_str().unwrap().to_string();
+    let set = |value: &str| json!({"personaId": persona, "configId": "fast", "value": value});
+    let refused = client.call("session.set_config", set("flex")).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let chosen = client.call("session.set_config", set("ultrafast")).await;
+    assert_eq!(chosen["ok"], true, "{chosen}");
+
+    let mut tape = client.subscribe(json!({"tape": persona})).await;
+    let started = client
+        .call("session.start", json!({"personaId": persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(
+        row(&started["result"]),
+        Some((three.clone(), "ultrafast".into()))
+    );
+    assert!(
+        started["result"]["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|config| config["category"] == "effort"),
+        "the Effort picker stands beside it: {started}"
+    );
+
+    // The tier each request carries, and Standard's none.
+    macro_rules! turn {
+        ($client:expr, $tape:expr) => {{
+            let prompt = $client
+                .call(
+                    "session.prompt",
+                    json!({"personaId": persona, "text": "Quickly."}),
+                )
+                .await;
+            assert_eq!(prompt["ok"], true, "{prompt}");
+            let turn = $client
+                .next_where(common::ANSWER, |frame| {
+                    is_sub(frame, $tape, "event") && frame["event"]["kind"] == "turn"
+                })
+                .await;
+            assert_eq!(turn["event"]["stopReason"], "end_turn", "{turn}");
+            tokio::time::timeout(common::ANSWER, requests.recv())
+                .await
+                .unwrap()
+                .unwrap()
+        }};
+    }
+    let (hint, body) = turn!(client, tape);
+    assert_eq!(body["model"], "gpt-6.2-sol");
+    assert_eq!(body["service_tier"], "ultrafast", "{body}");
+    assert_eq!(body["reasoning"]["effort"], "high", "{body}");
+    assert_eq!(hint.as_deref(), Some("model=gpt-6.2-sol;tier=ultrafast"));
+    for value in ["priority", "off"] {
+        let live = client.call("session.set_config", set(value)).await;
+        assert_eq!(live["ok"], true, "{live}");
+        assert_eq!(row(&live["result"]).unwrap().1, value);
+        let (hint, body) = turn!(client, tape);
+        if value == "off" {
+            assert!(body.get("service_tier").is_none(), "Standard: {body}");
+            assert_eq!(hint, None, "Standard");
+            assert_eq!(body["reasoning"]["effort"], "high", "{body}");
+        } else {
+            assert_eq!(body["service_tier"], value, "{body}");
+            assert_eq!(hint, Some(format!("model=gpt-6.2-sol;tier={value}")));
+        }
+    }
+
+    // A model with Fast alone has the switch; one with none has no row.
+    let fast_on = client.call("session.set_config", set("priority")).await;
+    assert_eq!(fast_on["ok"], true, "{fast_on}");
+    let switch =
+        |model: &str| json!({"personaId": persona, "modelId": format!("openai-codex/{model}")});
+    let moved = client.call("session.set_model", switch("gpt-6-sol")).await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    assert_eq!(
+        row(&moved["result"]),
+        Some((two.clone(), "priority".into()))
+    );
+    let refused = client.call("session.set_config", set("ultrafast")).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let (hint, body) = turn!(client, tape);
+    assert_eq!(body["service_tier"], "priority", "{body}");
+    assert_eq!(hint.as_deref(), Some("model=gpt-6-sol;tier=priority"));
+    let moved = client
+        .call("session.set_model", switch("gpt-daybreak-blue-latest"))
+        .await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    assert_eq!(row(&moved["result"]), None, "{moved}");
+    let (hint, body) = turn!(client, tape);
+    assert!(body.get("service_tier").is_none(), "{body}");
+    assert_eq!(hint, None);
+
+    // Ultrafast, then a model that lists Fast alone: Standard, not Fast.
+    let moved = client
+        .call("session.set_model", switch("gpt-6.2-sol"))
+        .await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    assert_eq!(
+        row(&moved["result"]).unwrap().1,
+        "off",
+        "Daybreak took Fast away"
+    );
+    let chosen = client.call("session.set_config", set("ultrafast")).await;
+    assert_eq!(chosen["ok"], true, "{chosen}");
+    let moved = client.call("session.set_model", switch("gpt-6-sol")).await;
+    assert_eq!(row(&moved["result"]), Some((two.clone(), "off".into())));
+    let (_, body) = turn!(client, tape);
+    assert!(body.get("service_tier").is_none(), "{body}");
+
+    // Back on Ultrafast, the desk closes and opens again on what it kept.
+    let moved = client
+        .call("session.set_model", switch("gpt-6.2-sol"))
+        .await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    let chosen = client.call("session.set_config", set("ultrafast")).await;
+    assert_eq!(chosen["ok"], true, "{chosen}");
+    let stopped = client
+        .call("session.stop", json!({"personaId": persona}))
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    drop(client);
+    serving.abort();
+    let (port, serving) = serve(&root);
+    let mut client = Client::connect(port, TOKEN).await;
+    tape = client.subscribe(json!({"tape": persona})).await;
+    let started = client
+        .call("session.start", json!({"personaId": persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(row(&started["result"]), Some((three, "ultrafast".into())));
+    let (_, body) = turn!(client, tape);
+    assert_eq!(body["service_tier"], "ultrafast", "{body}");
+
+    // The account's listing stops giving Ultrafast: the kept choice is not
+    // sent, and the row stands at Standard, with no word about it.
+    let stopped = client
+        .call("session.stop", json!({"personaId": persona}))
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    std::fs::write(dir.join("discovery.json"), listing(&["priority"])).unwrap();
+    let started = client
+        .call("session.start", json!({"personaId": persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(row(&started["result"]), Some((two, "off".into())));
+    let (hint, body) = turn!(client, tape);
+    assert!(body.get("service_tier").is_none(), "{body}");
+    assert_eq!(hint, None);
+    serving.abort();
+    server.abort();
+}

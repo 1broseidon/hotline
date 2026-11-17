@@ -1296,7 +1296,8 @@
 	.model-fast-icon {
 		color: var(--ink-3);
 	}
-	.model-fast[aria-checked="true"] .model-fast-icon {
+	.model-fast[aria-checked="true"] .model-fast-icon,
+	.model-speed[data-on="true"] .model-fast-icon {
 		color: var(--accent);
 	}
 	.model-fast-hint {

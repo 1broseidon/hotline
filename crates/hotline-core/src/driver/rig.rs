@@ -16,6 +16,7 @@ mod turn;
 use super::failure::{Failure, Kind};
 use build::{
     Reuse, agent_builder, completion_model, copilot_responses, effort_config, request_settings,
+    speed_config,
 };
 use history::{chunk_into, elide, flush, hand_to_model, images_to_model, keep, plain, send};
 use images::Input;
@@ -205,6 +206,14 @@ pub enum Said {
 
 type UnconsumedInputs = Vec<(String, Vec<Attachment>)>;
 
+/// The id of Hotline Agent's speed setting: the Fast row, on a model whose
+/// listing gives it a speed tier. The teammate's choice is kept under it in
+/// `configChoices`, by the tier's id, so a restart puts it back.
+pub(crate) const FAST_CONFIG: &str = "fast";
+
+/// The Fast row's Standard: no tier asked for, and nothing sent.
+pub(crate) const STANDARD: &str = "off";
+
 /// Hotline Agent for one teammate.
 pub struct InProcess {
     keys: Arc<dyn ProviderKeys>,
@@ -219,6 +228,9 @@ pub struct InProcess {
     model: Mutex<String>,
     /// The effort the next request will send, when the current model lists it.
     effort: Mutex<Option<String>>,
+    /// The speed tier the next request asks for, when the current model's
+    /// listing gives it; `None` is Standard.
+    tier: Mutex<Option<String>>,
     history: Arc<AsyncMutex<Vec<Message>>>,
     history_origin: Arc<Mutex<Option<recovery::Origin>>>,
     /// The stop for the turn in flight. A fresh one per prompt, so a stop
@@ -272,6 +284,7 @@ impl InProcess {
             folders: Mutex::new(Vec::new()),
             model: Mutex::new(String::new()),
             effort: Mutex::new(None),
+            tier: Mutex::new(None),
             history: Arc::new(AsyncMutex::new(history)),
             history_origin: Arc::new(Mutex::new(None)),
             stop: Mutex::new(Arc::new(Stop::default())),
@@ -319,10 +332,30 @@ impl InProcess {
         })
     }
 
+    /// The Fast row chosen: Standard (or nothing) asks for no tier; any
+    /// other value must be a tier the model's listing gives it.
+    fn set_tier(&self, value: &str) -> Result<DriverInfo, String> {
+        let keys = self.keys.provider_auth();
+        let model = lock(&self.model).clone();
+        if value.is_empty() || value == STANDARD {
+            *lock(&self.tier) = None;
+            return Ok(self.info(&keys));
+        }
+        if !self.keys.tiers(&model).iter().any(|tier| tier == value) {
+            let label = models::label_of(&model).unwrap_or(model);
+            return Err(format!("{value} is not a speed {label} offers."));
+        }
+        *lock(&self.tier) = Some(value.to_string());
+        Ok(self.info(&keys))
+    }
+
     fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
         let model = lock(&self.model).clone();
         let effort = lock(&self.effort).clone();
+        let tier = lock(&self.tier).clone();
         let metadata = self.keys.model_metadata();
+        let mut configs = effort_config(self.keys.efforts(&model), effort.as_deref());
+        configs.extend(speed_config(self.keys.tiers(&model), tier.as_deref()));
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
             capabilities: crate::contract::SessionCapabilities {
@@ -335,7 +368,7 @@ impl InProcess {
                 .map(|model| model.name.clone())
                 .or_else(|| models::label_of(&model)),
             current_model_id: model.clone(),
-            configs: effort_config(self.keys.efforts(&model), effort.as_deref()),
+            configs,
             ..DriverInfo::default()
         }
     }
@@ -389,6 +422,14 @@ impl Driver for InProcess {
             .clone()
             .filter(|id| levels.contains(id))
             .or_else(|| models::default_effort(&levels));
+        // The stored tier when the model's listing still gives it, else
+        // Standard, quietly: a tier the account no longer lists is not sent.
+        let tiers = self.keys.tiers(&model);
+        *lock(&self.tier) = persona
+            .config_choices
+            .get(FAST_CONFIG)
+            .filter(|tier| tiers.contains(tier))
+            .cloned();
         let connected = mcp::connect_with_capability_and_vault(
             &persona.id,
             &self.mcp_servers,
@@ -512,10 +553,24 @@ impl Driver for InProcess {
                 *effort = models::default_effort(&levels);
             }
         }
+        // And the tier, only when the new model's listing gives it.
+        {
+            let tiers = self.keys.tiers(model_id);
+            let mut tier = lock(&self.tier);
+            if tier
+                .as_ref()
+                .is_some_and(|current| !tiers.contains(current))
+            {
+                *tier = None;
+            }
+        }
         Ok(self.info(&keys))
     }
 
     async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        if config_id == FAST_CONFIG {
+            return self.set_tier(value);
+        }
         if config_id != "effort" {
             return Err("This agent does not offer that setting.".to_string());
         }
@@ -661,6 +716,7 @@ impl InProcess {
             context_limit: metadata.get(&model).and_then(|m| m.context_limit),
             meter,
             effort: lock(&self.effort).clone(),
+            tier: lock(&self.tier).clone(),
             preamble: if index.is_empty() {
                 self.preamble.clone()
             } else {
@@ -752,6 +808,8 @@ struct Turn {
     output_limit: Option<u64>,
     context_limit: Option<u64>,
     effort: Option<String>,
+    /// The speed tier every round asks for; `None` is Standard.
+    tier: Option<String>,
     preamble: String,
     cwd: PathBuf,
     folders: Vec<FolderGrant>,
@@ -823,13 +881,15 @@ impl Turn {
         for tool in &self.mcp_tools {
             tools.add_dynamic_tool(tool.clone());
         }
-        let model = completion_model(&self.keys, &self.model, Reuse::Rounds).await?;
+        let model =
+            completion_model(&self.keys, &self.model, self.tier.as_deref(), Reuse::Rounds).await?;
         let template = turn::Template {
             tools: tools.tool_definitions(),
             settings: request_settings(
                 &self.keys,
                 &self.model,
                 self.effort.as_deref(),
+                self.tier.as_deref(),
                 self.output_limit,
                 Reuse::Rounds,
             )?,

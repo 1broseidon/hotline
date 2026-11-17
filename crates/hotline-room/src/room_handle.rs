@@ -202,6 +202,13 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// the one a teammate with none stored runs at.
     fn models_efforts(&self, model_id: &str) -> hotline_contract::EffortChoices;
 
+    /// The speed tiers besides Standard a Hotline Agent model offers, by
+    /// the ids a request sends (ChatGPT's listing names them). A room with
+    /// no listings has none.
+    fn models_tiers(&self, _model_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Answers a permission the agent is waiting behind, refusing when there
     /// is nothing left to answer.
     async fn answer_permission(

@@ -576,10 +576,27 @@ impl Vault {
                 kind: credential.credential_kind,
                 shared,
             };
+            // A model this account's listing gives a speed tier says so,
+            // for the menu of a teammate at rest; every other says nothing.
+            let speedy: Vec<String> = sources
+                .discovered
+                .get(&credential.id)
+                .cloned()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|listed| {
+                    !crate::providers::chatgpt::offered_tiers(&listed.tiers).is_empty()
+                })
+                .map(|listed| format!("{provider}/{}", listed.id))
+                .collect();
             by_provider
                 .entry(provider)
                 .or_default()
                 .extend(choices.into_iter().map(|mut choice| {
+                    if speedy.contains(&choice.id) {
+                        choice.fast = Some(true);
+                    }
                     if shared {
                         choice.id = crate::models::on_account(&choice.id, &account.id);
                     }
@@ -632,22 +649,39 @@ impl Vault {
     /// ChatGPT sign-in offers what its own listing said, and a restart reads
     /// the kept listing before the next one.
     pub(crate) fn efforts(&self, model_id: &str) -> Vec<String> {
+        self.listed(model_id)
+            .map(|listed| listed.efforts)
+            .filter(|levels| !levels.is_empty())
+            .unwrap_or_else(|| crate::models::efforts(&crate::models::base_id(model_id)))
+    }
+
+    /// The speed tiers besides Standard a model offers on the account its
+    /// id names, else on its provider's default account: those of
+    /// [`crate::providers::chatgpt::SPEEDS`] that account's last listing
+    /// gave the model, in that order. The snapshot names none, so a model
+    /// no listing speaks of runs at Standard alone, as does every provider
+    /// but ChatGPT.
+    pub(crate) fn tiers(&self, model_id: &str) -> Vec<String> {
+        self.listed(model_id)
+            .map(|listed| crate::providers::chatgpt::offered_tiers(&listed.tiers))
+            .unwrap_or_default()
+    }
+
+    /// The model as the account its id names, else its provider's default
+    /// account, last listed it.
+    fn listed(&self, model_id: &str) -> Option<ListedModel> {
         let (base, account) = crate::models::split_account(model_id);
-        let listed = base.split_once('/').and_then(|(provider, model)| {
-            let accounts = self.accounts_from(&self.log.load(&StreamId::Room));
-            let (credential, _) = match account {
-                Some(account) => accounts.into_iter().find(|(credential, _)| {
-                    credential.id == account && credential.provider_id == provider
-                })?,
-                None => Self::defaults(accounts).remove(provider)?,
-            };
-            self.read_discovery(&credential.id)?
-                .into_iter()
-                .find(|listed| listed.id == model)
-                .map(|listed| listed.efforts)
-                .filter(|levels| !levels.is_empty())
-        });
-        listed.unwrap_or_else(|| crate::models::efforts(&base))
+        let (provider, model) = base.split_once('/')?;
+        let accounts = self.accounts_from(&self.log.load(&StreamId::Room));
+        let (credential, _) = match account {
+            Some(account) => accounts.into_iter().find(|(credential, _)| {
+                credential.id == account && credential.provider_id == provider
+            })?,
+            None => Self::defaults(accounts).remove(provider)?,
+        };
+        self.read_discovery(&credential.id)?
+            .into_iter()
+            .find(|listed| listed.id == model)
     }
 
     pub(crate) fn read_discovery(&self, credential_id: &str) -> Option<Vec<ListedModel>> {
@@ -676,6 +710,7 @@ impl Vault {
                     context_limit: None,
                     output_limit: None,
                     efforts: Vec::new(),
+                    tiers: Vec::new(),
                 })
                 .collect(),
         )
@@ -1355,6 +1390,7 @@ mod tests {
             context_limit: None,
             output_limit: None,
             efforts: Vec::new(),
+            tiers: Vec::new(),
         }
     }
 
@@ -1449,7 +1485,7 @@ mod tests {
                 &first,
                 &[
                     with("gpt-6.2-sol", sol.clone()),
-                    with("gpt-6-sol", sol.clone()),
+                    with("gpt-6-sol", sol),
                     listed("gpt-6-luna"),
                 ],
             )
@@ -1520,6 +1556,112 @@ mod tests {
         assert_eq!(
             reopened.efforts(&format!("anthropic/{known}")),
             crate::models::efforts(&format!("anthropic/{known}"))
+        );
+    }
+
+    /// A ChatGPT sign-in's listing names each model's speed tiers, kept
+    /// with the listing beside its levels: each account offers what its own
+    /// listing said (Ultrafast on one, Fast alone on another), after the
+    /// desk opens again, and the menu of a teammate at rest is told which
+    /// models have one. A file kept with levels alone, or with neither, reads
+    /// as Standard alone; a tier the desk does not offer is kept and not
+    /// offered; another provider has none.
+    #[test]
+    fn listed_speed_tiers_are_per_account_and_survive_a_reopen() {
+        let root = scratch("listed-tiers");
+        let vault = Vault::open(&root, Log::open(&root)).unwrap();
+        let owned = |ids: &[&str]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let with = |id: &str, tiers: &[&str]| ListedModel {
+            efforts: owned(&["low", "high"]),
+            tiers: owned(tiers),
+            ..listed(id)
+        };
+        let login = |label: &str| {
+            let (id, _) = vault.begin_login().unwrap();
+            vault.finish_login(&id, "openai-codex", label).unwrap();
+            id
+        };
+        let big = login("Pro");
+        let small = login("Plus");
+        vault
+            .cache_discovery(
+                &big,
+                &[
+                    with("gpt-6.2-sol", &["priority", "ultrafast"]),
+                    with("gpt-6-sol", &["flex", "priority"]),
+                    with("gpt-daybreak-blue-latest", &[]),
+                ],
+            )
+            .unwrap();
+        vault
+            .cache_discovery(&small, &[with("gpt-6.2-sol", &["priority"])])
+            .unwrap();
+
+        let expect = |vault: &Vault| {
+            let on = |account: &str, model: &str| {
+                vault.tiers(&format!("openai-codex#{account}/{model}"))
+            };
+            assert_eq!(on(&big, "gpt-6.2-sol"), ["priority", "ultrafast"]);
+            assert_eq!(on(&small, "gpt-6.2-sol"), ["priority"]);
+            assert_eq!(on(&big, "gpt-6-sol"), ["priority"], "flex is not offered");
+            assert_eq!(on(&big, "gpt-daybreak-blue-latest"), [] as [String; 0]);
+            assert_eq!(on(&big, "gpt-unlisted"), [] as [String; 0]);
+            assert_eq!(
+                vault.tiers("openai-codex/gpt-6.2-sol"),
+                ["priority", "ultrafast"],
+                "the default account's"
+            );
+            // The levels beside them are read as they were.
+            assert_eq!(
+                vault.efforts(&format!("openai-codex#{small}/gpt-6.2-sol")),
+                ["low", "high"]
+            );
+            let fast: Vec<(String, Option<bool>)> = vault
+                .model_choices()
+                .into_iter()
+                .map(|choice| (choice.id, choice.fast))
+                .collect();
+            for (id, said) in [
+                (format!("openai-codex#{big}/gpt-6.2-sol"), Some(true)),
+                (format!("openai-codex#{big}/gpt-6-sol"), Some(true)),
+                (format!("openai-codex#{big}/gpt-daybreak-blue-latest"), None),
+                (format!("openai-codex#{small}/gpt-6.2-sol"), Some(true)),
+            ] {
+                assert!(fast.contains(&(id.clone(), said)), "{id}: {fast:?}");
+            }
+        };
+        expect(&vault);
+        drop(vault);
+        let reopened = Vault::open(&root, Log::open(&root)).unwrap();
+        expect(&reopened);
+
+        // Listings kept by the two releases before tiers still read.
+        for kept in [
+            br#"[{"id":"gpt-6.2-sol","name":"GPT-6.2-Sol","efforts":["low","high"]}]"#.as_slice(),
+            br#"[{"id":"gpt-6.2-sol","name":"GPT-6.2-Sol"}]"#.as_slice(),
+        ] {
+            fs::write(reopened.login_dir(&small).join("discovery.json"), kept).unwrap();
+            let on_small = format!("openai-codex#{small}/gpt-6.2-sol");
+            assert!(
+                reopened
+                    .model_choices()
+                    .iter()
+                    .any(|choice| choice.id == on_small && choice.fast.is_none())
+            );
+            assert_eq!(reopened.tiers(&on_small), [] as [String; 0]);
+        }
+        // Another provider's models have no tiers, and say nothing of fast.
+        let key = reopened.create("anthropic", "Key", "test-key").unwrap();
+        reopened
+            .cache_discovery(&key.id, &[listed("claude-x")])
+            .unwrap();
+        assert_eq!(reopened.tiers("anthropic/claude-x"), [] as [String; 0]);
+        assert!(
+            reopened
+                .model_choices()
+                .iter()
+                .filter(|choice| choice.id.starts_with("anthropic"))
+                .all(|choice| choice.fast.is_none())
         );
     }
 

@@ -6,11 +6,23 @@ import { lastKnown, rememberKnown } from "../lastKnown";
 import { refreshRoomRead, useRoomRead } from "../roomReads";
 import { useRawSetting, useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
-import { type Fast, type MenuTeammate, ModelPicker } from "./ModelPicker";
+import { type Fast, type MenuTeammate, ModelPicker, type Speed } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
 const HOTLINE_AGENT = "hotline";
+
+/**
+ * Hotline Agent's Fast row at rest, on a model whose listing gives it a
+ * speed tier: Standard (`off`) or Fast, by the id ChatGPT's request sends
+ * (`priority`). A running session says the model's own tiers, Ultrafast
+ * among them where its account lists it; at rest the desk knows only that
+ * the model has one, so the row is the switch, on for any tier kept.
+ */
+const RESTING_FAST: ConfigChoice[] = [
+	{ id: "off", name: "Standard" },
+	{ id: "priority", name: "Fast" },
+];
 
 /**
  * The open teammate's model and effort, on the window's top strip, in the
@@ -69,21 +81,27 @@ export function SessionPickers({
 	const backends = useRoomRead("backends.list", "", true);
 	const harnessName = backends?.find((one) => one.id === persona.backendId)?.name ?? null;
 	const idleEfforts = useRoomRead("models.efforts", currentModel, hotline && currentModel !== "");
+	const resting = session.configs.length === 0 && hotline;
 	const configs: SessionConfig[] =
 		session.configs.length > 0
 			? session.configs
-			: hotline && idleEfforts !== undefined && idleEfforts.choices.length > 0
-				? [
-						{
-							id: "effort",
-							name: "Effort",
-							category: "effort",
-							// The stored effort, else the one the session will run at.
-							currentId: persona.effortId ?? idleEfforts.defaultId ?? "",
-							options: idleEfforts.choices,
-						},
-					]
-				: [];
+			: [
+					...(resting && idleEfforts !== undefined && idleEfforts.choices.length > 0
+						? [
+								{
+									id: "effort",
+									name: "Effort",
+									category: "effort" as const,
+									// The stored effort, else the one the session will run at.
+									currentId: persona.effortId ?? idleEfforts.defaultId ?? "",
+									options: idleEfforts.choices,
+								},
+							]
+						: []),
+					...(resting && modelChoices.find((choice) => choice.id === currentModel)?.fast === true
+						? [{ id: "fast", name: "Fast", category: "fast" as const, currentId: persona.configChoices?.["fast"] ?? "off", options: RESTING_FAST }]
+						: []),
+				];
 	// A model switch lands on an effort the core chooses, the teammate's or
 	// the desk's last for the model, else the nearest level not above the
 	// current one, set after the model: the answer says which.
@@ -171,15 +189,23 @@ export function SessionPickers({
 				: null;
 	// Fast mode is the menu's toggle, not a picker of its own.
 	const fastConfig = configs.find((config) => config.category === "fast");
-	// Claude Code and Codex say on and off; Cursor says true and false.
-	const fastOn = fastConfig?.options.find((option) => option.id === "on" || option.id === "true")?.id ?? "on";
+	// Claude Code, Codex and Hotline Agent say off; Cursor says false. On
+	// is the other choice: on, true, or Hotline Agent's tier (`priority`).
 	const fastOff = fastConfig?.options.find((option) => option.id === "off" || option.id === "false")?.id ?? "off";
+	const fastOn = fastConfig?.options.find((option) => option.id !== fastOff)?.id ?? "on";
+	const hint = fastHint(persona.backendId, currentModel);
+	// More than one speed besides off (Hotline Agent on ChatGPT: Fast and
+	// Ultrafast) is a choice of speeds in the toggle's place.
+	const speed: Speed | null =
+		fastConfig !== undefined && fastConfig.options.length > 2
+			? { value: fastConfig.currentId ?? fastOff, standard: fastOff, choices: fastConfig.options, hint }
+			: null;
 	const fast: Fast | null =
-		fastConfig === undefined
+		fastConfig === undefined || speed !== null
 			? null
 			: {
-					on: fastConfig.currentId === fastOn,
-					hint: fastHint(persona.backendId),
+					on: fastConfig.currentId !== undefined && fastConfig.currentId !== null && fastConfig.currentId !== "" && fastConfig.currentId !== fastOff,
+					hint,
 					...(fastConfig.note !== undefined ? { note: fastConfig.note } : {}),
 				};
 	// So is the context the model may hold, where the agent offers a choice (Cursor's 300K or 1M).
@@ -218,6 +244,8 @@ export function SessionPickers({
 				onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
 				fast={fast}
 				onFast={(on) => setConfig(fastConfig?.id ?? "fast", on ? fastOn : fastOff)}
+				speed={speed}
+				onSpeed={(value) => setConfig(fastConfig?.id ?? "fast", value)}
 				context={contextConfig === undefined ? null : { value: contextConfig.currentId ?? "", choices: contextConfig.options }}
 				onContext={(value) => setConfig(contextConfig?.id ?? "context", value)}
 				landsOn={predict}
@@ -231,11 +259,13 @@ export function SessionPickers({
 
 /**
  * What fast mode costs, in the menu's few words: Claude Code bills it to
- * extra usage only, never the plan; Codex spends the plan faster.
+ * extra usage only, never the plan; Codex, and Hotline Agent on a ChatGPT
+ * sign-in, spend the plan faster.
  */
-function fastHint(backendId: string): string {
+function fastHint(backendId: string, modelId: string): string {
 	if (backendId === "claude-acp") return "Extra usage only";
 	if (backendId === "codex-acp") return "Uses more of plan";
+	if (backendId === HOTLINE_AGENT && plainModel(modelId).startsWith("openai-codex/")) return "Uses more of plan";
 	return "Costs more";
 }
 

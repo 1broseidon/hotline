@@ -48,6 +48,13 @@ type Effort = { value: string; choices: ConfigChoice[] };
  */
 export type Fast = { on: boolean; hint: string; note?: string | undefined };
 
+/**
+ * Fast mode as a choice of speeds, where the model offers more than one
+ * besides Standard (Hotline Agent on ChatGPT: Standard, Fast, Ultrafast):
+ * the speed in use, the id that is Standard, and what the faster ones cost.
+ */
+export type Speed = { value: string; standard: string; choices: ConfigChoice[]; hint: string };
+
 /** The panels that open beside the menu: every model, or the other agents. */
 type Flyout = "more" | "agents";
 
@@ -80,6 +87,7 @@ export type MenuTeammate = {
 type MainRow =
 	| { kind: "efforts" }
 	| { kind: "fast" }
+	| { kind: "speed" }
 	| { kind: "context" }
 	| { kind: "model"; choice: ConfigChoice }
 	| { kind: "more" }
@@ -194,12 +202,14 @@ export function ModelPicker({
 	agents = [],
 	effort,
 	fast = null,
+	speed = null,
 	context = null,
 	label,
 	onModel,
 	onAgent,
 	onEffort,
 	onFast,
+	onSpeed,
 	onContext,
 	landsOn,
 	onAddAccount,
@@ -237,6 +247,9 @@ export function ModelPicker({
 	fast?: Fast | null;
 	/** Turns fast mode on or off. */
 	onFast?: ((on: boolean) => Promise<void> | void) | undefined;
+	/** Fast mode as a choice of speeds, in place of the toggle, when the model offers several. */
+	speed?: Speed | null;
+	onSpeed?: ((value: string) => Promise<void> | void) | undefined;
 	/** The context the model may hold, when the agent offers a choice of it. */
 	context?: Effort | null;
 	onContext?: ((value: string) => Promise<void> | void) | undefined;
@@ -258,6 +271,7 @@ export function ModelPicker({
 	// Fast mode flipped, and a context chosen, until the teammate's row says it.
 	const [flipped, setFlipped] = useState<{ on: boolean; answered: boolean } | null>(null);
 	const [sized, setSized] = useState<{ value: string; answered: boolean } | null>(null);
+	const [paced, setPaced] = useState<{ value: string; answered: boolean } | null>(null);
 	const onHotline = backendId === "hotline";
 	const accounts = accountRows(choices);
 	// The agents people know by name stand on their own, ready or not, in
@@ -401,6 +415,29 @@ export function ModelPicker({
 			() => setSized((was) => (was?.value === value ? null : was)),
 		);
 	};
+	useEffect(() => {
+		if (paced === null) return;
+		if (paced.value === speed?.value) {
+			setPaced(null);
+			return;
+		}
+		if (!paced.answered) return;
+		const late = setTimeout(() => setPaced(null), HELD_MS);
+		return () => clearTimeout(late);
+	}, [paced, speed?.value]);
+	// The speeds, by the same rule as the toggle, the one chosen at once.
+	const speedShown = speed !== null && onSpeed !== undefined && toward?.fast !== false ? { ...speed, value: paced?.value ?? speed.value } : null;
+	const pace = (value: string) => {
+		if (speedShown === null || value === speedShown.value) return;
+		setPaced({ value, answered: false });
+		void Promise.resolve(onSpeed?.(value)).then(
+			() => setPaced((was) => (was?.value === value ? { value, answered: true } : was)),
+			() => setPaced((was) => (was?.value === value ? null : was)),
+		);
+	};
+	// What the pill says of speed: Fast, or the faster speed chosen.
+	const pacedName = speedShown !== null && speedShown.value !== speedShown.standard ? (speedShown.choices.find((one) => one.id === speedShown.value)?.name ?? null) : null;
+	const fastName = fastShown?.on ? "Fast" : pacedName;
 
 	const switchTo = (id: string) => {
 		if (id === (switching?.id ?? inUse)) return;
@@ -455,10 +492,10 @@ export function ModelPicker({
 				type="button"
 				className="control model-pill"
 				data-compact={compact ? "true" : undefined}
-				aria-label={`${teammate === undefined ? label : `${teammate.name}${teammate.working ? ", working" : ""}`}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}${fastShown?.on ? ", fast" : ""}`}
+				aria-label={`${teammate === undefined ? label : `${teammate.name}${teammate.working ? ", working" : ""}`}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}${fastName === null ? "" : `, ${fastName.toLowerCase()}`}`}
 				aria-haspopup="menu"
 				aria-expanded={open}
-				title={open ? undefined : [teammate?.name ?? null, modelName, accountLine, effortName, fastShown?.on ? "Fast" : null].filter((one) => one !== null).join(" · ")}
+				title={open ? undefined : [teammate?.name ?? null, modelName, accountLine, effortName, fastName].filter((one) => one !== null).join(" · ")}
 				onClick={() => {
 					if (!open) onOpen?.();
 					setOpen((was) => !was);
@@ -471,7 +508,7 @@ export function ModelPicker({
 						{effortName !== null && <span className="text-ink-3"> · {effortName}</span>}
 					</span>
 				)}
-				{fastShown?.on && <FastIcon className="model-pill-fast" />}
+				{fastName !== null && <FastIcon className="model-pill-fast" />}
 				{teammate !== undefined ? (
 					<span className="model-pill-face">
 						{teammate.face(24)}
@@ -493,6 +530,8 @@ export function ModelPicker({
 					tabs={tabs}
 					fast={fastShown}
 					onFast={flip}
+					speed={speedShown}
+					onSpeed={pace}
 					context={contextShown}
 					onContext={size}
 					others={elsewhere}
@@ -532,6 +571,8 @@ function Panels({
 	tabs,
 	fast,
 	onFast,
+	speed,
+	onSpeed,
 	context,
 	onContext,
 	others,
@@ -556,6 +597,9 @@ function Panels({
 	/** Fast mode's toggle, under the tabs, when the model offers it. */
 	fast: Fast | null;
 	onFast(): void;
+	/** Fast mode's speeds, in the toggle's place, when the model offers several. */
+	speed: Speed | null;
+	onSpeed(value: string): void;
 	/** The context sizes the model offers, under fast mode. */
 	context: Effort | null;
 	onContext(value: string): void;
@@ -633,6 +677,7 @@ function Panels({
 	const rows: MainRow[] = [
 		...(tabs !== null ? [{ kind: "efforts" as const }] : []),
 		...(fast !== null ? [{ kind: "fast" as const }] : []),
+		...(speed !== null ? [{ kind: "speed" as const }] : []),
 		...(context !== null ? [{ kind: "context" as const }] : []),
 		...shown.map((choice) => ({ kind: "model" as const, choice })),
 		...(models.length > shown.length ? [{ kind: "more" as const }] : []),
@@ -759,6 +804,12 @@ function Panels({
 				showFlyout(kind, element);
 				setLevel(1);
 			} else if (row?.kind === "fast" && enter) onFast();
+			else if (row?.kind === "speed" && enter && speed !== null) {
+				// Enter moves to the next speed.
+				const at = speed.choices.findIndex((one) => one.id === speed.value);
+				const next = speed.choices[(at + 1) % speed.choices.length];
+				if (next) onSpeed(next.id);
+			}
 			else if (row?.kind === "context" && enter && context !== null) {
 				// Enter moves to the next size.
 				const at = context.choices.findIndex((one) => one.id === context.value);
@@ -908,6 +959,42 @@ function Panels({
 								<span className="model-fast-hint">{fast.note !== undefined && !fast.on ? "Unavailable" : fast.hint}</span>
 								<span aria-hidden="true" className="switch" data-on={fast.on ? "true" : undefined} />
 							</button>
+						);
+					}
+					if (row.kind === "speed" && speed !== null) {
+						return (
+							<fieldset
+								key="speed"
+								aria-label="Speed"
+								data-row={at}
+								data-active={lit(0, at, active)}
+								data-on={speed.value !== speed.standard ? "true" : undefined}
+								className="menu-item model-row model-context model-speed"
+								title={speed.hint}
+								onMouseEnter={() => {
+									setActive(at);
+									setLevel(0);
+									hideFlyout();
+								}}
+							>
+								<FastIcon className="menu-item-check model-fast-icon" />
+								<span className="menu-item-text">Speed</span>
+								<span className="segmented model-context-sizes">
+									{speed.choices.map((one) => (
+										<button
+											key={one.id}
+											type="button"
+											role="menuitemradio"
+											aria-checked={one.id === speed.value}
+											tabIndex={-1}
+											className="segment"
+											onClick={() => onSpeed(one.id)}
+										>
+											{one.name}
+										</button>
+									))}
+								</span>
+							</fieldset>
 						);
 					}
 					if (row.kind === "context" && context !== null) {

@@ -65,12 +65,12 @@ function keysOf(ask: Ask, thread: ThreadId, owner: string, handoff: boolean): Ke
  * are one answer. A card that takes more than a key, or one not read yet,
  * has Open, which opens the thread where it is answered.
  */
-export function NeedsYouRow({ item, row, onOpen }: { item: ListItem; row(line?: string): ReactNode; onOpen(open: ThreadRef): void }) {
+export function NeedsYouRow({ item, ownerName, row, onOpen }: { item: ListItem; ownerName: string; row(line?: string): ReactNode; onOpen(open: ThreadRef): void }) {
 	const { events, loaded } = useThread(item.thread ?? null);
 	const ask = openAsks(events)[0];
 	return (
 		<div className="list-needs">
-			{row(ask === undefined ? undefined : askLine(ask))}
+			{row(ask === undefined ? undefined : askLine(ask, ownerName))}
 			{loaded && (
 				<div className="list-keys">
 					{ask === undefined || item.thread === undefined ? (

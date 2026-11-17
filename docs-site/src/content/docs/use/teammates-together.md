@@ -121,12 +121,15 @@ Keep going or Stop does.
 Until they pause, anything you write to either of them, wherever you write
 it, starts the count again.
 
-One teammate working on its own pauses too. When it has started 20 quiet
-turns in an hour, working on its messages while you were not talking to it,
-its conversation shows the same **Paused** card, "Huck paused after 20 quiet
-turns in an hour without you." **Keep going** lets it carry on, counting from
-zero; **Stop** holds it until you next write to it. Change the number in
-**Settings › General**: "Pause a teammate after [20] quiet turns an hour".
+One teammate working on its own pauses too. When it has worked 20 times in
+an hour on its teammates' messages while you were not talking to it, its
+conversation shows the same **Paused** card, "Huck has worked 20 times in the
+last hour on teammates' messages, without you." It waits in **Needs you** as
+"Huck has worked 20 times this hour without you". **Keep going** lets it
+carry on, counting from zero, and leaves "Kept going"; **Stop** holds it until
+you next write to it, and leaves "Stopped. Write to Huck to start again."
+Change the number in **Settings › General**: "Pause a teammate that works
+[20] times an hour without you".
 
 ## What it costs
 

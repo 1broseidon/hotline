@@ -345,13 +345,15 @@ export function ExchangePaused({
  * (Settings › General) is paused before the next, with the card a pair of
  * teammates gets: Keep going counts afresh and lets it work on what waited;
  * Stop holds it until the person writes to it. Either outcome becomes a
- * quiet line. While it waits it is one of the cards in Needs you.
+ * quiet line. While it waits it is one of the cards in Needs you. "Quiet
+ * turn" is the desk's word: the person reads how many times it worked on
+ * teammates' messages without them.
  */
 export function QuietPaused({ personaId, ownerName, event }: { personaId: string; event: Extract<TranscriptEvent, { kind: "quiet_paused" }>; ownerName: string }) {
 	const { answering, failure: refusal, answer: send } = useAnswer(askKey(event), event.status !== "pending", () => "Could not update this pause. Try again.");
 
 	if (event.status !== "pending") {
-		return <p className="rule-line rule-line-plain">{event.status === "stopped" ? `Stopped. Write to ${ownerName} to start again.` : "Quiet turns resumed"}</p>;
+		return <p className="rule-line rule-line-plain">{event.status === "stopped" ? `Stopped. Write to ${ownerName} to start again.` : "Kept going"}</p>;
 	}
 
 	const act = (cmd: "teammate.quiet_resume" | "teammate.quiet_stop") => {
@@ -379,7 +381,16 @@ export function QuietPaused({ personaId, ownerName, event }: { personaId: string
 	);
 }
 
-/** What the card says: "Huck paused after 20 quiet turns in an hour without you." */
+/** What the card says: "Huck has worked 20 times in the last hour on teammates' messages, without you." */
 function quietPausedWords(name: string, turns: number): string {
-	return `${name} paused after ${turns} quiet ${turns === 1 ? "turn" : "turns"} in an hour without you.`;
+	return `${name} has worked ${times(turns)} in the last hour on teammates' messages, without you.`;
+}
+
+/** The card in a few words, for Needs you: "Huck has worked 20 times this hour without you". */
+export function quietPausedLine(name: string, turns: number): string {
+	return name === "" ? `Worked ${times(turns)} this hour without you` : `${name} has worked ${times(turns)} this hour without you`;
+}
+
+function times(turns: number): string {
+	return turns === 1 ? "once" : `${turns} times`;
 }

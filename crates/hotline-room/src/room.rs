@@ -131,7 +131,7 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
             .filter(|turns| (1..=MAX_QUIET_TURNS).contains(turns))
             .map(Value::from)
             .ok_or_else(|| {
-                format!("A teammate's quiet turns an hour are a whole number from 1 to {MAX_QUIET_TURNS}.")
+                format!("The times a teammate may work an hour without you are a whole number from 1 to {MAX_QUIET_TURNS}.")
             });
     }
     if matches!(key, "images" | "spending") && !value.is_object() {

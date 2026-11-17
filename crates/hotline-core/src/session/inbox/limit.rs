@@ -3,7 +3,9 @@
 //! conversation has begun as many quiet turns in the last hour as the
 //! person's `quietTurnsPerHour` (20 until they change it, Settings › General)
 //! is paused before the next, with the card a pair of teammates gets ("Huck
-//! paused after 20 quiet turns in an hour without you.", Keep going, Stop).
+//! has worked 20 times in the last hour on teammates' messages, without
+//! you.", Keep going, Stop): the person reads times worked, never "quiet
+//! turns".
 //! While it waits no quiet turn begins: its items still land, and a turn the
 //! person starts hears them. Keep going counts afresh and wakes it for what
 //! waited; Stop holds it until the person next writes to it, in any of its

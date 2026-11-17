@@ -130,6 +130,7 @@ export function ThreadList({
 			<NeedsYouRow
 				key={item.id}
 				item={item}
+				ownerName={(item.owner === undefined ? undefined : nameOf(item.owner)) ?? entry?.persona.name ?? ""}
 				row={(line) => <Row item={item} line={line} now={now} opened={opened} onOpen={onOpen} />}
 				onOpen={(open) => {
 					opened.current = item.id;

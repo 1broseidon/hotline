@@ -1,6 +1,6 @@
 import type { Person } from "../../avatars";
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
-import { collaborationAsk, ExchangePaused, HumanAction, PasskeyAskCard, Permission, QuietPaused } from "./Asks";
+import { collaborationAsk, ExchangePaused, HumanAction, PasskeyAskCard, Permission, QuietPaused, quietPausedLine } from "./Asks";
 import { CookieAskCard } from "./CookieAskCard";
 import { CredentialAsk } from "./CredentialAsk";
 import { Prompted } from "./InboxLines";
@@ -56,8 +56,8 @@ export function nextLapse(events: readonly TranscriptEvent[], now: number): numb
 	return next;
 }
 
-/** A waiting card in a few words, for the chip. */
-export function askLine(ask: Ask): string {
+/** A waiting card in a few words, for the chip. `ownerName` is the teammate whose card it is. */
+export function askLine(ask: Ask, ownerName: string): string {
 	switch (ask.kind) {
 		case "permission": {
 			// A request up in access is one short question.
@@ -78,7 +78,7 @@ export function askLine(ask: Ask): string {
 		case "exchange_paused":
 			return `Paused with ${ask.withName}`;
 		case "quiet_paused":
-			return `Paused after ${ask.turns} quiet ${ask.turns === 1 ? "turn" : "turns"}`;
+			return quietPausedLine(ownerName, ask.turns);
 	}
 }
 

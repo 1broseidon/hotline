@@ -94,12 +94,12 @@ test("closed messages are kept 30 days by default, and a whole number of days ty
 	expect(kept).toEqual([60]);
 });
 
-test("a teammate is paused after 20 quiet turns an hour by default, and a whole number typed is saved", async () => {
+test("a teammate is paused once it works 20 times an hour without you by default, and a whole number typed is saved", async () => {
 	await mount("Ada");
 	const field = container.querySelector<HTMLInputElement>("#setting-quiet-turns")!;
 	expect(field.value).toBe("20");
-	expect(container.querySelector("label[for=setting-quiet-turns]")?.textContent).toBe("Pause a teammate after");
-	expect(field.parentElement?.textContent).toBe("quiet turns an hour");
+	expect(container.querySelector("label[for=setting-quiet-turns]")?.textContent).toBe("Pause a teammate that works");
+	expect(field.parentElement?.textContent).toBe("times an hour without you");
 	await act(async () => type(field, "0"));
 	await act(async () => type(field, "2.5"));
 	expect(limits).toEqual([]);

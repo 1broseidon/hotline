@@ -437,17 +437,20 @@ changes, like the index. The window reads the receipts over the wire.
 - **The hourly limit** (task-472, `inbox/limit.rs`). Turns nobody watches
   have a ceiling per teammate: one whose main conversation has begun as many
   quiet turns in the last hour as the person allows (Settings › General ›
-  Conversations, "Pause a teammate after [20] quiet turns an hour", the room
-  setting `quietTurnsPerHour`, 1 to 1000; 20 is a placeholder until desks
-  say how many a teammate needs) is paused before the next, with the pair's
-  card for one teammate (`quiet_paused`): "Paused", "Huck paused after 20
-  quiet turns in an hour without you.", Keep going and Stop; in Needs you,
-  "Paused after 20 quiet turns". While it waits no quiet turn begins (no
-  wake, no pick-up): its items still land, and a turn the person starts
-  hears them. Keep going counts afresh and wakes it for what waited ("Quiet
-  turns resumed"); Stop holds it until the person next writes to it, in any
-  of its threads, which counts afresh ("Stopped. Write to Huck to start
-  again."); while it is not paused, any such line counts afresh too. A
+  Conversations, "Pause a teammate that works [20] times an hour without
+  you", the room setting `quietTurnsPerHour`, 1 to 1000; 20 is a placeholder
+  until desks say how many a teammate needs) is paused before the next, with
+  the pair's card for one teammate (`quiet_paused`): "Paused", "Huck has
+  worked 20 times in the last hour on teammates' messages, without you.",
+  Keep going and Stop; in Needs you, "Huck has worked 20 times this hour
+  without you" (once, for one). "Quiet turn" is the desk's word, never the
+  person's: they read how many times it worked without them. While it waits
+  no quiet turn begins (no wake, no pick-up): its items still land, and a
+  turn the person starts hears them. Keep going counts afresh and wakes it
+  for what waited ("Kept going"); Stop holds it until the person next writes
+  to it, in any of its threads, which counts afresh ("Stopped. Write to Huck
+  to start again."); while it is not paused, any such line counts afresh
+  too. A
   quiet turn is one the inbox begins in the main conversation (a new item's
   wake, a notice the driver did not take mid-turn, a pick-up); a work thread
   or a job the inbox wakes is not counted. The count is the process's, so a

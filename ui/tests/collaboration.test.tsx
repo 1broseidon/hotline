@@ -89,7 +89,7 @@ describe("Ask or hand off", () => {
 	test("a waiting pause is one of the cards in Needs you, with its line, until it is answered", async () => {
 		const { askLine, openAsks } = await import("../src/components/transcript/AskCard");
 		expect(openAsks([pause]).map((ask) => ask.id)).toEqual(["pause-123"]);
-		expect(askLine(openAsks([pause])[0]!)).toBe("Paused with Mack");
+		expect(askLine(openAsks([pause])[0]!, "Ada")).toBe("Paused with Mack");
 		expect(openAsks([{ ...pause, status: "stopped" }])).toEqual([]);
 		expect(openAsks([{ ...pause, status: "resumed" }])).toEqual([]);
 	});
@@ -125,7 +125,7 @@ describe("Ask or hand off", () => {
 
 	test("task-470 in Needs you a request up in access is one short question", async () => {
 		const { askLine, openAsks } = await import("../src/components/transcript/AskCard");
-		expect(askLine(openAsks([upInAccess])[0]!)).toBe("Allow Huck to do work for Goldie?");
+		expect(askLine(openAsks([upInAccess])[0]!, "Goldie")).toBe("Allow Huck to do work for Goldie?");
 		expect(openAsks([{ ...upInAccess, decision: "deny", decidedOptionName: "Deny" }])).toEqual([]);
 	});
 

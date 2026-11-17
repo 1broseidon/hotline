@@ -240,10 +240,10 @@ export function GeneralSection({
 							days
 						</span>
 					</div>
-					{/* A teammate that begins this many quiet turns in an hour is paused with a card. */}
+					{/* A teammate that begins this many quiet turns in an hour is paused with a card: to the person, times it works without them. */}
 					<div className="group-row">
 						<label className="group-row-text" htmlFor="setting-quiet-turns">
-							<span className="group-row-title">Pause a teammate after</span>
+							<span className="group-row-title">Pause a teammate that works</span>
 						</label>
 						<span className="flex items-center gap-2 text-sm text-ink-2">
 							<input
@@ -257,7 +257,7 @@ export function GeneralSection({
 								value={turns}
 								onChange={(event) => commitTurns(event.target.value)}
 							/>
-							quiet turns an hour
+							times an hour without you
 						</span>
 					</div>
 					{/* Off, the desk contacts no site an agent linked to: no card, picture or icon. */}

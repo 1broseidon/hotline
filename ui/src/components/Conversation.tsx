@@ -379,7 +379,7 @@ export function Conversation({
 									// Open, the card above says the question; the strip only says what state it is.
 									activity: {
 										phase: "blocked" as const,
-										word: asks.length === 1 ? (asking !== null ? "Needs you" : `Needs you · ${askLine(asks[0]!)}`) : `${asks.length} things need you`,
+										word: asks.length === 1 ? (asking !== null ? "Needs you" : `Needs you · ${askLine(asks[0]!, persona.name)}`) : `${asks.length} things need you`,
 									},
 									sleeping: false,
 									open: asking !== null,

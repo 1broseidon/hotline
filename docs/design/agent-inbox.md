@@ -595,7 +595,15 @@ stored state and the teammates' tools keep `taken`.
   opens the item. The desk stamps the post with the item (`fromItem`) when
   exactly one item woke the turn: its line or its index offered that item
   alone; several together could each be what it posts about, so it names
-  none. The turn's end is marked `quiet` when the person never spoke into
+  none. A bubble straight under the sent row of the item it answers draws
+  no such line (task-505): the row above says what was asked and of whom.
+  Straight under means nothing is drawn between them but a time stamp and
+  the lines the window leaves out (an inbox-only turn's outcome and time, a
+  posting quiet turn's inbox line); the answer's own bubbles count as one.
+  An answer the window cannot link to a row in view (its item names none it
+  answers, or the row is not loaded) keeps the line, and so does every
+  file, card and job (`answersUnderTheirRow` in `ui/src/scheduledRuns.ts`).
+  The turn's end is marked `quiet` when the person never spoke into
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.
 - **What a colleague's message prompted** (task-469). The same line, by the

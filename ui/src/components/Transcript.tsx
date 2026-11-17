@@ -1,7 +1,7 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, foldInboxRuns, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink, sentRowsSay } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, answersUnderTheirRow, foldInboxRuns, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink, sentRowsSay } from "../scheduledRuns";
 import { inboxWork, itemsOf, useInbox } from "../inbox";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
@@ -62,6 +62,8 @@ export {
 } from "../transcriptFolds";
 export { StepRows } from "./transcript/Steps";
 export { SaidAloud, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
+
+const NONE: ReadonlySet<string> = new Set();
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -530,6 +532,8 @@ export function Transcript({
 		drawnBefore.current = [...drawn, ...drawn.flatMap((block) => (block.kind === "inboxRun" ? block.members : []))];
 		return drawn;
 	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId, inboxRows.work, thread]);
+	// An answer straight under the row of the item it answers needs no line saying whose message it is.
+	const underRow = useMemo(() => (thread === undefined ? answersUnderTheirRow(blocks, inboxRows.items) : NONE), [blocks, inboxRows.items, thread]);
 	const underway = useMemo(
 		() =>
 			onOpenThreads === undefined
@@ -660,6 +664,7 @@ export function Transcript({
 						}
 						loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
 						quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
+						underRow={underRow.has(event.id)}
 						top={run.top}
 						bottom={run.bottom}
 						people={people}
@@ -819,6 +824,7 @@ const Row = memo(function Row({
 	working,
 	loopedIn,
 	quote,
+	underRow = false,
 	top,
 	bottom,
 	people,
@@ -843,6 +849,8 @@ const Row = memo(function Row({
 	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
 	quote: Quote | undefined;
+	/** A bubble straight under the sent row of the item it answers: no line saying whose message it is (`answersUnderTheirRow`). */
+	underRow?: boolean;
 	top: boolean;
 	bottom: boolean;
 	people: ReadonlyMap<string, Person> | undefined;
@@ -896,7 +904,7 @@ const Row = memo(function Row({
 					run={run}
 					reactions={worn}
 					bubble={people?.get(personaId)?.bubble}
-					{...(event.fromItem !== undefined ? { prompted: <InboxFromRow itemId={event.fromItem} people={people} /> } : {})}
+					{...(event.fromItem !== undefined && !underRow ? { prompted: <InboxFromRow itemId={event.fromItem} people={people} /> } : {})}
 					{...(onReply !== undefined ? { onReply } : {})}
 					{...(onReact !== undefined ? { onReact } : {})}
 				/>

@@ -17,30 +17,32 @@ const real = await import("../src/voice/transcription");
 mock.module("../src/voice/transcription", () => ({ ...real, hearsOnThisMac: async () => true }));
 const { wire } = await import("../src/wire");
 const { toBlocks } = await import("../src/transcriptFolds");
-const { foldInboxRuns, groupInbox, sentRowsSay } = await import("../src/scheduledRuns");
+const { answersUnderTheirRow, foldInboxRuns, groupInbox, sentRowsSay } = await import("../src/scheduledRuns");
 
 const NOW = Date.now();
+/** When the lines were said: long enough ago that the chat's pacing shows every bubble at once. */
+const THEN = NOW - 300_000;
 const people = new Map([
 	["goldie", { name: "Goldie" }],
 	["timo", { name: "Timo" }],
 ]);
 
-const ask = (id: string, text: string): TranscriptEvent => ({ kind: "user", id, ts: NOW, text });
-const said = (id: string, text: string, fromItem?: string): TranscriptEvent => ({ kind: "agent", id, ts: NOW, text, ...(fromItem !== undefined ? { fromItem } : {}) });
-const ended = (id: string, quiet = false): TranscriptEvent => ({ kind: "turn", id, ts: NOW, stopReason: "end_turn", ...(quiet ? { quiet: true } : {}) });
-const sent = (item: string, to: string, title: string): TranscriptEvent => ({ kind: "inbox_sent", id: `inbox-sent:${item}`, ts: NOW, item, to, title });
+const ask = (id: string, text: string): TranscriptEvent => ({ kind: "user", id, ts: THEN, text });
+const said = (id: string, text: string, fromItem?: string): TranscriptEvent => ({ kind: "agent", id, ts: THEN, text, ...(fromItem !== undefined ? { fromItem } : {}) });
+const ended = (id: string, quiet = false): TranscriptEvent => ({ kind: "turn", id, ts: THEN, stopReason: "end_turn", ...(quiet ? { quiet: true } : {}) });
+const sent = (item: string, to: string, title: string): TranscriptEvent => ({ kind: "inbox_sent", id: `inbox-sent:${item}`, ts: THEN, item, to, title });
 /** A tool call as the desk records it, said in the group the window knows it by. */
 const tool = (id: string, title: string, key: string): TranscriptEvent => ({
 	kind: "tool",
 	id,
-	ts: NOW,
+	ts: THEN,
 	toolCallId: id,
 	title,
 	status: "completed",
 	said: { key, one: title, many: title, doing: title },
 });
 const send = (id: string) => tool(id, "send", "colleague");
-const outcome = (id: string, message: string, state?: string): TranscriptEvent => ({ kind: "outcome", id, ts: NOW, type: "sent", key: id, message, ...(state !== undefined ? { state } : {}) });
+const outcome = (id: string, message: string, state?: string): TranscriptEvent => ({ kind: "outcome", id, ts: THEN, type: "sent", key: id, message, ...(state !== undefined ? { state } : {}) });
 
 /** The blocks the main conversation draws, by kind and id; a turn's end draws nothing and is left out. */
 function shape(blocks: Block[]): string[] {
@@ -157,7 +159,8 @@ describe("task-505 drawn", () => {
 		container = document.createElement("div");
 		document.body.append(container);
 		root = createRoot(container);
-		const view: InboxView = { personaId: "goldie", open: [], closed: [], sent: [item("score", {})], unread: 0 };
+		const reply = item("reply", { from: "timo", to: "goldie", title: "Re: Score of the last game?", replyTo: "score" });
+		const view: InboxView = { personaId: "goldie", open: [], closed: [reply], sent: [item("score", {})], unread: 0 };
 		spyOn(wire, "subscribe").mockImplementation(((target: { inbox?: string }, handlers: { snapshot(items: unknown): void }) => {
 			if (target.inbox === "goldie") handlers.snapshot(view);
 			return () => {};
@@ -181,6 +184,34 @@ describe("task-505 drawn", () => {
 		expect(container.textContent).not.toContain("Asked Timo for the last game's score");
 	});
 
+	test("rule 4 with 2 and 3: the whole ask is three things, the row, the answer and its time", async () => {
+		await draw([ask("u1", "ask timo what the score of the last game was"), send("t1"), sent("score", "timo", "Score of the last game?"), outcome("o1", "Asked Timo for the last game's score"), ended("e1"), ...answerTurn]);
+		expect(container.querySelectorAll(".link-row[data-kind=inbox]")).toHaveLength(1);
+		expect(container.querySelectorAll(".speech.said-them")).toHaveLength(1);
+		expect(container.querySelectorAll(".steps-caption")).toHaveLength(1);
+		expect(container.querySelector("[data-kind=inbox-from]")).toBeNull();
+		expect(container.querySelector("[data-kind=inbox-run]")).toBeNull();
+		// In that order, under the person's line.
+		const order = [...container.querySelectorAll(".speech.said-me, .link-row[data-kind=inbox], .speech.said-them, .steps-caption")].map((one) => one.className.split(" ")[0]);
+		expect(order).toEqual(["speech", "link-row", "speech", "steps-caption"]);
+	});
+
+	test("rule 4: the answer after other talk keeps From Timo's message", async () => {
+		await draw([
+			ask("u1", "ask timo what the score of the last game was"),
+			send("t1"),
+			sent("score", "timo", "Score of the last game?"),
+			ended("e1"),
+			ask("u2", "while we wait, is the release branch green?"),
+			said("a2", "Yes. All three builds passed."),
+			ended("e3"),
+			...answerTurn,
+		]);
+		const from = [...container.querySelectorAll(".link-row[data-kind=inbox-from]")];
+		expect(from.map((row) => row.querySelector(".link-row-words")?.textContent)).toEqual(["From Timo's message ·Re: Score of the last game?"]);
+		expect(from[0]?.closest(".said-group")?.textContent).toContain("Timo says the Devils beat the Capitals");
+	});
+
 	test("rule 2: a closing bubble keeps its time line, with no outcome on it", async () => {
 		await draw([ask("u1", "ask timo"), send("t1"), sent("score", "timo", "Score of the last game?"), outcome("o1", "Asked Timo for the last game's score"), said("a1", "Also, they play again on Thursday."), ended("e1")]);
 		const caption = container.querySelector(".steps-caption");
@@ -191,7 +222,7 @@ describe("task-505 drawn", () => {
 });
 
 /** A sort of one item. */
-const sorting = (id: string, entry: InboxSortedEntry): TranscriptEvent => ({ kind: "inbox_sorted", id, ts: NOW, open: 0, unread: 0, entries: [entry] });
+const sorting = (id: string, entry: InboxSortedEntry): TranscriptEvent => ({ kind: "inbox_sorted", id, ts: THEN, open: 0, unread: 0, entries: [entry] });
 /** Timo's answer, as Goldie's inbox sort leaves it. */
 const answered = (id: string) => sorting(id, { item: "reply", title: "Re: Score of the last game?", from: "timo", state: "closed", outcome: "answered" });
 const post = (id: string) => tool(id, "post_to_chat", "post");
@@ -291,5 +322,46 @@ describe("task-505 rule 3 in the pane: the answer's time opens a path that lists
 		expect(section?.nextElementSibling?.getAttribute("aria-label")).toBe("Steps");
 		await act(async () => void rows[0]!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
 		expect(opened).toEqual(["reply"]);
+	});
+});
+
+describe("task-505 rule 4: From Timo's message only where it is needed", () => {
+	const reply = item("reply", { from: "timo", to: "goldie", title: "Re: Score of the last game?", replyTo: "score" });
+	const known = new Map([[reply.id, reply]]);
+	const asked = [ask("u1", "ask timo what the score of the last game was"), send("t1"), sent("score", "timo", "Score of the last game?"), outcome("o1", "Asked Timo"), ended("e1")];
+	const under = (events: TranscriptEvent[], items: ReadonlyMap<string, InboxItem> = known) => [...answersUnderTheirRow(drawn(events), items)];
+
+	test("an answer straight under the row it answers draws no line, the turn's end and the folded inbox line between them", () => {
+		expect(under([...asked, ...answerTurn])).toEqual(["p1"]);
+	});
+
+	test("an answer that comes after other talk keeps its line", () => {
+		expect(under([...asked, ask("u2", "while we wait, is the release branch green?"), said("a2", "Yes. All three builds passed."), ended("e3"), ...answerTurn])).toEqual([]);
+	});
+
+	test("an answer under a closing bubble and its time keeps its line: those are drawn between", () => {
+		const closing = [ask("u1", "ask timo"), send("t1"), sent("score", "timo", "Score of the last game?"), said("a1", "Also, they play Thursday."), ended("e1")];
+		expect(under([...closing, ...answerTurn])).toEqual([]);
+	});
+
+	test("an answer that cannot be linked to a row in view keeps its line", () => {
+		// No reply-to link on the item.
+		const { replyTo: _none, ...unlinked } = reply;
+		expect(under([...asked, ...answerTurn], new Map([[reply.id, unlinked]]))).toEqual([]);
+		// The teammate's inbox does not know the item yet.
+		expect(under([...asked, ...answerTurn], new Map())).toEqual([]);
+		// The row is not in the loaded transcript.
+		expect(under([ended("e1"), ...answerTurn])).toEqual([]);
+		// It answers another item than the row above.
+		expect(under([...asked, ...answerTurn], new Map([[reply.id, { ...reply, replyTo: "another" }]]))).toEqual([]);
+	});
+
+	test("a file keeps its line always; only words change", () => {
+		const file: TranscriptEvent = { kind: "agent", id: "f1", ts: THEN, text: "", fromItem: "reply", attachments: [{ name: "score.png", mime: "image/png", size: 10 } as never] };
+		expect(under([...asked, readInbox("q1"), answered("s1"), file, ended("e2", true)])).toEqual([]);
+	});
+
+	test("an answer of several bubbles is one answer under its row", () => {
+		expect(under([...asked, readInbox("q1"), answered("s1"), said("p1", "Timo says 7–4.", "reply"), said("p1-2", "At Washington.", "reply"), ended("e2", true)])).toEqual(["p1", "p1-2"]);
 	});
 });

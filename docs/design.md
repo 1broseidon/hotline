@@ -779,7 +779,11 @@ outcome line under a reply while its row is drawn, and a turn the person
 asked for with no bubble draws no time either: the row stands for the turn.
 A quiet turn that posts folds its inbox line into the bubble: what it read
 and sent is under Inbox in the path that bubble's time opens, and a quiet
-turn that posts nothing keeps its "Inbox · read 1".
+turn that posts nothing keeps its "Inbox · read 1". An answer straight
+under the sent row it answers draws no "From Timo's message" over it, since
+the row says what was asked and of whom; one that comes after other talk, or
+that the window cannot link to a row in view, keeps it, and files, cards and
+jobs always do.
 It is the window's drawing; the tape, the wire and the phone are unchanged,
 since the phone has no inbox rows yet.
 

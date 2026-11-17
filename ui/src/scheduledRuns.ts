@@ -1,4 +1,4 @@
-import type { Attachment, ScheduledRun, TranscriptEvent } from "./generated/contract";
+import type { Attachment, InboxItem, ScheduledRun, TranscriptEvent } from "./generated/contract";
 
 /**
  * A helper (a subagent) or a command left running, as the line its teammate's
@@ -260,6 +260,37 @@ export function sentRowsSay(blocks: Block[]): Block[] {
 		if (turn.asked && !turn.said) return [];
 		return [{ ...block, rowSays: true }];
 	});
+}
+
+/**
+ * The bubbles drawn straight under the sent row of the item they answer,
+ * whose "From Timo's message" line the desk leaves out: the row above says
+ * what was asked and of whom. Straight under means nothing is drawn between
+ * the row and the bubble but a time stamp (a turn that ended draws nothing,
+ * and the lines `sentRowsSay` and `foldInboxRuns` leave out are not in the
+ * blocks), the answer's own bubbles before it aside. An answer the window
+ * cannot link to a row in view (its item names none it answers, the teammate's
+ * inbox does not know it yet, or the row is not loaded) keeps its line, and
+ * so does a file: only words change.
+ */
+export function answersUnderTheirRow(blocks: Block[], items: ReadonlyMap<string, InboxItem>): Set<string> {
+	const under = new Set<string>();
+	blocks.forEach((block, at) => {
+		const answer = block.kind === "event" && block.event.kind === "agent" ? block.event : undefined;
+		if (answer?.fromItem === undefined || answer.text.trim() === "" || (answer.attachments?.length ?? 0) > 0) return;
+		const asked = items.get(answer.fromItem)?.replyTo;
+		if (asked === undefined) return;
+		let before = at - 1;
+		while (before >= 0 && (drawsNothing(blocks[before]!) || sameAnswer(blocks[before]!, answer.fromItem))) before -= 1;
+		const row = blocks[before];
+		if (row?.kind === "inbox" && row.sent.some((one) => one.item === asked)) under.add(answer.id);
+	});
+	return under;
+}
+
+/** A bubble posted for the same item: the answer's own, before this one. */
+function sameAnswer(block: Block, item: string): boolean {
+	return block.kind === "event" && block.event.kind === "agent" && block.event.fromItem === item;
 }
 
 /** A blocks' line as its fold reads it: one that joins the run, one that stands beside it, or one that ends it. */

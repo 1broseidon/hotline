@@ -498,7 +498,7 @@ test("with the teammate it is one pill and one menu: the face ends the pill, the
 	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
 	expect(pill.getAttribute("aria-label")).toBe("Goldie, working: Claude Haiku · Medium");
 	expect(pill.querySelector('.model-pill-face .face[data-size="24"]')).not.toBeNull();
-	expect(pill.querySelector(".model-pill-beat")).not.toBeNull();
+	expect(pill.querySelector(".model-pill-beat")?.classList.contains("beat")).toBe(true);
 	// Near the limit is the band gauge's to say, not the pill's.
 	expect(pill.querySelector(".plan-dot")).toBeNull();
 	expect(pill.querySelector(".model-pill-chevron")).toBeNull();
@@ -540,6 +540,13 @@ test("a compact pill is the model's mark and the face, the model in its label", 
 	expect(pill.querySelector(".model-pill-label")).toBeNull();
 	expect(pill.getAttribute("aria-label")).toBe("Goldie: Claude Haiku · Medium");
 	expect(pill.querySelector(".model-pill-beat")).toBeNull();
+});
+
+test("a working face that blinks keeps its dot steady on the pill, so one thing moves", async () => {
+	await picker({ teammate: { name: "Goldie", goal: "", working: true, blinking: true, face: () => <span className="face" />, actions: [] } });
+	const dot = container.querySelector(".model-pill .model-pill-beat");
+	expect(dot).not.toBeNull();
+	expect(dot!.classList.contains("beat")).toBe(false);
 });
 
 const levels = (ids: string[]): ConfigChoice[] => ids.map((id) => ({ id, name: id === "default" ? "Default" : id[0]!.toUpperCase() + id.slice(1) }));

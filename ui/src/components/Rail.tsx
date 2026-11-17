@@ -1,10 +1,11 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
-import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
+import { MAX_PINS, movedTo, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
+import { type DragProps, useRailDrag } from "../railDrag";
 import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
 import { openChatWindow } from "../chatWindow";
 import { platform, popupTeammateMenu } from "../native";
-import { shownState } from "../activity";
+import { faceBlinks, shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar, faceOf, initialOf } from "../ui/Avatar";
@@ -41,6 +42,7 @@ export function Rail({
 	onEdit,
 	onDelete,
 	onPin,
+	onArrange,
 	onLead,
 	onAddDesk,
 	onNew,
@@ -67,6 +69,8 @@ export function Rail({
 	onDelete(personaId: string, name: string, deskId?: string): void;
 	/** Pin at a slot, or unpin with null. */
 	onPin(personaId: string, slot: number | null, deskId?: string): void;
+	/** The desk's whole order of the list under the pins, after a move. */
+	onArrange(personaIds: string[], deskId?: string): void;
 	/** Make the teammate its desk's lead, or with false, leave the desk with none. */
 	onLead(personaId: string, lead: boolean, deskId?: string): void;
 	onAddDesk(): void;
@@ -85,8 +89,9 @@ export function Rail({
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
-	/* The pinned face being dragged, and the slot it would drop into. */
-	const [drag, setDrag] = useState<{ id: string; over: number | null } | null>(null);
+	/* A pin moves along its desk's pins and a row along its desk's list (railDrag.ts). */
+	const list = useRef<HTMLDivElement>(null);
+	const dragOf = useRailDrag(list, () => setTip(null));
 	const desks = useDesks();
 	const active = useActiveDesk();
 	const filter = useDeskFilter();
@@ -123,7 +128,7 @@ export function Rail({
 		>
 			<DeskFilter compact={compact} onAdd={onAddDesk} />
 			{/* Down only: nothing in the list may make it scroll sideways (a busy face's turning ring did, on Windows). */}
-			<div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
+			<div ref={list} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{pinned.length + rest.length === 0 ? (
 					compact || !loaded ? null :
 					<p className="px-2 py-3 text-sm text-ink-3">
@@ -150,8 +155,7 @@ export function Rail({
 											shortcut={index < 9 ? index + 1 : null}
 											active={onDesk(row) && entry.persona.id === selectedId}
 											unread={unread(row)}
-											dragging={drag?.id === key(row)}
-											over={drag !== null && drag.id !== key(row) && drag.id.startsWith(`${row.deskId}/`) && drag.over === slot}
+											drag={dragOf(row.deskId, entry.persona.id, true, slot, (to) => onPin(entry.persona.id, to, elsewhereId(row)))}
 											compact={compact}
 											onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
 											onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
@@ -159,20 +163,7 @@ export function Rail({
 											onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
 											alone={alone(row)}
 											onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
-											onPin={(personaId, at) => {
-												// A pin moves along its own desk's row and no other.
-												if (drag !== null && !drag.id.startsWith(`${row.deskId}/`)) return;
-												onPin(personaId, at, elsewhereId(row));
-											}}
-											onDrag={(dragged) =>
-												// Which face is being dragged is known when the drag starts;
-												// passing over another face only moves where it would land.
-												setDrag((was) =>
-													dragged === null
-														? null
-														: { id: was !== null && dragged.over !== null ? was.id : `${row.deskId}/${dragged.id}`, over: dragged.over },
-												)
-											}
+											onPin={(at) => onPin(entry.persona.id, at, elsewhereId(row))}
 											onTip={showTip}
 										/>
 									);
@@ -182,6 +173,12 @@ export function Rail({
 						{rest.map((row, index) => {
 							const { entry } = row;
 							const pins = pinned.filter((one) => one.deskId === row.deskId).length;
+							// A row's place is on its own desk's list, which the
+							// filter shows whole or not at all, so a move rewrites
+							// that whole list as it is on screen.
+							const ownRows = rest.filter((one) => one.deskId === row.deskId).map((one) => one.entry.persona.id);
+							const at = ownRows.indexOf(entry.persona.id);
+							const moveTo = (to: number | null) => (to === null ? undefined : () => onArrange(movedTo(ownRows, entry.persona.id, to), elsewhereId(row)));
 							return (
 								<Row
 									key={key(row)}
@@ -197,6 +194,9 @@ export function Rail({
 									onWindow={() => void openChatWindow(row.deskId, entry.persona.id, entry.persona.name)}
 									onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
 									onPin={() => onPin(entry.persona.id, pins, elsewhereId(row))}
+									onUp={moveTo(nudged(at, -1, ownRows.length))}
+									onDown={moveTo(nudged(at, 1, ownRows.length))}
+									drag={dragOf(row.deskId, entry.persona.id, false, at, (to) => onArrange(movedTo(ownRows, entry.persona.id, to), elsewhereId(row)))}
 									alone={alone(row)}
 									onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
 									{...(compact ? { onTip: showTip } : {})}
@@ -269,6 +269,9 @@ function Row({
 	onWindow,
 	onDelete,
 	onPin,
+	onUp,
+	onDown,
+	drag,
 	alone,
 	onLead,
 	onTip,
@@ -289,6 +292,11 @@ function Row({
 	onWindow(): void;
 	onDelete(): void;
 	onPin(): void;
+	/** One place up or down its desk's list; absent at that end of it. */
+	onUp: (() => void) | undefined;
+	onDown: (() => void) | undefined;
+	/** Dragged along its desk's list to a new place, as a pinned face is along the pins. */
+	drag: DragProps;
 	/** The only teammate on its desk. */
 	alone: boolean;
 	onLead(): void;
@@ -297,20 +305,20 @@ function Row({
 }) {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
-	const working = state === "thinking" && entry.activity !== undefined;
 	const busy = entry.session.state === "starting" || entry.drawing;
+	const blinking = faceBlinks(entry);
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
 	const lead = entry.lead === true;
 	const face = (
 		<span className="relative flex shrink-0">
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} shut={entry.persona.avatar?.poses?.shut} blinking={blinking} busy={busy} />
 			{lead && <LeadBadge />}
 			{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
 			{onTip !== undefined && vital.color !== null && (
 				<span
 					aria-hidden="true"
-					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					className={`rail-face-vital ${vital.beating && !blinking ? "beat" : ""}`}
 					style={{ background: vital.color }}
 				/>
 			)}
@@ -324,6 +332,7 @@ function Row({
 			aria-current={active ? "true" : undefined}
 			aria-label={`${named}${lead ? ", team lead" : ""}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			className="rail-row group relative"
+			{...drag}
 			onClick={onSelect}
 			{...(onTip !== undefined
 				? {
@@ -341,6 +350,7 @@ function Row({
 					onEdit,
 					onDelete,
 					pin: { pinned: false, full, onToggle: onPin },
+					move: { ...(onUp !== undefined ? { onUp } : {}), ...(onDown !== undefined ? { onDown } : {}) },
 					lead: { lead, alone, onToggle: onLead },
 				});
 			}}
@@ -370,13 +380,13 @@ function Row({
 					{vital.color !== null && (
 						<span
 							aria-hidden="true"
-							className={`h-2 w-2 shrink-0 rounded-full ${vital.beating ? "beat" : ""}`}
+							className={`h-2 w-2 shrink-0 rounded-full ${vital.beating && !blinking ? "beat" : ""}`}
 							style={{ background: vital.color }}
 						/>
 					)}
 				</span>
 				<span
-					className={`block h-4 truncate text-sm ${unread ? "text-ink-2" : "text-ink-3"} ${working ? "font-mono text-xs leading-4" : ""}`}
+					className={`block h-4 truncate text-sm ${unread ? "text-ink-2" : "text-ink-3"}`}
 				>
 					{line}
 				</span>
@@ -386,7 +396,7 @@ function Row({
 	);
 }
 
-/** What a row says under the name: the tool running, the last line, or the goal. */
+/** What a row says under the name: what it is on while it works, the last line, or the goal. */
 function lineOf(entry: RosterEntry): string {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
@@ -401,8 +411,7 @@ function lineOf(entry: RosterEntry): string {
  * A pinned teammate: a larger face with the name under it, carrying what its
  * row did — the vital, the unread dot, the busy ring. In the faces-only rail
  * the tiles stack and the name waits on the hover card. Dragged along the
- * row to reorder; the menu's Move left / right does the same for the keyboard
- * and for a window that does not hand the page its drag events.
+ * row to reorder; the menu's Move left / right does the same for the keyboard.
  */
 function PinTile({
 	entry,
@@ -413,8 +422,7 @@ function PinTile({
 	shortcut,
 	active,
 	unread,
-	dragging,
-	over,
+	drag,
 	compact,
 	onSelect,
 	onEdit,
@@ -423,7 +431,6 @@ function PinTile({
 	onPin,
 	alone,
 	onLead,
-	onDrag,
 	onTip,
 }: {
 	entry: RosterEntry;
@@ -435,35 +442,35 @@ function PinTile({
 	shortcut: number | null;
 	active: boolean;
 	unread: boolean;
-	dragging: boolean;
-	over: boolean;
+	drag: DragProps;
 	compact: boolean;
 	onSelect(): void;
 	onEdit(): void;
 	/** Opens its chat in a window of its own. */
 	onWindow(): void;
 	onDelete(): void;
-	onPin(personaId: string, slot: number | null): void;
+	/** Moves it to a slot, or unpins it with null. */
+	onPin(slot: number | null): void;
 	alone: boolean;
 	onLead(): void;
-	onDrag(drag: { id: string; over: number | null } | null): void;
 	onTip: ShowTip;
 }) {
 	const { persona } = entry;
 	const vital = VITAL[entry.session.state];
 	const busy = entry.session.state === "starting" || entry.drawing;
+	const blinking = faceBlinks(entry);
 	const line = lineOf(entry);
 	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;
 	const lead = entry.lead === true;
 	const face = (
 		<span className="relative flex">
-			<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} busy={busy} />
+			<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} shut={persona.avatar?.poses?.shut} blinking={blinking} busy={busy} />
 			{lead && <LeadBadge />}
 			{unread && <span aria-hidden="true" className="rail-face-unread" />}
 			{vital.color !== null && (
 				<span
 					aria-hidden="true"
-					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					className={`rail-face-vital ${vital.beating && !blinking ? "beat" : ""}`}
 					style={{ background: vital.color }}
 				/>
 			)}
@@ -477,36 +484,16 @@ function PinTile({
 			data-teammate-row
 			data-pin={slot}
 			data-offline={offline || undefined}
-			draggable
+			{...drag}
 			aria-current={active ? "true" : undefined}
 			aria-label={`${named}${lead ? ", team lead" : ""}, pinned${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			title={compact || shortcut === null ? undefined : `${named} (${chordKeys("teammate-seat").replace("1–9", String(shortcut))})`}
 			className="rail-pin group"
-			data-dragging={dragging || undefined}
-			data-over={over || undefined}
 			onClick={onSelect}
 			onMouseEnter={compact ? (event) => onTip(event.currentTarget, named, line, face) : undefined}
 			onFocus={compact ? (event) => onTip(event.currentTarget, named, line, face) : undefined}
 			onMouseLeave={compact ? () => onTip(null) : undefined}
 			onBlur={compact ? () => onTip(null) : undefined}
-			onDragStart={(event) => {
-				event.dataTransfer.setData("text/plain", persona.id);
-				event.dataTransfer.effectAllowed = "move";
-				onTip(null);
-				onDrag({ id: persona.id, over: null });
-			}}
-			onDragOver={(event) => {
-				event.preventDefault();
-				event.dataTransfer.dropEffect = "move";
-				onDrag({ id: event.dataTransfer.getData("text/plain") || persona.id, over: slot });
-			}}
-			onDrop={(event) => {
-				event.preventDefault();
-				const id = event.dataTransfer.getData("text/plain");
-				onDrag(null);
-				if (id !== "" && id !== persona.id) onPin(id, slot);
-			}}
-			onDragEnd={() => onDrag(null)}
 			onContextMenu={(event) => {
 				event.preventDefault();
 				void popupTeammateMenu({
@@ -517,9 +504,9 @@ function PinTile({
 					pin: {
 						pinned: true,
 						full: true,
-						onToggle: () => onPin(persona.id, null),
-						...(left !== null ? { onLeft: () => onPin(persona.id, left) } : {}),
-						...(right !== null ? { onRight: () => onPin(persona.id, right) } : {}),
+						onToggle: () => onPin(null),
+						...(left !== null ? { onLeft: () => onPin(left) } : {}),
+						...(right !== null ? { onRight: () => onPin(right) } : {}),
 					},
 					lead: { lead, alone, onToggle: onLead },
 				});

@@ -839,7 +839,7 @@ describe("task-456 drawn", () => {
 		const juno = { persona: { id: "juno", name: "Juno", goal: "" }, session: { personaId: "juno", state: "idle" }, waiting: false, drawing: false, inbox: 3 } as unknown as import("../src/wire").RosterEntry;
 		await act(async () =>
 			root!.render(
-				<Rail entries={[juno]} selectedId={null} seen={{}} connection="open" onSelect={() => {}} onEdit={() => {}} onDelete={() => {}} onPin={() => {}} onLead={() => {}} onAddDesk={() => {}} onNew={() => {}} settings={null} search={null} deskKey={null} />,
+				<Rail entries={[juno]} selectedId={null} seen={{}} connection="open" onSelect={() => {}} onEdit={() => {}} onDelete={() => {}} onPin={() => {}} onLead={() => {}} onArrange={() => {}} onAddDesk={() => {}} onNew={() => {}} settings={null} search={null} deskKey={null} />,
 			),
 		);
 		const row = container.querySelector("[data-teammate-row]")!;

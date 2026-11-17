@@ -1615,6 +1615,7 @@ extend; when a change adds a boundary, it adds a row.
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk/workspace.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
 | Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `hotline-tools/src/workspace/tests.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `hotline-tools/src/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `hotline-tools/src/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp/tests/session_new.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/tests.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests/preamble.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `hotline-tools/src/workspace/tests.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
+| A teammate draws only its own face: `make_face` writes its picture through the policy lock, refuses an unknown style, part, variant or slot and any colour but a `#rrggbb`, refuses over a picture the person chose, and is offered to neither a subagent run nor a voice front, on both drivers | `tests/mcp/faces.rs` `hotline_agent_makes_and_changes_its_own_face`, `an_acp_child_makes_and_changes_its_own_face`; `session/avatar/tests.rs` `only_the_teammates_own_threads_make_its_face`, `make_face_refuses_unknown_names_bad_colours_and_the_persons_choice` | — |
 | A revoked workspace handle refuses reads and writes | `hotline-tools/src/workspace/tests.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
 | Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `hotline-tools/src/shell/tests.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
 | Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `hotline-tools/src/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
@@ -3034,6 +3035,57 @@ teammate's own threads.
   in the teammate's words, and the path one press away is the check on it. An
   `ended` or rewritten outcome replaces the line by id, so the earlier words
   are on disk but no longer drawn.
+
+## A teammate's face
+
+`face_options(style?)` and `make_face(style, parts?, colors?, seed?)` are two
+of Hotline's own tools. A teammate draws its own picture from one of
+DiceBear's styles, on the desk: the core renders the SVG DiceBear writes from
+an embedded style definition and rasterises it with resvg. Neither tool reads
+a file, starts a process or makes a network call; the style definitions are
+compiled into the binary and resvg is given no way to load an image a
+drawing might name. `make_face` writes one thing, the teammate's own picture,
+which `set_avatar` already lets it write, with that picture's eyes-shut pose
+beside it when the style blinks: drawn from the same recipe by the same
+renderer, with DiceBear's blink held still, and removed with the picture.
+
+- **Default and old records:** nothing is granted per teammate. The tools are
+  on the desk's MCP server and among Hotline Agent's in-process tools in the
+  teammate's main conversation, its work threads, its call threads and its
+  jobs. An `Avatar` written before faces has no `recipe` and reads as it did.
+- **Grant source:** none: the teammate's own session. A subagent run has
+  neither (`RUN_TOOLS`), because it reports to the teammate that launched it;
+  a voice front has neither (`FRONT_TOOLS`).
+- **Setup:** `avatar.generate`, the owner's setup command, draws a face at
+  once from the teammate's id and bubble colour, on the desk, and does
+  nothing more: it makes no job and starts no turn, so no model sees or
+  spends anything on a face the person did not ask for.
+- **Enforcement:** `TeammateTools::answer` checks the session's capability
+  lease first, as for every tool; `Room::make_face`
+  (`session/avatar.rs`) checks it again after drawing, refuses over a
+  picture the person chose, before drawing and again under the room's
+  policy lock, and writes through `write_avatar`, the path `set_avatar`
+  uses. Every name is checked against the style (an unknown style, part,
+  variant or colour slot is refused, naming the valid ones), every colour
+  is a `#rrggbb`, a seed is at most 200 characters, and a refusal repeats
+  at most 64 characters of what it was sent. The tool's schema has no SVG
+  and the handler reads none.
+- **Tests:** `tests/mcp/faces.rs`
+  `hotline_agent_makes_and_changes_its_own_face`,
+  `an_acp_child_makes_and_changes_its_own_face`, through the real handler
+  on both drivers, read back off the disk; `session/avatar/tests.rs`
+  `only_the_teammates_own_threads_make_its_face` refuses a run, a voice
+  front and a revoked lease and lets a job through,
+  `make_face_refuses_unknown_names_bad_colours_and_the_persons_choice`;
+  `tests/desk/avatars.rs`
+  `setup_gives_a_seeded_face_and_no_job` over the wire, and
+  `session/avatar/tests.rs` `setup_seeds_a_face_and_makes_no_job`.
+- **Residual risk:** the face is the model's choice within the style; it can
+  draw itself as anything a style draws. That it changes its picture only
+  when the person asks, and first asks which kind when it can also generate
+  one, is what its tools and preamble tell it, not something the core
+  enforces; either way it writes only its own picture. The pictures handed
+  back to the model enter its context like a browser screenshot.
 
 ## Jobs on their own threads (ADR 0008 §7)
 

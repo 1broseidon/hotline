@@ -154,6 +154,8 @@ type Results = {
 	"persona.update": Persona;
 	"persona.delete": null;
 	"persona.pin": string[];
+	/** The desk's order of its team, as it now stands. */
+	"persona.arrange": string[];
 	/** The desk's lead id, or null when it has none. */
 	"persona.lead": string | null;
 	"settings.update": Record<string, unknown>;

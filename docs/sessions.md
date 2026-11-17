@@ -559,7 +559,8 @@ window's peek says Done, nothing offers Stop, and the desktop toast for a
 finished turn fires; only the mark stays in the composer, at rest, beside
 the last words the teammate gave `activity` in the turn, because the line
 that said them is still the turn's newest declaration: parking writes no
-`turn` line, so nothing ends it until the turn does. Everything
+`turn` line, so nothing ends it until the turn does. With none, the roster
+row says how many helpers are working (`activity_line`, `wire/roster.rs`). Everything
 that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 
@@ -2076,7 +2077,8 @@ both of its teammates, and its receipts still move.
 desk window would show — `idle`, `working`, `waiting` (on the person) or
 `stopped` — read from the roster's own `activity_on`/`waiting_on`, so it
 costs nothing beyond a tape's tail and never wakes or starts anyone. A
-working colleague's `activity` names the tool still running, and
+working colleague's `activity` is the words beside its mark, as its
+roster row says them (`activity_line`), and
 `workingOn` says what for: the open chapter's title once a resume has given
 it one, its goal until then, and when it last spoke. Beside that is who
 the colleague is and what it can do, so a teammate can find the one that

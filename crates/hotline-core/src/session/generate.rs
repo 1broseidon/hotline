@@ -117,7 +117,7 @@ impl Room {
             spent_usd,
             subscription,
         } = self
-            .draw_for(&request, capability.as_ref(), Some(&persona))
+            .draw_for(&request, capability.as_ref(), &persona)
             .await?;
         if let Some(capability) = &capability {
             capability.check()?;
@@ -173,23 +173,14 @@ impl Room {
     }
 
     /// One image from the room's image providers, the owner's pick first and
-    /// then the fallback, each paid attempt within the spending cap. A
-    /// subscription that fails never falls back to a paid provider.
-    pub(crate) async fn draw(
-        &self,
-        request: &ImageRequest,
-        capability: Option<&CapabilityLease>,
-    ) -> Result<Drawn, String> {
-        self.draw_for(request, capability, None).await
-    }
-
-    /// [`Self::draw`] for a teammate, on the account its model runs on when
-    /// that account's provider draws.
+    /// then the fallback, each paid attempt within the spending cap, on the
+    /// account the teammate's model runs on when that account's provider
+    /// draws. A subscription that fails never falls back to a paid provider.
     pub(crate) async fn draw_for(
         &self,
         request: &ImageRequest,
         capability: Option<&CapabilityLease>,
-        persona: Option<&Persona>,
+        persona: &Persona,
     ) -> Result<Drawn, String> {
         let generators = self.image_generators_for(persona)?;
         let mut spent_usd = 0.0;
@@ -275,20 +266,16 @@ impl Room {
         Err(failure.unwrap_or_else(|| "No connected provider could make this image.".into()))
     }
 
-    /// The providers the room's image settings name, the owner's pick first.
-    pub(crate) fn image_generators(&self) -> Result<ImageSet, String> {
-        self.image_generators_for(None)
-    }
-
-    /// The same, on the teammate's own account for its model's provider.
-    fn image_generators_for(&self, persona: Option<&Persona>) -> Result<ImageSet, String> {
+    /// The providers the room's image settings name, the owner's pick first,
+    /// on the teammate's own account for its model's provider.
+    fn image_generators_for(&self, persona: &Persona) -> Result<ImageSet, String> {
         let settings = crate::room::try_settings(self.log())?;
         let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
             "images",
             settings.get("images").unwrap_or(&json!({})),
         )?)
         .map_err(|_| "The room's image settings could not be read.".to_string())?;
-        self.resolve_images(&images, &persona.map(accounts_of).unwrap_or_default())
+        self.resolve_images(&images, &accounts_of(persona))
     }
 
     fn resolve_images(

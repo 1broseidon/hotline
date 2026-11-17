@@ -8,6 +8,56 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate makes its own face. Ask it for a face, or for a change to the
+  one it has ("give yourself glasses"), and it draws one on this computer
+  from one of three DiceBear creature styles, Pixelbot, Moods and Sprouts,
+  with no image provider and no network, from its name, its goal and its
+  bubble colour. Asked for a change it keeps its style and changes only
+  that; it switches style when you tell it to. It is shown the picture it
+  made, where its model reads pictures, and can adjust it. Two new tools,
+  `face_options` and `make_face`, do this; a face is kept with the recipe
+  it was drawn from. Only styles whose artwork is CC0 are used, so none
+  needs credit. A teammate that can also make images asks you first
+  whether you want a drawn face or a picture made by an image model,
+  unless you already said; one that cannot just draws.
+- Setup's Picture switch is always offered, and a new teammate starts with a
+  drawn face rather than its initial: the desk draws one at once in its
+  bubble colour on a dark ground of the same hue, the same face every time
+  for the same teammate, and no model turn is spent on it.
+- A teammate's face blinks while it works. In the team list, the pins and
+  the face at the top of its conversation, a face drawn in Pixelbot, Moods
+  or Sprouts shuts its eyes for a moment every few seconds while the
+  teammate is working, each at its own rhythm, and holds still when it is
+  idle, waiting on you or waiting on its helpers. A face that blinks no
+  longer has a beating dot beside it, so one thing moves on the face; the
+  mark by the message box moves as before.
+  Nothing moves with Reduce motion on. Faces made before this blink after the
+  desk next opens; pictures from a file stay still.
+- The team list can be put in any order: drag a teammate's row to a new
+  place, or use Move up / Move down in its menu. The order is kept by the
+  desk, so it survives a restart and every window of that desk shows it. A
+  new teammate joins at the end, and a teammate waiting on you keeps its
+  place and shows its mark. A desk nobody has arranged lists its team as
+  before. The phone keeps its own order.
+
+### Fixed
+
+- The words beside a teammate's mark in the message box are never blank
+  while it works. Its own words still come first; when it has said none,
+  the bar says "Getting started" until its model answers, "Working on it"
+  while a step runs, and "Thinking" between steps. After a reply, while
+  helpers it started are still at work, the bar keeps what it last said it
+  is waiting on, even through messages you send meanwhile, or says "1 helper
+  working" or "3 helpers working", and clears when the last one finishes.
+  The same words are the teammate's line in the rail and on the phone, in
+  place of the name of the tool it was running.
+- Dragging a pinned teammate's face along the pins moves it. The window
+  keeps drag and drop for files dropped on it, so the page never heard where
+  a face was dropped; a face and a row are now moved by pressing and moving
+  the pointer, with a line where it will land, and Escape puts it back.
+
 ## [0.49.2] - 2026-11-16
 
 ### Added

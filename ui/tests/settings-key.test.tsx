@@ -39,6 +39,7 @@ test("Settings leads the rail's dock, in the window's bottom-left corner", async
 				onEdit={() => {}}
 				onDelete={() => {}}
 				onPin={() => {}}
+				onArrange={() => {}}
 				onLead={() => {}}
 				onAddDesk={() => {}}
 				onNew={() => {}}

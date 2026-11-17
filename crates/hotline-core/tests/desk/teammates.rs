@@ -736,6 +736,129 @@ async fn a_one_teammate_desk_from_before_the_lead_loads_with_that_teammate_as_le
     assert_eq!(leads_on_the_roster(&mut client).await, ["ada"]);
 }
 
+/// The desk's order as a fresh roster view says it: the ids of the rows
+/// that have a place, by place, and those of the rows that have none.
+async fn places_on_the_roster(client: &mut Client) -> (Vec<String>, Vec<String>) {
+    let roster = client.subscribe(json!({ "view": "roster" })).await;
+    let snapshot = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, roster, "snapshot")
+        })
+        .await;
+    let rows = snapshot["snapshot"].as_array().unwrap();
+    let id = |row: &Value| row["persona"]["id"].as_str().unwrap().to_string();
+    let mut placed: Vec<&Value> = rows.iter().filter(|row| row["place"].is_u64()).collect();
+    placed.sort_by_key(|row| row["place"].as_u64());
+    for (place, row) in placed.iter().enumerate() {
+        assert_eq!(row["place"], place, "{snapshot}");
+    }
+    let unplaced = rows.iter().filter(|row| row.get("place").is_none());
+    (
+        placed.into_iter().map(id).collect(),
+        unplaced.map(id).collect(),
+    )
+}
+
+async fn arranged(client: &mut Client, ids: &[&String]) -> Value {
+    let answer = client.call("persona.arrange", json!({ "ids": ids })).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    answer["result"].clone()
+}
+
+/// `persona.arrange` puts the team in the person's order and the roster
+/// rows carry each place. A teammate made afterwards has no place, so the
+/// window lists it after the placed ones; one deleted leaves the order; an
+/// id that is nobody on the desk is dropped; an empty list unarranges.
+#[tokio::test(flavor = "multi_thread")]
+async fn persona_arrange_orders_the_team_and_new_and_removed_teammates_leave_it_whole() {
+    let (_root, port) = open("arrange").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let ada = made(&mut client, "Ada").await;
+    let bob = made(&mut client, "Bob").await;
+    let cy = made(&mut client, "Cy").await;
+    assert_eq!(
+        places_on_the_roster(&mut client).await,
+        (vec![], vec![ada.clone(), bob.clone(), cy.clone()])
+    );
+
+    // A view already open is sent the rows whose place moved.
+    let open = client.subscribe(json!({ "view": "roster" })).await;
+    client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, open, "snapshot")
+        })
+        .await;
+    assert_eq!(
+        arranged(&mut client, &[&cy, &ada, &bob]).await,
+        json!([cy, ada, bob])
+    );
+    for (place, id) in [&cy, &ada, &bob].into_iter().enumerate() {
+        client
+            .next_where(Duration::from_secs(5), |frame| {
+                is_sub(frame, open, "event")
+                    && frame["event"]["persona"]["id"] == *id
+                    && frame["event"]["place"] == place
+            })
+            .await;
+    }
+    assert_eq!(
+        places_on_the_roster(&mut client).await,
+        (vec![cy.clone(), ada.clone(), bob.clone()], vec![])
+    );
+    // A move is the whole list again, with the one teammate somewhere new.
+    arranged(&mut client, &[&ada, &bob, &cy]).await;
+    assert_eq!(
+        places_on_the_roster(&mut client).await.0,
+        [ada.clone(), bob.clone(), cy.clone()]
+    );
+
+    let di = made(&mut client, "Di").await;
+    assert_eq!(
+        places_on_the_roster(&mut client).await,
+        (vec![ada.clone(), bob.clone(), cy.clone()], vec![di.clone()])
+    );
+
+    let gone = client.call("persona.delete", json!({ "id": bob })).await;
+    assert_eq!(gone["ok"], true, "{gone}");
+    assert_eq!(
+        places_on_the_roster(&mut client).await,
+        (vec![ada.clone(), cy.clone()], vec![di.clone()])
+    );
+
+    let nobody = "nobody".to_string();
+    assert_eq!(
+        arranged(&mut client, &[&di, &nobody, &ada, &di]).await,
+        json!([di, ada])
+    );
+    assert_eq!(arranged(&mut client, &[]).await, json!([]));
+    assert_eq!(places_on_the_roster(&mut client).await.0, [] as [String; 0]);
+}
+
+/// The order is the desk's, on its room stream: a desk opened again on the
+/// same data directory lists the team as it was left.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_team_order_is_kept_when_the_desk_opens_again() {
+    let root = scratch("arrange-reopen");
+    let desk = common::open_desk(&root).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let serving = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    let ada = made(&mut client, "Ada").await;
+    let bob = made(&mut client, "Bob").await;
+    arranged(&mut client, &[&bob, &ada]).await;
+    drop(client);
+    serving.abort();
+    let _ = serving.await;
+
+    let mut client = Client::connect(open_at(&root), TOKEN).await;
+    assert_eq!(
+        places_on_the_roster(&mut client).await,
+        (vec![bob, ada], vec![])
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn cached_tape_snapshots_follow_revisions_and_compaction() {
     use hotline_core::log::StreamId;

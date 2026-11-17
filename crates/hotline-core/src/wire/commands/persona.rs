@@ -673,12 +673,16 @@ pub(super) fn delete_persona(
         log,
         &json!({ "kind": "persona", "id": id, "deleted": true }),
     )?;
-    // The roster already ignores a pin on a teammate who is gone; settling
-    // the stored list keeps it honest and frees the slot.
-    let settled = room::pinned_teammates(log);
-    let stored = room::settings(log).remove("pinnedTeammates");
-    if stored.unwrap_or_else(|| json!([])) != json!(settled) {
-        write_pins(log, &settled)?;
+    // The roster already ignores a pin or a place of a teammate who is
+    // gone; settling the stored lists keeps them honest and frees the slot.
+    for (setting, settled) in [
+        ("pinnedTeammates", room::pinned_teammates(log)),
+        (room::TEAM_ORDER, room::team_order(log)),
+    ] {
+        let stored = room::settings(log).remove(setting);
+        if stored.unwrap_or_else(|| json!([])) != json!(settled) {
+            write_ids(log, setting, &settled)?;
+        }
     }
     // A lead who has gone is no lead, and the one teammate left, if one is,
     // leads.
@@ -701,8 +705,18 @@ pub(super) fn pin_persona(log: &Log, id: &str, slot: Option<u8>) -> Result<Value
         }
         pins.insert(usize::from(slot).min(pins.len()), id.to_string());
     }
-    write_pins(log, &pins)?;
+    write_ids(log, "pinnedTeammates", &pins)?;
     Ok(json!(pins))
+}
+
+/// Puts the desk's teammates in the order `ids` names. The list is the
+/// setting's whole value, settled against who is on the team, so a window
+/// that had not yet heard of a removal still arranges the rest; the answer
+/// is the order as it now stands.
+pub(super) fn arrange_personas(log: &Log, ids: &[String]) -> Result<Value, String> {
+    let order = room::settled_order(Some(&json!(ids)), &room::roster(log));
+    write_ids(log, room::TEAM_ORDER, &order)?;
+    Ok(json!(order))
 }
 
 /// Makes `id` the desk's lead, which moves the role from whoever had it,
@@ -723,11 +737,12 @@ pub(super) fn lead_persona(log: &Log, id: Option<&str>) -> Result<Value, String>
     Ok(Value::Null)
 }
 
-fn write_pins(log: &Log, pins: &[String]) -> Result<(), String> {
-    let event = if pins.is_empty() {
-        json!({ "kind": "setting", "id": "pinnedTeammates", "deleted": true })
+/// A setting that is a list of teammate ids; an empty list is no setting.
+fn write_ids(log: &Log, setting: &str, ids: &[String]) -> Result<(), String> {
+    let event = if ids.is_empty() {
+        json!({ "kind": "setting", "id": setting, "deleted": true })
     } else {
-        json!({ "kind": "setting", "id": "pinnedTeammates", "value": pins })
+        json!({ "kind": "setting", "id": setting, "value": ids })
     };
     append(log, &event)
 }

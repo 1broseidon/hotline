@@ -120,6 +120,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
+| `persona.arrange` | `{ids}` | the desk's order of its team, as it now stands — the teammates in the order `ids` names, first to last (`teamOrder` below); an id that is no teammate on the desk, or a repeat, is dropped; an empty list leaves the desk unarranged; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
@@ -171,8 +172,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `process.stop` | `{personaId, id}` | none; stops that command, without waking the teammate on its end |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
-| `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
-| `avatar.generate` | `{personaId}` | none, once the drawing has started; the picture is drawn from the teammate's name and goal by the room's image provider, within the Images budget, and the roster carries it when it lands (`drawing` until then). Refused at once when no provider can draw or the person chose the current picture |
+| `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash` or `avatar.poses.shut`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
+| `avatar.generate` | `{personaId}` | none, once the teammate has a face: setup's Picture. The desk draws one at once, with no image provider and no network, in a creature style picked from the teammate's id (`pixelbot`, `moods` or `sprouts`) wearing its bubble colour on a dark ground of the same hue (Pixelbot glows in the bubble's hue on a screen of that hue), kept as its own (`by: "self"`) with a recipe made by the desk; the roster carries it. No job is made and no model turn is spent: the teammate draws a face of its own only when the person asks it to. Refused when the person chose the current picture |
 | `link.preview` | `{url}` | `LinkPreview` `{url, title, site, description?, image?}`, the card for a link written in a message, read by the desk: `site` is the page's address, with the site's own name after a `·` when it adds one; `image` is the page's picture as a `data:` URL the desk fetched once, shrank and keeps, so the window never asks the site. JSON `null` when the page has none, is not one the desk will read, or `linkPreviews` is off. Answered off the read loop, so it holds up nothing behind it |
 | `link.icon` | `{site}` | a site's icon (`https://<site>/favicon.ico`) as a `data:` URL the desk fetched once and keeps; JSON `null` when it has none, `site` is not a bare host, or `linkPreviews` is off. Answered off the read loop |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
@@ -390,8 +391,8 @@ appends the caller's stable id to the recipient's `allowedSenders` list,
 until the recipient's access grows or it moves to another agent
 (`session.set_backend`). ACP mode and Computer access do not imply Whole machine authority. `list_teammates` returns each other teammate's
 `personaId` and `name`, plus what the roster already knows about it: `state`
-(`idle`, `working`, `waiting` or `stopped`), the running tool's title as
-`activity`, and `workingOn` (`title` — the open chapter's or the goal's,
+(`idle`, `working`, `waiting` or `stopped`), the words beside its mark as
+`activity` (the roster row's, below), and `workingOn` (`title` — the open chapter's or the goal's,
 whichever there is — and `lastTurnAt`); and who it is and what it can do:
 `goal`; `agent`, the backend by the name a person knows it (Hotline Agent, Claude Code, Codex…); `model` and `effort` when set; and `capabilities`: `computer` (`none`, `attached`, or `in use` by its session now), `webSearch`, `imageGeneration`, `backgroundWork`, `messageTeammates` (`directly` or `after approval`), `reach` (`workspace` or `whole machine`) and `mcpServers`, the granted servers' names. Never a message's text, a working path, a
 server's address or login, or a tool inventory.
@@ -469,6 +470,16 @@ ids, repeats dropped, more than three refused). Deleting a teammate takes its
 pin with it, and a stored list that names someone no longer on the team reads
 as if they were not in it. Companion phones cannot read settings, so the
 roster carries each teammate's slot as `pin`.
+
+`teamOrder` is the desk's own order of its team: a list of persona ids, first
+to last, as the person arranged the list under the pins. `persona.arrange` is
+how it is written, the whole list at a time; a patch that names it is held to
+the same rules (a list of ids, repeats dropped). A teammate it does not name
+has no place yet and is listed after those that have one, so a teammate made
+after the list was arranged goes at its end, and a desk that has never been
+arranged lists its team as it always did. Deleting a teammate takes its place
+with it, and a stored list that names someone no longer on the team reads as
+if they were not in it. The roster carries each teammate's place as `place`.
 
 `teamLead` is the desk's lead: one persona id, or absent. `persona.lead` is
 how a person writes it, and a `settings.update` patch that names it is
@@ -824,9 +835,30 @@ are optional, and absent from everything the conversation's own turns say.
 A teammate's `avatar` is `{hash, by: "self"|"person", updatedAt}`, and is
 absent when the teammate shows its initial. The picture is kept under
 `avatars/<teammate>/<hash>.png` and never rewritten, so a client may cache it
-by hash for good. A teammate sets its own with the `set_avatar` tool;
-`persona.update` accepts `avatar: null` to clear it and nothing else for that
-field. Neither restarts the session.
+by hash for good. A picture with no transparent pixel is kept with no alpha
+channel, so a client can tell from the file that it fills its circle and
+draw nothing behind it. A teammate sets its own with the `set_avatar` tool, from a
+file, or draws its face with `make_face`; `persona.update` accepts
+`avatar: null` to clear it and nothing else for that field. None of them
+restarts the session. A face carries its `recipe`: `{style, parts, colors,
+seed, madeBy: "desk"|"teammate"}`, each of the style's parts by name with
+the variant drawn or `null`, each colour drawn by slot as `#rrggbb`. The
+PNG is its rendering. A picture from a file, and a record older than faces,
+has no `recipe`. A face in a style the desk no longer draws keeps its
+picture and recipe; `make_face` asked for a change in that style says the
+style is gone and names the styles there are.
+
+A face in a style that blinks (`pixelbot`, `moods`, `sprouts`) also carries
+`poses: {shut}`: the hash of the same face with its eyes shut, at the same
+size, framing and ground, kept beside the picture the same way (no alpha
+channel exactly when the picture has none) and read with `avatar.read` like
+it. It is DiceBear's own blink held at one moment: moods' and sprouts' eyes
+squashed flattest, pixelbot's eyes down to their bottom row. A face that does
+not blink (pixelbot's one-row `soft` eyes, a picture from a file, a face in
+a style the desk no longer draws) has no `poses`. The pose is written and
+removed with its picture. A face kept before poses gets its pose when the
+desk opens, before any client connects. The window shows the shut picture for a moment, again and again,
+while the teammate is working, so its face blinks.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code
@@ -1212,6 +1244,7 @@ and the live sessions. Each row is a `RosterEntry`:
   "waiting": false,
   "drawing": false,
   "pin": 0,
+  "place": 2,
   "session": { "personaId": "…", "state": "thinking", … }
 }
 ```
@@ -1219,15 +1252,22 @@ and the live sessions. Each row is a `RosterEntry`:
 `preview` is absent for a teammate that has never spoken. `from` is `"me"`
 for a user line and `"them"` for an agent line; only those two kinds
 count. `latest` is that line's `at`, kept beside it so the window can count
-unread without opening every tape. `activity` is the title of the tool
-still running, only while the session is thinking — absent, not null, when
-there is none. `waiting` is true while a card on the tape waits on the
+unread without opening every tape. `activity` is the words beside the
+teammate's mark: while it works (`starting`, or `thinking` and not
+`awaitingSubagents`), the words it last gave `activity` since it read the line
+it is answering, else "Getting started" until the agent has given anything
+back, "Working on it" while a step is in flight, and "Thinking" otherwise;
+while it is not working and helpers of its own are running, the words it last
+gave `activity` in the turn, else "1 helper working" or "N helpers working".
+Absent, not null, otherwise. It never names a tool or a command. `waiting` is true while a card on the tape waits on the
 person — a permission with no decision, or a `request_human` or passkey card
 still pending — so a phone can say who needs the person from one roster; it is
 always written, so `false` is told apart from a desk that predates it.
 `drawing` is true while `avatar.generate` draws the teammate's picture. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
-the `pinnedTeammates` setting changes. `lead` is `true` on the desk's lead and
+the `pinnedTeammates` setting changes. `place` is the teammate's 0-based place
+in the desk's order (`teamOrder`), absent when the desk has not placed it; the
+rows whose place moved are sent again when that setting changes. `lead` is `true` on the desk's lead and
 absent on every other row, so a client that predates it reads the row as
 before; the rows that lost and gained it are sent again when `teamLead`
 changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,

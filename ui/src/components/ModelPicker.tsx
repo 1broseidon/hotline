@@ -67,6 +67,8 @@ export type MenuTeammate = {
 	goal: string;
 	face(size: number): ReactNode;
 	working: boolean;
+	/** The face blinks while it works, so the dot on its corner holds steady: one thing moves. */
+	blinking?: boolean;
 	actions: MenuEntry[];
 };
 
@@ -473,7 +475,7 @@ export function ModelPicker({
 				{teammate !== undefined ? (
 					<span className="model-pill-face">
 						{teammate.face(24)}
-						{teammate.working && <span aria-hidden="true" className="model-pill-beat beat" />}
+						{teammate.working && <span aria-hidden="true" className={`model-pill-beat ${teammate.blinking === true ? "" : "beat"}`} />}
 					</span>
 				) : (
 					<ChevronDownIcon className="model-pill-chevron" />

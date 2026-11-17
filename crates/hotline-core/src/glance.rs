@@ -198,6 +198,24 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         ),
     ),
     (
+        "face_options",
+        label(
+            "avatar",
+            "Looked at face styles",
+            "Looked at face styles",
+            "Looking at face styles",
+        ),
+    ),
+    (
+        "make_face",
+        label(
+            "avatar",
+            "Drew its face",
+            "Drew its face {n} times",
+            "Drawing its face",
+        ),
+    ),
+    (
         "list_teammates",
         label(
             "team",

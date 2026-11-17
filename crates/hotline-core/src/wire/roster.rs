@@ -4,13 +4,13 @@
 use super::socket::Outbox;
 use super::{RoomHandle, send};
 use crate::contract::{
-    HumanActionStatus, PasskeyAskStatus, Persona, RosterEntry, SessionInfo, SessionState,
-    ToolStatus, TranscriptEvent,
+    HumanActionStatus, PasskeyAskStatus, Persona, RosterEntry, RunningSubagent, SessionInfo,
+    SessionState, TranscriptEvent,
 };
 use crate::driver::acp::catalog;
 use crate::log::{Log, StreamId};
 use crate::room;
-use crate::store::previews::live::{Live, State};
+use crate::store::previews::live::{Live, State, Turn};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -69,17 +69,8 @@ pub(super) async fn view(
     });
     let mut watched = HashMap::new();
     let mut personas = refresh(&log, &dirty, &mut watched);
-    let mut pins = room::pinned_teammates(&log);
-    let mut lead = room::team_lead(&log);
-    if !send_snapshot(
-        id,
-        &watched,
-        &handle,
-        &sender,
-        &personas,
-        &pins,
-        lead.as_deref(),
-    ) {
+    let mut standing = Standing::read(&log);
+    if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
         return;
     }
 
@@ -93,40 +84,12 @@ pub(super) async fn view(
         tokio::select! {
             event = room_events.recv() => match event {
                 Ok(event) => {
-                    // A pin lives in a setting, not on the teammate, so the
-                    // rows whose slot moved are sent again.
+                    // A pin, a place in the desk's order and the lead live
+                    // in settings, not on the teammate, so the rows whose
+                    // standing moved are sent again.
                     if event.get("kind").and_then(Value::as_str) == Some("setting")
-                        && event.get("id").and_then(Value::as_str) == Some("pinnedTeammates")
+                        && standing.follow(&event, &personas, &dirty)
                     {
-                        let now = room::settled_pins(
-                            event.get("value").filter(|_| event.get("deleted").is_none()),
-                            &personas,
-                        );
-                        for persona_id in pins.iter().chain(&now) {
-                            if pins.iter().position(|pin| pin == persona_id)
-                                != now.iter().position(|pin| pin == persona_id)
-                            {
-                                dirty.mark(persona_id);
-                            }
-                        }
-                        pins = now;
-                        continue;
-                    }
-                    // So does the lead: the row that lost it and the row
-                    // that has it are sent again.
-                    if event.get("kind").and_then(Value::as_str) == Some("setting")
-                        && event.get("id").and_then(Value::as_str) == Some(room::TEAM_LEAD)
-                    {
-                        let now = room::settled_lead(
-                            event.get("value").filter(|_| event.get("deleted").is_none()),
-                            &personas,
-                        );
-                        if now != lead {
-                            for persona_id in lead.iter().chain(&now) {
-                                dirty.mark(persona_id);
-                            }
-                        }
-                        lead = now;
                         continue;
                     }
                     if event.get("kind").and_then(Value::as_str) != Some("persona") {
@@ -157,10 +120,9 @@ pub(super) async fn view(
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     personas = refresh(&log, &dirty, &mut watched);
-                    pins = room::pinned_teammates(&log);
-                    lead = room::team_lead(&log);
+                    standing = Standing::read(&log);
                     dirty.take();
-                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
                         return;
                     }
                 }
@@ -183,7 +145,7 @@ pub(super) async fn view(
                     }
                     if lagged {
                         dirty.take();
-                        if !send_snapshot(id, &watched, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                        if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
                             return;
                         }
                     }
@@ -192,7 +154,7 @@ pub(super) async fn view(
                 // must be refreshed when one may have lost its final hint.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     dirty.take();
-                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &watched, &handle, &sender, &personas, &standing) {
                         return;
                     }
                 }
@@ -208,13 +170,74 @@ pub(super) async fn view(
                         continue;
                     };
                     let Some(watch) = watched.get(&persona_id) else { continue; };
-                    let row = shaped(&sender, roster_entry(watch, &handle, persona.clone(), &pins, lead.as_deref()));
+                    let row = shaped(&sender, roster_entry(watch, &handle, persona.clone(), &standing));
                     let row = catalogs(&sender, watch, row, false);
                     if sender.send_roster(id, row).is_err() {
                         return;
                     }
                 }
             },
+        }
+    }
+}
+
+/// What the room's settings say of each row: its pin, its place in the
+/// desk's order, and whether it leads. Read when the view opens and after
+/// lag, and kept by the setting events in between.
+struct Standing {
+    pins: Vec<String>,
+    order: Vec<String>,
+    lead: Option<String>,
+}
+
+impl Standing {
+    fn read(log: &Log) -> Self {
+        Self {
+            pins: room::pinned_teammates(log),
+            order: room::team_order(log),
+            lead: room::team_lead(log),
+        }
+    }
+
+    /// Takes in a setting event, marking each row whose standing it moved.
+    /// False when the setting is none of these.
+    fn follow(&mut self, event: &Value, personas: &[Persona], dirty: &Dirty) -> bool {
+        let value = event
+            .get("value")
+            .filter(|_| event.get("deleted").is_none());
+        match event.get("id").and_then(Value::as_str) {
+            Some("pinnedTeammates") => {
+                let now = room::settled_pins(value, personas);
+                mark_moved(&self.pins, &now, dirty);
+                self.pins = now;
+            }
+            Some(room::TEAM_ORDER) => {
+                let now = room::settled_order(value, personas);
+                mark_moved(&self.order, &now, dirty);
+                self.order = now;
+            }
+            Some(room::TEAM_LEAD) => {
+                let now = room::settled_lead(value, personas);
+                if now != self.lead {
+                    for persona_id in self.lead.iter().chain(&now) {
+                        dirty.mark(persona_id);
+                    }
+                }
+                self.lead = now;
+            }
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// Marks each teammate whose position differs between two lists of ids.
+fn mark_moved(was: &[String], now: &[String], dirty: &Dirty) {
+    for persona_id in was.iter().chain(now) {
+        if was.iter().position(|one| one == persona_id)
+            != now.iter().position(|one| one == persona_id)
+        {
+            dirty.mark(persona_id);
         }
     }
 }
@@ -231,8 +254,7 @@ fn send_snapshot(
     handle: &Arc<dyn RoomHandle>,
     sender: &Outbox,
     personas: &[Persona],
-    pins: &[String],
-    lead: Option<&str>,
+    standing: &Standing,
 ) -> bool {
     let rows: Vec<_> = personas
         .iter()
@@ -242,7 +264,7 @@ fn send_snapshot(
                 .expect("every roster member is watched");
             let row = shaped(
                 sender,
-                roster_entry(watch, handle, persona.clone(), pins, lead),
+                roster_entry(watch, handle, persona.clone(), standing),
             );
             catalogs(sender, watch, row, true)
         })
@@ -361,8 +383,7 @@ fn roster_entry(
     watch: &Watched,
     room: &Arc<dyn RoomHandle>,
     persona: crate::contract::Persona,
-    pins: &[String],
-    lead: Option<&str>,
+    standing: &Standing,
 ) -> Value {
     let state = watch
         .state
@@ -376,18 +397,23 @@ fn roster_entry(
     if session.plan_usage.is_none() {
         session.plan_usage = room.plan_of(&persona.backend_id);
     }
+    let subagents = room.subagents(&persona.id);
     json!(RosterEntry {
-        activity: (session.state == SessionState::Thinking)
-            .then(|| state.activity.clone().map(|(_, title)| title))
-            .flatten(),
+        activity: activity_line(&state.turn, &session, &subagents),
         waiting: state.waiting() || room.threads_waiting(&persona.id),
         drawing: room.drawing(&persona.id),
-        pin: pins
+        pin: standing
+            .pins
             .iter()
             .position(|pin| *pin == persona.id)
             .and_then(|slot| u8::try_from(slot).ok()),
-        lead: lead == Some(persona.id.as_str()),
-        subagents: room.subagents(&persona.id),
+        place: standing
+            .order
+            .iter()
+            .position(|one| *one == persona.id)
+            .and_then(|place| u32::try_from(place).ok()),
+        lead: standing.lead.as_deref() == Some(persona.id.as_str()),
+        subagents,
         sides: room.sides(&persona.id),
         working_jobs: room.working_jobs(&persona.id),
         working_calls: room.working_calls(&persona.id),
@@ -500,46 +526,77 @@ pub(super) fn offered_info(log: &Log, room: &Arc<dyn RoomHandle>, persona_id: &s
     }
 }
 
-/// The title of the tool still running on this tape, if the session is
-/// thinking.
+/// Whether a teammate is working: a session starting, or a turn running that
+/// is not held open only for its helpers. The one reading the window's
+/// `isWorking` (ui/src/activity.ts) makes of the same two fields, so the
+/// header's beat and the words beside the mark cannot disagree.
+fn working(session: &SessionInfo) -> bool {
+    session.state == SessionState::Starting
+        || (session.state == SessionState::Thinking && !session.awaiting_subagents)
+}
+
+/// How many helpers are running: subagents, not the commands a harness
+/// sent to the background.
+fn helpers(runs: &[RunningSubagent]) -> usize {
+    runs.iter().filter(|run| run.kind.is_subagent()).count()
+}
+
+/// The words beside a teammate's mark, whenever it is working or waiting on
+/// its helpers, and none otherwise.
 ///
-/// Read from the tape rather than remembered on the view, so a lagged pump
-/// or a second snapshot cannot disagree with what the tape says. A call
-/// that is in progress sets the title; any other status for that call, a
-/// turn ending, or the session leaving thinking clears it. Only the tail is
-/// read: a tool still running is by definition near the end, and a tape is
-/// only bounded by how much has been said.
+/// The teammate's own words, from `activity`, always win. Without them the
+/// desk says what it already knows of the turn, never a phrase on a timer:
+/// "Getting started" until the agent has given anything back, "Working on
+/// it" while a step is in flight, and "Thinking" between steps, while it
+/// reasons or writes. With the turn over, or held open only for its
+/// helpers, the words are what it last said it is on in the turn, or how
+/// many helpers are working; they go when the last helper does.
 ///
-/// `pub(crate)`, not private: `list_teammates` reads it the same way the
-/// roster row does, so a colleague's activity is the one the desk shows and
-/// not a second guess at it.
-pub(crate) fn activity_on(tail: &[Value], session: &SessionInfo) -> Option<String> {
-    if session.state != SessionState::Thinking {
-        return None;
+/// The roster row, `list_teammates` and a linked desk all read this, so a
+/// colleague, the rail and the phone say what the composer says.
+pub(crate) fn activity_line(
+    turn: &Turn,
+    session: &SessionInfo,
+    runs: &[RunningSubagent],
+) -> Option<String> {
+    // A session coming up has nothing of this turn to tell yet.
+    if session.state == SessionState::Starting {
+        return Some("Getting started".to_string());
     }
-    let mut activity: Option<(String, String)> = None;
-    for event in tail {
-        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event.clone()) else {
-            continue;
-        };
-        match event {
-            TranscriptEvent::Tool {
-                tool_call_id,
-                title,
-                status,
-                ..
-            } => {
-                if status == ToolStatus::InProgress {
-                    activity = Some((tool_call_id, title));
-                } else if activity.as_ref().is_some_and(|(id, _)| *id == tool_call_id) {
-                    activity = None;
-                }
+    if working(session) {
+        let ask = &turn.ask;
+        return Some(ask.declared.clone().unwrap_or_else(|| {
+            let known = if !ask.heard {
+                "Getting started"
+            } else if ask.stepping() {
+                "Working on it"
+            } else {
+                "Thinking"
+            };
+            known.to_string()
+        }));
+    }
+    match helpers(runs) {
+        0 => None,
+        count => Some(turn.declared.clone().unwrap_or_else(|| {
+            if count == 1 {
+                "1 helper working".to_string()
+            } else {
+                format!("{count} helpers working")
             }
-            TranscriptEvent::Turn { .. } => activity = None,
-            _ => {}
-        }
+        })),
     }
-    activity.map(|(_, title)| title)
+}
+
+/// [`activity_line`] for a stretch of tape read afresh, as `list_teammates`
+/// reads a colleague's: only the tail, because what a turn in flight says
+/// is near the end, and a tape is only bounded by how much has been said.
+pub(crate) fn activity_on(
+    tail: &[Value],
+    session: &SessionInfo,
+    runs: &[RunningSubagent],
+) -> Option<String> {
+    activity_line(&State::of(tail).turn, session, runs)
 }
 
 /// Whether a card on this tape is still waiting on the person.
@@ -590,6 +647,40 @@ pub(crate) fn waiting_on(tail: &[Value]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cases the harness (`tests/activity_line.rs`) does not reach: a
+    /// session coming up, more than one helper, and a background command,
+    /// which is no helper.
+    #[test]
+    fn a_session_starting_and_the_helpers_are_said_plainly() {
+        let capabilities = crate::contract::SessionCapabilities::default();
+        let mut session: SessionInfo = serde_json::from_value(json!({
+            "personaId":"ada", "state":"starting", "contextRestored":false, "models":[],
+            "modes":[], "configs":[], "slashCommands":[], "capabilities":capabilities,
+        }))
+        .unwrap();
+        let declared = State::of(&[json!({"kind":"activity", "id":"d", "ts":1, "type":"reading", "message":"Reading the lease"})]).turn;
+        assert_eq!(
+            activity_line(&declared, &session, &[]).as_deref(),
+            Some("Getting started")
+        );
+        let run = |kind: &str| -> RunningSubagent {
+            serde_json::from_value(json!({"runId":kind, "title":"t", "startedAt":1, "kind":kind}))
+                .unwrap()
+        };
+        session.state = SessionState::Ready;
+        let idle = Turn::default();
+        assert_eq!(activity_line(&idle, &session, &[run("shell")]), None);
+        assert_eq!(
+            activity_line(
+                &idle,
+                &session,
+                &[run("subagent"), run("shell"), run("subagent")]
+            )
+            .as_deref(),
+            Some("2 helpers working")
+        );
+    }
 
     #[test]
     fn a_burst_keeps_one_dirty_id_per_teammate_and_one_wake() {

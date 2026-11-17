@@ -1044,7 +1044,8 @@
 		flex-shrink: 0;
 		margin-left: 1px;
 	}
-	/* The teammate at work: a mint dot on the face's corner, beating. */
+	/* The teammate at work: a mint dot on the face's corner, beating, or
+	 * steady while the face itself blinks (ModelPicker.tsx). */
 	.model-pill-beat {
 		position: absolute;
 		right: -1px;
@@ -1523,11 +1524,36 @@
 		color: var(--face-ink);
 		user-select: none;
 		overflow: hidden;
+		background: var(--face);
+	}
+	/* A picture with no transparency fills its circle. The disc behind it
+	 * would show only through the circle's antialiased edge, as a thin light
+	 * ring around a dark face, so there is none. */
+	.avatar[data-fills] {
+		background: none;
 	}
 	.avatar-picture {
+		grid-area: 1 / 1;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+	/* A working teammate's face blinks: its eyes-shut picture, laid over it,
+	 * shows for 3% of a loop of 4.4 to 5.6 s, the rhythm and phase its id
+	 * gives (Avatar.tsx). Stepped, so it is drawn twice a blink and not every
+	 * frame, and CSS alone, so no script wakes for it. */
+	.avatar-shut {
+		opacity: 0;
+		animation: face-blink var(--blink-every) step-end var(--blink-phase) infinite;
+	}
+	@keyframes face-blink {
+		0% {
+			opacity: 0;
+		}
+		97%,
+		100% {
+			opacity: 1;
+		}
 	}
 	/* Something on its way to this face: a quarter arc turning around it.
 	 * Stepped like the beat below, twelve positions a turn, so a machine
@@ -1564,10 +1590,11 @@
 	}
 
 	/* A working teammate's mark: it breathes. Nothing else in the window
-	 * moves on its own. It breathes in steps, twelve a cycle: a smooth
-	 * opacity animation repaints every frame, which on a machine drawing
-	 * without a GPU (a VM, a remote desktop, much of Linux) cost about five
-	 * cores for a few dots, all turn long. */
+	 * moves on its own but a working face's blink (.avatar-shut). It
+	 * breathes in steps, twelve a cycle: a smooth opacity animation
+	 * repaints every frame, which on a machine drawing without a GPU (a VM,
+	 * a remote desktop, much of Linux) cost about five cores for a few dots,
+	 * all turn long. */
 	.beat {
 		animation: beat var(--dur-breath) steps(6, jump-none) infinite;
 	}
@@ -4252,11 +4279,23 @@
 	.rail-pin:active {
 		background: var(--fill-active);
 	}
-	.rail-pin[data-dragging] {
+	/* A face or a row on the move fades where it was, and a line in the
+	 * accent marks where it would land: beside a face, above or below a row. */
+	.rail-pin[data-dragging],
+	.rail-row[data-dragging] {
 		opacity: 0.4;
 	}
-	.rail-pin[data-over] {
-		box-shadow: inset 0 0 0 var(--hairline) var(--accent);
+	.rail-pin[data-over="before"] {
+		box-shadow: inset 2px 0 0 var(--accent);
+	}
+	.rail-pin[data-over="after"] {
+		box-shadow: inset -2px 0 0 var(--accent);
+	}
+	.rail-row[data-over="before"] {
+		box-shadow: inset 0 2px 0 var(--accent);
+	}
+	.rail-row[data-over="after"] {
+		box-shadow: inset 0 -2px 0 var(--accent);
 	}
 	.rail-pin-name {
 		display: block;
@@ -5692,7 +5731,8 @@
 	.rail-tip,
 	.search-panel,
 	.row-lit,
-	.avatar-ring {
+	.avatar-ring,
+	.avatar-shut {
 		animation: none;
 	}
 	.voice-meter[data-state="finishing"] .voice-meter-bar {

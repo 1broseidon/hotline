@@ -5,6 +5,8 @@ mod common;
 
 #[path = "acp_startup.rs"]
 mod acp_startup;
+#[path = "activity_line.rs"]
+mod activity_line;
 #[path = "call_threads.rs"]
 mod call_threads_harness;
 #[path = "desk.rs"]

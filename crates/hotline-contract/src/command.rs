@@ -263,13 +263,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         size: Option<u32>,
     },
-    /// Draws a picture for a teammate from its name and goal through the
-    /// room's image providers, within the spending cap, and puts it on the
-    /// roster: what setup offers when images are available. Answers `null`
-    /// once the drawing has started, since a socket's commands are answered
-    /// in order and a picture takes up to a minute; the roster carries it
-    /// when it lands. Refused at once when no provider can draw or the
-    /// person chose the current picture.
+    /// Gives a new teammate a face at setup, when the person left Picture on:
+    /// one the desk draws at once from the teammate's id and bubble colour,
+    /// in a creature style, and puts on the roster. No job is made and no
+    /// model turn is spent: the teammate draws a face of its own only when
+    /// the person asks it to. Answers `null` once the seeded face is kept.
+    /// Refused when the person chose the current picture.
     #[serde(rename = "avatar.generate")]
     AvatarGenerate { persona_id: String },
     /// Where to notify this phone: the token its push service issued, and
@@ -368,6 +367,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         slot: Option<u8>,
     },
+    /// Puts the desk's teammates in the order `ids` names, first to last:
+    /// the list under the pins, as the window lists it. A teammate the list
+    /// does not name has no place and is listed after those that do; an
+    /// empty list leaves the desk unarranged. Ids of teammates who are not
+    /// on the desk are dropped. Owners only, as `persona.pin`.
+    #[serde(rename = "persona.arrange")]
+    PersonaArrange { ids: Vec<String> },
     /// Makes `id` the desk's lead, moving the role from whoever had it, or
     /// clears the lead when `id` is absent. A desk has at most one. A desk
     /// of one teammate always has that one as lead, so clearing it there is

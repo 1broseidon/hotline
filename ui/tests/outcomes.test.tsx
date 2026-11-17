@@ -5,7 +5,8 @@ import type { Step } from "../src/scheduledRuns";
 import { installDom } from "./dom";
 
 // Outcomes, not work (epic-42): the teammate says what it is on and what came
-// of it, and the desk draws those words and never makes its own.
+// of it. Beside the mark its words win; without them the row says what the
+// desk knows of the turn (the core's activity_line), never a timed phrase.
 
 const user = (id: string, ts: number): TranscriptEvent => ({ kind: "user", id, ts, text: "fill in the aftercare form" });
 const turnEnd = (id: string, ts: number): TranscriptEvent => ({ kind: "turn", id, ts, stopReason: "end_turn" });
@@ -44,18 +45,26 @@ describe("what the mark says while a turn runs", () => {
 		expect(activityOf(events, [])).toEqual({ phase: "search", word: "Finding plumbers near you" });
 	});
 
-	test("with nothing declared the tool may still move the mark, and nothing is said: no Working, no tool's words", async () => {
+	test("with nothing declared the tool may still move the mark, and a thread pane says nothing of its own", async () => {
 		const { activityOf } = await import("../src/activity");
 		expect(activityOf([user("u", 1), tool("t1", 2, "execute", "Running cargo test")], [])).toEqual({ phase: "execute", word: "" });
 		expect(activityOf([user("u", 1)], [])).toEqual({ phase: "thinking", word: "" });
 	});
 
-	test("needs you and the reply on its way stay the desk's own, over any declaration", async () => {
+	test("on the main conversation the row's words stand beside whatever moves the mark, writing included", async () => {
+		const { activityOf } = await import("../src/activity");
+		expect(activityOf([user("u", 1)], [], false, "Getting started")).toEqual({ phase: "thinking", word: "Getting started" });
+		expect(activityOf([user("u", 1), tool("t1", 2, "execute")], [], false, "Working on it")).toEqual({ phase: "execute", word: "Working on it" });
+		expect(activityOf([user("u", 1)], [{ messageId: "a", kind: "agent", ts: 2, text: "The lift" }], false, "Thinking")).toEqual({ phase: "writing", word: "Thinking" });
+		expect(activityOf([user("u", 1), doing("d", 2, "reading", "Reading the lease")], [], false, "Reading the lease")).toEqual({ phase: "read", word: "Reading the lease" });
+	});
+
+	test("needs you stays the desk's own, over any declaration, and the reply on its way keeps the words", async () => {
 		const { activityOf } = await import("../src/activity");
 		const declared = [user("u", 1), doing("d", 2, "talking", "Asking Huck for the numbers")];
 		const card: TranscriptEvent = { kind: "permission", id: "p", ts: 3, requestId: "r", title: "Allow?", options: [] };
-		expect(activityOf([...declared, card], []).phase).toBe("blocked");
-		expect(activityOf(declared, [{ messageId: "a", kind: "agent", ts: 4, text: "Huck has" }])).toEqual({ phase: "writing", word: "" });
+		expect(activityOf([...declared, card], [], false, "Asking Huck for the numbers")).toEqual({ phase: "blocked", word: "Waiting on you" });
+		expect(activityOf(declared, [{ messageId: "a", kind: "agent", ts: 4, text: "Huck has" }])).toEqual({ phase: "writing", word: "Asking Huck for the numbers" });
 	});
 
 	test("a declaration is cleared when its turn ends: the next turn starts with nothing said", async () => {
@@ -65,23 +74,8 @@ describe("what the mark says while a turn runs", () => {
 	});
 });
 
-describe("what the mark says while the turn waits on its subagents", () => {
-	const reply: TranscriptEvent = { kind: "agent", id: "a", ts: 5, text: "The helpers are out; I'll build the chart when they report." };
-	const helper = tool("t1", 3, "other", "subagent");
-
-	test("it rests, with the words the teammate last said it is on in this turn", async () => {
-		const { waitingOf } = await import("../src/activity");
-		const events = [user("u", 1), doing("d1", 2, "searching", "Scanning the field"), helper, doing("d2", 4, "searching", "Waiting on four feature checks"), reply];
-		expect(waitingOf(events)).toEqual({ phase: "rest", word: "Waiting on four feature checks" });
-	});
-
-	test("with nothing declared it rests alone, and an earlier turn's words do not carry over", async () => {
-		const { waitingOf } = await import("../src/activity");
-		expect(waitingOf([user("u", 1), helper, reply])).toEqual({ phase: "rest", word: "" });
-		expect(waitingOf([user("u0", 0), doing("d", 0.5, "reading", "Reading the lease"), turnEnd("e", 0.7), user("u", 1), helper, reply])).toEqual({ phase: "rest", word: "" });
-	});
-
-	test("a waiting turn reads as done everywhere but the mark: no Interrupt, no beat, no working", async () => {
+describe("a turn that waits on its subagents", () => {
+	test("reads as done everywhere but the mark: no Interrupt, no beat, no working", async () => {
 		const { awaitingSubagents, isWorking, shownState } = await import("../src/activity");
 		const waiting = { state: "thinking" as const, awaitingSubagents: true };
 		expect([awaitingSubagents(waiting), isWorking(waiting), shownState(waiting)]).toEqual([true, false, "ready"]);
@@ -215,32 +209,34 @@ describe("drawn", () => {
 		expect([...container.querySelectorAll(".step-title")].map((one) => one.textContent)).toEqual(["step t1", "Thinking"]);
 	});
 
-	test("waiting on its subagents the mark stays in the composer at rest with the teammate's words, and goes to sleep only when the turn ends", async () => {
+	test("waiting on its helpers the mark stays in the composer at rest beside the row's words, and goes to sleep when they go", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const marks: (import("../src/activity").WorkMark | null)[] = [];
 		const declared = [user("u", 1), doing("d", 2, "searching", "Waiting on four feature checks"), tool("t1", 3, "other", "subagent"), { kind: "agent" as const, id: "a", ts: 4, text: "The helpers are out." }];
-		const draw = (events: TranscriptEvent[], live: boolean, waiting: boolean) =>
-			act(async () => root.render(<Transcript personaId="quill" name="Quill" events={events} streaming={[]} live={live} waiting={waiting} focus={null} onMark={(mark) => marks.push(mark)} />));
-		await draw(declared, false, true);
+		const draw = (events: TranscriptEvent[], live: boolean, waiting: boolean, said?: string) =>
+			act(async () => root.render(<Transcript personaId="quill" name="Quill" events={events} streaming={[]} live={live} waiting={waiting} words={said} focus={null} onMark={(mark) => marks.push(mark)} />));
+		await draw(declared, false, true, "Waiting on four feature checks");
 		expect(marks.at(-1)).toEqual({ activity: { phase: "rest", word: "Waiting on four feature checks" }, sleeping: false });
 		// A helper reports and the turn works again: the mark moves by what it said.
-		await draw(declared, true, false);
+		await draw(declared, true, false, "Waiting on four feature checks");
 		expect(marks.at(-1)).toEqual({ activity: { phase: "search", word: "Waiting on four feature checks" }, sleeping: false });
-		// Truly idle: the turn has ended, the words go and the mark sinks back to sleep.
+		// Truly idle: the turn has ended, the row has no words and the mark sinks back to sleep.
 		await draw([...declared, turnEnd("e", 6)], false, false);
 		expect(marks.at(-1)).toEqual({ activity: { phase: "rest", word: "" }, sleeping: true });
 	});
 
-	test("waiting with nothing declared, the toad rests alone; the composer offers no Interrupt and Escape stops nothing", async () => {
+	test("waiting with nothing declared, the bar counts the helpers; the composer offers no Interrupt and Escape stops nothing", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const { Composer } = await import("../src/components/Composer");
 		const { awaitingSubagents, shownState } = await import("../src/activity");
 		const marks: (import("../src/activity").WorkMark | null)[] = [];
 		await act(async () =>
-			root.render(<Transcript personaId="quill" name="Quill" events={[user("u", 1), tool("t1", 2, "other", "subagent")]} streaming={[]} live={false} waiting focus={null} onMark={(mark) => marks.push(mark)} />),
+			root.render(
+				<Transcript personaId="quill" name="Quill" events={[user("u", 1), tool("t1", 2, "other", "subagent")]} streaming={[]} live={false} waiting words="2 helpers working" focus={null} onMark={(mark) => marks.push(mark)} />,
+			),
 		);
 		const mark = marks.at(-1)!;
-		expect(mark).toEqual({ activity: { phase: "rest", word: "" }, sleeping: false });
+		expect(mark).toEqual({ activity: { phase: "rest", word: "2 helpers working" }, sleeping: false });
 		const session = { state: "thinking" as const, awaitingSubagents: true };
 		expect(awaitingSubagents(session)).toBe(true);
 		const cancelled: string[] = [];
@@ -264,7 +260,7 @@ describe("drawn", () => {
 		const slot = container.querySelector<HTMLButtonElement>("button.composer-work")!;
 		expect(slot.querySelector(".glyph")).not.toBeNull();
 		expect(slot.hasAttribute("data-sleeping")).toBe(false);
-		expect(slot.textContent).toBe("");
+		expect(slot.querySelector(".composer-work-word")?.textContent).toBe("2 helpers working");
 		expect(container.querySelector('[aria-label="Interrupt"]')).toBeNull();
 		await pressEscape();
 		expect(cancelled).toEqual([]);
@@ -273,6 +269,24 @@ describe("drawn", () => {
 		expect(container.querySelector('[aria-label="Interrupt"]')).not.toBeNull();
 		await pressEscape();
 		expect(cancelled).toEqual(["thinking"]);
+	});
+
+	test("a working teammate that declared nothing has the row's fallback beside its mark, never a bare mark", async () => {
+		const { Transcript } = await import("../src/components/Transcript");
+		const { Composer } = await import("../src/components/Composer");
+		const marks: (import("../src/activity").WorkMark | null)[] = [];
+		const draw = (events: TranscriptEvent[], said: string) =>
+			act(async () => root.render(<Transcript personaId="quill" name="Quill" events={events} streaming={[]} live words={said} focus={null} onMark={(mark) => marks.push(mark)} />));
+		await draw([user("u", 1)], "Getting started");
+		expect(marks.at(-1)?.activity.word).toBe("Getting started");
+		await draw([user("u", 1), { ...tool("t1", 2, "read"), status: "in_progress" }], "Working on it");
+		// Each kind of work holds the mark a moment before the next takes it.
+		await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 1_000))));
+		expect(marks.at(-1)?.activity).toEqual({ phase: "read", word: "Working on it" });
+		await act(async () =>
+			root.render(<Composer personaId="quill" name="Quill" state="thinking" replyQuote={null} onSend={() => {}} onCancel={() => {}} onClearReply={() => {}} work={{ ...marks.at(-1)!, open: false, onToggle: () => {} }} />),
+		);
+		expect(container.querySelector("button.composer-work .composer-work-word")?.textContent).toBe("Working on it");
 	});
 
 	test("no line stands under a turn that only waits on its helpers; it comes when the turn ends", async () => {
@@ -292,7 +306,9 @@ describe("drawn", () => {
 		const marks: (import("../src/activity").WorkMark | null)[] = [];
 		const events = [user("u", 1), doing("d", 2, "searching", "Waiting on four feature checks"), tool("t1", 3, "other", "subagent")];
 		const draw = (live: boolean, waiting: boolean, streaming: import("../src/tape").Streaming[]) =>
-			act(async () => root.render(<Transcript personaId="quill" name="Quill" events={events} streaming={streaming} live={live} waiting={waiting} focus={null} onMark={(mark) => marks.push(mark)} />));
+			act(async () =>
+				root.render(<Transcript personaId="quill" name="Quill" events={events} streaming={streaming} live={live} waiting={waiting} words="Waiting on four feature checks" focus={null} onMark={(mark) => marks.push(mark)} />),
+			);
 		await draw(true, false, [{ messageId: "a", kind: "agent", ts: 4, text: "The helpers are out." }]);
 		expect(marks.at(-1)?.activity.phase).toBe("writing");
 		await draw(false, true, []);

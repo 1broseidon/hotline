@@ -135,6 +135,20 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+# A teammate's face without an image provider: DiceBear's styles, drawn on
+# this machine from a recipe. Both crates are release candidates, so they are
+# pinned exactly. Only styles whose artwork is CC0 1.0 are enabled (each
+# style's licence is in the crate's LICENSE.md and the style's `meta`), so
+# nothing has to be credited where a picture is shown; deny.toml says so.
+dicebear-core = "=11.0.0-rc.2"
+dicebear-styles = { version = "=11.0.0-rc.3", default-features = false, features = [
+    "moods",
+    "pixelbot",
+    "sprouts",
+] }
+# DiceBear answers SVG and a kept picture is a PNG. No text or fonts: none of
+# the enabled styles writes text, and a system font lookup is not wanted.
+resvg = { version = "0.50", default-features = false }
 
 # `test-util`: a test whose time the code controls runs on a paused clock, so
 # waiting out a 30 s token lifetime or a 10 s deadline costs nothing.

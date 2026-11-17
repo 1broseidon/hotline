@@ -1,9 +1,10 @@
 //! Hotline's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Thirty tools ([`TOOL_NAMES`]): over its own conversation, ones that
+//! Thirty-three tools ([`TOOL_NAMES`]): over its own conversation, ones that
 //! reach the person (asking and withdrawing the ask, reacting, saying what it
 //! is on and what came of it, posting to the chat, sending a file, opening a
-//! link, making an image), one that sets its own picture, ones over the
+//! link, making an image), ones that set its own picture or draw its face,
+//! ones over the
 //! room's other teammates (and for the desk's lead, `add_teammate`, which
 //! proposes a new one), ones that wake it later, one about its computer and
 //! one that searches the web — and one instance of them per teammate session. They are the room's, not the
@@ -66,6 +67,7 @@ pub const SERVER_NAME: &str = "hotline";
 /// The path the loopback endpoint answers on.
 const PATH: &str = "/mcp";
 
+mod faces;
 mod propose_inbound;
 mod thread_reader;
 
@@ -88,6 +90,8 @@ const SEND_FILE: &str = "send_file";
 pub(crate) const OPEN_LINK: &str = "open_link";
 const GENERATE_IMAGE: &str = "generate_image";
 const SET_AVATAR: &str = "set_avatar";
+const FACE_OPTIONS: &str = "face_options";
+const MAKE_FACE: &str = "make_face";
 const LIST_TEAMMATES: &str = "list_teammates";
 const SEND: &str = "send";
 const READ_INBOX: &str = "read_inbox";
@@ -122,7 +126,7 @@ const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool every teammate's own session has, in the order it lists them.
 /// The lead's session also has [`ADD_TEAMMATE`] (see [`lead_descriptor`]).
-pub const TOOL_NAMES: [&str; 31] = [
+pub const TOOL_NAMES: [&str; 33] = [
     SEARCH_THREAD,
     READ_THREAD,
     LIST_CHAPTERS,
@@ -142,6 +146,8 @@ pub const TOOL_NAMES: [&str; 31] = [
     OPEN_LINK,
     GENERATE_IMAGE,
     SET_AVATAR,
+    FACE_OPTIONS,
+    MAKE_FACE,
     LIST_TEAMMATES,
     SEND,
     READ_INBOX,
@@ -237,7 +243,7 @@ const MAX_QUERY: usize = 200;
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words. That is why a part names a tool
 /// only in backticks, and says nothing that needs a tool it does not name.
-const HOW_TO_USE: [&str; 38] = [
+const HOW_TO_USE: [&str; 40] = [
     "Each turn in your main conversation, a work thread or a call opens with your thread index, Hotline's note and never the person's words: your other threads that are working, open or waiting on the person, those that ended in the last day (closed chapters of this conversation among them), how many older ones there are, your inbox, and any new asides; when nothing has moved since your last turn there it is one line saying so, and once you have seen it whole, a turn is told only what moved since your last turn there, under its sections, and what left it under GONE: the rest stands as you were last told it.",
     "A job's or a subagent's turn is told only its parent thread.",
     "These are your own threads, and the same you worked in them: the lines that say \"you\" are work you did, so speak from them as yours without reading them, unless you need more detail.",
@@ -271,15 +277,17 @@ const HOW_TO_USE: [&str; 38] = [
     "`send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it, and from a job's thread it is that turn's one post.",
     "`open_link` opens a link in the person's own browser on this computer, their default or one they name, only when they ask for it and only while they are here at the desktop app; what you open to read or work on yourself goes in your own browser.",
     "`generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options.",
-    "For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly.",
-    "`set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks.",
+    "Your picture is your face, and you change it only when the person asks. `face_options` lists the styles it can be drawn in, your face now and your bubble colour, and `make_face` draws it from your name, your goal and that colour, makes it your picture and shows it to you; for a change keep your style and name only what changes, and switch style only when told to.",
+    "`generate_image` with style `avatar` draws the mature matte desk-collectible crew (omit style for their own subject or theme).",
+    "`set_avatar` makes any image in your workspace, such as one you made or the person's photo, your picture, or clears it back to your initial.",
+    "When the person asks for a new picture of you without saying which kind, ask in your reply whether they want a drawn face from `make_face` or a picture made by an image model with `generate_image`, and do the one they pick. A change to your drawn face, or a style or the image model named, says which: do not ask.",
     "`computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download.",
     "`web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses.",
     "A granted server's tools are named `<server>__<tool>`.",
 ];
 
 /// Every tool a part of [`HOW_TO_USE`] may name.
-const NAMED_TOOLS: [&str; 34] = [
+const NAMED_TOOLS: [&str; 36] = [
     SEARCH_THREAD,
     READ_THREAD,
     LIST_CHAPTERS,
@@ -299,6 +307,8 @@ const NAMED_TOOLS: [&str; 34] = [
     OPEN_LINK,
     GENERATE_IMAGE,
     SET_AVATAR,
+    FACE_OPTIONS,
+    MAKE_FACE,
     LIST_TEAMMATES,
     SEND,
     READ_INBOX,
@@ -673,7 +683,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             GENERATE_IMAGE,
-            "Make one image through the room's connected image provider, save it in your workspace and post it in your conversation. Use it when the person asks or an image is clearly part of their task; say what you are going for. The room's dollar spending caps apply to paid API attempts, including a single fallback. Images drawn on a subscription (ChatGPT or Grok) use its limits instead and never fall back to a paid API. PNG, JPEG, WebP and SVG keep their format and transparency, at most 2048 px on the long edge. References are files your workspace tools may read (PNG, JPEG or WebP, at most 20 MB each). Returns path, model, costUsd, seconds and whether the requested transparency was supported; subscription results have costUsd null and billing subscription, not a known zero-dollar cost. One image per ask unless they want options. For a default avatar, use style `avatar`; for a specific custom subject/theme, omit style. An operator-provided photo can go directly to set_avatar without generation. The image is already in the conversation when this returns: do not send_file it as well.",
+            "Make one image through the room's connected image provider, save it in your workspace and post it in your conversation. Use it when the person asks or an image is clearly part of their task; say what you are going for. The room's dollar spending caps apply to paid API attempts, including a single fallback. Images drawn on a subscription (ChatGPT or Grok) use its limits instead and never fall back to a paid API. PNG, JPEG, WebP and SVG keep their format and transparency, at most 2048 px on the long edge. References are files your workspace tools may read (PNG, JPEG or WebP, at most 20 MB each). Returns path, model, costUsd, seconds and whether the requested transparency was supported; subscription results have costUsd null and billing subscription, not a known zero-dollar cost. One image per ask unless they want options. Your face is make_face's; asked for a new picture of yourself without saying which kind, first ask the person whether they want a drawn face or a picture made by an image model. For a generated avatar use style `avatar`, and for their own subject or theme omit style. An operator-provided photo can go directly to set_avatar without generation. The image is already in the conversation when this returns: do not send_file it as well.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -681,7 +691,7 @@ fn descriptors() -> Vec<Tool> {
                     "aspect": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"], "default": "1:1" },
                     "transparent": { "type": "boolean", "default": false },
                     "references": { "type": "array", "items": { "type": "string" }, "maxItems": 16 },
-                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` is the default for an unspecific request such as create an avatar for yourself: a matte vinyl head-and-shoulders bust of one of the Hotline crew, with cream eye domes, a head shape and colour of your own, and character from two to four taste decisions: a mood in the eyes, a marking or texture, hair or a tuft, what it wears, at most one small accent. Say who you are and name your decisions (for example: half-lidded knowing eyes, a leaf tattoo wrapping one eye, a white tuft, a hood with a small moon pin), plus anything you want kept. Omit style for an operator-requested custom subject/theme (for example a donkey in a forest), or use their photo directly with set_avatar. To keep your look in a crew redraw, pass your current picture as a reference." },
+                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` is for a generated avatar the person chose over a drawn face: a matte vinyl head-and-shoulders bust of one of the Hotline crew, with cream eye domes, a head shape and colour of your own, and character from two to four taste decisions: a mood in the eyes, a marking or texture, hair or a tuft, what it wears, at most one small accent. Say who you are and name your decisions (for example: half-lidded knowing eyes, a leaf tattoo wrapping one eye, a white tuft, a hood with a small moon pin), plus anything you want kept. Omit style for an operator-requested custom subject/theme (for example a donkey in a forest), or use their photo directly with set_avatar. To keep your look in a crew redraw, pass your current picture as a reference." },
                     "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "A file name, not a path. The extension follows the provider's image format; existing files are never overwritten." },
                 },
                 "required": ["prompt"],
@@ -690,7 +700,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             SET_AVATAR,
-            "Make an image in your workspace your own profile picture, or clear it back to your initial. Change your picture only when the person asks. Give the `path` of a PNG, JPEG or WebP file your workspace tools may read (at most 20 MB); a transparent image is trimmed to its subject, and every picture is centred on a square. Or pass `clear: true`. If the person chose your current picture, this refuses. Returns the picture's hash. For a default avatar, first generate_image with style `avatar`; for a custom subject/theme omit style, or set an operator-provided photo directly. A picture made with generate_image is already in the conversation; show any other with send_file.",
+            "Make an image in your workspace your own profile picture, or clear it back to your initial. Change your picture only when the person asks. Give the `path` of a PNG, JPEG or WebP file your workspace tools may read (at most 20 MB); a transparent image is trimmed to its subject, and every picture is centred on a square. Or pass `clear: true`. If the person chose your current picture, this refuses. Returns the picture's hash. Your face is make_face's; for a generated avatar, first generate_image with style `avatar`; for a custom subject/theme omit style, or set an operator-provided photo directly. A picture made with generate_image is already in the conversation; show any other with send_file.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -700,6 +710,8 @@ fn descriptors() -> Vec<Tool> {
                 "additionalProperties": false,
             })),
         ),
+        faces::options_descriptor(),
+        faces::make_descriptor(),
         Tool::new(
             LIST_TEAMMATES,
             "The other teammates in this Hotline room: each one's id and public name, and what the roster already shows about it — whether it is idle, working, waiting on the person, or stopped; the tool or task it is doing right now, if it is working; and what it is working on, the current chapter's title (or its goal, if the chapter has none yet) and when it last spoke. Each also has its `goal`, its `agent` (Hotline Agent, Claude Code, Codex…), its `model` and `effort` when set, and `capabilities`: `computer` (none, attached, or in use now), `webSearch`, `imageGeneration`, `backgroundWork`, `messageTeammates` (directly, or after the person's approval), `reach` (workspace or whole machine) and `mcpServers`, the names of the servers it is granted. Check this to see who can do what you need, and whether a colleague is busy. Never a message's text, never what anyone said, and never a workspace path, a server's address or login, or a tool list. Teammates on desks linked with this one are listed too, each with its desk's name in `desk`; the inbox does not reach them yet.",
@@ -1148,6 +1160,11 @@ impl TeammateTools {
                 .await
                 .map(browser_content);
         }
+        if name == MAKE_FACE {
+            return room
+                .make_face(&self.persona_id, arguments, self.capability.clone())
+                .await;
+        }
         let words = match name {
             ADD_TEAMMATE => {
                 let text = |key: &str| {
@@ -1485,6 +1502,7 @@ impl TeammateTools {
                 room.set_avatar(&self.persona_id, arguments, self.capability.clone())
                     .await
             }
+            FACE_OPTIONS => room.face_options(&self.persona_id, arguments),
             SCHEDULE => {
                 let when = arguments
                     .get("when")
@@ -1808,7 +1826,7 @@ pub(crate) fn roster_row(
     let waiting = wire::waiting_on(&tail);
     LinkedTeammate {
         state: roster_state(&session, waiting).to_string(),
-        activity: wire::activity_on(&tail, &session),
+        activity: wire::activity_on(&tail, &session, &room.subagents(&persona.id)),
         working_on: WorkingOn {
             title: chapter_title(room, &persona),
             last_turn_at: last_turn_at(room, &persona.id),
@@ -2400,24 +2418,58 @@ mod tests {
         assert!(how_to_use(&|_| true).contains("the short form works everywhere a key does"));
     }
 
+    /// A face is drawn unless the person picks a generated picture: asked
+    /// for one without saying which kind, a teammate that has
+    /// `generate_image` asks first, one that has not just draws, and a
+    /// change to its drawn face is never a question. The preamble, the tools
+    /// and the skill say the same, and none of them changes a picture at
+    /// setup any more.
     #[test]
-    fn avatar_guidance_defaults_to_crew_but_respects_operator_overrides() {
-        assert!(how_to_use(&|_| true).contains("default avatar request"));
-        assert!(how_to_use(&|_| true).contains("style `avatar`"));
-        assert!(how_to_use(&|_| true).contains("custom subject/theme, omit style"));
-        assert!(how_to_use(&|_| true).contains("operator-provided photo directly"));
+    fn a_face_is_drawn_unless_the_person_picks_a_generated_picture() {
+        let said = how_to_use(&|_| true);
+        assert!(
+            said.contains(
+                "Your picture is your face, and you change it only when the person asks."
+            )
+        );
+        assert!(said.contains("`make_face` draws it from your name, your goal and that colour"));
+        assert!(said.contains("switch style only when told to"));
+        assert!(said.contains("`generate_image` with style `avatar`"));
+        assert!(said.contains("omit style for their own subject or theme"));
+        assert!(said.contains("such as one you made or the person's photo"));
+        assert!(said.contains("without saying which kind, ask in your reply whether they want a drawn face from `make_face` or a picture made by an image model"));
+        assert!(said.contains("A change to your drawn face, or a style or the image model named, says which: do not ask."));
+        // A teammate that cannot make images is told how to draw its face
+        // and never told of the other kind.
+        let drawing_only = how_to_use(&|name| name != GENERATE_IMAGE);
+        assert!(
+            drawing_only.contains("`make_face` draws it from your name, your goal and that colour")
+        );
+        assert!(!drawing_only.contains("image model"), "{drawing_only}");
         let tools = listing(descriptors()).tools;
+        let make = tools.iter().find(|tool| tool.name == MAKE_FACE).unwrap();
+        let description = make.description.as_deref().unwrap();
+        assert!(description.contains("from your name, your goal and your bubble colour"));
+        assert!(description.contains("keep your style and name only what changes"));
+        assert!(description.contains("Switch style only when the person tells you to"));
+        assert!(description.contains("Change your picture only when the person asks."));
+        assert!(description.contains("without saying which kind, if you have generate_image, first ask the person whether they want a drawn face or a picture made by an image model"));
+        assert!(description.contains("If the person chose your current picture, this refuses"));
+        assert_eq!(make.input_schema["required"], json!(["style"]));
+        assert!(make.input_schema["properties"].get("svg").is_none());
         let generate = tools
             .iter()
             .find(|tool| tool.name == GENERATE_IMAGE)
             .unwrap();
         let description = generate.description.as_deref().unwrap();
-        assert!(description.contains("default avatar"));
-        assert!(description.contains("custom subject/theme, omit style"));
+        assert!(description.contains("Your face is make_face's"));
+        assert!(description.contains("without saying which kind, first ask the person whether they want a drawn face or a picture made by an image model"));
+        assert!(description.contains("generated avatar use style `avatar`"));
         let style = &generate.input_schema["properties"]["style"];
         assert_eq!(style["enum"], json!(["avatar"]));
         assert_eq!(generate.input_schema["required"], json!(["prompt"]));
         let description = style["description"].as_str().unwrap();
+        assert!(description.contains("the person chose over a drawn face"));
         assert!(description.contains("head-and-shoulders bust"));
         assert!(description.contains("two to four taste decisions"));
         assert!(description.contains("a head shape and colour of your own"));
@@ -2430,15 +2482,30 @@ mod tests {
                 .contains("If the person chose your current picture, this refuses")
         );
         let skill = include_str!("../../skills/hotline-room/SKILL.md");
+        let ask = skill
+            .find("- If you have `generate_image`, ask first, in one short line of your reply (`ask_question` is only yes/no): a drawn face from the face maker, or a picture made by an image model.")
+            .unwrap();
+        let without = skill
+            .find("- If you do not have `generate_image`, draw the face and do not mention the other kind.")
+            .unwrap();
+        let no_question = skill.find("already says which: do not ask.").unwrap();
+        let options = skill.find("1. Call `face_options`").unwrap();
+        let draw = skill.find("2. Call `make_face`").unwrap();
+        let look = skill
+            .find("3. Look at the picture `make_face` returns")
+            .unwrap();
         let generate = skill.find("1. Call `generate_image`").unwrap();
         let set = skill.find("2. Call `set_avatar`").unwrap();
-        let show = skill
-            .find("3. Show the person the result with `send_file`")
-            .unwrap();
-        assert!(generate < set && set < show);
+        assert!(ask < without && without < no_question && no_question < options);
+        assert!(options < draw && draw < look && look < generate && generate < set);
+        assert!(skill.contains("has already posted the image, so do not `send_file` it"));
+        assert!(skill.contains("keep your style and name only that part or colour"));
         assert!(skill.contains("style: \"avatar\""));
         assert!(skill.contains("with style omitted"));
         assert!(skill.contains("`set_avatar` directly, without redrawing it"));
+        for words in [said.as_str(), make.description.as_deref().unwrap(), skill] {
+            assert!(!words.contains("at setup"), "{words}");
+        }
     }
 
     fn scratch(name: &str) -> PathBuf {

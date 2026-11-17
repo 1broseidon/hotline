@@ -268,11 +268,13 @@ export async function popupTeammateMenu(actions: {
 	onDelete(): void;
 	/** Pin or unpin, and while pinned, move along the row. Pin is disabled when the desk has its three. */
 	pin: { pinned: boolean; full: boolean; onToggle(): void; onLeft?(): void; onRight?(): void };
+	/** One place up or down the list under the pins; either is absent at that end of it. */
+	move?: { onUp?(): void; onDown?(): void };
 	/** Make team lead, or Remove as lead on the lead; the only teammate on a desk leads it, so it cannot be removed there. */
 	lead: { lead: boolean; alone: boolean; onToggle(): void };
 }): Promise<void> {
 	try {
-		const { pin, lead } = actions;
+		const { pin, move, lead } = actions;
 		const menu = await Menu.new({
 			items: [
 				{ id: "open", text: "Open", action: actions.onOpen },
@@ -282,6 +284,8 @@ export async function popupTeammateMenu(actions: {
 				{ id: "pin", text: pin.pinned ? "Unpin" : "Pin to top", enabled: pin.pinned || !pin.full, action: pin.onToggle },
 				...(pin.onLeft !== undefined ? [{ id: "pin-left", text: "Move left", action: pin.onLeft }] : []),
 				...(pin.onRight !== undefined ? [{ id: "pin-right", text: "Move right", action: pin.onRight }] : []),
+				...(move?.onUp !== undefined ? [{ id: "move-up", text: "Move up", action: move.onUp }] : []),
+				...(move?.onDown !== undefined ? [{ id: "move-down", text: "Move down", action: move.onDown }] : []),
 				{ id: "lead", text: lead.lead ? "Remove as lead" : "Make team lead", enabled: !(lead.lead && lead.alone), action: lead.onToggle },
 				{ item: "Separator" as const },
 				{ id: "delete", text: "Delete", action: actions.onDelete },

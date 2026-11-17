@@ -366,6 +366,16 @@ export function App() {
 		}
 	}, []);
 
+	/* The roster's next rows carry each place, so a refusal leaves nothing to undo. */
+	const arrangeTeam = useCallback(async (personaIds: string[], deskId?: string) => {
+		try {
+			if (deskId === undefined) await wire.command("persona.arrange", { ids: personaIds });
+			else await wireFor(deskId).command("persona.arrange", { ids: personaIds });
+		} catch {
+			// A desk whose core predates the order refuses it; the list stays as it was.
+		}
+	}, []);
+
 	/* The roster's next rows carry the lead, so a refusal leaves nothing to undo. */
 	const leadTeammate = useCallback(async (personaId: string, lead: boolean, deskId?: string) => {
 		const params = lead ? { id: personaId } : {};
@@ -613,6 +623,7 @@ export function App() {
 				}}
 				onDelete={(id, name, deskId) => void removeTeammate(id, name, deskId)}
 				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
+				onArrange={(ids, deskId) => void arrangeTeam(ids, deskId)}
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
 				onNew={newTeammate}

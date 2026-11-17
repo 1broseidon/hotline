@@ -79,3 +79,16 @@ allow = [
     # Hotline changes none (cssparser, selectors and symphonia among them).
     "MPL-2.0",
 ]
+
+# dicebear-styles has no license field: its LICENSE.md gives each avatar
+# style its own license and the crate's code MIT. Every style is a feature of
+# its own, and hotline-core enables only styles whose artwork is CC0 1.0
+# (crates/hotline-core/Cargo.toml), so what is linked is MIT code and CC0
+# data; a test in session/avatar/face/tests.rs fails if a style it draws says
+# anything but CC0 1.0 in its own `meta`. Pinned to this version and this
+# LICENSE.md: a new release, or a changed license file, fails here until it
+# is read again.
+[[licenses.clarify]]
+crate = "dicebear-styles@11.0.0-rc.3"
+expression = "MIT AND CC0-1.0"
+license-files = [{ path = "LICENSE.md", hash = 0x1e2ce400 }]

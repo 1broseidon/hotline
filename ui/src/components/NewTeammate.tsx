@@ -112,8 +112,6 @@ export function NewTeammateForm({
 	const [folders, setFolders] = useState<FolderGrant[]>([]);
 	// A computer is offered only where one can start.
 	const [computerReady, setComputerReady] = useState(false);
-	// A picture is offered only where the room can draw one: the provider that would.
-	const [imagesBy, setImagesBy] = useState<string | null>(null);
 	const [picture, setPicture] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -130,10 +128,6 @@ export function NewTeammateForm({
 			.command("computer.runtimes", {})
 			.then((reports) => setComputerReady(reports.some((one) => one.state === "ready")))
 			.catch(() => setComputerReady(false));
-		void wire
-			.command("capabilities.options", {})
-			.then(({ images }) => setImagesBy(images.selected?.providerId === "off" ? null : ((images.selected ?? images.automatic)?.providerName ?? null)))
-			.catch(() => setImagesBy(null));
 	}, []);
 
 	const available = (id: string) => backends.some((one) => one.id === id && one.unavailable === undefined);
@@ -166,9 +160,9 @@ export function NewTeammateForm({
 			// the conversation, as an error notice and a session to retry.
 			onCreated(persona.id);
 			void wire.command("session.start", { personaId: persona.id }).catch((error: Error) => console.warn("session.start", error.message));
-			// Drawn while they settle in: the initial shows until the roster
-			// brings the picture, and a refusal leaves the initial in place.
-			if (imagesBy !== null && picture) {
+			// A face the desk draws at once from the teammate's id, the same
+			// face every time; a refusal leaves the initial in place.
+			if (picture) {
 				void wire.command("avatar.generate", { personaId: persona.id }).catch((error: Error) => console.warn("avatar.generate", error.message));
 			}
 		} catch (error) {
@@ -345,13 +339,11 @@ export function NewTeammateForm({
 						<p className="hint">These can always be changed later on the teammate's pane.</p>
 					</Fold>
 				)}
-				{imagesBy !== null && (
-					<label className="nt-fold-row nt-fold-head">
-						<span className="nt-fold-title">Picture</span>
-						<span className="nt-fold-value">{picture ? `Drawn from its name and goal with ${imagesBy}` : "Its initial"}</span>
-						<input type="checkbox" className="switch" checked={picture} disabled={busy} onChange={(event) => setPicture(event.target.checked)} />
-					</label>
-				)}
+				<label className="nt-fold-row nt-fold-head">
+					<span className="nt-fold-title">Picture</span>
+					<span className="nt-fold-value">{picture ? "A drawn face" : "Its initial"}</span>
+					<input type="checkbox" className="switch" checked={picture} disabled={busy} onChange={(event) => setPicture(event.target.checked)} />
+				</label>
 			</section>
 
 			{refusal !== null && (

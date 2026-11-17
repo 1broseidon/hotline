@@ -274,6 +274,11 @@ impl Desk {
         // A desk from before the lead, with one teammate, gets that one as
         // its lead here, by the rule creating and deleting follow.
         room::settle_lead(&log).map_err(io::Error::other)?;
+        // A face kept before poses gets its eyes-shut picture now, before the
+        // room has a writer of its own. One that cannot is only still.
+        if let Err(error) = crate::session::avatar::give_faces_their_poses(&log) {
+            eprintln!("Faces were not given their poses: {error}");
+        }
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
         // One budget for the desk: voice, the call assistant and teammates'
         // turns all reserve through it, so none can spend what another did.
@@ -400,15 +405,7 @@ impl RoomHandle for Desk {
     }
 
     async fn generate_avatar(&self, persona_id: &str) -> Result<(), String> {
-        self.room.can_draw_avatar(persona_id)?;
-        let room = self.room.clone();
-        let persona_id = persona_id.to_string();
-        tokio::spawn(async move {
-            if let Err(error) = room.generate_avatar(&persona_id).await {
-                eprintln!("the picture for {persona_id} could not be drawn: {error}");
-            }
-        });
-        Ok(())
+        self.room.generate_avatar(persona_id).await.map(|_| ())
     }
 
     async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {

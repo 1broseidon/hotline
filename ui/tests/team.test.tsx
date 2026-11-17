@@ -74,6 +74,7 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 				onEdit={() => {}}
 				onDelete={() => {}}
 				onPin={() => {}}
+				onArrange={() => {}}
 				onLead={() => {}}
 				onAddDesk={() => {}}
 				onNew={() => {}}
@@ -134,6 +135,7 @@ test("in the faces-only rail a face grows out over its own row to the right: the
 					onEdit={() => {}}
 					onDelete={() => {}}
 					onPin={() => {}}
+					onArrange={() => {}}
 					onLead={() => {}}
 					onAddDesk={() => {}}
 					onNew={() => {}}

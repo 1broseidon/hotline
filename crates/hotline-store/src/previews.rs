@@ -3,7 +3,7 @@
 //! One-shot readers use bounded raw tails: messages are immutable, so finding
 //! the last one does not need a whole-history fold. The live roster uses
 //! [`live`] instead, seeding once and following the existing log broadcast.
-//! Its cold tool-activity seed still needs the raw tail's append order.
+//! Its cold seed of the turn in flight still needs the raw tail's append order.
 
 pub mod live;
 
@@ -13,7 +13,7 @@ use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-/// The initial window for one-shot previews and the cold activity seed.
+/// The initial window for one-shot previews and the cold seed of the turn.
 /// Live cards are seeded from the fold, so an old open card cannot age out.
 const TAIL_BYTES: u64 = 64 * 1024;
 /// How much further a preview looks when that tail holds no message. A turn

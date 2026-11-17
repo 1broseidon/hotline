@@ -3,22 +3,32 @@
 //! record.
 //!
 //! The desk keeps `avatars/<teammate>/<sha256>.png`, written once and never
-//! changed, so a window that has a hash has the picture for good. Setting a
-//! new one removes the old files, and so does clearing. A picture the person
-//! chose is not replaced by the teammate.
+//! changed, so a window that has a hash has the picture for good. A face
+//! drawn in a style that blinks is also kept with its eyes shut, the same
+//! way, named on the record as its `shut` pose. Setting a new picture
+//! removes the old files, its pose's too, and so does clearing. A picture
+//! the person chose is not replaced by the teammate.
+//!
+//! A picture comes from a file in the teammate's workspace (`set_avatar`),
+//! which `generate_image` may have made, or is a face the desk draws from a
+//! recipe ([`face`]): seeded at setup, and made by the teammate itself with
+//! `make_face` when the person asks it for one.
+
+pub(crate) mod face;
 
 use super::{Room, generate::read_workspace_image};
-use crate::contract::{Avatar, AvatarBy};
+use crate::contract::{Avatar, AvatarBy, AvatarPoses, AvatarRecipe, FaceMaker};
 use crate::driver::CapabilityLease;
-use crate::imagegen::{self, Aspect, ImageRequest};
 use crate::images::DECODERS;
+use crate::mcp::{CallContent, CallImage};
 use crate::paths;
 use crate::sent;
 use crate::tools::Workspace;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
@@ -104,29 +114,90 @@ impl Room {
         let gate = self.policy_update_lock();
         let _held = gate.lock().await;
         self.refuse_over_the_persons_choice(persona_id)?;
-        let hash = self.write_avatar(persona_id, prepared, AvatarBy::Own)?;
+        let hash = self.write_avatar(persona_id, prepared, None, AvatarBy::Own, None)?;
         Ok(match hash {
             Some(hash) => json!({ "hash": hash }).to_string(),
             None => "Your picture is cleared; people see your initial again.".to_string(),
         })
     }
 
-    /// Whether setup's offer can go ahead, answered before the drawing starts
-    /// so a refusal reaches the person rather than a log.
-    pub(crate) fn can_draw_avatar(&self, persona_id: &str) -> Result<(), String> {
+    /// The `face_options` tool: the styles, the teammate's face now and its
+    /// bubble colour; or, given a `style`, that style's parts and colours.
+    pub(crate) fn face_options(
+        &self,
+        persona_id: &str,
+        arguments: &Value,
+    ) -> Result<String, String> {
         let persona = self.persona(persona_id)?;
-        if persona
-            .avatar
-            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+        let answer = match arguments
+            .get("style")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|style| !style.is_empty())
         {
-            return Err("This teammate already has a picture you chose.".into());
-        }
-        self.image_generators().map(|_| ())
+            Some(style) => face::style_answer(style, &persona)?,
+            None => face::styles_answer(&persona),
+        };
+        Ok(answer.to_string())
     }
 
-    /// The setup screen's offer: a picture drawn from the teammate's name and
-    /// goal, in the house avatar style. It counts as the teammate's own, so
-    /// the teammate may redraw it later; one the person chose is kept.
+    /// The `make_face` tool: a face drawn from the call and the teammate's
+    /// current recipe, kept as its own picture, and handed back as a
+    /// picture for it to look at.
+    pub(crate) async fn make_face(
+        &self,
+        persona_id: &str,
+        arguments: &Value,
+        capability: Option<CapabilityLease>,
+    ) -> Result<CallContent, String> {
+        let current = self
+            .persona(persona_id)?
+            .avatar
+            .and_then(|avatar| avatar.recipe);
+        let ask = face::Ask::read(arguments, current.as_ref())?;
+        self.refuse_over_the_persons_choice(persona_id)?;
+        let seed = persona_id.to_string();
+        let face = tokio::task::spawn_blocking(move || {
+            face::compose(ask, current.as_ref(), &seed, FaceMaker::Teammate)
+        })
+        .await
+        .map_err(|_| "The face could not be drawn.".to_string())??;
+        if let Some(capability) = &capability {
+            capability.check()?;
+        }
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        self.refuse_over_the_persons_choice(persona_id)?;
+        let hash = self.write_avatar(
+            persona_id,
+            Some(face.png.clone()),
+            face.shut,
+            AvatarBy::Own,
+            Some(face.recipe.clone()),
+        )?;
+        Ok(CallContent {
+            text: {
+                let mut said = json!({
+                    "hash": hash,
+                    "recipe": face.recipe,
+                    "note": "This is your picture now, beside your name wherever the person sees you. Look at it: if it is not you yet, call make_face again with what to change.",
+                });
+                if !face.not_drawn.is_empty() {
+                    said["notDrawn"] = json!(face.not_drawn);
+                }
+                said.to_string()
+            },
+            images: vec![CallImage {
+                data: BASE64.encode(&face.png),
+                mime_type: "image/png".into(),
+            }],
+        })
+    }
+
+    /// The setup screen's offer: a face the desk draws at once from the
+    /// teammate's id and bubble colour, kept as the teammate's own, and
+    /// nothing more: no model turn is spent on a face until the person asks
+    /// the teammate for one. One the person chose is kept.
     pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
         let persona = self.persona(persona_id)?;
         let _drawing = self.start_drawing(persona_id);
@@ -137,42 +208,31 @@ impl Room {
         {
             return Err("This teammate already has a picture you chose.".into());
         }
-        let styled = imagegen::styled(
-            Some("avatar"),
-            &avatar_subject(&persona.name, &persona.goal),
-            Aspect::Square,
-            persona_id,
-        )?;
-        let request = ImageRequest {
-            prompt: styled.prompt,
-            aspect: styled.aspect,
-            transparent: false,
-            references: styled.references,
-        };
-        let drawn = self.draw(&request, None).await?;
-        let permit = DECODERS
-            .acquire()
+        let face = tokio::task::spawn_blocking(move || face::seeded(&persona))
             .await
-            .map_err(|_| "The picture could not be prepared.".to_string())?;
-        let png = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            square(&drawn.image.bytes)
-        })
-        .await
-        .map_err(|_| "The picture could not be prepared.".to_string())??;
-        let gate = self.policy_update_lock();
-        let _held = gate.lock().await;
-        if self
-            .persona(persona_id)?
-            .avatar
-            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
-        {
-            return Err("This teammate already has a picture you chose.".into());
-        }
-        self.write_avatar(persona_id, Some(png), AvatarBy::Own)?;
-        self.persona(persona_id)?
-            .avatar
-            .ok_or_else(|| "The picture could not be saved.".to_string())
+            .map_err(|_| "The face could not be drawn.".to_string())??;
+        let avatar = {
+            let gate = self.policy_update_lock();
+            let _held = gate.lock().await;
+            if self
+                .persona(persona_id)?
+                .avatar
+                .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+            {
+                return Err("This teammate already has a picture you chose.".into());
+            }
+            self.write_avatar(
+                persona_id,
+                Some(face.png),
+                face.shut,
+                AvatarBy::Own,
+                Some(face.recipe),
+            )?;
+            self.persona(persona_id)?
+                .avatar
+                .ok_or_else(|| "The picture could not be saved.".to_string())?
+        };
+        Ok(avatar)
     }
 
     fn refuse_over_the_persons_choice(&self, persona_id: &str) -> Result<(), String> {
@@ -189,49 +249,86 @@ impl Room {
         Ok(())
     }
 
-    /// Keeps `png` as the teammate's picture, or clears it, and writes the
-    /// record. The caller holds `policy_update_lock`. Answers the new hash.
+    /// Keeps `png` as the teammate's picture, with `shut` as its eyes-shut
+    /// pose when it is a face that blinks, drawn from `recipe` when it is a
+    /// face, or clears it, and writes the record. The caller holds
+    /// `policy_update_lock`. Answers the new hash.
     fn write_avatar(
         &self,
         persona_id: &str,
         png: Option<Vec<u8>>,
+        shut: Option<Vec<u8>>,
         by: AvatarBy,
+        recipe: Option<AvatarRecipe>,
     ) -> Result<Option<String>, String> {
         let root = self.log.root();
         let mut persona = self.persona(persona_id)?;
-        let hash = if let Some(png) = png {
-            let hash = hex::encode(Sha256::digest(&png));
-            store(root, persona_id, &hash, &png)
-                .map_err(|_| "The picture could not be saved.".to_string())?;
-            persona.avatar = Some(Avatar {
-                hash: hash.clone(),
-                by,
-                updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            });
-            Some(hash)
-        } else {
-            persona.avatar = None;
-            None
+        persona.avatar = match png {
+            Some(png) => {
+                let hash = keep(root, persona_id, &png)?;
+                let poses = match shut {
+                    Some(shut) => Some(AvatarPoses {
+                        shut: keep(root, persona_id, &shut)?,
+                    }),
+                    None => None,
+                };
+                Some(Avatar {
+                    hash,
+                    by,
+                    updated_at: chrono::Utc::now()
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                    recipe,
+                    poses,
+                })
+            }
+            None => None,
         };
         persona.updated_at = super::now_ms();
         crate::room::append_persona(&self.log, &persona)?;
-        remove_except(root, persona_id, hash.as_deref());
-        Ok(hash)
+        remove_except(root, persona_id, persona.avatar.as_ref());
+        Ok(persona.avatar.map(|avatar| avatar.hash))
     }
 }
 
-/// Who the crew member is: its name and job, which pick the taste decisions
-/// the house style asks for.
-fn avatar_subject(name: &str, goal: &str) -> String {
-    let goal: String = goal.trim().chars().take(600).collect();
-    let mut subject = format!("a teammate called {}", name.trim());
-    if !goal.is_empty() {
-        let _ = write!(subject, ", whose job is: {goal}");
+/// Every face drawn from a recipe in a style that blinks gets its eyes-shut
+/// pose, once, when the desk opens: faces kept before there were poses. Run
+/// before anything else writes the room stream. A face whose pose cannot be
+/// made is left as it is and tried again at the next open.
+pub(crate) fn give_faces_their_poses(log: &crate::log::Log) -> Result<(), String> {
+    let root = log.root();
+    for mut persona in crate::room::roster(log) {
+        let Some(avatar) = persona.avatar.as_mut() else {
+            continue;
+        };
+        let Some(recipe) = avatar.recipe.as_ref() else {
+            continue;
+        };
+        if avatar.poses.is_some() {
+            continue;
+        }
+        let Some(path) = paths::avatar_path(root, &persona.id, &avatar.hash) else {
+            continue;
+        };
+        let Ok(picture) = std::fs::read(&path) else {
+            continue;
+        };
+        let Some(shut) = face::shut(recipe, &picture) else {
+            continue;
+        };
+        avatar.poses = Some(AvatarPoses {
+            shut: keep(root, &persona.id, &shut)?,
+        });
+        crate::room::append_persona(log, &persona)?;
     }
-    subject.push_str(
-        ". Pick its taste decisions from these, the few a person would remember it by. If the name is a thing, its colour, skin or a detail echoes that thing.",
-    );
-    subject
+    Ok(())
+}
+
+/// Keeps a picture under its hash and answers the hash.
+fn keep(root: &Path, persona_id: &str, png: &[u8]) -> Result<String, String> {
+    let hash = hex::encode(Sha256::digest(png));
+    store(root, persona_id, &hash, png)
+        .map_err(|_| "The picture could not be saved.".to_string())?;
+    Ok(hash)
 }
 
 /// Keeps a picture under its hash, unless it is already there.
@@ -250,14 +347,22 @@ fn store(root: &Path, persona_id: &str, hash: &str, png: &[u8]) -> std::io::Resu
     Ok(())
 }
 
-/// Removes the teammate's kept pictures, all but the one named.
-pub(crate) fn remove_except(root: &Path, persona_id: &str, keep: Option<&str>) {
+/// Removes the teammate's kept pictures, all but `kept`'s picture and its
+/// poses.
+pub(crate) fn remove_except(root: &Path, persona_id: &str, kept: Option<&Avatar>) {
     let Ok(entries) = std::fs::read_dir(paths::avatar_dir(root, persona_id)) else {
         return;
     };
-    let kept = keep.map(|hash| format!("{hash}.png"));
+    let names: Vec<String> = kept
+        .into_iter()
+        .flat_map(|avatar| {
+            std::iter::once(avatar.hash.as_str())
+                .chain(avatar.poses.as_ref().map(|poses| poses.shut.as_str()))
+        })
+        .map(|hash| format!("{hash}.png"))
+        .collect();
     for entry in entries.flatten() {
-        if kept.as_deref().is_none_or(|kept| entry.file_name() != kept) {
+        if !names.iter().any(|name| entry.file_name() == name.as_str()) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -345,8 +450,21 @@ fn square(bytes: &[u8]) -> Result<Vec<u8>, String> {
     );
     let resized =
         image::imageops::resize(&canvas, EDGE, EDGE, image::imageops::FilterType::Lanczos3);
+    kept_png(resized)
+}
+
+/// A picture as it is kept: with no alpha channel when every pixel is
+/// opaque, so a window can read from the file itself that it fills its
+/// circle, and draws no colour disc behind it to bleed through the edge.
+fn kept_png(picture: RgbaImage) -> Result<Vec<u8>, String> {
+    let opaque = picture.pixels().all(|pixel| pixel[3] == u8::MAX);
+    let picture = if opaque {
+        DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(picture).to_rgb8())
+    } else {
+        DynamicImage::ImageRgba8(picture)
+    };
     let mut png = Cursor::new(Vec::new());
-    DynamicImage::ImageRgba8(resized)
+    picture
         .write_to(&mut png, ImageFormat::Png)
         .map_err(|_| "The picture could not be encoded.".to_string())?;
     Ok(png.into_inner())

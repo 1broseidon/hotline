@@ -8,8 +8,12 @@
 //! then that no standing text can: that the turn began by itself, how many
 //! messages the teammate has sent since the person last wrote, and whether
 //! the person last wrote from their phone. So one short line of Hotline's own
-//! says those facts, then the rule in a sentence. It describes the moment and
-//! quotes nothing for the model to copy; its words vary only with the facts.
+//! says those facts, then the rule. The turn it is said in is quiet (its
+//! words reach nobody, `session/dm.rs`), so the rule is said in the
+//! teammate's terms: what it writes there is not read, and `post_to_chat`,
+//! once, is how the person hears that the job is done, a decision is theirs
+//! or something failed. It describes the moment and quotes nothing for the
+//! model to copy; its words vary only with the facts.
 //!
 //! It goes where nobody waits on a reply, and only there:
 //!
@@ -33,7 +37,9 @@
 //! like their line, and gets nothing. An answer that comes back through a
 //! command (marks on a page the teammate is waiting on) Hotline cannot tell
 //! from any other command's end, so the line goes with it and names that
-//! case in its rule, as the finished command's line and the house style do.
+//! case: in a quiet turn the acknowledgement is a reaction, which reaches the
+//! chat where words would not, as the finished command's line and the house
+//! style say.
 
 use super::{Room, StreamId};
 use crate::contract::{ThreadId, ThreadKind};
@@ -46,9 +52,15 @@ use std::sync::Arc;
 pub(crate) type Note = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// The words, for a teammate that has `sent` messages to the person since
-/// they last wrote, who last wrote from their phone when `phone`.
+/// they last wrote, who last wrote from their phone when `phone`. The turn
+/// they are said in is quiet ([`super::dm`]), so they say so in the
+/// teammate's terms: its words there do not reach the chat, and
+/// `post_to_chat`, once, is how the person hears that the job is done, a
+/// decision is theirs or something failed.
 pub(crate) fn note(sent: usize, phone: bool) -> String {
-    let mut line = String::from("Hotline: this came back by itself; nobody is waiting on a reply.");
+    let mut line = String::from(
+        "Hotline: this came back by itself, so this turn is quiet: what you write in it does not reach the person's chat.",
+    );
     if phone {
         line.push_str(" The person is on their phone.");
     }
@@ -62,7 +74,7 @@ pub(crate) fn note(sent: usize, phone: bool) -> String {
         ),
     };
     line.push_str(
-        " Speak only if it gives them what they asked for, you need them, or it is their own answer to you; otherwise write nothing.",
+        " To reach them, post once with post_to_chat: that the job they gave you is done and what they have now, a decision that is theirs, or a failure that matters to them. Otherwise write nothing. If this is their own answer to you, react to show you have it, then work.",
     );
     line
 }
@@ -106,15 +118,18 @@ mod tests {
     #[test]
     fn the_note_is_short_and_says_only_the_facts_that_hold() {
         let fullest = note(12, true);
-        assert!(fullest.split_whitespace().count() < 55, "{fullest}");
-        assert!(
-            fullest.starts_with("Hotline: this came back by itself; nobody is waiting on a reply.")
-        );
+        assert!(fullest.split_whitespace().count() < 90, "{fullest}");
+        assert!(fullest.starts_with(
+            "Hotline: this came back by itself, so this turn is quiet: what you write in it does not reach the person's chat."
+        ));
         assert!(fullest.contains(
             "The person is on their phone. You have sent 12 messages since they last wrote."
         ));
+        assert!(fullest.contains(
+            "To reach them, post once with post_to_chat: that the job they gave you is done and what they have now, a decision that is theirs, or a failure that matters to them. Otherwise write nothing."
+        ));
         assert!(fullest.ends_with(
-            "Speak only if it gives them what they asked for, you need them, or it is their own answer to you; otherwise write nothing."
+            "If this is their own answer to you, react to show you have it, then work."
         ));
         let quiet = note(0, false);
         assert!(!quiet.contains("sent"), "{quiet}");

@@ -105,6 +105,14 @@ pub enum TranscriptEvent {
         id: String,
         ts: i64,
         text: String,
+        /// Words the teammate wrote as its message in a quiet turn, which
+        /// reached nobody: kept as the turn's path like its thinking, and
+        /// drawn there as what it said, so a message the person needed is
+        /// not lost when the teammate wrote it rather than posting it. Absent
+        /// on thinking, and on a line written before it was recorded.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        said: Option<bool>,
     },
     Tool {
         id: String,
@@ -431,9 +439,11 @@ pub enum TranscriptEvent {
         stop_reason: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<TokenUsage>,
-        /// The turn was quiet to its end: the inbox woke it and the person
-        /// never spoke into it, so a client says it worked quietly. Absent on
-        /// every other turn, and on one written before it was recorded.
+        /// The turn was quiet to its end: the inbox or work coming back woke
+        /// it, or it went on after its reply when a helper or a command came
+        /// back, and the person never spoke into it since, so a client says
+        /// it worked quietly. Absent on every other turn, and on one written
+        /// before it was recorded.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         quiet: Option<bool>,

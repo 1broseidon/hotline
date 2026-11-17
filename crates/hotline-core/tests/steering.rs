@@ -535,14 +535,18 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
         .await;
     client.next_where(common::ANSWER, row(true)).await;
 
-    // The run reports, and the turn answers it and ends.
+    // The run reports, and the turn takes it in and ends. It had replied
+    // and parked again, so nobody waits on what it says now: that is the
+    // turn's path, kept as said, and the turn ends quiet.
     release.notify_one();
     next_request(&mut requests).await;
     client
-        .next_where(
-            common::ANSWER,
-            said("Two edge cases fail; I will fix them."),
-        )
+        .next_where(common::ANSWER, |frame: &Value| {
+            frame["sub"] == tape
+                && frame["event"]["kind"] == "thought"
+                && frame["event"]["said"] == true
+                && frame["event"]["text"] == "Two edge cases fail; I will fix them."
+        })
         .await;
     let ended = client
         .next_where(common::ANSWER, |frame| {
@@ -550,6 +554,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
         })
         .await;
     assert_eq!(ended["event"]["stopReason"], "end_turn");
+    assert_eq!(ended["event"]["quiet"], true, "{ended}");
     // Truly over, the turn's line stands under the declaration, which ends it.
     let tape_now = on_disk();
     assert!(

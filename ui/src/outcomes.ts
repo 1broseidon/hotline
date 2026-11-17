@@ -15,6 +15,8 @@ import { type RunLink, type Step, isRunLink } from "./scheduledRuns";
  */
 
 type ActivityLine = Extract<Step, { kind: "activity" }>;
+/** What the teammate wrote in a quiet turn, which reached nobody: kept as the turn's path, marked `said`. */
+type SaidLine = Extract<Step, { kind: "thought" }> & { said: true };
 export type OutcomeLine = Extract<Step, { kind: "outcome" }>;
 
 /** How an outcome is marked: failed ✕, partial –, open ● (still going), yours →, done ✓, and a kind the desk does not know plainly. */
@@ -45,14 +47,17 @@ export function outcomesOf(items: Step[]): OutcomeLine[] {
 
 /**
  * One thing in the path: a line of steps, an outcome where it was said, the
- * helpers started together (one line however many: "Started 4 helpers"), or
- * a command left running, each command a line of its own.
+ * helpers started together (one line however many: "Started 4 helpers"), a
+ * command left running, each command a line of its own, or what the teammate
+ * wrote in a quiet turn, where it wrote it: words nobody read in the chat,
+ * so the path is where the person finds them, whole, never as thinking.
  */
 export type PathEntry =
 	| { kind: "line"; line: Glance }
 	| { kind: "outcome"; outcome: OutcomeLine; ended: boolean }
 	| { kind: "helpers"; links: RunLink[] }
-	| { kind: "command"; link: RunLink };
+	| { kind: "command"; link: RunLink }
+	| { kind: "said"; said: SaidLine };
 
 /**
  * The steps a run's own line stands for: the start of a helper, done, when
@@ -112,6 +117,9 @@ export function pathGroups(items: Step[], running: boolean): PathGroup[] {
 			if (item.runKind === "shell") entries.push({ kind: "command", link: item });
 			else if (last?.kind === "helpers") last.links.push(item);
 			else entries.push({ kind: "helpers", links: [item] });
+		} else if (item.kind === "thought" && item.said === true) {
+			flush(false);
+			groups[groups.length - 1]!.entries.push({ kind: "said", said: { ...item, said: true } });
 		} else if (!started(item)) run.push(item);
 	}
 	flush(true);

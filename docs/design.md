@@ -675,6 +675,20 @@ through a command Hotline cannot see into. Read as work that came back, it
 had the teammate act on the person's marks without a word, so the texts name
 it, and it gets the opening line or a reaction before the work.
 
+A turn that returning work starts is quiet (George, 2026-11-16). On Claude
+Code the texts helped less, because Hotline sends it nothing when its own
+program wakes it, and an empty answer is followed by a line its harness
+makes it write. So Hotline decides, not the model: a line of Hotline's that
+work came back begins, work the agent began by itself, and the rest of a
+turn after it replied and parked are quiet, as the inbox's turn is, and the
+teammate reaches the person with one `post_to_chat`. The texts say so in
+the teammate's terms: what it writes there is not read, and the post is how
+the person hears the job is done, a decision is theirs or something failed.
+The danger is the job's most important message, "done, here is what you
+have", written as words instead of posted. Those words are kept, marked
+`said`, and the turn's existing line opens a path that shows them whole:
+no new element in the chat, and nothing silently dropped.
+
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads
 count while it ran, was pushed up as the person kept talking, and stood

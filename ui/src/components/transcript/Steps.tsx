@@ -124,6 +124,8 @@ export function failedWords(runs: RunLink[]): string[] {
  * "Thinking" row, since harnesses send thinking in pieces that break
  * mid-sentence, and a tool with its output. What the teammate said it was on
  * heads the rows after it, and what it left behind is marked where it said it.
+ * What it wrote in a quiet turn, which reached nobody, is no thinking: it is
+ * shown whole where it wrote it.
  */
 export function StepRows({
 	items,
@@ -136,10 +138,11 @@ export function StepRows({
 	/** The row to open on arrival, brought into view: the one pressed in the peek. */
 	openId?: string | undefined;
 }) {
-	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | Exclude<Step, { kind: "thought" }>)[] = [];
+	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | { kind: "said"; id: string; text: string } | Exclude<Step, { kind: "thought" }>)[] = [];
 	for (const item of items) {
 		const last = rows[rows.length - 1];
-		if (item.kind === "thought") {
+		if (item.kind === "thought" && item.said === true) rows.push({ kind: "said", id: item.id, text: item.text });
+		else if (item.kind === "thought") {
 			if (last?.kind === "thinking") last.pieces.push(item.text);
 			else rows.push({ kind: "thinking", id: item.id, pieces: [item.text] });
 		} else rows.push(item);
@@ -147,6 +150,10 @@ export function StepRows({
 	return rows.map((row, at) =>
 		row.kind === "thinking" ? (
 			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} startOpen={row.id === openId} />
+		) : row.kind === "said" ? (
+			<p key={row.id} className="step-outcome" data-said="" data-step-id={row.id}>
+				{row.text}
+			</p>
 		) : row.kind === "activity" ? (
 			row.message !== undefined && (
 				<p key={row.id} className="step-heading" data-step-id={row.id}>

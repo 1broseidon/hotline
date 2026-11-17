@@ -3016,7 +3016,15 @@ scheduled?: ScheduledRun,
  * prompted it and opens it. Absent from any other message, and from
  * a quiet turn several items woke.
  */
-fromItem?: string, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, 
+fromItem?: string, } | { "kind": "thought", id: string, ts: number, text: string, 
+/**
+ * Words the teammate wrote as its message in a quiet turn, which
+ * reached nobody: kept as the turn's path like its thinking, and
+ * drawn there as what it said, so a message the person needed is
+ * not lost when the teammate wrote it rather than posting it. Absent
+ * on thinking, and on a line written before it was recorded.
+ */
+said?: boolean, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, 
 /**
  * The step said in a few words, for a glance at a turn (the work
  * card and the peek, on the desk and the phone): the agent's own
@@ -3188,9 +3196,11 @@ seat?: PeerSeat, } | { "kind": "delivery", id: string, ts: number, cause: Delive
  */
 from?: DeliveryFrom, } | { "kind": "exchange_paused", id: string, ts: number, withPersonaId: string, withName: string, exchanges: number, status: ExchangePauseStatus, } | { "kind": "quiet_paused", id: string, ts: number, turns: number, status: ExchangePauseStatus, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, 
 /**
- * The turn was quiet to its end: the inbox woke it and the person
- * never spoke into it, so a client says it worked quietly. Absent on
- * every other turn, and on one written before it was recorded.
+ * The turn was quiet to its end: the inbox or work coming back woke
+ * it, or it went on after its reply when a helper or a command came
+ * back, and the person never spoke into it since, so a client says
+ * it worked quietly. Absent on every other turn, and on one written
+ * before it was recorded.
  */
 quiet?: boolean, } | { "kind": "subagent", id: string, 
 /**

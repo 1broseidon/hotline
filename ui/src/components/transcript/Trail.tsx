@@ -144,6 +144,10 @@ export function TrailSteps({
 			<HelpersLine key={one.links[0]!.id} links={one.links} onOpen={onOpenThread} now={nowId === one.links[0]!.id} />
 		) : one.kind === "command" ? (
 			<RunLine key={one.link.id} link={one.link} said={`Started a command: ${one.link.title}`} onOpen={onOpenThread} now={nowId === one.link.id} />
+		) : one.kind === "said" ? (
+			<li key={one.said.id} className="trail-outcome" data-said="" data-step-id={one.said.id}>
+				{one.said.text}
+			</li>
 		) : (
 			<li key={one.outcome.id} className="trail-outcome outcome" data-step-id={one.outcome.id} data-mark={markOf(one.outcome)}>
 				{one.outcome.message}

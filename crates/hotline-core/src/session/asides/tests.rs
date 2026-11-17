@@ -177,7 +177,7 @@ async fn nudges_wake_an_idle_teammate_once_and_a_busy_one_when_its_turn_ends() {
     for text in ["first", "second", "third"] {
         assert!(heard.contains(&format!("(nudge): {text}")), "{heard}");
     }
-    assert!(heard.contains(WAKE_LINE), "{heard}");
+    assert!(heard.contains(QUIET_WAKE_LINE), "{heard}");
     assert!(
         heard.ends_with(&crate::session::returns::note(0, false)),
         "nobody waits on a wake: {heard}"
@@ -186,7 +186,7 @@ async fn nudges_wake_an_idle_teammate_once_and_a_busy_one_when_its_turn_ends() {
     // A nudge with nothing left to hear is a spent wake: it runs no turn.
     let spent = Wired {
         wake: true,
-        ..Wired::words(timed(now_ms(), WAKE_LINE))
+        ..Wired::words(timed(now_ms(), QUIET_WAKE_LINE))
     };
     let line = claim_idle(&session.turns, spent).unwrap();
     room.clone().run_queue(session.clone(), line).await;

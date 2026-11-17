@@ -119,15 +119,21 @@ async fn a_turn_left_open_only_for_subagents_reads_as_done_until_the_agent_works
     gate.add_permits(5);
     until_state(&room, "ada", SessionState::Ready).await;
     assert!(!room.info("ada").awaiting_subagents);
+    // What it says once the report woke it is a quiet turn's: its path,
+    // kept as said, and not a bubble (`quiet_returns.rs`).
     let events = tape(&room, "ada");
     let after = events
         .iter()
         .find(|event| event["id"] == "m-after")
-        .expect("the reply after the work is on the tape");
-    assert_eq!(after["kind"], "agent");
+        .expect("the words after the work are on the tape");
+    assert_eq!(after["kind"], "thought");
+    assert_eq!(after["said"], true);
     let sent = pushed(&room, 1).await;
     assert_eq!(sent.len(), 1, "{sent:?}");
-    assert_eq!(sent[0]["body"], "Fixed both edge cases.");
+    assert_eq!(
+        sent[0]["body"],
+        "The lift is in crane.rs; a subagent is checking the edge cases."
+    );
 }
 
 /// Waits for the phone to have been sent `count` pushes, and a moment more
@@ -184,9 +190,10 @@ async fn parked_after(room: &Room, id: &str) {
 
 /// A teammate that starts four helpers and waits on them, saying a line as
 /// some report, is one notification on the phone: nothing while the turn
-/// waits, and when it is over, the last thing the teammate said in it.
+/// waits, and when it is over, the last thing of the turn the person read.
+/// What it says after the wait is quiet, so that is its reply before it.
 #[tokio::test]
-async fn a_turn_that_waits_on_its_helpers_reaches_the_phone_once_with_its_last_words() {
+async fn a_turn_that_waits_on_its_helpers_reaches_the_phone_once_with_its_reply() {
     let turn = vec![
         helper("h1"),
         helper("h2"),
@@ -232,10 +239,7 @@ async fn a_turn_that_waits_on_its_helpers_reaches_the_phone_once_with_its_last_w
     until_state(&room, "ada", SessionState::Ready).await;
     let sent = pushed(&room, 1).await;
     assert_eq!(sent.len(), 1, "{sent:?}");
-    assert_eq!(
-        sent[0]["body"],
-        "Comparison chart of 16 agent tools is ready."
-    );
+    assert_eq!(sent[0]["body"], "Four helpers are comparing the tools.");
     assert!(sent[0].get("categoryId").is_none(), "{sent:?}");
 }
 
@@ -449,10 +453,10 @@ async fn a_turn_with_other_work_open_or_no_subagents_reads_as_working() {
 }
 
 /// What a teammate says about work it left running, once its turn is over,
-/// reaches the chat and the phone when it is said, and the teammate is shown
-/// working while it says it.
+/// is a quiet turn: the teammate is shown working while it says it, and its
+/// words are the turn's path, which no phone is told (`quiet_returns.rs`).
 #[tokio::test]
-async fn work_the_agent_started_itself_reaches_the_chat_and_the_phone() {
+async fn work_the_agent_started_itself_shows_it_working_and_keeps_its_words_as_its_path() {
     let (scripted, unprompted) = Scripted::new(spoken_turn()).with_unprompted();
     let room = room("unprompted", Fake::new(scripted));
     std::fs::write(
@@ -503,26 +507,14 @@ async fn work_the_agent_started_itself_reaches_the_chat_and_the_phone() {
     assert!(
         events
             .iter()
-            .any(|event| event["text"] == "The build passed."),
+            .any(|event| event["text"] == "The build passed."
+                && event["kind"] == "thought"
+                && event["said"] == true),
         "{events:?}"
     );
-    let mut sent = Vec::new();
-    for _ in 0..200 {
-        sent = lock(&room.push.sent).clone();
-        if !sent.is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert_eq!(sent.len(), 1, "{sent:?}");
-    assert_eq!(sent[0]["body"], "The build passed.");
-    for _ in 0..200 {
-        if room.info("ada").state == SessionState::Ready {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the teammate never went back to ready");
+    until_state(&room, "ada", SessionState::Ready).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(lock(&room.push.sent).is_empty(), "no push");
 }
 
 /// A message sent while the teammate answers its own work waits for that

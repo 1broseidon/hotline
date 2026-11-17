@@ -164,7 +164,9 @@ decision for George, not a bug fix.
   not the whole machine counts as its peers' equal. Only the
   person's own lines carry the person's authority, and teammates are told
   so; that is guidance to the model, not enforcement.
-- **A quiet turn does real work unseen.** A turn the inbox starts keeps
+- **A quiet turn does real work unseen.** A turn the inbox starts, or one
+  work coming back starts or carries on after the reply
+  ([sessions.md](sessions.md#a-quiet-return)), keeps
   every tool the teammate has, and Hotline Agent has no per-action cards, so
   shell, files, browser and network run without the person's attention. Its
   trail is kept (the "Inbox · read 3, sent 1" line, whose rows are the

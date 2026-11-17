@@ -32,6 +32,7 @@ mod computer;
 mod plan;
 mod posting;
 mod preamble;
+mod quiet_returns;
 mod reading;
 mod run_state;
 mod runs;

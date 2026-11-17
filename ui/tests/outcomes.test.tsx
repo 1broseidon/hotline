@@ -124,6 +124,21 @@ describe("a turn's path", () => {
 		]);
 	});
 
+	test("what a quiet turn wrote, which reached nobody, stands in the path whole where it was written, and thinking still rides with its steps", async () => {
+		const { pathGroups } = await import("../src/outcomes");
+		const items = [
+			tool("t1", 1, "read", "Read the report"),
+			{ kind: "thought", id: "th", ts: 2, text: "the helper says it is done" },
+			left("o1", 3, "made", "Inbox list row"),
+			{ kind: "thought", id: "s1", ts: 4, text: "Done: the inbox is in your dev window.", said: true },
+			{ kind: "thought", id: "s2", ts: 5, text: "The phone build is untested.", said: true },
+		] as Step[];
+		const shape = pathGroups(items, false).flatMap((group) =>
+			group.entries.map((entry) => (entry.kind === "line" ? `line:${entry.line.text}:${entry.line.thoughts.join("|")}` : entry.kind === "said" ? `said:${entry.said.text}` : entry.kind === "outcome" ? `outcome:${entry.outcome.message}` : entry.kind)),
+		);
+		expect(shape).toEqual(["line:Read the report:the helper says it is done", "outcome:Inbox list row", "said:Done: the inbox is in your dev window.", "said:The phone build is untested."]);
+	});
+
 	test("while it runs, the last line says what is happening now and a fresh heading stands alone", async () => {
 		const { pathGroups } = await import("../src/outcomes");
 		const running = pathGroups([tool("t1", 1, "read", "Read a file"), doing("d1", 2, "searching", "Finding the kids' details")] as Step[], true);
@@ -181,6 +196,23 @@ describe("drawn", () => {
 		expect(outcome.getAttribute("data-mark")).toBe("partial");
 		expect(outcome.textContent).toBe("Aftercare form, 18 of 22 answers");
 		expect(container.querySelector(".spine-rule.steps-heading")?.textContent).toBe("Steps2");
+	});
+
+	test("a quiet turn's words are drawn whole in its path, in the pane and in place, never folded under Thinking", async () => {
+		const { Trail } = await import("../src/components/transcript/Trail");
+		const { StepRows } = await import("../src/components/transcript/Steps");
+		const items = [
+			tool("t1", 1_000, "read", "Read the report"),
+			{ kind: "thought", id: "th", ts: 2_000, text: "checking the claim" },
+			{ kind: "thought", id: "s1", ts: 3_000, text: "Done: the inbox is in your dev window.", said: true },
+		] as Step[];
+		await act(async () => root.render(<Trail items={items} settled />));
+		const said = container.querySelector(".trail-outcome[data-said]");
+		expect(said?.textContent).toBe("Done: the inbox is in your dev window.");
+		expect(said?.getAttribute("data-mark")).toBeNull();
+		await act(async () => root.render(<StepRows items={items} settled />));
+		expect(container.querySelector(".step-outcome[data-said]")?.textContent).toBe("Done: the inbox is in your dev window.");
+		expect([...container.querySelectorAll(".step-title")].map((one) => one.textContent)).toEqual(["step t1", "Thinking"]);
 	});
 
 	test("waiting on its subagents the mark stays in the composer at rest with the teammate's words, and goes to sleep only when the turn ends", async () => {

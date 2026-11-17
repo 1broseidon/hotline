@@ -737,6 +737,7 @@ pub(super) fn event_of(
                     id,
                     ts: now_ms(),
                     text: versions.written,
+                    said: None,
                 }],
             }
         }

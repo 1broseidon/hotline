@@ -29,12 +29,18 @@
 //! - **Posting.** Its turn is open for `post_to_chat`, which refuses it: its
 //!   reply is already the chat ([`super::post`]). A job's firing is a turn of
 //!   its own thread, never the DM's ([`super::job_thread`]).
-//! - **A quiet turn.** A turn the inbox woke (`Wired::quiet`) is read by
-//!   nobody: while it stays quiet the witness writes what the agent says as
-//!   thinking, the path under the turn, streams it as thinking, and tells no
-//!   call and no phone; the turn may post once, as a quiet job's may. The
-//!   person's own line steered into it ends the quiet, and the rest of the
-//!   turn is a reply to them.
+//! - **A quiet turn.** A turn nobody started is read by nobody: one the
+//!   inbox woke (`Wired::quiet`), one a line of Hotline's that work came back
+//!   began (`Wired::back`: a command that ended, the asides' wake, a thread's
+//!   post), one the agent began by itself for its own background work
+//!   (`Wired::unprompted`), and the rest of any turn once it has replied and
+//!   parked for its helpers (`Update::Parked`), when what wakes it again is a
+//!   helper's or a command's result. While it stays quiet the witness writes
+//!   what the agent says as thinking marked `said`, the path under the turn,
+//!   streams it as thinking, and tells no call and no phone; the turn may
+//!   post once, as a quiet job's may. The person's own line steered into it
+//!   ends the quiet, and the rest of the turn is a reply to them. A turn said
+//!   on a call is never made quiet: the person is on the line.
 //! - **The pick-up.** A turn's end arms one quiet turn offering what the
 //!   teammate set aside in its inbox, once the conversation is idle
 //!   ([`super::inbox::PickUp`]); the beginning of any turn spends it, and the
@@ -66,7 +72,8 @@ pub(super) struct Hold {
     steered: Vec<Wired>,
     /// The colleague's question this turn answers.
     request: Option<String>,
-    /// The inbox woke the turn: nobody reads it until the person speaks.
+    /// Nobody started the turn (the inbox, or work that came back): nobody
+    /// reads it until the person speaks.
     quiet: bool,
     /// The inbox items that woke a quiet turn: those its line offered, or
     /// those its index offered for the first time.
@@ -152,7 +159,10 @@ impl Occupant for Session {
             lock(&session.unread).push(said);
         }
         let from_voice = wired.spoken;
-        let quiet = wired.quiet;
+        // Work that came back, or the agent's own work between turns, begins
+        // a turn nobody started: quiet as the inbox's is, though no inbox
+        // limit counts it. One said on a call is heard there.
+        let returning = (wired.back || wired.unprompted.is_some()) && wired.voice.is_none();
         let pick_up = wired.pick_up;
         let mut woke = wired.woke.clone();
         // A pick-up whose items were all sorted meanwhile has nothing to offer.
@@ -161,7 +171,7 @@ impl Occupant for Session {
         }
         // A quiet turn past the teammate's hourly limit is not begun: it is
         // paused with a card (`inbox/limit.rs`).
-        if quiet && !room.quiet_turn_may_begin(&session.persona_id) {
+        if wired.quiet && !room.quiet_turn_may_begin(&session.persona_id) {
             return Begin::Skip;
         }
         let source = if let Some(unprompted) = &wired.unprompted {
@@ -181,7 +191,7 @@ impl Occupant for Session {
             // An inbox notice its driver did not take mid-turn begins a turn
             // of its own: the quiet one the idle wake begins, whose line says
             // who reads it. The items it named are in the index above.
-            let mut text = if quiet && wired.steer {
+            let mut text = if wired.quiet && wired.steer {
                 super::timed(super::now_ms(), super::inbox::QUIET_WAKE_LINE)
             } else {
                 wired.text
@@ -246,7 +256,7 @@ impl Occupant for Session {
             from_voice,
             steered: Vec::new(),
             request,
-            quiet,
+            quiet: wired.quiet || returning,
             woke,
             pick_up,
         })
@@ -462,6 +472,13 @@ impl Witness for Heard<'_> {
                 room.hold_glance(session);
                 room.turn_ended(session);
                 room.await_subagents(session, true);
+                // It has replied: what wakes it next is a helper or a command
+                // coming back, which nobody waits on, so the rest of the turn
+                // is quiet until the person speaks into it. A colleague's
+                // question is answered to them, and a call hears its turn.
+                if !self.answering_a_question && self.on_call().is_none() {
+                    room.set_quiet(&session.thread(), true);
+                }
             }
             Update::Permission {
                 request_id,
@@ -515,7 +532,12 @@ impl Witness for Heard<'_> {
         // path under the turn, which no rail, phone or call takes as one.
         let event = match event {
             TranscriptEvent::Agent { id, ts, text, .. } if self.quiet() => {
-                TranscriptEvent::Thought { id, ts, text }
+                TranscriptEvent::Thought {
+                    id,
+                    ts,
+                    text,
+                    said: Some(true),
+                }
             }
             // A card the agent raises in a quiet turn one item woke names it:
             // a colleague's message, not the person, is behind it.

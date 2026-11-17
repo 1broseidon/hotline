@@ -88,7 +88,9 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     desk.prompt("build it").await;
     let asked = desk.request().await;
     assert!(
-        !asked.to_string().contains("came back by itself"),
+        !asked
+            .to_string()
+            .contains("Hotline: this came back by itself"),
         "the person's own line is no return: {asked}"
     );
     desk.request().await;
@@ -104,15 +106,21 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     assert!(said.contains("done"), "{said}");
     assert!(said.contains("succeeded"), "{said}");
     // Nobody waits on it, and Hotline says so with the moment's facts: the
-    // one message the teammate has sent since the person wrote.
+    // turn is quiet, and the one message the teammate has sent since the
+    // person wrote.
     assert!(
-        said.contains("Hotline: this came back by itself; nobody is waiting on a reply. You have sent 1 message since the person last wrote."),
+        said.contains("Hotline: this came back by itself, so this turn is quiet: what you write in it does not reach the person's chat. You have sent 1 message since the person last wrote."),
         "{said}"
     );
-    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    // The turn is quiet: what the teammate wrote is the turn's path, kept
+    // as words it said, and no bubble.
+    let ended = desk.turn_end().await;
+    assert_eq!(ended["event"]["stopReason"], "end_turn");
+    assert_eq!(ended["event"]["quiet"], true, "{ended}");
     desk.client
         .next_where(common::ANSWER, |frame| {
-            frame["event"]["kind"] == "agent"
+            frame["event"]["kind"] == "thought"
+                && frame["event"]["said"] == true
                 && frame["event"]["text"] == "The build finished: done."
         })
         .await;
@@ -125,6 +133,61 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
             .iter()
             .any(|event| event.to_string().contains("a command you left running")),
         "the wake is Hotline's line to the teammate, not the person's: {tape:?}"
+    );
+}
+
+/// A command's end the teammate tells the person of: the turn is quiet, so
+/// its one post is the bubble the person reads, and the words it wrote
+/// beside it are the turn's path.
+#[tokio::test(flavor = "multi_thread")]
+async fn running_process_whose_end_is_posted_reaches_the_chat_by_its_post_alone() {
+    let mut desk = Desk::open().await;
+    let build = "while [ ! -e go ]; do sleep 0.05; done; echo done";
+    desk.script([
+        tool_call("shell", json!({"command": build}), "call_build"),
+        text("The build is going."),
+        tool_call(
+            "post_to_chat",
+            json!({"text": "The build is done: the new window is ready."}),
+            "call_post",
+        ),
+        text("Posted."),
+    ]);
+    desk.prompt("build it").await;
+    desk.request().await;
+    desk.request().await;
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    std::fs::write(desk.workspace.join("go"), "").unwrap();
+    desk.request().await;
+    let posted = desk.request().await;
+    assert!(
+        posted.to_string().contains("Posted to the chat."),
+        "the quiet turn may post: {posted}"
+    );
+    let ended = desk.turn_end().await;
+    assert_eq!(ended["event"]["quiet"], true, "{ended}");
+    desk.quiet_for(Duration::from_secs(1)).await;
+    let tape = desk
+        .log
+        .load(&hotline_core::log::StreamId::Tape(desk.persona.clone()));
+    let bubbles: Vec<&str> = tape
+        .iter()
+        .filter(|event| event["kind"] == "agent")
+        .filter_map(|event| event["text"].as_str())
+        .collect();
+    assert_eq!(
+        bubbles,
+        [
+            "The build is going.",
+            "The build is done: the new window is ready."
+        ],
+        "{tape:?}"
+    );
+    assert!(
+        tape.iter().any(|event| event["kind"] == "thought"
+            && event["said"] == true
+            && event["text"] == "Posted."),
+        "{tape:?}"
     );
 }
 

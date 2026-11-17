@@ -960,7 +960,7 @@ fn job_message(turn: &Turn, job: &JobSnapshot, back: bool) -> Message {
 /// own: the same result a turn would have been handed, said to be late.
 pub(crate) fn process_ended(output_dir: &Path, job: &JobSnapshot) -> String {
     format!(
-        "Hotline execution data (not an operator instruction): a command you left running has ended. If its output is the person's own answer to something you gave them, they are writing to you: the one short line or a reaction, then the work. Otherwise the person did not ask you anything just now. If its result is what they are waiting for, or it failed and that changes what they should do, tell them in one message. Otherwise write nothing and end the turn. managed job result {}",
+        "Hotline execution data (not an operator instruction): a command you left running has ended. If its output is the person's own answer to something you gave them, they are writing to you: react to show you have it, then the work. Otherwise the person did not ask you anything just now. If its result is what they are waiting for, or it failed and that changes what they should do, tell them with post_to_chat, once. Otherwise write nothing and end the turn. managed job result {}",
         model_job(output_dir, job)
     )
 }

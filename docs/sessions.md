@@ -422,13 +422,16 @@ are [security.md](security.md#grant-lifecycle).
 
 Work that comes back to a teammate nobody is waiting on is handed over
 with one line of Hotline's own (`session/returns.rs`), after what came back:
-that it came back by itself and nobody is waiting on a reply, how many
-messages the teammate has sent since the person last wrote (left out when
-none), that the person is on their phone when their last line came from it,
-and then the rule in a sentence: speak only if it gives them what they asked
-for, you need them, or it is their own answer to you, otherwise write
-nothing. The facts are read off the
-thread when the line is said; nothing else in it varies. It goes with:
+that it came back by itself, so the turn is quiet and what the teammate
+writes in it does not reach the person's chat ([A quiet return](#a-quiet-return)),
+that the person is on their phone when their last line came from it, how
+many messages the teammate has sent since the person last wrote (left out
+when none), and then the rule: to reach them, post once with
+`post_to_chat` (the job they gave it is done and what they have now, a
+decision that is theirs, a failure that matters to them), otherwise write
+nothing, and the person's own answer gets a reaction before the work. The
+facts are read off the thread when the line is said; nothing else in it
+varies. It goes with:
 
 - a line of Hotline's that begins a turn (`Wired::back`): a command left
   running that ended, the lines that wake an idle main conversation or work
@@ -448,7 +451,53 @@ the finished command's line and this line each name it: the person's own
 answer to a page, a form or a card is the person writing, however it
 arrives. A teammate on another agent hears the line on the
 wake lines Hotline sends it; when its own program wakes it for its own helper
-or background command, Hotline sends nothing and has nothing to add to.
+or background command, Hotline sends nothing and has nothing to add to, so
+the house style and the `post_to_chat` texts say it for that case.
+
+### A quiet return
+
+A turn of the main conversation that nobody started is quiet, as the one
+the inbox wakes is ([the quiet turn](#the-inbox)): nobody reads its words,
+and the person hears only its one `post_to_chat`. Hotline knows such a turn
+without asking the model, on either agent:
+
+- a line of Hotline's that work came back begins (`Wired::back`): a command
+  left running that ended, the asides' wake (`asides.rs`, whose line says
+  the turn is quiet), a thread's post that wakes the main conversation
+  (`post.rs`, whose line says to tell the person with `post_to_chat`);
+- work an agent on another program began by itself between turns
+  (`Wired::unprompted`, opened when output arrives with no prompt of
+  Hotline's out, `driver/acp/translate.rs`): Claude Code waking for its own
+  background helper or command, and the line it makes its model write after
+  an empty answer, which lands in the same quiet turn;
+- the rest of any turn once it has replied and parked for its helpers
+  (`Update::Parked`, from Hotline Agent's loop and from Claude's adapter
+  alike, `session/dm.rs`): what wakes it next is a helper's or a command's
+  result, which nobody waits on.
+
+A turn said on a call, and one answering a colleague's question, is never
+made quiet: the person is on the line, or the reply is the colleague's. The
+inbox's hourly limit counts only the inbox's own quiet turns.
+
+While the turn is quiet the main conversation's witness writes what the
+agent says as `thought` lines marked `said: true`, the turn's path, streams
+it as thinking, and tells no call and no phone; the turn's `turn` line is
+`quiet: true` when it ends quiet. Its one post is an ordinary `agent` line
+that lights the rail and pushes, and the line said before a park that was
+held for the turn's end is dropped, being older news. The person's own line
+steered into the turn ends the quiet, as it does the inbox's; a line said to
+an agent's own work between turns waits for it to end and begins an
+ordinary turn of its own, since no prompt is open to steer into.
+
+The words are not lost when the teammate writes its news instead of posting
+it. The turn draws as any turn does, its line under the last bubble the
+person read (its time, and what it left behind) with nothing new in the
+chat, and that line opens the turn's path, where each `said` line stands
+whole where it was written, in the teammate's ink, not folded under
+Thinking: in the pane beside the conversation, and in place in a thread or
+a run (`ui/src/outcomes.ts`, `Steps.tsx`, `Trail.tsx`). A client that does
+not know `said` reads those lines as thinking, as it read a quiet turn's
+words before.
 
 ### A turn left open for its subagents
 
@@ -485,7 +534,9 @@ one notification, not five. At the park the line is offered to a call alone
 (`Room::hold_glance`); one no call took is kept, and anything the teammate
 says later replaces it. At the turn's end the push carries the last thing it
 said, which is its line from before the wait when it said nothing after
-(`Room::send_glance`). A turn stopped or failed while it waited, a restart's
+(`Room::send_glance`); what it says after the wait is quiet
+([A quiet return](#a-quiet-return)), so that line is what the phone hears,
+unless the quiet part posted, whose push is the turn's. A turn stopped or failed while it waited, a restart's
 cut included, sends nothing: that line promised an answer that is not
 coming, and the conversation says how the turn ended. A card that needs the
 person is pushed the moment it is raised, waiting or not.

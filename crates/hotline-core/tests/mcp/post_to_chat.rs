@@ -335,9 +335,10 @@ async fn the_dm_may_not_post_and_a_quiet_job_posts_once(driver: Driver) {
 }
 
 /// A work thread posts once a turn, stamped as from the thread, and asking to
-/// wake hands the post to the main conversation, which answers the person. A
-/// second wake in the turn is refused; the next turn may post again, and a
-/// post past 2,000 characters is clipped.
+/// wake hands the post to the main conversation, whose turn nobody started
+/// and so is quiet: what it says is its path, and it reaches the person by
+/// posting. A second wake in the turn is refused; the next turn may post
+/// again, and a post past 2,000 characters is clipped.
 async fn a_work_thread_posts_once_a_turn_and_wakes_its_home(driver: Driver) {
     let mut desk = open().await;
     let (ada, tape) = desk.teammate("Ada", driver, false).await;
@@ -362,9 +363,13 @@ async fn a_work_thread_posts_once_a_turn_and_wakes_its_home(driver: Driver) {
         .await;
     assert_eq!(posted["from"]["kind"], "side", "{posted}");
     assert!(posted.get("scheduled").is_none(), "{posted}");
-    // Woken, the main conversation takes a turn of its own and answers.
+    // Woken, the main conversation takes a turn of its own, a quiet one.
     desk.event(tape, |event| {
-        event["kind"] == "agent" && event["text"] == "On it."
+        event["kind"] == "thought" && event["said"] == true && event["text"] == "On it."
+    })
+    .await;
+    desk.event(tape, |event| {
+        event["kind"] == "turn" && event["quiet"] == true
     })
     .await;
     let first = desk.results(side).await;

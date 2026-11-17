@@ -33,8 +33,12 @@ use std::sync::Arc;
 /// not a message: a longer account belongs in a thread the aside can point at.
 pub(crate) const ASIDE_CHARS: usize = 1_000;
 
-/// What a turn woken only by asides is told after them.
+/// What a work thread's turn woken only by asides is told after them.
 const WAKE_LINE: &str = "The asides above came in while you were idle. Act on what needs you. What you say here reaches the person, so write only what is theirs to know or decide, in one message. If nothing is, write nothing and end the turn.";
+
+/// What a main conversation's turn woken only by asides is told after them:
+/// nobody started it, so it is quiet (`session/dm.rs`).
+const QUIET_WAKE_LINE: &str = "The asides above came in while you were idle. Act on what needs you. This turn is quiet: what you write here does not reach the person. If something is theirs to know or decide, post it with post_to_chat, once. If nothing is, write nothing and end the turn.";
 
 /// The asides a turn hears, as the thread index that opens its line says
 /// them ([`Room::thread_index`]): one line each,
@@ -324,7 +328,7 @@ impl Room {
                 };
                 let line = Wired {
                     wake: true,
-                    ..Wired::back(timed(now_ms(), WAKE_LINE))
+                    ..Wired::back(timed(now_ms(), QUIET_WAKE_LINE))
                 };
                 let Some(line) = claim_idle(&session.turns, line) else {
                     return false;

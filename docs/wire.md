@@ -1143,11 +1143,16 @@ sent from, whose live state is the receiver's; each `update_inbox` is an
 receiver's main conversation, `entries` being `InboxSortedEntry {item, title,
 from, state, reason?, outcome?, into?, answered?}` in the order given. A
 client that does not know either kind skips it. A turn of the main
-conversation that the inbox woke while the teammate was idle is quiet: what
-the agent says in it is written as `thought` lines, the turn's path, and
-streams as `thought` deltas, so it moves no preview and pushes nothing; its
-one `post_to_chat` is an ordinary `agent` line. Once the person's line joins
-the turn, the rest of it is a reply as any is.
+conversation that nobody started is quiet: one the inbox woke while the
+teammate was idle, one work coming back began, and the rest of a turn after
+it replied and parked for its helpers
+([sessions.md](sessions.md#a-quiet-return)). What the agent says in it is
+written as `thought` lines with `said: true`, the turn's path, and streams as
+`thought` deltas, so it moves no preview and pushes nothing; its one
+`post_to_chat` is an ordinary `agent` line, and its `turn` line carries
+`quiet: true`. `said` is optional and additive: a client that does not know
+it draws those lines as thinking. Once the person's line joins the turn, the
+rest of it is a reply as any is.
 
 ## Asides
 

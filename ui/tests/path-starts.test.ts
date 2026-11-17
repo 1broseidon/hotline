@@ -75,7 +75,9 @@ function path(events: TranscriptEvent[]): string[][] {
 						: `Started ${entry.links.length} helpers`
 					: entry.kind === "command"
 						? `Started a command: ${entry.link.title}`
-						: `outcome: ${entry.outcome.message}`,
+						: entry.kind === "said"
+							? `said: ${entry.said.text}`
+							: `outcome: ${entry.outcome.message}`,
 		),
 	]);
 }

@@ -867,6 +867,7 @@ mod receipts {
             id: "th".to_string(),
             ts: 3,
             text: text.to_string(),
+            said: None,
         }
     }
 

@@ -2311,6 +2311,12 @@
 		line-height: var(--text-md--line-height);
 		color: var(--ink);
 	}
+	/* What the teammate wrote in a quiet turn, which reached nobody: its words, whole, where it wrote them. */
+	.trail-outcome[data-said],
+	.step-outcome[data-said] {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
 	.step-heading,
 	.step-outcome {
 		margin: 0;

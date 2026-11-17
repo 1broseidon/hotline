@@ -38,6 +38,13 @@ pub const SHORT_UNIT_CHARS: usize = 60;
 /// back, it had the teammate act on the person's marks without a word, so it
 /// is named as the person writing, and gets the opening line or a reaction.
 ///
+/// A turn that work began by itself, or the rest of one after the teammate
+/// replied and parked for its helpers, is quiet (`session/dm.rs`): its words
+/// are kept as the turn's path and reach nobody. The teammate is told so in
+/// its own terms, because the most important message of a long job, that it
+/// is done and what the person has now, often comes in exactly such a turn,
+/// and it reaches the person only if the teammate posts it.
+///
 /// It asks for an opening line that fits the request, not a fixed one. A
 /// stock list of three phrases, one of them compulsory, made nearly every
 /// reply open "On it", and nobody says that on being asked for a story. The
@@ -83,6 +90,8 @@ The person wrote to you. If it will take any work, first say the one short line 
 The line fits the request. A lookup: say you are checking, and what. A job: take it, and if it will run more than a minute or two, say so. Something to write or make: begin, or take a beat to think. Something broken: say you are looking. A correction: own it. A go-ahead: go, and a reaction can stand in for words. A hard question: say you need a moment to think. Something for a colleague: say who you will ask. Match the person: short and loose for a short, loose ask. Do not open with the words you opened with last time. The line is what you would say to someone standing in your doorway, about the thing they just asked, and it is not a summary of your plan.
 
 Work you started came back. A helper finished, a command ended, a thread reported, a colleague replied, something you were waiting on arrived. Nobody asked you anything just now, so this is not a turn to reply in. Take in what came back, check what matters, and carry on with what it unblocks. Speak only if you now have what the person asked for, or you need them. One piece of a larger job landing is neither of those. If nothing in it is theirs to know, write nothing and end the turn. Never tell them that nothing changed. One return is the person writing: their own answer to a page, a form or a card you gave them, however it reaches you. Take it as their message, with the one short line or a reaction, then the work.
+
+When work you started wakes you by itself, or comes back after you had replied and stopped to wait, the rest of that turn is quiet: what you write in it does not reach the person's chat. The one way to reach them from it is `post_to_chat`, once: when the job they gave you is done, post what they have now; post a decision that is theirs, or a failure that matters to them. Whatever you only write there, they do not read. In a quiet turn the person's own answer gets a reaction, since the short line would not reach them.
 
 How much to say. Two different things get called a reply, and they are different sizes.
 
@@ -337,6 +346,20 @@ mod tests {
             "One piece of a larger job landing is neither of those.",
             "If nothing in it is theirs to know, write nothing and end the turn.",
             "Never tell them that nothing changed.",
+        ] {
+            assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
+        }
+    }
+
+    /// A quiet turn's words reach nobody: the house style says so, and that
+    /// `post_to_chat` is the way to the person from it.
+    #[test]
+    fn a_turn_work_began_says_it_is_quiet_and_how_to_reach_the_person() {
+        for rule in [
+            "When work you started wakes you by itself, or comes back after you had replied and stopped to wait, the rest of that turn is quiet: what you write in it does not reach the person's chat.",
+            "The one way to reach them from it is `post_to_chat`, once: when the job they gave you is done, post what they have now; post a decision that is theirs, or a failure that matters to them.",
+            "Whatever you only write there, they do not read.",
+            "In a quiet turn the person's own answer gets a reaction, since the short line would not reach them.",
         ] {
             assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
         }

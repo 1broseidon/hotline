@@ -166,10 +166,11 @@ pub(super) enum Source {
     Say {
         text: String,
         attachments: Vec<Attachment>,
-        /// Whether somebody waits on the reply: the person's line, or a
-        /// colleague's. A line of Hotline's own (work that came back, a line
-        /// that only wakes the agent) is not, and the agent may answer it
-        /// with nothing ([`Driver::prompt_unasked`]).
+        /// Whether somebody waits on the reply: the person's line, a
+        /// colleague's, a subagent's brief, a job's firing. A line of
+        /// Hotline's word that work came back, or one that only wakes the
+        /// agent, is not, and the agent may answer it with nothing
+        /// ([`Driver::prompt_unasked`]).
         asked: bool,
     },
     /// The turn that failed on this line, run again (`Driver::retry`).
@@ -183,7 +184,7 @@ pub(super) enum Source {
 impl From<Line> for Source {
     fn from(line: Line) -> Self {
         Self::Say {
-            asked: line.said.is_some() || line.delivery.is_some(),
+            asked: !line.wake,
             text: line.text,
             attachments: line.attachments,
         }

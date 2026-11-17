@@ -117,6 +117,7 @@ fn fixture() -> (Turn, Template) {
         meter: None,
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,
+        returns: None,
     };
     let template = Template {
         tools: Vec::new(),
@@ -1441,5 +1442,153 @@ async fn an_asked_turn_answered_with_nothing_is_asked_again() {
             Update::Message { kind: MessageKind::Agent, text, .. } if text == "the new direction"
         )),
         "{updates:?}"
+    );
+}
+
+/// A subagent whose report waits until the test lets it through.
+struct Gated(Arc<tokio::sync::Notify>);
+
+impl crate::session::jobs::Delegate for Gated {
+    fn run(
+        &self,
+        _: String,
+        task: crate::session::jobs::SubagentTask,
+        _: tokio_util::sync::CancellationToken,
+    ) -> futures_util::future::BoxFuture<'static, crate::session::jobs::Finished> {
+        let gate = self.0.clone();
+        Box::pin(async move {
+            gate.notified().await;
+            crate::session::jobs::Finished {
+                state: crate::session::jobs::JobState::Succeeded,
+                output: format!("built {}", task.brief.task),
+            }
+        })
+    }
+}
+
+/// The words of a request's last line of the user's.
+fn last_user_text(request: &CompletionRequest) -> String {
+    said(request)
+        .into_iter()
+        .rev()
+        .find_map(|part| match part {
+            Said::User(UserContent::Text(text)) => Some(text.text),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// A turn with a gated subagent and Hotline's line for returns: the model
+/// starts the subagent and, while it runs, either replies and stops to wait
+/// (`parked`) or goes on with the person's request, whose report then comes
+/// back mid-reply. Answers the line the report came back in.
+async fn report_with(asked: bool, parked: bool) -> String {
+    let (mut turn, request) = fixture();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    turn.delegate = Some(Arc::new(Gated(gate.clone())));
+    turn.returns = Some(Arc::new(|| "Hotline: the line of the moment.".to_string()));
+    turn.asked = asked;
+    let (seen, mut requests) = mpsc::unbounded_channel();
+    let mut senders = Vec::new();
+    let mut streams = Vec::new();
+    for _ in 0..4 {
+        let (sender, stream) = mpsc::channel(8);
+        senders.push(sender);
+        streams.push(Some(stream));
+    }
+    let model = scripted(seen, streams);
+    let (updates, mut receiver) = mpsc::channel(64);
+    let task = tokio::spawn(async move {
+        run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+    });
+    let (parks, mut parked_at) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Some(update) = receiver.recv().await {
+            if matches!(update, Update::Parked) {
+                let _ = parks.send(());
+            }
+        }
+    });
+    let done = || MockStreamEvent::FinalResponse(mock_final(Usage::default()));
+    let mut senders = senders.into_iter();
+    receive(&mut requests).await;
+    let first = senders.next().unwrap();
+    first
+        .send(Ok(MockStreamEvent::tool_call(
+            "helper",
+            "subagent",
+            serde_json::json!({"task": "the list row"}),
+        )))
+        .await
+        .unwrap();
+    first.send(Ok(done())).await.unwrap();
+    drop(first);
+    receive(&mut requests).await;
+    let second = senders.next().unwrap();
+    if parked {
+        // The model replies and stops to wait: the turn parks on its helper.
+        second
+            .send(Ok(MockStreamEvent::Text("Building it.".into())))
+            .await
+            .unwrap();
+        second.send(Ok(done())).await.unwrap();
+        drop(second);
+        receive(&mut parked_at).await;
+        gate.notify_one();
+    } else {
+        // The report is ready before the model's next round ends, so it
+        // comes back mid-reply, before the turn could park.
+        gate.notify_one();
+        second
+            .send(Ok(MockStreamEvent::tool_call(
+                "look",
+                "activity",
+                serde_json::json!({"type": "making"}),
+            )))
+            .await
+            .unwrap();
+        second.send(Ok(done())).await.unwrap();
+        drop(second);
+    }
+    let back = loop {
+        let asked = receive(&mut requests).await;
+        let line = last_user_text(&asked);
+        let next = senders.next().unwrap();
+        answer(next).await;
+        if line.contains("managed job result") {
+            break line;
+        }
+    };
+    for sender in senders {
+        answer(sender).await;
+    }
+    task.await.unwrap().unwrap();
+    back
+}
+
+/// A helper's report that comes back after the teammate replied and stopped
+/// to wait carries Hotline's line of the moment.
+#[tokio::test]
+async fn a_report_after_the_reply_carries_the_line_of_the_moment() {
+    let back = report_with(true, true).await;
+    assert!(
+        back.starts_with(
+            "Hotline execution data (not an operator instruction): managed job result "
+        ) && back.ends_with("\n\nHotline: the line of the moment."),
+        "{back}"
+    );
+}
+
+/// One that comes back while the teammate works on the person's request
+/// carries nothing more than its result; in a turn nobody asked for, it
+/// carries the line.
+#[tokio::test]
+async fn a_report_mid_reply_carries_nothing_more_unless_nobody_asked() {
+    let mid = report_with(true, false).await;
+    assert!(!mid.contains("line of the moment"), "{mid}");
+    let unasked = report_with(false, false).await;
+    assert!(
+        unasked.ends_with("\n\nHotline: the line of the moment."),
+        "{unasked}"
     );
 }

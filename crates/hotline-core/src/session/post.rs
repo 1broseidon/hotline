@@ -297,7 +297,7 @@ impl Room {
         self.post(persona_id, thread, post)?;
         let posts = std::mem::take(&mut *lock(&session.pending_posts));
         let line = posted_since(&posts, &self.woken_by(thread));
-        self.dispatch(session, Wired::words(timed(now_ms(), &line)));
+        self.dispatch(session, Wired::back(timed(now_ms(), &line)));
         Ok("Posted to the chat, and your main conversation is acting on it.".to_string())
     }
 

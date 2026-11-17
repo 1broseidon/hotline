@@ -675,6 +675,7 @@ impl InProcess {
             delegate: self.teammate.delegate(),
             processes: self.processes.clone(),
             asked,
+            returns: self.teammate.returns(),
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
@@ -766,6 +767,9 @@ struct Turn {
     /// their line, or a Retry of it. A turn begun on a line of Hotline's own
     /// (work that came back, a wake) may end with the model saying nothing.
     asked: bool,
+    /// The line said with a result that comes back when nobody waits on it
+    /// ([`crate::session::returns`]); none for a run's turn.
+    returns: Option<crate::session::returns::Note>,
 }
 
 impl Turn {

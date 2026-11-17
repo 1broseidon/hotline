@@ -86,7 +86,11 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
         text("The build finished: done."),
     ]);
     desk.prompt("build it").await;
-    desk.request().await;
+    let asked = desk.request().await;
+    assert!(
+        !asked.to_string().contains("came back by itself"),
+        "the person's own line is no return: {asked}"
+    );
     desk.request().await;
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
     std::fs::write(desk.workspace.join("go"), "").unwrap();
@@ -99,6 +103,12 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     );
     assert!(said.contains("done"), "{said}");
     assert!(said.contains("succeeded"), "{said}");
+    // Nobody waits on it, and Hotline says so with the moment's facts: the
+    // one message the teammate has sent since the person wrote.
+    assert!(
+        said.contains("Hotline: this came back by itself; nobody is waiting on a reply. You have sent 1 message since the person last wrote."),
+        "{said}"
+    );
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
     desk.client
         .next_where(common::ANSWER, |frame| {

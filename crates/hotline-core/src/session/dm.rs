@@ -214,10 +214,19 @@ impl Occupant for Session {
             ) {
                 text = format!("{index}\n\n{text}");
             }
+            // Work that came back, or a line that only wakes the teammate:
+            // nobody waits on its reply, and Hotline says so with the facts
+            // of the moment.
+            if wired.back {
+                text = format!(
+                    "{text}\n\n{}",
+                    room.return_note(&session.persona_id, &session.thread())
+                );
+            }
             Source::Say {
                 text,
                 attachments: wired.attachments,
-                asked: wired.said.is_some(),
+                asked: !wired.back,
             }
         };
         // Nothing refuses the turn from here: the result it hears is spent.

@@ -60,7 +60,7 @@ impl Room {
                 let Ok(_working) = room.working() else {
                     continue;
                 };
-                let mut wire = Wired::words(text);
+                let mut wire = Wired::back(text);
                 wire.voice = lock(&room.voice)
                     .upgrade()
                     .and_then(|voice| voice.on_call(&session.persona_id));

@@ -324,7 +324,7 @@ impl Room {
                 };
                 let line = Wired {
                     wake: true,
-                    ..Wired::words(timed(now_ms(), WAKE_LINE))
+                    ..Wired::back(timed(now_ms(), WAKE_LINE))
                 };
                 let Some(line) = claim_idle(&session.turns, line) else {
                     return false;

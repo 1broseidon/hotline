@@ -404,14 +404,42 @@ line of Hotline's (never written to the tape as the person's), queued behind
 anything waiting and said on a live call to the teammate as well as written.
 Nobody asked for that turn, so the line says to speak only when the result
 is what the person waits for or a failure that changes what they should do,
+with the line of the moment after it ([When work comes back](#when-work-comes-back)),
 and a model that answers with nothing ends the turn there: no bubble, no
-notice, the teammate at rest. Any line of Hotline's own that begins a turn
-(this one, a line that only wakes the teammate for its asides or inbox) goes
-to the driver as `Driver::prompt_unasked`, and Hotline Agent takes an empty
-answer to it as the model done, where an empty answer to the person's line is
-a stream that broke and is asked again.
+notice, the teammate at rest. Any line of Hotline's that begins a turn this
+way (`Wired::back`, and a work thread's or job's line that only wakes it)
+goes to the driver as `Driver::prompt_unasked`, and Hotline Agent takes an
+empty answer to it as the model done, where an empty answer to the person's
+line, a colleague's, a subagent's brief or a job's firing is a stream that
+broke and is asked again.
 A stop the teammate or the person asked for wakes nobody. The grant rules
 are [security.md](security.md#grant-lifecycle).
+
+### When work comes back
+
+Work that comes back to a teammate nobody is waiting on is handed over
+with one line of Hotline's own (`session/returns.rs`), after what came back:
+that it came back by itself and nobody is waiting on a reply, how many
+messages the teammate has sent since the person last wrote (left out when
+none), that the person is on their phone when their last line came from it,
+and then the rule in a sentence: speak only if it gives them what they asked
+for or you need them, otherwise write nothing. The facts are read off the
+thread when the line is said; nothing else in it varies. It goes with:
+
+- a line of Hotline's that begins a turn (`Wired::back`): a command left
+  running that ended, the lines that wake an idle main conversation or work
+  thread for its asides or its inbox, a pick-up of what it set aside, and a
+  thread's post that asks the main conversation to look;
+- a helper's or a command's result that Hotline Agent hands a turn after the
+  teammate replied and stopped to wait for its helpers, and any result handed
+  a turn none of those began.
+
+A result that comes back while the teammate works on the person's own
+request, or one it asked for with `wait_jobs`, gets nothing: that turn is a
+reply already. Neither does the person's line, a colleague's, a subagent's
+brief or a job's firing. A teammate on another agent hears the line on the
+wake lines Hotline sends it; when its own program wakes it for its own helper
+or background command, Hotline sends nothing and has nothing to add to.
 
 ### A turn left open for its subagents
 

@@ -664,7 +664,12 @@ thread the work ran in. A failure is always said, something not checked only
 when it changes what the person should do, and the closing line of what is
 still running or what comes next is gone. The lines that wake a teammate (a
 command that ended, asides or inbox items heard while idle) say the same, and
-a person on the phone is read a sentence or two.
+a person on the phone is read a sentence or two. At the moment work comes
+back to a teammate nobody is waiting on, Hotline adds one line of its own
+with the facts the standing text cannot know (it came back by itself, how
+many messages the teammate has sent since the person last wrote, the phone)
+and the rule in a sentence (`session/returns.rs`); a result that lands while
+the teammate works on the person's request gets nothing.
 
 Then (task-448, George 2026-11-12): a helper's or a command's row between the
 ask and the answer is path, not outcome. It repeated the composer's threads

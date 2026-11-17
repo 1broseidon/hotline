@@ -1055,6 +1055,24 @@ impl TeammateTools {
         })
     }
 
+    /// The line Hotline adds when work comes back to this session's thread
+    /// and nobody waits on it ([`crate::session::returns`]), read off the
+    /// thread when it is said. A subagent run's tools and a voice front's
+    /// have none: what comes back to them goes on to whoever started them.
+    pub(crate) fn returns(&self) -> Option<crate::session::returns::Note> {
+        if self.run || self.front {
+            return None;
+        }
+        let room = self.room.clone();
+        let persona_id = self.persona_id.clone();
+        let thread = self.thread.clone();
+        Some(Arc::new(move || {
+            room.upgrade()
+                .map(|room| room.return_note(&persona_id, &thread))
+                .unwrap_or_default()
+        }))
+    }
+
     /// Binds these handles to one session generation. A clone kept by an old
     /// driver still points at the room, but every call is refused after that
     /// generation is revoked.

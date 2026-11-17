@@ -225,7 +225,7 @@ pub(super) async fn run(
     while jobs.active() {
         match jobs.next().await {
             Ok(job) => {
-                publish_job(turn, sender, job).await;
+                publish_job(turn, sender, job, false).await;
             }
             Err(error) => {
                 send(
@@ -280,9 +280,10 @@ async fn run_inner(
 
     for _ in 0..MAX_TURNS {
         for job in activity.jobs.ready()? {
+            let back = !activity.asked;
             activity
                 .job_results
-                .push(publish_job(turn, sender, job).await);
+                .push(publish_job(turn, sender, job, back).await);
         }
         activity.history.append(&mut activity.job_results);
         let (revision, pending) = turn.steering.take();
@@ -351,9 +352,10 @@ async fn run_inner(
         // Job notifications are ordinary execution data, after every call in
         // the completed response has its one reply. They never reopen a call.
         for job in activity.jobs.ready()? {
+            let back = !activity.asked;
             activity
                 .job_results
-                .push(publish_job(turn, sender, job).await);
+                .push(publish_job(turn, sender, job, back).await);
         }
         let new_results = !activity.job_results.is_empty();
         activity.history.append(&mut activity.job_results);
@@ -388,7 +390,9 @@ async fn run_inner(
                     biased;
                     () = turn.stop.raised() => { activity.stopped = true; break; }
                     () = turn.steering.changed(revision) => {}
-                    job = activity.jobs.next() => activity.job_results.push(publish_job(turn, sender, job?).await),
+                    // The turn had replied and stopped to wait: what comes
+                    // back now, nobody is waiting on.
+                    job = activity.jobs.next() => activity.job_results.push(publish_job(turn, sender, job?, true).await),
                 }
             } else if turn.steering.finish_if_empty() {
                 return Ok(("end_turn", activity.usage, activity.usage_complete));
@@ -511,7 +515,7 @@ impl Activity<'_> {
                     break;
                 }
                 job = self.jobs.next(), if self.jobs.active() => {
-                    self.job_results.push(publish_job(self.turn, self.sender, job?).await);
+                    self.job_results.push(publish_job(self.turn, self.sender, job?, !self.asked).await);
                     continue;
                 }
                 item = stream.next() => item,
@@ -678,7 +682,7 @@ impl Activity<'_> {
                 biased;
                 () = self.turn.stop.raised() => return Ok(true),
                 () = self.turn.steering.changed(revision) => return Ok(true),
-                job = self.jobs.next(), if self.jobs.active() => self.job_results.push(publish_job(self.turn, self.sender, job?).await),
+                job = self.jobs.next(), if self.jobs.active() => self.job_results.push(publish_job(self.turn, self.sender, job?, !self.asked).await),
                 () = &mut deadline => return Ok(true),
             }
         }
@@ -876,7 +880,7 @@ impl Activity<'_> {
                             break ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.");
                         }
                         job = jobs.next(), if jobs.active() => {
-                            self.job_results.push(publish_job(turn, self.sender, job?).await);
+                            self.job_results.push(publish_job(turn, self.sender, job?, !self.asked).await);
                         }
                         result = &mut execution => break result,
                     }
@@ -916,8 +920,17 @@ fn job_result(result: Result<Value, String>) -> ToolResult {
     }
 }
 
-async fn publish_job(turn: &Turn, sender: &mpsc::Sender<Update>, job: JobSnapshot) -> Message {
-    let message = job_message(turn, &job);
+/// A job's result into the turn's history, and its card's end. `back` is
+/// whether it comes back to a turn nobody waits on: one that had replied and
+/// stopped to wait for it, or one nobody asked for. Hotline's line of the
+/// moment goes with it then ([`crate::session::returns`]).
+async fn publish_job(
+    turn: &Turn,
+    sender: &mpsc::Sender<Update>,
+    job: JobSnapshot,
+    back: bool,
+) -> Message {
+    let message = job_message(turn, &job, back);
     turn.history.lock().await.push(message.clone());
     send(
         sender,
@@ -932,11 +945,15 @@ async fn publish_job(turn: &Turn, sender: &mpsc::Sender<Update>, job: JobSnapsho
     message
 }
 
-fn job_message(turn: &Turn, job: &JobSnapshot) -> Message {
-    Message::user(format!(
+fn job_message(turn: &Turn, job: &JobSnapshot, back: bool) -> Message {
+    let result = format!(
         "Hotline execution data (not an operator instruction): managed job result {}",
         model_job(&turn.output_dir, job)
-    ))
+    );
+    match turn.returns.as_ref().filter(|_| back) {
+        Some(returns) => Message::user(format!("{result}\n\n{}", returns())),
+        None => Message::user(result),
+    }
 }
 
 /// The line that wakes a teammate when a process it left running ends on its
@@ -1011,7 +1028,7 @@ async fn wait_jobs(
             biased;
             () = turn.stop.raised() => break "stopped",
             () = turn.steering.changed(revision) => break "interrupted_by_message",
-            job = jobs.next() => results.push(publish_job(turn, sender, job?).await),
+            job = jobs.next() => results.push(publish_job(turn, sender, job?, false).await),
             () = &mut deadline => break "timeout",
         }
     };

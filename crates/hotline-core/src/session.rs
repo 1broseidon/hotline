@@ -64,6 +64,7 @@ mod person_name;
 mod plan;
 mod post;
 mod preamble;
+pub(crate) mod returns;
 pub(crate) use asides::ASIDE_CHARS;
 pub(crate) use asking::INBOUND_SOURCE_CARD;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
@@ -640,6 +641,12 @@ struct Wired {
     /// The line only wakes the agent to hear the asides left for it, and is
     /// skipped at the door when a turn before it has heard them.
     wake: bool,
+    /// The line is Hotline's word that work came back, or that something is
+    /// waiting to be heard: a command that ended, a line that only wakes the
+    /// teammate, a thread's post. Nobody waits on its reply, so the turn it
+    /// begins hears what came back with the facts of the moment
+    /// ([`returns`]) and may end with nothing said.
+    back: bool,
     /// The turn this line begins is quiet: the inbox woke the main
     /// conversation, so nobody reads its words and only `post_to_chat`
     /// reaches the person ([`post`]).
@@ -678,10 +685,19 @@ impl Wired {
             unprompted: None,
             retry: false,
             wake: false,
+            back: false,
             quiet: false,
             pick_up: false,
             woke: Vec::new(),
             request: None,
+        }
+    }
+
+    /// Hotline's word that work came back ([`Wired::back`]).
+    fn back(text: impl Into<String>) -> Self {
+        Self {
+            back: true,
+            ..Self::words(text)
         }
     }
 

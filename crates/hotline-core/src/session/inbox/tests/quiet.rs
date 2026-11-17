@@ -34,6 +34,11 @@ async fn a_turn_the_inbox_woke_keeps_its_words_as_thinking_and_tells_no_phone() 
         "the line says who reads the turn: {}",
         agents.told()[0]
     );
+    assert!(
+        agents.told()[0].ends_with(&crate::session::returns::note(0, false)),
+        "and nobody waits on it: {}",
+        agents.told()[0]
+    );
     assert_eq!(kinds_of(&room, "bob", "said-0"), ["thought"]);
     assert!(
         room.tape("bob")

@@ -178,6 +178,10 @@ async fn nudges_wake_an_idle_teammate_once_and_a_busy_one_when_its_turn_ends() {
         assert!(heard.contains(&format!("(nudge): {text}")), "{heard}");
     }
     assert!(heard.contains(WAKE_LINE), "{heard}");
+    assert!(
+        heard.ends_with(&crate::session::returns::note(0, false)),
+        "nobody waits on a wake: {heard}"
+    );
 
     // A nudge with nothing left to hear is a spent wake: it runs no turn.
     let spent = Wired {

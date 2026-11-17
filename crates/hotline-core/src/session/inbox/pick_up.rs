@@ -273,7 +273,7 @@ impl Room {
             quiet: true,
             pick_up: true,
             woke: items.iter().map(|item| item.id.clone()).collect(),
-            ..Wired::words(timed(now_ms(), &self.pick_up_line(&items)))
+            ..Wired::back(timed(now_ms(), &self.pick_up_line(&items)))
         };
         let claimed = {
             let mut turns = lock(&session.turns);

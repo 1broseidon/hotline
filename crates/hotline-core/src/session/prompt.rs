@@ -129,6 +129,7 @@ impl Room {
                     unprompted: None,
                     retry: false,
                     wake: false,
+                    back: false,
                     quiet: false,
                     pick_up: false,
                     woke: Vec::new(),

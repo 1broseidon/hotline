@@ -393,6 +393,15 @@ impl Occupant for LiveSide {
         ) {
             line.text = format!("{index}\n\n{}", line.text);
         }
+        // A line that only wakes the thread: nobody waits on its reply, and
+        // Hotline says so with the facts of the moment.
+        if line.wake {
+            line.text = format!(
+                "{}\n\n{}",
+                line.text,
+                room.return_note(&self.persona_id, &self.thread)
+            );
+        }
         // Nothing refuses the turn from here: the result it hears is spent.
         if let Some(result) = &result
             && !room.begin_exchange_result(result)

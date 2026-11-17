@@ -175,7 +175,7 @@ impl Room {
                 let woken = Wired {
                     wake: true,
                     quiet: true,
-                    ..Wired::words(timed(now_ms(), QUIET_WAKE_LINE))
+                    ..Wired::back(timed(now_ms(), QUIET_WAKE_LINE))
                 };
                 let fresh: Vec<&InboxItem> = waiting
                     .iter()
@@ -200,7 +200,7 @@ impl Room {
                             steer: true,
                             wake: true,
                             quiet: true,
-                            ..Wired::words(timed(now_ms(), &notice))
+                            ..Wired::back(timed(now_ms(), &notice))
                         });
                         noticed = true;
                         None

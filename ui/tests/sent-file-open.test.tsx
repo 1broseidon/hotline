@@ -160,3 +160,43 @@ describe("where Open on a teammate's file goes", () => {
 		expect(shell).toEqual([{ cmd: "open_sent_file", args: { path: "/data/files/ada/pack/exports.zip" } }]);
 	});
 });
+
+describe("files an earlier desk kept, which named a file by its ending alone", () => {
+	/** Such a file as the tape holds it: the type the desk before 0.50 gave its name. */
+	const OLD: Attachment[] = [
+		file("Panel.tsx", "application/octet-stream"),
+		file("app.ts", "video/mp2t"),
+		file("index.ts", "video/vnd.dlna.mpeg-tts"),
+		file("main.go", "application/octet-stream"),
+		file("Dockerfile", "application/octet-stream"),
+		file("exports.zip", "application/zip"),
+		file("dump.bin", "application/octet-stream"),
+		file("brief.docm", "application/vnd.ms-word.document.macroenabled.12"),
+	];
+
+	test("an old .tsx and an old .ts keep their Open, and it opens the viewer", async () => {
+		const { wire } = await import("../src/wire");
+		spyOn(wire, "command").mockImplementation((async () => ({ name: "Panel.tsx", mimeType: "application/octet-stream", size: 22, offset: 0, data: btoa("export const Panel = 1") })) as unknown as typeof wire.command);
+		await draw([sent(OLD)]);
+		for (const name of ["Panel.tsx", "app.ts", "index.ts", "main.go", "Dockerfile"]) {
+			const key = open(name);
+			expect(key).toBeDefined();
+			expect(key?.getAttribute("title")).toBeNull();
+		}
+		for (const name of ["Panel.tsx", "app.ts"]) {
+			await act(async () => open(name)!.click());
+			expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(name);
+			expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe("export const Panel = 1");
+			await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Back to the conversation"]')!.click());
+		}
+		expect(shell).toEqual([]);
+	});
+
+	test("an old .zip, .bin and .docm still have no Open", async () => {
+		await draw([sent(OLD)]);
+		for (const name of ["exports.zip", "dump.bin", "brief.docm"]) {
+			expect(open(name)).toBeUndefined();
+			expect(keys(name).map((key) => key.getAttribute("aria-label") ?? key.textContent)).toEqual(["Save", "Show in folder"]);
+		}
+	});
+});

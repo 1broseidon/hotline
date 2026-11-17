@@ -43,17 +43,31 @@ const OFFICE_TYPES = new Set([
 const TEXT_TYPE = /^text\/|^application\/(json|javascript|xml|x-sh|x-sql)$|\+(json|xml)$/;
 
 /**
+ * Source and config files, by their name's ending or their whole name. This
+ * serves files kept before 0.50: a desk then named a file by its ending
+ * alone, and gave these `application/octet-stream` (or a video's type, for
+ * `.ts`), though they opened as text. A 0.50 desk names text by its bytes,
+ * so it never needs this; a file it kept under one of these names that is
+ * not text opens as text with replacement marks where its bytes are not,
+ * which is no worse than its name promised.
+ */
+const SOURCE_NAME =
+	/(^|\.)(ts|tsx|js|jsx|mjs|cjs|vue|svelte|go|rb|swift|kt|kts|java|scala|gradle|rs|py|c|h|cc|cpp|hpp|cs|php|lua|pl|r|dart|ex|exs|hs|sql|graphql|proto|tf|sh|bash|zsh|fish|ps1|toml|yaml|yml|ini|cfg|conf|env|properties|lock|log|diff|patch|gitignore|dockerignore|editorconfig|dockerfile|makefile)$/i;
+
+/**
  * Where Open takes a teammate's file: out of Hotline to the system's own app
  * for a PDF or a Word, Excel or PowerPoint file, which the shell opens only
  * when the name and the contents agree (files.rs); into the viewer for text;
  * nowhere for anything else, which is only saved or shown in its folder. A
- * file with no type, from a desk that gave none, opens as text.
+ * file with no type, from a desk that gave none, opens as text, and so does
+ * a source or config file an earlier desk gave a type that is not text
+ * (`SOURCE_NAME`).
  */
-export function opensIn(file: Pick<Attachment, "mimeType">): "outside" | "viewer" | null {
+export function opensIn(file: Pick<Attachment, "name" | "mimeType">): "outside" | "viewer" | null {
 	const type = file.mimeType;
 	if (type === undefined) return "viewer";
 	if (type === "application/pdf" || OFFICE_TYPES.has(type)) return "outside";
-	return TEXT_TYPE.test(type) ? "viewer" : null;
+	return TEXT_TYPE.test(type) || SOURCE_NAME.test(file.name) ? "viewer" : null;
 }
 
 /** How big a table file is, for the band: its rows under the head, and its widest row's cells. */

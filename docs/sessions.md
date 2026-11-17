@@ -1511,7 +1511,9 @@ source a press away, until it passes 2 MB, the table 5,000 rows, or a byte
 that is not UTF-8, when it reads as text a page at a time like any other
 text; anything else has no Open. A file's `mimeType` says which: the
 desk gives the PDF and Office types only by contents, and a `text/` type
-only to text. Any file can be saved where the person picks, or shown in
+only to text. A desk before 0.50 typed a file by its name alone, so the
+window also opens as text a source or config file it kept under a type
+that is not text (`.ts`, `.go`, `Dockerfile` and the like). Any file can be saved where the person picks, or shown in
 its folder.
 `attachments[].origin` says where the file came from, in words.
 

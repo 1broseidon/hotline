@@ -293,6 +293,42 @@ export function sortedWord(entry: InboxSortedEntry): string {
 	return entry.state.charAt(0).toUpperCase() + entry.state.slice(1);
 }
 
+/**
+ * What a sort did to one item, after its title, as its row says it: whom it
+ * is from (Hotline for the desk's own notice), what became of it in a word,
+ * and a later's reason.
+ */
+export function sortedFacts(entry: InboxSortedEntry, nameOf: (personaId: string) => string | undefined): string {
+	const from = `From ${entry.notice !== undefined ? "Hotline" : (nameOf(entry.from) ?? "a teammate")}`;
+	return [from, sortedWord(entry), entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
+}
+
+/** One row of a turn's inbox in its path: an item it sorted, as the sort left it, or one it sent. */
+export type TurnInboxRow = { kind: "sorted"; key: string; entry: InboxSortedEntry } | { kind: "sent"; key: string; sent: InboxSent };
+
+/**
+ * What a turn sorted and sent, in the order it did, read off the tape from
+ * the person's line or turn's end before its first step to the line or end
+ * after its last: the rows its path lists under Inbox. A quiet turn that
+ * posted a bubble has them there and nowhere in the chat (`foldInboxRuns`).
+ */
+export function turnInbox(events: readonly TranscriptEvent[], stepIds: readonly string[]): TurnInboxRow[] {
+	const ids = new Set(stepIds);
+	const first = events.findIndex((event) => ids.has(event.id));
+	if (first < 0) return [];
+	const last = events.findLastIndex((event) => ids.has(event.id));
+	const bound = (event: TranscriptEvent) => event.kind === "user" || event.kind === "turn";
+	let from = first;
+	while (from > 0 && !bound(events[from - 1]!)) from -= 1;
+	let to = last;
+	while (to + 1 < events.length && !bound(events[to + 1]!)) to += 1;
+	return events.slice(from, to + 1).flatMap((event): TurnInboxRow[] => {
+		if (event.kind === "inbox_sent") return [{ kind: "sent", key: event.id, sent: event }];
+		if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => ({ kind: "sorted", key: `${event.id}:${at}`, entry }));
+		return [];
+	});
+}
+
 /** "Inbox · read 3, sent 1": the line for a run of a teammate's inbox activity, saying only what it has. */
 export const runWords = (read: number, sent: number): string =>
 	`Inbox · ${[read > 0 && `read ${read}`, sent > 0 && `sent ${sent}`].filter((part): part is string => part !== false).join(", ")}`;

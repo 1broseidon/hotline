@@ -82,7 +82,7 @@ afterEach(async () => {
 async function show(events: TranscriptEvent[], live = false) {
 	serial += 1;
 	tape = events;
-	await act(async () => root.render(<WorkPage personaId={`ada${serial}`} blockId={null} name="Ada" live={live} resting={false} onOpenThread={() => {}} onClose={() => {}} />));
+	await act(async () => root.render(<WorkPage personaId={`ada${serial}`} blockId={null} name="Ada" live={live} resting={false} people={undefined} onOpenThread={() => {}} onOpenItem={() => {}} onClose={() => {}} />));
 	await act(async () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});

@@ -12,6 +12,9 @@ import { workLine } from "../turnFacts";
 import { TrailHead, TrailSteps, useHot } from "./transcript/Trail";
 import { SpineHead, StateLine, type Status, waitsOnPerson } from "./thread/Spine";
 import type { ThreadRef } from "./Transcript";
+import type { Person } from "../avatars";
+import { turnInbox } from "../inbox";
+import { TurnInbox } from "./InboxPane";
 
 /**
  * What the card shows: a turn's work, by its caption's id, or the turn
@@ -139,13 +142,15 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : ending === "stopped" ? "Stopped" : ending === "quiet" ? "Worked quietly" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
+	// What it sorted and sent: a quiet turn that posted has these here and no line in the chat.
+	const inbox = useMemo(() => (items === undefined ? [] : turnInbox(events, items.map((item) => item.id))), [events, items]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
 	// What the person asked that started it: the last line they said before its first step.
 	const first = run?.items[0]?.ts;
 	// A turn nobody asked for (it worked quietly, from its inbox) has none: a turn's end comes first.
 	const ask = first === undefined ? undefined : events.findLast((event) => (event.kind === "user" || event.kind === "turn") && event.ts <= first);
 	const blocked = first !== undefined && waitsOnPerson(events, first);
-	return { runs, run, latest, running, state, content, empty, blocked, ask: ask?.kind === "user" && ask.scheduled === undefined ? ask.text : undefined };
+	return { runs, run, latest, running, state, content, empty, blocked, inbox, ask: ask?.kind === "user" && ask.scheduled === undefined ? ask.text : undefined };
 }
 
 /**
@@ -153,7 +158,8 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
  * a thread: the room to read it, every step opening to say what it did. A
  * line asked for arrives open and in view; otherwise the page follows the
  * newest step. A helper or a command the turn started opens from its line
- * here, in the pane's place, with Back to this turn (`onOpenThread`).
+ * here, in the pane's place, with Back to this turn (`onOpenThread`), and so
+ * does an item it sorted or sent, from its row under Inbox (`onOpenItem`).
  */
 export function WorkPage({
 	personaId,
@@ -162,7 +168,9 @@ export function WorkPage({
 	name,
 	live,
 	resting,
+	people,
 	onOpenThread,
+	onOpenItem,
 	onClose,
 }: {
 	personaId: string;
@@ -173,15 +181,19 @@ export function WorkPage({
 	live: boolean;
 	/** The turn is open only for its helpers (`awaitingSubagents`). */
 	resting: boolean;
+	/** Every teammate by id, for the colleagues an inbox row names. */
+	people: ReadonlyMap<string, Person> | undefined;
 	/** Opens a helper or a command from its line, and the turn it was opened from, to come back to. */
 	onOpenThread(thread: ThreadRef, blockId: string): void;
+	/** Opens an item the turn sorted or sent, with Back to this path. */
+	onOpenItem(itemId: string): void;
 	onClose(): void;
 }) {
 	/* The turn shown: null follows the latest, rolling on to each new turn
 	 * as it starts; an id holds that turn, and stepping back in time is what
 	 * holds one. Opened on the latest turn's own caption, the pane follows. */
 	const [held, setHeld] = useState<string | null>(blockId);
-	const { runs, run, latest, running, state, content, empty, ask, blocked } = useTurnWork(personaId, held, name, live, resting);
+	const { runs, run, latest, running, state, content, empty, ask, blocked, inbox } = useTurnWork(personaId, held, name, live, resting);
 	const settledOpen = useRef(false);
 	useEffect(() => {
 		if (settledOpen.current || latest === undefined) return;
@@ -226,7 +238,21 @@ export function WorkPage({
 				{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
 			</SpineHead>
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={openId === undefined}>
-				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} fold={FOLD_AFTER} status={status} onOpenThread={(thread) => onOpenThread(thread, run.id)} />}
+				{run === undefined ? (
+					empty
+				) : (
+					<TrailSteps
+						key={`${run.id}:${openId ?? ""}`}
+						items={run.items}
+						settled={!running}
+						openId={openId}
+						hot={hot}
+						fold={FOLD_AFTER}
+						status={status}
+						onOpenThread={(thread) => onOpenThread(thread, run.id)}
+						{...(inbox.length > 0 ? { inbox: <TurnInbox personaId={personaId} rows={inbox} people={people} onOpenItem={onOpenItem} /> } : {})}
+					/>
+				)}
 			</FollowWindow>
 		</section>
 	);

@@ -252,6 +252,9 @@ describe("task-494 a run of inbox activity is one line in the chat", () => {
 
 	test("a run ends at the person's line, a bubble the teammate posts and a turn the person asked for", async () => {
 		const drawn = await fold([
+			tool("t0", "read_inbox"),
+			sorted("s0", "i0"),
+			quietEnd("e0"),
 			tool("t1", "read_inbox"),
 			sorted("s1", "i1"),
 			{ kind: "tool", id: "t2", ts: NOW, toolCallId: "t2", title: "post_to_chat", status: "completed" },
@@ -271,7 +274,8 @@ describe("task-494 a run of inbox activity is one line in the chat", () => {
 			quietEnd("e4"),
 		]);
 		expect(shape(drawn)).toEqual([
-			"run(1,0):s1",
+			"run(1,0):s0,steps:t0",
+			// The quiet turn that posted folds its own sort into the path behind its bubble (task-505).
 			"p1",
 			// A quiet turn that posted keeps its time under its bubble, as any reply does.
 			"steps:t1",

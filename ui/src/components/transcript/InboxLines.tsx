@@ -3,7 +3,7 @@ import type { InboxItem, InboxSortedEntry } from "../../generated/contract";
 import type { Person } from "../../avatars";
 import type { LinkEvent } from "../../dock";
 import { InboxIcon } from "../../icons";
-import { type InboxSent, runWords, senderWords, sentState, sortedWord, toWords } from "../../inbox";
+import { type InboxSent, runWords, senderWords, sentState, sortedFacts, toWords } from "../../inbox";
 import type { Block } from "../../scheduledRuns";
 import { LinkRow } from "./LinkRow";
 import { Steps } from "./Steps";
@@ -177,8 +177,7 @@ export const InboxRun = memo(function InboxRun({
  */
 function InboxSortedRow({ entry, people }: { entry: InboxSortedEntry; people: ReadonlyMap<string, Person> | undefined }) {
 	const { onOpen } = useContext(InboxRows);
-	const from = `From ${entry.notice !== undefined ? "Hotline" : (people?.get(entry.from)?.name ?? "a teammate")}`;
-	const facts = [from, sortedWord(entry), entry.reason].filter((part): part is string => part !== undefined && part !== "").join(" · ");
+	const facts = sortedFacts(entry, (id) => people?.get(id)?.name);
 	const words = (
 		<>
 			<InboxIcon className="inbox-row-mark" />

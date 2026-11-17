@@ -3,7 +3,7 @@ import type { InboxItem, InboxNewerItem, InboxView, ThreadId } from "../generate
 import { asideTime } from "../asides";
 import type { Person } from "../avatars";
 import { ArrowLeftIcon, ChevronRightIcon } from "../icons";
-import { alsoSentWords, type InboxSegment, itemsOf, listHeading, movedAt, newerIn, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, stateWord, toWords, useInbox, useInboxItem, wantsWords } from "../inbox";
+import { alsoSentWords, type InboxSegment, type InboxSent, itemsOf, listHeading, movedAt, newerIn, openGroups, outcomeWord, receiptRows, type Send, sendState, sends, senderWords, sortedFacts, stateWord, toWords, type TurnInboxRow, useInbox, useInboxItem, wantsWords } from "../inbox";
 import { onTablistKey } from "../ui/Menu";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -30,7 +30,7 @@ const SEGMENTS: { segment: InboxSegment; word: string }[] = [
  * own. A finished one is ticked; one that expired was never picked up, so
  * it keeps an empty ring, dotted.
  */
-function markOf(item: InboxItem, sent: boolean): string {
+function markOf(item: Pick<InboxItem, "state" | "outcome" | "work">, sent: boolean): string {
 	if (sent) return "↗";
 	switch (item.state) {
 		case "new":
@@ -471,6 +471,59 @@ function LinkedItem({ title, line, onOpen }: { title: string; line: string; onOp
 			</span>
 		</button>
 	);
+}
+
+/**
+ * What a turn sorted and sent, in the order it did, as its path lists them
+ * under Inbox (`turnInbox`): an item it sorted as the sort left it ("From
+ * Timo · Answered"), and one it sent with whom it went to and where it
+ * stands now, read live from the teammate's inbox. A quiet turn that posted
+ * has them here and no line in the chat. A press opens the item, with Back
+ * to the path.
+ */
+export function TurnInbox({
+	personaId,
+	rows,
+	people,
+	onOpenItem,
+}: {
+	personaId: string;
+	rows: readonly TurnInboxRow[];
+	people: ReadonlyMap<string, Person> | undefined;
+	onOpenItem(itemId: string): void;
+}) {
+	const items = itemsOf(useInbox(personaId));
+	const nameOf = (id: string) => people?.get(id)?.name;
+	return (
+		<section aria-label="Inbox">
+			<SectionRule title="Inbox" count={rows.length} />
+			{rows.map((row) => {
+				const [itemId, title, mark, line] =
+					row.kind === "sorted"
+						? [row.entry.item, row.entry.title, markOf(row.entry, false), sortedFacts(row.entry, nameOf)]
+						: [row.sent.item, row.sent.title, "↗", sentLine(row.sent, items.get(row.sent.item), nameOf)];
+				return (
+					<button key={row.key} type="button" className="list-row" data-inbox={itemId} aria-label={`${title}, ${line}. Open it`} onClick={() => onOpenItem(itemId)}>
+						<span className="list-mark" aria-hidden="true">
+							{mark}
+						</span>
+						<span className="min-w-0 flex-1">
+							<span className="list-title">
+								<span className="list-title-text">{title}</span>
+							</span>
+							<span className="list-line">{line}</span>
+						</span>
+					</button>
+				);
+			})}
+		</section>
+	);
+}
+
+/** A send's row in a path: whom it went to, and where it stands once the teammate's inbox knows it. */
+function sentLine(sent: InboxSent, item: InboxItem | undefined, nameOf: (personaId: string) => string | undefined): string {
+	const to = `To ${toWords([sent.to], nameOf)}`;
+	return item === undefined ? to : `${to} · ${stateWord(item)}`;
 }
 
 /** The clock the rows' times read, ticking every `every` ms while the pane is open. */

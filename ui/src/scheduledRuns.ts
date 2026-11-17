@@ -191,10 +191,11 @@ export function groupInbox(blocks: Block[]): Block[] {
 /**
  * A turn's part of the blocks, from the line after the last person's line or
  * turn's end to the next: `asked` when the person's own line began it (a
- * scheduled one is no ask), `said` when it put a bubble in the chat, and
- * `sent` when it holds a sent row.
+ * scheduled one is no ask), `said` when it put a bubble in the chat, `sent`
+ * when it holds a sent row, and how it ended (`quiet` when its turn's end
+ * says the person was never part of it), unset while it runs.
  */
-type Turn = { asked: boolean; said: boolean; sent: boolean };
+type Turn = { asked: boolean; said: boolean; sent: boolean; ended?: "quiet" | "other" };
 
 /** The turn each block belongs to, by its index. A person's line or a turn's end starts the next. */
 function turnsOf(blocks: Block[]): Turn[] {
@@ -203,13 +204,23 @@ function turnsOf(blocks: Block[]): Turn[] {
 	for (const block of blocks) {
 		const event = block.kind === "event" ? block.event : undefined;
 		if (event?.kind === "user" || event?.kind === "turn") {
+			turn.ended = event.kind === "turn" && event.quiet === true ? "quiet" : "other";
 			turn = { asked: event.kind === "user" && event.scheduled === undefined, said: false, sent: false };
 		}
-		if (block.kind === "sent" || event?.kind === "agent") turn.said = true;
+		if (event?.kind === "agent" && event.text.trim() !== "") turn.said = true;
 		if (block.kind === "inbox") turn.sent = true;
 		of.push(turn);
 	}
 	return of;
+}
+
+/**
+ * A quiet turn, one the person did not ask for and never spoke into, that
+ * posted a bubble: its sorts and its sends are no line of the chat's (they
+ * are in the path behind the bubble's time, `turnInbox` in `inbox.ts`).
+ */
+function answeredQuietly(turn: Turn): boolean {
+	return !turn.asked && turn.said && turn.ended !== "other";
 }
 
 /**
@@ -270,7 +281,10 @@ type Place = "member" | "beside" | "end";
  * first row is, and is named and dated by it, so a run that grows keeps its
  * row, open or not, and only its counts move. A run that read and sent nothing (a
  * quiet turn's time alone, a finished work thread alone) is drawn as its
- * rows were. `work` is the work threads inbox items started, by key.
+ * rows were. A quiet turn that posted a bubble folds its sorts and sends
+ * into that bubble: they are in the path its time opens, and no line of the
+ * chat's (`answeredQuietly`). `work` is the work threads inbox items
+ * started, by key.
  */
 export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean }): Block[] {
 	const out: Block[] = [];
@@ -292,7 +306,10 @@ export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean
 		}
 		run = null;
 	};
+	const turns = turnsOf(blocks);
 	blocks.forEach((block, at) => {
+		const inbox = block.kind === "inbox" || (block.kind === "event" && block.event.kind === "inbox_sorted");
+		if (inbox && answeredQuietly(turns[at]!)) return;
 		const place = placeIn(block, at);
 		if (place === "end") {
 			flush();

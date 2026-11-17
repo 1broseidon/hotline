@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Root } from "react-dom/client";
-import type { InboxItem, InboxView, TranscriptEvent } from "../src/generated/contract";
+import type { InboxItem, InboxSortedEntry, InboxView, TranscriptEvent } from "../src/generated/contract";
 import type { Block } from "../src/scheduledRuns";
 import { installDom } from "./dom";
 
@@ -187,5 +187,109 @@ describe("task-505 drawn", () => {
 		expect(caption).not.toBeNull();
 		expect(caption?.querySelector(".outcome")).toBeNull();
 		expect(container.textContent).not.toContain("Asked Timo for the last game's score");
+	});
+});
+
+/** A sort of one item. */
+const sorting = (id: string, entry: InboxSortedEntry): TranscriptEvent => ({ kind: "inbox_sorted", id, ts: NOW, open: 0, unread: 0, entries: [entry] });
+/** Timo's answer, as Goldie's inbox sort leaves it. */
+const answered = (id: string) => sorting(id, { item: "reply", title: "Re: Score of the last game?", from: "timo", state: "closed", outcome: "answered" });
+const post = (id: string) => tool(id, "post_to_chat", "post");
+const readInbox = (id: string) => tool(id, "read_inbox", "colleague");
+const sortInbox = (id: string) => tool(id, "update_inbox", "colleague");
+/** The quiet turn Timo's answer woke, which posts it. */
+const answerTurn: TranscriptEvent[] = [readInbox("q1"), sortInbox("q2"), answered("s1"), post("q3"), said("p1", "Timo says the Devils beat the Capitals 7–4.", "reply"), ended("e2", true)];
+
+describe("task-505 rule 3: the quiet inbox line folds into the answer", () => {
+	test("a quiet turn that posts draws no inbox line: its bubble and its time", () => {
+		expect(shape(drawn([ended("e0"), ...answerTurn]))).toEqual(["p1", "steps:q1"]);
+	});
+
+	test("a quiet turn that posts nothing keeps its line exactly as today", () => {
+		expect(shape(drawn([ended("e0"), readInbox("q1"), sortInbox("q2"), answered("s1"), ended("e2", true)]))).toEqual(["run(1,0)"]);
+	});
+
+	test("an earlier quiet turn's line stays, and only the posting turn's rows leave it", () => {
+		const earlier = [readInbox("r1"), sorting("s0", { item: "notes", title: "Storage numbers", from: "timo", state: "later", reason: "after the release" }), ended("e1", true)];
+		expect(shape(drawn([ended("e0"), ...earlier, ...answerTurn]))).toEqual(["run(1,0)", "p1", "steps:q1"]);
+	});
+
+	test("while the quiet turn still runs, its posted answer already stands alone", () => {
+		expect(shape(drawn([ended("e0"), readInbox("q1"), sortInbox("q2"), answered("s1"), post("q3"), said("p1", "Timo says 7–4.", "reply")]))).toEqual(["p1", "steps:q1"]);
+	});
+
+	test("a turn the person spoke into is theirs: the sort before their line keeps its line", () => {
+		expect(shape(drawn([ended("e0"), readInbox("q1"), answered("s1"), ask("u1", "what did timo say?"), said("a1", "7–4 to the Devils."), ended("e2")]))).toEqual(["run(1,0)", "steps:q1", "u1", "a1"]);
+	});
+
+	test("the rows it would have opened to are the path's, behind the answer's time", async () => {
+		const { turnInbox } = await import("../src/inbox");
+		const events = [ask("u1", "ask timo what the score was"), send("t1"), sent("score", "timo", "Score of the last game?"), ended("e1"), ...answerTurn];
+		const steps = toBlocks(events).filter((block) => block.kind === "steps");
+		const answer = steps[steps.length - 1]!;
+		expect(answer.kind === "steps" && turnInbox(events, answer.items.map((item) => item.id)).map((row) => (row.kind === "sorted" ? row.entry.title : row.sent.title))).toEqual([
+			"Re: Score of the last game?",
+		]);
+		// The asked turn's path lists what it sent.
+		const asked = steps[0]!;
+		expect(asked.kind === "steps" && turnInbox(events, asked.items.map((item) => item.id)).map((row) => row.kind)).toEqual(["sent"]);
+	});
+});
+
+describe("task-505 rule 3 in the pane: the answer's time opens a path that lists its inbox", () => {
+	let restores: (() => void)[] = [];
+	let tape: TranscriptEvent[] = [];
+	beforeEach(async () => {
+		restores = [];
+		const installed = installDom({ ResizeObserver: NoResize, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
+		teardown = installed.teardown;
+		Object.assign(globalThis, { HTMLElement: installed.dom.HTMLElement });
+		restores.push(() => Reflect.deleteProperty(globalThis, "HTMLElement"));
+		const { replaceDesks, wireFor } = await import("../src/desks");
+		replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
+		restores.push(() => replaceDesks([]));
+		const connection = wireFor("local");
+		const open = spyOn(connection, "onConnection").mockImplementation((watcher) => {
+			watcher("open");
+			return () => {};
+		});
+		restores.push(() => open.mockRestore());
+		const view: InboxView = { personaId: "goldie-pane", open: [], closed: [item("reply", { from: "timo", to: "goldie-pane", title: "Re: Score of the last game?" })], sent: [], unread: 0 };
+		const subscription = spyOn(connection, "subscribe").mockImplementation(((target: { inbox?: string }, handlers: { snapshot(items: unknown): void }) => {
+			queueMicrotask(() => handlers.snapshot(target.inbox !== undefined ? view : tape));
+			return () => {};
+		}) as typeof connection.subscribe);
+		restores.push(() => subscription.mockRestore());
+		act = (await import("react")).act;
+		const { createRoot } = await import("react-dom/client");
+		container = document.createElement("div");
+		document.body.append(container);
+		root = createRoot(container);
+	});
+	afterEach(async () => {
+		await act(async () => root?.unmount());
+		root = null;
+		for (const restore of restores.reverse()) restore();
+		await teardown();
+	});
+
+	test("Inbox, a section of the path, has the row the chat's line would have opened to, and a press opens the item", async () => {
+		const { WorkPage } = await import("../src/components/Work");
+		tape = [ended("e0"), ...answerTurn];
+		const opened: string[] = [];
+		await act(async () =>
+			root!.render(<WorkPage personaId="goldie-pane" blockId={null} name="Goldie" live={false} resting={false} people={people} onOpenThread={() => {}} onOpenItem={(id) => opened.push(id)} onClose={() => {}} />),
+		);
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		const section = container.querySelector("section[aria-label='Inbox']");
+		expect(section?.querySelector(".spine-rule-title")?.textContent).toBe("Inbox");
+		const rows = [...(section?.querySelectorAll<HTMLButtonElement>(".list-row") ?? [])];
+		expect(rows.map((row) => [row.querySelector(".list-title-text")?.textContent, row.querySelector(".list-line")?.textContent])).toEqual([["Re: Score of the last game?", "From Timo · Answered"]]);
+		// Before the steps, as Files changed is.
+		expect(section?.nextElementSibling?.getAttribute("aria-label")).toBe("Steps");
+		await act(async () => void rows[0]!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+		expect(opened).toEqual(["reply"]);
 	});
 });

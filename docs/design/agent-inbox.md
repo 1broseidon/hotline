@@ -567,7 +567,12 @@ stored state and the teammates' tools keep `taken`.
     or parked, which does not split the run but is drawn under its line,
     and joins the line once it is over.
   - **A quiet turn that posted** keeps its time under its bubble, as any
-    reply's is.
+    reply's is, and its own sorts and sends are no part of a run
+    (task-505): its bubble says what came of them, so they draw no line,
+    and its path lists them under Inbox, before its steps, each a row
+    that opens its item (`turnInbox` in `ui/src/inbox.ts`, `TurnInbox` in
+    `components/InboxPane.tsx`). A quiet turn that posts nothing keeps its
+    line. Every turn's path has the section when it sorted or sent.
   - **Growing.** The line stands where the run's first row is and is named
     by it, so as the run grows it keeps its place and stays open or shut;
     only its counts and rows change. A run that read and sent nothing (a

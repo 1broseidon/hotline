@@ -387,7 +387,10 @@ transition and animation, and holds the mark still.
   npm test"), since the conversation has no row for it. Pressed, the line
   opens the path in the pane (in place, in a thread): the pages opened
   first, under Sources, counted in its heading, each a card of its site,
-  its title and a press to the page in the browser, then every step,
+  its title and a press to the page in the browser, then the inbox items
+  it sorted and sent, under Inbox, each a row that opens its item (a quiet
+  turn that posted has them there and no inbox line in the chat), then
+  every step,
   under the teammate's words for what it was on, and the helpers and
   commands the turn started where it started them. Helpers started together are one line, "Started 4
   helpers", with how many still run, else how many failed, else how many

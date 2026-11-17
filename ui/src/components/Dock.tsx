@@ -179,7 +179,9 @@ export function Dock({
 						name={entry.persona.name}
 						live={isWorking(entry.session)}
 						resting={awaitingSubagents(entry.session)}
+						people={people}
 						onOpenThread={(open, blockId) => onState({ open, work: { personaId: path.personaId, blockId } })}
+						onOpenItem={openItem}
 						onClose={onClose}
 					/>
 				) : at === null && <DockBand onClose={onClose} />}

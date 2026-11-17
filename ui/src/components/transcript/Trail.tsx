@@ -106,11 +106,14 @@ export function TrailSteps({
 	fold,
 	status,
 	onOpenThread,
+	inbox,
 }: {
 	items: Step[];
 	settled?: boolean;
 	openId?: string | undefined;
 	hot: Hot;
+	/** The items the turn sorted and sent, a section of their own before its steps (`TurnInbox`). */
+	inbox?: ReactNode;
 	/** Longer than this many lines, the path shows its latest and folds the earlier ones into one row that opens in place. */
 	fold?: number | undefined;
 	/** The page's one status mark, on the Steps heading (`SectionRule`). */
@@ -135,7 +138,7 @@ export function TrailSteps({
 	const running = (one: PathEntry) => (one.kind === "line" ? one.line.live : one.kind === "helpers" ? one.links.some((link) => link.state !== "closed") : one.kind === "command" ? one.link.state !== "closed" : false);
 	const newest = entries.findLast(running);
 	const nowId = newest === undefined ? undefined : newest.kind === "line" ? newest.line.id : newest.kind === "helpers" ? newest.links[0]!.id : newest.kind === "command" ? newest.link.id : undefined;
-	if (files.length === 0 && groups.length === 0) return null;
+	if (files.length === 0 && groups.length === 0 && inbox === undefined) return null;
 	const start = items[0]?.ts ?? 0;
 	const entry = (one: PathEntry) =>
 		one.kind === "line" ? (
@@ -165,6 +168,7 @@ export function TrailSteps({
 					</ul>
 				</section>
 			)}
+			{inbox}
 			{groups.length > 0 && (
 				<section aria-label="Steps">
 					<SectionRule className="steps-heading" title="Steps" count={steps > 0 ? steps : undefined} status={status} />

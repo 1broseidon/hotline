@@ -72,6 +72,12 @@ ui-check:
 # run, which is the point of the gate.
 MACHETE_VERSION := 0.9.2
 DENY_VERSION := 0.20.2
+# Advisories `bun audit` lets through, each with what brings it in and when
+# it goes. picomatch <= 4.0.7 (GHSA-fc5q-39xc-vjpf, a slow match on a crafted
+# glob): under knip and vite's file globbing, which run on our own files at
+# build time and never in the window; no fixed release exists (2026-11-17).
+# Remove when picomatch publishes one and the lockfile takes it.
+BUN_AUDIT_IGNORE := --ignore=GHSA-fc5q-39xc-vjpf
 deps:
 	@cargo machete --version 2>/dev/null | grep -qx '$(MACHETE_VERSION)' || { \
 		echo "make check needs cargo-machete $(MACHETE_VERSION): cargo install --locked cargo-machete@$(MACHETE_VERSION)"; exit 1; }
@@ -81,7 +87,7 @@ deps:
 	cargo deny --locked check advisories licenses
 	cd ui && bun install --frozen-lockfile
 	python3 scripts/window_licenses.py
-	cd ui && bun audit
+	cd ui && bun audit $(BUN_AUDIT_IGNORE)
 
 # The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
 # It runs from the shell crate, where tauri.conf.json is, and starts Vite for

@@ -3269,11 +3269,22 @@ upstream operation is still driving it. Tests: `computer/gate.rs`
 granted, so a thread never has a computer wider than the teammate's grants, and a
 teammate's lease never covers another teammate's computer.
 
-None of the desk's own requests to a computer follows a redirect
-(`computer::door_client`): every door answers on the computer's loopback
-port, so a redirect means something else is answering there, and following
-it would carry the bearer, the secrets set or a passkey answer to wherever
-it points. Test: `computer/tests.rs`
+The gate forwards the MCP transport and nothing else: `POST`, `GET` and
+`DELETE` on the computer's MCP path, with no query. The computer's other
+doors take the same bearer the gate adds, and they are the desk's, which
+talks to them directly: answering a held secret use or a passkey request,
+arming a passkey, replacing the secrets, forgetting a login, its pages and
+its file downloads. Through the gate any other path is answered `404`, and
+any other method on the MCP path `405`, before the lease is asked for and
+before anything reaches the computer, so an agent's gate token is never the
+desk's key to those doors. Test: `computer/gate.rs`
+`the_gate_forwards_only_the_mcp_path`.
+
+None of the desk's own requests to a computer, nor the gate's, follows a
+redirect (`computer::door_client`): every door answers on the computer's
+loopback port, so a redirect means something else is answering there, and
+following it would carry the bearer, the secrets set or a passkey answer to
+wherever it points. Test: `computer/tests.rs`
 `desk_clients_to_the_computer_do_not_follow_redirects`.
 
 

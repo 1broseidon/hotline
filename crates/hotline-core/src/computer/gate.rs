@@ -4,8 +4,8 @@
 //! colleague's ask. Every one of them is handed the teammate's one computer,
 //! and two agents driving one desktop is a fight nobody wins. So an agent is
 //! not handed the computer's own endpoint but a gate in front of it ([`serve`]),
-//! one per agent, which forwards everything and lets only the thread that
-//! holds the teammate's lease make a `tools/call`.
+//! one per agent, which forwards the agent's MCP traffic and lets only the
+//! thread that holds the teammate's lease make a `tools/call`.
 //!
 //! The lease is [`Leases`]. A thread takes it on its first computer call and
 //! keeps it while it is using the computer: it is let go of when the thread's
@@ -32,7 +32,12 @@
 //! thread is building on.
 //!
 //! The gate reaches only the computer it was made for, with the bearer the
-//! teammate's grant already carried: it adds no authority, and a thread whose
+//! teammate's grant already carried, and only its MCP endpoint: the one path
+//! and the methods the streamable HTTP transport uses on it ([`off_route`]).
+//! The computer's other doors (secrets, passkeys, logins, its own pages)
+//! are the desk's, which talks to them directly; a request for one is
+//! refused here before anything reaches the computer. So the gate adds no
+//! authority to the token an agent holds, and a thread whose
 //! lease has been revoked is refused at the gate before anything is forwarded,
 //! including a call that was waiting for the computer when it was revoked,
 //! and one that needs no lease.
@@ -359,6 +364,8 @@ pub(crate) struct Gate {
 struct Shared {
     client: reqwest::Client,
     origin: String,
+    /// The computer's MCP path, the one path the gate forwards.
+    path: String,
     token: String,
     leases: Arc<Leases>,
     persona_id: String,
@@ -382,8 +389,11 @@ pub(crate) async fn serve(
     let token = uuid::Uuid::new_v4().to_string();
     let alive: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(alive);
     let state = Arc::new(Shared {
-        client: reqwest::Client::new(),
+        client: super::door_client()
+            .build()
+            .map_err(|error| std::io::Error::other(error.to_string()))?,
         origin,
+        path: path.clone(),
         token: upstream.token.clone(),
         leases: leases.clone(),
         persona_id: persona_id.to_string(),
@@ -616,7 +626,34 @@ fn ended() -> Response {
     )
 }
 
+/// The refusal for a request the MCP transport does not make, if this is
+/// one. The transport makes three: `POST` a message, `GET` the stream the
+/// computer speaks on unasked, `DELETE` the session, each on the computer's
+/// MCP path and nowhere else. A query is not part of that transport, so a
+/// request carrying one is not either.
+fn off_route(state: &Shared, method: &Method, uri: &axum::http::Uri) -> Option<Response> {
+    if uri.path() != state.path || uri.query().is_some() {
+        return Some(answer(
+            StatusCode::NOT_FOUND,
+            json!({ "error": "Not found." }),
+        ));
+    }
+    if ![Method::POST, Method::GET, Method::DELETE].contains(method) {
+        return Some(
+            Response::builder()
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .header(header::ALLOW, "POST, GET, DELETE")
+                .body(Body::empty())
+                .expect("a bare status is a response"),
+        );
+    }
+    None
+}
+
 async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response {
+    if let Some(refused) = off_route(&state, request.method(), request.uri()) {
+        return refused;
+    }
     if !(state.alive)() {
         return ended();
     }
@@ -666,14 +703,7 @@ async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response
     if !(state.alive)() {
         return ended();
     }
-    let target = format!(
-        "{}{}",
-        state.origin,
-        parts
-            .uri
-            .path_and_query()
-            .map_or("/", axum::http::uri::PathAndQuery::as_str)
-    );
+    let target = format!("{}{}", state.origin, state.path);
     let mut headers = HeaderMap::new();
     for (name, value) in &parts.headers {
         if !per_hop(name) {
@@ -1003,6 +1033,102 @@ mod tests {
         .await;
     }
 
+    /// The gate forwards the MCP transport and nothing else. The computer's
+    /// other doors take the same bearer the gate adds, and are the desk's:
+    /// answering a held secret use or a passkey request, arming a passkey,
+    /// replacing the secrets, forgetting a login, reading its pages or
+    /// files. Through the gate each is refused before anything reaches the
+    /// computer, and so is any method the transport does not use, while the
+    /// transport's own `POST`, `GET` and `DELETE` on its path go through.
+    #[tokio::test]
+    async fn the_gate_forwards_only_the_mcp_path() {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let record = seen.clone();
+        let router = axum::Router::new().fallback(move |request: Request| {
+            let record = record.clone();
+            async move {
+                record
+                    .lock()
+                    .unwrap()
+                    .push(format!("{} {}", request.method(), request.uri()));
+                answer(
+                    StatusCode::OK,
+                    json!({ "jsonrpc": "2.0", "id": 1, "result": "ok" }),
+                )
+            }
+        });
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        let computer = super::super::Ready {
+            url: format!("http://127.0.0.1:{port}/mcp"),
+            token: "real-token".to_string(),
+        };
+        let leases = quick();
+        let gate = serve(&computer, leases.clone(), "ada", holder("main"), || true)
+            .await
+            .unwrap();
+        let origin = gate.url.strip_suffix("/mcp").expect("the gate's MCP path");
+        let client = reqwest::Client::new();
+        let send = |method: Method, path: &str| {
+            client
+                .request(method, format!("{origin}{path}"))
+                .bearer_auth(&gate.token)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)
+                .send()
+        };
+
+        for (method, path) in [
+            (Method::POST, "/secrets/uses/answer"),
+            (Method::GET, "/secrets/uses"),
+            (Method::PUT, "/secrets"),
+            (Method::PUT, "/passkeys/registration"),
+            (Method::GET, "/passkeys/registration"),
+            (Method::POST, "/passkeys/registration/answer"),
+            (Method::DELETE, "/passkeys/registration"),
+            (Method::DELETE, "/logins/github"),
+            (Method::GET, "/pages"),
+            (Method::GET, "/files/download?path=/home/agent/notes.txt"),
+            (Method::POST, "/files"),
+            (Method::POST, "/fm/terminal"),
+            (Method::GET, "/"),
+            (Method::GET, "/health"),
+            (Method::POST, "/mcp/"),
+            (Method::POST, "/mcp/extra"),
+            (Method::POST, "/mcpx"),
+            (Method::POST, "/mcp?token=x"),
+        ] {
+            let response = send(method.clone(), path).await.unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+        }
+        for method in [Method::PUT, Method::PATCH, Method::OPTIONS, Method::HEAD] {
+            let response = send(method.clone(), "/mcp").await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{method} /mcp"
+            );
+        }
+        assert_eq!(
+            lock_seen(&seen),
+            [] as [String; 0],
+            "the computer saw nothing"
+        );
+        assert_eq!(leases.holder("ada"), None, "and nothing took the lease");
+
+        for method in [Method::POST, Method::GET, Method::DELETE] {
+            let response = send(method.clone(), "/mcp").await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{method} /mcp");
+            let _ = response.bytes().await;
+        }
+        assert_eq!(lock_seen(&seen), ["POST /mcp", "GET /mcp", "DELETE /mcp"]);
+    }
+
     #[tokio::test]
     async fn a_call_queued_at_the_gate_when_its_thread_is_revoked_never_reaches_the_computer() {
         let (computer, seen) = upstream().await;
@@ -1289,12 +1415,11 @@ mod tests {
         leases: &Arc<Leases>,
         alive: impl Fn() -> bool + Send + Sync + 'static,
     ) -> Arc<Shared> {
+        let parsed = url::Url::parse(&computer.url).unwrap();
         Arc::new(Shared {
-            client: reqwest::Client::new(),
-            origin: url::Url::parse(&computer.url)
-                .unwrap()
-                .origin()
-                .ascii_serialization(),
+            client: super::super::door_client().build().unwrap(),
+            origin: parsed.origin().ascii_serialization(),
+            path: parsed.path().to_string(),
             token: computer.token.clone(),
             leases: leases.clone(),
             persona_id: "ada".into(),

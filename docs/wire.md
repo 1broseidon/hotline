@@ -429,7 +429,10 @@ teammate's `propose_inbound`, is answered from the desk or owner seat only:
 the phone reads it and its answer, by `human.answer` or `thread.answer`,
 either way, is refused with `"A new outside source is approved at your desk.
 Answer this card there."`, and its push carries no `categoryId`, so the
-notification has no keys. The
+notification has no keys. A card marked `typedAnswer` (a `request_human`
+card's, set where it is made) is one the person's typed words answer in a
+thread a teammate handed over; any card without it, including one written
+before cards carried it, is answered only by its buttons. The
 tape still writes `dismissed` for a decline, which is the previous edition's
 word for that afterlife.
 

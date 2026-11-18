@@ -195,6 +195,9 @@ impl Room {
             matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
         self.link_handoff_human(work, &action_id)?;
         let informational = question.is_some();
+        // Only a `request_human` card takes the person's typed words as its
+        // answer; every card with a question asks a yes or a no.
+        let typed_answer = question.is_none();
         let desk_only = action_id.starts_with(INBOUND_SOURCE_CARD);
         if let Some(question) = question {
             let mut questions = lock(&self.voice_questions);
@@ -218,6 +221,7 @@ impl Room {
                 thread: work.map(str::to_string),
                 desk_only: desk_only.then_some(true),
                 from_item: self.prompted_by(home),
+                typed_answer: typed_answer.then_some(true),
             },
         );
         // A card only the desk answers is told to the phone as news, with no
@@ -531,6 +535,7 @@ impl Room {
             thread,
             desk_only,
             from_item,
+            typed_answer,
             ..
         } = card
         else {
@@ -554,6 +559,7 @@ impl Room {
                 thread,
                 desk_only,
                 from_item,
+                typed_answer,
             },
         );
     }
@@ -620,18 +626,15 @@ pub(super) enum Approves {
 /// kind added later is answered only by its own buttons until it is named
 /// here.
 ///
-/// The one kind is `request_human`'s: the person is asked to do something
-/// and say how it went, and the card is written with a bare id
-/// (`new_id`) and no `question`. Every other card asks a yes or a no, which
+/// The card says so itself: `typedAnswer` is written `true` where the card
+/// is made, on a `request_human` card alone, which asks the person to do
+/// something and say how it went. Every other card asks a yes or a no, which
 /// a typed "no" must never settle as yes: `ask_question`'s, and the proposals
-/// whose yes writes something (a name, a teammate, an outside source), whose
-/// ids carry a prefix.
+/// whose yes writes something (a name, a teammate, an outside source). A
+/// card without the mark, including one written before cards carried it, or
+/// with any other value, is answered only by its buttons.
 pub(super) fn takes_typed_answer(card: &Value) -> bool {
-    let asks_to_act = card.get("question").is_none_or(Value::is_null);
-    asks_to_act
-        && card["actionId"]
-            .as_str()
-            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+    card.get("typedAnswer") == Some(&Value::Bool(true))
 }
 
 /// The action-id prefixes of the cards whose yes writes something, so an

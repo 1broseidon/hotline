@@ -3209,7 +3209,17 @@ deskOnly?: boolean,
  * behind it, and a client says so in one line over the card ("From
  * Goldie's message · title"). Absent on any other card.
  */
-fromItem?: string, } | { "kind": "credential_ask", from?: DeliveryFrom, id: string, ts: number, actionId: string, site: string, reason: string, credentialKind: CaptureKind, name: string, status: CredentialStatus, storedAs?: string, expiresAt: number, 
+fromItem?: string, 
+/**
+ * The person's typed words may answer it: in a thread a teammate
+ * handed over, a line said while the handoff waits on it is its
+ * "Done", the words its note. Set only on a `request_human` card,
+ * which asks the person to do something and say how it went.
+ * Absent on every other card, which asks a yes or a no and is
+ * answered only by its own buttons, and on any card written before
+ * cards carried it, which is answered by its buttons too.
+ */
+typedAnswer?: boolean, } | { "kind": "credential_ask", from?: DeliveryFrom, id: string, ts: number, actionId: string, site: string, reason: string, credentialKind: CaptureKind, name: string, status: CredentialStatus, storedAs?: string, expiresAt: number, 
 /**
  * Names only; a username is a typed value and never belongs here.
  */

@@ -74,6 +74,13 @@ async fn the_persons_words_answer_the_card_a_handoff_waits_on() {
     )
     .await;
     let thread = work_thread(&room, &id);
+    // `request_human` marks its card as one the person's words answer.
+    assert!(
+        said_in(&room, &thread)
+            .iter()
+            .any(|v| v["actionId"] == action.as_str() && v["typedAnswer"] == true),
+        "the card carries its mark"
+    );
     let file = crate::contract::Attachment {
         created: None,
         kind: crate::contract::AttachmentKind::File,
@@ -184,6 +191,58 @@ async fn typed_words_in_a_handed_over_thread_never_settle_an_approval_card() {
             "{tool}: no source was added"
         );
     }
+}
+
+/// Whether words answer a card is the card's own mark, never read off its
+/// id. A request card written without it, as every card before the mark was,
+/// is answered by its buttons alone: the person's words in the thread are a
+/// line, and the card and the handoff still wait.
+#[tokio::test]
+async fn a_card_without_the_typed_answer_mark_waits_for_its_buttons() {
+    let (room, id, action, gate) = super::handoff_asking("unmarked-card-waits").await;
+    gate.add_permits(2);
+    until(
+        "the handoff waits on its card and bob's turn has ended",
+        || {
+            room.exchange_pair("ada~bob").unwrap().requests[0].phase() == Phase::WaitingHuman
+                && !room.mid_turn("bob")
+        },
+    )
+    .await;
+    let thread = work_thread(&room, &id);
+    // The same card as an older build wrote it: a bare id, no question and
+    // no mark.
+    let mut unmarked = said_in(&room, &thread)
+        .into_iter()
+        .find(|v| v["kind"] == "human_action" && v["actionId"] == action.as_str())
+        .unwrap();
+    unmarked.as_object_mut().unwrap().remove("typedAnswer");
+    assert!(uuid::Uuid::parse_str(&action).is_ok());
+    assert!(unmarked.get("question").is_none());
+    room.log
+        .append(&StreamId::Side(thread.clone()), &unmarked)
+        .unwrap();
+    assert!(
+        said_in(&room, &thread)
+            .iter()
+            .filter(|v| v["actionId"] == action.as_str())
+            .all(|v| v.get("typedAnswer").is_none())
+    );
+
+    room.prompt_side(&thread, "Done, go ahead", None)
+        .await
+        .unwrap();
+    until("the words are a line in the thread", || {
+        said_in(&room, &thread)
+            .iter()
+            .any(|v| v["kind"] == "user" && v["text"] == "Done, go ahead")
+    })
+    .await;
+    assert!(pending(&room, &action), "the card still waits");
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
+        Phase::WaitingHuman
+    );
 }
 
 /// A handoff stopped with its card open leaves the card pending in a thread

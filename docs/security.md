@@ -1841,12 +1841,18 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   asks a yes or a no (`ask_question`, and the proposals whose yes writes
   something: `set_person_name`, `add_teammate`, `propose_inbound`) is
   answered only by its own buttons, and the words stay a line in the
-  thread. The kinds that take words are named (`takes_typed_answer` in
-  `session/asking.rs`), so a card kind added later takes none until it is.
+  thread. A card takes words only when it says so: `request_human` writes
+  `typedAnswer` on its card where it makes it, and `takes_typed_answer` in
+  `session/asking.rs` reads that mark and nothing else, never the card's id.
+  A card without it, or with any other value, is answered by its buttons
+  alone: so is a card kind added later, and so is a pending `request_human`
+  card written before the mark existed (after an upgrade the person answers
+  that one with its Done button; their words go into the thread as a line).
 - **Tests:** `session/exchanges/tests/handed_over.rs`
   `the_persons_line_in_a_handed_over_thread_never_reaches_its_opener`,
   `the_persons_words_answer_the_card_a_handoff_waits_on`,
   `typed_words_in_a_handed_over_thread_never_settle_an_approval_card`,
+  `a_card_without_the_typed_answer_mark_waits_for_its_buttons`,
   `words_in_a_continued_thread_are_a_line_once_its_handoff_is_over`;
   `session/sides/tests.rs`
   `a_handed_over_thread_takes_the_persons_words_and_their_end_and_continues`.

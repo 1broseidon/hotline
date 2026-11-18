@@ -261,6 +261,15 @@ pub enum TranscriptEvent {
         /// Goldie's message · title"). Absent on any other card.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_item: Option<String>,
+        /// The person's typed words may answer it: in a thread a teammate
+        /// handed over, a line said while the handoff waits on it is its
+        /// "Done", the words its note. Set only on a `request_human` card,
+        /// which asks the person to do something and say how it went.
+        /// Absent on every other card, which asks a yes or a no and is
+        /// answered only by its own buttons, and on any card written before
+        /// cards carried it, which is answered by its buttons too.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        typed_answer: Option<bool>,
     },
     /// A secure request for one origin. Typed values have no event field.
     CredentialAsk {

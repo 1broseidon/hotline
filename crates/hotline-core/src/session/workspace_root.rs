@@ -189,8 +189,9 @@ fn replaceable(areas: Option<&[String]>, path: &Path) -> bool {
         match dunce::canonicalize(&holder) {
             Ok(holder) => holders.extend(holder.ancestors().map(Path::to_path_buf)),
             // A step not made yet holds nothing; its made ancestors are
-            // holders in their own right.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            // holders in their own right. A link to nothing resolves the
+            // same way and is there: it is not absent.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && absent(&holder) => {}
             Err(_) => return true,
         }
     }
@@ -585,6 +586,10 @@ mod tests {
         assert!(replaceable(Some(&[]), &work));
         assert!(!replaceable(Some(&[]), &base.join("absent/work")));
         assert!(replaceable(None, &base.join("bob")));
+        // A step that is a link to nothing is there, though it resolves to
+        // nothing: not absent, so not safe.
+        std::os::unix::fs::symlink(base.join("nowhere"), base.join("dangling")).unwrap();
+        assert!(replaceable(Some(&[]), &base.join("dangling/work")));
 
         let ada = confined("ada", &work);
         let bob = confined("bob", &base.join("bob"));

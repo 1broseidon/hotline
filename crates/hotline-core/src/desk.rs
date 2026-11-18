@@ -541,6 +541,19 @@ impl RoomHandle for Desk {
             .await
     }
 
+    async fn prompt_about(
+        &self,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        about_item: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    ) -> Result<(), String> {
+        self.room
+            .prompt_about(persona_id, text, reply_to, about_item, attachments)
+            .await
+    }
+
     /// The desk is the person: a chapter closed from the window was asked for
     /// by the user, never by the agent.
     async fn start_fresh_chapter(&self, persona_id: &str) -> Result<ChapterSummary, String> {

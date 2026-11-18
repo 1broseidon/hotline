@@ -837,6 +837,7 @@ mod receipts {
             attachments: None,
             reactions: None,
             reply_to: None,
+            about_item: None,
             scheduled: None,
             ring: None,
             receipt: None,

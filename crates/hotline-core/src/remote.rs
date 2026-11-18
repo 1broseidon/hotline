@@ -284,7 +284,12 @@ impl Phone {
         devices
     }
     /// The operation, who it is to, what is said and where: one message,
-    /// accepted once however often the phone retries it.
+    /// accepted once however often the phone retries it. `about_item` is an
+    /// inbox item the line follows up on, in the main conversation only.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each is one field of the phone's `mobile.prompt`, read as it came"
+    )]
     pub(crate) async fn prompt(
         &self,
         operation: &str,
@@ -293,6 +298,7 @@ impl Phone {
         attachment_ids: &[String],
         reply_to: Option<&str>,
         thread: Option<&ThreadId>,
+        about_item: Option<&str>,
     ) -> Result<Value, String> {
         // The main conversation, named or not, or one of the teammate's work threads.
         let side = match thread {
@@ -301,11 +307,15 @@ impl Phone {
             Some(id) if id.kind == ThreadKind::Side && !id.key.is_empty() => Some(id.key.as_str()),
             Some(_) => return Err("A phone speaks in the conversation or a work thread.".into()),
         };
+        if about_item.is_some() && side.is_some() {
+            return Err("A follow-up on an inbox message is said in the conversation.".into());
+        }
         if Uuid::parse_str(operation).is_err()
             || (text.trim().is_empty() && attachment_ids.is_empty())
             || text.len() > 32_768
             || attachment_ids.len() > 4
             || reply_to.is_some_and(|id| id.is_empty() || id.len() > 128)
+            || about_item.is_some_and(|id| id.is_empty() || id.len() > 128)
         {
             return Err("Supply a message and a valid operation id (maximum 32 KiB).".into());
         }
@@ -322,11 +332,16 @@ impl Phone {
         // Keep text-only receipts compatible with phones already paired: a
         // field joins the digest only when the message carries it.
         let digest = hash(
-            &match (attachment_ids.is_empty(), reply_to, side) {
-                (true, None, None) => json!([persona, text]),
-                (false, None, None) => json!([persona, text, attachment_ids]),
-                (_, Some(answered), None) => json!([persona, text, attachment_ids, answered]),
-                (_, answered, Some(side)) => {
+            &match (attachment_ids.is_empty(), reply_to, side, about_item) {
+                (_, answered, None, Some(about)) => {
+                    json!([persona, text, attachment_ids, answered, null, about])
+                }
+                (true, None, None, None) => json!([persona, text]),
+                (false, None, None, None) => json!([persona, text, attachment_ids]),
+                (_, Some(answered), None, None) => {
+                    json!([persona, text, attachment_ids, answered])
+                }
+                (_, answered, Some(side), _) => {
                     json!([persona, text, attachment_ids, answered, side])
                 }
             }
@@ -383,10 +398,11 @@ impl Phone {
                 return Err("This phone has been disconnected.".into());
             }
             commit(&receipt)?;
-            room.prompt(
+            room.prompt_about(
                 persona,
                 text,
                 reply_to.map(str::to_owned),
+                about_item.map(str::to_owned),
                 Some(attachments),
             )
             .await

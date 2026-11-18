@@ -198,7 +198,9 @@ pub enum Command {
     /// `replyTo` is the id of the message this one answers, as on
     /// `session.prompt`. `thread` says it in one of the teammate's work
     /// threads instead of the main conversation, with the same files and
-    /// replies; absent, it is the main conversation.
+    /// replies; absent, it is the main conversation. `aboutItem` is an inbox
+    /// item the line follows up on, as on `session.prompt`; in the main
+    /// conversation only.
     #[serde(rename = "mobile.prompt")]
     MobilePrompt {
         operation_id: String,
@@ -210,6 +212,8 @@ pub enum Command {
         reply_to: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<ThreadId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        about_item: Option<String>,
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },
@@ -603,12 +607,17 @@ pub enum Command {
     SessionRetry { persona_id: String },
     /// `replyTo` is the id of the message this one answers, and the
     /// attachments are files handed to the teammate alongside the words.
+    /// `aboutItem` is an inbox item the line follows up on: the person's
+    /// Ask a follow-up, which the teammate is told about so it can send the
+    /// line on into the same conversation with its colleague.
     #[serde(rename = "session.prompt")]
     SessionPrompt {
         persona_id: String,
         text: String,
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        about_item: Option<String>,
     },
     /// Stops the main conversation's turn in flight and drops what waited
     /// behind it. `interrupt` is the window's Interrupt (and Esc) rather than

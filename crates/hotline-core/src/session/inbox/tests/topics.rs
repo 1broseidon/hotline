@@ -1,7 +1,8 @@
 //! Topics (`docs/design/agent-inbox.md`, Topics): one send is one topic,
 //! answers and follow-ups stay in it, an item kept before topics were
 //! recorded is given one as it is read, a one-line ask is its own title,
-//! and the send result says where each recipient's item landed.
+//! the send result says where each recipient's item landed, and the
+//! person's follow-up names its item and tells the teammate its topic.
 
 use super::*;
 
@@ -291,4 +292,77 @@ async fn a_teammate_follows_up_on_its_own_unanswered_send() {
     .await
     .unwrap_err();
     assert!(nobody.contains("among what you sent"), "{nobody}");
+}
+
+/// The person's Ask a follow-up is their own line in their chat with the
+/// teammate, written naming the item (`aboutItem`) and read as they wrote
+/// it; the teammate is told the topic it is about and how to send it on.
+/// An item the teammate neither sent nor received is refused, and nothing
+/// is said.
+#[tokio::test]
+async fn the_persons_follow_up_carries_its_item_and_tells_the_teammate_its_topic() {
+    let (room, agents) = three("topic-follow-up");
+    let asked = send(&room, "ada", "bob", "What was the score?", json!({})).await;
+    tool(
+        &room,
+        "bob",
+        "update_inbox",
+        json!({"items": [{"id": asked, "answer": "Devils 7–4."}]}),
+    )
+    .await
+    .unwrap();
+    let answer = items(&room, "ada")
+        .into_iter()
+        .find(|reply| reply.reply_to.as_deref() == Some(asked.as_str()))
+        .unwrap();
+    let session = at_rest(&room, "ada").await;
+    room.prompt_about(
+        "ada",
+        "Who scored first?",
+        None,
+        Some(answer.id.clone()),
+        None,
+    )
+    .await
+    .unwrap();
+    until("ada's turn", || agents.told().len() == 1).await;
+    let told = &agents.told()[0];
+    assert!(
+        told.contains("following up on your inbox conversation \"What was the score?\" with Bob"),
+        "{told}"
+    );
+    assert!(
+        told.contains(&format!("`reply_to` {}", short(&answer.id))),
+        "{told}"
+    );
+    assert!(told.ends_with("Who scored first?"), "{told}");
+    let line = room
+        .tape("ada")
+        .into_iter()
+        .find(|event| event["kind"] == "user")
+        .unwrap();
+    assert_eq!(line["text"], "Who scored first?", "read as written");
+    assert_eq!(line["aboutItem"], json!(answer.id));
+    until("at rest", || !lock(&session.turns).running).await;
+
+    let cys = tool(
+        &room,
+        "bob",
+        "send",
+        json!({"to": ["cy"], "message": "Lunch?"}),
+    )
+    .await;
+    let foreign = item(&room, "cy", cys.unwrap()["sent"][0]["id"].as_str().unwrap());
+    let refused = room
+        .prompt_about("ada", "And this?", None, Some(foreign.id), None)
+        .await
+        .unwrap_err();
+    assert!(refused.contains("nothing was said"), "{refused}");
+    assert_eq!(
+        room.tape("ada")
+            .iter()
+            .filter(|event| event["kind"] == "user")
+            .count(),
+        1
+    );
 }

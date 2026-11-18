@@ -10,10 +10,13 @@
 //!   unanswered send as well as on an answer. A `send` that answers a
 //!   question it received closes that question as answered, as
 //!   `update_inbox`'s `answer` does.
+//! - **The person's follow-up is a line in their own chat** that names an
+//!   item (`session.prompt`'s `aboutItem`); the teammate is told which topic
+//!   it is about, and sends it on itself. Nothing is ever sent as a teammate.
 //! - **A one-line ask is its own title**: `send` without a `title` takes the
 //!   message's first plain line.
 
-use super::{Room, TITLE_CHARS, kept, short_line};
+use super::{Room, TITLE_CHARS, kept, short, short_line};
 use crate::contract::{InboxItem, InboxState, InboxWants, Persona};
 
 /// What a `send` without a title is kept as: the message's first plain line
@@ -105,5 +108,50 @@ impl Room {
                 "in your inbox or among what you sent. read_inbox lists them.",
             )),
         }
+    }
+
+    /// What the teammate is told with the person's line that follows up on
+    /// the item `named` (Ask a follow-up): which of its topics with a
+    /// colleague the line is about, and how to send it on into that topic.
+    /// The item is one the teammate received or sent; any other is refused,
+    /// so the line is not said.
+    pub(in crate::session) fn follow_up_line(
+        &self,
+        persona_id: &str,
+        named: &str,
+    ) -> Result<String, String> {
+        let named = named.trim();
+        let roster = crate::room::roster(&self.log);
+        let all = kept::everything(&self.log, roster.iter().map(|persona| persona.id.as_str()));
+        let party = |item: &InboxItem| {
+            (item.to == persona_id && !item.held)
+                || (item.from == persona_id && item.notice.is_none())
+        };
+        let item = all
+            .iter()
+            .find(|item| item.id == named && party(item))
+            .ok_or("That inbox message is not one this teammate sent or received, so nothing was said.")?;
+        let topic = item.topic.as_deref().unwrap_or(&item.id);
+        let mut held: Vec<&InboxItem> = all
+            .iter()
+            .filter(|known| known.topic.as_deref() == Some(topic) && party(known))
+            .collect();
+        held.sort_by_key(|known| known.ts);
+        let first = held.first().copied().unwrap_or(item);
+        let mut others: Vec<String> = Vec::new();
+        for known in &held {
+            for teammate in [&known.from, &known.to] {
+                let name = self.name_of(teammate);
+                if teammate != persona_id && !others.contains(&name) {
+                    others.push(name);
+                }
+            }
+        }
+        let with = others.join(", ");
+        let title = crate::fence::quoted(first.title.trim_start_matches("Re: "));
+        let id = short(&item.id);
+        Ok(format!(
+            "(The person is following up on your inbox conversation {title} with {with}; its latest message is {id}. If this is for {with}, send it on with `send` and `reply_to` {id}, so it stays in that conversation. If you can answer it yourself, do.)"
+        ))
     }
 }

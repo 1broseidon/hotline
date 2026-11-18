@@ -424,6 +424,7 @@ pub(crate) async fn run(
             text,
             reply_to,
             attachments,
+            about_item,
         } => {
             threads::prompt(
                 log,
@@ -431,6 +432,7 @@ pub(crate) async fn run(
                 &ThreadId::dm(persona_id),
                 &text,
                 reply_to,
+                about_item,
                 attachments,
             )
             .await
@@ -665,6 +667,7 @@ pub(crate) async fn run(
                 &ThreadId::side(side_id),
                 &text,
                 None,
+                None,
                 attachments,
             )
             .await
@@ -712,7 +715,7 @@ pub(crate) async fn run(
             text,
             reply_to,
             attachments,
-        } => threads::prompt(log, room, &thread, &text, reply_to, attachments).await,
+        } => threads::prompt(log, room, &thread, &text, reply_to, None, attachments).await,
         Command::ThreadCancel { thread, interrupt } => threads::cancel(room, &thread, interrupt),
         Command::ThreadPark { thread } => threads::park(room, &thread),
         Command::ThreadClose { thread } => threads::close(room, &thread),

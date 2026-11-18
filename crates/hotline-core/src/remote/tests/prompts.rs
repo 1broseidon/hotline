@@ -16,14 +16,14 @@ async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_m
     atomic_write(&path, &serde_json::to_vec(&receipt).unwrap()).unwrap();
     assert_eq!(
         phone
-            .prompt(&operation, "persona", "hello", &[], None, None)
+            .prompt(&operation, "persona", "hello", &[], None, None, None)
             .await
             .unwrap()["state"],
         "unknown"
     );
     assert!(
         phone
-            .prompt(&operation, "persona", "changed", &[], None, None)
+            .prompt(&operation, "persona", "changed", &[], None, None, None)
             .await
             .is_err()
     );
@@ -34,7 +34,7 @@ async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_m
     atomic_write(&path, &serde_json::to_vec(&receipt).unwrap()).unwrap();
     assert_eq!(
         phone
-            .prompt(&operation, "persona", "hello", &[], None, None)
+            .prompt(&operation, "persona", "hello", &[], None, None, None)
             .await
             .unwrap()["state"],
         "accepted"
@@ -56,23 +56,46 @@ async fn a_prompt_for_a_work_thread_is_said_there_and_is_its_own_operation() {
             &[],
             None,
             Some(&pair),
+            None,
         )
         .await
         .unwrap_err();
     assert!(refused.contains("work thread"), "{refused}");
+    // A follow-up on an inbox message is said in the conversation alone.
+    let follow_up = phone
+        .prompt(
+            &Uuid::new_v4().to_string(),
+            "persona",
+            "hi",
+            &[],
+            None,
+            Some(&ThreadId::side("s1")),
+            Some("item-1"),
+        )
+        .await
+        .unwrap_err();
+    assert!(follow_up.contains("in the conversation"), "{follow_up}");
 
     // Said in a side thread, it goes to the side thread and never starts the
     // main session; the room here has none, and says so.
     let side = ThreadId::side("s1");
     let operation = Uuid::new_v4().to_string();
     let sent = phone
-        .prompt(&operation, "persona", "hi", &[], Some("e1"), Some(&side))
+        .prompt(
+            &operation,
+            "persona",
+            "hi",
+            &[],
+            Some("e1"),
+            Some(&side),
+            None,
+        )
         .await
         .unwrap_err();
     assert!(sent.to_lowercase().contains("side thread"), "{sent}");
     // The same id cannot be reused for the same words in the main conversation.
     let reused = phone
-        .prompt(&operation, "persona", "hi", &[], Some("e1"), None)
+        .prompt(&operation, "persona", "hi", &[], Some("e1"), None, None)
         .await
         .unwrap_err();
     assert!(reused.contains("another message"), "{reused}");
@@ -93,7 +116,7 @@ async fn a_prompt_dropped_before_it_is_dispatched_leaves_no_receipt_and_a_hung_s
         let operation = operation.clone();
         tokio::spawn(async move {
             phone
-                .prompt(&operation, "persona", "hello", &[], None, None)
+                .prompt(&operation, "persona", "hello", &[], None, None, None)
                 .await
         })
     };
@@ -112,6 +135,7 @@ async fn a_prompt_dropped_before_it_is_dispatched_leaves_no_receipt_and_a_hung_s
                     &[],
                     None,
                     Some(&ThreadId::side("s1")),
+                    None,
                 )
                 .await
         })
@@ -132,7 +156,7 @@ async fn a_prompt_dropped_before_it_is_dispatched_leaves_no_receipt_and_a_hung_s
     release.cancel();
     let before = room.starts.load(std::sync::atomic::Ordering::SeqCst);
     let retried = phone
-        .prompt(&operation, "persona", "hello", &[], None, None)
+        .prompt(&operation, "persona", "hello", &[], None, None, None)
         .await;
     assert!(room.starts.load(std::sync::atomic::Ordering::SeqCst) > before);
     assert_ne!(

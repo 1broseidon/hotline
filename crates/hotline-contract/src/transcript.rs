@@ -37,6 +37,12 @@ pub enum TranscriptEvent {
         reactions: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        /// The inbox item this line follows up on (the person's Ask a
+        /// follow-up), whose conversation the bubble quotes and opens.
+        /// Absent on every other line, and on one written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        about_item: Option<String>,
         /// Nobody typed this: a schedule fired. The text stays the prompt in
         /// full; this is what lets the transcript draw one line and keep the
         /// prompt behind an expander.

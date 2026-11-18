@@ -148,6 +148,7 @@ async fn a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup(
         text: "Check the PR.".into(),
         reply_to: None,
         attachments: None,
+        about_item: None,
     };
     // This desk has no provider: cold startup cannot succeed, but admission is immediate.
     for _ in 0..3 {

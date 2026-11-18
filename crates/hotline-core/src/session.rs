@@ -626,6 +626,9 @@ struct Sending {
     shown: String,
     wire: Wired,
     attachments: Option<Vec<Attachment>>,
+    /// The inbox item the person's line follows up on, which its bubble
+    /// quotes.
+    about_item: Option<String>,
 }
 
 /// One line as a driver takes it: the words, and the files handed over with

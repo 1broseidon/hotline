@@ -726,6 +726,7 @@ async fn command(
                         attachment_ids,
                         reply_to,
                         thread,
+                        about_item,
                     },
                     Some(phone),
                 ) => {
@@ -737,6 +738,7 @@ async fn command(
                             attachment_ids,
                             reply_to.as_deref(),
                             thread.as_ref(),
+                            about_item.as_deref(),
                         )
                         .await
                 }

@@ -89,6 +89,7 @@ impl Dispatcher for ScriptDispatcher {
                 text: "Check the failing PR.".into(),
                 reply_to: None,
                 attachments: None,
+                about_item: None,
             })
             .await?;
         Ok("I am passing that to Mack.".into())

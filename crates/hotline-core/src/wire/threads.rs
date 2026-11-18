@@ -41,18 +41,24 @@ fn not_here(thread: &ThreadId, what: &str) -> String {
 }
 
 /// Says something in a thread. The person speaks in the main conversation and
-/// in a work thread; a parked work thread is brought back first.
+/// in a work thread; a parked work thread is brought back first. A line that
+/// follows up on an inbox item (`about_item`) is said in the main
+/// conversation, where the person's Ask a follow-up puts it.
 pub(super) async fn prompt(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     thread: &ThreadId,
     text: &str,
     reply_to: Option<String>,
+    about_item: Option<String>,
     attachments: Option<Vec<Attachment>>,
 ) -> Result<Value, String> {
+    if about_item.is_some() && thread.kind != ThreadKind::Dm {
+        return Err(not_here(thread, "Following up on an inbox message"));
+    }
     match thread.kind {
         ThreadKind::Dm => {
-            room.prompt(&thread.key, text, reply_to, attachments)
+            room.prompt_about(&thread.key, text, reply_to, about_item, attachments)
                 .await?;
             if let Ok(persona) = super::commands::persona::living(log, &thread.key) {
                 super::commands::models::remember_model(log, room, &persona).await?;

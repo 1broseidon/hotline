@@ -142,12 +142,14 @@ impl Context {
             text,
             attachments,
             reply_to,
+            about_item,
         } = &command
         {
             if text.trim().is_empty()
                 || text.len() > 8_000
                 || attachments.is_some()
                 || reply_to.is_some()
+                || about_item.is_some()
             {
                 return Err(
                     "A voice handoff needs a short text task without file paths or a reply target."

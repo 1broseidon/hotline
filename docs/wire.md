@@ -114,7 +114,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
 | `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
 | `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does; a mode switches live and is kept for the next start. Owner phone or local desk; advertised by the owner's `personaAccess` |
-| `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead. A paired phone only |
+| `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?, aboutItem?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead; `aboutItem` as on `session.prompt`, in the conversation only. A paired phone only |
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
@@ -157,7 +157,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
 | `session.retry` | `{personaId}` | none; runs the last turn again when it failed and nothing was said after it, without writing the person's message again; otherwise refused |
-| `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
+| `session.prompt` | `{personaId, text, replyTo?, attachments?, aboutItem?}` | none |
 | `session.cancel` | `{personaId, interrupt?}` | none; stops the turn in flight and drops what waited behind it, failing at once a colleague's question among that. Without `interrupt`, as the phone and an older window send it, it is the person's Stop: a question the turn was answering fails to its asker with "The person stopped the answer to this question. Do not ask it again unless they ask.", and a first-contact card up expires. `interrupt` is the window's Interrupt and Esc: that answer fails with "The person interrupted the answer to this question. Ask it again if you still need it.", and a first-contact card stays up. An older desk ignores the flag and stops |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
@@ -803,7 +803,12 @@ settings, which is how a new one is added in one go. `mcp.auth_status`
 answers `signed_in` when the vault holds the token and `signed_out` when
 it does not, and `mcp.auth_sign_out` forgets it.
 
-`session.prompt`'s `replyTo` is the id of the message this one answers.
+`session.prompt`'s `replyTo` is the id of the message this one answers, and
+`aboutItem` the inbox item it follows up on (the person's Ask a follow-up):
+the line is written with it as `aboutItem`, and the teammate is told which
+of its topics with a colleague the line is about
+([agent-inbox.md](design/agent-inbox.md#topics)); an item the teammate
+neither sent nor received is refused.
 `attachments` are `{kind: "image"|"file", name, path, mimeType?, size?}`.
 The command returns as soon as the turn is started; what the turn
 produces reaches the client as tape events and ephemeral deltas.

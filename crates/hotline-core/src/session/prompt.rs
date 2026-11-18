@@ -81,8 +81,31 @@ impl Room {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
+        self.prompt_about(persona_id, text, reply_to, None, attachments)
+            .await
+    }
+
+    /// [`Room::prompt`], for the person's line that follows up on an inbox
+    /// item (`about_item`, their Ask a follow-up): the line is written
+    /// naming the item, and the teammate is told which of its topics with a
+    /// colleague it is about, so it can send it on into that topic. An item
+    /// the teammate neither sent nor received is refused, and nothing is
+    /// said.
+    pub async fn prompt_about(
+        self: &Arc<Self>,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        about_item: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    ) -> Result<(), String> {
         let _working = self.working()?;
-        if let Some(answered) = &reply_to
+        let told = match &about_item {
+            None => None,
+            Some(named) => Some(self.follow_up_line(persona_id, named)?),
+        };
+        if told.is_none()
+            && let Some(answered) = &reply_to
             && let Some(from) = self
                 .tape(persona_id)
                 .iter()
@@ -114,12 +137,19 @@ impl Room {
         // An empty list is no list: the record should not carry a field
         // saying nothing was attached.
         let attachments = attachments.filter(|attachments| !attachments.is_empty());
+        // The follow-up's topic is said before the person's words, never in
+        // place of them, and never on the line the person reads.
+        let heard = match &told {
+            Some(told) => format!("{told}\n\n{text}"),
+            None => text.to_string(),
+        };
         self.say(
             &session,
             Sending {
                 shown: text.to_string(),
+                about_item,
                 wire: Wired {
-                    text: self.with_name_news(&session.told_name, text),
+                    text: self.with_name_news(&session.told_name, &heard),
                     attachments: attachments.clone().unwrap_or_default(),
                     steer: !crate::wire::commands::from_voice(),
                     said: None,
@@ -331,6 +361,7 @@ impl Room {
                 attachments: sending.attachments,
                 reactions: None,
                 reply_to: None,
+                about_item: sending.about_item,
                 scheduled: None,
                 ring: None,
                 receipt: Some(Receipt::Sent),
@@ -394,6 +425,7 @@ impl Room {
             attachments,
             reactions,
             reply_to,
+            about_item,
             scheduled,
             ring,
             receipt,
@@ -418,6 +450,7 @@ impl Room {
                 attachments,
                 reactions: Some(reactions),
                 reply_to,
+                about_item,
                 scheduled,
                 ring,
                 receipt,

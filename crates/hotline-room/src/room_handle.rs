@@ -182,6 +182,20 @@ pub trait RoomHandle: Send + Sync + 'static {
         reply_to: Option<String>,
         attachments: Option<Vec<hotline_contract::Attachment>>,
     ) -> Result<(), String>;
+    /// [`Self::prompt`], for a line that follows up on an inbox item: the
+    /// teammate is told which of its conversations with a colleague it is
+    /// about. A room that keeps no inbox hears the words alone.
+    async fn prompt_about(
+        &self,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        about_item: Option<String>,
+        attachments: Option<Vec<hotline_contract::Attachment>>,
+    ) -> Result<(), String> {
+        let _ = about_item;
+        self.prompt(persona_id, text, reply_to, attachments).await
+    }
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
     /// Cuts the main conversation's turn for the person to say something
     /// instead: an answer it was giving a colleague ends as interrupted,

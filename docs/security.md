@@ -3798,11 +3798,19 @@ holding any in Settings › Secrets › In Use.
   browser are replaced by fixed messages. A Chromium source is read by the
   browser itself, launched headless on a copy of the profile in a directory
   made 0700 by the call that creates it (`computer/cookies.rs` `Staging`),
-  and asked for its jar over DevTools on a pipe only the desk holds
-  (`--remote-debugging-pipe`, its descriptors 3 and 4). It opens no
+  and asked for its jar over DevTools on a pipe between the desk and that
+  browser (`--remote-debugging-pipe`, its descriptors 3 and 4). It opens no
   debugging port and gets no `--remote-allow-origins`, so no other local
   process, a teammate's own shell included, can connect to the instance
-  while it holds the decrypted jar; Keep fresh reads the same way. Windows
+  while it holds the decrypted jar; Keep fresh reads the same way. Every
+  end of the two pipes is close-on-exec from the call that opens it
+  (`pipe2` on Linux; on macOS, which has no `pipe2`, a FIFO in a fresh
+  0700 directory opened `O_CLOEXEC` and unlinked at once), so no other
+  process the desk starts meanwhile inherits one. The browser's ends at 3
+  and 4 survive its exec on purpose, and processes the browser itself
+  starts may inherit them: that is the browser's own process tree, running
+  as the person. A read that times out or is dropped leaves no browser
+  process and no staged copy behind. Windows
   has no such pipe yet: there a Chromium browser is listed as one Hotline
   cannot read, saying so, and only Firefox can be shared; no port is opened
   instead.
@@ -3864,7 +3872,8 @@ holding any in Settings › Secrets › In Use.
 | Ends takes a share back on time, across a restart | `session/cookie_lends/tests.rs` `ends_takes_a_share_back_on_time_even_across_a_restart`; `tests/desk/cookie_lends.rs` `shares_survive_real_desk_restarts_and_one_whose_end_came_meanwhile_is_taken_back` | Unix |
 | Shares move into the computer when it turns on and back when it turns off | `session/cookie_lends/tests.rs` `shares_move_into_the_computer_when_it_turns_on_and_back_when_it_turns_off` | Unix |
 | A switched-off source is read by no path, even one discovered before | `session/cookie_lends/tests.rs` `a_switched_off_source_is_never_read_by_any_path` | Unix |
-| A Chromium source is read over a DevTools pipe, never a debugging port, from a copy only the person's user can open; where the pipe is not wired (Windows) a Chromium browser is listed as unreadable and no source | `computer/cookies.rs` `read_chromium_opens_no_debugging_port`, `staging_dir_is_private`, `a_chromium_browser_is_blocked_where_its_pipe_is_not_wired`; `computer/cookies/devtools.rs` `a_pipe_message_is_its_json_ended_by_one_nul_and_reads_back_however_it_is_cut` | Unix for the first two |
+| A Chromium source is read over a DevTools pipe, never a debugging port, from a copy only the person's user can open; where the pipe is not wired (Windows) a Chromium browser is listed as unreadable and no source | `computer/cookies.rs` `read_chromium_opens_no_debugging_port`, `staging_dir_is_private`, `a_chromium_browser_is_blocked_where_its_pipe_is_not_wired`; `computer/cookies/devtools.rs` `a_pipe_message_is_its_json_ended_by_one_nul_and_reads_back_however_it_is_cut`, `an_answer_of_exactly_the_limit_is_read_and_one_byte_more_is_refused`, `every_pipe_end_is_close_on_exec_from_the_call_that_opens_it` | Unix but the third |
+| Against a real Chromium on a jar of its own (never the person's), only the chosen site's cookies are kept, and a read that times out or is dropped leaves no browser process or staged copy | `computer/cookies/lending/tests.rs` `a_real_chromium_jar_gives_only_the_chosen_site_and_leaves_nothing_behind` (ignored; run by hand with `HOTLINE_COOKIE_PIPE_BROWSER`) | Unix |
 | In Use lists every holder and its sites | `session/cookie_lends/tests.rs` `in_use_lists_every_teammate_holding_cookies_with_its_sites`; `ui/tests/cookie-lends.test.tsx` | Unix |
 | Only the desk and owner seats share, list, switch sources or see holders | `wire/tests/seats.rs` `only_the_desk_seat_may_share_host_cookies` | — |
 | An old import reads as a row a site, and Remove names its exact domains | `session/tests/computer.rs` `an_old_import_is_a_row_a_site_and_remove_takes_its_domains_back` | Unix |

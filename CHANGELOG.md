@@ -58,6 +58,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   a face was dropped; a face and a row are now moved by pressing and moving
   the pointer, with a line where it will land, and Escape puts it back.
 
+### Security
+
+- Sharing a site's cookies from Chrome, Brave, Edge or another Chromium
+  browser no longer opens a debugging port. Hotline reads the browser's
+  cookies over a private pipe to the copy it starts, so no other program
+  on the computer can connect to that copy while it runs. The copy of the
+  profile is kept in a folder only you can open.
+- On Windows, cookies can't be shared from Chrome, Brave or Edge for now:
+  they are listed as unavailable, with the reason, and only Firefox is
+  offered. Signing in on the teammate's browser still works.
+
 ## [0.49.2] - 2026-11-16
 
 ### Added

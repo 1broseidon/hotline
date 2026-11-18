@@ -11,13 +11,13 @@
 //! own cookies over the DevTools protocol (`Storage.getCookies`), so the
 //! browser decrypts with its own key and the result is uniform across Chrome,
 //! Edge, Brave and Chromium and every version, app-bound encryption included.
-//! We never touch the cookie crypto. The protocol runs over a pipe only the
-//! desk holds (`--remote-debugging-pipe`, see [`devtools`]), never a port, so
-//! no other process on the machine can ask the instance for the jar while it
-//! runs. Windows has no such pipe here yet, so there a Chromium browser is
-//! listed as one Hotline cannot read, rather than opened on a port. Firefox
-//! keeps its cookies in a plaintext SQLite file, so it is read directly, no
-//! launch.
+//! We never touch the cookie crypto. The protocol runs over a pipe between the
+//! desk and that browser (`--remote-debugging-pipe`, see [`devtools`]), never
+//! a port, so no other process on the machine can connect and ask the
+//! instance for the jar while it runs. Windows has no such pipe here yet, so
+//! there a Chromium browser is listed as one Hotline cannot read, rather than
+//! opened on a port. Firefox keeps its cookies in a plaintext SQLite file, so
+//! it is read directly, no launch.
 //!
 //! A profile *copy* is used for two reasons: a second instance cannot open a
 //! profile another process holds the lock on, and the operator's live browser
@@ -732,8 +732,32 @@ async fn read_chromium(candidate: &Candidate, _profile_id: &str) -> Result<Vec<V
     Err(unreadable_here(candidate.name))
 }
 
+/// What one launch of the throwaway instance adds to the shipped one. Only
+/// tests change it: a mock keychain for a profile of their own, or a shorter
+/// deadline.
+#[cfg(unix)]
+struct Launch<'a> {
+    extra: &'a [&'a str],
+    deadline: Duration,
+}
+
+#[cfg(unix)]
+const SHIPPED: Launch<'static> = Launch {
+    extra: &[],
+    deadline: LAUNCH_DEADLINE,
+};
+
 #[cfg(unix)]
 async fn read_chromium(candidate: &Candidate, profile_id: &str) -> Result<Vec<Value>, String> {
+    read_chromium_with(candidate, profile_id, &SHIPPED).await
+}
+
+#[cfg(unix)]
+async fn read_chromium_with(
+    candidate: &Candidate,
+    profile_id: &str,
+    launch: &Launch<'_>,
+) -> Result<Vec<Value>, String> {
     let binary = candidate
         .first_binary()
         .ok_or_else(|| format!("{} is not installed on this machine.", candidate.name))?
@@ -747,23 +771,81 @@ async fn read_chromium(candidate: &Candidate, profile_id: &str) -> Result<Vec<Va
     let mut command = Command::new(&binary);
     command
         .args(chromium_args(staging.path(), profile_id))
+        .args(launch.extra)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
+        // Its own process group, so its helpers can be stopped with it.
+        .process_group(0)
         .kill_on_drop(true);
     let (mut child, mut pipe) = devtools::spawn(&mut command)
         .map_err(|error| format!("Could not launch {}: {error}", candidate.name))?;
+    // Declared after `child`, so that if this read is dropped part way the
+    // group is killed while the browser is still unreaped.
+    let mut launched = Launched {
+        group: child.id().and_then(|id| libc::pid_t::try_from(id).ok()),
+        staging: Some(staging),
+    };
 
-    let result = tokio::time::timeout(LAUNCH_DEADLINE, all_cookies(&mut pipe)).await;
+    let result = tokio::time::timeout(launch.deadline, all_cookies(&mut pipe)).await;
     drop(pipe);
+    launched.kill();
     child.kill().await.ok();
-    // The staging copy drops here regardless of the outcome.
-    drop(staging);
+    // The staging copy goes here regardless of the outcome.
+    drop(launched);
     match result {
         Ok(cookies) => cookies,
         Err(_) => Err(format!(
             "{} did not answer for its cookies in time.",
             candidate.name
         )),
+    }
+}
+
+/// The throwaway browser's process group and its staged copy, which go
+/// together however the read ends: answered, timed out, or dropped part way.
+/// A helper killed a moment ago may still be writing into the copy, which
+/// makes one removal fail or miss a file, so what is left is removed again
+/// until it is gone, off the async thread, for a few seconds at most.
+#[cfg(unix)]
+struct Launched {
+    group: Option<libc::pid_t>,
+    staging: Option<Staging>,
+}
+
+#[cfg(unix)]
+impl Launched {
+    /// Kills the whole group, once. Only ever while its leader is unreaped,
+    /// so the group's id cannot have been taken by another.
+    fn kill(&mut self) {
+        if let Some(group) = self.group.take() {
+            // SAFETY: `killpg` takes a process group id and a signal and
+            // touches no memory of ours.
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Launched {
+    fn drop(&mut self) {
+        self.kill();
+        let Some(staging) = self.staging.take() else {
+            return;
+        };
+        let path = staging.path().to_path_buf();
+        drop(staging);
+        if std::fs::symlink_metadata(&path).is_err() {
+            return;
+        }
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while std::fs::symlink_metadata(&path).is_ok() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+                std::fs::remove_dir_all(&path).ok();
+            }
+        });
     }
 }
 
@@ -1219,7 +1301,7 @@ mod tests {
     }
 
     /// H-04: the throwaway browser holding the person's decrypted cookies
-    /// is reached over a pipe only the desk holds, never a loopback port
+    /// is reached over a pipe from the desk, never a loopback port
     /// another process could connect to.
     #[cfg(unix)]
     #[tokio::test]

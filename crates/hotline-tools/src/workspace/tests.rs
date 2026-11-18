@@ -809,3 +809,62 @@ fn a_received_file_lands_under_its_handle_and_overwrites_nothing() {
         assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
     }
 }
+
+/// A working directory that has become a link (a confined shell can remove
+/// its own emptied workspace and make one) is never opened as a wall: every
+/// tool and the shell open the root again by its path each turn, so
+/// following it would move the wall wherever the link points. A folder above
+/// the root that is a link is the person's layout and is followed as before,
+/// and so is a linked root under whole-machine reach, or for a harness.
+#[cfg(unix)]
+#[test]
+fn a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall() {
+    let directory = TestDirectory::new();
+    let outside = directory.path().join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("secret.txt"), "host-canary").unwrap();
+    let work = directory.path().join("work");
+    std::os::unix::fs::symlink(&outside, &work).unwrap();
+    let open = |reach| {
+        Workspace::open_with_capability(
+            work.clone(),
+            reach,
+            directory.path().join("overflow"),
+            &[],
+            None,
+        )
+    };
+    let refused = open(Reach::Workspace)
+        .err()
+        .expect("a linked root is refused");
+    assert!(
+        refused.to_string().contains("is now a link to"),
+        "{refused}"
+    );
+    assert!(super::linked_root(&work).is_some());
+    assert!(open(Reach::Machine).is_ok());
+    assert!(
+        Workspace::open_following_root(
+            work.clone(),
+            Reach::Workspace,
+            directory.path().join("overflow"),
+            &[],
+            None,
+        )
+        .is_ok()
+    );
+
+    let real = directory.path().join("real");
+    fs::create_dir_all(real.join("project")).unwrap();
+    let alias = directory.path().join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let through = alias.join("project");
+    assert!(super::linked_root(&through).is_none());
+    let workspace = opened(&through, Reach::Workspace);
+    assert_eq!(
+        workspace.display_root(),
+        real.join("project").canonicalize().unwrap()
+    );
+    assert!(super::linked_root(directory.path()).is_none());
+    assert!(super::linked_root(&directory.path().join("missing")).is_none());
+}

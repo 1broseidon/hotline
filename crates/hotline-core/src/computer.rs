@@ -447,6 +447,11 @@ impl Computer {
         room_image: Option<&str>,
         report: impl FnMut(PullReport),
     ) -> Result<Ready, String> {
+        // A container's workspace mount is made from this path, and a runtime
+        // follows a link there as every other holder would.
+        if let Some(refused) = crate::session::moved_workspace(persona, workspace_cwd) {
+            return Err(refused);
+        }
         let _turn = self.turn_of(&persona.id).lock_owned().await;
         self.ensure_running_held(persona, workspace_cwd, prefer, room_image, report)
             .await

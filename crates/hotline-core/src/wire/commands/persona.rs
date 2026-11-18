@@ -69,11 +69,11 @@ pub(crate) fn drafted_persona(
         }
         crate::models::preferred_model(&room::settings(log))
     });
-    let cwd = given(draft.cwd).unwrap_or_else(|| {
+    let cwd = kept_cwd(given(draft.cwd).unwrap_or_else(|| {
         paths::default_workspace(log.root(), &id)
             .to_string_lossy()
             .into_owned()
-    });
+    }))?;
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
     let persona = Persona {
         node: None,
@@ -490,6 +490,9 @@ pub(super) fn update_persona(
 
     let mut updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
+    if patch.get("cwd").is_some() {
+        updated.cwd = kept_cwd(std::mem::take(&mut updated.cwd))?;
+    }
     // Checked here, before anything is revoked or written, so a refused
     // folder leaves the teammate exactly as it was.
     if patch.get("folders").is_some() {
@@ -647,6 +650,28 @@ fn checked_folders(
         ));
     }
     Ok(Some(checked))
+}
+
+/// A working directory as it is kept: as given, unless the folder it names
+/// is itself a link, which is resolved now, when the person chooses it. A
+/// teammate on workspace reach is never opened through a link at its root
+/// later (`tools::linked_root`): one there then was put there since, by
+/// something other than the person. Folders above it are left as spelled,
+/// links or not (`/tmp`, a linked projects folder); a folder not made yet
+/// is kept as given, and made at the first start.
+fn kept_cwd(cwd: String) -> Result<String, String> {
+    let linked = std::fs::symlink_metadata(&cwd).is_ok_and(|found| found.file_type().is_symlink());
+    if !linked {
+        return Ok(cwd);
+    }
+    let resolved = dunce::canonicalize(&cwd)
+        .ok()
+        .filter(|path| path.is_dir())
+        .ok_or_else(|| format!("{cwd} is a link to no folder; choose the folder itself."))?;
+    resolved
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| format!("{cwd} leads to a path Hotline can't spell."))
 }
 
 /// `~` and `~/…` as the home directory, as a person types a folder.

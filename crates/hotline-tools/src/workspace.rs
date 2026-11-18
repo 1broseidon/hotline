@@ -88,7 +88,30 @@ impl Workspace {
         Self::open_with_capability(cwd, reach, overflow, &[], None)
     }
 
+    /// Opens the working directory `cwd` as the teammate's root. Under
+    /// workspace reach a `cwd` that is itself a link is refused, not
+    /// followed ([`linked_root`]).
     pub fn open_with_capability(
+        cwd: PathBuf,
+        reach: Reach,
+        overflow: PathBuf,
+        folders: &[FolderGrant],
+        capability: Option<CapabilityLease>,
+    ) -> Result<Self, ToolError> {
+        if reach == Reach::Workspace
+            && let Some(why) = linked_root(&cwd)
+        {
+            return Err(ToolError::permission_denied(why));
+        }
+        Self::open_following_root(cwd, reach, overflow, folders, capability)
+    }
+
+    /// [`Workspace::open_with_capability`], but a `cwd` that is itself a link
+    /// is followed. Only for what Hotline does for an ACP harness (its file
+    /// callbacks and `AGENTS.md`): the harness's own tools already reach
+    /// wherever such a link points, and a record from before a chosen link
+    /// was resolved when chosen may still name one.
+    pub fn open_following_root(
         cwd: PathBuf,
         reach: Reach,
         overflow: PathBuf,
@@ -1110,6 +1133,30 @@ impl PreparedMutation {
             removed: counted.map(|(_, removed)| removed),
         }
     }
+}
+
+/// Why the working directory `cwd` is not opened as a wall, if it is not: its
+/// own entry is a link (read without following it). Every tool, the
+/// confined shell and the desk's own writers open the working directory
+/// again by its path, so a link there would move the whole wall to wherever
+/// it points, and a teammate confined to its workspace can remove its own
+/// emptied folder and make one. A link the person chose is resolved when
+/// they choose it, so one found here was put there since. Folders above it
+/// may be links (`/tmp` on macOS, a linked projects folder): those are the
+/// person's own layout and are followed as before.
+pub fn linked_root(cwd: &Path) -> Option<String> {
+    let found = std::fs::symlink_metadata(cwd).ok()?;
+    if !found.file_type().is_symlink() {
+        return None;
+    }
+    let target = std::fs::read_link(cwd).map_or_else(
+        |_| "somewhere else".to_string(),
+        |to| to.display().to_string(),
+    );
+    Some(format!(
+        "The working directory {} is now a link to {target}, not a folder, so Hotline will not open it. Remove the link and start again, or choose another folder in the teammate's settings.",
+        cwd.display()
+    ))
 }
 
 /// The granted folders this session may open. Each was canonical when the

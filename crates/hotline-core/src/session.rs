@@ -102,6 +102,7 @@ mod stopping;
 mod threads;
 mod turns;
 mod web_search;
+pub(crate) use agent::moved_workspace;
 use chapters::sweep_idle_chapters;
 use computer::ComputerLinks;
 use driver_info::follow_model_changes;

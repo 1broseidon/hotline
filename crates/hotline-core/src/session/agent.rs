@@ -215,6 +215,18 @@ pub(super) fn clone_of(mut persona: Persona, home: &SessionInfo, without: &[Abil
     persona
 }
 
+/// Why a teammate's working directory `cwd` (its record's) is not opened, if
+/// it is not: under workspace reach, the folder has become a link
+/// ([`crate::tools::linked_root`]). The file tools and the shell refuse it
+/// on their own; this stops what is opened by path before them: the skills
+/// writer, the computer's workspace mount and the rest of a session start.
+pub(crate) fn moved_workspace(persona: &Persona, cwd: &str) -> Option<String> {
+    if persona.reach.unwrap_or_default() != Reach::Workspace {
+        return None;
+    }
+    crate::tools::linked_root(Path::new(cwd))
+}
+
 /// The session a child is asked to reopen: the thread's saved one, when the
 /// harness the teammate runs on now is the one that issued it. Only a child
 /// has a session of its own to reopen.
@@ -251,6 +263,9 @@ impl Room {
         let policy = Policy::of(thread.kind);
         let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
         let main = policy.resume == Resume::Checkpoint;
+        if let Some(refused) = moved_workspace(&persona, &persona.cwd) {
+            return Err(refused);
+        }
         std::fs::create_dir_all(&persona.cwd).map_err(|error| {
             format!(
                 "{}'s working directory {} could not be made: {error}",
@@ -822,6 +837,46 @@ mod tests {
             lock(&agents.preambles)[0].contains("This is a subagent run of Ada's"),
             "a run is the teammate, told it is a run"
         );
+    }
+
+    /// A confined teammate whose working directory became a link (its shell
+    /// removed the emptied folder and made one) does not start there: the
+    /// skills, the computer and the tools would all follow it, so nothing is
+    /// written where it points and the person is told why. One whose folder
+    /// is reached through a linked folder above it starts as before.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_teammate_whose_workspace_became_a_link_does_not_start_through_it() {
+        let agents = Fake::new(Scripted::new(reply("Hello.")));
+        let log = scratch("agent-linked-root");
+        let outside = log.root().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        let link = log.root().join("work");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = link.to_string_lossy().into_owned();
+        let room = room_with(&ada, log, agents.clone());
+        let refused = room.start("ada").await.unwrap_err();
+        assert!(refused.contains("is now a link to"), "{refused}");
+        assert!(
+            std::fs::read_dir(&outside).unwrap().next().is_none(),
+            "nothing is written where the link points"
+        );
+        assert!(lock(&agents.preambles).is_empty(), "no agent was built");
+
+        let agents = Fake::new(Scripted::new(reply("Hello.")));
+        let log = scratch("agent-linked-parent");
+        let real = log.root().join("real");
+        std::fs::create_dir_all(real.join("project")).unwrap();
+        let alias = log.root().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = alias.join("project").to_string_lossy().into_owned();
+        let room = room_with(&ada, log, agents.clone());
+        room.start("ada").await.unwrap();
+        assert!(real.join("project/.agents/skills").is_dir());
     }
 
     #[tokio::test]

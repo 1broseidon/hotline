@@ -64,6 +64,77 @@ async fn a_draft_that_names_things_keeps_them() {
     assert_eq!(created["backgroundWork"], true);
 }
 
+/// A working directory the person chooses that is itself a link is kept as
+/// the folder it leads to now, since a teammate on workspace reach is never
+/// opened through a link at its root later. Folders above it are kept as
+/// spelled, links or not, and a link to no folder is refused.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chosen_working_directory_that_is_a_link_is_kept_as_its_folder() {
+    let (root, log, port) = door("cwd-link");
+    let mut socket = desk(port).await;
+    let real = root.join("real");
+    std::fs::create_dir_all(real.join("project")).unwrap();
+    let alias = root.join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let linked = root.join("linked");
+    std::os::unix::fs::symlink(real.join("project"), &linked).unwrap();
+    let resolved = dunce::canonicalize(real.join("project")).unwrap();
+    let draft = |cwd: &std::path::Path| PersonaDraft {
+        name: "Bob".to_string(),
+        goal: None,
+        team: None,
+        backend_id: None,
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        reach: None,
+        folders: None,
+        model_id: None,
+        effort_id: None,
+        computer: None,
+        background_work: None,
+    };
+
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "persona.create", "params": { "draft": draft(&linked) } }),
+    )
+    .await;
+    let created = heard(&mut socket).await["result"].clone();
+    assert_eq!(created["cwd"], json!(resolved.to_string_lossy()));
+
+    let through = alias.join("project");
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "persona.create", "params": { "draft": draft(&through) } }),
+    )
+    .await;
+    let kept = heard(&mut socket).await["result"].clone();
+    assert_eq!(kept["cwd"], json!(through.to_string_lossy()));
+
+    let id = kept["id"].as_str().unwrap().to_string();
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "persona.update", "params": { "id": id, "patch": { "cwd": linked } } }),
+    )
+    .await;
+    let updated = heard(&mut socket).await["result"].clone();
+    assert_eq!(updated["cwd"], json!(resolved.to_string_lossy()));
+
+    let dangling = root.join("dangling");
+    std::os::unix::fs::symlink(root.join("gone"), &dangling).unwrap();
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "persona.update", "params": { "id": id, "patch": { "cwd": dangling } } }),
+    )
+    .await;
+    let refused = heard(&mut socket).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        updated,
+        json!(room::roster(&log).into_iter().find(|p| p.id == id).unwrap())
+    );
+}
+
 #[tokio::test]
 async fn a_patch_is_folded_over_the_teammate_and_the_whole_record_is_written_again() {
     let (_root, log, port) = door("update");

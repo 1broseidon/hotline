@@ -111,7 +111,24 @@ decision for George, not a bug fix.
   not pretend otherwise.
 - **The workspace is the agent's**, along with `.hotline-home/` inside it and
   the private caches there. Teammates sharing a working directory share
-  those.
+  those. The folder itself stays where the person put it, because every
+  tool and the desk's own writers open it again by its path: on macOS the
+  Seatbelt profile denies removing, renaming or replacing the workspace, a
+  writable folder, or any folder above one (`file-write-unlink` and
+  `file-write-create` on each literal path), so an emptied workspace cannot
+  be swapped for a link; bubblewrap binds the workspace as a mount point on
+  a read-only root. Under workspace reach Hotline never opens a working
+  directory that has itself become a link (`tools::linked_root`): a tool
+  call, `send_file`, a generated image, a session start (skills, the rest
+  of the start) and the computer's workspace mount each refuse it, saying
+  so. A working directory the person chooses that is a link is kept as the
+  folder it leads to (`persona.create`/`persona.update`); folders above it
+  may be links, as the person laid them out. Hotline's ACP file callbacks
+  and `AGENTS.md` still follow a linked root, since the harness's own tools
+  reach wherever it points. On Linux a folder above the workspace inside a
+  writable granted folder can still be renamed and a link put in its
+  place, which moves the next session to a folder of the workspace's own
+  name wherever that link points (made there if missing).
 - **Dispatched side effects survive revocation.** Revocation refuses the
   next call; it cannot recall a remote tool call already in flight or undo
   a file already written.
@@ -1649,6 +1666,7 @@ extend; when a change adds a boundary, it adds a row.
 | Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `hotline-tools/src/shell/tests.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
 | Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `hotline-tools/src/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
 | macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `hotline-tools/src/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
+| A workspace stays where it was chosen: on macOS the confined shell cannot remove, rename or replace its workspace, a writable folder or a folder above one, while everything inside stays changeable; under workspace reach a working directory that has become a link is never opened, by a tool or a session start, and nothing is written where it points; a folder above it that is a link is followed; a working directory the person chooses as a link is kept as its folder and a link to nothing is refused | `hotline-tools/src/shell/macos.rs` `writable_roots_cannot_be_removed_renamed_or_replaced`, `granted_folders_are_in_the_profile_with_their_modes`; `hotline-tools/src/workspace/tests.rs` `a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall`; `session/agent.rs` `a_teammate_whose_workspace_became_a_link_does_not_start_through_it`; `wire/tests/personas.rs` `a_chosen_working_directory_that_is_a_link_is_kept_as_its_folder` | the Seatbelt test: a real Mac |
 | macOS network stays available and package downloads land in private caches | `hotline-tools/src/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
 | Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree; cancelling during sleep cannot run the next statement (50 repetitions) | `hotline-tools/src/shell/tests.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started`, `cancellation_during_sleep_never_runs_the_next_statement`; `tests/steering.rs` `an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finishes` | macOS and Linux; sandbox test on Linux needs bubblewrap |
 | A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |

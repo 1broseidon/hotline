@@ -191,6 +191,19 @@ pub struct InboxItem {
     /// The item this one answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
+    /// The conversation it belongs to between teammates: one ask, its
+    /// answers and the follow-ups on them, however many items that takes.
+    /// Kept when the item is made: the topic of the item `reply_to` names,
+    /// else the `send_id` of the send that made it. Absent on one kept
+    /// before it was recorded, which the store works out as it reads it
+    /// (`hotline_store::inbox::topics`), and never moved afterwards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    /// Shared by the items one `send` made, one for each teammate it
+    /// reached, so a send to several is one conversation for its sender.
+    /// Absent on an answer, a notice, and one kept before it was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_id: Option<String>,
     /// A thread of the receiver's it is about, where it is heard while that
     /// thread is live; else the receiver's main conversation hears it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

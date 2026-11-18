@@ -29,13 +29,18 @@ pub(super) fn read(log: &Log, persona_id: &str) -> Result<InboxView, String> {
     ))
 }
 
-/// One item by id, wherever it is kept, with the items that answer it.
+/// One item by id, wherever it is kept, with the items that answer it, each
+/// with its topic.
 pub(super) fn item(log: &Log, id: &str) -> Result<InboxItemDetail, String> {
     let roster = room::roster(log);
-    let teammates = || roster.iter().map(|persona| persona.id.as_str());
-    let item = kept::find(log, id, teammates()).ok_or("There is no such inbox item.")?;
-    let replies = teammates()
-        .flat_map(|teammate| kept::of(log, teammate))
+    let all = kept::everything(log, roster.iter().map(|persona| persona.id.as_str()));
+    let item = all
+        .iter()
+        .find(|item| item.id == id)
+        .cloned()
+        .ok_or("There is no such inbox item.")?;
+    let replies = all
+        .into_iter()
         .filter(|reply| reply.reply_to.as_deref() == Some(item.id.as_str()))
         .collect();
     Ok(InboxItemDetail { item, replies })

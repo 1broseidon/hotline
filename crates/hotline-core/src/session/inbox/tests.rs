@@ -968,7 +968,7 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
     let untitled = tool(&room, "ada", "send", json!({"to": ["bob"], "title": "  "}))
         .await
         .unwrap_err();
-    assert!(untitled.contains("needs a `title`"), "{untitled}");
+    assert!(untitled.contains("needs a `message`"), "{untitled}");
     // The whole team, each once.
     let team = tool(
         &room,
@@ -1038,3 +1038,4 @@ mod quiet;
 mod retention;
 mod taken;
 mod titles;
+mod topics;

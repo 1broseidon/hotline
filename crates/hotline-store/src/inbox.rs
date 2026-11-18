@@ -28,6 +28,15 @@ const THREADS: [&str; 3] = ["fromThread", "about", "work"];
 /// The fields of a thread this build reads.
 const THREAD_FIELDS: [&str; 3] = ["desk", "kind", "key"];
 
+/// How far apart, at most, the items one `send` made were kept, for an
+/// item kept before its send id was: a send keeps one for each teammate it
+/// reaches in one go, well inside this.
+const ONE_SEND_MS: i64 = 5_000;
+
+/// The most items a chain of answers is followed through, so a chain that
+/// names itself, which no build writes, still ends.
+const CHAIN_MOST: usize = 1_000;
+
 /// One item as its line on a stream holds it, or nothing for any other line
 /// and for an item line this build cannot read ([`newer_of`]). What a newer
 /// Hotline wrote on it that this build does not know is kept on the item
@@ -131,36 +140,117 @@ pub fn sent_by<'a>(
     sent
 }
 
-/// One item by id, out of the inboxes of `teammates`.
-pub fn find<'a>(
-    log: &Log,
-    id: &str,
-    teammates: impl IntoIterator<Item = &'a str>,
-) -> Option<InboxItem> {
-    teammates
+/// Every item kept in the inboxes of `teammates`, with the topic and send
+/// id of each worked out where it was kept before they were recorded
+/// ([`topics`]).
+pub fn everything<'a>(log: &Log, teammates: impl IntoIterator<Item = &'a str>) -> Vec<InboxItem> {
+    let mut items: Vec<InboxItem> = teammates
         .into_iter()
         .flat_map(|teammate| of(log, teammate))
-        .find(|item| item.id == id)
+        .collect();
+    topics(&mut items);
+    items
+}
+
+/// Gives each item kept before topics and send ids were recorded the ones
+/// it would have had, out of `items`, which should hold every item it could
+/// be linked to. The items one `send` made for several, which name each
+/// other in `also_to`, share the send id of the first of them: the same
+/// sender, title and teammates reached, kept within [`ONE_SEND_MS`]. An
+/// item's topic is the stored topic of the nearest item up its chain of
+/// `reply_to` that has one, else that chain's first item's send id, else
+/// that first item's id: a chain whose first item is gone starts at the
+/// oldest item still kept. Nothing here is written back.
+pub fn topics(items: &mut [InboxItem]) {
+    let mut sends: Vec<usize> = (0..items.len())
+        .filter(|at| items[*at].send_id.is_none() && !items[*at].also_to.is_empty())
+        .collect();
+    sends.sort_by_key(|at| items[*at].ts);
+    let reached = |item: &InboxItem| {
+        let mut all: Vec<&str> = item.also_to.iter().map(String::as_str).collect();
+        all.push(&item.to);
+        all.sort_unstable();
+        all.join(" ")
+    };
+    let mut firsts: Vec<usize> = Vec::new();
+    for at in sends {
+        let item = &items[at];
+        let first = firsts.iter().rev().copied().find(|first| {
+            let first = &items[*first];
+            first.from == item.from
+                && first.title == item.title
+                && reached(first) == reached(item)
+                && item.ts - first.ts <= ONE_SEND_MS
+        });
+        let first = first.unwrap_or_else(|| {
+            firsts.push(at);
+            at
+        });
+        items[at].send_id = Some(items[first].id.clone());
+    }
+    let index: std::collections::HashMap<String, usize> = items
+        .iter()
+        .enumerate()
+        .map(|(at, item)| (item.id.clone(), at))
+        .collect();
+    let found: Vec<Option<String>> = (0..items.len())
+        .map(|at| {
+            if items[at].topic.is_some() {
+                return None;
+            }
+            let mut root = at;
+            for _ in 0..CHAIN_MOST {
+                let up = items[root]
+                    .reply_to
+                    .as_ref()
+                    .and_then(|named| index.get(named))
+                    .copied();
+                match up {
+                    Some(up) if items[up].topic.is_some() => return items[up].topic.clone(),
+                    Some(up) => root = up,
+                    None => break,
+                }
+            }
+            let root = &items[root];
+            Some(root.send_id.clone().unwrap_or_else(|| root.id.clone()))
+        })
+        .collect();
+    for (item, topic) in items.iter_mut().zip(found) {
+        if topic.is_some() {
+            item.topic = topic;
+        }
+    }
 }
 
 /// The teammate's inbox as the window draws it: open and closed newest
-/// first, what it sent newest first, and its unread count.
+/// first, what it sent newest first, and its unread count, each item with
+/// its topic and send id ([`topics`]).
 pub fn view<'a>(
     log: &Log,
     persona_id: &str,
     teammates: impl IntoIterator<Item = &'a str>,
 ) -> InboxView {
+    let teammates: Vec<&str> = teammates.into_iter().collect();
+    let all = everything(log, teammates.iter().copied());
     let mut open = Vec::new();
     let mut closed = Vec::new();
-    for item in received(log, persona_id).into_iter().rev() {
+    let held = all
+        .iter()
+        .filter(|item| item.to == persona_id && !item.held)
+        .cloned()
+        .collect::<Vec<_>>();
+    for item in held.into_iter().rev() {
         if item.state == hotline_contract::InboxState::Closed {
             closed.push(item);
         } else {
             open.push(item);
         }
     }
-    let teammates: Vec<&str> = teammates.into_iter().collect();
-    let mut sent = sent_by(log, persona_id, teammates.iter().copied());
+    let mut sent: Vec<InboxItem> = all
+        .into_iter()
+        .filter(|item| item.from == persona_id && item.to != persona_id && item.notice.is_none())
+        .collect();
+    sent.sort_by_key(|item| item.ts);
     sent.reverse();
     closed.truncate(VIEW_MOST);
     sent.truncate(VIEW_MOST);

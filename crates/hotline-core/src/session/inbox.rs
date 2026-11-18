@@ -42,12 +42,15 @@ mod clock;
 mod heard;
 mod limit;
 mod pick_up;
+mod sending;
 mod tidy;
+mod topics;
 
 pub(in crate::session) use clock::{arrived_at, expire_after};
 pub(in crate::session) use heard::QUIET_WAKE_LINE;
 pub(in crate::session) use limit::QuietTurns;
 pub(in crate::session) use pick_up::PickUp;
+pub(crate) use sending::Sending;
 
 /// The most a title says: a line someone reads before deciding whether to
 /// open the item.
@@ -108,22 +111,6 @@ impl Listing {
     }
 }
 
-/// An item a teammate sends, as the `send` tool takes it.
-pub(crate) struct Sending {
-    /// Teammates by name or id, or one of [`TEAM`].
-    pub to: Vec<String>,
-    pub title: String,
-    pub message: String,
-    pub wants: InboxWants,
-    pub waiting: bool,
-    /// A thread of the receiver's, as `kind:key`.
-    pub about: Option<String>,
-    /// An item in the sender's own inbox this one answers.
-    pub reply_to: Option<String>,
-    /// Paths of files to send with it, as the sender's read tools name them.
-    pub files: Vec<String>,
-}
-
 /// What one `update_inbox` entry does to its item.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Sort {
@@ -142,62 +129,6 @@ pub(crate) struct Sorting {
     pub reason: Option<String>,
     pub answer: Option<String>,
     pub in_thread: Option<bool>,
-}
-
-impl Sending {
-    /// The `send` tool's arguments.
-    pub(crate) fn from_arguments(arguments: &Value) -> Result<Self, String> {
-        let text = |key: &str| {
-            arguments
-                .get(key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-        };
-        let to = match arguments.get("to") {
-            Some(Value::String(one)) => vec![one.clone()],
-            Some(Value::Array(many)) => many
-                .iter()
-                .map(|named| named.as_str().map(str::to_string))
-                .collect::<Option<Vec<_>>>()
-                .ok_or("`to` is a list of teammates' names.")?,
-            _ => {
-                return Err(
-                    "send needs `to`: a teammate's name, several, or \"team\" for everyone.".into(),
-                );
-            }
-        };
-        let wants = match text("wants") {
-            None => InboxWants::Answer,
-            Some(wants) => InboxWants::parse(&wants).ok_or("wants is answer, work or nothing.")?,
-        };
-        let files = match arguments.get("files").filter(|files| !files.is_null()) {
-            None => Vec::new(),
-            Some(files) => files
-                .as_array()
-                .and_then(|files| {
-                    files
-                        .iter()
-                        .map(|path| path.as_str().map(str::to_string))
-                        .collect()
-                })
-                .ok_or("`files` is a list of paths your read tools can open.")?,
-        };
-        Ok(Self {
-            to,
-            title: text("title").ok_or("send needs a `title`: a short line saying what it is.")?,
-            message: text("message").unwrap_or_default(),
-            wants,
-            waiting: arguments
-                .get("waiting")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            about: text("about"),
-            reply_to: text("reply_to"),
-            files,
-        })
-    }
 }
 
 impl Sorting {
@@ -342,8 +273,13 @@ fn item(
     body: String,
     wants: InboxWants,
 ) -> InboxItem {
+    let id = new_id();
     InboxItem {
-        id: new_id(),
+        // An item starts a topic of its own, unless what makes it says
+        // otherwise.
+        topic: Some(id.clone()),
+        send_id: None,
+        id,
         ts: now_ms(),
         from: from.id.clone(),
         from_thread: from_thread.clone(),
@@ -389,8 +325,10 @@ impl Room {
     ) -> Result<String, String> {
         let _working = self.working()?;
         let caller = self.participant(from)?;
-        let title = title_of(&sending.title)?;
-        let body = sending.message.trim().to_string();
+        let (title, body) = match &sending.title {
+            Some(title) => (title_of(title)?, sending.message.trim().to_string()),
+            None => topics::untitled(&sending.message)?,
+        };
         if body.chars().count() > super::TEAMMATE_MESSAGE_MAX {
             return Err(format!(
                 "An item's message is at most {} characters.",
@@ -401,10 +339,24 @@ impl Room {
         if let Some(capability) = &capability {
             capability.check()?;
         }
-        let reply_to = match &sending.reply_to {
+        let replied = match &sending.reply_to {
             None => None,
-            Some(named) => Some(self.item_of(&caller.id, named)?.id),
+            Some(named) => Some(self.linked_item(&caller.id, named)?),
         };
+        // An answer to a question wants nothing back unless it says so.
+        let answering = replied
+            .as_ref()
+            .is_some_and(|asked| topics::answers(&caller, &targets, asked));
+        let wants = sending.wants.unwrap_or(if answering {
+            InboxWants::Nothing
+        } else {
+            InboxWants::Answer
+        });
+        // One send is one topic: the one it follows up on, else its own.
+        let send_id = new_id();
+        let topic = replied
+            .as_ref()
+            .map_or_else(|| send_id.clone(), |asked| self.topic_for(asked));
         let about = match &sending.about {
             None => None,
             Some(_) if targets.len() > 1 => {
@@ -444,6 +396,7 @@ impl Room {
         let prompted = self.prompted_by(sent_from);
         let mut sent = Vec::new();
         let mut held = Vec::new();
+        let mut delivered = Vec::new();
         for target in &targets {
             let mut new = item(
                 &caller,
@@ -451,8 +404,10 @@ impl Room {
                 &target.id,
                 title.clone(),
                 body.clone(),
-                sending.wants,
+                wants,
             );
+            new.topic = Some(topic.clone());
+            new.send_id = Some(send_id.clone());
             new.waiting = sending.waiting;
             new.for_person = for_person;
             // Each receiver is told who else this send reached.
@@ -461,10 +416,10 @@ impl Room {
                 .filter(|other| other.id != target.id)
                 .map(|other| other.id.clone())
                 .collect();
-            new.reply_to.clone_from(&reply_to);
+            new.reply_to = replied.as_ref().map(|asked| asked.id.clone());
             new.about.clone_from(&about);
-            let granted = lead
-                || self.collaboration_granted(&caller, target, sending.wants == InboxWants::Work);
+            let granted =
+                lead || self.collaboration_granted(&caller, target, wants == InboxWants::Work);
             if granted {
                 self.with_files(&mut new, &files)?;
                 moved(&mut new, InboxState::New, None, None, None);
@@ -491,9 +446,18 @@ impl Room {
                     title: new.title.clone(),
                 },
             );
-            sent.push(json!({ "id": new.id, "to": target.name }));
+            let landed = topics::delivery(new.held);
+            delivered.push(format!("{}: {landed}", target.name));
+            sent.push(json!({ "id": new.id, "to": target.name, "delivery": landed }));
         }
-        let mut note = "In their inbox. They see its title and who sent it, and read it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. Carry on, or end your turn to wait; do not send it again.".to_string();
+        // What it answers is answered, as `update_inbox`'s `answer` closes it.
+        if let Some(asked) = replied.as_ref().filter(|_| answering) {
+            self.close_item(&caller.id, &asked.id, InboxOutcome::Answered, None);
+        }
+        let delivery = delivered.join(" · ");
+        let mut note = format!(
+            "{delivery}. A teammate sees an item's title and who sent it once it is in their inbox, and reads it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. Carry on, or end your turn to wait; do not send it again."
+        );
         if for_person {
             note = format!("{note} {ROW_IS_THE_RECEIPT}");
         }
@@ -503,7 +467,7 @@ impl Room {
                 held.join(" or ")
             );
         }
-        Ok(json!({ "sent": sent, "note": note }).to_string())
+        Ok(json!({ "sent": sent, "delivery": delivery, "note": note }).to_string())
     }
 
     /// The teammates `to` names, each once: by name or id, or every teammate
@@ -1342,6 +1306,7 @@ impl Room {
             InboxWants::Nothing,
         );
         reply.reply_to = Some(original.id.clone());
+        reply.topic = Some(self.topic_for(original));
         reply.about = self.reply_about(original);
         moved(&mut reply, InboxState::New, None, None, None);
         reply.sender_told = 1;

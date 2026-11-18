@@ -183,7 +183,7 @@ impl Room {
         if enabled {
             json!({
                 "state": "attached",
-                "note": "Your computer is attached, shared with your other threads: one drives it at a time, and a call says who has it when it is busy. If it did not start for this thread, its `computer__` tools are absent; work without it and say so.",
+                "note": format!("Your computer is attached, shared with your other threads: one drives its desktop at a time, and a call that needs the desktop says who has it when it is busy. {} If it did not start for this thread, its `computer__` tools are absent; work without it and say so.", crate::computer::gate::WHILE_ANOTHER_DRIVES),
             })
         } else {
             json!({
@@ -752,9 +752,10 @@ impl Room {
             )
             .await;
         // In use is a main session running, or any thread — a side thread, a
-        // call, a job — holding the gate's lease.
+        // call, a job — holding the gate's lease or making a call that needs
+        // none.
         let mut in_use: HashSet<String> = lock(&self.sessions).keys().cloned().collect();
-        in_use.extend(self.computer_leases.held_ids());
+        in_use.extend(self.computer_leases.in_use());
         self.computers.sweep(now_ms(), &in_use).await;
         // The newest release is looked up on this clock too: once when the
         // room opens, then every six hours.

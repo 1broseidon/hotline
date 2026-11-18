@@ -1381,6 +1381,28 @@ async fn a_computer_held_by_a_side_thread_survives_the_sweep() {
     assert_eq!(commands_starting(&root, "rm"), 1, "let go, it is swept");
 }
 
+/// A thread running jobs on the computer with calls that need no lease is
+/// using it too, holding no lease: the sweep leaves it running.
+#[tokio::test]
+async fn a_computer_a_thread_runs_jobs_on_without_the_lease_survives_the_sweep() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-shared-sweep", Some("0.11.0"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    room.stop("ada").unwrap();
+    let before = commands_starting(&root, "stop") + commands_starting(&root, "rm");
+    let call = room.computer_leases.share("ada");
+    room.computers.mark_idle("ada", 0);
+    room.sweep_computers().await;
+    drop(call);
+    room.computers.mark_idle("ada", 0);
+    room.sweep_computers().await;
+    assert_eq!(
+        commands_starting(&root, "stop") + commands_starting(&root, "rm"),
+        before,
+        "a call in flight, or one just ended, is not idle"
+    );
+}
+
 /// An update's swap is claimed under the start gate, not before it: while it
 /// waits there, the teammate's phase still says a swap is under way, so a
 /// second update does not download another.

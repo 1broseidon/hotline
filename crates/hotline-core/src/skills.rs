@@ -12,9 +12,14 @@
 //! skill with the name, the description and the path — the format's
 //! progressive disclosure, so a body costs nothing until it is read.
 
+use std::ffi::OsStr;
 use std::fmt::Write;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, OpenOptions};
 use serde_json::{Map, Value};
 
 use crate::contract::{PolicyMode, SkillEntry, SkillPolicy, SkillSource};
@@ -285,25 +290,26 @@ pub const COMPUTER: &str = "hotline-computer";
 /// release actually running and never a bundled copy that can drift. The
 /// marker records the release and checksum it came from, which is how the
 /// entry is told apart from a gateway folder of the same name.
+///
+/// It is written the way [`materialize`] writes, through handles on the
+/// workspace that no link the teammate planted can lead out of.
 pub fn write_computer(cwd: &Path, version: &str, sha256: &str, skill: &str) -> Result<(), String> {
-    let target = cwd.join(DIRECTORY);
-    for dir in [cwd.join(".agents"), target.clone()] {
-        refuse_link(&dir)?;
-    }
-    let entry = target.join(COMPUTER);
-    refuse_link(&entry)?;
-    if entry.exists() && !entry.join(MANAGED_MARKER).exists() {
+    let skills = open_skills(cwd)?;
+    let path = cwd.join(DIRECTORY).join(COMPUTER);
+    match entry_state(&skills, &path)? {
         // A folder the teammate or the person wrote with this name shadows
         // the computer's, exactly as it shadows a grant.
-        return Ok(());
+        EntryState::Theirs => return Ok(()),
+        EntryState::Linked => return Err(format!("{} is a symbolic link.", path.display())),
+        EntryState::Missing | EntryState::Ours => {}
     }
-    std::fs::create_dir_all(&entry).map_err(|error| made(&entry, error))?;
-    std::fs::write(entry.join(FILE), skill).map_err(|error| made(&entry, error))?;
-    std::fs::write(
-        entry.join(MANAGED_MARKER),
-        format!("computer {version} {sha256}\n"),
-    )
-    .map_err(|error| made(&entry, error))?;
+    let entry = child_dir(&skills, &path)?;
+    replace_file(&entry, &path, FILE.as_ref(), |file| {
+        io::Write::write_all(file, skill.as_bytes())
+    })?;
+    replace_file(&entry, &path, MANAGED_MARKER.as_ref(), |file| {
+        io::Write::write_all(file, format!("computer {version} {sha256}\n").as_bytes())
+    })?;
     Ok(())
 }
 
@@ -489,17 +495,19 @@ pub fn index(skills: &[SkillEntry]) -> String {
 /// of the same name. A marked entry the grant no longer covers is removed,
 /// so a revoked grant leaves nothing of Hotline's behind.
 ///
-/// This is a write into a workspace without the confined handle the tools
-/// use, because it copies whole directories the operator put in the gateway
-/// or keeps in their own folder. It is kept safe the plain way: `.agents`,
-/// `.agents/skills` and each entry are refused if they are symbolic links,
-/// and links inside an offered skill are not copied.
+/// The desk writes here unconfined, into a folder the teammate can change,
+/// so every step goes through a directory handle opened on the workspace, as
+/// `AGENTS.md` is written: the workspace, then `.agents`, `.agents/skills`
+/// and each entry, each opened inside the one before and refused if it is a
+/// symbolic link. A link swapped in after the check cannot lead out, because
+/// a handle resolves nothing outside the directory it was opened on. Files
+/// are written to a fresh temporary file renamed over the name, which
+/// replaces a planted link instead of writing through it; an entry counts as
+/// Hotline's only when its marker is a plain file; removal takes links away
+/// without following them; and links inside an offered skill are not copied.
 pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Result<(), String> {
     let target = cwd.join(DIRECTORY);
-    for dir in [cwd.join(".agents"), target.clone()] {
-        refuse_link(&dir)?;
-    }
-    std::fs::create_dir_all(&target).map_err(|error| made(&target, error))?;
+    let skills = open_skills(cwd)?;
 
     enum Source<'a> {
         Text(&'a str),
@@ -521,44 +529,194 @@ pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Res
         }
     }
 
-    for existing in std::fs::read_dir(&target)
+    for existing in skills
+        .entries()
         .map_err(|error| made(&target, error))?
         .flatten()
     {
-        let name = existing.file_name().to_string_lossy().into_owned();
-        let path = existing.path();
-        if path.join(MANAGED_MARKER).exists() && !wanted.iter().any(|(wanted, _)| *wanted == name) {
-            remove_tree(&path)?;
+        let name = existing.file_name();
+        let path = target.join(&name);
+        let wanted_here = wanted
+            .iter()
+            .any(|(wanted, _)| OsStr::new(wanted) == name.as_os_str());
+        if !wanted_here && entry_state(&skills, &path)? == EntryState::Ours {
+            remove_entry(&skills, &path)?;
         }
     }
 
     // Two sessions can share a working directory and start at once, so this
     // is written to be run twice at the same time with the same answer: a
     // built-in is overwritten in place rather than removed and remade, a
-    // removal that finds nothing is not an error, and every directory is
-    // made with create_dir_all.
+    // removal that finds nothing is not an error, and a directory that is
+    // already there is opened rather than made.
     for (name, source) in wanted {
-        let entry = target.join(&name);
-        refuse_link(&entry)?;
-        let ours = entry.join(MANAGED_MARKER).exists();
-        if entry.exists() && !ours {
-            continue;
+        let path = target.join(&name);
+        let state = entry_state(&skills, &path)?;
+        match state {
+            EntryState::Theirs => continue,
+            EntryState::Linked => return Err(format!("{} is a symbolic link.", path.display())),
+            EntryState::Missing | EntryState::Ours => {}
         }
-        if ours && matches!(source, Source::Tree(_)) {
+        if state == EntryState::Ours && matches!(source, Source::Tree(_)) {
             // An offered skill may have changed or lost a file since it was
             // copied; the copy is remade whole so nothing stale is read.
-            remove_tree(&entry)?;
+            remove_entry(&skills, &path)?;
         }
-        std::fs::create_dir_all(&entry).map_err(|error| made(&entry, error))?;
+        let entry = child_dir(&skills, &path)?;
         match source {
-            Source::Text(text) => {
-                std::fs::write(entry.join(FILE), text).map_err(|error| made(&entry, error))?;
-            }
-            Source::Tree(from) => copy_tree(&from, &entry)?,
+            Source::Text(text) => replace_file(&entry, &path, FILE.as_ref(), |file| {
+                io::Write::write_all(file, text.as_bytes())
+            })?,
+            Source::Tree(from) => copy_tree(&from, &entry, &path)?,
         }
-        std::fs::write(entry.join(MANAGED_MARKER), "").map_err(|error| made(&entry, error))?;
+        replace_file(&entry, &path, MANAGED_MARKER.as_ref(), |_| Ok(()))?;
     }
     Ok(())
+}
+
+/// The workspace's `.agents/skills`, made if missing and opened as a handle
+/// that every later step is resolved inside. The working directory itself is
+/// the trusted root, the folder the teammate's record names; `.agents` and
+/// `.agents/skills` are the teammate's to change, so either one being a
+/// symbolic link refuses the write rather than following it.
+fn open_skills(cwd: &Path) -> Result<Dir, String> {
+    std::fs::create_dir_all(cwd).map_err(|error| made(cwd, error))?;
+    let root = Dir::open_ambient_dir(cwd, ambient_authority()).map_err(|error| made(cwd, error))?;
+    let agents_path = cwd.join(".agents");
+    let agents = child_dir(&root, &agents_path)?;
+    child_dir(&agents, &cwd.join(DIRECTORY))
+}
+
+/// Makes the directory `path` names inside `parent` if it is missing, and
+/// opens it there. A symbolic link is refused. The open happens inside
+/// `parent`'s handle, which cannot resolve a path out of `parent`, so a link
+/// swapped in after the check leads nowhere outside; on Unix the directory
+/// opened must also be the one just checked, so it leads nowhere else
+/// either.
+fn child_dir(parent: &Dir, path: &Path) -> Result<Dir, String> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("{} is not a folder.", path.display()))?;
+    match parent.create_dir(name) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(made(path, error)),
+    }
+    let checked = parent
+        .symlink_metadata(name)
+        .map_err(|error| made(path, error))?;
+    if checked.file_type().is_symlink() {
+        return Err(format!("{} is a symbolic link.", path.display()));
+    }
+    let opened = parent.open_dir(name).map_err(|error| made(path, error))?;
+    #[cfg(unix)]
+    {
+        use cap_std::fs::MetadataExt;
+        let now = opened.dir_metadata().map_err(|error| made(path, error))?;
+        if (now.dev(), now.ino()) != (checked.dev(), checked.ino()) {
+            return Err(format!(
+                "{} changed while it was being written.",
+                path.display()
+            ));
+        }
+    }
+    Ok(opened)
+}
+
+/// Whose an entry of `.agents/skills` is, read without following any link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EntryState {
+    /// Nothing is there yet.
+    Missing,
+    /// A directory whose marker is a plain file: Hotline's to replace or
+    /// remove.
+    Ours,
+    /// Anything else: the person's or the teammate's, never touched. A
+    /// linked marker is not Hotline's, because Hotline never writes a link.
+    Theirs,
+    /// The entry is itself a symbolic link: never followed, and refused when
+    /// Hotline would write there, as a linked `.agents` is.
+    Linked,
+}
+
+/// Reads an entry's state.
+fn entry_state(skills: &Dir, path: &Path) -> Result<EntryState, String> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("{} is not a folder.", path.display()))?;
+    let metadata = match skills.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(EntryState::Missing),
+        Err(error) => return Err(made(path, error)),
+    };
+    if metadata.file_type().is_symlink() {
+        return Ok(EntryState::Linked);
+    }
+    if !metadata.is_dir() {
+        return Ok(EntryState::Theirs);
+    }
+    let marker = Path::new(name).join(MANAGED_MARKER);
+    match skills.symlink_metadata(&marker) {
+        Ok(marker) if marker.is_file() => Ok(EntryState::Ours),
+        _ => Ok(EntryState::Theirs),
+    }
+}
+
+/// Removes an entry through the skills handle. A link anywhere inside it is
+/// removed, never followed, and an entry already gone is not an error.
+fn remove_entry(skills: &Dir, path: &Path) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("{} is not a folder.", path.display()))?;
+    match skills.remove_dir_all(name) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(removed(path, error)),
+    }
+}
+
+static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(1);
+
+/// Writes `name` inside `dir`: a temporary file made new beside it (so it is
+/// never a link), filled, then renamed over the name. A rename replaces
+/// whatever is there, a planted link included, and never writes through it.
+/// `shown` is the entry's path, for the error.
+fn replace_file(
+    dir: &Dir,
+    shown: &Path,
+    name: &OsStr,
+    fill: impl FnOnce(&mut std::fs::File) -> io::Result<()>,
+) -> Result<(), String> {
+    let mut made_one = None;
+    for _ in 0..16 {
+        let candidate = format!(
+            ".hotline-{}-{}.tmp",
+            std::process::id(),
+            NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed)
+        );
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        match dir.open_with(&candidate, &options) {
+            Ok(file) => {
+                made_one = Some((candidate, file.into_std()));
+                break;
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(made(shown, error)),
+        }
+    }
+    let (temporary, mut file) =
+        made_one.ok_or_else(|| format!("{} could not be written.", shown.display()))?;
+    let result = fill(&mut file)
+        .and_then(|()| {
+            drop(file);
+            dir.rename(&temporary, dir, name)
+        })
+        .map_err(|error| made(&shown.join(name), error));
+    if result.is_err() {
+        let _ = dir.remove_file(&temporary);
+    }
+    result
 }
 
 fn remove_tree(path: &Path) -> Result<(), String> {
@@ -588,7 +746,9 @@ pub fn add_to_gateway(gateway: &Path, from: &Path) -> Result<SkillEntry, String>
         return Err(format!("The gateway already has a skill named {name}."));
     }
     std::fs::create_dir_all(&destination).map_err(|error| made(&destination, error))?;
-    copy_tree(from, &destination)?;
+    let into = Dir::open_ambient_dir(&destination, ambient_authority())
+        .map_err(|error| made(&destination, error))?;
+    copy_tree(from, &into, &destination)?;
     Ok(entry(&name, &destination, SkillSource::Gateway))
 }
 
@@ -618,9 +778,14 @@ fn removed(path: &Path, error: std::io::Error) -> String {
     format!("{} could not be removed: {error}", path.display())
 }
 
-/// Copies a gateway skill's files into the workspace entry. Links are
-/// skipped, and so is a marker the operator happened to leave in the gateway.
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+/// Copies a gateway skill's files into the workspace entry, through the
+/// entry's handle: every folder is made and opened inside the one before, and
+/// every file is written by [`replace_file`], so a link planted in the entry
+/// is replaced or refused, never written through. Links in the skill itself
+/// are skipped, as is anything that is not a plain file or folder, and so is
+/// a marker the operator happened to leave in the gateway. A file keeps its
+/// permissions, so a script stays runnable.
+fn copy_tree(from: &Path, to: &Dir, shown: &Path) -> Result<(), String> {
     for item in std::fs::read_dir(from)
         .map_err(|error| made(from, error))?
         .flatten()
@@ -632,12 +797,17 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         if kind.is_symlink() || name == MANAGED_MARKER {
             continue;
         }
-        let destination = to.join(&name);
+        let destination = shown.join(&name);
         if kind.is_dir() {
-            std::fs::create_dir_all(&destination).map_err(|error| made(&destination, error))?;
-            copy_tree(&item.path(), &destination)?;
-        } else {
-            std::fs::copy(item.path(), &destination).map_err(|error| made(&destination, error))?;
+            let inner = child_dir(to, &destination)?;
+            copy_tree(&item.path(), &inner, &destination)?;
+        } else if kind.is_file() {
+            let source = item.path();
+            replace_file(to, shown, &name, |file| {
+                let mut reading = std::fs::File::open(&source)?;
+                io::copy(&mut reading, file)?;
+                file.set_permissions(reading.metadata()?.permissions())
+            })?;
         }
     }
     Ok(())
@@ -1027,6 +1197,278 @@ mod tests {
             names(&elsewhere).is_empty(),
             "nothing was written through the link"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A folder outside the workspace holding files the person cares about,
+    /// to point planted links at.
+    #[cfg(unix)]
+    fn outside(root: &Path) -> PathBuf {
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("thesis.docx"), "the thesis").unwrap();
+        std::fs::write(outside.join("room.jsonl"), "the roster").unwrap();
+        outside
+    }
+
+    #[cfg(unix)]
+    fn untouched(outside: &Path) {
+        assert_eq!(names(outside), ["room.jsonl", "thesis.docx"]);
+        assert_eq!(
+            std::fs::read_to_string(outside.join("thesis.docx")).unwrap(),
+            "the thesis"
+        );
+        assert_eq!(
+            std::fs::read_to_string(outside.join("room.jsonl")).unwrap(),
+            "the roster"
+        );
+    }
+
+    #[cfg(unix)]
+    fn plain_file(path: &Path) -> bool {
+        std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+    }
+
+    #[cfg(unix)]
+    fn relink(link: &Path, to: &Path) {
+        let _ = std::fs::remove_file(link);
+        std::os::unix::fs::symlink(to, link).unwrap();
+    }
+
+    /// H-01: a teammate swaps `SKILL.md` in a skill Hotline wrote for a link
+    /// to a file of the person's, or a link to nothing. The next start
+    /// replaces the link with the skill and leaves the file as it was, and
+    /// creates nothing where the dangling link pointed; the computer's guide
+    /// is written the same way.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_file_inside_a_managed_skill_is_never_written_through() {
+        let root = scratch("linked-file");
+        let outside = outside(&root);
+        let cwd = root.join("ws");
+        let gateway = gateway_only(&root.join("gateway"));
+        let policy = SkillPolicy::default();
+        materialize(&cwd, &gateway, &policy).unwrap();
+        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+
+        for name in ["hotline-room", COMPUTER] {
+            let entry = cwd.join(DIRECTORY).join(name);
+            relink(&entry.join(FILE), &outside.join("thesis.docx"));
+        }
+        materialize(&cwd, &gateway, &policy).unwrap();
+        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        untouched(&outside);
+
+        for name in ["hotline-room", COMPUTER] {
+            let entry = cwd.join(DIRECTORY).join(name);
+            relink(&entry.join(FILE), &outside.join("planted.txt"));
+        }
+        materialize(&cwd, &gateway, &policy).unwrap();
+        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        untouched(&outside);
+
+        let room = cwd.join(DIRECTORY).join("hotline-room");
+        assert!(plain_file(&room.join(FILE)));
+        assert!(plain_file(&room.join(MANAGED_MARKER)));
+        assert_eq!(
+            std::fs::read_to_string(room.join(FILE)).unwrap(),
+            BUILTIN[0].1
+        );
+        assert_eq!(names(&room), [MANAGED_MARKER, FILE], "no temporary is left");
+        let computer = cwd.join(DIRECTORY).join(COMPUTER);
+        assert!(plain_file(&computer.join(FILE)));
+        assert_eq!(
+            std::fs::read_to_string(computer.join(FILE)).unwrap(),
+            "the guide"
+        );
+        assert_eq!(
+            computer_entry(&cwd).unwrap().version.as_deref(),
+            Some("0.11.0")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// H-01: a marker that is a link is not Hotline's, because Hotline never
+    /// writes one. The entry is left alone, the file the link names is never
+    /// emptied, and a linked marker on an entry no longer granted does not
+    /// make Hotline remove it.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_marker_is_not_hotlines_and_is_never_truncated() {
+        let root = scratch("linked-marker");
+        let outside = outside(&root);
+        let cwd = root.join("ws");
+        let target = cwd.join(DIRECTORY);
+        let gateway = gateway_only(&root.join("gateway"));
+        let policy = SkillPolicy::default();
+        materialize(&cwd, &gateway, &policy).unwrap();
+        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        put(&target, "stale", true);
+
+        for name in ["hotline-room", COMPUTER, "stale"] {
+            let entry = target.join(name);
+            relink(&entry.join(MANAGED_MARKER), &outside.join("room.jsonl"));
+            relink(&entry.join(FILE), &outside.join("thesis.docx"));
+        }
+        materialize(&cwd, &gateway, &policy).unwrap();
+        write_computer(&cwd, "0.12.0", "def", "another guide").unwrap();
+        untouched(&outside);
+        assert_eq!(names(&target), [COMPUTER, "hotline-room", "stale"]);
+        for name in ["hotline-room", COMPUTER, "stale"] {
+            assert!(
+                std::fs::symlink_metadata(target.join(name).join(MANAGED_MARKER))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                "{name}'s linked marker is the teammate's and is left as it is"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// H-01: `.agents`, `.agents/skills` or a skill's own folder swapped for
+    /// a link to a folder outside refuses the write, for the skills and the
+    /// computer's guide alike, and nothing lands where the link points.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_at_any_level_above_a_skill_is_refused_not_followed() {
+        for level in [".agents", DIRECTORY, ".agents/skills/hotline-room"] {
+            let root = scratch("linked-level");
+            let outside = outside(&root);
+            let cwd = root.join("ws");
+            let link = cwd.join(level);
+            std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            let refusal = materialize(
+                &cwd,
+                &gateway_only(&root.join("gateway")),
+                &SkillPolicy::default(),
+            )
+            .unwrap_err();
+            assert!(
+                refusal.ends_with("is a symbolic link."),
+                "{level}: {refusal}"
+            );
+            untouched(&outside);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+        for level in [".agents", DIRECTORY, ".agents/skills/hotline-computer"] {
+            let root = scratch("linked-level");
+            let outside = outside(&root);
+            let cwd = root.join("ws");
+            let link = cwd.join(level);
+            std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            let refusal = write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap_err();
+            assert!(
+                refusal.ends_with("is a symbolic link."),
+                "{level}: {refusal}"
+            );
+            untouched(&outside);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    /// H-01: a parent swapped for a link after the check is not followed
+    /// either. The skills handle is held on the folder it opened, so a write
+    /// and a removal through it land in that folder, wherever the teammate
+    /// moved it inside its workspace, and never where the new link points.
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_swapped_for_a_link_after_it_was_opened_leads_nowhere_outside() {
+        let root = scratch("swapped-parent");
+        let outside = outside(&root);
+        let cwd = root.join("ws");
+        let target = cwd.join(DIRECTORY);
+        put(&target, "stale", true);
+        let skills = open_skills(&cwd).unwrap();
+
+        std::fs::rename(cwd.join(".agents"), cwd.join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, cwd.join(".agents")).unwrap();
+        std::fs::create_dir_all(outside.join("skills/stale")).unwrap();
+        std::fs::write(outside.join("skills/stale/keep"), "kept").unwrap();
+
+        let room = target.join("hotline-room");
+        let entry = child_dir(&skills, &room).unwrap();
+        replace_file(&entry, &room, FILE.as_ref(), |file| {
+            io::Write::write_all(file, b"written")
+        })
+        .unwrap();
+        remove_entry(&skills, &target.join("stale")).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(cwd.join("moved/skills/hotline-room").join(FILE)).unwrap(),
+            "written"
+        );
+        assert_eq!(names(&cwd.join("moved/skills")), ["hotline-room"]);
+        assert!(!outside.join("skills/hotline-room").exists());
+        assert_eq!(
+            std::fs::read_to_string(outside.join("skills/stale/keep")).unwrap(),
+            "kept"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// H-01: a granted skill is copied whole with its scripts still runnable.
+    /// Links the teammate plants in the copy (a folder and a file) are taken
+    /// away at the next start and nothing is written through them; the copy
+    /// itself replaces a linked file and refuses a linked folder; and a
+    /// revoked grant's entry is removed without following a link out.
+    #[cfg(unix)]
+    #[test]
+    fn a_granted_skill_is_copied_and_removed_without_following_a_planted_link() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("copied-links");
+        let outside = outside(&root);
+        let gateway = root.join("gateway");
+        put(&gateway, "cut-release", false);
+        std::fs::create_dir_all(gateway.join("cut-release/scripts")).unwrap();
+        let script = gateway.join("cut-release/scripts/bump.sh");
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let cwd = root.join("ws");
+        let entry = cwd.join(DIRECTORY).join("cut-release");
+        let granted = SkillPolicy {
+            mode: PolicyMode::Some,
+            names: vec!["cut-release".into()],
+        };
+        let offering = gateway_only(&gateway);
+
+        materialize(&cwd, &offering, &granted).unwrap();
+        let copied = entry.join("scripts/bump.sh");
+        assert_eq!(std::fs::read_to_string(&copied).unwrap(), "#!/bin/sh\n");
+        assert_eq!(
+            std::fs::metadata(&copied).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+
+        std::fs::remove_dir_all(entry.join("scripts")).unwrap();
+        std::os::unix::fs::symlink(&outside, entry.join("scripts")).unwrap();
+        relink(&entry.join(FILE), &outside.join("thesis.docx"));
+        materialize(&cwd, &offering, &granted).unwrap();
+        untouched(&outside);
+        assert!(plain_file(&entry.join(FILE)));
+        assert!(plain_file(&entry.join("scripts/bump.sh")));
+
+        // The copy on its own, into a folder that already holds the links.
+        let into = root.join("into");
+        std::fs::create_dir_all(&into).unwrap();
+        std::os::unix::fs::symlink(&outside, into.join("scripts")).unwrap();
+        std::os::unix::fs::symlink(outside.join("thesis.docx"), into.join(FILE)).unwrap();
+        let handle = Dir::open_ambient_dir(&into, ambient_authority()).unwrap();
+        let refusal = copy_tree(&gateway.join("cut-release"), &handle, &into);
+        untouched(&outside);
+        if let Err(refusal) = refusal {
+            assert!(refusal.ends_with("is a symbolic link."), "{refusal}");
+        }
+
+        // Revoked, with links planted inside: removed, nothing outside goes.
+        std::fs::remove_dir_all(entry.join("scripts")).unwrap();
+        std::os::unix::fs::symlink(&outside, entry.join("scripts")).unwrap();
+        std::os::unix::fs::symlink(outside.join("room.jsonl"), entry.join("notes")).unwrap();
+        materialize(&cwd, &offering, &SkillPolicy::default()).unwrap();
+        assert_eq!(names(&cwd.join(DIRECTORY)), ["hotline-room"]);
+        untouched(&outside);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1170,8 +1170,17 @@ switched on — into `.agents/skills/<name>/` in the working directory, each
 entry carrying a `.managed-by-hotline` file. Only an entry with that file is ever
 replaced or removed, so a skill the person or the teammate put there stays,
 and shadows a grant of the same name; a revoked grant's entry is removed at
-the next start. A `.agents` or `.agents/skills` that is a symlink refuses the
-start rather than following it. Changing `skillPolicy` reattaches the
+the next start. The desk writes them through directory handles opened on the
+workspace, as it writes `AGENTS.md`, so a link the teammate plants cannot lead
+a write outside it: a `.agents`, `.agents/skills` or wanted entry that is a
+symlink refuses the start rather than following it, and so does one swapped
+for a link after it was checked; each file is written to a new temporary file
+renamed over its name, which replaces a linked `SKILL.md` or marker instead of
+writing through it; an entry counts as Hotline's only when its marker is a
+plain file, so a linked marker leaves the entry alone; and removing an entry
+removes the links in it without following them. The computer's
+`hotline-computer` guide is written the same way. Changing `skillPolicy`
+reattaches the
 session, like `mcpPolicy`, so the preamble's index matches the folder.
 
 That one channel is enough was checked against real harnesses (the ACP

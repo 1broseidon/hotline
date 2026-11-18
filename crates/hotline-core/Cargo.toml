@@ -47,6 +47,9 @@ hotline-mcp = { path = "../hotline-mcp" }
 hotline-voice = { path = "../hotline-voice" }
 hotline-browser-core = { path = "../hotline-browser-core" }
 rig.workspace = true
+# Directory handles for writing skills into a workspace the teammate can
+# change, so a link it planted cannot lead a desk write outside it.
+cap-std = "4.0.3"
 gethostname = "1.1"
 portable-pty = "0.9"
 async-trait = "0.1.92"

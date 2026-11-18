@@ -127,6 +127,9 @@ pub(crate) mod fake {
         rp_id: String,
         ask: Option<(Value, Option<bool>)>,
         minted: bool,
+        /// The site the minted credential is for, when a test says it is
+        /// not the armed one.
+        minted_for: Option<String>,
     }
 
     /// Every set of secrets the fake was handed through `PUT /secrets`, in
@@ -148,6 +151,14 @@ pub(crate) mod fake {
         pub(crate) pages: Arc<Mutex<Vec<Value>>>,
         pub(crate) login_error: Arc<Mutex<Option<String>>>,
         pub(crate) forget_error: Arc<std::sync::atomic::AtomicBool>,
+        /// Held by a test, a poll's answer (read when it arrived) and an
+        /// answer's taking wait until it lets go.
+        poll_gate: Arc<tokio::sync::RwLock<()>>,
+        answer_gate: Arc<tokio::sync::RwLock<()>>,
+        polls_seen: Arc<std::sync::atomic::AtomicUsize>,
+        answers_seen: Arc<std::sync::atomic::AtomicUsize>,
+        /// Every answer is refused with a 409, the request untouched.
+        refuse_answers: Arc<std::sync::atomic::AtomicBool>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -243,7 +254,69 @@ pub(crate) mod fake {
                 rp_id: rp_id.to_owned(),
                 ask: None,
                 minted: false,
+                minted_for: None,
             });
+        }
+
+        /// A site asks for a passkey for `rp_id`, under whatever the
+        /// computer is armed for. Answers its id.
+        #[cfg(unix)]
+        pub(crate) fn ask_for(&self, rp_id: &str) -> String {
+            let id = self.ask();
+            if let Some((ask, _)) = self
+                .arming
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|arming| arming.ask.as_mut())
+            {
+                ask["rpId"] = json!(rp_id);
+                ask["origin"] = json!(format!("https://{rp_id}"));
+            }
+            id
+        }
+
+        /// The browser minted a passkey for `rp_id`, which need not be
+        /// the site armed or asked.
+        #[cfg(unix)]
+        pub(crate) fn mint_for(&self, rp_id: &str) {
+            if let Some(arming) = self.arming.lock().unwrap().as_mut() {
+                arming.minted = true;
+                arming.minted_for = Some(rp_id.to_owned());
+            }
+        }
+
+        /// Holds every poll's answer until the guard is dropped: the
+        /// answer is what the computer said when the poll arrived.
+        #[cfg(unix)]
+        pub(crate) fn hold_polls(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
+            self.poll_gate.clone().try_write_owned().expect("not held")
+        }
+
+        /// Holds every answer before it is taken, until the guard is dropped.
+        #[cfg(unix)]
+        pub(crate) fn hold_answers(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
+            self.answer_gate
+                .clone()
+                .try_write_owned()
+                .expect("not held")
+        }
+
+        #[cfg(unix)]
+        pub(crate) fn polls_seen(&self) -> usize {
+            self.polls_seen.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        #[cfg(unix)]
+        pub(crate) fn answers_seen(&self) -> usize {
+            self.answers_seen.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        /// From now on the computer refuses every answer as not waiting.
+        #[cfg(unix)]
+        pub(crate) fn refuse_answers(&self) {
+            self.refuse_answers
+                .store(true, std::sync::atomic::Ordering::SeqCst);
         }
 
         /// The browser minted a passkey: the next poll answers the
@@ -252,6 +325,7 @@ pub(crate) mod fake {
         pub(crate) fn mint(&self) {
             if let Some(arming) = self.arming.lock().unwrap().as_mut() {
                 arming.minted = true;
+                arming.minted_for = None;
             }
         }
 
@@ -344,6 +418,7 @@ pub(crate) mod fake {
             rp_id: rp_id.clone(),
             ask: None,
             minted: false,
+            minted_for: None,
         });
         json_answer(
             axum::http::StatusCode::OK,
@@ -369,7 +444,8 @@ pub(crate) mod fake {
             status["ask"] = ask.clone();
         }
         if arming.minted {
-            status["credential"] = Taken::credential(&arming.rp_id);
+            status["credential"] =
+                Taken::credential(arming.minted_for.as_deref().unwrap_or(&arming.rp_id));
         }
         status
     }
@@ -382,7 +458,11 @@ pub(crate) mod fake {
         if !bearer_present(&headers) {
             return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
+        taken
+            .polls_seen
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let answer = registration_status(taken.arming.lock().unwrap().as_ref());
+        let _held = taken.poll_gate.read().await;
         json_answer(axum::http::StatusCode::OK, answer)
     }
 
@@ -395,9 +475,22 @@ pub(crate) mod fake {
         if !bearer_present(&headers) {
             return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
+        taken
+            .answers_seen
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        drop(taken.answer_gate.read().await);
         let body = serde_json::from_str::<Value>(&body).unwrap_or_default();
         let id = body["id"].as_str().unwrap_or_default().to_owned();
         let approved = body["approved"].as_bool().unwrap_or(false);
+        if taken
+            .refuse_answers
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return json_answer(
+                axum::http::StatusCode::CONFLICT,
+                json!({"error": "no passkey request with that id is waiting for an answer"}),
+            );
+        }
         let mut guard = taken.arming.lock().unwrap();
         let waiting = guard
             .as_mut()

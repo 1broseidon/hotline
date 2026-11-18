@@ -122,6 +122,9 @@ impl Room {
                 asked: None,
                 answered: false,
                 operator_approved: false,
+                approved_ask: None,
+                answering: false,
+                generation: super::secrets::next_passkey_generation(),
                 storing: false,
                 stored: None,
             },
@@ -197,6 +200,7 @@ impl Room {
             live.asked = Some(ask.clone());
             live.answered = false;
             live.operator_approved = false;
+            live.approved_ask = None;
         }
         self.raise_passkey_card(persona_id, &arming, &ask);
         let left = u64::try_from(arming.expires_at - now_ms()).unwrap_or_default();

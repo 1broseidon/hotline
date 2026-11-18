@@ -661,6 +661,31 @@ async fn until_let_go(room: &Arc<Room>, persona_id: &str) {
     panic!("the arming was never let go");
 }
 
+/// Nothing of a pane-armed `GITHUB_PASSKEY` was kept: none stored, none
+/// ticked, none handed back, and the computer's arming ended.
+fn assert_nothing_kept(room: &Room, taken: &crate::computer::guide::fake::Taken) {
+    assert_eq!(
+        room.vault.as_ref().unwrap().shared_secrets().unwrap(),
+        [] as [SharedSecret; 0]
+    );
+    assert!(
+        room.persona("ada")
+            .unwrap()
+            .secrets
+            .unwrap_or_default()
+            .is_empty(),
+        "nothing ticked"
+    );
+    assert!(
+        !taken
+            .sets()
+            .iter()
+            .any(|set| set.contains_key("GITHUB_PASSKEY")),
+        "nothing handed back"
+    );
+    assert_eq!(taken.armed(), None, "the arming is ended");
+}
+
 /// A passkey armed from the pane is kept only past the card the person
 /// answered here, and only for the arming the desk made. Whatever holds the
 /// computer's bearer can answer the site's request on the computer itself,
@@ -670,29 +695,6 @@ async fn until_let_go(room: &Arc<Room>, persona_id: &str) {
 /// why. A release that mints without asking is not kept either.
 #[tokio::test]
 async fn a_pane_armed_passkey_without_approval_or_with_another_rp_is_not_stored() {
-    let nothing_kept = |room: &Room, taken: &crate::computer::guide::fake::Taken| {
-        assert_eq!(
-            room.vault.as_ref().unwrap().shared_secrets().unwrap(),
-            [] as [SharedSecret; 0]
-        );
-        assert!(
-            room.persona("ada")
-                .unwrap()
-                .secrets
-                .unwrap_or_default()
-                .is_empty(),
-            "nothing ticked"
-        );
-        assert!(
-            !taken
-                .sets()
-                .iter()
-                .any(|set| set.contains_key("GITHUB_PASSKEY")),
-            "nothing handed back"
-        );
-        assert_eq!(taken.armed(), None, "the arming is ended");
-    };
-
     // Approved on the computer, not on the tape.
     let ComputerRoom { room, taken, .. } = computer_room(
         "computer-passkey-approved-there",
@@ -714,7 +716,7 @@ async fn a_pane_armed_passkey_without_approval_or_with_another_rp_is_not_stored(
     taken.approve_on_the_computer();
     taken.mint();
     until_let_go(&room, "ada").await;
-    nothing_kept(&room, &taken);
+    assert_nothing_kept(&room, &taken);
     let cards = passkey_cards(&room, "ada");
     assert_eq!(cards.len(), 1, "{cards:?}");
     assert_eq!(cards[0]["askId"], ask);
@@ -752,7 +754,7 @@ async fn a_pane_armed_passkey_without_approval_or_with_another_rp_is_not_stored(
     taken.approve_on_the_computer();
     taken.mint();
     until_let_go(&room, "ada").await;
-    nothing_kept(&room, &taken);
+    assert_nothing_kept(&room, &taken);
     assert!(
         notices(&room, "ada")
             .iter()
@@ -786,7 +788,7 @@ async fn a_pane_armed_passkey_without_approval_or_with_another_rp_is_not_stored(
     taken.approve_on_the_computer();
     taken.mint();
     until_let_go(&room, "ada").await;
-    nothing_kept(&room, &taken);
+    assert_nothing_kept(&room, &taken);
 
     // A release from before the card mints without asking.
     let ComputerRoom { room, taken, .. } = computer_room(
@@ -801,13 +803,195 @@ async fn a_pane_armed_passkey_without_approval_or_with_another_rp_is_not_stored(
         .unwrap();
     taken.mint();
     until_let_go(&room, "ada").await;
-    nothing_kept(&room, &taken);
+    assert_nothing_kept(&room, &taken);
     assert!(
         notices(&room, "ada")
             .iter()
             .any(|text| text.contains("without asking") && text.contains("update it")),
         "{:?}",
         notices(&room, "ada")
+    );
+}
+
+/// The person's answer is reserved while it is on its way: a look meanwhile
+/// changes nothing, a second answer is refused, and an answer the computer
+/// refuses leaves nothing approved here. So a passkey something on the
+/// computer approved and had made while the answer was out is not stored,
+/// the card never reads approved, and it expires when the arming ends.
+#[tokio::test]
+async fn an_answer_the_computer_refuses_while_a_look_is_out_approves_and_stores_nothing() {
+    use crate::contract::PasskeyRegistrationState;
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-answer-refused",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ask = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    let held = taken.hold_answers();
+    taken.refuse_answers();
+    let answering = {
+        let room = room.clone();
+        let ask = ask.clone();
+        tokio::spawn(async move { room.secrets_passkey_answer("ada", &ask, true).await })
+    };
+    for _ in 0..200 {
+        if taken.answers_seen() > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(taken.answers_seen(), 1, "the answer is on its way");
+    // Meanwhile something on the computer approves the request itself and
+    // the browser makes the passkey.
+    taken.approve_on_the_computer();
+    taken.mint();
+    let look = room.secrets_passkey_registration("ada").await.unwrap();
+    assert_ne!(look.state, PasskeyRegistrationState::Stored);
+    assert_eq!(passkey_cards(&room, "ada")[0]["status"], "pending");
+    assert_eq!(
+        room.vault.as_ref().unwrap().shared_secrets().unwrap(),
+        [] as [SharedSecret; 0]
+    );
+    let again = room
+        .secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap_err();
+    assert!(again.contains("already on its way"), "{again}");
+    drop(held);
+    assert!(answering.await.unwrap().is_err(), "the computer refused it");
+    until_let_go(&room, "ada").await;
+    assert_nothing_kept(&room, &taken);
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    assert_eq!(
+        cards[0]["status"], "expired",
+        "the card never read approved"
+    );
+}
+
+/// A look that was out when the person cancelled and armed again answers
+/// about the arming that is gone, and changes nothing about the one that
+/// took its place: the new arming stands, on the desk and the computer,
+/// and makes its passkey as any arming does.
+#[tokio::test]
+async fn a_look_begun_under_a_cancelled_arming_leaves_its_replacement_armed() {
+    use crate::contract::PasskeyRegistrationState;
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-replaced",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let held = taken.hold_polls();
+    let before = taken.polls_seen();
+    let looking = {
+        let room = room.clone();
+        tokio::spawn(async move { room.secrets_passkey_registration("ada").await })
+    };
+    for _ in 0..200 {
+        if taken.polls_seen() > before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(taken.polls_seen() > before, "the look is out");
+    room.secrets_passkey_cancel("ada").await.unwrap();
+    room.secrets_passkey_register("GITLAB_PASSKEY", "ada", "gitlab.com")
+        .await
+        .unwrap();
+    drop(held);
+    let _ = looking.await.unwrap();
+    // The room's own watch looks again, and finds the new arming alone.
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(taken.armed().as_deref(), Some("gitlab.com"));
+    let now = room.secrets_passkey_registration("ada").await.unwrap();
+    assert_eq!(now.state, PasskeyRegistrationState::Armed);
+    assert_eq!(now.rp_id.as_deref(), Some("gitlab.com"));
+    assert!(
+        !notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("not approved here")),
+        "{:?}",
+        notices(&room, "ada")
+    );
+    let ask = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    room.secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap();
+    taken.mint();
+    let stored = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
+    assert_eq!(
+        stored.secret.map(|secret| secret.name).as_deref(),
+        Some("GITLAB_PASSKEY")
+    );
+}
+
+/// The passkey kept is the one the card showed. Which request reaches the
+/// card follows the site's family (the armed site, a name under it, or one
+/// it is under), but once the person approved a request for one name, a
+/// passkey made for another name under the same site is not kept, while one
+/// for the name the card showed is.
+#[tokio::test]
+async fn a_passkey_for_another_name_under_the_site_than_the_card_showed_is_not_stored() {
+    use crate::contract::PasskeyRegistrationState;
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-other-name",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ask = taken.ask_for("login.github.com");
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    assert_eq!(passkey_cards(&room, "ada")[0]["rpId"], "login.github.com");
+    room.secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap();
+    taken.mint_for("gist.github.com");
+    until_let_go(&room, "ada").await;
+    assert_nothing_kept(&room, &taken);
+    assert!(
+        notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("not approved here")),
+        "{:?}",
+        notices(&room, "ada")
+    );
+
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-same-name",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ask = taken.ask_for("login.github.com");
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    room.secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap();
+    taken.mint_for("login.github.com");
+    let stored = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
+    assert_eq!(
+        stored.secret.and_then(|secret| secret.rp_id).as_deref(),
+        Some("login.github.com")
     );
 }
 

@@ -162,6 +162,9 @@ impl Room {
                 asked: None,
                 answered: false,
                 operator_approved: false,
+                approved_ask: None,
+                answering: false,
+                generation: next_passkey_generation(),
                 storing: false,
                 stored: None,
             },
@@ -240,11 +243,15 @@ impl Room {
         let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
             return Ok((idle, false));
         };
+        // The arming this look is about. What the computer answers is
+        // about it, and is acted on only while it is still the teammate's.
+        let generation = arming.generation;
         if let Some(secret) = arming.stored.clone() {
             return Ok((stored(&arming, secret), false));
         }
         if arming.capture.is_some() && arming.expires_at <= now_ms() {
-            self.secrets_passkey_cancel(persona_id).await?;
+            self.cancel_passkey_arming_of(persona_id, generation)
+                .await?;
             return Ok((idle, false));
         }
         if arming.storing {
@@ -269,13 +276,13 @@ impl Room {
             return Ok((standing(&arming, state, arming.asked.clone()), true));
         }
         let Some(ready) = self.computers.running(persona_id).await else {
-            self.drop_passkey_arming(persona_id);
+            self.drop_passkey_arming_of(persona_id, generation);
             return Err("The computer stopped before a passkey was made. Start again.".to_string());
         };
         let polled = match crate::computer::passkeys::poll(&ready).await {
             Ok(polled) => polled,
             Err(crate::computer::secrets::Refusal::TooOld) => {
-                self.drop_passkey_arming(persona_id);
+                self.drop_passkey_arming_of(persona_id, generation);
                 return Err("The computer is on a release that cannot make passkeys.".to_string());
             }
             Err(crate::computer::secrets::Refusal::Failed(reason)) => {
@@ -283,10 +290,25 @@ impl Room {
             }
         };
         // The arming as it stands now, not as it stood before the computer
-        // was asked: the person may have answered the card meanwhile.
+        // was asked: the person may have answered the card meanwhile. An
+        // answer about an arming that has since been ended or replaced is
+        // about nothing the desk holds now, and changes nothing.
         let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
             return Ok((idle, false));
         };
+        let waiting_state = |arming: &PasskeyArming| match (&arming.asked, arming.answered) {
+            (Some(_), true) => PasskeyRegistrationState::Approved,
+            (Some(_), false) => PasskeyRegistrationState::Asked,
+            (None, _) => PasskeyRegistrationState::Armed,
+        };
+        if arming.generation != generation || arming.answering {
+            // Replaced since this look began, or the person's answer is on
+            // its way to the computer: the next look reads it afresh.
+            return Ok((
+                standing(&arming, waiting_state(&arming), arming.asked.clone()),
+                true,
+            ));
+        }
         if let Some(secret) = arming.stored.clone() {
             return Ok((stored(&arming, secret), false));
         }
@@ -306,7 +328,12 @@ impl Room {
         // and anything on the computer that holds its bearer could have said
         // it.
         if !answers_this_arming(&arming, &polled) {
-            self.secrets_passkey_cancel(persona_id).await?;
+            if !self
+                .cancel_passkey_arming_of(persona_id, generation)
+                .await?
+            {
+                return Ok((idle, true));
+            }
             if arming.capture.is_none() {
                 self.write(
                     persona_id,
@@ -363,13 +390,14 @@ impl Room {
                     _ => true,
                 };
             if !valid {
-                self.secrets_passkey_cancel(persona_id).await?;
+                self.cancel_passkey_arming_of(persona_id, generation)
+                    .await?;
                 return Err("The captured passkey requires its exact origin, a live session and the person's approval.".into());
             }
         }
         match polled {
             Registration::Idle => {
-                self.drop_passkey_arming(persona_id);
+                self.drop_passkey_arming_of(persona_id, generation);
                 Ok((idle, false))
             }
             Registration::Armed { .. } => {
@@ -377,10 +405,14 @@ impl Room {
                 // away before anyone answered.
                 if arming.asked.is_some() {
                     self.expire_passkey_card(persona_id, &arming);
-                    if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+                    if let Some(live) = lock(&self.passkey_armings)
+                        .get_mut(persona_id)
+                        .filter(|live| live.generation == generation)
+                    {
                         live.asked = None;
                         live.answered = false;
                         live.operator_approved = false;
+                        live.approved_ask = None;
                     }
                 }
                 Ok((
@@ -395,10 +427,14 @@ impl Room {
                     .is_some_and(|known| known.id == ask.id);
                 if !known {
                     self.expire_passkey_card(persona_id, &arming);
-                    if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+                    if let Some(live) = lock(&self.passkey_armings)
+                        .get_mut(persona_id)
+                        .filter(|live| live.generation == generation)
+                    {
                         live.asked = Some(ask.clone());
                         live.answered = false;
                         live.operator_approved = false;
+                        live.approved_ask = None;
                     }
                     self.raise_passkey_card(persona_id, &arming, &ask);
                 }
@@ -423,6 +459,13 @@ impl Room {
                 {
                     let mut armings = lock(&self.passkey_armings);
                     match armings.get_mut(persona_id) {
+                        // Replaced, or answered anew, since the look began.
+                        Some(live) if live.generation != generation || live.answering => {
+                            return Ok((
+                                standing(live, waiting_state(live), live.asked.clone()),
+                                true,
+                            ));
+                        }
                         Some(live) if !live.storing && live.stored.is_none() => live.storing = true,
                         // Another look has it, or had it.
                         Some(live) => {
@@ -442,14 +485,25 @@ impl Room {
                     .await
                 {
                     Ok(secret) => {
-                        if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+                        if let Some(live) = lock(&self.passkey_armings)
+                            .get_mut(persona_id)
+                            .filter(|live| live.generation == generation)
+                        {
                             live.storing = false;
                             live.stored = Some(secret.clone());
                         }
                         Ok((stored(&arming, secret), false))
                     }
                     Err(error) => {
-                        lock(&self.passkey_armings).remove(persona_id);
+                        {
+                            let mut armings = lock(&self.passkey_armings);
+                            if armings
+                                .get(persona_id)
+                                .is_some_and(|live| live.generation == generation)
+                            {
+                                armings.remove(persona_id);
+                            }
+                        }
                         self.write(
                             persona_id,
                             &TranscriptEvent::Notice {
@@ -517,57 +571,84 @@ impl Room {
                 );
             }
         }
-        // An approval is the desk's before the computer hears it, so a look
-        // that finds the computer approved meanwhile finds it approved here
-        // too; if the computer does not take it, it is taken back.
-        let approve_here = |approved: bool| {
+        // The answer is reserved before it leaves the desk: one answer to
+        // this request is in flight at a time, and a look meanwhile changes
+        // nothing. The desk counts the person's approval only once the
+        // computer has taken it, and keeps the request as the card showed it.
+        let generation = arming.generation;
+        {
+            let mut armings = lock(&self.passkey_armings);
+            match armings.get_mut(persona_id) {
+                Some(live) if live.generation == generation && live.answering => {
+                    return Err("An answer to that passkey request is already on its way.".into());
+                }
+                Some(live)
+                    if live.generation == generation
+                        && !live.answered
+                        && live.asked.as_ref().is_some_and(|known| known.id == ask.id) =>
+                {
+                    live.answering = true;
+                }
+                _ => return Err("That passkey request is not waiting any more.".to_string()),
+            }
+        }
+        let settle = |taken: bool| {
             if let Some(live) = lock(&self.passkey_armings)
                 .get_mut(persona_id)
-                .filter(|live| live.asked.as_ref().is_some_and(|known| known.id == ask.id))
+                .filter(|live| live.generation == generation)
             {
-                live.operator_approved = approved;
+                live.answering = false;
+                if taken && approved {
+                    live.operator_approved = true;
+                    live.approved_ask = Some(ask.clone());
+                }
             }
         };
-        if approved {
-            approve_here(true);
-        }
         if arming.desk {
             // The page's request waits in the core: the answer goes to it.
             let Some(waiting) = lock(&self.browser_passkey_asks).remove(persona_id) else {
-                approve_here(false);
+                settle(false);
                 return Err("That passkey request is not waiting any more.".to_string());
             };
             if waiting.send(approved).is_err() {
-                approve_here(false);
+                settle(false);
                 return Err("That passkey request is not waiting any more.".to_string());
             }
         } else {
             let Some(ready) = self.computers.running(persona_id).await else {
-                self.drop_passkey_arming(persona_id);
+                self.drop_passkey_arming_of(persona_id, generation);
                 return Err("The computer stopped before the request was answered.".to_string());
             };
             match crate::computer::passkeys::answer(&ready, ask_id, approved).await {
                 Ok(_) => {}
                 Err(crate::computer::secrets::Refusal::TooOld) => {
-                    approve_here(false);
+                    settle(false);
                     return Err(
                         "The computer is on a release that does not ask before making a passkey."
                             .to_string(),
                     );
                 }
                 Err(crate::computer::secrets::Refusal::Failed(reason)) => {
-                    approve_here(false);
+                    settle(false);
                     return Err(format!("The computer could not take the answer. {reason}"));
                 }
             }
         }
-        approve_here(approved);
+        settle(true);
         self.note_passkey_answer(persona_id, &arming, &ask, approved);
         if approved {
             let (answer, _) = self.look_at_passkey_arming(persona_id).await?;
             Ok(answer)
         } else {
-            lock(&self.passkey_armings).remove(persona_id);
+            {
+                let mut armings = lock(&self.passkey_armings);
+                if armings
+                    .get(persona_id)
+                    .is_some_and(|live| live.generation == generation)
+                {
+                    armings.remove(persona_id);
+                }
+            }
             if let Some(capture) = declined.as_mut() {
                 self.settle_capture(capture, crate::contract::CredentialStatus::Declined, None);
             }
@@ -663,6 +744,51 @@ impl Room {
         }
     }
 
+    /// Lets the arming `generation` go if it is still the teammate's, as
+    /// [`Self::drop_passkey_arming`] does; one that has taken its place is
+    /// left alone. Answers whether it went.
+    fn drop_passkey_arming_of(&self, persona_id: &str, generation: u64) -> bool {
+        let arming = {
+            let mut armings = lock(&self.passkey_armings);
+            if armings
+                .get(persona_id)
+                .is_some_and(|live| live.generation == generation)
+            {
+                armings.remove(persona_id)
+            } else {
+                None
+            }
+        };
+        let Some(arming) = arming else {
+            return false;
+        };
+        if arming.desk {
+            lock(&self.browser_passkey_asks).remove(persona_id);
+        }
+        self.expire_passkey_card(persona_id, &arming);
+        true
+    }
+
+    /// Ends the arming `generation` on the desk and the computer if it is
+    /// still the teammate's; one that has taken its place is left alone.
+    /// Answers whether it was ended.
+    async fn cancel_passkey_arming_of(
+        &self,
+        persona_id: &str,
+        generation: u64,
+    ) -> Result<bool, String> {
+        if !self.drop_passkey_arming_of(persona_id, generation) {
+            return Ok(false);
+        }
+        if let Some(ready) = self.computers.running(persona_id).await
+            && let Err(crate::computer::secrets::Refusal::Failed(reason)) =
+                crate::computer::passkeys::disarm(&ready).await
+        {
+            return Err(format!("The computer could not be told. {reason}"));
+        }
+        Ok(true)
+    }
+
     /// Lets an arming go, expiring the card it raised if nobody answered;
     /// a desk browser's page still waiting on it is refused.
     pub(super) fn drop_passkey_arming(&self, persona_id: &str) {
@@ -741,6 +867,11 @@ impl Room {
             .ok_or("Stored secrets are unavailable on this room.")?;
         let updates = self.policy_update_lock();
         let held = updates.lock().await;
+        // A passkey from a computer is kept only within the arming's ten
+        // minutes, as the desk counts them.
+        if ready.is_some() && now_ms() >= arming.expires_at {
+            return Err("The arming ran out before the passkey was stored.".into());
+        }
         if let Some(capture) = &arming.capture {
             capture.capability.check()?;
             if vault
@@ -877,11 +1008,26 @@ pub(super) struct PasskeyArming {
     pub(super) answered: bool,
     /// Only the authenticated answer handler sets this; a poll is not consent.
     pub(super) operator_approved: bool,
+    /// The request as its card showed it when the person approved it: what
+    /// the computer reports made must be this request, for its site.
+    pub(super) approved_ask: Option<crate::contract::PasskeyAsk>,
+    /// The person's answer is on its way to the computer. One answer is in
+    /// flight at a time, and a look meanwhile changes nothing.
+    pub(super) answering: bool,
+    /// Which arming this is, counted by the desk: a look that began under
+    /// one arming acts on nothing once another stands in its place.
+    pub(super) generation: u64,
     /// A look found it made and is storing it; another look meanwhile
     /// answers `armed` rather than storing it twice.
     pub(super) storing: bool,
     /// Stored, ticked and handed: answered to the next poll, then let go.
     pub(super) stored: Option<crate::contract::SharedSecret>,
+}
+
+/// A count of its own for the next arming, never one an earlier arming had.
+pub(super) fn next_passkey_generation() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Whether what a teammate's computer reports about its passkey arming is
@@ -901,8 +1047,13 @@ fn answers_this_arming(
     let this_arming =
         |rp_id: &str, expires_at: i64| rp_id == arming.rp_id && expires_at == arming.expires_at;
     let for_the_site = |rp_id: &str| rp_within(rp_id, &arming.rp_id);
+    // The request the computer reports is the one the person approved as
+    // its card showed it: the same request, site and origin.
     let approved_here = |ask: &crate::contract::PasskeyAsk| {
         arming.operator_approved
+            && arming.approved_ask.as_ref().is_some_and(|shown| {
+                shown.id == ask.id && shown.rp_id == ask.rp_id && shown.origin == ask.origin
+            })
             && arming
                 .asked
                 .as_ref()
@@ -921,19 +1072,22 @@ fn answers_this_arming(
             expires_at,
             ask,
         } => this_arming(rp_id, *expires_at) && for_the_site(&ask.rp_id) && approved_here(ask),
+        // A made passkey carries no end of its arming to compare; the desk's
+        // own deadline holds at storage instead.
         Registration::Registered {
             rp_id,
             credential,
             ask,
         } => {
             *rp_id == arming.rp_id
-                && ask
-                    .as_ref()
-                    .is_some_and(|ask| for_the_site(&ask.rp_id) && approved_here(ask))
-                && matches!(
-                    credential,
-                    crate::vault::StoredSecret::Passkey { rp_id, .. } if for_the_site(rp_id)
-                )
+                && ask.as_ref().is_some_and(|ask| {
+                    for_the_site(&ask.rp_id)
+                        && approved_here(ask)
+                        && matches!(
+                            credential,
+                            crate::vault::StoredSecret::Passkey { rp_id, .. } if *rp_id == ask.rp_id
+                        )
+                })
         }
     }
 }

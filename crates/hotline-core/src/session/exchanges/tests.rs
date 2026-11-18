@@ -763,6 +763,30 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
 /// A handoff whose turn has asked the person and is still running: the
 /// returned gate lets the fake model finish it.
 async fn handoff_asking(name: &str) -> (Arc<Room>, String, String, Arc<tokio::sync::Semaphore>) {
+    let (room, id, action, gate, _epoch) = handoff_raising(
+        name,
+        "request_human",
+        json!({"reason":"Approve the deployment"}),
+    )
+    .await;
+    (room, id, action, gate)
+}
+
+/// A handoff whose turn has raised the card `tool` makes, in its work
+/// thread and under a live session lease, and is still running: the returned
+/// gate lets the fake model finish it, and the epoch keeps the lease live.
+/// For `add_teammate`, the lead's card, Bob leads the desk.
+async fn handoff_raising(
+    name: &str,
+    tool: &str,
+    arguments: serde_json::Value,
+) -> (
+    Arc<Room>,
+    String,
+    String,
+    Arc<tokio::sync::Semaphore>,
+    crate::driver::CapabilityEpoch,
+) {
     let log = scratch(name);
     enrol(&log, &persona("ada"));
     enrol(&log, &persona("bob"));
@@ -781,15 +805,24 @@ async fn handoff_asking(name: &str) -> (Arc<Room>, String, String, Arc<tokio::sy
         ])
         .gated(gate.clone()),
     );
+    if tool == "add_teammate" {
+        log.append(
+            &StreamId::Room,
+            &json!({"kind": "setting", "id": crate::room::TEAM_LEAD, "value": "bob"}),
+        )
+        .unwrap();
+    }
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
     room.allow_sender("bob", "ada").unwrap();
     let id = send(&room, "handoff").await;
     until("the agents have one prompt", || agents.prompts().len() == 1).await;
     // The handoff runs in its own work thread; its tools are that thread's.
     let thread = work_thread(&room, &id);
+    let epoch = crate::driver::CapabilityEpoch::default();
     TeammateTools::new(&room, "bob")
         .for_work(thread.clone())
-        .call("request_human", &json!({"reason":"Approve the deployment"}))
+        .with_capability(epoch.lease())
+        .call(tool, &arguments)
         .await
         .unwrap();
     let action = room
@@ -801,7 +834,7 @@ async fn handoff_asking(name: &str) -> (Arc<Room>, String, String, Arc<tokio::sy
         .as_str()
         .unwrap()
         .to_string();
-    (room, id, action, gate)
+    (room, id, action, gate, epoch)
 }
 
 /// A card withdrawn while the handoff's turn runs no longer holds the

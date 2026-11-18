@@ -134,7 +134,8 @@ impl Room {
 
     /// The card in a thread that a handoff still open waits on, the oldest if
     /// it waits on several, and whose card it is: the one the person's words
-    /// answer.
+    /// answer. Only a card that takes words counts (`takes_typed_answer`):
+    /// a yes-or-no card waits for its own buttons, and the words are a line.
     fn card_a_handoff_waits_on(&self, side_id: &str) -> Option<(String, String)> {
         let thread = self.work_thread(side_id);
         let persona_id = match self.sides.get(side_id) {
@@ -146,6 +147,7 @@ impl Room {
             .load(&StreamId::of_thread(&thread)?)
             .iter()
             .filter(|event| event["kind"] == "human_action" && event["status"] == "pending")
+            .filter(|card| crate::session::asking::takes_typed_answer(card))
             .filter_map(|card| card["actionId"].as_str())
             .find(|action| {
                 self.handoff_awaiting(&persona_id, action)

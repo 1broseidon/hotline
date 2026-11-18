@@ -1834,12 +1834,19 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   set by the exchange, never read off the person's words) returns a result to
   the opener; a turn the person's line starts keeps its reply in the thread. A
   line said during the handoff's turn waits behind it. While the handoff
-  waits on a card in the thread, the person's words are that card's answer,
+  waits on a card in the thread that asks the person to do something
+  (`request_human`'s), the person's words are that card's answer,
   with no files (`Room::prompt_side_replying`), checked as any answer is
-  (`resume_handoff_answer`).
+  (`resume_handoff_answer`). Ordinary words are never consent: a card that
+  asks a yes or a no (`ask_question`, and the proposals whose yes writes
+  something: `set_person_name`, `add_teammate`, `propose_inbound`) is
+  answered only by its own buttons, and the words stay a line in the
+  thread. The kinds that take words are named (`takes_typed_answer` in
+  `session/asking.rs`), so a card kind added later takes none until it is.
 - **Tests:** `session/exchanges/tests/handed_over.rs`
   `the_persons_line_in_a_handed_over_thread_never_reaches_its_opener`,
   `the_persons_words_answer_the_card_a_handoff_waits_on`,
+  `typed_words_in_a_handed_over_thread_never_settle_an_approval_card`,
   `words_in_a_continued_thread_are_a_line_once_its_handoff_is_over`;
   `session/sides/tests.rs`
   `a_handed_over_thread_takes_the_persons_words_and_their_end_and_continues`.

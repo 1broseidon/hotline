@@ -113,6 +113,79 @@ async fn the_persons_words_answer_the_card_a_handoff_waits_on() {
     assert_eq!(results[0]["cause"]["status"], "done");
 }
 
+/// Ordinary words are never consent. A card that asks a yes or a no, raised
+/// in a handed-over thread while the handoff waits on it, is answered only by
+/// its own buttons: the person's "no" typed in the thread stays a line there,
+/// the card stays pending, and nothing its yes would write is written.
+#[tokio::test]
+async fn typed_words_in_a_handed_over_thread_never_settle_an_approval_card() {
+    let cards = [
+        (
+            "ask_question",
+            json!({"question": "Should I deploy to production now?"}),
+        ),
+        ("set_person_name", json!({"name": "Mallory"})),
+        (
+            "add_teammate",
+            json!({"name": "Cy", "goal": "Look after the release"}),
+        ),
+        (
+            "propose_inbound",
+            json!({"type": "webhook", "name": "deploys"}),
+        ),
+    ];
+    for (tool, arguments) in cards {
+        let (room, id, action, gate, _epoch) = super::handoff_raising(
+            &format!("typed-no-{}", tool.replace('_', "-")),
+            tool,
+            arguments,
+        )
+        .await;
+        gate.add_permits(2);
+        until(
+            "the handoff waits on its card and bob's turn has ended",
+            || {
+                room.exchange_pair("ada~bob").unwrap().requests[0].phase() == Phase::WaitingHuman
+                    && !room.mid_turn("bob")
+            },
+        )
+        .await;
+        let thread = work_thread(&room, &id);
+        let teammates = crate::room::roster(&room.log).len();
+        let sources = hotline_room::inbound::sources(&room.log).len();
+
+        room.prompt_side(&thread, "No, don't do that", None)
+            .await
+            .unwrap();
+        until("the words are a line in the thread", || {
+            said_in(&room, &thread)
+                .iter()
+                .any(|v| v["kind"] == "user" && v["text"] == "No, don't do that")
+        })
+        .await;
+        assert!(pending(&room, &action), "{tool}: the card still waits");
+        assert_eq!(
+            room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
+            Phase::WaitingHuman,
+            "{tool}: the handoff still waits on its card"
+        );
+        assert!(
+            !crate::room::is_set(&room.log, "personName"),
+            "{tool}: no name was saved"
+        );
+        assert_eq!(
+            crate::room::roster(&room.log).len(),
+            teammates,
+            "{tool}: no teammate was added"
+        );
+        assert_eq!(
+            hotline_room::inbound::sources(&room.log).len(),
+            sources,
+            "{tool}: no source was added"
+        );
+    }
+}
+
 /// A handoff stopped with its card open leaves the card pending in a thread
 /// the person can now continue. Nothing waits on that card any more, so
 /// their words are a line to the teammate, not an answer no turn would hear.

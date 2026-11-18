@@ -612,6 +612,28 @@ pub(super) enum Approves {
     InboundSource(Box<crate::contract::InboundSource>),
 }
 
+/// Whether the person's typed words may answer this `human_action` card, as
+/// its "Done" with the words as the note: in a thread a teammate handed over,
+/// a line said while the handoff waits on a card there is that card's answer
+/// (`Room::prompt_side_replying`). Ordinary text is never consent, so this
+/// names the kinds that take words rather than the kinds that do not, and a
+/// kind added later is answered only by its own buttons until it is named
+/// here.
+///
+/// The one kind is `request_human`'s: the person is asked to do something
+/// and say how it went, and the card is written with a bare id
+/// (`new_id`) and no `question`. Every other card asks a yes or a no, which
+/// a typed "no" must never settle as yes: `ask_question`'s, and the proposals
+/// whose yes writes something (a name, a teammate, an outside source), whose
+/// ids carry a prefix.
+pub(super) fn takes_typed_answer(card: &Value) -> bool {
+    let asks_to_act = card.get("question").is_none_or(Value::is_null);
+    asks_to_act
+        && card["actionId"]
+            .as_str()
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+}
+
 /// The action-id prefixes of the cards whose yes writes something, so an
 /// answer finds its settlement before the card is superseded.
 const PERSON_NAME_CARD: &str = "person-name:";

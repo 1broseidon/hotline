@@ -2183,10 +2183,12 @@ it, the turn's reply is still the handoff's result, and the thread does not
 close while the line waits. A turn the person's line starts is theirs: its
 reply stays in the thread and never reaches the opener, since only a turn begun
 by a request's own line (`RequestLine`) returns what came of it. While the handoff
-waits on a card in the thread, the person's words are that card's answer, as
-its note (files are refused), and the turn it starts carries the handoff on;
-once the handoff has ended, a card left open is answered on its own and the
-words are a line.
+waits on a card in the thread that asks the person to do something
+(`request_human`'s), the person's words are that card's answer, as its note
+(files are refused), and the turn it starts carries the handoff on; a card
+that asks a yes or a no is answered only by its own buttons, because ordinary
+words are never consent, and the words are a line. Once the handoff has
+ended, a card left open is answered on its own and the words are a line.
 
 A handoff **stands** from when it is sent until Stop exchange on the pair, a
 revocation that touches either teammate, or the end of the link to the other

@@ -118,6 +118,8 @@ if [ "$(cat "$STATE")" != absent ]; then
   exit 1
 fi
 rm -f "${STATE}.folders" "${STATE}.limits" "${STATE}.release"
+# What the runtime's own environment held, for the container to take.
+printf '%s' "${HOTLINE_COMPUTER_TOKEN-}" > "${STATE}.envtoken"
 for a in "$@"; do
   case "$a" in
     HOTLINE_FOLDERS=?*) printf '%s' "$a" > "${STATE}.folders" ;;

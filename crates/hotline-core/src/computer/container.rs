@@ -47,11 +47,17 @@ pub(super) async fn pick_runtime(
     Ok((runtime, cmd))
 }
 
+/// The variable the computer's bearer reaches it in. It is named on the
+/// create command line with no value, and the value is in the runtime
+/// CLI's own environment ([`create`]), which Docker, Podman and Apple
+/// `container` each read a bare `-e NAME` from: a command line is readable
+/// by other processes, and on Linux by other users.
+pub(super) const TOKEN_ENV: &str = "HOTLINE_COMPUTER_TOKEN";
+
 pub(super) fn create_args(
     runtime: Runtime,
     name: &str,
     image: &str,
-    token: &str,
     cwd: &str,
     persona: &Persona,
 ) -> Result<Vec<String>, String> {
@@ -110,7 +116,7 @@ pub(super) fn create_args(
         "-p".into(),
         mcp_bind,
         "-e".into(),
-        format!("HOTLINE_COMPUTER_TOKEN={token}"),
+        TOKEN_ENV.into(),
         "-e".into(),
         format!("TZ={}", host_time_zone()),
         "-e".into(),
@@ -636,7 +642,7 @@ fn inspected_release(label: Option<&Value>, image: Option<&Value>) -> Option<Str
 }
 
 pub(super) fn token_from_environment(environment: Option<&Value>) -> Option<String> {
-    from_environment(environment, "HOTLINE_COMPUTER_TOKEN").filter(|token| !token.is_empty())
+    from_environment(environment, TOKEN_ENV).filter(|token| !token.is_empty())
 }
 
 fn from_environment(environment: Option<&Value>, name: &str) -> Option<String> {
@@ -739,9 +745,25 @@ fn is_not_found(error: &str) -> bool {
 }
 
 pub(super) async fn run(cmd: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
+    run_with(cmd, args, &[], timeout).await
+}
+
+/// Creates the computer: `args` from [`create_args`], with the bearer in
+/// the runtime CLI's environment under [`TOKEN_ENV`] and on no command line.
+pub(super) async fn create(cmd: &Path, args: &[&str], token: &str) -> Result<String, String> {
+    run_with(cmd, args, &[(TOKEN_ENV, token)], COMMAND_TIMEOUT).await
+}
+
+async fn run_with(
+    cmd: &Path,
+    args: &[&str],
+    environment: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<String, String> {
     let mut command = Command::new(cmd);
     command
         .args(args)
+        .envs(environment.iter().copied())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())

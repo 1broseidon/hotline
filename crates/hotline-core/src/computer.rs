@@ -17,7 +17,7 @@ use crate::contract::{
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 pub(crate) use container::folder_mounts;
 use container::{
-    create_args, folder_mount_args, image_present, inspect, inspect_within, limits_of,
+    create, create_args, folder_mount_args, image_present, inspect, inspect_within, limits_of,
     pick_runtime, pull, run, wait_healthy,
 };
 pub(crate) use hotline_room::computer::HOME_MOUNT;
@@ -509,9 +509,9 @@ impl Computer {
             if !image_present(&cmd, runtime, &image).await {
                 pull(&cmd, runtime, &image, report).await?;
             }
-            let args = create_args(runtime, &name, &image, &token, &cwd, persona)?;
+            let args = create_args(runtime, &name, &image, &cwd, persona)?;
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            run(&cmd, &arg_refs, COMMAND_TIMEOUT).await?;
+            create(&cmd, &arg_refs, &token).await?;
             run(&cmd, &["start", &name], COMMAND_TIMEOUT).await?;
         } else if !inspection.running {
             run(&cmd, &["start", &name], COMMAND_TIMEOUT).await?;

@@ -174,7 +174,7 @@ async fn ensure_running_on_an_absent_container_creates_with_the_hardened_args() 
             "-p",
             "127.0.0.1:0:8787",
             "-e",
-            "HOTLINE_COMPUTER_TOKEN=",
+            "HOTLINE_COMPUTER_TOKEN",
             "-e",
             "TZ=",
             "-v",
@@ -190,6 +190,57 @@ async fn ensure_running_on_an_absent_container_creates_with_the_hardened_args() 
         recorded.contains("start hotline-computer-ada"),
         "{recorded}"
     );
+}
+
+/// The computer's bearer is on no command line, where another process,
+/// and on Linux another user, could read it: the create names the variable
+/// bare and the runtime takes its value from its own environment, which
+/// Docker, Podman and Apple `container` all read a bare `-e NAME` from.
+#[tokio::test]
+async fn no_create_argument_contains_the_token_and_the_runtime_has_it_in_its_environment() {
+    let root = scratch("create-token");
+    let cwd = root.join("work");
+    fs::create_dir_all(&cwd).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "absent").unwrap();
+    let computers = Computer::with_path(root.as_os_str());
+    let ready = computers
+        .ensure_running(
+            &persona("ada", cwd.to_str().unwrap()),
+            cwd.to_str().unwrap(),
+            None,
+            None,
+            |_| {},
+        )
+        .await
+        .expect("ensure");
+    assert_ne!(ready.token, "");
+    let recorded = log_text(&root.join("argv.log"));
+    assert!(recorded.contains("create "), "{recorded}");
+    assert!(
+        !recorded.contains(&ready.token),
+        "the bearer is on a command line: {recorded}"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("state.envtoken")).unwrap(),
+        ready.token,
+        "the runtime had the bearer in its environment"
+    );
+    for runtime in [Runtime::Docker, Runtime::Podman, Runtime::AppleContainer] {
+        let args = create_args(runtime, "test", "image", "/tmp", &persona("ada", "/tmp")).unwrap();
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["-e", "HOTLINE_COMPUTER_TOKEN"]),
+            "{runtime:?}: {args:?}"
+        );
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.starts_with("HOTLINE_COMPUTER_TOKEN=")),
+            "{runtime:?}: {args:?}"
+        );
+    }
 }
 
 #[test]
@@ -231,7 +282,7 @@ fn create_args_preserve_fractional_cpus_and_mebibyte_memory_for_each_runtime() {
         ada.computer.as_mut().unwrap().memory = Some("4608m".into());
         for cpus in [None, Some(0.25), Some(2.5), Some(4.0)] {
             ada.computer.as_mut().unwrap().cpus = cpus;
-            let args = create_args(runtime, "test", "image", "token", "/tmp", &ada).unwrap();
+            let args = create_args(runtime, "test", "image", "/tmp", &ada).unwrap();
             let flag = |name: &str| {
                 args.windows(2)
                     .find(|pair| pair[0] == name)
@@ -257,7 +308,7 @@ fn create_args_reject_nonfinite_and_nonpositive_cpu_limits() {
         for cpus in [0.0, -0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let mut ada = persona("ada", "/tmp");
             ada.computer.as_mut().unwrap().cpus = Some(cpus);
-            let error = create_args(runtime, "test", "image", "token", "/tmp", &ada).unwrap_err();
+            let error = create_args(runtime, "test", "image", "/tmp", &ada).unwrap_err();
             assert!(error.contains("CPU limit"), "{error}");
         }
     }
@@ -332,7 +383,7 @@ fn granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered()
             writable: true,
         },
     ]);
-    let args = create_args(Runtime::Docker, "test", "image", "token", "/tmp", &ada).unwrap();
+    let args = create_args(Runtime::Docker, "test", "image", "/tmp", &ada).unwrap();
     let read_mount = format!("{}:/home/agent/folders/app:ro", read_only.display());
     let write_mount = format!("{}:/home/agent/folders/app-2", writable.display());
     assert!(args.contains(&read_mount), "{args:?}");
@@ -595,7 +646,6 @@ fn every_runtime_records_the_release_when_creating_a_computer() {
             runtime,
             "test",
             "registry:5000/computer:0.11.0-rc.7",
-            "token",
             "/tmp",
             &ada,
         )

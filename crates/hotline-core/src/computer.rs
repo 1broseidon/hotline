@@ -119,6 +119,15 @@ pub struct Ready {
     pub token: String,
 }
 
+/// A client for the desk's own requests to a computer. It follows no
+/// redirect: every door is on the computer's loopback port and answers
+/// there, so a redirect means something else is answering that port, and
+/// following it would carry the bearer, a set of secrets or a passkey answer
+/// to wherever it points.
+pub(crate) fn door_client() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+}
+
 pub mod cookies;
 pub(crate) mod files;
 pub(crate) mod gate;

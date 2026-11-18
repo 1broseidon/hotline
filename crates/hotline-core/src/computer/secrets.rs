@@ -54,7 +54,7 @@ pub async fn deliver(
     secrets: &BTreeMap<String, StoredSecret>,
 ) -> Result<(), Refusal> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(TIMEOUT)
         .build()
         .map_err(|error| Refusal::Failed(error.to_string()))?;

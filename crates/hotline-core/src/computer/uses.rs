@@ -29,7 +29,7 @@ async fn request(
     answer: Option<(&str, SecretUseAnswer)>,
 ) -> Result<reqwest::Response, Refusal> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(&ready.url);
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|_| Refusal::Failed)?;

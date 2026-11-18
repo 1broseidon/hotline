@@ -912,3 +912,94 @@ async fn a_teammate_in_use_is_not_swept_and_its_clock_starts_over() {
         "its clock began at the sweep that saw it used"
     );
 }
+
+/// A computer's port that answers a redirect is not followed by any of the
+/// desk's own requests to it: following one would carry the bearer, every
+/// secret value, a passkey answer or a cookie jar to wherever it points.
+#[tokio::test]
+async fn desk_clients_to_the_computer_do_not_follow_redirects() {
+    use std::sync::Mutex as StdMutex;
+    let reached: Arc<StdMutex<Vec<String>>> = Arc::default();
+    let record = reached.clone();
+    let elsewhere = axum::Router::new().fallback(move |request: axum::extract::Request| {
+        let record = record.clone();
+        async move {
+            record
+                .lock()
+                .unwrap()
+                .push(format!("{} {}", request.method(), request.uri()));
+            (
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                "{}",
+            )
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let away = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, elsewhere).await;
+    });
+    // Whatever answers the computer's port sends every request on, method
+    // and body kept.
+    let asked: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let counted = asked.clone();
+    let redirecting = axum::Router::new().fallback(move |request: axum::extract::Request| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let to = format!("http://127.0.0.1:{away}{}", request.uri());
+        async move {
+            (
+                axum::http::StatusCode::TEMPORARY_REDIRECT,
+                [(axum::http::header::LOCATION, to)],
+            )
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, redirecting).await;
+    });
+    let ready = Ready {
+        url: format!("http://127.0.0.1:{port}/mcp"),
+        token: "the-token".to_owned(),
+    };
+
+    let set = std::collections::BTreeMap::from([(
+        "GITHUB_TOKEN".to_owned(),
+        crate::vault::StoredSecret::Variable {
+            value: "ghp_notarealtoken0001".to_owned(),
+        },
+    )]);
+    assert!(secrets::deliver(&ready, &set).await.is_err());
+    assert!(passkeys::arm(&ready, "github.com").await.is_err());
+    assert!(passkeys::poll(&ready).await.is_err());
+    assert!(passkeys::answer(&ready, "ask-1", true).await.is_err());
+    assert!(passkeys::disarm(&ready).await.is_err());
+    assert!(uses::held(&ready).await.is_err());
+    assert!(
+        uses::answer(&ready, "use-1", crate::contract::SecretUseAnswer::Allow)
+            .await
+            .is_err()
+    );
+    assert!(login::forget(&ready, "github", &[]).await.is_err());
+    assert!(
+        login::deliver(&ready, "github", &serde_json::json!({}))
+            .await
+            .is_err()
+    );
+    assert!(
+        files::download(&ready, "/home/agent/notes.txt", 1024, |_| String::new())
+            .await
+            .is_err()
+    );
+    assert!(guide::fetch(&ready).await.is_err());
+
+    assert!(
+        asked.load(std::sync::atomic::Ordering::SeqCst) >= 11,
+        "every door was asked"
+    );
+    assert_eq!(
+        reached.lock().unwrap().clone(),
+        Vec::<String>::new(),
+        "nothing followed a redirect"
+    );
+}

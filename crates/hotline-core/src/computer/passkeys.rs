@@ -57,7 +57,7 @@ pub enum Registration {
 }
 
 fn client() -> Result<reqwest::Client, Refusal> {
-    reqwest::Client::builder()
+    super::door_client()
         .timeout(TIMEOUT)
         .build()
         .map_err(|error| Refusal::Failed(error.to_string()))

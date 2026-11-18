@@ -40,7 +40,7 @@ pub async fn fetch(ready: &Ready) -> Result<Guide, String> {
 }
 
 async fn ask(ready: &Ready) -> Result<Guide, String> {
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(FETCH_TIMEOUT)
         .build()
         .map_err(|error| error.to_string())?;

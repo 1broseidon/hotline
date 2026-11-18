@@ -65,7 +65,7 @@ async fn upload(ready: &Ready, name: &str, saved: &Value) -> Result<(), String> 
     let path = format!(".hotline/logins/{name}.json");
     let address = format!("{base}/files");
     let body = serde_json::to_vec(saved).map_err(|error| error.to_string())?;
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(TIMEOUT)
         .build()
         .map_err(|error| error.to_string())?;
@@ -123,7 +123,7 @@ pub struct Forgotten {
 /// the door answers 404, which is said as the pane's Update.
 pub async fn forget(ready: &Ready, name: &str, domains: &[String]) -> Result<Forgotten, String> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(TIMEOUT)
         .build()
         .map_err(|error| error.to_string())?;
@@ -167,7 +167,7 @@ pub async fn forget(ready: &Ready, name: &str, domains: &[String]) -> Result<For
 /// desk fetches the guide, so the browser picks the cookies up now.
 async fn load(ready: &Ready, name: &str) -> Result<(), String> {
     let transport = StreamableHttpClientTransport::with_client(
-        reqwest::Client::builder()
+        super::door_client()
             .timeout(TIMEOUT)
             .build()
             .map_err(|error| error.to_string())?,

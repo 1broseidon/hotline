@@ -51,7 +51,7 @@ pub(crate) async fn download(
     let mut url = reqwest::Url::parse(&format!("{base}/files/download"))
         .map_err(|error| format!("The computer's address is not usable: {error}"))?;
     url.query_pairs_mut().append_pair("path", path);
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(DOWNLOAD_TIMEOUT)
         .build()
         .map_err(|error| error.to_string())?;
@@ -127,7 +127,7 @@ pub(crate) async fn screenshot(
 
 /// Calls `capture` and answers the base64 of the picture it returned.
 async fn capture(ready: &Ready, arguments: Value) -> Result<String, String> {
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(CAPTURE_TIMEOUT)
         .build()
         .map_err(|error| error.to_string())?;

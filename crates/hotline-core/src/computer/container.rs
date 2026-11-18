@@ -782,7 +782,7 @@ pub(super) async fn run(cmd: &Path, args: &[&str], timeout: Duration) -> Result<
 
 pub(super) async fn wait_healthy(port: u16) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}/health");
-    let client = reqwest::Client::builder()
+    let client = super::door_client()
         .timeout(HEALTH_PROBE)
         .build()
         .map_err(|error| error.to_string())?;

@@ -98,10 +98,8 @@ pub(super) fn spawn(command: &mut Command) -> io::Result<(Child, Pipe)> {
     unsafe {
         command.pre_exec(move || onto_three_and_four(read, write));
     }
-    let child = command.spawn()?;
-    // The browser holds its own ends now. Closing ours here means its exit
-    // reads as the end of the answers rather than a wait for nothing.
-    drop((child_reads, child_writes));
+    // The desk's ends are made ready before the browser starts, so nothing
+    // that can fail stands between the launch and the caller's cleanup guard.
     let pipe = Pipe {
         commands: pipe::Sender::from_owned_fd(commands)?,
         answers: pipe::Receiver::from_owned_fd(answers)?,
@@ -109,6 +107,10 @@ pub(super) fn spawn(command: &mut Command) -> io::Result<(Child, Pipe)> {
         ready: VecDeque::new(),
         last_id: 0,
     };
+    let child = command.spawn()?;
+    // The browser holds its own ends now. Closing ours here means its exit
+    // reads as the end of the answers rather than a wait for nothing.
+    drop((child_reads, child_writes));
     Ok((child, pipe))
 }
 

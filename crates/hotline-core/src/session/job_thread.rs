@@ -609,7 +609,7 @@ impl Occupant for LiveJob {
         // this job, and the replies that came back to its run, open the line:
         // a job hears nothing of the rest.
         let asides = room.hear_asides(&self.persona_id, &thread);
-        let inbox = room.inbox_told(&self.persona_id, &thread);
+        let inbox = room.inbox_told(&self.persona_id, &thread, false);
         if let Some(index) = room.thread_index(
             &self.persona_id,
             &thread,

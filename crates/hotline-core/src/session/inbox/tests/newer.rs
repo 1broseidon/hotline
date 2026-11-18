@@ -105,7 +105,7 @@ async fn every_move_of_an_item_keeps_the_fields_a_newer_build_wrote_on_it() {
     };
 
     let moving = left_by_a_newer_build(&room, "Moving", InboxWants::Answer, |_| {});
-    room.inbox_told("bob", &ThreadId::dm("bob"));
+    room.inbox_told("bob", &ThreadId::dm("bob"), false);
     let offered = item(&room, "bob", &moving);
     assert!(offered.offered.is_some());
     assert_eq!(offered.state, InboxState::Noticed);
@@ -156,7 +156,7 @@ async fn every_move_of_an_item_keeps_the_fields_a_newer_build_wrote_on_it() {
     assert!(done.work.is_some() && done.request.is_some());
     kept_its_fields(&room, &work, 1, "taken into a work thread and done");
 
-    room.inbox_told("ada", &ThreadId::dm("ada"));
+    room.inbox_told("ada", &ThreadId::dm("ada"), false);
     for id in [&moving, &answered, &folded, &work] {
         let told = item(&room, "bob", id);
         assert_eq!(told.sender_told as usize, told.receipts.len(), "{id}");
@@ -342,7 +342,7 @@ async fn an_item_in_a_state_or_with_an_outcome_this_build_does_not_know_is_liste
     room.allow_sender("ada", "bob").unwrap();
     room.recover_exchanges().await;
     room.inbox_due(now_ms() + 10 * expire_after()).await;
-    room.inbox_told("bob", &ThreadId::dm("bob"));
+    room.inbox_told("bob", &ThreadId::dm("bob"), false);
     assert_eq!(room.inbox_unread("bob"), 0);
 
     let open = tool(&room, "bob", "read_inbox", json!({})).await.unwrap();

@@ -326,7 +326,7 @@ async fn an_expired_item_the_person_asked_for_has_its_sender_tell_them_it_was_ne
     assert!(
         told.starts_with("This is Hotline's notice, not Bob's words.")
             && told.contains(
-                "tell them, in one line with `post_to_chat`, that Bob never picked it up."
+                "Hotline gives you a turn they read, and you tell them then, in one line, that Bob never picked it up."
             ),
         "{told}"
     );

@@ -213,15 +213,42 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   is quiet, as a quiet job's firing is ("I think like scheduled tasks it can
   run quiet and escalate to the user when needed"). Its line begins `quiet
   inbox` and says who reads it: nobody; the person hears only what it posts
-  with `post_to_chat`, once that turn, which it should when an item's outcome
-  is theirs (a result they asked it to get, a decision that is theirs, a
-  problem) and not for a colleague's question it simply answered. Its words
+  with `post_to_chat`, once that turn, which it should for a decision that
+  is theirs or a problem, and not for a colleague's question it simply
+  answered, an item it sorted, or progress on something the person asked
+  for: that is told when it is finished (What the person asked for, below),
+  and the line says so. Its words
   are written as thinking, the path under the turn: no bubble, no unread on
   the rail, no notification or push, nothing a call says. Its post is an
   ordinary message from the teammate. It runs in the main conversation's own
   session and context, never a thread or a clone of its own. The person's
   line steered into it ends the quiet, and the turn answers them; a work
   thread or a call the inbox wakes is not quiet.
+- **What the person asked for** (`inbox/asked.rs`). A send made in a turn of
+  the sender's main conversation that the person read, a turn started by
+  their follow-up line (`aboutItem`) included, is theirs (`forPerson`). While
+  colleagues work on it nothing of it reaches the person: a receipt, an
+  answer from one of several, each wakes the sender's quiet turn as any item
+  does. It is finished once every item the send made is closed (answered,
+  done, noted, dropped, combined or expired; one held for the person's
+  first-contact card is still open), however it closed: a decline lands
+  nothing in the sender's inbox, so the close itself gathers the sender's
+  main conversation. Its next wake there is then a turn the person reads,
+  not quiet, whose line begins `inbox · Finished:`, names the send's title
+  and how each colleague's part ended ("Score?" (Timo: answered)), and says
+  to tell the person the result in its own words, addressed to them, in a
+  line or two, and not to paste or quote the colleague's reply, which was
+  written to the teammate. What it says is the reply: a bubble, a push to
+  the phone. The desk makes the turn loud; the words are the teammate's. A
+  turn the person reads that is in flight is told the same in a notice
+  ("Tell the person in this turn"), and a quiet one in flight is followed by
+  the turn they read. Finished is news once: while one of the send's items
+  has closed since its sender was last told (`senderTold`). A quiet turn's
+  index leaves it untold for the turn the person reads; any other turn's
+  index marks its SENT lines `finishes what the person asked of you: tell
+  them the result, in your own words`. A send that wants nothing back
+  finishes nothing the person waits on, and a send not for the person stays
+  quiet to the end.
 - **Busy.** An item that lands mid-turn starts no turn and no work thread.
   When the gather delay is up, the turn in flight in the main conversation is
   handed the one-line notice, steered into it as the person's mid-turn line
@@ -310,8 +337,9 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   sender is woken quietly. When the expired item came from something the
   person asked for (`forPerson`: it was sent in a turn of the sender's main
   conversation that the person read, not a quiet turn, a thread or a job),
-  the notice tells the sender to say so to the person in one line with
-  `post_to_chat`: that the colleague never picked it up. Otherwise the
+  the notice tells the sender that it tells them, in one line, in the turn
+  they read once everything it sent for it is finished: that the colleague
+  never picked it up. Otherwise the
   sender decides whether the person needs to know. The rules are the same
   either way: three days, unread items too, and a teammate not running is
   still not started only to be offered a set-aside item again. The receiver is not woken. A notice can expire too, and an expired notice sends

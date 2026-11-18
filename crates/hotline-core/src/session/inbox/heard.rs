@@ -9,6 +9,9 @@
 //!   are heard in one turn. The
 //!   main conversation's turn it wakes is quiet ([`QUIET_WAKE_LINE`]):
 //!   nobody reads its words, and only `post_to_chat` reaches the person.
+//!   One that finished something the person asked for is the exception: its
+//!   turn is one the person reads, told to tell them the result
+//!   (`asked.rs`).
 //! - **Busy.** An item that lands while a turn runs starts nothing. When the
 //!   gather delay is up the turn in flight in the main conversation is handed
 //!   a one-line notice of the new titles, if its driver takes a line
@@ -44,7 +47,7 @@ const GATHER_MS: u64 = if cfg!(test) { 150 } else { 4_000 };
 /// end of the line of every turn the inbox starts there.
 macro_rules! nobody_reads {
     () => {
-        "Nobody reads what you say in this turn, the person included: they hear only what you post with `post_to_chat`, once this turn. Post when an item's outcome is theirs to know: a result they asked you to get, a decision that is theirs to make, or a problem. A colleague's question you answered, or an item you sorted, is not."
+        "Nobody reads what you say in this turn, the person included: they hear only what you post with `post_to_chat`, once this turn. Post only for a decision that is theirs to make, or a problem. A result they asked you to get is not for a post: once everything you sent colleagues for it is finished, Hotline gives you a turn they read to tell them. Progress on it, a colleague's question you answered, or an item you sorted, is not for one either."
     };
 }
 pub(super) use nobody_reads;
@@ -116,7 +119,7 @@ impl Room {
     /// Waits out the gather delay for `thread` of `persona_id`'s, once
     /// however many items land in it meanwhile, and then wakes it, or tells
     /// its turn in flight.
-    fn gather(self: &Arc<Self>, persona_id: &str, thread: ThreadId) {
+    pub(super) fn gather(self: &Arc<Self>, persona_id: &str, thread: ThreadId) {
         let key = format!("{persona_id} {thread}");
         if !lock(&self.inbox_gathers).insert(key.clone()) {
             return;
@@ -152,10 +155,19 @@ impl Room {
 
     /// The gather delay is up: an idle thread is woken by a line that only
     /// wakes it, and the main conversation mid-turn is handed the notice.
-    /// Nothing is done when every item has been offered meanwhile.
+    /// What the person asked for that finished meanwhile makes the main
+    /// conversation's turn one they read (`asked.rs`): its own when it is
+    /// idle, the next after a quiet one in flight, and the one in flight
+    /// when they read it. Nothing is done when every item has been offered
+    /// meanwhile and nothing finished.
     async fn inbox_wake(self: &Arc<Self>, persona_id: &str, thread: &ThreadId) {
         let waiting = self.unoffered(persona_id, thread);
-        if waiting.is_empty() {
+        let finished = if thread.kind == ThreadKind::Dm {
+            self.finished_asks(persona_id)
+        } else {
+            Vec::new()
+        };
+        if waiting.is_empty() && finished.is_empty() {
             return;
         }
         match thread.kind {
@@ -171,11 +183,19 @@ impl Room {
                 let Ok(working) = self.lease() else {
                     return;
                 };
-                // The turn it wakes is quiet: nobody reads it.
-                let woken = Wired {
-                    wake: true,
-                    quiet: true,
-                    ..Wired::back(timed(now_ms(), QUIET_WAKE_LINE))
+                // The turn it wakes is quiet: nobody reads it, unless it is
+                // to tell the person what they asked for, which is theirs.
+                let woken = if finished.is_empty() {
+                    Wired {
+                        wake: true,
+                        quiet: true,
+                        ..Wired::back(timed(now_ms(), QUIET_WAKE_LINE))
+                    }
+                } else {
+                    Wired {
+                        wake: true,
+                        ..Wired::words(timed(now_ms(), &self.finished_line(&finished)))
+                    }
                 };
                 let fresh: Vec<&InboxItem> = waiting
                     .iter()
@@ -183,13 +203,34 @@ impl Room {
                     .collect();
                 let notice = (!fresh.is_empty()).then(|| self.notice(&fresh));
                 let mut noticed = false;
+                let mut told_finished = false;
                 // A teammate held at its hourly limit begins no quiet turn:
-                // its items wait for the person's answer, or their turn.
-                let held = self.quiet_held(persona_id).is_some();
+                // its items wait for the person's answer, or their turn. A
+                // turn the person reads is no quiet turn.
+                let held = self.quiet_held(persona_id).is_some() && finished.is_empty();
+                let read = self.is_read_turn(thread);
                 let claimed = {
                     let mut turns = lock(&session.turns);
                     if !turns.running {
                         if held { None } else { turns.claim(woken) }
+                    } else if !finished.is_empty() && read {
+                        // Said into the turn in flight, which the person
+                        // reads, with any new titles. One its driver does not
+                        // take mid-turn begins a turn of its own they read,
+                        // which nothing skips as heard: what finished is told
+                        // now, so no later turn tells it again.
+                        let said = self.finished_notice(&finished);
+                        let text = match &notice {
+                            Some(notice) => format!("{notice}\n{said}"),
+                            None => said,
+                        };
+                        turns.waiting.push_back(Wired {
+                            steer: true,
+                            ..Wired::words(timed(now_ms(), &text))
+                        });
+                        noticed = notice.is_some();
+                        told_finished = true;
+                        None
                     } else if let Some(notice) = notice {
                         // Steered into the turn when its driver takes a line
                         // mid-turn, which leaves a quiet turn quiet, since it
@@ -203,11 +244,22 @@ impl Room {
                             ..Wired::back(timed(now_ms(), &notice))
                         });
                         noticed = true;
+                        // What finished is told in a turn of its own the
+                        // person reads, after the quiet one in flight.
+                        if !finished.is_empty() {
+                            turns.waiting.push_back(woken);
+                        }
                         None
                     } else {
+                        if !finished.is_empty() {
+                            turns.waiting.push_back(woken);
+                        }
                         None
                     }
                 };
+                if told_finished {
+                    self.told_finished(&finished);
+                }
                 if noticed {
                     for item in fresh {
                         self.mark_noticed(persona_id, &item.id);
@@ -308,8 +360,15 @@ impl Room {
 
     /// The inbox section a turn of `persona_id`'s in `thread` opens with
     /// (see the module), each item it offers rewritten as offered, and each
-    /// sent item it tells of as told.
-    pub(in crate::session) fn inbox_told(&self, persona_id: &str, thread: &ThreadId) -> Told {
+    /// sent item it tells of as told. A `quiet` turn is not told what
+    /// finished something the person asked for: that is left as news for the
+    /// turn they read that it wakes next (`asked.rs`).
+    pub(in crate::session) fn inbox_told(
+        &self,
+        persona_id: &str,
+        thread: &ThreadId,
+        quiet: bool,
+    ) -> Told {
         let now = now_ms();
         let mut fresh = Vec::new();
         let mut unread = 0;
@@ -343,7 +402,7 @@ impl Room {
             });
             offered.extend(changed);
         }
-        let moved_sent = self.sent_moves(persona_id, thread);
+        let moved_sent = self.sent_moves(persona_id, thread, quiet);
         let news = !offered.is_empty() || !moved_sent.is_empty();
         let offered_ids = offered.iter().map(|item| item.id.clone()).collect();
         if unread == 0 && later == 0 && moved_sent.is_empty() {
@@ -424,10 +483,15 @@ impl Room {
 
     /// Each item `persona_id` sent whose news is heard in `thread` and that
     /// has moved since its sender was last told, as one line of where it
-    /// stands now, each rewritten as told.
-    fn sent_moves(&self, persona_id: &str, thread: &ThreadId) -> Vec<String> {
+    /// stands now, each rewritten as told. What finished something the
+    /// person asked for is marked so, and left untold in a `quiet` turn.
+    fn sent_moves(&self, persona_id: &str, thread: &ThreadId, quiet: bool) -> Vec<String> {
         let mut lines = Vec::new();
+        let finished = self.finished_ask_items(persona_id);
         for item in self.sent_untold(persona_id, thread) {
+            if quiet && finished.contains(&item.id) {
+                continue;
+            }
             let Some(latest) = item.receipts.last() else {
                 continue;
             };
@@ -449,8 +513,13 @@ impl Room {
                 .map_or_else(String::new, |work| {
                     format!(" · in {}", crate::session::index::short(work))
                 });
+            let asked = if finished.contains(&item.id) {
+                super::asked::FINISHES_ASK
+            } else {
+                ""
+            };
             lines.push(format!(
-                "{} to {} · {state}{at}{why}{work} · {}",
+                "{} to {} · {state}{at}{why}{work} · {}{asked}",
                 crate::fence::quoted(&item.title),
                 self.name_of(&item.to),
                 short(&item.id)

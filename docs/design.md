@@ -1343,7 +1343,14 @@ number the person can change, and the inbox is tidied as the desk opens.
 The turn of the main conversation that an idle receiver's inbox wakes is
 quiet by construction, as a quiet job is: its words are the path under the
 turn, not a reply, and only its one `post_to_chat` reaches the person, until
-the person writes into it. The inbox does not cross a link yet.
+the person writes into it. What the person asked for is the exception
+(George, 2026-11-17): while colleagues work on a send made in a turn the
+person read, nothing of it reaches them, and once every item it made is
+closed the sender's next wake there is a turn they read, told to tell them
+the result in its own words. The desk decides when the person hears it; the
+words are the teammate's, since a colleague's reply was written to the
+teammate and pasting it would address the wrong reader. The inbox does not
+cross a link yet.
 
 One directional collaboration approval covers every item, checked when it is
 sent; an item that wants work needs the informed consent a handoff needed,

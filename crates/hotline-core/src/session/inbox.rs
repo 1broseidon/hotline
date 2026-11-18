@@ -38,6 +38,7 @@ use crate::store::inbox as kept;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+mod asked;
 mod clock;
 mod heard;
 mod limit;
@@ -624,12 +625,18 @@ impl Room {
         let mut item = kept::of(&self.log, to)
             .into_iter()
             .find(|item| item.id == id)?;
+        let was_open = item.state != InboxState::Closed;
         if !change(&mut item) {
             return None;
         }
         if let Err(error) = self.keep_item(&item) {
             eprintln!("an inbox item of {to}'s could not be changed: {error}");
             return None;
+        }
+        // However it closed, an item for the person may finish what they
+        // asked of its sender (`inbox/asked.rs`).
+        if was_open && item.state == InboxState::Closed && asked::may_finish_ask(&item) {
+            self.ask_closed(&item);
         }
         Some(item)
     }

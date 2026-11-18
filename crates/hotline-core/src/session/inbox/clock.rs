@@ -207,7 +207,7 @@ impl Room {
         });
         let tell = if expired.for_person {
             format!(
-                " You sent it for something the person asked of you: tell them, in one line with `post_to_chat`, that {name} never picked it up."
+                " You sent it for something the person asked of you: once everything you sent for it is finished, Hotline gives you a turn they read, and you tell them then, in one line, that {name} never picked it up."
             )
         } else {
             " Tell the person only if it is theirs to know.".to_string()

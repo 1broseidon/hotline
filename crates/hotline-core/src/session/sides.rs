@@ -367,7 +367,7 @@ impl Occupant for LiveSide {
         // inbox or was left it about this one, open the line. A line that only
         // woke it is spent once a turn before it has heard what woke it.
         let asides = room.hear_asides(&self.persona_id, &self.thread);
-        let inbox = room.inbox_told(&self.persona_id, &self.thread);
+        let inbox = room.inbox_told(&self.persona_id, &self.thread, false);
         if asides.is_empty() && !inbox.news && line.wake {
             return Begin::Skip;
         }

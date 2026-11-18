@@ -212,7 +212,11 @@ impl Occupant for Session {
             // inbox and what it was left, open the line. A line that only woke
             // it is spent once a turn before it has heard what woke it.
             let asides = room.hear_asides(&session.persona_id, &session.thread());
-            let inbox = room.inbox_told(&session.persona_id, &session.thread());
+            let inbox = room.inbox_told(
+                &session.persona_id,
+                &session.thread(),
+                wired.quiet || returning,
+            );
             if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;
             }

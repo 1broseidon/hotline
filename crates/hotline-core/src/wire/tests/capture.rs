@@ -109,3 +109,95 @@ fn capture_malformed_values_and_debug_never_echo_typed_values() {
         assert!(!error.contains("SECRET_SENTINEL"));
     }
 }
+
+/// A login or passkey the desk already holds is a standing key, so granting
+/// one to a teammate is the desk's or the owner's: a companion naming it on
+/// the card is refused with where to do it, the teammate's keys and the card
+/// are as they were, and the same answer from the owner then grants it.
+#[tokio::test]
+async fn a_companion_cannot_grant_a_saved_key() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let mut ada = persona("ada");
+    ada.computer = Some(PersonaComputer {
+        enabled: true,
+        cpus: None,
+        memory: None,
+        pids: None,
+        image: None,
+        mounts: None,
+    });
+    enrol(&log, &ada);
+    let vault = Arc::new(
+        crate::vault::Vault::open_with_store(
+            root.path(),
+            log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    vault
+        .set_shared(
+            "GITHUB_LOGIN",
+            crate::vault::StoredSecret::Login {
+                sites: vec!["https://github.com".into()],
+                username: "saved-at-the-desk".into(),
+                password: "saved-password".into(),
+                totp: None,
+                r#use: crate::contract::SecretUse::Auto,
+            },
+        )
+        .unwrap();
+    let room = Room::with_agents_computers_and_vault(
+        log.clone(),
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::turns(vec![vec![]])),
+        crate::computer::Computer::new(),
+        Some(vault.clone()),
+    );
+    let desk: Arc<dyn RoomHandle> =
+        Arc::new(crate::desk::Desk::with_room(log.clone(), room.clone()));
+    let _turn = room.open_posting(&ThreadId::dm("ada"), None);
+    TeammateTools::new(&room, "ada")
+        .with_capability(CapabilityEpoch::default().lease())
+        .call(
+            "request_credential",
+            &json!({"site": "https://github.com", "kind": "login", "reason": "Sign in to the repository"}),
+        )
+        .await
+        .unwrap();
+    let card = || {
+        log.load(&StreamId::Tape("ada".into()))
+            .into_iter()
+            .rfind(|e| e["kind"] == "credential_ask")
+            .unwrap()
+    };
+    let pending = card();
+    assert_eq!(pending["existing"], json!(["GITHUB_LOGIN"]));
+    let grant = CredentialAnswer {
+        action_id: pending["actionId"].as_str().unwrap().into(),
+        name: Some("GITHUB_LOGIN".into()),
+        values: None,
+        ask: false,
+        save: None,
+    };
+    let frame = json!({"id": 1, "cmd": "secrets.capture.answer", "params": grant});
+    let refused =
+        remote_control_answer(Seat::Phone, &desk, &log, &Parts::default(), frame.clone()).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        refused["error"],
+        crate::session::capture::SAVED_AT_THE_DESK,
+        "{refused}"
+    );
+    assert_eq!(crate::room::roster(&log)[0].secrets, None);
+    assert_eq!(card()["status"], "pending");
+
+    let granted = remote_control_answer(Seat::Owner, &desk, &log, &Parts::default(), frame).await;
+    assert_eq!(granted["ok"], true, "{granted}");
+    assert_eq!(
+        crate::room::roster(&log)[0].secrets.as_ref().unwrap(),
+        &vec!["GITHUB_LOGIN".to_string()]
+    );
+    assert_eq!(card()["storedAs"], "GITHUB_LOGIN");
+}

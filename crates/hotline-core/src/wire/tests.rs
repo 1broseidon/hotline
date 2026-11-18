@@ -240,6 +240,13 @@ impl RoomHandle for CoreHandle {
         self.room.answer_credential(answer).await
     }
 
+    async fn secrets_capture_answer_from_companion(
+        &self,
+        answer: crate::contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        self.room.answer_credential_from_companion(answer).await
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
     }

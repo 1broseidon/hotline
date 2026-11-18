@@ -1576,7 +1576,9 @@ chosen name, optional login values and Ask me choice. No name means decline;
 a name without values grants a matching existing key or arms a passkey.
 Neither a different origin nor a different teammate can be sent. The phone
 seat may send this command, but no other secret write, including the generic
-thread-answer equivalent. A request lock settles racing seats once. An accepted answer finishes even
+thread-answer equivalent, and a companion's may not grant an existing key:
+that is a standing grant of something saved at the desk, so the core refuses
+it for that seat and the desk or an owner gives it. A request lock settles racing seats once. An accepted answer finishes even
 if the phone disconnects during delivery. The
 form clears typed fields on submit, dismiss and settlement, and expires
 locally even when its connection has gone away. The transcript's additive

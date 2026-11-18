@@ -7,6 +7,17 @@ use crate::contract::{
 
 const LIFETIME: i64 = 30 * 60_000;
 const GONE: &str = "That credential card is no longer waiting for an answer.";
+/// What a companion is told when it names a key the desk already holds.
+pub(crate) const SAVED_AT_THE_DESK: &str =
+    "Grant a saved key at your desk. From the phone, enter a new login or decline.";
+
+/// Whether an answer may grant a key the desk already holds: the desk's and
+/// an owner's may, a companion's may not.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SavedKeys {
+    Grant,
+    Refuse,
+}
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -201,21 +212,46 @@ impl Room {
         ))
     }
 
-    /// Both seats enter here. The request lock covers validation, the vault
-    /// write and settlement, so a losing seat can never store a second value.
+    /// The desk's and an owner's answer. Both seats enter here. The request
+    /// lock covers validation, the vault write and settlement, so a losing
+    /// seat can never store a second value.
     pub(crate) async fn answer_credential(
         self: &Arc<Self>,
         answer: CredentialAnswer,
     ) -> Result<(), String> {
+        self.answer_credential_as(answer, SavedKeys::Grant).await
+    }
+
+    /// A companion phone's answer: a decline, a new login typed on the
+    /// phone, or a new passkey's name, but never a key the desk already
+    /// holds. Granting a stored login or passkey hands a teammate a standing
+    /// key the person saved at the desk, which a companion may not give
+    /// (`docs/security.md`, Credential capture in the chat).
+    pub(crate) async fn answer_credential_from_companion(
+        self: &Arc<Self>,
+        answer: CredentialAnswer,
+    ) -> Result<(), String> {
+        self.answer_credential_as(answer, SavedKeys::Refuse).await
+    }
+
+    async fn answer_credential_as(
+        self: &Arc<Self>,
+        answer: CredentialAnswer,
+        saved: SavedKeys,
+    ) -> Result<(), String> {
         // A phone disconnect cancels its wire future. Once accepted, this
         // command must still settle the card after storing and delivering it.
         let room = self.clone();
-        tokio::spawn(async move { room.capture_answer(answer).await })
+        tokio::spawn(async move { room.capture_answer(answer, saved).await })
             .await
             .map_err(|_| "The credential answer could not finish.".to_string())?
     }
 
-    async fn capture_answer(self: &Arc<Self>, answer: CredentialAnswer) -> Result<(), String> {
+    async fn capture_answer(
+        self: &Arc<Self>,
+        answer: CredentialAnswer,
+        saved: SavedKeys,
+    ) -> Result<(), String> {
         let capture = lock(&self.captures)
             .get(&answer.action_id)
             .cloned()
@@ -248,6 +284,9 @@ impl Room {
             .map_err(|_| "The vault could not be listed.")?;
         let existing = listed.iter().find(|secret| secret.name == name);
         if let Some(secret) = existing {
+            if saved == SavedKeys::Refuse {
+                return Err(SAVED_AT_THE_DESK.into());
+            }
             if answer.values.is_some()
                 || !capture.existing.contains(&name)
                 || !matches_site(secret, &capture.site, capture.kind)

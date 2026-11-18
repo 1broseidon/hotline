@@ -781,6 +781,18 @@ async fn command(
                 ) if seat == Seat::Phone && !effort_config(log, room, persona_id, config_id) => {
                     Err("Change that on your desktop.".to_string())
                 }
+                // A companion answers a credential card with a decline, a
+                // new login or a new passkey's name, never by granting a key
+                // the desk already holds: that is a standing grant, and the
+                // core refuses it for this seat.
+                (Command::SecretsCaptureAnswer(..), _) if seat == Seat::Phone => {
+                    let Command::SecretsCaptureAnswer(answer) = command else {
+                        unreachable!("the arm above matched a credential answer")
+                    };
+                    room.secrets_capture_answer_from_companion(answer)
+                        .await
+                        .map(|()| Value::Null)
+                }
                 // A page of older lines is cut for the phone the way its
                 // snapshot is: long text shortened, frames made phone-sized.
                 (Command::TapePage { .. } | Command::ThreadPage { .. }, Some(_))

@@ -804,6 +804,15 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<(), String> {
         Err("Credential capture is unavailable on this room.".into())
     }
+    /// A companion phone's answer to a credential card: as
+    /// `secrets_capture_answer`, but it never grants a key the desk already
+    /// holds, only declines, stores a new login or names a new passkey.
+    async fn secrets_capture_answer_from_companion(
+        &self,
+        _answer: hotline_contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        Err("Credential capture is unavailable on this room.".into())
+    }
     async fn secrets_use_set(
         &self,
         _name: &str,

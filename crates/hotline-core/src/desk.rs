@@ -1620,6 +1620,12 @@ impl RoomHandle for Desk {
     ) -> Result<(), String> {
         self.room.answer_credential(answer).await
     }
+    async fn secrets_capture_answer_from_companion(
+        &self,
+        answer: crate::contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        self.room.answer_credential_from_companion(answer).await
+    }
     async fn secrets_passkey_register(
         &self,
         name: &str,

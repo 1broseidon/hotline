@@ -412,7 +412,8 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     let mut phone = h.socket(&grant.private).await.unwrap();
     // The hello is how a phone knows it may ask; a desk from before this
     // list names nothing, and the phone then shows no schedules section. A
-    // companion keeps the smaller command set.
+    // companion keeps the smaller command set: no `agentSwitch`, since
+    // moving a teammate to another agent is the owner's.
     assert_eq!(
         read(&mut phone).await["capabilities"],
         json!([
@@ -426,7 +427,6 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
             "lean",
             "thumbnails",
             "turnRetry",
-            "agentSwitch",
             "asides"
         ])
     );
@@ -730,12 +730,22 @@ async fn the_owner_hello_says_what_kind_of_desk_and_which_version() {
     assert_eq!(hello["deskKind"], "desktop");
     assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(hello["serves"], json!(["agents"]));
+    // Moving a teammate to another agent is offered to the owner alone.
+    let offers = |hello: &Value, capability: &str| {
+        hello["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == capability)
+    };
+    assert!(offers(&hello, "agentSwitch"), "{hello}");
     let companion = h.pair_companion().await;
     let mut companion = h.socket(&companion.private).await.unwrap();
     let hello = read(&mut companion).await;
     assert_eq!(hello.get("deskKind"), None);
     assert_eq!(hello.get("serves"), None);
     assert_eq!(hello.get("version"), None);
+    assert!(!offers(&hello, "agentSwitch"), "{hello}");
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
@@ -1051,4 +1061,161 @@ async fn a_pairing_whose_reply_never_left_is_rolled_back_and_can_be_claimed_agai
     ));
     assert!(h.remote.pairing_result(&pairing.id).unwrap().is_some());
     h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+/// A companion speaks in a work thread with files it uploaded, never with a
+/// path on the desk: `side.prompt` and `thread.prompt` naming one are refused
+/// before any handler runs, so the teammate's agent hears nothing and the
+/// path is never opened; the same phone's upload, named by its id through
+/// `mobile.prompt`, still reaches the thread, and words alone still go by
+/// `side.prompt`.
+#[tokio::test]
+async fn a_companion_attaches_only_its_own_uploads_in_a_work_thread() {
+    let h = Harness::new().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured = requests.clone();
+    let app = axum::Router::new().route("/v1/chat/completions", axum::routing::post(move |body: String| {
+        captured.lock().unwrap().push(body);
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        async {
+            let chunk = json!({"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":"Noted"},"finish_reason":null}]});
+            let end = json!({"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]});
+            ([("Content-Type", "text/event-stream")], format!("data: {chunk}\n\ndata: {end}\n\ndata: [DONE]\n\n"))
+        }
+    }));
+    let model = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    h.desk.credential_custom_save(None, serde_json::from_value(json!({"name":"Fixture", "baseUrl":base, "api":"chat_completions", "secret":"", "models":["test"]})).unwrap()).unwrap();
+    let door = Door::bind(
+        h.desk.log.clone(),
+        "test-desk".into(),
+        h.desk.clone(),
+        h.desk.parts(),
+    )
+    .unwrap();
+    let port = door.port();
+    let task = tokio::spawn(door.run());
+    let (mut desk, _) =
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=test-desk"))
+            .await
+            .unwrap();
+    let mut at_desk = async |id: i64, cmd: &str, params: Value| -> Value {
+        desk.send(Message::text(
+            json!({"id": id, "cmd": cmd, "params": params}).to_string(),
+        ))
+        .await
+        .unwrap();
+        loop {
+            let frame: Value =
+                serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap())
+                    .unwrap();
+            if frame["id"] == id {
+                assert_eq!(frame["ok"], true, "{cmd}: {frame}");
+                return frame["result"].clone();
+            }
+        }
+    };
+    let ada = at_desk(
+        1,
+        "persona.create",
+        json!({"draft": {"name": "Ada", "goal": "Help with the project", "cwd": h.root.path()}}),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let side = at_desk(
+        2,
+        "side.start",
+        json!({"personaId": ada, "text": "Read what I send"}),
+    )
+    .await["sideId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let heard = |count: usize| {
+        let calls = calls.clone();
+        async move {
+            tokio::time::timeout(ANSWER, async {
+                while calls.load(std::sync::atomic::Ordering::SeqCst) < count {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("the teammate's agent was asked");
+        }
+    };
+    heard(1).await;
+
+    // A file of the person's, outside anything the phone uploaded.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let private = elsewhere.path().join("private-notes.txt");
+    fs::write(&private, b"never for the phone").unwrap();
+    let named = json!([{"kind": "file", "name": "private-notes.txt", "path": private}]);
+
+    let grant = h.pair_companion().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    read(&mut phone).await;
+    let asked = async |phone: &mut PhoneSocket, frame: Value| -> Value {
+        let id = frame["id"].clone();
+        send(phone, frame).await;
+        loop {
+            let answer = read(phone).await;
+            if answer["id"] == id {
+                return answer;
+            }
+        }
+    };
+    for frame in [
+        json!({"id": 10, "cmd": "side.prompt", "params": {"sideId": side, "text": "Read this", "attachments": named}}),
+        json!({"id": 11, "cmd": "thread.prompt", "params": {"thread": {"kind": "side", "key": side}, "text": "Read this", "attachments": named}}),
+    ] {
+        let refused = asked(&mut phone, frame).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert_eq!(refused["code"], "forbidden", "{refused}");
+    }
+
+    // The phone's own upload, named by its id, is said in the thread.
+    let upload = Uuid::new_v4();
+    let stored = asked(&mut phone, json!({"id": 12, "cmd": "mobile.attachment", "params": {"upload": {"id": upload, "name": "brief.txt", "mimeType": "text/plain", "size": 5, "offset": 0, "data": "aGVsbG8="}}})).await;
+    assert_eq!(stored["result"]["complete"], true, "{stored}");
+    let said = asked(&mut phone, json!({"id": 13, "cmd": "mobile.prompt", "params": {"operationId": Uuid::new_v4(), "personaId": ada, "text": "Here is the brief", "attachmentIds": [upload], "thread": {"kind": "side", "key": side}}})).await;
+    assert_eq!(said["result"]["state"], "accepted", "{said}");
+    heard(2).await;
+    // Words alone still go by `side.prompt`, as the phone's work thread sends them.
+    let words = asked(
+        &mut phone,
+        json!({"id": 14, "cmd": "side.prompt", "params": {"sideId": side, "text": "Thanks"}}),
+    )
+    .await;
+    assert_eq!(words["ok"], true, "{words}");
+    heard(3).await;
+
+    let lines = h.desk.log.load(&crate::log::StreamId::Side(side.clone()));
+    let users: Vec<&Value> = lines.iter().filter(|line| line["kind"] == "user").collect();
+    assert!(
+        users.iter().any(|line| line["text"] == "Here is the brief"
+            && line["attachments"][0]["name"] == "brief.txt"),
+        "{users:?}"
+    );
+    assert!(
+        users.iter().all(|line| line["text"] != "Read this"),
+        "{users:?}"
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    let private = serde_json::to_string(&private).unwrap();
+    assert!(
+        requests.lock().unwrap().iter().all(
+            |body| !body.contains("private-notes") && !body.contains(private.trim_matches('"'))
+        ),
+        "the refused path never reached the agent"
+    );
+    h.remote.configure(false, network::ALL).await.unwrap();
+    model.abort();
+    task.abort();
 }

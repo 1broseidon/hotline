@@ -70,7 +70,11 @@ impl Seat {
             // `persona.update`. A harness mode goes with them, because for
             // some harnesses the mode is the standing permission posture
             // under another name, and `session.set_config` is narrowed to
-            // effort for the same reason.
+            // effort for the same reason. Which agent a teammate runs on
+            // (`session.set_backend`) is the owner's too: a harness runs
+            // its own shell outside the wall, so moving a teammate onto one
+            // widens what it reaches (`docs/security.md`, Switching a
+            // teammate's agent).
             //
             // A resting teammate's session reports no models and no configs,
             // so a phone reads what this desk can reach the way the window
@@ -86,6 +90,7 @@ impl Seat {
             // writes nothing new, so it is no more than the phone already did.
             Seat::Phone => {
                 !answers_desk_only_card(command)
+                    && !attaches_by_path(command)
                     && (phone_thread_command(command)
                         || matches!(
                             command,
@@ -116,7 +121,6 @@ impl Seat {
                     // The picker's reading of the plan, which the phone's
                     // picker shows as the desk's does.
                     | Command::PlanRefresh { .. }
-                    | Command::SessionSetBackend { .. }
                     | Command::SessionSetConfig { .. }
                     | Command::ModelsList { .. }
                     | Command::ModelsEfforts { .. }
@@ -147,7 +151,9 @@ impl Seat {
                     // A side thread is a conversation with a teammate the
                     // person already talks to from the phone; starting,
                     // speaking in, stopping and archiving one grant nothing
-                    // a prompt and a cancel do not.
+                    // a prompt and a cancel do not. Speaking is in words:
+                    // files go by `mobile.prompt`, from the phone's own
+                    // uploads (`attaches_by_path`).
                     | Command::SideStart { .. }
                     | Command::SidePrompt { .. }
                     | Command::SideCancel { .. }
@@ -183,19 +189,30 @@ impl Seat {
     /// Why this seat may not run `command`, in words its person reads: for a
     /// card only the desk answers, where to answer it.
     pub(super) fn refusal(self, command: &Command) -> &'static str {
-        if self == Seat::Phone && answers_desk_only_card(command) {
+        if self != Seat::Phone {
+            return "That seat may not run this command.";
+        }
+        if answers_desk_only_card(command) {
             DESK_ONLY
+        } else if attaches_by_path(command) {
+            OWN_UPLOADS
+        } else if matches!(command, Command::SessionSetBackend { .. }) {
+            AGENT_AT_THE_DESK
         } else {
             "That seat may not run this command."
         }
     }
 
-    /// What this seat's hello says it can do: the phone's list, and
+    /// What this seat's hello says it can do: the phone's list;
+    /// `agentSwitch` (`session.set_backend`) for the desk and the owner; and
     /// `personaAccess`, `personaComputer`, `browserDrive` (taking a
     /// teammate's desk browser over and driving it) and `browserVisitAnyway`
     /// (`browser.visit_anyway` on one taken over) for the owner alone.
     pub(super) fn capabilities(self) -> Vec<&'static str> {
         let mut capabilities = PHONE_CAPABILITIES.to_vec();
+        if matches!(self, Seat::Desk | Seat::Owner) {
+            capabilities.push("agentSwitch");
+        }
         if self == Seat::Owner {
             capabilities.push("personaAccess");
             capabilities.push("personaComputer");
@@ -256,7 +273,7 @@ impl Seat {
             // is the same: its line is on the tape, and the run holds the
             // task, its steps and what it said.
             Seat::Phone => {
-                !matches!(target, Target::Tape(id) if id == "voice-dispatcher")
+                !matches!(target, Target::Tape(id) if !phone_may_read_tape(id))
                     && match target {
                         Target::ThreadId(thread) => phone_may_read(thread),
                         _ => matches!(
@@ -279,6 +296,14 @@ impl Seat {
 pub(super) const DESK_ONLY: &str =
     "A new outside source is approved at your desk. Answer this card there.";
 
+/// What a companion is told when it names a file by its path on the desk.
+pub(super) const OWN_UPLOADS: &str =
+    "A phone attaches only files it uploaded: send them with mobile.prompt.";
+
+/// What a companion is told when it asks to move a teammate to another agent.
+pub(super) const AGENT_AT_THE_DESK: &str =
+    "Change which agent a teammate runs on at your desk or on the owner phone.";
+
 /// Whether `command` answers a teammate's proposal of a standing outside
 /// source (`propose_inbound`), in the main conversation or a work thread.
 /// Its yes adds a grant that lets something outside Hotline reach the team,
@@ -295,6 +320,23 @@ fn answers_desk_only_card(command: &Command) -> bool {
         _ => return false,
     };
     action_id.starts_with(crate::session::INBOUND_SOURCE_CARD)
+}
+
+/// Whether `command` hands the teammate files by their path on the desk.
+/// The desk opens such a path itself, outside any teammate's wall, so naming
+/// one is the authenticated desk's: a phone attaches only what it uploaded,
+/// by the ids `mobile.prompt` resolves among this phone's own uploads
+/// (`remote/attachments.rs`), never a path it chose. An empty list attaches
+/// nothing.
+fn attaches_by_path(command: &Command) -> bool {
+    match command {
+        Command::SidePrompt { attachments, .. }
+        | Command::ThreadPrompt { attachments, .. }
+        | Command::SessionPrompt { attachments, .. } => {
+            attachments.as_ref().is_some_and(|files| !files.is_empty())
+        }
+        _ => false,
+    }
 }
 
 /// The commands only a linked desk sends.
@@ -345,8 +387,23 @@ fn phone_thread_command(command: &Command) -> bool {
 /// call, which is a voice surface it is not seated on.
 pub(super) fn phone_may_read(thread: &crate::contract::ThreadId) -> bool {
     match thread.kind {
-        ThreadKind::Dm => thread.key != "voice-dispatcher",
+        ThreadKind::Dm => phone_may_read_tape(&thread.key),
         ThreadKind::Call => false,
         ThreadKind::Side | ThreadKind::Pair | ThreadKind::Run | ThreadKind::Job => true,
     }
 }
+
+/// Whether a companion may open the tape named `id`: one a teammate's id could
+/// name, and not the voice dispatcher's under any spelling the disk would
+/// open as it. The name is a file name, and a case-insensitive disk (APFS,
+/// NTFS) opens `Voice-Dispatcher` as `voice-dispatcher`, as Windows does
+/// `voice-dispatcher.` or an 8.3 short name; a teammate's id is ASCII
+/// letters, digits, `-` and `_` (`valid_persona_id`), so a name outside that
+/// is no teammate's, and the ban is checked without case.
+fn phone_may_read_tape(id: &str) -> bool {
+    crate::paths::valid_persona_id(id) && !id.eq_ignore_ascii_case(VOICE_DISPATCHER)
+}
+
+/// The historical tape of the voice dispatcher, which no seat away from the
+/// desk reads (`docs/security.md`, Voice calls).
+const VOICE_DISPATCHER: &str = "voice-dispatcher";

@@ -481,7 +481,11 @@ Some things the person does from the desk are one-shot transfers, not standing
 grants: attaching a file to a prompt, adding a mount, and importing a host
 browser's cookies into a teammate's computer. They use the person's own
 authority through the authenticated desk wire, are gated to owner or local desk authority, and
-add nothing to what the agent may reach on its own. They are not a call-time
+add nothing to what the agent may reach on its own. A companion phone attaches
+only files it uploaded, named by id in `mobile.prompt` and resolved among that
+phone's own uploads; `side.prompt` and `thread.prompt` naming a path on the
+desk are refused it before any handler runs (`attaches_by_path` in
+`wire/seat.rs`). They are not a call-time
 approval prompt, which the standing-consent rule forbids, because the person
 initiates them. Cookie asks below are a separate path: a teammate may ask,
 and only the person's answer shares; the agent has no tool that selects or
@@ -2887,7 +2891,14 @@ seat reaches it, only the main window's own commands.
 
 `voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
 desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
-historical `voice-dispatcher` tape is also refused as a companion subscription.
+historical `voice-dispatcher` tape is also refused as a companion subscription,
+as a tape or a DM thread, under any spelling a disk would open as it: a
+companion opens only a tape whose name a teammate's id could be (ASCII
+letters, digits, `-` and `_`), checked against the dispatcher's without case,
+so `Voice-Dispatcher` on a case-insensitive disk, `voice-dispatcher.` or an
+8.3 short name on Windows, and `.` or `..` are refused
+(`wire/tests/seats.rs`
+`a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling`).
 New calls never write it. No microphone audio is stored: calls keep only
 transcriptions, spoken text and tool events.
 
@@ -3211,11 +3222,11 @@ thread, and reaching back into it with the home agent's own reading tools.
 
   | verb | companion may | because |
   | --- | --- | --- |
-  | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
+  | `thread.prompt` | a work thread only, and in words: never with `attachments`, as `side.prompt` is never | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not. A file goes by `mobile.prompt`, from the phone's own uploads, because the desk opens an attachment's path itself |
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
   | `thread.list` | only what it may read: no calls | a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page; a pair is listed (since 0.49, George's call that a DM between teammates is a thread on the phone too), as it already subscribes to and pages one, though `peers.list` stays refused it |
-  | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
+  | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape under any spelling | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |
 
 - **Enforcement:** the seat check is on the command, in the core, before any
@@ -3233,7 +3244,11 @@ thread, and reaching back into it with the home agent's own reading tools.
   `a_companions_thread_list_leaves_out_calls_and_lists_pairs`,
   `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
   `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
-  that send each shape; `remote/tests/phone.rs` for the hello a phone is sent;
+  that send each shape; `wire/tests/seats.rs`
+  `a_companion_names_no_desk_path_as_an_attachment` and
+  `a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling`;
+  `remote/tests/phone.rs` for the hello a phone is sent, and
+  `a_companion_attaches_only_its_own_uploads_in_a_work_thread`;
   `tests/threads.rs` `a_work_thread_is_one_conversation_to_old_and_threads2_clients`
   runs one conversation through the real core for an old and a `threads2` client.
 - **Residual risk:** `thread.list` with no `personaId` reads every teammate's
@@ -3923,10 +3938,13 @@ secret in the same places, never a copy of the first.
 
 `session.set_backend` moves a teammate to another agent (Hotline Agent or an
 installed harness), with a model when one is named. It is an owner action on
-the desk and on the owner phone, the same reach as `session.set_model`; a
-harness that is not installed or not signed in is refused with what is
-missing, and the phone sees only that it is not ready (`backends.list`
-already hides the reason from it).
+the desk and on the owner phone: a harness runs its own shell outside the
+wall, so moving a teammate onto one widens what it reaches. A companion phone
+is refused it (`forbidden`, with where to do it), and only the desk's and the
+owner's hello offer `agentSwitch`, so a companion's picker keeps to the
+models of the agent the teammate runs on now. A harness that is not installed
+or not signed in is refused with what is missing, and the phone sees only
+that it is not ready (`backends.list` already hides the reason from it).
 
 - The record changes at once; a turn in progress is not cut short. The live
   session restarts on the new agent only when the teammate is idle (waiting
@@ -3942,6 +3960,7 @@ already hides the reason from it).
 | An idle teammate moves at once; the agent's old session is withdrawn; nothing is cut short | `wire/tests/models.rs` `session_set_backend_moves_an_idle_teammate_and_withdraws_the_agents_old_session` |
 | A busy teammate restarts on the new agent only once idle | `wire/tests/models.rs` `session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn` |
 | An agent not ready, or not there, is refused and nothing changes | `wire/tests/models.rs` `session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there` |
+| A companion phone cannot move a teammate to another agent, and its hello does not offer it; the desk and the owner can | `wire/tests/seats.rs` `a_companion_may_not_move_a_teammate_to_another_agent`; `remote/tests/phone.rs` `the_owner_hello_says_what_kind_of_desk_and_which_version` |
 
 The picker lists each agent's models before a teammate runs on it. The
 list is the one the agent last reported here (`cache/acp-models.json`): a

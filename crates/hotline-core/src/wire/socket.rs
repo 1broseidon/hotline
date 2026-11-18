@@ -910,9 +910,11 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// without it is watched and driven by `browser.snapshot` and `browser.input`. `computer.capacity` is read-only
 /// and available to every phone seat. `turnRetry`: `session.retry`, trying
 /// a failed turn again, so a phone shows Try again only where it works.
-/// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,
-/// and `backends.list` naming each agent's last reported models; a phone
-/// offers the agents in its picker only where the desk says this.
+/// `agentSwitch`, sent to the desk and the owner phone only:
+/// `session.set_backend`, moving a teammate to another agent, and
+/// `backends.list` naming each agent's last reported models; a phone offers
+/// the agents in its picker only where the desk says this, and a companion
+/// keeps to the models of the agent the teammate runs on now.
 /// `asides`: `aside.list` and the roster row's `asides`, what a teammate's
 /// threads told it without telling the person.
 pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
@@ -926,7 +928,6 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "lean",
     "thumbnails",
     "turnRetry",
-    "agentSwitch",
     "asides",
 ];
 

@@ -1107,7 +1107,9 @@ refused in a sentence, never silently:
 **Seats.** The local desk and an owner may run all of it. A companion phone
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
-`mobile.prompt`, as before), `thread.answer` in anything but a pair (which
+`mobile.prompt`, as before) and, like `side.prompt`, without `attachments`,
+since the desk opens an attachment's path itself (a phone's files go by
+`mobile.prompt`, from its own uploads), `thread.answer` in anything but a pair (which
 raises no card), neither
 `thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.loop_in` on a work thread only, `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
@@ -1400,7 +1402,9 @@ A paired companion's socket is the phone seat: a smaller fixed set of commands
 these subscriptions: a tape, a pair's `{"thread": key}`, a subagent's
 `{"run": id}`, a work thread's `{"side": id}`, any thread but a call by
 `{"threadId": …}`, the roster, and a teammate's schedules. It never opens the
-room stream, a call or the voice dispatcher's tape, it holds at most eight
+room stream, a call or the voice dispatcher's tape (under any spelling: a tape
+it opens is named as a teammate's id could be, and the dispatcher's is
+checked without case), it holds at most eight
 subscriptions at once, and it can neither make, cancel nor quiet a job. It reads a file a teammate sent with
 `file.read` and a teammate's picture with `avatar.read`, because the file is part of the conversation it already
 reads. It may add a teammate through `mobile.persona_create`, a narrow
@@ -1410,7 +1414,9 @@ and read `backends.list` to know which harness to offer; the full
 It may rename a teammate or change its goal through `mobile.persona_update`,
 and remove one with `persona.delete`; `persona.update`, which can reach a
 teammate's grants, is refused. It may set a teammate's model, and its effort
-but no other config (`session.set_config`). It reads `backends.list` with each
+but no other config (`session.set_config`); moving a teammate to another
+agent (`session.set_backend`) is refused, with "Change which agent a teammate
+runs on at your desk or on the owner phone." It reads `backends.list` with each
 private reason replaced ([Commands](#commands)), and `computer.status` without
 the `viewer` address, which carries the computer's bearer and is left out for
 every paired device.
@@ -1440,7 +1446,8 @@ whatever its role: snapshots, events, pages and roster rows cut as a
 companion's are, a subscription `window` ([Subscriptions](#subscriptions)),
 and a link taken as dead after 90 seconds in which the phone said nothing, so
 a lean phone pings; `thumbnails` is `size` on `file.read` and `avatar.read`.
-An owner's hello adds `personaAccess` (`mobile.persona_access`),
+An owner's hello adds `agentSwitch` (`session.set_backend`, and the agents
+in the picker), `personaAccess` (`mobile.persona_access`),
 `personaComputer` (`mobile.persona_computer`) and `browserDrive`
 (`browser.take_over`, `browser.hand_back`, `browser.input`, `browser.step`
 and `browser.go`), and, when the desk can take

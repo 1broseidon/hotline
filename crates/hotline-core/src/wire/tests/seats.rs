@@ -194,6 +194,56 @@ fn only_the_owner_phone_changes_a_teammates_access() {
     assert!(!Seat::Phone.capabilities().contains(&"personaAccess"));
 }
 
+/// Which agent a teammate runs on is the owner's, as its reach is: a harness
+/// runs its own shell outside the wall, so a companion that could move a
+/// teammate onto one would widen what it reaches. Through the real handler a
+/// companion is refused with where to do it and the record keeps its agent;
+/// the desk's same command moves it. A companion's hello does not offer it.
+#[tokio::test]
+async fn a_companion_may_not_move_a_teammate_to_another_agent() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("companion-set-backend", quiet.clone());
+    let mut socket = desk(port).await;
+    let id = create(&mut socket, 1, "Ada").await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let room: Arc<dyn RoomHandle> = quiet.clone();
+    let frame = json!({"id": 2, "cmd": "session.set_backend", "params": {"personaId": id, "backendId": "codex"}});
+
+    let refused =
+        remote_control_answer(Seat::Phone, &room, &log, &Parts::default(), frame.clone()).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["code"], FORBIDDEN, "{refused}");
+    assert_eq!(
+        refused["error"],
+        super::super::seat::AGENT_AT_THE_DESK,
+        "{refused}"
+    );
+    assert_eq!(
+        room::roster(&log)[0].backend_id,
+        crate::driver::HOTLINE_BACKEND_ID
+    );
+    assert!(quiet.reattached().is_empty(), "nothing restarted");
+
+    let set_backend = Command::SessionSetBackend {
+        persona_id: id.clone(),
+        backend_id: "codex".to_string(),
+        model_id: None,
+    };
+    assert!(!Seat::Phone.permits(&set_backend));
+    assert!(Seat::Owner.permits(&set_backend));
+    assert!(Seat::Desk.permits(&set_backend));
+    assert!(!Seat::Phone.capabilities().contains(&"agentSwitch"));
+    assert!(Seat::Owner.capabilities().contains(&"agentSwitch"));
+    assert!(Seat::Desk.capabilities().contains(&"agentSwitch"));
+
+    ask(&mut socket, frame).await;
+    let moved = answered(&mut socket, 2).await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    assert_eq!(room::roster(&log)[0].backend_id, "codex");
+}
+
 /// Reach and background work are written for a Hotline Agent teammate, and
 /// a mode is refused for one; a harness teammate keeps a mode for its next
 /// start, and is refused a reach. Nothing to change is refused too.
@@ -539,6 +589,113 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
         id: persona_id,
         patch: Value::default(),
     }));
+}
+
+/// A file handed to a teammate by its path is opened by the desk itself, so
+/// a phone never names one: in a work thread, under either name, it attaches
+/// only what it uploaded, by the ids `mobile.prompt` resolves among its own
+/// uploads. Words alone, or an empty list, still go; the desk and an owner
+/// still attach by path. The phone is told where its files go.
+#[test]
+fn a_companion_names_no_desk_path_as_an_attachment() {
+    let file = || {
+        Some(vec![crate::contract::Attachment {
+            created: None,
+            kind: crate::contract::AttachmentKind::Image,
+            name: "Screenshot.png".into(),
+            path: "/Users/someone/Desktop/Screenshot.png".into(),
+            mime_type: None,
+            size: None,
+            width: None,
+            height: None,
+            origin: None,
+        }])
+    };
+    let side = |attachments| Command::SidePrompt {
+        side_id: "s1".to_string(),
+        text: "transcribe this".to_string(),
+        attachments,
+    };
+    let thread = |attachments| Command::ThreadPrompt {
+        thread: ThreadId::side("s1"),
+        text: "transcribe this".to_string(),
+        reply_to: None,
+        attachments,
+    };
+    for named in [side(file()), thread(file())] {
+        assert!(!Seat::Phone.permits(&named), "{named:?}");
+        assert_eq!(Seat::Phone.refusal(&named), super::super::seat::OWN_UPLOADS);
+        assert!(Seat::Owner.permits(&named), "{named:?}");
+        assert!(Seat::Desk.permits(&named), "{named:?}");
+    }
+    for words in [side(None), side(Some(Vec::new())), thread(None)] {
+        assert!(Seat::Phone.permits(&words), "{words:?}");
+    }
+    assert!(Seat::Phone.permits(&Command::MobilePrompt {
+        operation_id: "3fbb7d63-0a3e-4c6a-9c0e-8f6f8e8e6b39".to_string(),
+        persona_id: "ada".to_string(),
+        text: "here it is".to_string(),
+        attachment_ids: vec!["5d0c6a2e-8d1b-4b7e-9c55-3a1f4f8e0b11".to_string()],
+        reply_to: None,
+        thread: Some(ThreadId::side("s1")),
+        about_item: None,
+    }));
+}
+
+/// The voice dispatcher's old tape is a file, and a case-insensitive disk
+/// (APFS, NTFS) opens it under any case, as Windows does with a trailing dot
+/// or an 8.3 short name. A companion is refused it under every spelling, as
+/// a tape and as a thread, while a teammate's tape still opens.
+#[tokio::test]
+async fn a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling() {
+    let log = Log::open(scratch("companion-dispatcher-spelling"));
+    log.append(
+        &StreamId::Tape("voice-dispatcher".into()),
+        &json!({"id": "said", "kind": "user", "ts": 1, "text": "what was said on a call"}),
+    )
+    .unwrap();
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    for spelling in [
+        "voice-dispatcher",
+        "Voice-Dispatcher",
+        "VOICE-DISPATCHER",
+        "voice-dispatcher.",
+        "voice-dispatcher ",
+        "VOICE-~1",
+        ".",
+        "..",
+    ] {
+        for target in [
+            json!({"tape": spelling}),
+            json!({"threadId": {"kind": "dm", "key": spelling}}),
+        ] {
+            let frame = json!({"id": 1, "sub": target});
+            let refused =
+                remote_control_answer(Seat::Phone, &room, &log, &Parts::default(), frame).await;
+            assert_eq!(refused["ok"], false, "{spelling:?}: {refused}");
+            assert_eq!(refused["code"], FORBIDDEN, "{spelling:?}: {refused}");
+        }
+        let page = Command::ThreadPage {
+            thread: ThreadId::dm(spelling),
+            before: String::new(),
+            limit: None,
+            through: None,
+        };
+        assert!(!Seat::Phone.permits(&page), "{spelling:?}");
+    }
+    for target in [
+        json!({"tape": "ada"}),
+        json!({"threadId": {"kind": "dm", "key": "3fbb7d63-0a3e-4c6a-9c0e-8f6f8e8e6b39"}}),
+    ] {
+        let frame = json!({"id": 1, "sub": target});
+        let opened =
+            remote_control_answer(Seat::Phone, &room, &log, &Parts::default(), frame).await;
+        assert_eq!(opened["ok"], true, "{opened}");
+    }
+    // The desk reads it, as it always has.
+    let frame = json!({"id": 1, "sub": {"tape": "voice-dispatcher"}});
+    let desk = remote_control_answer(Seat::Desk, &room, &log, &Parts::default(), frame).await;
+    assert_eq!(desk["ok"], true, "{desk}");
 }
 
 /// A phone reads one teammate's schedules and nothing it could change them

@@ -274,8 +274,9 @@ fn quote(path: &Path) -> String {
 }
 
 /// The policy: runtimes read-only, each granted folder read-only or
-/// read-write, the workspace read-write. Seatbelt checks the resolved path,
-/// so a symlink inside a folder that points elsewhere opens nothing.
+/// read-write, the workspace read-write, with no writable root itself (or a
+/// folder above one) removable or replaceable. Seatbelt checks the resolved
+/// path, so a symlink inside a folder that points elsewhere opens nothing.
 fn profile(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) -> String {
     let mut policy = String::from(
         r#"(version 1)
@@ -348,6 +349,30 @@ fn profile(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) 
                 quote(ancestor)
             );
         }
+    }
+    // Everything inside a writable root is the teammate's to change, but not
+    // the root's own entry, nor that of any folder above it a writable grant
+    // holds: an emptied workspace removed and a link made in its place would
+    // move the next session's whole wall to wherever the link points, since
+    // every tool opens the workspace again by its path. `file-write-unlink`
+    // covers rmdir and renaming the folder away, `file-write-create` making
+    // anything at its name. Seatbelt takes the last rule that matches, so
+    // these come after the grants.
+    let mut fixed = std::collections::BTreeSet::new();
+    for root in folders
+        .iter()
+        .filter(|(_, writable)| *writable)
+        .map(|(path, _)| path.as_path())
+        .chain([workspace])
+    {
+        fixed.extend(root.ancestors());
+    }
+    for path in fixed {
+        let _ = writeln!(
+            policy,
+            "(deny file-write-unlink file-write-create (literal \"{}\"))",
+            quote(path)
+        );
     }
     policy
 }
@@ -604,6 +629,15 @@ mod tests {
         );
         assert!(!policy.contains("file-write* file-map-executable (subpath \"/granted/read\")"));
         assert!(policy.contains("(allow file-read-metadata (literal \"/granted\"))"));
+        for fixed in ["/work", "/granted/write \\\"quoted\\\"", "/granted", "/"] {
+            assert!(
+                policy.contains(&format!(
+                    "(deny file-write-unlink file-write-create (literal \"{fixed}\"))"
+                )),
+                "{fixed}: {policy}"
+            );
+        }
+        assert!(!policy.contains("file-write-create (literal \"/granted/read\")"));
     }
 
     /// Through the real launcher: a read-only folder is read and not
@@ -657,6 +691,83 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(read_only.join("notes.txt")).unwrap(),
             "granted"
+        );
+    }
+
+    /// A teammate may change everything inside its workspace and its
+    /// writable folders, but not the folders themselves or any folder above
+    /// them: an emptied workspace removed and a link put in its place would
+    /// move the next session's wall to wherever the link points.
+    #[tokio::test]
+    async fn writable_roots_cannot_be_removed_renamed_or_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let [work, granted, outside] = ["work", "granted", "outside"].map(|name| root.join(name));
+        let holder = root.join("holder");
+        let nested = holder.join("mid/work");
+        for directory in [&work, &granted, &outside, &nested] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        std::fs::write(outside.join("secret.txt"), "host-canary").unwrap();
+        let run = |workspace: PathBuf, folders: Vec<(PathBuf, bool)>, script: String| async move {
+            command(&script, &workspace, &folders)
+                .unwrap()
+                .output()
+                .await
+                .unwrap()
+        };
+        let quoted = |path: &Path| format!("'{}'", path.display());
+        // Each of these removes, renames or replaces a writable root, with
+        // the root first emptied (of what setup made in the workspace) so
+        // only the rule on the root itself can stop it.
+        for target in [&work, &granted] {
+            let (o, t) = (quoted(&outside), quoted(target));
+            for script in [
+                format!("cd / && /bin/rm -r {t}/.hotline-home 2>/dev/null; /bin/rmdir {t}"),
+                format!(
+                    "cd / && /bin/rm -r {t}/.hotline-home 2>/dev/null; /bin/rmdir {t} && /bin/ln -s {o} {t}"
+                ),
+                format!("cd / && /bin/mv {t} {t}.moved"),
+            ] {
+                let result = run(work.clone(), vec![(granted.clone(), true)], script.clone()).await;
+                assert!(!result.status.success(), "{script}: {result:?}");
+                assert!(
+                    std::fs::symlink_metadata(target).unwrap().is_dir(),
+                    "{script} replaced {}",
+                    target.display()
+                );
+            }
+        }
+        // A folder above the workspace, inside a writable folder, stays too.
+        let moved = run(
+            nested.clone(),
+            vec![(holder.clone(), true)],
+            format!(
+                "cd / && /bin/mv {} {}",
+                quoted(&holder.join("mid")),
+                quoted(&holder.join("moved"))
+            ),
+        )
+        .await;
+        assert!(!moved.status.success(), "{moved:?}");
+        assert!(std::fs::symlink_metadata(&nested).unwrap().is_dir());
+        // Everything inside each root is still the teammate's to change.
+        for (workspace, folder, inside) in [
+            (work.clone(), granted.clone(), work.clone()),
+            (work.clone(), granted.clone(), granted.clone()),
+            (nested.clone(), holder.clone(), holder.clone()),
+        ] {
+            let i = quoted(&inside);
+            let script = format!(
+                "echo x > {i}/made && /bin/mv {i}/made {i}/renamed && /bin/mkdir {i}/dir && /bin/mv {i}/dir {i}/moved && /bin/ln -s {o} {i}/link && /bin/rm {i}/link {i}/renamed && /bin/rmdir {i}/moved",
+                o = quoted(&outside)
+            );
+            let result = run(workspace, vec![(folder, true)], script.clone()).await;
+            assert!(result.status.success(), "{script}: {result:?}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(outside.join("secret.txt")).unwrap(),
+            "host-canary"
         );
     }
 

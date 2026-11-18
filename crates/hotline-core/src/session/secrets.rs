@@ -282,6 +282,55 @@ impl Room {
                 return Err(format!("The computer could not be asked. {reason}"));
             }
         };
+        // The arming as it stands now, not as it stood before the computer
+        // was asked: the person may have answered the card meanwhile.
+        let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
+            return Ok((idle, false));
+        };
+        if let Some(secret) = arming.stored.clone() {
+            return Ok((stored(&arming, secret), false));
+        }
+        if arming.storing {
+            let state = if arming.asked.is_some() {
+                PasskeyRegistrationState::Approved
+            } else {
+                PasskeyRegistrationState::Armed
+            };
+            return Ok((standing(&arming, state, arming.asked.clone()), true));
+        }
+        // What the computer reports is only where it stands. The desk keeps
+        // what it reports only for the arming the desk made — the same site,
+        // the same arming, no other in its place — and only past the card
+        // the person answered here: an approval or a passkey reported for a
+        // request nobody approved on the tape is the computer's word alone,
+        // and anything on the computer that holds its bearer could have said
+        // it.
+        if !answers_this_arming(&arming, &polled) {
+            self.secrets_passkey_cancel(persona_id).await?;
+            if arming.capture.is_none() {
+                self.write(
+                    persona_id,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Warn,
+                        text: if matches!(polled, Registration::Registered { ask: None, .. }) {
+                            format!(
+                                "The computer reported a passkey for {} with no request approved here, so nothing was kept. A computer from before 0.9 makes one without asking: update it from the teammate's pane, then arm it again.",
+                                arming.rp_id
+                            )
+                        } else {
+                            format!(
+                                "The computer reported a passkey for {} that was not approved here, or for another site, so nothing was kept and the arming is ended. Arm it again from the teammate's pane.",
+                                arming.rp_id
+                            )
+                        },
+                    },
+                );
+                return Err("The passkey was not approved here, so it was not kept.".into());
+            }
+            return Err("The captured passkey requires its exact origin, a live session and the person's approval.".into());
+        }
         if let Some(capture) = &arming.capture {
             let valid = capture.capability.is_current()
                 && match &polled {
@@ -468,12 +517,28 @@ impl Room {
                 );
             }
         }
+        // An approval is the desk's before the computer hears it, so a look
+        // that finds the computer approved meanwhile finds it approved here
+        // too; if the computer does not take it, it is taken back.
+        let approve_here = |approved: bool| {
+            if let Some(live) = lock(&self.passkey_armings)
+                .get_mut(persona_id)
+                .filter(|live| live.asked.as_ref().is_some_and(|known| known.id == ask.id))
+            {
+                live.operator_approved = approved;
+            }
+        };
+        if approved {
+            approve_here(true);
+        }
         if arming.desk {
             // The page's request waits in the core: the answer goes to it.
-            let waiting = lock(&self.browser_passkey_asks)
-                .remove(persona_id)
-                .ok_or("That passkey request is not waiting any more.")?;
+            let Some(waiting) = lock(&self.browser_passkey_asks).remove(persona_id) else {
+                approve_here(false);
+                return Err("That passkey request is not waiting any more.".to_string());
+            };
             if waiting.send(approved).is_err() {
+                approve_here(false);
                 return Err("That passkey request is not waiting any more.".to_string());
             }
         } else {
@@ -484,19 +549,19 @@ impl Room {
             match crate::computer::passkeys::answer(&ready, ask_id, approved).await {
                 Ok(_) => {}
                 Err(crate::computer::secrets::Refusal::TooOld) => {
+                    approve_here(false);
                     return Err(
                         "The computer is on a release that does not ask before making a passkey."
                             .to_string(),
                     );
                 }
                 Err(crate::computer::secrets::Refusal::Failed(reason)) => {
+                    approve_here(false);
                     return Err(format!("The computer could not take the answer. {reason}"));
                 }
             }
         }
-        if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
-            live.operator_approved = approved;
-        }
+        approve_here(approved);
         self.note_passkey_answer(persona_id, &arming, &ask, approved);
         if approved {
             let (answer, _) = self.look_at_passkey_arming(persona_id).await?;
@@ -817,6 +882,67 @@ pub(super) struct PasskeyArming {
     pub(super) storing: bool,
     /// Stored, ticked and handed: answered to the next poll, then let go.
     pub(super) stored: Option<crate::contract::SharedSecret>,
+}
+
+/// Whether what a teammate's computer reports about its passkey arming is
+/// about the arming the desk made, and, once it is past the card, about the
+/// request the person approved here. The arming is the same one: the same
+/// site and end, so one the computer was re-armed with since, for another
+/// site or the same, is not. A request and the passkey made under it are
+/// for that site, as the computer itself holds them (the site, a name under
+/// it, or one it is under). An approval or a made passkey counts only for
+/// the request whose card the person approved on the tape; one the
+/// computer reports without that, or with no request at all, does not.
+fn answers_this_arming(
+    arming: &PasskeyArming,
+    polled: &crate::computer::passkeys::Registration,
+) -> bool {
+    use crate::computer::passkeys::Registration;
+    let this_arming =
+        |rp_id: &str, expires_at: i64| rp_id == arming.rp_id && expires_at == arming.expires_at;
+    let for_the_site = |rp_id: &str| rp_within(rp_id, &arming.rp_id);
+    let approved_here = |ask: &crate::contract::PasskeyAsk| {
+        arming.operator_approved
+            && arming
+                .asked
+                .as_ref()
+                .is_some_and(|known| known.id == ask.id)
+    };
+    match polled {
+        Registration::Idle => true,
+        Registration::Armed { rp_id, expires_at } => this_arming(rp_id, *expires_at),
+        Registration::Asked {
+            rp_id,
+            expires_at,
+            ask,
+        } => this_arming(rp_id, *expires_at) && for_the_site(&ask.rp_id),
+        Registration::Approved {
+            rp_id,
+            expires_at,
+            ask,
+        } => this_arming(rp_id, *expires_at) && for_the_site(&ask.rp_id) && approved_here(ask),
+        Registration::Registered {
+            rp_id,
+            credential,
+            ask,
+        } => {
+            *rp_id == arming.rp_id
+                && ask
+                    .as_ref()
+                    .is_some_and(|ask| for_the_site(&ask.rp_id) && approved_here(ask))
+                && matches!(
+                    credential,
+                    crate::vault::StoredSecret::Passkey { rp_id, .. } if for_the_site(rp_id)
+                )
+        }
+    }
+}
+
+/// Whether a passkey's site belongs to an arming for `armed`, as the
+/// computer decides it: the site itself, a name under it, or one it is
+/// under (`login.github.com` and `github.com` either way).
+fn rp_within(rp_id: &str, armed: &str) -> bool {
+    rp_id == armed || rp_id.ends_with(&format!(".{armed}")) || armed.ends_with(&format!(".{rp_id}"))
 }
 
 /// How often the room looks at an arming it holds.

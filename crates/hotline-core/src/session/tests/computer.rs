@@ -646,6 +646,171 @@ async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_exp
     assert_eq!(passkey_cards(&room, "ada")[2]["status"], "expired");
 }
 
+/// Looks at a pane-armed passkey until the desk has let the arming go:
+/// refused, or idle because the room's own watch refused it first.
+async fn until_let_go(room: &Arc<Room>, persona_id: &str) {
+    for _ in 0..100 {
+        match room.secrets_passkey_registration(persona_id).await {
+            Err(_) => return,
+            Ok(answer) if answer.state == crate::contract::PasskeyRegistrationState::Idle => {
+                return;
+            }
+            Ok(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+        }
+    }
+    panic!("the arming was never let go");
+}
+
+/// A passkey armed from the pane is kept only past the card the person
+/// answered here, and only for the arming the desk made. Whatever holds the
+/// computer's bearer can answer the site's request on the computer itself,
+/// or re-arm it for another site, and the computer then reports a passkey
+/// made: none of that is stored, ticked or handed back, the arming is
+/// ended, its card expires rather than reading approved, and the tape says
+/// why. A release that mints without asking is not kept either.
+#[tokio::test]
+async fn a_pane_armed_passkey_without_approval_or_with_another_rp_is_not_stored() {
+    let nothing_kept = |room: &Room, taken: &crate::computer::guide::fake::Taken| {
+        assert_eq!(
+            room.vault.as_ref().unwrap().shared_secrets().unwrap(),
+            [] as [SharedSecret; 0]
+        );
+        assert!(
+            room.persona("ada")
+                .unwrap()
+                .secrets
+                .unwrap_or_default()
+                .is_empty(),
+            "nothing ticked"
+        );
+        assert!(
+            !taken
+                .sets()
+                .iter()
+                .any(|set| set.contains_key("GITHUB_PASSKEY")),
+            "nothing handed back"
+        );
+        assert_eq!(taken.armed(), None, "the arming is ended");
+    };
+
+    // Approved on the computer, not on the tape.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-approved-there",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ask = taken.ask();
+    registration_until(
+        &room,
+        "ada",
+        crate::contract::PasskeyRegistrationState::Asked,
+    )
+    .await;
+    taken.approve_on_the_computer();
+    taken.mint();
+    until_let_go(&room, "ada").await;
+    nothing_kept(&room, &taken);
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    assert_eq!(cards[0]["askId"], ask);
+    assert_eq!(
+        cards[0]["status"], "expired",
+        "the card never read approved"
+    );
+    assert!(
+        notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("not approved here")),
+        "{:?}",
+        notices(&room, "ada")
+    );
+    // The card cannot be answered after.
+    assert!(
+        room.secrets_passkey_answer("ada", &ask, true)
+            .await
+            .is_err()
+    );
+
+    // Re-armed on the computer for another site, asked and approved there.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-rearmed",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    taken.rearm("evil.example");
+    taken.ask();
+    taken.approve_on_the_computer();
+    taken.mint();
+    until_let_go(&room, "ada").await;
+    nothing_kept(&room, &taken);
+    assert!(
+        notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("another site")),
+        "{:?}",
+        notices(&room, "ada")
+    );
+
+    // The person approves the card on the tape, then the computer is
+    // re-armed for another site before the passkey is made.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-rearmed-after",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ask = taken.ask();
+    registration_until(
+        &room,
+        "ada",
+        crate::contract::PasskeyRegistrationState::Asked,
+    )
+    .await;
+    let _ = room.secrets_passkey_answer("ada", &ask, true).await;
+    taken.rearm("evil.example");
+    taken.ask();
+    taken.approve_on_the_computer();
+    taken.mint();
+    until_let_go(&room, "ada").await;
+    nothing_kept(&room, &taken);
+
+    // A release from before the card mints without asking.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-unasked",
+        Some("0.8.1"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    taken.mint();
+    until_let_go(&room, "ada").await;
+    nothing_kept(&room, &taken);
+    assert!(
+        notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("without asking") && text.contains("update it")),
+        "{:?}",
+        notices(&room, "ada")
+    );
+}
+
 /// The command names the scripted runtime was given, in order.
 fn runtime_commands(root: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(root.join("argv.log"))

@@ -216,6 +216,36 @@ pub(crate) mod fake {
             self.forgotten.lock().unwrap().clone()
         }
 
+        /// Something on the computer that holds its bearer answers the
+        /// waiting request itself, as `POST /passkeys/registration/answer`
+        /// would take it from anyone with the bearer: approved, with no
+        /// card answered on the desk.
+        #[cfg(unix)]
+        pub(crate) fn approve_on_the_computer(&self) {
+            if let Some((_, answer)) = self
+                .arming
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|arming| arming.ask.as_mut())
+            {
+                *answer = Some(true);
+            }
+        }
+
+        /// Something on the computer re-arms it for `rp_id`, in place of
+        /// the arming the desk made, as `PUT /passkeys/registration`
+        /// would take it from anyone with the bearer.
+        #[cfg(unix)]
+        pub(crate) fn rearm(&self, rp_id: &str) {
+            *self.arming.lock().unwrap() = Some(FakeArming {
+                expires_at: crate::session::now_ms() + 10 * 60_000,
+                rp_id: rp_id.to_owned(),
+                ask: None,
+                minted: false,
+            });
+        }
+
         /// The browser minted a passkey: the next poll answers the
         /// credential. (A real computer mints only under an approved
         /// request; the test decides the order here.)

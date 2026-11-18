@@ -3,7 +3,7 @@ import type { InboxItem, InboxSortedEntry } from "../../generated/contract";
 import type { Person } from "../../avatars";
 import type { LinkEvent } from "../../dock";
 import { InboxIcon } from "../../icons";
-import { type InboxSent, runWords, senderWords, sentState, sortedFacts, toWords } from "../../inbox";
+import { type InboxSent, runWords, senderWords, sentState, sortedFacts, topicOf, toWords } from "../../inbox";
 import type { Block } from "../../scheduledRuns";
 import { LinkRow } from "./LinkRow";
 import { Steps } from "./Steps";
@@ -27,10 +27,11 @@ export const InboxRows = createContext<InboxRowsContext>({ items: new Map(), wor
 /**
  * Items a teammate sent, as one quiet row in the conversation they were sent
  * from: the tray, the title, whom it went to, and where it stands now, read
- * live from the sender's inbox ("To Juno · Taken"; "To Juno, Ivy, Huck · 2
- * of 3 seen"). A press opens the item in the pane; several sent together
- * open the first. `quiet`, in an inbox run or as what came of a turn the
- * person asked for, it is in plain weight with the tray in grey.
+ * live from the sender's inbox ("To Juno · Picked up"; "To Juno, Ivy, Huck
+ * · 1 done · 1 seen · 1 awaiting approval", answers first). A press opens
+ * the topic it is in, which for several sent together is the whole send,
+ * every teammate's lane. `quiet`, in an inbox run or as what came of a turn
+ * the person asked for, it is in plain weight with the tray in grey.
  */
 export function InboxSentRow({ title, sent, people, quiet = false }: { title: string; sent: InboxSent[]; people: ReadonlyMap<string, Person> | undefined; quiet?: boolean }) {
 	const { items, onOpen } = useContext(InboxRows);
@@ -60,6 +61,28 @@ export function InboxSentRow({ title, sent, people, quiet = false }: { title: st
 		<button type="button" className="link-row" data-kind="inbox" data-quiet={quiet || undefined} aria-label={`${label}. Open it`} onClick={() => onOpen(sent[0]!.item)}>
 			{words}
 			<span className="link-row-open">Open ›</span>
+		</button>
+	);
+}
+
+/**
+ * Over the person's own line that follows up on an inbox topic (their Ask a
+ * follow-up, `aboutItem`), the quote it was written under: whom the topic
+ * is with, and its title. A press opens the topic. Nothing until the
+ * teammate's inbox knows the item.
+ */
+export function InboxAboutQuote({ itemId, owner, people }: { itemId: string; owner: string; people: ReadonlyMap<string, Person> | undefined }) {
+	const { items, onOpen } = useContext(InboxRows);
+	const item = items.get(itemId);
+	if (item === undefined) return null;
+	const first = [...items.values()].filter((one) => topicOf(one) === topicOf(item)).sort((a, b) => a.ts - b.ts)[0] ?? item;
+	const other = item.from === owner ? item.to : item.from;
+	const who = people?.get(other)?.name ?? "A teammate";
+	const said = first.title.replace(/^Re: /, "");
+	return (
+		<button type="button" className="quote" title="Open the messages" disabled={onOpen === undefined} onClick={() => onOpen?.(itemId)}>
+			<span className="quote-who">{who}</span>
+			<span className="quote-said">{said}</span>
 		</button>
 	);
 }

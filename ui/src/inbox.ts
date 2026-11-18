@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { InboxItem, InboxItemDetail, InboxNewerItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, InboxWants, TranscriptEvent } from "./generated/contract";
+import type { InboxItem, InboxItemDetail, InboxNewerItem, InboxOutcome, InboxReceipt, InboxSortedEntry, InboxView, TranscriptEvent } from "./generated/contract";
 import { wire } from "./wire";
 
 /*
  * The inbox on the desk (docs/design/agent-inbox.md, "On the desk"): what a
  * teammate sent and where each item stands, how a receiver sorted what it
- * read, and its inbox as the pane lists it. Teammates act on items; the
- * person reads them. Nothing here sends, sorts or answers anything.
+ * read, and its inbox as the pane lists it: one row per topic, an ask with
+ * its answers and follow-ups, which opens as a conversation. Teammates act
+ * on items; the person reads them. Nothing here sends, sorts or answers
+ * anything, and nothing marks an item seen.
  */
 
 /** An `inbox_sent` line: one item a teammate sent, on the thread it was sent from. */
@@ -186,31 +188,8 @@ export function stateWord(item: InboxItem): string {
 	}
 }
 
-/** What the sender wants of it, as the pane's facts say it. */
-export function wantsWords(wants: InboxWants): string {
-	switch (wants) {
-		case "answer":
-			return "wants an answer";
-		case "work":
-			return "wants work done";
-		case "nothing":
-			return "wants nothing back";
-	}
-}
-
 /** "2 unread", the composer's chip and the menu's count. */
 export const unreadWords = (count: number): string => `${count > 9 ? "9+" : String(count)} unread`;
-
-/**
- * Whether the receiver has read the item's words: it was seen, or sorted
- * after being seen. One closed straight from its title, or dropped while
- * held, never was.
- */
-export function wasSeen(item: InboxItem): boolean {
-	if (item.held) return false;
-	if (item.state === "seen" || item.state === "taken" || item.state === "later") return true;
-	return item.receipts.some((receipt) => receipt.state === "seen" || receipt.state === "taken" || receipt.state === "later");
-}
 
 /* ---------------------------------------------------- the sender's rows */
 
@@ -223,65 +202,33 @@ export function toWords(ids: readonly string[], nameOf: (personaId: string) => s
 	return names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
 }
 
-/** Who else the send that made an item reached, as its pane's head says it: "also sent to Ivy, Huck". */
-export function alsoSentWords(item: InboxItem, nameOf: (personaId: string) => string | undefined): string | undefined {
-	const others = item.alsoTo ?? [];
-	return others.length === 0 ? undefined : `also sent to ${toWords(others, nameOf)}`;
-}
-
 /**
  * Where items sent together stand, from the sender's own view: one item's
- * state word; for several, the word they share, else how many of them were
- * seen ("2 of 3 seen"). Nothing while none of them is known yet.
+ * state word; for several, how many stand at each word, answers first ("1
+ * done · 1 seen · 1 awaiting approval", `groupWords`). Nothing while none of
+ * them is known yet.
  */
 export function sentState(group: SentGroup, items: ReadonlyMap<string, InboxItem>): string | undefined {
 	const known = group.sent.flatMap((one) => {
 		const item = items.get(one.item);
 		return item === undefined ? [] : [item];
 	});
-	return together(known, group.sent.length);
-}
-
-/** Where `count` items sent together stand, from the `known` of them: one's word, the word they share, else how many were seen. */
-function together(known: readonly InboxItem[], count: number): string | undefined {
 	if (known.length === 0) return undefined;
-	if (count === 1) return stateWord(known[0]!);
-	const words = known.map(stateWord);
-	if (known.length === count && words.every((word) => word === words[0])) return words[0];
-	return `${known.filter(wasSeen).length} of ${count} seen`;
+	return group.sent.length === 1 ? stateWord(known[0]!) : groupWords(known);
 }
 
-/** The items one `send` made, in the order it made them: one for each teammate it reached. */
-export type Send = { items: InboxItem[] };
+/** The state words in the order a send's words say them: what came back first, then what is still on its way, then what ended without an answer. */
+const ANSWERS_FIRST = ["Answered", "Done", "Picked up", "Seen", "Sent", "Later", "Awaiting approval", "Noted", "Combined", "Dropped", "Expired", "Closed"];
 
-/**
- * A sender's list as sends: the items one `send` made for several teammates
- * stand side by side in it, under one title, each naming the others in
- * `alsoTo`, so a run of them that agree on the title and on who the send
- * reached, each to a different teammate, is one send. The list is newest
- * first, so a send's items are put back in the order it made them, which is
- * the order its row in the conversation names them.
- */
-export function sends(sent: readonly InboxItem[]): Send[] {
-	const reached = (item: InboxItem) => [item.to, ...(item.alsoTo ?? [])].sort().join(" ");
-	const out: Send[] = [];
-	for (const item of sent) {
-		const last = out.at(-1)?.items;
-		const first = last?.[0];
-		const joins =
-			first !== undefined &&
-			(first.alsoTo ?? []).length > 0 &&
-			first.title === item.title &&
-			reached(first) === reached(item) &&
-			!last!.some((one) => one.to === item.to);
-		if (joins) last!.unshift(item);
-		else out.push({ items: [item] });
-	}
-	return out;
+/** Where a send to several stands, answers first: "1 done · 1 seen · 1 awaiting approval". */
+export function groupWords(items: readonly InboxItem[]): string {
+	const counts = new Map<string, number>();
+	for (const item of items) counts.set(stateWord(item), (counts.get(stateWord(item)) ?? 0) + 1);
+	return [...counts.entries()]
+		.sort(([a], [b]) => ANSWERS_FIRST.indexOf(a) - ANSWERS_FIRST.indexOf(b))
+		.map(([word, count]) => `${count} ${word.toLowerCase()}`)
+		.join(" · ");
 }
-
-/** Where a send stands, as its row on Sent says it: "Seen", or "2 of 3 seen". */
-export const sendState = (send: Send): string => together(send.items, send.items.length) ?? "";
 
 /* ----------------------------------------------------- the inbox's line */
 
@@ -333,41 +280,6 @@ export function turnInbox(events: readonly TranscriptEvent[], stepIds: readonly 
 export const runWords = (read: number, sent: number): string =>
 	`Inbox · ${[read > 0 && `read ${read}`, sent > 0 && `sent ${sent}`].filter((part): part is string => part !== false).join(", ")}`;
 
-/* ------------------------------------------------------------ the pane */
-
-/** The pane's three segments. */
-export type InboxSegment = "open" | "closed" | "sent";
-
-/** What is open, as the pane groups it: not yet sorted (new, noticed, seen), taken, for later; each newest first. */
-export function openGroups(view: InboxView): { unread: InboxItem[]; taken: InboxItem[]; later: InboxItem[] } {
-	return {
-		unread: view.open.filter((item) => item.state === "new" || item.state === "noticed" || item.state === "seen"),
-		taken: view.open.filter((item) => item.state === "taken"),
-		later: view.open.filter((item) => item.state === "later"),
-	};
-}
-
-/** What the teammate has not read, newest first: the composer's tray. */
-export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.open ?? []).filter((item) => item.state === "new" || item.state === "noticed");
-
-/**
- * The pane's heading line for the list it shows, kept to one line: the open
- * counts, else how many closed or sent, else that there are none. Items a
- * newer Hotline saved are counted by their own group's heading, so on Open
- * they stand in the line only when nothing else is open.
- */
-export function listHeading(view: InboxView, segment: InboxSegment): string {
-	const newer = newerIn(view, segment).length;
-	if (segment === "open") return openCounts(view) || (newer > 0 ? `${newer} open` : "Nothing open");
-	const count = (segment === "closed" ? view.closed.length : sends(view.sent).length) + newer;
-	return count === 0 ? `Nothing ${segment}` : `${count} ${segment}`;
-}
-
-/** The items a newer Hotline saved that belong on a tab: held for the teammate, open or closed, or sent by it. */
-export function newerIn(view: InboxView, segment: InboxSegment): InboxNewerItem[] {
-	return (view.newer ?? []).filter((item) => (segment === "sent" ? item.from === view.personaId : item.to === view.personaId && (item.state === "closed") === (segment === "closed")));
-}
-
 /**
  * The words that seeded a work thread, as its Message shows them to the
  * person: each item's title over its words. The desk hands the teammate a
@@ -386,19 +298,11 @@ export function messageWords(seeded: string): string {
 	});
 }
 
-/** The open count as the pane heads it: "2 unread · 1 picked up · 1 for later". */
-function openCounts(view: InboxView): string {
-	const { taken, later } = openGroups(view);
-	return [view.unread > 0 && `${view.unread} unread`, taken.length > 0 && `${taken.length} picked up`, later.length > 0 && `${later.length} for later`]
-		.filter((part): part is string => part !== false)
-		.join(" · ");
-}
-
 /** When an item last moved: its newest receipt, or when it was sent. */
 export const movedAt = (item: InboxItem): number => item.receipts.at(-1)?.at ?? item.ts;
 
-/** One line of an item's receipts: when, the state's word, and why where it says. */
-export type ReceiptRow = { at: number; word: string; detail?: string };
+/** One line of an item's receipts: when, the state's word, and why where it says; `warn` for what waits on the person. */
+export type ReceiptRow = { at: number; word: string; detail?: string; warn?: true };
 
 /** A receipt's state as a word. */
 function receiptWord(receipt: InboxReceipt): string {
@@ -434,8 +338,210 @@ export function receiptRows(item: InboxItem, titleOf: (id: string) => string | u
 		const detail = receipt.reason ?? into;
 		rows.push({ at: receipt.at, word: receiptWord(receipt), ...(detail !== undefined && detail !== "" ? { detail } : {}) });
 	}
+	if (item.held === true && item.state !== "closed") rows.push({ at: item.ts, word: "Awaiting approval", detail: "needs your OK", warn: true });
 	return rows;
 }
 
 /** A first receipt this long after the send was the first-contact card's yes, not the send. */
 const LET_IN_AFTER = 5_000;
+
+/* ------------------------------------------------------------ topics */
+
+/*
+ * The pane lists a teammate's inbox as topics (docs/design/agent-inbox.md,
+ * "On the desk"): one ask, its answers and the follow-ups on them, between
+ * this teammate and whoever it is talking to, read out of its own view,
+ * which holds both what it received and what it sent. A send to several is
+ * one topic for its sender, each teammate's replies in a lane of their own;
+ * the receivers each see only their own part, since their views hold only
+ * that.
+ */
+
+/** Where a topic sits on Open, or that it is closed. */
+export type TopicPlace = "sort" | "picked" | "waiting" | "later" | "closed";
+
+/** The groups of Open, in their order. */
+export const TOPIC_GROUPS: readonly { place: TopicPlace; title: string }[] = [
+	{ place: "sort", title: "To sort" },
+	{ place: "picked", title: "Picked up" },
+	{ place: "waiting", title: "Waiting on others" },
+	{ place: "later", title: "For later" },
+];
+
+export type Topic = {
+	/** The topic's id: what its items share. */
+	key: string;
+	/** Whose inbox it is read from. */
+	owner: string;
+	/** Its items in the owner's view, oldest first. */
+	items: InboxItem[];
+	/** Its first item, whose title is the topic's. */
+	root: InboxItem;
+	title: string;
+	/** Everyone in it but the owner, in the order they first appear. */
+	others: string[];
+	place: TopicPlace;
+	/** How many items to the owner it has not read: new or noticed, never seen. */
+	unread: number;
+	/** When anything in it last moved. */
+	moved: number;
+	/** The items one send of the owner's made for several, when its first item is that send. */
+	sends: InboxItem[];
+	/** An open item to the owner whose sender has stopped for it. */
+	waiting: InboxItem | undefined;
+	/** Something in it waits for the person's approval. */
+	held: boolean;
+	/** A work thread one of its items started is running. */
+	live: boolean;
+};
+
+/** The topic an item is in; one kept before topics were is its own. */
+export const topicOf = (item: InboxItem): string => item.topic ?? item.id;
+
+const UNSORTED = new Set(["new", "noticed", "seen"]);
+const isOpen = (item: InboxItem) => item.state !== "closed";
+
+/** A teammate's topics out of its view, the one most recently moved first. `working` holds the work threads running now, by key. */
+export function topicsOf(view: InboxView, working: ReadonlySet<string> = new Set()): Topic[] {
+	const byTopic = new Map<string, InboxItem[]>();
+	for (const item of itemsOf(view).values()) {
+		const key = topicOf(item);
+		byTopic.set(key, [...(byTopic.get(key) ?? []), item]);
+	}
+	return [...byTopic.entries()].map(([key, items]) => topic(view.personaId, key, items, working)).sort((a, b) => b.moved - a.moved);
+}
+
+/** One topic of `owner`'s, out of its items. */
+export function topic(owner: string, key: string, items: readonly InboxItem[], working: ReadonlySet<string> = new Set()): Topic {
+	// Oldest first; of two sent the same moment, the one that answers nothing first.
+	const sorted = [...items].sort((a, b) => a.ts - b.ts || Number(a.replyTo !== undefined) - Number(b.replyTo !== undefined));
+	const root = sorted[0]!;
+	const toMe = sorted.filter((item) => item.to === owner && item.held !== true);
+	const fromMe = sorted.filter((item) => item.from === owner);
+	const sends = root.sendId === undefined || root.from !== owner ? [] : sorted.filter((item) => item.sendId === root.sendId);
+	let place: TopicPlace = "closed";
+	if (toMe.some((item) => UNSORTED.has(item.state))) place = "sort";
+	else if (toMe.some((item) => item.state === "taken")) place = "picked";
+	else if (fromMe.some(isOpen)) place = "waiting";
+	else if (toMe.some((item) => item.state === "later")) place = "later";
+	const others: string[] = [];
+	for (const item of sorted) for (const one of [item.from, item.to]) if (one !== owner && !others.includes(one)) others.push(one);
+	return {
+		key,
+		owner,
+		items: sorted,
+		root,
+		title: root.title,
+		others,
+		place,
+		unread: toMe.filter((item) => item.state === "new" || item.state === "noticed").length,
+		moved: Math.max(...sorted.map(movedAt)),
+		sends: sends.length > 1 ? sends : [],
+		waiting: toMe.find((item) => isOpen(item) && item.waiting === true),
+		held: sorted.some((item) => item.held === true && isOpen(item)),
+		live: sorted.some((item) => item.work !== undefined && working.has(item.work.key)),
+	};
+}
+
+/**
+ * Where a topic stands, in a word or a few, for its head: a send to several
+ * answers first; one waiting for the person's approval says so; else the
+ * newest open item to the owner, else the newest it sent still open, else
+ * how its first item ended.
+ */
+export function topicWord(one: Topic): string {
+	if (one.sends.length > 0) return groupWords(one.sends);
+	if (one.items.some((item) => item.from === one.owner && item.held === true && isOpen(item))) return "Awaiting approval";
+	const openToMe = one.items.filter((item) => item.to === one.owner && item.held !== true && isOpen(item));
+	if (openToMe.length > 0) return stateWord(openToMe.at(-1)!);
+	const openFromMe = one.items.filter((item) => item.from === one.owner && isOpen(item));
+	if (openFromMe.length > 0) return stateWord(openFromMe.at(-1)!);
+	return stateWord(one.root);
+}
+
+/** A topic's mark in the list, as an item's was: unread a ring, read a half; picked up, waiting on others, for later and closed as their own. */
+export function topicMark(one: Topic): string {
+	switch (one.place) {
+		case "sort":
+			return one.unread > 0 ? "○" : "◐";
+		case "picked":
+			return one.items.some((item) => item.state === "taken" && item.work !== undefined) ? "≡" : "→";
+		case "waiting":
+			return "↗";
+		case "later":
+			return "◷";
+		case "closed":
+			return one.items.some((item) => item.outcome === "dropped") ? "✕" : one.items.some((item) => item.outcome === "expired") ? "◌" : "✓";
+	}
+}
+
+/**
+ * A topic's line in the list: where a send to several stands, answers
+ * first; whom the owner waits on, and how it stands with them; a for-later's
+ * reason; how a topic of one item ended; else who said what last.
+ */
+export function topicLine(one: Topic, nameOf: (personaId: string) => string | undefined): { text: string; warn: boolean } {
+	const name = (id: string) => nameOf(id) ?? "A teammate";
+	const last = one.items.at(-1)!;
+	if (one.sends.length > 0) return { text: groupWords(one.sends), warn: false };
+	if (one.place === "waiting" && last.from === one.owner) return { text: `${name(last.to)} · ${stateWord(last)}`, warn: last.held === true };
+	if (one.place === "later") {
+		const later = one.items.findLast((item) => item.to === one.owner && item.state === "later");
+		return { text: [senderWords(later ?? one.root, nameOf), later?.reason].filter(Boolean).join(" · "), warn: false };
+	}
+	if (one.place === "closed" && one.items.length === 1) return { text: [senderWords(one.root, nameOf), stateWord(one.root), one.root.reason].filter(Boolean).join(" · "), warn: false };
+	return { text: `${senderWords(last, nameOf)}: ${firstLine(bubbleText(last))}`, warn: false };
+}
+
+const firstLine = (text: string) => text.split("\n").find((line) => line.trim() !== "")?.trim() ?? "";
+
+/** The most a message says and is still a bubble. */
+const BUBBLE_CHARS = 160;
+
+/**
+ * Whether a message reads as a bubble: it has no words beyond its title, or
+ * its words are one plain paragraph of at most 160 characters with no list,
+ * heading, quote, code or file. Anything else is a letter.
+ */
+export function isShort(item: Pick<InboxItem, "body" | "files">): boolean {
+	const body = item.body.trim();
+	if (body === "") return true;
+	if (body.length > BUBBLE_CHARS || body.includes("\n")) return false;
+	if (/^(#{1,6}|[-*+>]|\d+[.)])\s/.test(body) || body.includes("`")) return false;
+	return (item.files ?? []).length === 0;
+}
+
+/** What a bubble says: its words, or its title when the title is the whole message. */
+export const bubbleText = (item: Pick<InboxItem, "title" | "body">): string => (item.body.trim() === "" ? item.title : item.body.trim());
+
+/** The recipients of a send to several, answers first, each with the items of its own lane: the replies that chain back to its item. */
+export function lanes(one: Topic): { send: InboxItem; items: InboxItem[] }[] {
+	const byId = new Map(one.items.map((item) => [item.id, item]));
+	const laneOf = (item: InboxItem): InboxItem | undefined => {
+		let at: InboxItem | undefined = item;
+		for (let hops = 0; at !== undefined && hops < one.items.length; hops += 1) {
+			if (one.sends.includes(at)) return at;
+			at = at.replyTo === undefined ? undefined : byId.get(at.replyTo);
+		}
+		return undefined;
+	};
+	const rank = (item: InboxItem) => ANSWERS_FIRST.indexOf(stateWord(item));
+	return [...one.sends]
+		.sort((a, b) => rank(a) - rank(b))
+		.map((send) => ({ send, items: one.items.filter((item) => item !== send && laneOf(item) === send) }));
+}
+
+/** Whether every word of `query` is in the topic: its titles, its words, and who is in it. */
+export function topicMatches(one: Topic, query: string, nameOf: (personaId: string) => string | undefined): boolean {
+	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const hay = one.items.flatMap((item) => [item.title, item.body, nameOf(item.from) ?? "", nameOf(item.to) ?? ""]).join(" ").toLowerCase();
+	return words.every((word) => hay.includes(word));
+}
+
+/** What the teammate has not read, newest first: the composer's tray. */
+export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.open ?? []).filter((item) => item.state === "new" || item.state === "noticed");
+
+/** The items a newer Hotline saved that belong on a tab: held for the teammate or sent by it, open or closed. */
+export function newerIn(view: InboxView, closed: boolean): InboxNewerItem[] {
+	return (view.newer ?? []).filter((item) => (item.to === view.personaId || item.from === view.personaId) && (item.state === "closed") === closed);
+}

@@ -42,14 +42,31 @@ These are George's, and what the inbox holds to.
 
 ## The tools
 
-- **`send`** `to` (one teammate, several, or `["team"]`), `title` (kept as
-  one plain line: control characters, line breaks and characters a reader
-  never sees, such as direction overrides and zero-width ones, are dropped;
-  at most 80 characters, a longer one cut at a word), `message` (optional),
+- **`send`** `to` (one teammate, several, or `["team"]`), `title` (optional;
+  kept as one plain line: control characters, line breaks and characters a
+  reader never sees, such as direction overrides and zero-width ones, are
+  dropped; at most 80 characters, a longer one cut at a word), `message`,
   `wants` (`answer`, `work` or `nothing`), `waiting` (the sender has stopped
   until this is answered), `about` (a thread of the receiver's, `kind:key`),
-  `reply_to` (an item in the sender's own inbox), `files`. It returns at once
-  with each item's id. `wants` and `waiting` are described to agents as facts
+  `reply_to` (an item in the sender's own inbox that this answers, or one it
+  sent that this follows up on), `files`. Its description tells a teammate
+  the two ways to write: a quick question or answer is one short line in
+  `message` with no `title`, which the person reads like a chat; a hand-off
+  is a `title` and a full brief, which the person reads like a letter. A
+  quick question is answered with a quick line on `reply_to`. Without a
+  `title`, the message's first plain line is the title (a leading `#`, `>`,
+  `-` or `*` dropped, cut at a word to 80 characters), and the whole message
+  stays the words, unless that line is the whole message, which is then
+  kept as the title alone so it is never said twice. A send needs a
+  `message` or a `title`. An answer (`reply_to` naming an open question in
+  the sender's own inbox, sent back to whoever asked it) closes that
+  question as Answered, as `update_inbox`'s `answer` does, and wants
+  nothing back unless it says so; a reply to an item that wants work is a
+  question about it and leaves it open. It returns at once with each item's
+  id and where each landed, per recipient and in the desk's words, first in
+  its note: "Huck: in inbox · Quill: awaiting approval"; a held item is
+  never said to have arrived (`delivery` on the result and on each `sent`
+  entry). `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency. Sent in a turn the person reads, its
   result adds that the person sees the message as a row with where it
   stands, so the teammate does not say it sent it or will pass on its
@@ -90,7 +107,8 @@ work only, by the call's grant.
 An item (`InboxItem`) has an id, when it was sent, who sent it and from which
 of its threads (`from`, `fromThread`), whom it is for (`to`) and whom else
 the same `send` made an item for (`alsoTo`, absent when it went to one and
-on an item kept before it was recorded), the title, the
+on an item kept before it was recorded), the topic it is in (`topic`) and
+the send that made it (`sendId`, below), the title, the
 words (`body`, with the whole path of each file it carried), `wants`, `waiting`, `replyTo`,
 `about`, its `state`, and every state it has been in with its time
 (`receipts`). Once taken into a thread it names the thread (`work`) and the
@@ -141,12 +159,11 @@ a reply that names it is refused, saying a newer Hotline saved it. A
 field a newer Hotline wrote inside a thread an item names (`fromThread`,
 `about`, `work`) is written back as it was found too, while the item still
 names that thread (`hotline_store::inbox::line`). The window's pane lists
-such an item where it belongs (Open, Closed or Sent, by the state as
-written) as a plain row that opens nothing: its title, whom it is from or
-to, and "Saved by a newer version of Hotline. It can't be changed here.";
-the count line over the tabs counts it on Closed and Sent; on Open its
-group's heading, From a newer version, counts it, and the count line, kept
-to one line, says it ("1 open") only when nothing else is open.
+such an item where it belongs (Open or Closed, by the state as written,
+whether the teammate holds it or sent it) as a plain row that opens
+nothing: its title, whom it is from or to, and "Saved by a newer version of
+Hotline. It can't be changed here."; on Open it stands under its own
+heading, From a newer version, with its count.
 
 ## When an item reaches the receiver
 
@@ -389,6 +406,48 @@ that moved since it was last told, as one line of where it stands now:
 `"Pick a name" to Bob · later 14:03: "after the release" · 1a2b3c4d`. Only the
 changes, like the index. The window reads the receipts over the wire.
 
+## Topics
+
+A topic is one ask, its answers and the follow-ups on them, between
+teammates: the unit the person reads (On the desk, below). It is a field of
+the items, not a record of its own.
+
+- **Each item keeps its topic** (`topic`) when it is made: the topic of the
+  item its `reply_to` names, else the send id of the `send` that made it.
+  The items one `send` made, one for each teammate it reached, share that
+  send id (`sendId`), so a send to several is one topic for its sender;
+  each receiver's view holds only its own item and what it sent back, so
+  replies stay private to each recipient. An answer (`update_inbox`'s
+  `answer`, a work thread's result) takes its question's topic and has no
+  send id; a loop-in and Hotline's own notices start topics of their own.
+  The word is `topic` because `exchange` already names the work-request
+  queue (`session/exchanges/`, `item.request`).
+- **An item kept before topics** has neither field, and is never written
+  again for it: the store gives it both as it reads it
+  (`hotline_store::inbox::topics`, for `inbox.list`, the subscription and
+  `inbox.item`). The items one old send made for several (the same sender,
+  title and teammates reached, kept within five seconds) share the first
+  one's id as their send id; an item's topic is the stored topic of the
+  nearest item up its `reply_to` chain that has one, else that chain's
+  first item's send id, else its id. A chain whose first item is gone
+  starts at the oldest item still kept.
+- **A follow-up stays in its topic.** `send`'s `reply_to` names an item the
+  teammate received or one it sent (`Room::linked_item`), so a teammate can
+  follow up on an answer it got and on its own send nobody has answered
+  ("did you see this?"), and either lands in the same topic.
+- **The person's follow-up** is a line of their own in their chat with the
+  teammate: `session.prompt` (and the phone's `mobile.prompt`, in the main
+  conversation only) take `aboutItem`, an item the teammate sent or
+  received, which the line is written naming (`user.aboutItem`). The
+  teammate is told, before the person's words and never on the line the
+  person reads, which topic it is about and with whom, and to send it on
+  with `send` and that `reply_to` if it is for the colleague, or answer it
+  itself. An item that is not the teammate's is refused, and nothing is
+  said. Nothing ever sends as a teammate or writes to a colleague directly.
+- **Not built:** an `inbox.topic` command listing one topic whole. The
+  window builds topics from the owner's view, which holds both sides; the
+  phone and search can have it when they need it.
+
 ## Guards
 
 - **The person's word.** Only the person's own lines carry the person's
@@ -520,9 +579,10 @@ arriving here, and files crossing a link.
 
 ## On the desk
 
-The window draws the inbox from the contract below (task-456). The person
-reads; the teammates act: nothing on the desk sends, sorts or answers an
-item, and no chat opens between teammates. Wherever the person reads it, an
+The window draws the inbox from the contract below (task-456), as topics
+(task-514, the approved inbox-mail drawings). The person reads; the
+teammates act: nothing on the desk sends, sorts, answers or marks an item
+seen, and no chat opens between teammates. Wherever the person reads it, an
 item in `taken` reads Picked up (its state word, its receipts, the inbox
 pane's group and count line, the sent rows and the conversation's rows); the
 stored state and the teammates' tools keep `taken`.
@@ -530,10 +590,12 @@ stored state and the teammates' tools keep `taken`.
 - **Sent rows.** Each `inbox_sent` is a quiet row like a thread's link: the
   tray, the title, whom it went to and where it stands now ("To Juno ·
   Picked up"). The items one `send` made to several teammates under one title
-  stand side by side on the tape and are one row ("To Juno, Ivy, Huck · 2 of
-  3 seen", or the word they all share). The state is read live from the
+  stand side by side on the tape and are one row, which says where they
+  stand answers first ("To Juno, Ivy, Huck · 1 done · 1 seen · 1 awaiting
+  approval", `groupWords`). The state is read live from the
   sender's `{"inbox"}` subscription, not from the line. A press opens the
-  item in the right-hand pane (`ui/src/inbox.ts`,
+  topic its item is in, which for a send to several is the whole send,
+  every teammate's lane, in the right-hand pane (`ui/src/inbox.ts`,
   `components/transcript/InboxLines.tsx`). In a work thread a sent row is
   its own row, the title in bold and the tray in the accent; in the
   teammate's main conversation it is in a run (below), or, sent in a turn
@@ -635,52 +697,64 @@ stored state and the teammates' tools keep `taken`.
   teammate's turns asked), a permission card's expired afterlife (its
   harness rewrites it without the line), and a first-contact card raised
   again after a restart.
-- **The item pane**, on the pane's skeleton (`ui/design.md`, "The
-  right-hand pane's skeleton"). Its title, then its state line: where it
-  stands in a word (Sent, Seen, Picked up, Later, Answered, Done, Expired…,
-  the sent row's word), whether the sender waits, and when it last moved. It
-  has no fact rows: from whom to whom, whom else the send reached ("also
-  sent to Quill") and what it wants are one line ("Goldie to Huck · wants
-  work done") at the end of the Message heading's rule, or under the state
-  line when it has no words. Its words, and each reply's under the reply's
-  row, read at the conversation's size, six lines until Show all; Receipts,
-  a timeline on the spine, each receipt's mark filled and the last one as
-  the item stands (a ring while open, a cross for dropped, a dotted ring for
-  expired): sent, seen, picked up, later with its reason, closed with its outcome
-  (Expired, with "Not picked up in 3 days.", for one that expired; and
-  "Allowed" when the first-contact card let a held item in); the work thread
-  taking it started, which opens that thread's pane (beside the receiver's
-  conversation when the open teammate's Threads list does not hold it); the
-  item it answers and the items that answer it. A held item says "Waiting
-  for you to allow it." A receipt from before today gives its date as well
-  as its time. Hotline's notice is from Hotline, by its mark,
-  wherever an item's sender is named (the pane, its rows, the sort's row,
-  the composer's tray). Back goes where it was opened from (`DockState.from`):
-  the inbox, a thread, another item, or the work thread it was opened from.
+- **A topic**, on the pane's skeleton (`ui/design.md`, "The right-hand
+  pane's skeleton"; `components/InboxTopic.tsx`), opened from a row, a
+  sent row or anything that names one of its items. Its title, then its
+  state line: where it stands (a send to several answers first; Awaiting
+  approval, in amber, while something in it waits for the person; else the
+  newest open item to the owner, else the newest it sent, else how it
+  ended), who waits ("Huck is waiting") or whom it is with, and when it last
+  moved. Then its messages in order, read as a conversation: the inbox
+  owner's on the right in the raised container, the other side's on the
+  left in the quiet container old conversations use, never the person's
+  mint. A message is a bubble when it has no words beyond its title, or its
+  words are one plain paragraph of at most 160 characters with no list,
+  heading, quote, code or file; anything else is a letter, a container with
+  the sender and time, its own title only when it is not the topic's or a
+  "Re:", six lines and Show all (`isShort`). Under each, its time and one
+  word for where it stands (Sent, Seen, Picked up, Later, Answered, Done,
+  Expired…), which opens that message's history in place; Awaiting approval
+  is always written out, in amber, with "Go to the card", which opens the
+  first-contact card in the composer's Needs you, where the person answers
+  it. The work thread a message started is a row under it, live while it
+  runs, which opens the thread. A send to several is the send, "To Huck,
+  Quill, Juno", then a lane for each teammate, answers first, each with its
+  state on its rule and its own replies, "No reply yet.", or "Waiting for
+  your approval. Go to the card". At the foot, Ask a follow-up (below). A
+  time from before today gives its date. Hotline's notice is from Hotline,
+  by its mark, wherever an item's sender is named. Back goes where it was
+  opened from (`DockState.from`). An item older than the newest the view
+  is sent is read by id with its replies (`inbox.item`).
+- **Ask a follow-up** fills the message box of the chat beside the pane,
+  "Following up on What was the score? · Timo", as replying to a bubble
+  does; nothing is sent until the person sends it, and then it is their own
+  line with `aboutItem`, the topic's newest message (Topics, above). The
+  person's bubble carries the quote, whom the topic is with and its title,
+  which opens the topic. It is the person's own message box only: the desk
+  never sends as a teammate.
 - **One word for each outcome.** An item a reply went back on is Answered
   and one whose work finished is Done, the same word on its sent row, its
-  sort's row, the inbox pane and the item pane. Noticed, the desk showing
+  sort's row, the inbox pane and the topic. Noticed, the desk showing
   the receiver a title, is the desk's own step: an item in it reads as Sent,
   and the receipts leave it out. In the Closed list a finished item is
   ticked, a dropped one crossed, and an expired one, never picked up, keeps
   a dotted ring.
-- **The inbox pane.** Open (Unread: new, noticed and seen; Picked up; For
-  later), Closed and Sent, newest first, each group headed on a rule with
-  its count at the rule's end, under a line for the tab on show, above the tabs:
-  the open counts, "4 closed", "6 sent", or "Nothing open", "Nothing
-  closed", "Nothing sent". On Sent, the items one `send` made for several
-  teammates are one row, its title over whom it reached and where they
-  stand together ("To Huck, Quill, Timo · 2 of 3 seen"), which opens to a
-  row for each teammate, each opening its item. Every Sent row's arrow is
-  grey: the accent is for what the teammate itself has not read. Every row
-  says a time, when it was sent or last moved; an unsorted item whose
-  sender waits says "waiting" in its line, as the composer's tray does,
-  never a countdown. An item taken into a work thread has one row set in
-  under it, "Work thread" ("· Running" while a turn of it runs), on the text
-  edge with no mark of its own (the item's ≡ in the gutter is the thread's,
-  in the accent while a turn of it runs), which opens the thread with Back
-  to the inbox. It opens from
-  the teammate's menu (Inbox, beside Threads, with "N unread") and from the
+- **The inbox pane.** A search field (every message of every topic, open
+  and closed, and who is in it; the tabs hide while it shows what matched),
+  then two tabs. Open groups topics To sort (an item to the teammate is new,
+  noticed or seen), Picked up (one is taken), Waiting on others (something
+  it sent is open or held), For later (one is set aside); everything else is
+  Closed. Each group is headed on a rule with its count; there is no count
+  line, and no Sent tab: what a teammate sent waits under Waiting on others
+  until it is answered or done. One row per topic, newest first: its mark,
+  its title, who said what last ("Timo: Devils 7–4."), or where a send
+  stands ("Huck · Seen"; "Juno · Awaiting approval" in amber; answers first
+  for several), and when it last moved, with the live dot while its work
+  runs. A topic with something the teammate has not read is bold with its
+  ring in the accent; a seen one is in To sort with a half ring and no part
+  of the unread count. In Closed a finished topic is ticked, a dropped one
+  crossed, and an expired one keeps a dotted ring. It opens from the
+  teammate's menu (Inbox, beside Threads, with "N unread") and from the
   composer's tray.
 - **Work an item started.** The desk opens a taken item's work thread with
   the item's sender as its opener, as a handoff was. The window tells the two
@@ -728,8 +802,11 @@ Types (`crates/hotline-contract/src/inbox.rs`, generated into
   `answered | done | noted | dropped | combined | expired`; `InboxNotice`
   `expired | unanswered`;
   `InboxWants` `answer | work | nothing`. `InboxItem.notice?` marks Hotline's
-  own notice, `InboxItem.offerAgain?` is when a pick-up offers it next, and
-  `InboxItem.forPerson?` marks one sent in a turn the person read.
+  own notice, `InboxItem.offerAgain?` is when a pick-up offers it next,
+  `InboxItem.forPerson?` marks one sent in a turn the person read, and
+  `InboxItem.topic?` and `InboxItem.sendId?` are its topic and send
+  (Topics, above), absent on an item kept before them and filled in by the
+  store as the view and `inbox.item` read it.
 - `InboxView {personaId, open, closed, sent, unread, newer?}`: open and
   closed newest first, what the teammate sent others newest first (the
   newest 200 closed and 200 sent), its unread count, and `newer`, the items a
@@ -746,6 +823,9 @@ Wire commands ([wire.md](../wire.md)):
 | --- | --- | --- |
 | `inbox.list` | `{personaId}` | `InboxView` |
 | `inbox.item` | `{id}` | `InboxItemDetail` |
+
+`session.prompt` and `mobile.prompt` take `aboutItem?`, the item the
+person's line follows up on (Topics, above).
 
 Subscription: `{"inbox": "<personaId>"}` sends the `InboxView` as its
 snapshot and again, whole, whenever an item the teammate holds or sent
@@ -764,6 +844,8 @@ Transcript events (`TranscriptEvent`):
   notice?}` in the order given (`notice` on Hotline's own, whose sender is
   Hotline), and how many items are open and unread
   after it.
+- `user.aboutItem?`: on the person's line that follows up on an inbox
+  topic, the item it follows up on.
 - `agent.fromItem?`: on a post from a quiet turn one item woke, that item,
   and the same on a `permission`, `human_action`, `credential_ask` and
   `cookie_ask` card raised in such a turn; `turn.quiet?`: on the end of a

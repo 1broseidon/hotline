@@ -143,23 +143,21 @@ async function press(element: Element | null) {
 }
 
 describe("task-501 a taken message and its work thread", () => {
-	test("the message's row in the inbox opens its work thread, and Back comes to the inbox", async () => {
+	test("the message's row in the inbox says its work is running and opens its topic, where the work thread is a row under the message", async () => {
 		const inbox: DockState = { open: null, inbox: {} };
 		await show(inbox);
-		const work = container.querySelector("[data-work=i-linux]");
-		expect(work?.textContent).toBe("Work thread · Running");
-		await press(work);
-		expect(states.at(-1)).toEqual({ open: { thread: WORK, title: TITLE }, from: inbox });
-		// The row itself still opens the message.
-		await press(container.querySelector("[data-inbox=i-linux]"));
+		const row = container.querySelector("[data-topic]");
+		expect(row?.querySelector(".dock-dot")).not.toBeNull();
+		await press(row);
 		expect(states.at(-1)).toEqual({ open: null, inbox: { item: "i-linux" }, from: inbox });
 	});
 
 	test("the message's pane opens its work thread, and Back comes to the message", async () => {
 		const item: DockState = { open: null, inbox: { item: "i-linux" }, from: { open: null, inbox: {} } };
 		await show(item);
-		const work = [...container.querySelectorAll(".list-row")].find((one) => one.textContent?.includes("Huck"));
-		await press(work ?? null);
+		const work = container.querySelector("[data-work=i-linux]");
+		expect(work?.textContent).toBe("≡Work thread · Running");
+		await press(work);
 		expect(states.at(-1)).toEqual({ open: { thread: WORK, title: TITLE }, from: item });
 	});
 

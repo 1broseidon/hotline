@@ -46,8 +46,9 @@ import { CommandPane, runLink } from "./thread/CommandPane";
 import { CallPane } from "./thread/CallPane";
 import { JobPane } from "./thread/JobPane";
 import { clockWords, threadFamily } from "../threadKinds";
-import { type InboxSegment, messageWords, useInbox, useInboxWork } from "../inbox";
-import { InboxItemPane, InboxList } from "./InboxPane";
+import { messageWords, useInbox, useInboxWork } from "../inbox";
+import { type InboxTab, InboxList } from "./InboxPane";
+import { type FollowUp, InboxTopicPane } from "./InboxTopic";
 
 /**
  * What the right-hand pane shows: the list, one thread open in it, or a
@@ -58,8 +59,8 @@ import { InboxItemPane, InboxList } from "./InboxPane";
 export type DockState = {
 	open: ThreadRef | null;
 	work?: { personaId: string; blockId: string | null; stepId?: string };
-	/** The teammate's inbox, on a segment, or one item of it (`item`): in the thread's place. */
-	inbox?: { item?: string; segment?: InboxSegment };
+	/** The teammate's inbox, on a tab or searched, or the topic one item is in (`item`): in the thread's place. */
+	inbox?: { item?: string; tab?: InboxTab; query?: string };
 	/** The page it was opened from, which Back goes to: an item opened from a thread, a thread from an item. */
 	from?: DockState;
 };
@@ -83,6 +84,8 @@ export function Dock({
 	overlay,
 	onOpenTeammate,
 	onOpenTeammateThread,
+	onFollowUp,
+	onGoToCard,
 }: {
 	state: DockState;
 	onState(next: DockState): void;
@@ -91,6 +94,10 @@ export function Dock({
 	onOpenTeammate(personaId: string): void;
 	/** Opens another teammate's conversation with one of its threads in the pane; without it, the thread opens here. */
 	onOpenTeammateThread?: ((personaId: string, open: ThreadRef) => void) | undefined;
+	/** Ask a follow-up: fills the message box of the conversation beside the pane with the topic quoted. */
+	onFollowUp?: ((personaId: string, followUp: FollowUp) => void) | undefined;
+	/** Opens the card in the conversation beside the pane that lets a held item to `to` in. */
+	onGoToCard?: ((personaId: string, to: string) => void) | undefined;
 	/** Whose threads the pane lists; none when nobody is open. */
 	entry: RosterEntry | null;
 	roster: RosterEntry[];
@@ -148,25 +155,29 @@ export function Dock({
 			<aside ref={root} className="dock" aria-label={path !== undefined ? "Work" : inbox !== undefined ? "Inbox" : "Threads"}>
 				{inbox !== undefined && entry !== null ? (
 					inbox.item !== undefined ? (
-						<InboxItemPane
+						<InboxTopicPane
 							key={inbox.item}
 							itemId={inbox.item}
+							view={inboxView}
 							people={people}
+							working={working}
 							onBack={() => onState(state.from ?? { open: null, inbox: {} })}
 							onClose={onClose}
-							onOpenItem={openItem}
 							onOpenThread={openWork}
+							onFollowUp={(followUp) => onFollowUp?.(entry.persona.id, followUp)}
+							onGoToCard={(to) => onGoToCard?.(entry.persona.id, to)}
 						/>
 					) : (
 						<InboxList
 							name={entry.persona.name}
 							view={inboxView}
-							segment={inbox.segment ?? "open"}
+							tab={inbox.tab ?? "open"}
+							query={inbox.query ?? ""}
 							people={people}
 							working={working}
-							onSegment={(segment) => onState({ open: null, inbox: { segment } })}
+							onTab={(tab) => onState({ open: null, inbox: { tab } })}
+							onQuery={(query) => onState({ open: null, inbox: { ...inbox, query } })}
 							onOpenItem={(item) => onState({ open: null, inbox: { item }, from: { open: null, inbox: { ...inbox } } })}
-							onOpenThread={openWork}
 							onClose={onClose}
 						/>
 					)

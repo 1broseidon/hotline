@@ -61,6 +61,7 @@ export function Composer({
 	name,
 	state,
 	replyQuote,
+	quoteLead = "Replying to ",
 	onSend,
 	onCall,
 	onHangUp,
@@ -81,6 +82,8 @@ export function Composer({
 	name: string;
 	state: SessionState;
 	replyQuote: string | null;
+	/** What the quote is to the line being written: a reply to a message, or a follow-up on an inbox topic. */
+	quoteLead?: string;
 	onSend(text: string, attachments: Attachment[]): void;
 	onCall?: (() => void) | undefined;
 	/** Ends the call to this teammate, while there is one. */
@@ -549,10 +552,10 @@ export function Composer({
 						{replyQuote !== null && (
 							<div className="flex items-center gap-2 pt-1">
 								<p className="quote mb-0 min-w-0 flex-1">
-									<span className="text-ink-3">Replying to </span>
+									<span className="text-ink-3">{quoteLead}</span>
 									{replyQuote}
 								</p>
-								<button type="button" className="chip-x" aria-label="Stop replying" onClick={onClearReply}>
+								<button type="button" className="chip-x" aria-label={quoteLead === "Replying to " ? "Stop replying" : "Stop following up"} onClick={onClearReply}>
 									<CloseIcon />
 								</button>
 							</div>

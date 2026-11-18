@@ -11,6 +11,8 @@ import { type BlockCopy, BubbleToolbar } from "../Sheet";
 import { SaidBy } from "../../ui/OpenBand";
 import { SentFiles, type SentItem } from "../SentFile";
 import { JobPostRow } from "./LinkRow";
+import { InboxAboutQuote } from "./InboxLines";
+import type { Person } from "../../avatars";
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
 export type ReplyTarget = { eventId: string; text: string };
@@ -202,6 +204,7 @@ export function UserBubble({
 	personaId,
 	event,
 	quote,
+	people,
 	run,
 	reactions = {},
 	onJump,
@@ -210,6 +213,8 @@ export function UserBubble({
 	personaId: string;
 	event: Extract<TranscriptEvent, { kind: "user" }>;
 	quote: Quote | undefined;
+	/** Who is who, for the quote over a follow-up on an inbox topic. */
+	people?: ReadonlyMap<string, Person> | undefined;
 	run: Run;
 	reactions?: Reacted | undefined;
 	onJump(eventId: string): void;
@@ -252,6 +257,7 @@ export function UserBubble({
 							<span className="quote-said">{quote.said}</span>
 						</button>
 					)}
+					{quote === undefined && event.aboutItem !== undefined && <InboxAboutQuote itemId={event.aboutItem} owner={personaId} people={people} />}
 					{text}
 					{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
 					<Reactions {...reactions} />

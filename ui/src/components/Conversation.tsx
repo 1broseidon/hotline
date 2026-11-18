@@ -28,6 +28,7 @@ import { SessionPickers } from "./Pickers";
 import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
 import { AskCard, askLine, nextLapse, openAsks } from "./transcript/AskCard";
+import { collaborationAsk } from "./transcript/Asks";
 import { InboxRows } from "./transcript/InboxLines";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
@@ -46,6 +47,29 @@ import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type Thr
  */
 /** The words and files a refused send hands back to the composer. `merge` puts them ahead of what has been typed since, rather than over it. */
 export type Refill = { text: string; attachments: Attachment[]; nonce: number; merge?: boolean };
+
+/**
+ * The person's line as `session.prompt` takes it: the message it answers,
+ * the inbox item it follows up on (Ask a follow-up), and its files, each
+ * only when there is one.
+ */
+export function promptOf(personaId: string, text: string, quoted: { reply: ReplyTarget | null; about: { aboutItem: string } | null }, attachments: Attachment[]) {
+	return {
+		personaId,
+		text,
+		...(quoted.reply !== null ? { replyTo: quoted.reply.eventId } : {}),
+		...(quoted.about !== null ? { aboutItem: quoted.about.aboutItem } : {}),
+		...(attachments.length > 0 ? { attachments } : {}),
+	};
+}
+
+/**
+ * What the inbox pane beside the conversation asks of it, at `at`: Ask a
+ * follow-up, which quotes a topic in the message box so the person's next
+ * line follows up on its item (`aboutItem`), or Go to the card, which
+ * opens the card that lets a held message to `to` in.
+ */
+export type FromPane = { at: number } & ({ kind: "follow"; aboutItem: string; quote: string } | { kind: "card"; to: string });
 
 export function Conversation({
 	entry,
@@ -68,6 +92,7 @@ export function Conversation({
 	threadOpen,
 	railOpen = true,
 	dock,
+	fromPane,
 	models,
 	onSaid,
 	onCall,
@@ -119,6 +144,8 @@ export function Conversation({
 	railOpen?: boolean;
 	/** The peek: a turn of work as a glance, standing up out of the composer over the conversation. */
 	dock?: ReactNode;
+	/** What the inbox pane beside it last asked: a follow-up quoted in the message box, or a card opened. */
+	fromPane?: FromPane | undefined;
 }) {
 	const { persona, session } = entry;
 	/* A turn open only for its subagents reads as done; see `shownState`. */
@@ -130,7 +157,13 @@ export function Conversation({
 	const cornered = processes.length > 0;
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useThread(dmOf(personaId));
-	const [replying, setReplying] = useState<ReplyTarget | null>(null);
+	const [replying, setReplyingTo] = useState<ReplyTarget | null>(null);
+	/* The inbox topic the next line follows up on, quoted over the message box; one quote at a time. */
+	const [following, setFollowing] = useState<{ aboutItem: string; quote: string } | null>(null);
+	const setReplying = useCallback((target: ReplyTarget | null) => {
+		setReplyingTo(target);
+		if (target !== null) setFollowing(null);
+	}, []);
 	/* What was said, from the moment it was said. The core writes the line
 	 * only once a session is up, and starting one is a second or two in which
 	 * a composer that has already emptied looks like it did nothing. */
@@ -182,26 +215,24 @@ export function Conversation({
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
 			const answered = replying;
+			const about = following;
 			setReplying(null);
-			sends.send(personaId, { text, attachments, ...(answered ? { reply: answered } : {}) }, () =>
+			setFollowing(null);
+			sends.send(personaId, { text, attachments, ...(answered ? { reply: answered } : {}), ...(about ? { about } : {}) }, () =>
 				// On a desk on a server, what is attached goes up first.
 				startThen(() => carry(attachments)).then((carried) =>
-					wire.command("session.prompt", {
-						personaId,
-						text,
-						...(answered ? { replyTo: answered.eventId } : {}),
-						...(carried.length > 0 ? { attachments: carried } : {}),
-					}),
+					wire.command("session.prompt", promptOf(personaId, text, { reply: answered, about }, carried)),
 				),
 			);
 		},
-		[personaId, replying, startThen],
+		[personaId, replying, following, startThen, setReplying],
 	);
 	/* Words a refused send gives back, from this conversation or from a
 	 * visit to another teammate that ended before the refusal came. */
 	useReturned(personaId, (back) => {
 		setRefill({ text: back.text, attachments: back.attachments, nonce: back.nonce, merge: true });
 		if (back.reply !== undefined) setReplying(back.reply);
+		if (back.about !== undefined) setFollowing(back.about);
 	});
 	useEffect(() => sends.landed(personaId, events), [personaId, events]);
 	/* What the teammate's threads and colleagues told it, drawn as quiet lines
@@ -268,14 +299,30 @@ export function Conversation({
 	// Chips are put down first, on the window in capture, so this listener
 	// does not also drop the quote on the same press.
 	useEffect(() => {
-		if (replying === null) return;
+		if (replying === null && following === null) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
 			setReplying(null);
+			setFollowing(null);
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [replying]);
+	}, [replying, following, setReplying]);
+	/* The inbox pane's Ask a follow-up quotes its topic here; its Go to the card opens that card above the message box. */
+	const paneAt = fromPane?.at;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: each ask from the pane is acted on once, when it is made.
+	useEffect(() => {
+		if (fromPane === undefined) return;
+		if (fromPane.kind === "follow") {
+			setReplying(null);
+			setFollowing({ aboutItem: fromPane.aboutItem, quote: fromPane.quote });
+			return;
+		}
+		const to = nameIn(roster, [], fromPane.to);
+		const collab = asks.filter((ask) => ask.kind === "permission" && collaborationAsk(ask) !== undefined);
+		const card = collab.find((ask) => ask.kind === "permission" && collaborationAsk(ask)?.to === to) ?? collab[0];
+		if (card !== undefined) setAskId(card.id);
+	}, [paneAt]);
 
 	// A computer the teammate starts in a turn is looked for again when the
 	// turn moves or its setup ends, not only at the key's slow tick.
@@ -309,7 +356,7 @@ export function Conversation({
 			const original = events.find((event) => event.id === message.replyTo);
 			setReplying(message.replyTo ? { eventId: message.replyTo, text: original && "text" in original ? original.text : "Earlier message" } : null);
 		},
-		[events],
+		[events, setReplying],
 	);
 	/* The band says what just happened: a session error, or a refusal of
 	 * something that was asked for. Why the previous chapter cannot be
@@ -401,14 +448,18 @@ export function Conversation({
 					personaId={personaId}
 					name={persona.name}
 					state={state}
-					replyQuote={replying?.text ?? null}
+					replyQuote={following?.quote ?? replying?.text ?? null}
+					{...(following !== null ? { quoteLead: "Following up on " } : {})}
 					onSend={send}
 					onCall={onCall}
 					onHangUp={onHangUp}
 					{...(refill !== null ? { refill } : {})}
 					focused={fresh}
 					onCancel={cancel}
-					onClearReply={() => setReplying(null)}
+					onClearReply={() => {
+						setReplying(null);
+						setFollowing(null);
+					}}
 					threads={{
 						rows: live,
 						fresh: entry.asidesNew,

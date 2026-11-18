@@ -10,7 +10,10 @@ const UNSURE_MS = 60_000;
 /** A quoted line a send answers: the id the core links it by and the words shown. */
 type Reply = { eventId: string; text: string };
 
-export type SendInput = { text: string; attachments: Attachment[]; reply?: Reply };
+/** An inbox item a send follows up on (Ask a follow-up), and the quote the message box showed for it. */
+type About = { aboutItem: string; quote: string };
+
+export type SendInput = { text: string; attachments: Attachment[]; reply?: Reply; about?: About };
 
 /**
  * A message on its way. `sending` has not been answered; `unsure` lost its
@@ -32,7 +35,7 @@ export type ConvSends = {
 const NOTHING: ConvSends = { lines: [], returned: [], notice: null };
 
 /** Refused sends gathered into the one thing the composer is handed back. */
-export type Gathered = { text: string; attachments: Attachment[]; reply?: Reply; message: string; nonce: number };
+export type Gathered = { text: string; attachments: Attachment[]; reply?: Reply; about?: About; message: string; nonce: number };
 
 /**
  * Sends in flight and refused, per conversation (a teammate's, or a thread's
@@ -92,12 +95,14 @@ export class Sends {
 		const was = this.get(conv);
 		if (was.returned.length === 0) return undefined;
 		const first = was.returned.find((one) => one.reply !== undefined)?.reply;
+		const about = was.returned.find((one) => one.about !== undefined)?.about;
 		const last = was.returned[was.returned.length - 1]!;
 		this.put(conv, { ...was, returned: [] });
 		return {
 			text: was.returned.map((one) => one.text).filter((text) => text !== "").join("\n\n"),
 			attachments: was.returned.flatMap((one) => one.attachments),
 			...(first !== undefined ? { reply: first } : {}),
+			...(about !== undefined ? { about } : {}),
 			message: last.message,
 			nonce: last.id,
 		};

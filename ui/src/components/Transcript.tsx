@@ -253,6 +253,7 @@ export function Transcript({
 				(event) =>
 					event.kind === "inbox_sent" ||
 					event.kind === "inbox_sorted" ||
+					(event.kind === "user" && event.aboutItem !== undefined) ||
 					(event.kind === "link" && event.openerId !== undefined) ||
 					("fromItem" in event && event.fromItem !== undefined),
 			),
@@ -898,7 +899,7 @@ const Row = memo(function Row({
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
 			) : (
-				<UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+				<UserBubble personaId={personaId} event={event} quote={quote} people={people} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		case "agent":

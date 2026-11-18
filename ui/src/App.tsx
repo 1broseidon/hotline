@@ -3,7 +3,7 @@ import { useNarrow } from "./narrow";
 import { chordKeys } from "./chords";
 import { SettingsIcon } from "./icons";
 import type { ConfigChoice } from "./generated/contract";
-import { Conversation } from "./components/Conversation";
+import { Conversation, type FromPane } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
@@ -164,6 +164,10 @@ export function App() {
 		setSaid(null);
 	}, [selectedId]);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
+	/* What the inbox pane asks of the conversation beside it: a follow-up in its message box, or the card a held message waits on. */
+	const [fromPane, setFromPane] = useState<(FromPane & { personaId: string }) | null>(null);
+	const followUp = useCallback((personaId: string, follow: { aboutItem: string; quote: string }) => setFromPane({ personaId, kind: "follow", ...follow, at: Date.now() }), []);
+	const goToCard = useCallback((personaId: string, to: string) => setFromPane({ personaId, kind: "card", to, at: Date.now() }), []);
 	const jobs = useRoomJobs();
 	const modelsRevision = useModelsRevision();
 	/* The other desks' teammates, for the one rail and its ⌃1–9. */
@@ -701,6 +705,7 @@ export function App() {
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
+							{...(fromPane?.personaId === selected.persona.id ? { fromPane } : {})}
 							// Faces only, the rail no longer names who this is: the band does.
 							railOpen={railShown && !faces}
 							{...(workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
@@ -746,6 +751,8 @@ export function App() {
 							overlay={dockOverlay}
 							onOpenTeammate={select}
 							onOpenTeammateThread={openTeammateThread}
+							onFollowUp={followUp}
+							onGoToCard={goToCard}
 						/>
 					)}
 					{/* What floats over the window runs down its right edge: a new version, at the bottom. */}

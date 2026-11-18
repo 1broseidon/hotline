@@ -227,6 +227,9 @@ pub struct InProcess {
     /// besides it. A change to them restarts the session, so a handle built
     /// from these never outlives the grant it was built from.
     folders: Mutex<Vec<FolderGrant>>,
+    /// Which directory the working directory must be, under workspace
+    /// reach: the record's `cwdIdentity`, learned at `start` with the cwd.
+    cwd_identity: Mutex<Option<String>>,
     model: Mutex<String>,
     /// The effort the next request will send, when the current model lists it.
     effort: Mutex<Option<String>>,
@@ -284,6 +287,7 @@ impl InProcess {
             preamble,
             cwd: Mutex::new(PathBuf::new()),
             folders: Mutex::new(Vec::new()),
+            cwd_identity: Mutex::new(None),
             model: Mutex::new(String::new()),
             effort: Mutex::new(None),
             tier: Mutex::new(None),
@@ -417,6 +421,7 @@ impl Driver for InProcess {
         })?;
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
         *lock(&self.folders) = persona.folders.clone().unwrap_or_default();
+        *lock(&self.cwd_identity) = crate::session::bound_identity(persona).map(str::to_string);
         lock(&self.model).clone_from(&model);
         // The stored effort when the model lists it, else the blank's
         // default, so a fresh teammate is never sent without a level the
@@ -730,6 +735,7 @@ impl InProcess {
             },
             cwd: lock(&self.cwd).clone(),
             folders: lock(&self.folders).clone(),
+            cwd_identity: lock(&self.cwd_identity).clone(),
             reach,
             history: self.history.clone(),
             stop,
@@ -819,6 +825,7 @@ struct Turn {
     preamble: String,
     cwd: PathBuf,
     folders: Vec<FolderGrant>,
+    cwd_identity: Option<String>,
     reach: Reach,
     history: Arc<AsyncMutex<Vec<Message>>>,
     stop: Arc<Stop>,
@@ -871,6 +878,7 @@ impl Turn {
             self.reach,
             self.output_dir.clone(),
             &self.folders,
+            self.cwd_identity.as_deref(),
             self.capability.clone(),
         )
         .map_err(|error| error.to_string())?;

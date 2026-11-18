@@ -126,6 +126,7 @@ mod tests {
 
     fn teammate(id: &str) -> Persona {
         Persona {
+            cwd_identity: None,
             node: None,
             id: id.to_string(),
             name: id.to_string(),

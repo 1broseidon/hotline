@@ -44,6 +44,7 @@ pub(super) fn scratch_cwd() -> String {
 
 pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona {
     Persona {
+        cwd_identity: None,
         node: None,
         id: "ada".to_string(),
         name: "Ada".to_string(),

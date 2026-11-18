@@ -136,6 +136,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
     std::fs::create_dir(&workspace).unwrap();
     let log = Log::open(dir.path().join("data"));
     let persona = Persona {
+        cwd_identity: None,
         node: None,
         id: "ada".into(),
         name: "Ada".into(),

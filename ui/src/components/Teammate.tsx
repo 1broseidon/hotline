@@ -144,7 +144,10 @@ export function Teammate({
 
 	const chooseCwd = async () => {
 		const dir = await chooseFolder(persona.cwd);
-		if (dir !== null && dir !== persona.cwd) save({ cwd: dir });
+		// The same folder chosen again is saved too: the desk then records
+		// which directory it is now, which is how a teammate refused for a
+		// changed working directory is pointed back at it.
+		if (dir !== null) save({ cwd: dir });
 	};
 
 	const pinned = roster.some((entry) => entry.persona.id === persona.id && entry.pin != null);

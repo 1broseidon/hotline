@@ -59,6 +59,7 @@ fn apple_container_lines_are_not_counted() {
 
 fn persona(id: &str, cwd: &str) -> Persona {
     Persona {
+        cwd_identity: None,
         node: None,
         id: id.to_string(),
         name: "Ada".to_string(),
@@ -371,14 +372,17 @@ fn granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered()
     let mut ada = persona("ada", "/tmp");
     ada.folders = Some(vec![
         FolderGrant {
+            identity: None,
             path: read_only.to_string_lossy().into_owned(),
             writable: false,
         },
         FolderGrant {
+            identity: None,
             path: writable.to_string_lossy().into_owned(),
             writable: true,
         },
         FolderGrant {
+            identity: None,
             path: root.join("gone").to_string_lossy().into_owned(),
             writable: true,
         },
@@ -419,6 +423,7 @@ async fn a_computer_made_with_other_folders_is_made_again() {
     let computers = Computer::with_path(root.as_os_str());
     let mut ada = persona("ada", cwd.to_str().unwrap());
     ada.folders = Some(vec![FolderGrant {
+        identity: None,
         path: folder.to_string_lossy().into_owned(),
         writable: false,
     }]);

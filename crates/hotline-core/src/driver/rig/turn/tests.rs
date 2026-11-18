@@ -97,6 +97,7 @@ fn scripted(
 
 fn fixture() -> (Turn, Template) {
     let turn = Turn {
+        cwd_identity: None,
         keys: HashMap::new(),
         identity: "test/model".into(),
         model: "test/model".into(),

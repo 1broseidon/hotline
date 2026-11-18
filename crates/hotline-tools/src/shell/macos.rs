@@ -13,6 +13,7 @@ pub(super) fn command(
     command: &str,
     workspace: &Path,
     folders: &[(PathBuf, bool)],
+    identities: &[(PathBuf, String)],
 ) -> Result<Command, String> {
     let workspace = workspace
         .canonicalize()
@@ -54,7 +55,8 @@ pub(super) fn command(
     ] {
         env.push((name, home.join(relative).into_os_string()));
     }
-    let mut setup = String::from("umask 077; mkdir -p -- \"$HOME\" \"$TMPDIR\" || exit; ");
+    let mut setup = super::identity_checks(identities);
+    setup.push_str("umask 077; mkdir -p -- \"$HOME\" \"$TMPDIR\" || exit; ");
     if let Some(host_home) = host_home {
         if runtimes.contains(&host_home.join(".rustup/toolchains"))
             && runtimes.contains(&host_home.join(".rustup/settings.toml"))
@@ -383,7 +385,7 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     async fn output(workspace: &Path, script: &str) -> std::process::Output {
-        command(script, workspace, &[])
+        command(script, workspace, &[], &[])
             .unwrap()
             .output()
             .await
@@ -660,7 +662,7 @@ mod tests {
             let folders = folders.clone();
             let work = work.clone();
             async move {
-                command(&script, &work, &folders)
+                command(&script, &work, &folders, &[])
                     .unwrap()
                     .output()
                     .await
@@ -710,7 +712,7 @@ mod tests {
         }
         std::fs::write(outside.join("secret.txt"), "host-canary").unwrap();
         let run = |workspace: PathBuf, folders: Vec<(PathBuf, bool)>, script: String| async move {
-            command(&script, &workspace, &folders)
+            command(&script, &workspace, &folders, &[])
                 .unwrap()
                 .output()
                 .await

@@ -13,6 +13,7 @@ pub(super) fn command(
     command: &str,
     workspace: &Path,
     folders: &[(PathBuf, bool)],
+    identities: &[(PathBuf, String)],
 ) -> Result<Command, String> {
     let workspace = workspace
         .canonicalize()
@@ -21,7 +22,8 @@ pub(super) fn command(
     // Create the home *inside* the sandbox: a project-controlled symlink here
     // must never cause Hotline to create directories elsewhere on the host.
     let setup = format!(
-        "mkdir -p -- \"$HOME\" || exit; {} exec /bin/sh -c \"$1\"",
+        "{}mkdir -p -- \"$HOME\" || exit; {} exec /bin/sh -c \"$1\"",
+        super::identity_checks(identities),
         super::RUSTUP_SETUP
     );
     process.args(["/bin/sh", "-c", &setup, "hotline-shell", command]);

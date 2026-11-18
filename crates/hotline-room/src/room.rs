@@ -852,6 +852,7 @@ mod tests {
 
     fn persona(id: &str, name: &str) -> Persona {
         Persona {
+            cwd_identity: None,
             node: None,
             id: id.to_string(),
             name: name.to_string(),

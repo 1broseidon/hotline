@@ -136,6 +136,16 @@ pub struct Persona {
     pub bubble: Option<String>,
     pub backend_id: String,
     pub cwd: String,
+    /// Which directory `cwd` was when the person chose it (Unix: its device
+    /// and inode, `dev:ino`), set by the desk when `cwd` is set, or on a
+    /// teammate's first start under workspace reach when an older record has
+    /// none and nothing a confined teammate could have planted is in its
+    /// path. Under workspace reach every holder of the workspace compares the
+    /// directory it actually opened with this and refuses another. Never
+    /// taken from a client. Absent on Windows, and on a record whose folder is
+    /// not made yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd_identity: Option<String>,
     /// How far Hotline Agent's tools reach. Absent means the working directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reach: Option<Reach>,
@@ -303,6 +313,13 @@ pub struct FolderGrant {
     /// Absent is false: a grant is read-only unless the person said more.
     #[serde(default)]
     pub writable: bool,
+    /// Which directory it was when granted (Unix: `dev:ino`), set by the desk
+    /// with the grant, or on the teammate's next start for an older grant
+    /// that still resolves to its path. A folder that opens as another
+    /// directory is left out. Never taken from a client; absent on Windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub identity: Option<String>,
 }
 
 /// Inherit everything, inherit nothing, or name what is inherited. `Some` is

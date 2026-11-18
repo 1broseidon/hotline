@@ -11,6 +11,7 @@ fn made(arguments: Value, current: Option<&AvatarRecipe>) -> Face {
 
 fn persona(id: &str, bubble: Option<&str>) -> Persona {
     Persona {
+        cwd_identity: None,
         node: None,
         id: id.into(),
         name: "Ada".into(),

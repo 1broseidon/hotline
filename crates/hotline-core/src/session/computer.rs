@@ -323,6 +323,7 @@ impl Room {
             Ok(guide) => {
                 crate::skills::write_computer(
                     Path::new(&persona.cwd),
+                    super::bound_identity(persona),
                     &guide.version,
                     &guide.sha256,
                     &guide.skill,

@@ -1127,7 +1127,7 @@ async fn a_held_computer_without_a_guide_reports_its_label_and_leaves_no_stale_s
     } = computer_room("computer-no-guide", None, TWO_RELEASES, true).await;
     // A guide from an earlier start, marked as the computer's, must not
     // outlive the computer that served it.
-    crate::skills::write_computer(&cwd, "0.1.0", "stale", "stale guide").unwrap();
+    crate::skills::write_computer(&cwd, None, "0.1.0", "stale", "stale guide").unwrap();
     room.start("ada").await.unwrap();
 
     assert!(!cwd.join(".agents/skills/hotline-computer").exists());

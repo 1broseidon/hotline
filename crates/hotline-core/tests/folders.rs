@@ -114,7 +114,7 @@ async fn granted_folders_hold_the_real_tools_and_a_change_takes_them_back() {
         .await;
     assert_eq!(made["ok"], true, "{made}");
     assert_eq!(
-        made["result"]["folders"],
+        recorded(&made["result"]["folders"]),
         json!([
             {"path": path(&place.read_only), "writable": false},
             {"path": path(&place.writable), "writable": true},
@@ -498,7 +498,7 @@ async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
         )
         .await;
     assert_eq!(
-        kept["result"]["folders"],
+        recorded(&kept["result"]["folders"]),
         json!([{"path": path(&place.read_only), "writable": false}])
     );
 
@@ -523,7 +523,7 @@ async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
         .await;
     assert_eq!(granted["ok"], true, "{granted}");
     assert_eq!(
-        granted["result"]["folders"],
+        recorded(&granted["result"]["folders"]),
         json!([{"path": path(&place.outside), "writable": true}])
     );
     drop(client);
@@ -641,4 +641,28 @@ async fn turn(
             )
         })
         .collect()
+}
+
+/// A record's folders as granted, each checked to say which directory it
+/// is (Unix: `dev:ino`, read by the desk when granted) and then shown
+/// without it, for comparing with the paths and modes asked for.
+fn recorded(folders: &Value) -> Value {
+    let folders = folders.as_array().cloned().unwrap_or_default();
+    Value::Array(
+        folders
+            .into_iter()
+            .map(|mut folder| {
+                let identity = folder
+                    .as_object_mut()
+                    .and_then(|folder| folder.remove("identity"));
+                if cfg!(unix) {
+                    assert!(
+                        identity.as_ref().is_some_and(Value::is_string),
+                        "a grant records which directory it is: {folder}"
+                    );
+                }
+                folder
+            })
+            .collect(),
+    )
 }

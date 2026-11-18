@@ -236,6 +236,7 @@ async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
         let mut persona = room.persona("ada").unwrap();
         persona.reach = Some(reach);
         persona.folders = Some(vec![crate::contract::FolderGrant {
+            identity: None,
             path: folder.to_string_lossy().into_owned(),
             writable: false,
         }]);
@@ -336,9 +337,19 @@ async fn a_receiver_reads_what_it_was_sent_and_changes_nothing_there() {
         let view = agents.views().pop().unwrap();
         room.stop("bob").unwrap();
         let grant = view.folders.clone().unwrap_or_default();
+        // Which directory it is, the session reads for itself when it starts.
+        let unbound: Vec<_> = grant
+            .iter()
+            .cloned()
+            .map(|grant| crate::contract::FolderGrant {
+                identity: None,
+                ..grant
+            })
+            .collect();
         assert_eq!(
-            grant,
+            unbound,
             [crate::contract::FolderGrant {
+                identity: None,
                 path: landed
                     .parent()
                     .unwrap()
@@ -366,6 +377,7 @@ async fn a_receiver_reads_what_it_was_sent_and_changes_nothing_there() {
             reach,
             room.log.root().join("tool-output").join("bob"),
             &grant,
+            None,
             None,
         )
         .unwrap();

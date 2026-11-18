@@ -1043,7 +1043,14 @@ export type FolderGrant = { path: string,
  * Whether the teammate may create, change and delete files in it.
  * Absent is false: a grant is read-only unless the person said more.
  */
-writable: boolean, };
+writable: boolean, 
+/**
+ * Which directory it was when granted (Unix: `dev:ino`), set by the desk
+ * with the grant, or on the teammate's next start for an older grant
+ * that still resolves to its path. A folder that opens as another
+ * directory is left out. Never taken from a client; absent on Windows.
+ */
+identity?: string, };
 
 /**
  * A search hit that names whose conversation it came from.
@@ -1764,6 +1771,17 @@ team?: string,
  * face (decision-43); `grey` is grey by choice.
  */
 bubble?: string, backendId: string, cwd: string, 
+/**
+ * Which directory `cwd` was when the person chose it (Unix: its device
+ * and inode, `dev:ino`), set by the desk when `cwd` is set, or on a
+ * teammate's first start under workspace reach when an older record has
+ * none and nothing a confined teammate could have planted is in its
+ * path. Under workspace reach every holder of the workspace compares the
+ * directory it actually opened with this and refuses another. Never
+ * taken from a client. Absent on Windows, and on a record whose folder is
+ * not made yet.
+ */
+cwdIdentity?: string, 
 /**
  * How far Hotline Agent's tools reach. Absent means the working directory.
  */

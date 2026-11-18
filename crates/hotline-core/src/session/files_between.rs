@@ -106,6 +106,7 @@ pub(crate) fn received_grant(root: &Path, persona_id: &str) -> Option<FolderGran
     std::fs::create_dir_all(&dir).ok()?;
     let path = dunce::canonicalize(&dir).ok()?;
     Some(FolderGrant {
+        identity: None,
         path: path.to_str()?.to_string(),
         writable: false,
     })
@@ -342,6 +343,7 @@ impl Room {
             Reach::Workspace,
             self.log.root().join("tool-output").join(&target.id),
             &[],
+            None,
             Some(self.capability_lease(&target.id)),
         )
         .map_err(|error| could_not(&error))?;

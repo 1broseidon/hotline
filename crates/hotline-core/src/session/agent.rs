@@ -30,7 +30,7 @@ use super::computer::{
 };
 use super::prompt::said;
 use super::sides::OpenedBy;
-use super::{Room, chapters, now_ms};
+use super::{Room, chapters, now_ms, workspace_root};
 use crate::contract::{
     Ability, McpPolicy, Persona, PolicyMode, Reach, SessionCheckpoint, SessionInfo, SharedSecret,
 };
@@ -215,18 +215,6 @@ pub(super) fn clone_of(mut persona: Persona, home: &SessionInfo, without: &[Abil
     persona
 }
 
-/// Why a teammate's working directory `cwd` (its record's) is not opened, if
-/// it is not: under workspace reach, the folder has become a link
-/// ([`crate::tools::linked_root`]). The file tools and the shell refuse it
-/// on their own; this stops what is opened by path before them: the skills
-/// writer, the computer's workspace mount and the rest of a session start.
-pub(crate) fn moved_workspace(persona: &Persona, cwd: &str) -> Option<String> {
-    if persona.reach.unwrap_or_default() != Reach::Workspace {
-        return None;
-    }
-    crate::tools::linked_root(Path::new(cwd))
-}
-
 /// The session a child is asked to reopen: the thread's saved one, when the
 /// harness the teammate runs on now is the one that issued it. Only a child
 /// has a session of its own to reopen.
@@ -254,7 +242,7 @@ impl Room {
     ) -> Result<ThreadAgent, String> {
         let Opening {
             thread,
-            persona,
+            mut persona,
             title,
             opener,
             lease,
@@ -263,15 +251,11 @@ impl Room {
         let policy = Policy::of(thread.kind);
         let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
         let main = policy.resume == Resume::Checkpoint;
-        if let Some(refused) = moved_workspace(&persona, &persona.cwd) {
-            return Err(refused);
-        }
-        std::fs::create_dir_all(&persona.cwd).map_err(|error| {
-            format!(
-                "{}'s working directory {} could not be made: {error}",
-                persona.name, persona.cwd
-            )
-        })?;
+        // Before anything is written there: the workspace is made if missing
+        // and refused if it is not the directory the record names (H-64);
+        // an older record learns which directory that is, when it safely can.
+        let adopted = workspace_root::bind_root(&crate::room::roster(&self.log), &persona)?;
+        self.adopt_roots(&mut persona, adopted).await;
         // The skills the teammate may read are files in its workspace, for
         // either driver: the built-ins and whatever it is granted of the
         // offered ones, copied under Hotline's marker so a revoked grant leaves
@@ -280,6 +264,7 @@ impl Room {
         if main {
             crate::skills::materialize(
                 Path::new(&persona.cwd),
+                workspace_root::bound_identity(&persona),
                 &crate::skills::Offering::from_settings(
                     self.log.root(),
                     &crate::room::settings(&self.log),
@@ -688,6 +673,7 @@ mod tests {
         let mut ada = with_computer();
         ada.reach = Some(Reach::Machine);
         ada.folders = Some(vec![FolderGrant {
+            identity: None,
             path: "/srv/harbour".to_string(),
             writable: true,
         }]);
@@ -877,6 +863,87 @@ mod tests {
         let room = room_with(&ada, log, agents.clone());
         room.start("ada").await.unwrap();
         assert!(real.join("project/.agents/skills").is_dir());
+    }
+
+    /// A teammate on workspace reach starts only in the directory its record
+    /// names (`cwdIdentity`): one renamed away and remade is refused before
+    /// anything is written; an older record without one adopts what it
+    /// finds, unless a folder above it is a link inside a folder a confined
+    /// teammate may change, which is refused until the person chooses the
+    /// folder again; and a folder that is gone is made again and adopted.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_teammate_starts_only_in_the_directory_its_record_names() {
+        let identity = |path: &std::path::Path| crate::tools::path_identity(path).unwrap();
+        let recorded = |room: &Arc<Room>| room.persona("ada").unwrap().cwd_identity;
+        let skills = |path: &std::path::Path| path.join(".agents/skills").is_dir();
+
+        // Bound: the same directory starts; another at its path does not.
+        let log = scratch("agent-root-bound");
+        let work = log.root().join("work");
+        std::fs::create_dir(&work).unwrap();
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = work.to_string_lossy().into_owned();
+        ada.cwd_identity = Some(identity(&work));
+        let agents = Fake::new(Scripted::new(reply("Hello.")));
+        let room = room_with(&ada, log, agents.clone());
+        room.start("ada").await.unwrap();
+        assert!(skills(&work));
+        room.stop("ada").unwrap();
+        std::fs::rename(&work, work.with_file_name("work-was")).unwrap();
+        std::fs::create_dir(&work).unwrap();
+        let refused = room.start("ada").await.unwrap_err();
+        assert!(refused.contains("no longer the folder chosen"), "{refused}");
+        assert!(!skills(&work), "nothing is written in the other directory");
+
+        // Gone: made again where it was, and that directory recorded.
+        std::fs::remove_dir(&work).unwrap();
+        room.start("ada").await.unwrap();
+        assert_eq!(recorded(&room), Some(identity(&work)));
+        assert!(skills(&work));
+
+        // An older record adopts a plain folder on its first start.
+        let log = scratch("agent-root-adopt");
+        let work = log.root().join("work");
+        std::fs::create_dir(&work).unwrap();
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = work.to_string_lossy().into_owned();
+        let room = room_with(&ada, log, Fake::new(Scripted::new(reply("Hello."))));
+        assert_eq!(recorded(&room), None);
+        room.start("ada").await.unwrap();
+        assert_eq!(recorded(&room), Some(identity(&work)));
+
+        // But not through a link a confined teammate could have made: Bob may
+        // change `holder`, and the folder above Ada's workspace in it is a link.
+        let log = scratch("agent-root-planted");
+        let holder = log.root().join("holder");
+        let elsewhere = log.root().join("elsewhere");
+        std::fs::create_dir_all(&holder).unwrap();
+        std::fs::create_dir_all(elsewhere.join("work")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, holder.join("mid")).unwrap();
+        let mut bob = persona("bob");
+        bob.reach = None;
+        bob.cwd = log.root().join("bob").to_string_lossy().into_owned();
+        bob.folders = Some(vec![crate::contract::FolderGrant {
+            path: holder
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            writable: true,
+            identity: None,
+        }]);
+        enrol(&log, &bob);
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = holder.join("mid/work").to_string_lossy().into_owned();
+        let room = room_with(&ada, log, Fake::new(Scripted::new(reply("Hello."))));
+        let refused = room.start("ada").await.unwrap_err();
+        assert!(refused.contains("Choose the folder again"), "{refused}");
+        assert!(!skills(&elsewhere.join("work")));
+        assert_eq!(recorded(&room), None);
     }
 
     #[tokio::test]

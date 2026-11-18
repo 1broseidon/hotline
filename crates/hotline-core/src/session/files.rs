@@ -337,6 +337,7 @@ pub(super) async fn from_workspace(
         persona.reach.unwrap_or_default(),
         root.join("tool-output").join(&persona.id),
         persona.folders.as_deref().unwrap_or_default(),
+        crate::session::bound_identity(persona),
         capability,
     )
     .map_err(|error| error.to_string())?;

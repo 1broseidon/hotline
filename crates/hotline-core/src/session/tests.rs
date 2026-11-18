@@ -637,6 +637,7 @@ pub(super) fn scratch(name: &str) -> Log {
 
 pub(crate) fn persona(id: &str) -> Persona {
     Persona {
+        cwd_identity: None,
         node: None,
         id: id.to_string(),
         name: "Ada".to_string(),

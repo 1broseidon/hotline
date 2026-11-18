@@ -581,10 +581,12 @@ fn acp_callbacks_honour_granted_folders() {
 
     ada.folders = Some(vec![
         crate::contract::FolderGrant {
+            identity: None,
             path: read_only.to_string_lossy().into_owned(),
             writable: false,
         },
         crate::contract::FolderGrant {
+            identity: None,
             path: writable.to_string_lossy().into_owned(),
             writable: true,
         },
@@ -683,6 +685,7 @@ async fn session_new_hands_the_granted_folders_to_a_harness_that_takes_them() {
         let mut ada = persona(&scratch_cwd(), Vec::new());
         ada.id = "directories".to_string();
         ada.folders = Some(vec![crate::contract::FolderGrant {
+            identity: None,
             path: folder.to_string_lossy().into_owned(),
             writable: false,
         }]);

@@ -102,7 +102,7 @@ mod stopping;
 mod threads;
 mod turns;
 mod web_search;
-pub(crate) use agent::moved_workspace;
+mod workspace_root;
 use chapters::sweep_idle_chapters;
 use computer::ComputerLinks;
 use driver_info::follow_model_changes;
@@ -110,6 +110,7 @@ pub use hotline_room::provider_auth::ProviderAuth;
 use prompt::{PendingTool, stamped};
 use secrets::PasskeyArming;
 pub use stopping::Stopped;
+pub(crate) use workspace_root::{bound_identity, moved_workspace};
 
 pub use peers::TEAMMATE_MESSAGE_MAX;
 pub(crate) use schedule::{Brief, Ends, Report, Trigger};

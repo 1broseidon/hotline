@@ -293,8 +293,14 @@ pub const COMPUTER: &str = "hotline-computer";
 ///
 /// It is written the way [`materialize`] writes, through handles on the
 /// workspace that no link the teammate planted can lead out of.
-pub fn write_computer(cwd: &Path, version: &str, sha256: &str, skill: &str) -> Result<(), String> {
-    let skills = open_skills(cwd)?;
+pub fn write_computer(
+    cwd: &Path,
+    identity: Option<&str>,
+    version: &str,
+    sha256: &str,
+    skill: &str,
+) -> Result<(), String> {
+    let skills = open_skills(cwd, identity)?;
     let path = cwd.join(DIRECTORY).join(COMPUTER);
     match entry_state(&skills, &path)? {
         // A folder the teammate or the person wrote with this name shadows
@@ -505,9 +511,14 @@ pub fn index(skills: &[SkillEntry]) -> String {
 /// replaces a planted link instead of writing through it; an entry counts as
 /// Hotline's only when its marker is a plain file; removal takes links away
 /// without following them; and links inside an offered skill are not copied.
-pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Result<(), String> {
+pub fn materialize(
+    cwd: &Path,
+    identity: Option<&str>,
+    offering: &Offering,
+    policy: &SkillPolicy,
+) -> Result<(), String> {
     let target = cwd.join(DIRECTORY);
-    let skills = open_skills(cwd)?;
+    let skills = open_skills(cwd, identity)?;
 
     enum Source<'a> {
         Text(&'a str),
@@ -583,21 +594,20 @@ pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Res
 /// the write rather than following it.
 ///
 /// The root is the working directory the teammate's record names, opened by
-/// that path here, which is exactly how every other holder of the workspace
-/// gets its root: `AGENTS.md` (`driver/acp.rs`), the Hotline Agent's file
-/// tools (`driver/rig.rs`), ACP callbacks, `send_file` and the confined shell
-/// each open `persona.cwd` by path when they start, and there is no longer
-/// lived handle bound to the grant to hand over instead. So this writer
-/// reaches no further than the teammate's own tools do after the same open.
-/// That the root itself cannot be redirected is the grant layer's invariant,
-/// not this module's, and on macOS it does not hold today: the Seatbelt
-/// profile grants writes on the workspace's own path, so a confined shell can
-/// remove an emptied workspace and put a link in its place (reported with
-/// H-01's fix as a separate finding). That moves the next session's whole
-/// wall, the tools' included, and is fixed there, not here.
-fn open_skills(cwd: &Path) -> Result<Dir, String> {
+/// that path here as every other holder of the workspace opens it. Under
+/// workspace reach the caller passes `identity`, the directory the record
+/// says that is (`cwdIdentity`), and the root handle just opened must be that
+/// directory, read from the handle itself, or nothing is written: a
+/// workspace swapped for a link or another directory since it was chosen
+/// (H-64) is refused here as by the teammate's own tools.
+fn open_skills(cwd: &Path, identity: Option<&str>) -> Result<Dir, String> {
     std::fs::create_dir_all(cwd).map_err(|error| made(cwd, error))?;
     let root = Dir::open_ambient_dir(cwd, ambient_authority()).map_err(|error| made(cwd, error))?;
+    if let Some(expected) = identity
+        && crate::tools::dir_identity(&root).as_deref() != Some(expected)
+    {
+        return Err(crate::tools::not_the_chosen_folder(cwd));
+    }
     let agents_path = cwd.join(".agents");
     let agents = child_dir(&root, &agents_path)?;
     child_dir(&agents, &cwd.join(DIRECTORY))
@@ -1109,7 +1119,7 @@ mod tests {
             mode: PolicyMode::Some,
             names: vec!["cut-release".into(), "broken".into()],
         };
-        materialize(&cwd, &gateway_only(&gateway), &some).unwrap();
+        materialize(&cwd, None, &gateway_only(&gateway), &some).unwrap();
         assert_eq!(names(&target), ["cut-release", "hotline-room", "mine"]);
         assert!(target.join("cut-release").join(MANAGED_MARKER).exists());
         assert!(target.join("cut-release/scripts/bump.sh").exists());
@@ -1126,14 +1136,14 @@ mod tests {
             mode: PolicyMode::All,
             names: Vec::new(),
         };
-        materialize(&cwd, &gateway_only(&gateway), &all).unwrap();
+        materialize(&cwd, None, &gateway_only(&gateway), &all).unwrap();
         assert_eq!(
             names(&target),
             ["cut-release", "hotline-room", "later", "mine", "other"]
         );
 
         // Revoking leaves the built-ins and the teammate's own, nothing else.
-        materialize(&cwd, &gateway_only(&gateway), &SkillPolicy::default()).unwrap();
+        materialize(&cwd, None, &gateway_only(&gateway), &SkillPolicy::default()).unwrap();
         assert_eq!(names(&target), ["hotline-room", "mine"]);
 
         // A skill of the teammate's own shadows a grant, and a built-in, by
@@ -1146,7 +1156,7 @@ mod tests {
         )
         .unwrap();
         std::fs::remove_file(target.join("hotline-room").join(MANAGED_MARKER)).unwrap();
-        materialize(&cwd, &gateway_only(&gateway), &all).unwrap();
+        materialize(&cwd, None, &gateway_only(&gateway), &all).unwrap();
         assert!(!target.join("cut-release").join(MANAGED_MARKER).exists());
         let seen = visible(&cwd);
         let room = seen.iter().find(|one| one.name == "hotline-room").unwrap();
@@ -1181,7 +1191,7 @@ mod tests {
             home: Some(home.clone()),
             offered: Vec::new(),
         };
-        materialize(&cwd, &none, &all).unwrap();
+        materialize(&cwd, None, &none, &all).unwrap();
         assert_eq!(names(&target), ["hotline-room", "triage"]);
         let entries = none.entries();
         let listed: Vec<(SkillSource, &str, Option<bool>, bool)> = entries
@@ -1231,7 +1241,7 @@ mod tests {
 
         // Offered and granted, it is copied from where it is, fresh each
         // start; a name the gateway has is the gateway's.
-        materialize(&cwd, &offered, &all).unwrap();
+        materialize(&cwd, None, &offered, &all).unwrap();
         assert_eq!(names(&target), ["cut-release", "hotline-room", "triage"]);
         assert!(target.join("cut-release").join(MANAGED_MARKER).exists());
         std::fs::write(
@@ -1245,7 +1255,7 @@ mod tests {
                 .replace("Cut a desktop release.", "The person's own triage."),
         )
         .unwrap();
-        materialize(&cwd, &offered, &all).unwrap();
+        materialize(&cwd, None, &offered, &all).unwrap();
         assert!(
             std::fs::read_to_string(target.join("cut-release").join(FILE))
                 .unwrap()
@@ -1267,7 +1277,7 @@ mod tests {
             offered: vec!["triage".into()],
             ..offered
         };
-        materialize(&cwd, &withdrawn, &all).unwrap();
+        materialize(&cwd, None, &withdrawn, &all).unwrap();
         assert_eq!(names(&target), ["hotline-room", "triage"]);
 
         std::fs::remove_dir_all(root).unwrap();
@@ -1284,6 +1294,7 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, cwd.join(DIRECTORY)).unwrap();
         let refusal = materialize(
             &cwd,
+            None,
             &gateway_only(&root.join("gateway")),
             &SkillPolicy::default(),
         )
@@ -1344,23 +1355,23 @@ mod tests {
         let cwd = root.join("ws");
         let gateway = gateway_only(&root.join("gateway"));
         let policy = SkillPolicy::default();
-        materialize(&cwd, &gateway, &policy).unwrap();
-        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        materialize(&cwd, None, &gateway, &policy).unwrap();
+        write_computer(&cwd, None, "0.11.0", "abc", "the guide").unwrap();
 
         for name in ["hotline-room", COMPUTER] {
             let entry = cwd.join(DIRECTORY).join(name);
             relink(&entry.join(FILE), &outside.join("thesis.docx"));
         }
-        materialize(&cwd, &gateway, &policy).unwrap();
-        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        materialize(&cwd, None, &gateway, &policy).unwrap();
+        write_computer(&cwd, None, "0.11.0", "abc", "the guide").unwrap();
         untouched(&outside);
 
         for name in ["hotline-room", COMPUTER] {
             let entry = cwd.join(DIRECTORY).join(name);
             relink(&entry.join(FILE), &outside.join("planted.txt"));
         }
-        materialize(&cwd, &gateway, &policy).unwrap();
-        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        materialize(&cwd, None, &gateway, &policy).unwrap();
+        write_computer(&cwd, None, "0.11.0", "abc", "the guide").unwrap();
         untouched(&outside);
 
         let room = cwd.join(DIRECTORY).join("hotline-room");
@@ -1397,8 +1408,8 @@ mod tests {
         let target = cwd.join(DIRECTORY);
         let gateway = gateway_only(&root.join("gateway"));
         let policy = SkillPolicy::default();
-        materialize(&cwd, &gateway, &policy).unwrap();
-        write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap();
+        materialize(&cwd, None, &gateway, &policy).unwrap();
+        write_computer(&cwd, None, "0.11.0", "abc", "the guide").unwrap();
         put(&target, "stale", true);
 
         for name in ["hotline-room", COMPUTER, "stale"] {
@@ -1406,8 +1417,8 @@ mod tests {
             relink(&entry.join(MANAGED_MARKER), &outside.join("room.jsonl"));
             relink(&entry.join(FILE), &outside.join("thesis.docx"));
         }
-        materialize(&cwd, &gateway, &policy).unwrap();
-        write_computer(&cwd, "0.12.0", "def", "another guide").unwrap();
+        materialize(&cwd, None, &gateway, &policy).unwrap();
+        write_computer(&cwd, None, "0.12.0", "def", "another guide").unwrap();
         untouched(&outside);
         assert_eq!(names(&target), [COMPUTER, "hotline-room", "stale"]);
         for name in ["hotline-room", COMPUTER, "stale"] {
@@ -1437,6 +1448,7 @@ mod tests {
             std::os::unix::fs::symlink(&outside, &link).unwrap();
             let refusal = materialize(
                 &cwd,
+                None,
                 &gateway_only(&root.join("gateway")),
                 &SkillPolicy::default(),
             )
@@ -1455,7 +1467,7 @@ mod tests {
             let link = cwd.join(level);
             std::fs::create_dir_all(link.parent().unwrap()).unwrap();
             std::os::unix::fs::symlink(&outside, &link).unwrap();
-            let refusal = write_computer(&cwd, "0.11.0", "abc", "the guide").unwrap_err();
+            let refusal = write_computer(&cwd, None, "0.11.0", "abc", "the guide").unwrap_err();
             assert!(
                 refusal.ends_with("is a symbolic link."),
                 "{level}: {refusal}"
@@ -1469,6 +1481,42 @@ mod tests {
     /// either. The skills handle is held on the folder it opened, so a write
     /// and a removal through it land in that folder, wherever the teammate
     /// moved it inside its workspace, and never where the new link points.
+    /// The skills writer writes only into the directory the record says the
+    /// workspace is: the same one is written as before; another made at its
+    /// path since (H-64) gets nothing, and neither does the one moved away.
+    #[cfg(unix)]
+    #[test]
+    fn skills_are_written_only_into_the_recorded_workspace() {
+        let root = scratch("skills-bound-root");
+        let cwd = root.join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let identity = crate::tools::path_identity(&cwd).unwrap();
+        let gateway = root.join("gateway");
+        put(&gateway, "cut-release", false);
+        let all = SkillPolicy::default();
+        materialize(&cwd, Some(&identity), &gateway_only(&gateway), &all).unwrap();
+        write_computer(&cwd, Some(&identity), "0.11.0", "abc", "the guide").unwrap();
+        assert!(cwd.join(DIRECTORY).is_dir());
+
+        std::fs::rename(&cwd, root.join("work-was")).unwrap();
+        std::fs::create_dir(&cwd).unwrap();
+        let refused =
+            materialize(&cwd, Some(&identity), &gateway_only(&gateway), &all).unwrap_err();
+        assert!(refused.contains("no longer the folder chosen"), "{refused}");
+        assert!(write_computer(&cwd, Some(&identity), "0.12.0", "def", "another").is_err());
+        assert_eq!(names(&cwd), Vec::<String>::new());
+        assert_eq!(
+            std::fs::read_to_string(
+                root.join("work-was")
+                    .join(DIRECTORY)
+                    .join(COMPUTER)
+                    .join(FILE)
+            )
+            .unwrap(),
+            "the guide"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_parent_swapped_for_a_link_after_it_was_opened_leads_nowhere_outside() {
@@ -1477,7 +1525,7 @@ mod tests {
         let cwd = root.join("ws");
         let target = cwd.join(DIRECTORY);
         put(&target, "stale", true);
-        let skills = open_skills(&cwd).unwrap();
+        let skills = open_skills(&cwd, None).unwrap();
 
         std::fs::rename(cwd.join(".agents"), cwd.join("moved")).unwrap();
         std::os::unix::fs::symlink(&outside, cwd.join(".agents")).unwrap();
@@ -1530,7 +1578,7 @@ mod tests {
         };
         let offering = gateway_only(&gateway);
 
-        materialize(&cwd, &offering, &granted).unwrap();
+        materialize(&cwd, None, &offering, &granted).unwrap();
         let copied = entry.join("scripts/bump.sh");
         assert_eq!(std::fs::read_to_string(&copied).unwrap(), "#!/bin/sh\n");
         assert_eq!(
@@ -1541,7 +1589,7 @@ mod tests {
         std::fs::remove_dir_all(entry.join("scripts")).unwrap();
         std::os::unix::fs::symlink(&outside, entry.join("scripts")).unwrap();
         relink(&entry.join(FILE), &outside.join("thesis.docx"));
-        materialize(&cwd, &offering, &granted).unwrap();
+        materialize(&cwd, None, &offering, &granted).unwrap();
         untouched(&outside);
         assert!(plain_file(&entry.join(FILE)));
         assert!(plain_file(&entry.join("scripts/bump.sh")));
@@ -1563,7 +1611,7 @@ mod tests {
         std::fs::remove_dir_all(entry.join("scripts")).unwrap();
         std::os::unix::fs::symlink(&outside, entry.join("scripts")).unwrap();
         std::os::unix::fs::symlink(outside.join("room.jsonl"), entry.join("notes")).unwrap();
-        materialize(&cwd, &offering, &SkillPolicy::default()).unwrap();
+        materialize(&cwd, None, &offering, &SkillPolicy::default()).unwrap();
         assert_eq!(names(&cwd.join(DIRECTORY)), ["hotline-room"]);
         untouched(&outside);
         std::fs::remove_dir_all(root).unwrap();
@@ -1643,7 +1691,7 @@ mod tests {
                         mode: PolicyMode::All,
                         names: Vec::new(),
                     };
-                    materialize(&cwd, &gateway_only(&picked), &granted)
+                    materialize(&cwd, None, &gateway_only(&picked), &granted)
                 };
                 BETWEEN.with(|hook| *hook.borrow_mut() = None);
 

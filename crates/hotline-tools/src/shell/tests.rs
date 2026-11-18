@@ -450,6 +450,7 @@ async fn workspace_shell_has_a_private_persistent_home_and_no_host_environment()
         "test -z \"$HOTLINE_TEST_SECRET\" && echo saved > \"$HOME/marker\"",
         root.path(),
         &[],
+        &[],
     )
     .unwrap();
     // Even variables accidentally added by a caller must not reach the shell.
@@ -568,4 +569,45 @@ async fn machine_reach_writes_outside() {
         .unwrap();
     assert!(finished_ok(&output), "{output}");
     assert_eq!(fs::read_to_string(&leak).unwrap().trim(), "hi");
+}
+
+/// The confined shell runs in the directory its workspace handle opened and
+/// checked: when the path it is launched at names another directory by
+/// then (the root renamed away and remade), it runs nothing there, while an
+/// ordinary command in the same directory still runs.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+#[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
+async fn the_shell_runs_nothing_in_a_root_changed_after_it_was_opened() {
+    require_sandbox();
+    let root = TestDirectory::new();
+    let base = root.path().canonicalize().unwrap();
+    let work = base.join("work");
+    fs::create_dir(&work).unwrap();
+    let identity = crate::path_identity(&work).unwrap();
+    let opened = || {
+        Workspace::open_with_capability(
+            work.clone(),
+            Reach::Workspace,
+            base.join("overflow"),
+            &[],
+            Some(&identity),
+            None,
+        )
+        .unwrap()
+    };
+    run(opened(), "echo made > ran.txt").await.unwrap();
+    assert!(work.join("ran.txt").is_file());
+
+    let held = opened();
+    fs::rename(&work, base.join("work-was")).unwrap();
+    fs::create_dir(&work).unwrap();
+    let refused = run(held, "echo made > late.txt").await.unwrap();
+    assert!(
+        refused.contains("no longer the folder Hotline opened")
+            && refused.contains("[exit status 126]"),
+        "{refused}"
+    );
+    assert_eq!(fs::read_dir(&work).unwrap().count(), 0, "nothing ran there");
+    assert!(!base.join("work-was/late.txt").exists());
 }

@@ -69,13 +69,14 @@ pub(crate) fn drafted_persona(
         }
         crate::models::preferred_model(&room::settings(log))
     });
-    let cwd = kept_cwd(given(draft.cwd).unwrap_or_else(|| {
+    let (cwd, cwd_identity) = kept_cwd(given(draft.cwd).unwrap_or_else(|| {
         paths::default_workspace(log.root(), &id)
             .to_string_lossy()
             .into_owned()
     }))?;
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
     let persona = Persona {
+        cwd_identity,
         node: None,
         id,
         name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
@@ -469,6 +470,9 @@ pub(super) fn update_persona(
         .as_object()
         .ok_or("A patch is an object of fields to change.")?
         .clone();
+    // Which directory the workspace is, is the desk's to read when the
+    // person sets it, never a client's to say.
+    changes.remove("cwdIdentity");
     // A client from before secrets were the teammate's own ticks them on
     // the computer; that tick is the teammate's grant.
     if let Some(names) = changes
@@ -491,7 +495,7 @@ pub(super) fn update_persona(
     let mut updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
     if patch.get("cwd").is_some() {
-        updated.cwd = kept_cwd(std::mem::take(&mut updated.cwd))?;
+        (updated.cwd, updated.cwd_identity) = kept_cwd(std::mem::take(&mut updated.cwd))?;
     }
     // Checked here, before anything is revoked or written, so a refused
     // folder leaves the teammate exactly as it was.
@@ -640,6 +644,7 @@ fn checked_folders(
             ));
         }
         checked.push(FolderGrant {
+            identity: crate::tools::path_identity(&path),
             path: spelled,
             writable: grant.writable,
         });
@@ -652,26 +657,30 @@ fn checked_folders(
     Ok(Some(checked))
 }
 
-/// A working directory as it is kept: as given, unless the folder it names
-/// is itself a link, which is resolved now, when the person chooses it. A
-/// teammate on workspace reach is never opened through a link at its root
-/// later (`tools::linked_root`): one there then was put there since, by
-/// something other than the person. Folders above it are left as spelled,
-/// links or not (`/tmp`, a linked projects folder); a folder not made yet
-/// is kept as given, and made at the first start.
-fn kept_cwd(cwd: String) -> Result<String, String> {
+/// A working directory as it is kept, with which directory it is now
+/// (`cwdIdentity`), read when the person chooses it: as given, unless the
+/// folder it names is itself a link, which is resolved now. Under workspace
+/// reach every holder of the workspace later refuses a root that is a link
+/// or another directory than this one (H-64). Folders above it are left as
+/// spelled, links or not (`/tmp`, a linked projects folder); a folder not
+/// made yet is kept as given with no identity, and its first start adopts
+/// the one it makes.
+fn kept_cwd(cwd: String) -> Result<(String, Option<String>), String> {
     let linked = std::fs::symlink_metadata(&cwd).is_ok_and(|found| found.file_type().is_symlink());
-    if !linked {
-        return Ok(cwd);
-    }
-    let resolved = dunce::canonicalize(&cwd)
-        .ok()
-        .filter(|path| path.is_dir())
-        .ok_or_else(|| format!("{cwd} is a link to no folder; choose the folder itself."))?;
-    resolved
-        .to_str()
-        .map(str::to_string)
-        .ok_or_else(|| format!("{cwd} leads to a path Hotline can't spell."))
+    let cwd = if linked {
+        let resolved = dunce::canonicalize(&cwd)
+            .ok()
+            .filter(|path| path.is_dir())
+            .ok_or_else(|| format!("{cwd} is a link to no folder; choose the folder itself."))?;
+        resolved
+            .to_str()
+            .map(str::to_string)
+            .ok_or_else(|| format!("{cwd} leads to a path Hotline can't spell."))?
+    } else {
+        cwd
+    };
+    let identity = crate::tools::path_identity(Path::new(&cwd));
+    Ok((cwd, identity))
 }
 
 /// `~` and `~/…` as the home directory, as a person types a folder.

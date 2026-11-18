@@ -22,6 +22,7 @@ fn grant_log(background_work: bool) -> Log {
     std::fs::create_dir_all(&root).unwrap();
     let log = Log::open(root);
     let persona = Persona {
+        cwd_identity: None,
         node: None,
         id: "ada".to_string(),
         name: "Ada".to_string(),

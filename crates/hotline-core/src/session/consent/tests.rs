@@ -14,6 +14,7 @@ fn bob() -> Persona {
     bob.name = "Bob".into();
     bob.reach = Some(Reach::Workspace);
     bob.folders = Some(vec![FolderGrant {
+        identity: None,
         path: "/srv/notes".into(),
         writable: false,
     }]);
@@ -67,6 +68,7 @@ fn each_widening_of_the_recipients_access_is_named() {
     );
     assert_eq!(
         after(|bob| bob.folders.as_mut().unwrap().push(FolderGrant {
+            identity: None,
             path: "/srv/books".into(),
             writable: false,
         })),

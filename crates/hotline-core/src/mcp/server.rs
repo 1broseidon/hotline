@@ -2538,6 +2538,7 @@ mod tests {
 
     fn ada() -> Persona {
         Persona {
+            cwd_identity: None,
             node: None,
             id: "ada".to_string(),
             name: "Ada".to_string(),

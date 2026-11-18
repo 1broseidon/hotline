@@ -18,10 +18,12 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
     );
     ada.folders = Some(vec![
         crate::contract::FolderGrant {
+            identity: None,
             path: path.to_string_lossy().into_owned(),
             writable: false,
         },
         crate::contract::FolderGrant {
+            identity: None,
             path: "/srv/shared".to_string(),
             writable: true,
         },

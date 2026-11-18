@@ -133,6 +133,29 @@ async fn a_chosen_working_directory_that_is_a_link_is_kept_as_its_folder() {
         updated,
         json!(room::roster(&log).into_iter().find(|p| p.id == id).unwrap())
     );
+
+    // Which directory it is, the desk reads when the folder is chosen and
+    // never takes from a client; choosing the same path again reads it anew.
+    let identity = |path: &std::path::Path| json!(crate::tools::path_identity(path).unwrap());
+    assert_eq!(created["cwdIdentity"], identity(&resolved));
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "persona.update", "params": { "id": id, "patch": { "cwdIdentity": "1:1", "name": "Bobby" } } }),
+    )
+    .await;
+    let named = heard(&mut socket).await["result"].clone();
+    assert_eq!(named["cwdIdentity"], identity(&resolved));
+    std::fs::rename(&resolved, root.join("project-was")).unwrap();
+    std::fs::create_dir(&resolved).unwrap();
+    ask(
+        &mut socket,
+        json!({ "id": 6, "cmd": "persona.update", "params": { "id": id, "patch": { "cwd": resolved } } }),
+    )
+    .await;
+    let chosen = heard(&mut socket).await["result"].clone();
+    assert_eq!(chosen["cwd"], json!(resolved.to_string_lossy()));
+    assert_eq!(chosen["cwdIdentity"], identity(&resolved));
+    assert_ne!(chosen["cwdIdentity"], named["cwdIdentity"]);
 }
 
 #[tokio::test]

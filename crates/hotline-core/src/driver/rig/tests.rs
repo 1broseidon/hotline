@@ -464,6 +464,7 @@ async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() 
     std::fs::create_dir_all(&root).unwrap();
     let history = Arc::new(AsyncMutex::new(Vec::new()));
     let turn = Turn {
+        cwd_identity: None,
         output_limit: None,
         context_limit: None,
         meter: None,
@@ -1192,6 +1193,7 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
     let root = login_scratch("own-reply");
     let history = Arc::new(AsyncMutex::new(Vec::new()));
     let turn = || Turn {
+        cwd_identity: None,
         output_limit: None,
         context_limit: None,
         meter: None,
@@ -1285,6 +1287,7 @@ impl rmcp::handler::server::ServerHandler for Desktop {
 
 fn test_persona(id: &str) -> crate::contract::Persona {
     crate::contract::Persona {
+        cwd_identity: None,
         node: None,
         id: id.to_string(),
         name: "Ada".to_string(),

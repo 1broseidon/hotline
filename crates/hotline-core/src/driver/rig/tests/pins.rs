@@ -128,6 +128,7 @@ fn turn_on(
     scratch: &Path,
 ) -> Turn {
     Turn {
+        cwd_identity: None,
         keys,
         identity: model.into(),
         model: model.into(),

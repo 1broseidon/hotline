@@ -267,9 +267,13 @@ impl RunCommand {
         let cwd = self.workspace.display_root();
         let mut process = match self.workspace.reach() {
             Reach::Machine => unconfined(&command, cwd),
-            Reach::Workspace => {
-                confined(&command, cwd, &self.workspace.folders()).map_err(ToolError::other)?
-            }
+            Reach::Workspace => confined(
+                &command,
+                cwd,
+                &self.workspace.folders(),
+                &self.workspace.opened_identities(),
+            )
+            .map_err(ToolError::other)?,
         };
         process
             .stdin(Stdio::null())
@@ -425,6 +429,39 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
     process
 }
 
+/// The first thing a confined shell runs, inside its sandbox and before it
+/// writes anything: each directory the workspace handle opened (the root,
+/// then each granted folder) must still be the directory at the path the
+/// sandbox granted, read with the system `stat` at its absolute path, never
+/// one on the teammate's PATH. A path that now names another directory runs
+/// nothing.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn identity_checks(identities: &[(PathBuf, String)]) -> String {
+    let quoted = |text: &str| format!("'{}'", text.replace('\'', "'\\''"));
+    let (stat, format) = if cfg!(target_os = "macos") {
+        ("/usr/bin/stat", "-f")
+    } else {
+        (
+            "$(if [ -x /usr/bin/stat ]; then echo /usr/bin/stat; else echo /bin/stat; fi)",
+            "-c",
+        )
+    };
+    let mut checks = String::new();
+    for (path, identity) in identities {
+        let Some(path) = path.to_str() else { continue };
+        let _ = write!(
+            checks,
+            "[ \"$({stat} {format} %d:%i -- {path})\" = {identity} ] || {{ echo {message} >&2; exit 126; }}; ",
+            path = quoted(path),
+            identity = quoted(identity),
+            message = quoted(&format!(
+                "{path} is no longer the folder Hotline opened for this teammate; nothing was run."
+            )),
+        );
+    }
+    checks
+}
+
 /// The sandboxed command, given the workspace and each granted folder with
 /// whether it may be changed. No `current_dir` on Linux: `bwrap --chdir` does
 /// it. macOS sets cwd because `sandbox-exec` does not.
@@ -433,8 +470,9 @@ fn confined(
     command: &str,
     workspace: &Path,
     folders: &[(PathBuf, bool)],
+    identities: &[(PathBuf, String)],
 ) -> Result<Command, String> {
-    linux::command(command, workspace, folders)
+    linux::command(command, workspace, folders, identities)
 }
 
 #[cfg(target_os = "macos")]
@@ -442,8 +480,9 @@ fn confined(
     command: &str,
     workspace: &Path,
     folders: &[(PathBuf, bool)],
+    identities: &[(PathBuf, String)],
 ) -> Result<Command, String> {
-    macos::command(command, workspace, folders)
+    macos::command(command, workspace, folders, identities)
 }
 
 #[cfg(target_os = "windows")]
@@ -451,6 +490,7 @@ fn confined(
     _command: &str,
     _workspace: &Path,
     _folders: &[(PathBuf, bool)],
+    _identities: &[(PathBuf, String)],
 ) -> Result<Command, String> {
     Err(WINDOWS_UNCONFINED.to_string())
 }
@@ -460,6 +500,7 @@ fn confined(
     _command: &str,
     _workspace: &Path,
     _folders: &[(PathBuf, bool)],
+    _identities: &[(PathBuf, String)],
 ) -> Result<Command, String> {
     Err(
         "The shell is not confined to the workspace on this operating system; give the teammate machine reach."

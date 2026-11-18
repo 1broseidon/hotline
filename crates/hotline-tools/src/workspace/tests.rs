@@ -280,6 +280,7 @@ fn a_revoked_workspace_handle_refuses_reads_and_writes() {
         Reach::Workspace,
         directory.path().join("overflow"),
         &[],
+        None,
         Some(epoch.lease()),
     )
     .unwrap();
@@ -347,10 +348,12 @@ impl Granted {
     fn grants(&self) -> Vec<FolderGrant> {
         vec![
             FolderGrant {
+                identity: None,
                 path: self.read_only.to_string_lossy().into_owned(),
                 writable: false,
             },
             FolderGrant {
+                identity: None,
                 path: self.writable.to_string_lossy().into_owned(),
                 writable: true,
             },
@@ -367,6 +370,7 @@ impl Granted {
             reach,
             self.workspace.with_extension("overflow-unused"),
             &self.grants(),
+            None,
             capability,
         )
         .unwrap()
@@ -832,6 +836,7 @@ fn a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall() {
             directory.path().join("overflow"),
             &[],
             None,
+            None,
         )
     };
     let refused = open(Reach::Workspace)
@@ -850,6 +855,7 @@ fn a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall() {
             directory.path().join("overflow"),
             &[],
             None,
+            None,
         )
         .is_ok()
     );
@@ -867,4 +873,96 @@ fn a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall() {
     );
     assert!(super::linked_root(directory.path()).is_none());
     assert!(super::linked_root(&directory.path().join("missing")).is_none());
+}
+
+/// The working directory and each granted folder open only as the directory
+/// the record says they are (`dev:ino`, read from the handle just opened):
+/// ordinary writes inside still land, while a root renamed away and remade,
+/// or reached through a folder above it that was renamed and replaced
+/// (possible on Linux inside a writable granted folder), is refused before
+/// any tool acts, and a writable folder remade under its own path is left out.
+#[cfg(unix)]
+#[test]
+fn a_changed_root_or_folder_is_refused_before_any_tool_acts() {
+    let directory = TestDirectory::new();
+    let base = directory.path().canonicalize().unwrap();
+    let holder = base.join("holder");
+    let work = holder.join("mid/work");
+    let granted = base.join("granted");
+    fs::create_dir_all(&work).unwrap();
+    fs::create_dir_all(&granted).unwrap();
+    let root_id = super::path_identity(&work).unwrap();
+    let grants = [
+        FolderGrant {
+            path: granted.to_string_lossy().into_owned(),
+            writable: true,
+            identity: super::path_identity(&granted),
+        },
+        FolderGrant {
+            path: holder.to_string_lossy().into_owned(),
+            writable: true,
+            identity: super::path_identity(&holder),
+        },
+    ];
+    let open = |identity: &str| {
+        Workspace::open_with_capability(
+            work.clone(),
+            Reach::Workspace,
+            base.join("overflow"),
+            &grants,
+            Some(identity),
+            None,
+        )
+    };
+    let write = |workspace: &Workspace, path: &str| {
+        let prepared = workspace.prepare_write(WriteFileArgs {
+            path: path.to_string(),
+            content: "made\n".to_string(),
+            overwrite: None,
+        })?;
+        workspace.commit_mutation(prepared)
+    };
+
+    // The same directories: writes inside the root and each folder land.
+    let workspace = open(&root_id).unwrap();
+    write(&workspace, "inside.txt").unwrap();
+    write(&workspace, &granted.join("granted.txt").to_string_lossy()).unwrap();
+    assert!(work.join("inside.txt").is_file());
+    assert!(granted.join("granted.txt").is_file());
+
+    // A writable folder renamed away and another made at its path: left out.
+    fs::rename(&granted, base.join("granted-was")).unwrap();
+    fs::create_dir(&granted).unwrap();
+    let workspace = open(&root_id).unwrap();
+    assert!(write(&workspace, &granted.join("late.txt").to_string_lossy()).is_err());
+    assert!(!granted.join("late.txt").exists());
+
+    // The root renamed away and another made at its path.
+    fs::rename(&work, holder.join("mid/work-was")).unwrap();
+    fs::create_dir(&work).unwrap();
+    let refused = open(&root_id).err().expect("another directory is refused");
+    assert!(
+        refused.to_string().contains("no longer the folder chosen"),
+        "{refused}"
+    );
+    fs::remove_dir(&work).unwrap();
+    fs::rename(holder.join("mid/work-was"), &work).unwrap();
+    assert!(open(&root_id).is_ok());
+
+    // The folder above it renamed away and replaced, by a link to a place
+    // holding a folder of the same name, or by a real folder.
+    let elsewhere = base.join("elsewhere");
+    fs::create_dir_all(elsewhere.join("work")).unwrap();
+    fs::rename(holder.join("mid"), holder.join("mid-was")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, holder.join("mid")).unwrap();
+    assert!(
+        super::linked_root(&work).is_none(),
+        "the root itself is no link"
+    );
+    assert!(open(&root_id).is_err());
+    fs::remove_file(holder.join("mid")).unwrap();
+    fs::create_dir_all(&work).unwrap();
+    assert!(open(&root_id).is_err());
+    assert_eq!(fs::read_dir(&work).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(elsewhere.join("work")).unwrap().count(), 0);
 }

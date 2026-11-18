@@ -276,6 +276,7 @@ pub(crate) fn materialize_agents_md_with_capability(
         Reach::Workspace,
         directory.join(".hotline-tool-output"),
         &[],
+        crate::session::bound_identity(persona),
         capability,
     )
     .map_err(|error| std::io::Error::other(error.to_string()))?;

@@ -57,6 +57,8 @@ struct WorkspaceInner {
     /// The person's extra folders, opened once. Only workspace reach has
     /// them: whole-machine reach already opens everything from the root.
     folders: Vec<Folder>,
+    /// The identity of the root directory `dir` holds, under workspace reach.
+    identity: Option<String>,
     capability: Option<CapabilityLease>,
 }
 
@@ -68,6 +70,8 @@ struct Folder {
     path: PathBuf,
     dir: Dir,
     writable: bool,
+    /// The identity of the directory `dir` holds.
+    identity: Option<String>,
 }
 
 /// Which handle a resolved path is inside: the working directory (or, with
@@ -85,17 +89,19 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn open(cwd: PathBuf, reach: Reach, overflow: PathBuf) -> Result<Self, ToolError> {
-        Self::open_with_capability(cwd, reach, overflow, &[], None)
+        Self::open_with_capability(cwd, reach, overflow, &[], None, None)
     }
 
     /// Opens the working directory `cwd` as the teammate's root. Under
     /// workspace reach a `cwd` that is itself a link is refused, not
-    /// followed ([`linked_root`]).
+    /// followed ([`linked_root`]), and so is a root whose opened directory is
+    /// not `identity` (the record's `cwdIdentity`), when one is given.
     pub fn open_with_capability(
         cwd: PathBuf,
         reach: Reach,
         overflow: PathBuf,
         folders: &[FolderGrant],
+        identity: Option<&str>,
         capability: Option<CapabilityLease>,
     ) -> Result<Self, ToolError> {
         if reach == Reach::Workspace
@@ -103,7 +109,7 @@ impl Workspace {
         {
             return Err(ToolError::permission_denied(why));
         }
-        Self::open_following_root(cwd, reach, overflow, folders, capability)
+        Self::open_following_root(cwd, reach, overflow, folders, identity, capability)
     }
 
     /// [`Workspace::open_with_capability`], but a `cwd` that is itself a link
@@ -111,13 +117,17 @@ impl Workspace {
     /// callbacks and `AGENTS.md`): the harness's own tools already reach
     /// wherever such a link points, and a record from before a chosen link
     /// was resolved when chosen may still name one.
+    /// The root's `identity` is still checked: following a link the record
+    /// already named is not the same as opening another directory.
     pub fn open_following_root(
         cwd: PathBuf,
         reach: Reach,
         overflow: PathBuf,
         folders: &[FolderGrant],
+        identity: Option<&str>,
         capability: Option<CapabilityLease>,
     ) -> Result<Self, ToolError> {
+        let shown = cwd.clone();
         let callback_cwd = if cwd.is_absolute() {
             cwd.clone()
         } else {
@@ -142,6 +152,18 @@ impl Workspace {
                 root.display()
             ))
         })?;
+        // Compared on the handle just opened, which every tool then resolves
+        // inside: what was checked is what is used.
+        let opened = match reach {
+            Reach::Workspace => dir_identity(&dir),
+            Reach::Machine => None,
+        };
+        if reach == Reach::Workspace
+            && let Some(expected) = identity
+            && opened.as_deref() != Some(expected)
+        {
+            return Err(ToolError::permission_denied(not_the_chosen_folder(&shown)));
+        }
         let folders = match reach {
             Reach::Workspace => open_folders(folders, &cwd),
             Reach::Machine => Vec::new(),
@@ -155,6 +177,7 @@ impl Workspace {
                 reach,
                 overflow,
                 folders,
+                identity: opened,
                 capability,
             }),
         })
@@ -167,6 +190,26 @@ impl Workspace {
             .folders
             .iter()
             .map(|folder| (folder.path.clone(), folder.writable))
+            .collect()
+    }
+
+    /// The identity of each directory this handle holds open, the root
+    /// first, by the path the confined shell is granted it at: the shell
+    /// checks each from inside its sandbox before the command runs, so a
+    /// path that now names another directory runs nothing.
+    pub(crate) fn opened_identities(&self) -> Vec<(PathBuf, String)> {
+        let root = self
+            .inner
+            .identity
+            .clone()
+            .map(|identity| (self.inner.cwd.clone(), identity));
+        root.into_iter()
+            .chain(self.inner.folders.iter().filter_map(|folder| {
+                folder
+                    .identity
+                    .clone()
+                    .map(|identity| (folder.path.clone(), identity))
+            }))
             .collect()
     }
 
@@ -1159,6 +1202,40 @@ pub fn linked_root(cwd: &Path) -> Option<String> {
     ))
 }
 
+/// Which directory a handle holds: its device and inode, `dev:ino`, read
+/// from the handle itself (fstat), never by looking its path up again. None
+/// where the platform gives no such number Hotline reads (Windows: cap-std
+/// exposes the volume serial and file index only on a nightly-only cfg).
+pub fn dir_identity(dir: &Dir) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use cap_std::fs::MetadataExt;
+        let metadata = dir.dir_metadata().ok()?;
+        Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        None
+    }
+}
+
+/// [`dir_identity`] of the directory `path` opens now (following links), for
+/// recording what the person chose when they choose it.
+pub fn path_identity(path: &Path) -> Option<String> {
+    let dir = Dir::open_ambient_dir(path, ambient_authority()).ok()?;
+    dir_identity(&dir)
+}
+
+/// What a holder of the workspace says when the directory it opened is not
+/// the one recorded for the teammate.
+pub fn not_the_chosen_folder(cwd: &Path) -> String {
+    format!(
+        "The working directory {} is no longer the folder chosen for this teammate, so Hotline will not open it. If it should work there, choose the folder again in the teammate's settings.",
+        cwd.display()
+    )
+}
+
 /// The granted folders this session may open. Each was canonical when the
 /// person granted it; one whose name now resolves somewhere else (a symlink
 /// put in its place) or that is gone is left out rather than followed, and
@@ -1173,10 +1250,21 @@ fn open_folders(grants: &[FolderGrant], cwd: &Path) -> Vec<Folder> {
                 return None;
             }
             let dir = Dir::open_ambient_dir(&canonical, ambient_authority()).ok()?;
+            // A grant that recorded which directory it was opens only that
+            // one, compared on the handle every later step resolves inside.
+            let identity = dir_identity(&dir);
+            if grant
+                .identity
+                .as_deref()
+                .is_some_and(|expected| identity.as_deref() != Some(expected))
+            {
+                return None;
+            }
             Some(Folder {
                 path: canonical,
                 dir,
                 writable: grant.writable,
+                identity,
             })
         })
         .collect()

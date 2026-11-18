@@ -240,6 +240,7 @@ impl ChildAgent {
             Reach::Workspace,
             PathBuf::from(&persona.cwd).join(".hotline-tool-output"),
             persona.folders.as_deref().unwrap_or_default(),
+            crate::session::bound_identity(persona),
             capability,
         )
         .map_err(|error| format!("The ACP callback workspace could not be opened: {error}"))

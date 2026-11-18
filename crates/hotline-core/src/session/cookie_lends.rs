@@ -366,12 +366,12 @@ impl Room {
             }
         }
         let mut unavailable = inventory.unavailable;
-        unavailable.extend(
-            inventory
-                .refused
-                .iter()
-                .map(|browser| crate::computer::cookies::access_notice(&browser.name, None)),
-        );
+        unavailable.extend(inventory.refused.iter().map(|browser| {
+            browser
+                .blocked_reason
+                .clone()
+                .unwrap_or_else(|| crate::computer::cookies::access_notice(&browser.name, None))
+        }));
         Ok(CookieOfferSites {
             sites: sites
                 .into_iter()

@@ -7,33 +7,49 @@
 //! its own cookies; it receives exactly the sites the operator ticked.
 //!
 //! The reading is done by the browser, not by us. For a Chromium browser the
-//! desk launches it headless on a *copy* of its profile with a debugging
-//! port and asks it for its own cookies over CDP `Network.getAllCookies`, so
-//! the browser decrypts with its own key and the result is uniform across
-//! Chrome, Edge, Brave and Chromium and every version, app-bound encryption
-//! included. We never touch the cookie crypto. Firefox keeps its cookies in a
-//! plaintext SQLite file, so it is read directly, no launch.
+//! desk launches it headless on a *copy* of its profile and asks it for its
+//! own cookies over the DevTools protocol (`Storage.getCookies`), so the
+//! browser decrypts with its own key and the result is uniform across Chrome,
+//! Edge, Brave and Chromium and every version, app-bound encryption included.
+//! We never touch the cookie crypto. The protocol runs over a pipe only the
+//! desk holds (`--remote-debugging-pipe`, see [`devtools`]), never a port, so
+//! no other process on the machine can ask the instance for the jar while it
+//! runs. Windows has no such pipe here yet, so there a Chromium browser is
+//! listed as one Hotline cannot read, rather than opened on a port. Firefox
+//! keeps its cookies in a plaintext SQLite file, so it is read directly, no
+//! launch.
 //!
 //! A profile *copy* is used for two reasons: a second instance cannot open a
 //! profile another process holds the lock on, and the operator's live browser
-//! must not be disturbed. A snap-confined browser can only open a profile
-//! inside its own writable tree, so the copy for one goes under
-//! `~/snap/<name>/…` rather than the system temp dir.
+//! must not be disturbed. The copy is in a directory only the person's user
+//! can open, from the moment it is made. A snap-confined browser can only
+//! open a profile inside its own writable tree, so the copy for one goes
+//! under `~/snap/<name>/…` rather than the system temp dir.
 
+#[cfg(unix)]
+mod devtools;
 pub(crate) mod lending;
 
 use crate::contract::{BrowserProfile, CookieSite, HostBrowser};
-use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::time::Duration;
+#[cfg(unix)]
 use tokio::process::Command;
-use tokio_tungstenite::tungstenite::Message;
 
 /// Cookies are read from a throwaway headless instance; if the browser has
-/// not opened its debugging port by now something is wrong, and we stop
-/// rather than hang the operator's import.
+/// not answered for them by now something is wrong, and we stop rather than
+/// hang the operator's import.
+#[cfg(unix)]
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(20);
+
+/// Whether this desk can read a Chromium profile at all. It does so only over
+/// the DevTools pipe, which Hotline wires up on Unix. Windows needs inherited
+/// handles for it, which it does not have yet, and the debugging port it used
+/// before is not opened instead: there a Chromium browser is listed as one
+/// Hotline cannot read.
+const CHROMIUM_READABLE: bool = cfg!(unix);
 
 /// Which family a browser belongs to, and so how its cookies are read.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -73,6 +89,11 @@ pub(crate) struct Candidate {
     binaries: Vec<PathBuf>,
     /// The user-data directory (Chromium) or the profiles root (Firefox).
     root: PathBuf,
+    /// Where a profile copy may live; only a Unix desk makes one.
+    #[cfg_attr(
+        not(unix),
+        expect(dead_code, reason = "Windows reads no Chromium profile copy yet")
+    )]
     confinement: Confinement,
 }
 
@@ -368,10 +389,27 @@ impl Candidate {
     /// marked blocked when the host will not let us look; none when it has no
     /// profile with cookies, or is not installed.
     fn listed(&self) -> Option<HostBrowser> {
+        self.listed_where(CHROMIUM_READABLE)
+    }
+
+    /// [`Candidate::listed`] on a desk that can, or cannot, read Chromium.
+    /// One that cannot lists a Chromium browser with profiles as blocked,
+    /// saying why, so no card offers it and no share reads it.
+    fn listed_where(&self, chromium_readable: bool) -> Option<HostBrowser> {
         if self.first_binary().is_none() && self.family != Family::Firefox {
             return None;
         }
         let profiles = self.profiles();
+        if self.family == Family::Chromium && !chromium_readable {
+            return (!profiles.is_empty()).then(|| HostBrowser {
+                id: self.id.to_owned(),
+                name: self.name.to_owned(),
+                family: self.family.wire().to_owned(),
+                profiles: Vec::new(),
+                blocked: true,
+                blocked_reason: Some(unreadable_here(self.name)),
+            });
+        }
         let blocked = profiles.is_empty() && self.root.is_dir() && self.refused();
         (!profiles.is_empty() || blocked).then(|| HostBrowser {
             id: self.id.to_owned(),
@@ -401,6 +439,13 @@ pub(crate) fn access_notice(browser: &str, site: Option<&str>) -> String {
         "Allow Hotline to read this browser's data, then reopen Hotline.".into()
     };
     format!("Hotline can't read {browser}'s cookies, so it can't offer {session}. {remedy}")
+}
+
+/// What a desk that cannot read Chromium (Windows, for now) says of one.
+fn unreadable_here(browser: &str) -> String {
+    format!(
+        "Hotline can't read {browser}'s cookies on Windows yet, so it can't offer your sessions from it. Sign in on the teammate's browser instead."
+    )
 }
 
 fn access_app_name(executable: &Path) -> String {
@@ -682,6 +727,12 @@ fn sites(cookies: &[Value]) -> Vec<CookieSite> {
 
 // ---- Chromium: ask the browser for its own cookies over CDP ---------------
 
+#[cfg(not(unix))]
+async fn read_chromium(candidate: &Candidate, _profile_id: &str) -> Result<Vec<Value>, String> {
+    Err(unreadable_here(candidate.name))
+}
+
+#[cfg(unix)]
 async fn read_chromium(candidate: &Candidate, profile_id: &str) -> Result<Vec<Value>, String> {
     let binary = candidate
         .first_binary()
@@ -693,31 +744,17 @@ async fn read_chromium(candidate: &Candidate, profile_id: &str) -> Result<Vec<Va
     let staging = Staging::new(&candidate.confinement)?;
     copy_chromium_profile(&candidate.root, profile_id, staging.path())?;
 
-    let port = free_loopback_port()?;
-    let mut child = Command::new(&binary)
-        .arg("--headless=new")
-        .arg(format!("--user-data-dir={}", staging.path().display()))
-        .arg(format!("--profile-directory={profile_id}"))
-        .arg(format!("--remote-debugging-port={port}"))
-        // Since Chrome 111 the DevTools socket refuses a cross-origin upgrade
-        // unless the origin is allowed; this instance is loopback and lives
-        // for one read, so any origin is fine.
-        .arg("--remote-allow-origins=*")
-        .arg("--no-first-run")
-        .arg("--no-default-browser-check")
-        .arg("--disable-gpu")
-        .arg("--disable-sync")
-        .arg("--disable-background-networking")
-        .arg("--disable-features=Translate")
-        .arg("--no-sandbox")
-        .arg("about:blank")
+    let mut command = Command::new(&binary);
+    command
+        .args(chromium_args(staging.path(), profile_id))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
+        .kill_on_drop(true);
+    let (mut child, mut pipe) = devtools::spawn(&mut command)
         .map_err(|error| format!("Could not launch {}: {error}", candidate.name))?;
 
-    let result = tokio::time::timeout(LAUNCH_DEADLINE, cdp_all_cookies(port)).await;
+    let result = tokio::time::timeout(LAUNCH_DEADLINE, all_cookies(&mut pipe)).await;
+    drop(pipe);
     child.kill().await.ok();
     // The staging copy drops here regardless of the outcome.
     drop(staging);
@@ -730,10 +767,40 @@ async fn read_chromium(candidate: &Candidate, profile_id: &str) -> Result<Vec<Va
     }
 }
 
+/// How the throwaway instance is launched: headless on the staged copy, with
+/// DevTools on the pipe only. No `--remote-debugging-port`, so nothing on the
+/// machine can connect to it, and so no `--remote-allow-origins` either.
+#[cfg(unix)]
+fn chromium_args(staging: &Path, profile_id: &str) -> Vec<std::ffi::OsString> {
+    let mut user_data = std::ffi::OsString::from("--user-data-dir=");
+    user_data.push(staging);
+    let mut args = vec![
+        "--headless=new".into(),
+        user_data,
+        format!("--profile-directory={profile_id}").into(),
+        devtools::PIPE_ARG.into(),
+    ];
+    args.extend(
+        [
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-gpu",
+            "--disable-sync",
+            "--disable-background-networking",
+            "--disable-features=Translate",
+            "--no-sandbox",
+            "about:blank",
+        ]
+        .map(Into::into),
+    );
+    args
+}
+
 /// Copy just what the browser needs to open the profile read-only and decrypt
 /// its cookies: the key reference in `Local State`, and the profile's cookie
 /// store and preferences. Caches and history are left behind, so the copy is
 /// small and quick.
+#[cfg(unix)]
 fn copy_chromium_profile(root: &Path, profile_id: &str, staging: &Path) -> Result<(), String> {
     let map = |from: PathBuf, to: PathBuf| -> Result<(), String> {
         if !from.exists() {
@@ -758,131 +825,55 @@ fn copy_chromium_profile(root: &Path, profile_id: &str, staging: &Path) -> Resul
     Ok(())
 }
 
-/// Open a CDP session on the loopback debugging port and ask for the whole
-/// cookie jar. The browser has already decrypted it; we only carry it.
-async fn cdp_all_cookies(port: u16) -> Result<Vec<Value>, String> {
-    let ws_url = cdp_target(port).await?;
-    let (mut socket, _) = tokio_tungstenite::connect_async(&ws_url)
-        .await
-        .map_err(|error| format!("Could not open the browser's debugging socket: {error}"))?;
-    socket
-        .send(Message::Text(
-            json!({"id": 1, "method": "Network.getAllCookies"})
-                .to_string()
-                .into(),
-        ))
-        .await
-        .map_err(|error| format!("Could not ask the browser for its cookies: {error}"))?;
-    while let Some(message) = socket.next().await {
-        let message =
-            message.map_err(|error| format!("The browser's debugging socket failed: {error}"))?;
-        let Message::Text(text) = message else {
-            continue;
-        };
-        let reply: Value = match serde_json::from_str(&text) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        if reply.get("id").and_then(Value::as_i64) != Some(1) {
-            continue;
-        }
-        if let Some(error) = reply.get("error") {
-            return Err(format!("The browser refused its cookies: {error}"));
-        }
-        let cookies = reply
-            .get("result")
-            .and_then(|result| result.get("cookies"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        socket.close(None).await.ok();
-        return Ok(cookies);
-    }
-    Err("The browser closed its debugging socket before answering.".into())
-}
-
-/// Poll the DevTools HTTP endpoint until a page target's websocket URL is
-/// available, then return it.
-async fn cdp_target(port: u16) -> Result<String, String> {
-    let client = reqwest::Client::new();
-    let list = format!("http://127.0.0.1:{port}/json");
-    let version = format!("http://127.0.0.1:{port}/json/version");
-    let deadline = std::time::Instant::now() + LAUNCH_DEADLINE;
-    let mut last = String::from("the browser did not open its debugging port");
-    while std::time::Instant::now() < deadline {
-        if let Ok(response) = client.get(&list).send().await
-            && let Ok(targets) = response.json::<Value>().await
-            && let Some(url) = targets.as_array().and_then(|targets| {
-                targets
-                    .iter()
-                    .find(|target| target.get("type").and_then(Value::as_str) == Some("page"))
-                    .and_then(|target| target.get("webSocketDebuggerUrl"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-        {
-            return Ok(url);
-        }
-        // No page target yet; the browser-level socket can answer too.
-        if let Ok(response) = client.get(&version).send().await
-            && let Ok(info) = response.json::<Value>().await
-            && let Some(url) = info.get("webSocketDebuggerUrl").and_then(Value::as_str)
-        {
-            last = format!("only a browser-level target at {url}");
-        }
-        tokio::time::sleep(Duration::from_millis(150)).await;
-    }
-    Err(format!(
-        "Could not reach the browser's debugging port: {last}."
-    ))
+/// Ask the browser for its whole cookie jar over the pipe. The browser has
+/// already decrypted it; we only carry it. `Storage.getCookies` is the
+/// browser-level call for the default context's jar, which is the profile it
+/// was opened on, in the same cookie objects `Network.getAllCookies` gives.
+#[cfg(unix)]
+async fn all_cookies(pipe: &mut devtools::Pipe) -> Result<Vec<Value>, String> {
+    let result = pipe
+        .call("Storage.getCookies", json!({}))
+        .await?
+        .map_err(|error| format!("The browser refused its cookies: {error}"))?;
+    Ok(result
+        .get("cookies")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 /// A temporary user-data directory for the throwaway instance, placed where
-/// the browser's confinement allows it to be opened, and removed on drop.
+/// the browser's confinement allows it to be opened, and removed on drop. It
+/// is made 0700 in the one call that creates it, under a name no one can
+/// guess, so no other user ever sees into it, not even for a moment.
+#[cfg(unix)]
 struct Staging {
-    path: PathBuf,
+    dir: tempfile::TempDir,
 }
 
+#[cfg(unix)]
 impl Staging {
     fn new(confinement: &Confinement) -> Result<Staging, String> {
+        use std::os::unix::fs::PermissionsExt;
         let base = match confinement {
             Confinement::Native => std::env::temp_dir(),
             // A snap can only open a profile under its own writable home.
             #[cfg(target_os = "linux")]
             Confinement::Snap(name) => home().join("snap").join(name).join("common"),
         };
-        let unique = format!(
-            "hotline-cookie-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_nanos())
-                .unwrap_or_default()
-        );
-        let path = base.join(unique);
-        std::fs::create_dir_all(&path)
+        std::fs::create_dir_all(&base)
             .map_err(|error| format!("Could not make a staging directory: {error}"))?;
-        Ok(Staging { path })
+        let dir = tempfile::Builder::new()
+            .prefix("hotline-cookie-")
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir_in(&base)
+            .map_err(|error| format!("Could not make a staging directory: {error}"))?;
+        Ok(Staging { dir })
     }
 
     fn path(&self) -> &Path {
-        &self.path
+        self.dir.path()
     }
-}
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.path).ok();
-    }
-}
-
-fn free_loopback_port() -> Result<u16, String> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|error| format!("Could not allocate a loopback port: {error}"))?;
-    listener
-        .local_addr()
-        .map(|address| address.port())
-        .map_err(|error| format!("Could not allocate a loopback port: {error}"))
 }
 
 // ---- Firefox: read the plaintext cookie store -----------------------------
@@ -1175,5 +1166,191 @@ mod tests {
             !sites.is_empty(),
             "no cookies read from {browser}/{profile}"
         );
+    }
+
+    /// A stand-in Chromium for the launch: a script that writes its
+    /// arguments to `args`, copies whatever arrives on descriptor 3 to
+    /// `request`, and once something has arrived answers `answer` on
+    /// descriptor 4, NUL-ended, as `--remote-debugging-pipe` does. Launched
+    /// with a debugging port instead it never answers. The arguments file
+    /// appears only when whole.
+    #[cfg(unix)]
+    pub(super) struct FakeChromium {
+        pub(super) binary: PathBuf,
+        pub(super) args: PathBuf,
+        pub(super) request: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl FakeChromium {
+        pub(super) fn new(dir: &Path, answer: &Value) -> FakeChromium {
+            let fake = FakeChromium {
+                binary: dir.join("browser"),
+                args: dir.join("browser-args"),
+                request: dir.join("browser-request"),
+            };
+            let answer = answer.to_string();
+            assert!(!answer.contains('\''));
+            crate::computer::fixtures::write_script(
+                dir,
+                "browser",
+                &format!(
+                    "#!/bin/sh\n\
+                     printf '%s\\n' \"$@\" > '{args}.partial'\n\
+                     mv '{args}.partial' '{args}'\n\
+                     cat <&3 > '{request}' &\n\
+                     while [ ! -s '{request}' ]; do sleep 0.05; done\n\
+                     printf '%s\\000' '{answer}' >&4\n\
+                     exec sleep 30\n",
+                    args = fake.args.display(),
+                    request = fake.request.display(),
+                ),
+            );
+            fake
+        }
+
+        pub(super) fn arguments(&self) -> Vec<String> {
+            std::fs::read_to_string(&self.args)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        }
+    }
+
+    /// H-04: the throwaway browser holding the person's decrypted cookies
+    /// is reached over a pipe only the desk holds, never a loopback port
+    /// another process could connect to.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_chromium_opens_no_debugging_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profile");
+        std::fs::create_dir_all(root.join("Default")).unwrap();
+        std::fs::write(root.join("Default").join("Cookies"), b"x").unwrap();
+        let fake = FakeChromium::new(
+            dir.path(),
+            &json!({"id": 1, "result": {"cookies": [
+                {"name": "sid", "domain": ".example.com", "value": "over-the-pipe"}
+            ]}}),
+        );
+        let candidate = Candidate {
+            binaries: vec![fake.binary.clone()],
+            ..installed(Family::Chromium, &root)
+        };
+
+        let cookies = read_chromium(&candidate, "Default").await.unwrap();
+
+        assert_eq!(cookies.len(), 1);
+        assert_eq!(cookies[0]["value"], "over-the-pipe");
+        let arguments = fake.arguments();
+        assert!(arguments.iter().any(|arg| arg == "--remote-debugging-pipe"));
+        for arg in &arguments {
+            assert!(!arg.starts_with("--remote-debugging-port"), "{arg}");
+            assert!(!arg.starts_with("--remote-allow-origins"), "{arg}");
+        }
+        let request = std::fs::read(&fake.request).unwrap();
+        assert_eq!(request.last(), Some(&0), "a pipe message ends in NUL");
+        let request: Value = serde_json::from_slice(&request[..request.len() - 1]).unwrap();
+        assert_eq!(request["id"], 1);
+        assert_eq!(request["method"], "Storage.getCookies");
+    }
+
+    /// H-04: the profile copy is private to the person's user from the call
+    /// that makes it, and gone once the read is over.
+    #[cfg(unix)]
+    #[test]
+    fn staging_dir_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let staging = Staging::new(&Confinement::Native).unwrap();
+        let path = staging.path().to_path_buf();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700, "{mode:o}");
+        assert!(path.starts_with(std::env::temp_dir()));
+        drop(staging);
+        assert!(!path.exists());
+    }
+
+    /// Where the pipe is not wired (Windows), a Chromium browser with
+    /// profiles is listed as one Hotline cannot read, so it is offered to no
+    /// card and read by no share; Firefox is unaffected.
+    #[test]
+    fn a_chromium_browser_is_blocked_where_its_pipe_is_not_wired() {
+        let dir = tempfile::tempdir().unwrap();
+        let candidate = installed(Family::Chromium, dir.path());
+        assert_eq!(candidate.listed_where(false), None);
+
+        std::fs::create_dir_all(dir.path().join("Default")).unwrap();
+        std::fs::write(dir.path().join("Default").join("Cookies"), b"x").unwrap();
+        let listed = candidate.listed_where(false).unwrap();
+        assert!(listed.blocked);
+        assert_eq!(listed.profiles, [] as [BrowserProfile; 0]);
+        assert_eq!(
+            listed.blocked_reason.as_deref(),
+            Some(unreadable_here("Test Browser").as_str())
+        );
+        assert!(!candidate.listed_where(true).unwrap().blocked);
+        assert_eq!(candidate.listed().unwrap().blocked, !CHROMIUM_READABLE);
+        let discovery = lending::discover(vec![candidate], &lending::Gate::default());
+        assert_eq!(discovery.sources.is_empty(), !CHROMIUM_READABLE);
+    }
+
+    /// The pipe against a real Chromium, on an EMPTY profile of its own (a
+    /// mock keychain, never the person's profile or keychain): it sets one
+    /// cookie, reads the jar back the way a share does, and the browser
+    /// listens on no TCP port meanwhile. Run with
+    /// `HOTLINE_COOKIE_PIPE_BROWSER=/path/to/chromium … -- --ignored`.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "needs a Chromium binary on the host"]
+    async fn a_real_chromium_answers_over_the_pipe_on_an_empty_profile() {
+        let binary = std::env::var("HOTLINE_COOKIE_PIPE_BROWSER")
+            .expect("HOTLINE_COOKIE_PIPE_BROWSER names a Chromium binary");
+        let staging = Staging::new(&Confinement::Native).unwrap();
+        let mut command = Command::new(binary);
+        command
+            .args(chromium_args(staging.path(), "Default"))
+            .arg("--use-mock-keychain")
+            .arg("--password-store=basic")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let (mut child, mut pipe) = devtools::spawn(&mut command).unwrap();
+        let set = tokio::time::timeout(
+            LAUNCH_DEADLINE,
+            pipe.call(
+                "Storage.setCookies",
+                json!({"cookies": [{
+                    "name": "probe", "value": "pipe-probe", "domain": "example.test", "path": "/",
+                    "expires": unix_now() + 3600
+                }]}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(set.is_ok(), "{set:?}");
+        let cookies = tokio::time::timeout(LAUNCH_DEADLINE, all_cookies(&mut pipe))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            cookies
+                .iter()
+                .any(|cookie| cookie["name"] == "probe" && cookie["value"] == "pipe-probe"),
+            "{cookies:?}"
+        );
+        let pid = child.id().unwrap().to_string();
+        let listening = std::process::Command::new("lsof")
+            .args(["-nP", "-a", "-p", &pid, "-iTCP", "-sTCP:LISTEN"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&listening.stdout),
+            "",
+            "the browser listens on no TCP port"
+        );
+        drop(pipe);
+        child.kill().await.ok();
     }
 }

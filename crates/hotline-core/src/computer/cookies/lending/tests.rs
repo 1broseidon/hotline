@@ -197,79 +197,35 @@ fn only_the_registrable_site_and_its_subdomains_can_be_lent() {
     assert_eq!(kept[1]["domain"], "a.example.co.uk");
 }
 
-/// The stand-in browser's only decrypt operation is behind its CDP read.
-/// Its launcher and keychain spy must remain untouched during discovery.
+/// The stand-in browser's only decrypt operation is behind its CDP read, which
+/// arrives on its DevTools pipe. Its launcher and that read must remain
+/// untouched during discovery.
 #[cfg(unix)]
 #[tokio::test]
 async fn discovery_never_launches_or_calls_the_browser_keychain_until_use() {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
     let root = tempfile::tempdir().unwrap();
     let mut source = fixture(root.path(), false);
-    let args = root.path().join("browser-args");
-    // The redirect makes the file before printf fills it, so the arguments
-    // are written beside it and renamed in: the file exists only when whole.
-    crate::computer::fixtures::write_script(
+    let fake = super::super::tests::FakeChromium::new(
         root.path(),
-        "browser",
-        &format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}.partial'\nmv '{0}.partial' '{0}'\nexec sleep 30\n",
-            args.display()
-        ),
+        &json!({"id":1,"result":{"cookies":[{"name":"sid","domain":".porkbun.com","value":"fake-keychain-cookie"}]}}),
     );
-    source.candidate.binaries = vec![root.path().join("browser")];
-    let keychain_calls = Arc::new(AtomicUsize::new(0));
-    let ws = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let ws_port = ws.local_addr().unwrap().port();
-    let calls = keychain_calls.clone();
-    let cdp = tokio::spawn(async move {
-        let (stream, _) = ws.accept().await.unwrap();
-        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-        let request = socket.next().await.unwrap().unwrap().into_text().unwrap();
-        let request: Value = serde_json::from_str(&request).unwrap();
-        assert_eq!(request["method"], "Network.getAllCookies");
-        // The fake keychain is accessed only when the fake browser decrypts.
-        calls.fetch_add(1, Ordering::SeqCst);
-        socket.send(Message::Text(json!({"id":1,"result":{"cookies":[{"name":"sid","domain":".porkbun.com","value":"fake-keychain-cookie"}]}}).to_string().into())).await.unwrap();
-        let _ = socket.next().await;
-    });
+    source.candidate.binaries = vec![fake.binary.clone()];
     assert!(source.sites().unwrap().contains("porkbun.com"));
-    assert!(!args.exists(), "detection must not launch a browser");
-    assert_eq!(
-        keychain_calls.load(Ordering::SeqCst),
-        0,
+    assert!(!fake.args.exists(), "detection must not launch a browser");
+    assert!(
+        !fake.request.exists(),
         "detection must not ask the browser's keychain"
     );
 
-    let reading = tokio::spawn(async move { source.read("porkbun.com").await });
-    crate::test_support::until("Use launches the profile copy", || args.exists()).await;
-    let arguments = std::fs::read_to_string(&args).unwrap();
-    let port: u16 = arguments
-        .lines()
-        .find_map(|arg| arg.strip_prefix("--remote-debugging-port="))
-        .unwrap()
-        .parse()
-        .unwrap();
-    let http = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
-        .await
-        .unwrap();
-    let app = axum::Router::new().route(
-        "/json",
-        axum::routing::get(move || async move {
-            (
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                json!([{"type":"page","webSocketDebuggerUrl":format!("ws://127.0.0.1:{ws_port}")}])
-                    .to_string(),
-            )
-        }),
+    let result = source.read("porkbun.com").await.unwrap();
+    // The fake keychain is reached only when the fake browser is asked.
+    let request = std::fs::read(&fake.request).unwrap();
+    assert!(String::from_utf8_lossy(&request).contains("\"Storage.getCookies\""));
+    assert!(
+        fake.arguments()
+            .iter()
+            .any(|arg| arg == "--remote-debugging-pipe")
     );
-    let serving = tokio::spawn(async move { axum::serve(http, app).await.unwrap() });
-    let result = reading.await.unwrap().unwrap();
-    assert_eq!(keychain_calls.load(Ordering::SeqCst), 1);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0]["value"], "fake-keychain-cookie");
-    cdp.await.unwrap();
-    serving.abort();
 }

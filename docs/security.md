@@ -3795,7 +3795,17 @@ holding any in Settings › Secrets › In Use.
   (`Source::read`), keeps only the registrable site and its subdomains, and
   writes its record before any value leaves, so after a crash mid-copy Remove
   still works; a copy that fails is taken out again. Error bodies from either
-  browser are replaced by fixed messages.
+  browser are replaced by fixed messages. A Chromium source is read by the
+  browser itself, launched headless on a copy of the profile in a directory
+  made 0700 by the call that creates it (`computer/cookies.rs` `Staging`),
+  and asked for its jar over DevTools on a pipe only the desk holds
+  (`--remote-debugging-pipe`, its descriptors 3 and 4). It opens no
+  debugging port and gets no `--remote-allow-origins`, so no other local
+  process, a teammate's own shell included, can connect to the instance
+  while it holds the decrypted jar; Keep fresh reads the same way. Windows
+  has no such pipe yet: there a Chromium browser is listed as one Hotline
+  cannot read, saying so, and only Firefox can be shared; no port is opened
+  instead.
 - **Cookie Sources:** Settings › Secrets lists each browser and profile on this
   machine with a switch. The off set is one live gate the room hands every
   source it discovers (`computer/cookies/lending.rs` `Gate`): a source
@@ -3854,6 +3864,7 @@ holding any in Settings › Secrets › In Use.
 | Ends takes a share back on time, across a restart | `session/cookie_lends/tests.rs` `ends_takes_a_share_back_on_time_even_across_a_restart`; `tests/desk/cookie_lends.rs` `shares_survive_real_desk_restarts_and_one_whose_end_came_meanwhile_is_taken_back` | Unix |
 | Shares move into the computer when it turns on and back when it turns off | `session/cookie_lends/tests.rs` `shares_move_into_the_computer_when_it_turns_on_and_back_when_it_turns_off` | Unix |
 | A switched-off source is read by no path, even one discovered before | `session/cookie_lends/tests.rs` `a_switched_off_source_is_never_read_by_any_path` | Unix |
+| A Chromium source is read over a DevTools pipe, never a debugging port, from a copy only the person's user can open; where the pipe is not wired (Windows) a Chromium browser is listed as unreadable and no source | `computer/cookies.rs` `read_chromium_opens_no_debugging_port`, `staging_dir_is_private`, `a_chromium_browser_is_blocked_where_its_pipe_is_not_wired`; `computer/cookies/devtools.rs` `a_pipe_message_is_its_json_ended_by_one_nul_and_reads_back_however_it_is_cut` | Unix for the first two |
 | In Use lists every holder and its sites | `session/cookie_lends/tests.rs` `in_use_lists_every_teammate_holding_cookies_with_its_sites`; `ui/tests/cookie-lends.test.tsx` | Unix |
 | Only the desk and owner seats share, list, switch sources or see holders | `wire/tests/seats.rs` `only_the_desk_seat_may_share_host_cookies` | — |
 | An old import reads as a row a site, and Remove names its exact domains | `session/tests/computer.rs` `an_old_import_is_a_row_a_site_and_remove_takes_its_domains_back` | Unix |

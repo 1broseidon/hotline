@@ -55,7 +55,7 @@ pub(super) fn command(
     ] {
         env.push((name, home.join(relative).into_os_string()));
     }
-    let mut setup = super::identity_checks(identities);
+    let mut setup = super::identity_checks(identities)?;
     setup.push_str("umask 077; mkdir -p -- \"$HOME\" \"$TMPDIR\" || exit; ");
     if let Some(host_home) = host_home {
         if runtimes.contains(&host_home.join(".rustup/toolchains"))

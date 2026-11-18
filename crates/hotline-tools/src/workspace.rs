@@ -1202,10 +1202,11 @@ pub fn linked_root(cwd: &Path) -> Option<String> {
     ))
 }
 
-/// Which directory a handle holds: its device and inode, `dev:ino`, read
-/// from the handle itself (fstat), never by looking its path up again. None
-/// where the platform gives no such number Hotline reads (Windows: cap-std
-/// exposes the volume serial and file index only on a nightly-only cfg).
+/// Which directory a handle holds, read from the handle itself, never by
+/// looking its path up again: on Unix its device and inode (fstat,
+/// `dev:ino`), on Windows its volume serial number and file index
+/// (`GetFileInformationByHandle`, `volume:index`). None where neither is
+/// available, which every holder treats as a directory it cannot confirm.
 pub fn dir_identity(dir: &Dir) -> Option<String> {
     #[cfg(unix)]
     {
@@ -1213,7 +1214,12 @@ pub fn dir_identity(dir: &Dir) -> Option<String> {
         let metadata = dir.dir_metadata().ok()?;
         Some(format!("{}:{}", metadata.dev(), metadata.ino()))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsHandle;
+        hotline_support::file_identity_windows::of_handle(dir.as_handle())
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = dir;
         None

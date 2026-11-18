@@ -23,7 +23,7 @@ pub(super) fn command(
     // must never cause Hotline to create directories elsewhere on the host.
     let setup = format!(
         "{}mkdir -p -- \"$HOME\" || exit; {} exec /bin/sh -c \"$1\"",
-        super::identity_checks(identities),
+        super::identity_checks(identities)?,
         super::RUSTUP_SETUP
     );
     process.args(["/bin/sh", "-c", &setup, "hotline-shell", command]);

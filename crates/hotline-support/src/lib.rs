@@ -13,6 +13,8 @@
 
 pub mod credentials;
 pub mod fence;
+#[cfg(windows)]
+pub mod file_identity_windows;
 pub mod images;
 pub mod lines;
 pub mod listening;

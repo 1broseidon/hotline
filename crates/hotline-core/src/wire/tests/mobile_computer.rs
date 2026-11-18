@@ -14,7 +14,8 @@ async fn a_computer_from_before_desk_restart_reports_its_release_and_offers_an_u
         "id":"ada", "name":"Ada", "goal":"", "backendId":"hotline",
         "cwd":root.path(), "mcpPolicy":{"mode":"none","serverIds":[]},
         "backgroundWork":false, "sessionCheckpoints":[], "createdAt":1, "updatedAt":1,
-        "computer":{"enabled":true,"image":"hotline-computer:0.11.0-rc.7"}
+        "computer":{"enabled":true,"image":"hotline-computer:0.11.0-rc.7"},
+        "cwdIdentity": crate::tools::path_identity(root.path()),
     }))
     .unwrap();
     let original = Computer::with_path(root.path().as_os_str());

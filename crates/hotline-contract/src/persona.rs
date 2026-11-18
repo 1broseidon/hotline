@@ -137,13 +137,13 @@ pub struct Persona {
     pub backend_id: String,
     pub cwd: String,
     /// Which directory `cwd` was when the person chose it (Unix: its device
-    /// and inode, `dev:ino`), set by the desk when `cwd` is set, or on a
-    /// teammate's first start under workspace reach when an older record has
-    /// none and nothing a confined teammate could have planted is in its
-    /// path. Under workspace reach every holder of the workspace compares the
-    /// directory it actually opened with this and refuses another. Never
-    /// taken from a client. Absent on Windows, and on a record whose folder is
-    /// not made yet.
+    /// and inode, `dev:ino`; Windows: volume serial and file index), set by
+    /// the desk when `cwd` is set, or at a teammate's first start under
+    /// workspace reach when the record has none and no confined teammate
+    /// could have replaced the folder or one above it. Under workspace reach
+    /// every holder of the workspace compares the directory it actually
+    /// opened with this and refuses another. Never taken from a client.
+    /// Absent on a record whose folder is not made yet, or not bound yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd_identity: Option<String>,
     /// How far Hotline Agent's tools reach. Absent means the working directory.
@@ -313,10 +313,11 @@ pub struct FolderGrant {
     /// Absent is false: a grant is read-only unless the person said more.
     #[serde(default)]
     pub writable: bool,
-    /// Which directory it was when granted (Unix: `dev:ino`), set by the desk
-    /// with the grant, or on the teammate's next start for an older grant
-    /// that still resolves to its path. A folder that opens as another
-    /// directory is left out. Never taken from a client; absent on Windows.
+    /// Which directory it was when granted (Unix: `dev:ino`; Windows: volume
+    /// serial and file index), set by the desk with the grant, or at the
+    /// teammate's next start for an older grant no confined teammate could
+    /// have replaced. A folder that opens as another directory is left out.
+    /// Never taken from a client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub identity: Option<String>,

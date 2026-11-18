@@ -59,7 +59,8 @@ fn apple_container_lines_are_not_counted() {
 
 fn persona(id: &str, cwd: &str) -> Persona {
     Persona {
-        cwd_identity: None,
+        // As the desk records it when the folder is chosen.
+        cwd_identity: crate::tools::path_identity(Path::new(cwd)),
         node: None,
         id: id.to_string(),
         name: "Ada".to_string(),
@@ -1103,10 +1104,7 @@ async fn a_computer_is_not_made_on_a_changed_workspace_or_folder() {
         .ensure_running(&ada, &ada.cwd, None, None, |_| {})
         .await
         .expect_err("another folder at the grant's path");
-    assert!(
-        refused.contains("no longer the folder that was granted"),
-        "{refused}"
-    );
+    assert!(refused.contains("the folder that was granted"), "{refused}");
     assert_eq!(log_text(&log), "", "the runtime was not asked");
     fs::remove_dir(&folder).unwrap();
     fs::rename(root.join("granted-was"), &folder).unwrap();

@@ -115,12 +115,13 @@ decision for George, not a bug fix.
   every tool and the desk's own writers open it again by its path:
   - **Recorded identity.** When the person sets `cwd` or grants a folder,
     the desk records which directory it is (`cwdIdentity`, and `identity`
-    on each grant: Unix `dev:ino`; none on Windows, where cap-std reads
-    no such number on stable Rust). A client never sets either. Choosing
-    the same folder again reads it anew.
+    on each grant: Unix `dev:ino` from fstat; Windows the volume serial
+    number and file index from `GetFileInformationByHandle` on the open
+    handle). A client never sets either. Choosing the same folder again
+    reads it anew.
   - **Checked on the handle.** Under workspace reach each holder compares
-    the directory it actually opened, read from its own handle (fstat),
-    with the record, and refuses another before it acts: the file tools
+    the directory it actually opened, read from its own handle, with the
+    record, and refuses another before it acts: the file tools
     and `send_file`, generated images and faces (`tools::Workspace`), the
     skills writer (`skills.rs` `open_skills`), the desk's skill listing
     and the preamble's index (`skills.rs` `read_workspace`,
@@ -134,30 +135,41 @@ decision for George, not a bug fix.
     or a granted folder that is now a link or another directory, before
     anything is written (`session/workspace_root.rs`).
   - **The computer.** Its runtime binds the workspace and folders by path,
-    so its start compares each path's directory just before, and a
-    computer is not made or started at all while the workspace or a
-    granted folder sits inside a folder a confined teammate may change:
-    the teammate's own writable folder holding its workspace, or another
-    workspace-reach teammate's workspace or writable folder
-    (`overlapping_roots`). A teammate refused one starts without it and is
+    so its start compares each path's directory just before (a workspace
+    not bound yet is not mounted until the teammate has started once), and
+    a computer is not made or started at all while a confined teammate
+    could replace the workspace, a granted folder, or a folder leading to
+    one: the teammate's own writable folder holding its workspace, or
+    another workspace-reach teammate's workspace or writable folder
+    (`overlapping_roots`). Folders are compared by directory identity, not
+    by spelling, so another spelling of the same folder (a case-insensitive
+    volume, a link) is caught, and a folder whose identity cannot be read
+    counts as replaceable. A teammate refused one starts without it and is
     told why.
   - **Links.** A working directory that is itself a link is refused under
     workspace reach (`tools::linked_root`), by ACP callbacks and
     `AGENTS.md` too; one the person chooses is kept as the folder it leads
     to. Folders above it may be links, as the person laid them out. Only
     a teammate given the whole machine keeps following a linked root.
-  - **Older records.** A record from before the field has no identity. Its
-    teammate's first start adopts the directory it finds only if the
-    folder is not a link and no folder above it that is a link sits inside
-    a folder a confined teammate may change (any workspace-reach teammate's
-    workspace or writable grant); otherwise the start is refused until the
-    person chooses the folder again. A missing workspace is made again
-    where it was and adopted by the same rule. An older grant adopts its
-    directory only when it still resolves to its own path; one that is now
-    a link refuses the start until the person grants it again. This keeps
-    every existing teammate with plain folders starting on upgrade;
-    requiring every older record to be chosen again instead is George's
-    call.
+  - **Binding at a start.** A bound workspace that is missing, unreadable
+    or another directory stops the start before anything is made, and the
+    person chooses it again; it is never made again in its place. A
+    workspace or grant without an identity (a record from before the
+    field, or a new teammate whose folder is not made yet) is bound at its
+    first start only when no confined teammate could replace it or any
+    folder leading to it: no directory holding a step of its path, as
+    spelled or as resolved, is or lies inside a workspace-reach teammate's
+    workspace or writable grant, compared by identity. That is decided
+    conservatively, without crediting the Seatbelt and bubblewrap
+    protections, so a folder inside such a folder is always chosen again.
+    Only then is a missing workspace made. An older grant that is now a
+    link refuses the start until the person grants it again. The binding
+    runs under the policy lock, reads the latest record there, and writes
+    the identity to the record before the session goes on; a newer choice
+    of the same path made meanwhile is what the session uses. This keeps
+    every existing teammate whose folders no confined teammate can reach
+    starting on upgrade; requiring every older record to be chosen again
+    instead is George's call.
   - **The platform layer.** On macOS the Seatbelt profile denies removing,
     renaming or replacing the workspace, a writable folder, or any folder
     above one (`file-write-unlink` and `file-write-create` on each literal
@@ -1710,7 +1722,7 @@ extend; when a change adds a boundary, it adds a row.
 | Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `hotline-tools/src/shell/tests.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
 | Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `hotline-tools/src/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
 | macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `hotline-tools/src/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
-| A workspace stays the directory the person chose: on macOS the confined shell cannot remove, rename or replace its workspace, a writable folder or a folder above one, while everything inside stays changeable; under workspace reach a working directory that has become a link, or another directory than the recorded one (renamed away and remade, or reached through a folder above it renamed and replaced), is refused by the file tools, the shell, the skills writer and readers, ACP callbacks and `AGENTS.md`, a session start and a computer start before any of them acts, and a granted folder remade at its path is left out; a folder above it that is a link is followed; the person's choice records which directory it is and a client cannot set that; an older record adopts its directory on its first start unless a folder above it is a link inside a folder a confined teammate may change; a missing workspace is made again and adopted; an older grant that is now a link refuses the start; a computer is not made while its workspace or a folder sits inside a folder a confined teammate may change | `hotline-tools/src/shell/macos.rs` `writable_roots_cannot_be_removed_renamed_or_replaced`, `granted_folders_are_in_the_profile_with_their_modes`; `hotline-tools/src/shell/tests.rs` `the_shell_runs_nothing_in_a_root_changed_after_it_was_opened`; `hotline-tools/src/workspace/tests.rs` `a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall`, `a_changed_root_or_folder_is_refused_before_any_tool_acts`; `session/agent.rs` `a_teammate_whose_workspace_became_a_link_does_not_start_through_it`, `a_teammate_starts_only_in_the_directory_its_record_names`; `skills.rs` `skills_are_written_only_into_the_recorded_workspace`, `skills_are_read_only_from_the_recorded_workspace`; `driver/acp/tests/session_new.rs` `callbacks_and_agents_md_act_only_in_the_recorded_workspace`, `callbacks_and_agents_md_refuse_a_linked_root_unless_the_whole_machine_is_granted`; `computer/tests.rs` `a_computer_is_not_made_on_a_changed_workspace_or_folder`; `session/workspace_root.rs` `a_computer_is_not_started_on_a_changed_workspace`, `a_computer_is_not_made_inside_a_folder_a_teammate_can_change`; `wire/tests/personas.rs` `a_chosen_working_directory_that_is_a_link_is_kept_as_its_folder` | the Seatbelt test: a real Mac; the shell test: a Mac, or Linux with bubblewrap |
+| A workspace stays the directory the person chose: on macOS the confined shell cannot remove, rename or replace its workspace, a writable folder or a folder above one, while everything inside stays changeable; under workspace reach a working directory that has become a link, or another directory than the recorded one (renamed away and remade, or reached through a folder above it renamed and replaced), is refused by the file tools, the shell, the skills writer and readers, ACP callbacks and `AGENTS.md`, a session start and a computer start before any of them acts, and a granted folder remade at its path is left out; a folder above it that is a link is followed; the person's choice records which directory it is and a client cannot set that; a workspace or grant not bound yet is bound and recorded at its first start, under the policy lock and before the session goes on, only when no confined teammate could replace it or a folder leading to it, and a newer choice made meanwhile wins; a bound workspace that is gone is not made again; an older grant that is now a link refuses the start; a computer is not made while its workspace or a folder sits inside a folder a confined teammate may change | `hotline-tools/src/shell/macos.rs` `writable_roots_cannot_be_removed_renamed_or_replaced`, `granted_folders_are_in_the_profile_with_their_modes`; `hotline-tools/src/shell/tests.rs` `the_shell_runs_nothing_in_a_root_changed_after_it_was_opened`, `a_directory_the_shell_cannot_check_refuses_the_launch`; `hotline-tools/src/workspace/tests.rs` `a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall`, `a_changed_root_or_folder_is_refused_before_any_tool_acts`; `session/agent.rs` `a_teammate_whose_workspace_became_a_link_does_not_start_through_it`, `a_teammate_starts_only_in_the_directory_its_record_names`, `a_start_waits_for_a_grant_change_and_the_newer_choice_wins`; `skills.rs` `skills_are_written_only_into_the_recorded_workspace`, `skills_are_read_only_from_the_recorded_workspace`; `driver/acp/tests/session_new.rs` `callbacks_and_agents_md_act_only_in_the_recorded_workspace`, `callbacks_and_agents_md_refuse_a_linked_root_unless_the_whole_machine_is_granted`; `computer/tests.rs` `a_computer_is_not_made_on_a_changed_workspace_or_folder`; `session/workspace_root.rs` `a_computer_is_not_started_on_a_changed_workspace`, `a_computer_is_not_made_inside_a_folder_a_teammate_can_change`; `wire/tests/personas.rs` `a_chosen_working_directory_that_is_a_link_is_kept_as_its_folder` | the Seatbelt test: a real Mac; the shell test: a Mac, or Linux with bubblewrap |
 | macOS network stays available and package downloads land in private caches | `hotline-tools/src/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
 | Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree; cancelling during sleep cannot run the next statement (50 repetitions) | `hotline-tools/src/shell/tests.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started`, `cancellation_during_sleep_never_runs_the_next_statement`; `tests/steering.rs` `an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finishes` | macOS and Linux; sandbox test on Linux needs bubblewrap |
 | A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |

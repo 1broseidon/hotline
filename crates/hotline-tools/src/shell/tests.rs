@@ -611,3 +611,16 @@ async fn the_shell_runs_nothing_in_a_root_changed_after_it_was_opened() {
     assert_eq!(fs::read_dir(&work).unwrap().count(), 0, "nothing ran there");
     assert!(!base.join("work-was/late.txt").exists());
 }
+
+/// A granted path the shell's check cannot spell (not UTF-8) refuses the
+/// launch rather than skip that directory's check.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_directory_the_shell_cannot_check_refuses_the_launch() {
+    use std::os::unix::ffi::OsStrExt;
+    let odd = PathBuf::from(std::ffi::OsStr::from_bytes(b"/tmp/not-utf8-\xff"));
+    let plain = PathBuf::from("/tmp/plain");
+    assert!(identity_checks(&[(plain.clone(), "1:2".into())]).is_ok());
+    let refused = identity_checks(&[(plain, "1:2".into()), (odd, "3:4".into())]).unwrap_err();
+    assert!(refused.contains("not started"), "{refused}");
+}

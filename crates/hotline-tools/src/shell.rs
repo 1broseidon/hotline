@@ -436,7 +436,7 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
 /// one on the teammate's PATH. A path that now names another directory runs
 /// nothing.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn identity_checks(identities: &[(PathBuf, String)]) -> String {
+fn identity_checks(identities: &[(PathBuf, String)]) -> Result<String, String> {
     let quoted = |text: &str| format!("'{}'", text.replace('\'', "'\\''"));
     let (stat, format) = if cfg!(target_os = "macos") {
         ("/usr/bin/stat", "-f")
@@ -448,7 +448,14 @@ fn identity_checks(identities: &[(PathBuf, String)]) -> String {
     };
     let mut checks = String::new();
     for (path, identity) in identities {
-        let Some(path) = path.to_str() else { continue };
+        // A path the script cannot spell cannot be checked, so the shell
+        // does not start at all rather than skip it.
+        let Some(path) = path.to_str() else {
+            return Err(format!(
+                "The protected shell cannot check {} (not a UTF-8 path), so it was not started.",
+                path.display()
+            ));
+        };
         let _ = write!(
             checks,
             "[ \"$({stat} {format} %d:%i -- {path})\" = {identity} ] || {{ echo {message} >&2; exit 126; }}; ",
@@ -459,7 +466,7 @@ fn identity_checks(identities: &[(PathBuf, String)]) -> String {
             )),
         );
     }
-    checks
+    Ok(checks)
 }
 
 /// The sandboxed command, given the workspace and each granted folder with

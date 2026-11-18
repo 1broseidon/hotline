@@ -2904,14 +2904,18 @@ seat reaches it, only the main window's own commands.
 
 `voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
 desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
-historical `voice-dispatcher` tape is also refused as a companion subscription,
-as a tape or a DM thread, under any spelling a disk would open as it: a
+historical `voice-dispatcher` tape is also refused to a companion, subscribed
+to or paged (`{"tape"}`, `{"threadId"}` on a DM, `tape.page`, `thread.page`,
+one rule for all four), under any spelling a disk would open as it: a
 companion opens only a tape whose name a teammate's id could be (ASCII
 letters, digits, `-` and `_`), checked against the dispatcher's without case,
 so `Voice-Dispatcher` on a case-insensitive disk, `voice-dispatcher.` or an
-8.3 short name on Windows, and `.` or `..` are refused
+8.3 short name on Windows, and `.` or `..` are refused. A teammate on a
+linked desk has no tape here, so its node-qualified `deskId/personaId` names
+nothing a companion reads and its `/` is refused like any other
 (`wire/tests/seats.rs`
-`a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling`).
+`a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling`,
+`a_companion_pages_no_tape_it_could_not_subscribe_to`).
 New calls never write it. No microphone audio is stored: calls keep only
 transcriptions, spoken text and tool events.
 
@@ -3239,7 +3243,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
   | `thread.list` | only what it may read: no calls | a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page; a pair is listed (since 0.49, George's call that a DM between teammates is a thread on the phone too), as it already subscribes to and pages one, though `peers.list` stays refused it |
-  | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape under any spelling | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
+  | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape under any spelling, nor a DM by a name no teammate's id could be (the same rule holds `tape.page` and `{"tape"}`) | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |
 
 - **Enforcement:** the seat check is on the command, in the core, before any
@@ -3259,7 +3263,8 @@ thread, and reaching back into it with the home agent's own reading tools.
   `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
   that send each shape; `wire/tests/seats.rs`
   `a_companion_names_no_desk_path_as_an_attachment` and
-  `a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling`;
+  `a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling` and
+  `a_companion_pages_no_tape_it_could_not_subscribe_to`;
   `remote/tests/phone.rs` for the hello a phone is sent, and
   `a_companion_attaches_only_its_own_uploads_in_a_work_thread`;
   `tests/threads.rs` `a_work_thread_is_one_conversation_to_old_and_threads2_clients`

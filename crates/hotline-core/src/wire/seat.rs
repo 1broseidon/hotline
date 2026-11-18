@@ -140,8 +140,6 @@ impl Seat {
                     | Command::FileRead { .. }
                     // A picture is no more private than the name beside it.
                     | Command::AvatarRead { .. }
-                    // Older lines of a tape the phone already reads.
-                    | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
                     // The same card's answer for one teammate at its
@@ -355,7 +353,8 @@ fn federation_command(command: &Command) -> bool {
 /// thread only; a pair raises no card, so there is none there for it to
 /// answer; a job is cancelled, and its firing stopped,
 /// only where `schedule.cancel` is run; and a thread it could not subscribe to it
-/// cannot page. `thread.list` leaves out what it could not read.
+/// cannot page, under either name (`thread.page`, or `tape.page` for a DM).
+/// `thread.list` leaves out what it could not read.
 fn phone_thread_command(command: &Command) -> bool {
     match command {
         Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,
@@ -373,6 +372,9 @@ fn phone_thread_command(command: &Command) -> bool {
         // which the phone gives as the desk does.
         Command::ThreadLoopIn { thread, .. } => thread.kind == ThreadKind::Side,
         Command::ThreadPage { thread, .. } => phone_may_read(thread),
+        // Older lines of a tape the phone already reads, by the same rule
+        // as its subscription and `thread.page` on the DM.
+        Command::TapePage { persona_id, .. } => phone_may_read_tape(persona_id),
         Command::ClientHello { .. }
         | Command::ThreadList { .. }
         | Command::ThreadOpen { .. }
@@ -393,9 +395,12 @@ pub(super) fn phone_may_read(thread: &crate::contract::ThreadId) -> bool {
     }
 }
 
-/// Whether a companion may open the tape named `id`: one a teammate's id could
-/// name, and not the voice dispatcher's under any spelling the disk would
-/// open as it. The name is a file name, and a case-insensitive disk (APFS,
+/// Whether a companion may open the tape named `id`, to subscribe to it or
+/// page it (`{"tape"}`, `{"threadId"}` on a DM, `tape.page`, `thread.page`):
+/// one a teammate's id could name, and not the voice dispatcher's under any
+/// spelling the disk would open as it. A teammate on a linked desk has no
+/// tape here (`Room::try_write_value`), so its node-qualified id, which
+/// carries a `/`, names nothing a phone reads. The name is a file name, and a case-insensitive disk (APFS,
 /// NTFS) opens `Voice-Dispatcher` as `voice-dispatcher`, as Windows does
 /// `voice-dispatcher.` or an 8.3 short name; a teammate's id is ASCII
 /// letters, digits, `-` and `_` (`valid_persona_id`), so a name outside that

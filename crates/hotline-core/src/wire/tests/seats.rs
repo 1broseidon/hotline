@@ -698,6 +698,54 @@ async fn a_companion_cannot_reach_the_dispatcher_tape_by_another_spelling() {
     assert_eq!(desk["ok"], true, "{desk}");
 }
 
+/// Paging is reading too, and needs no subscription first: a companion's
+/// `tape.page` and `thread.page` on a DM are held to the rule its
+/// subscription is, so the dispatcher's tape under another spelling, and a
+/// linked desk's teammate by its node-qualified id (which has no tape here),
+/// are refused at the seat on every route, while a teammate's own tape still
+/// pages.
+#[tokio::test]
+async fn a_companion_pages_no_tape_it_could_not_subscribe_to() {
+    let log = Log::open(scratch("companion-page-without-subscribing"));
+    crate::session::tests::enrol(&log, &crate::session::tests::persona("ada"));
+    log.append(
+        &StreamId::Tape("voice-dispatcher".into()),
+        &json!({"id": "said", "kind": "user", "ts": 1, "text": "what was said on a call"}),
+    )
+    .unwrap();
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let phone = async |frame: Value| {
+        remote_control_answer(Seat::Phone, &room, &log, &Parts::default(), frame).await
+    };
+    for name in [
+        "voice-dispatcher",
+        "Voice-Dispatcher",
+        "voice-dispatcher.",
+        "VOICE-~1",
+        "..",
+        "desk-1/ada",
+        "../ada",
+    ] {
+        for frame in [
+            json!({"id": 1, "cmd": "tape.page", "params": {"personaId": name, "before": ""}}),
+            json!({"id": 1, "cmd": "thread.page", "params": {"thread": {"kind": "dm", "key": name}, "before": ""}}),
+            json!({"id": 1, "sub": {"tape": name}}),
+            json!({"id": 1, "sub": {"threadId": {"kind": "dm", "key": name}}}),
+        ] {
+            let refused = phone(frame.clone()).await;
+            assert_eq!(refused["ok"], false, "{frame}: {refused}");
+            assert_eq!(refused["code"], FORBIDDEN, "{frame}: {refused}");
+        }
+    }
+    for frame in [
+        json!({"id": 1, "cmd": "tape.page", "params": {"personaId": "ada", "before": ""}}),
+        json!({"id": 1, "cmd": "thread.page", "params": {"thread": {"kind": "dm", "key": "ada"}, "before": ""}}),
+    ] {
+        let paged = phone(frame.clone()).await;
+        assert_eq!(paged["ok"], true, "{frame}: {paged}");
+    }
+}
+
 /// A phone reads one teammate's schedules and nothing it could change them
 /// or the room with: no job made, cancelled or quieted, and no room stream,
 /// which is where a setting would reach it. A thread between two teammates

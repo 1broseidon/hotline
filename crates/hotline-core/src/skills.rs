@@ -567,7 +567,10 @@ pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Res
             Source::Text(text) => replace_file(&entry, &path, FILE.as_ref(), |file| {
                 io::Write::write_all(file, text.as_bytes())
             })?,
-            Source::Tree(from) => copy_tree(&from, &entry, &path)?,
+            Source::Tree(from) => {
+                let source = open_source(&from)?;
+                copy_tree(&source, &from, &entry, &path)?;
+            }
         }
         replace_file(&entry, &path, MANAGED_MARKER.as_ref(), |_| Ok(()))?;
     }
@@ -575,10 +578,23 @@ pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Res
 }
 
 /// The workspace's `.agents/skills`, made if missing and opened as a handle
-/// that every later step is resolved inside. The working directory itself is
-/// the trusted root, the folder the teammate's record names; `.agents` and
-/// `.agents/skills` are the teammate's to change, so either one being a
-/// symbolic link refuses the write rather than following it.
+/// that every later step is resolved inside. `.agents` and `.agents/skills`
+/// are the teammate's to change, so either one being a symbolic link refuses
+/// the write rather than following it.
+///
+/// The root is the working directory the teammate's record names, opened by
+/// that path here, which is exactly how every other holder of the workspace
+/// gets its root: `AGENTS.md` (`driver/acp.rs`), the Hotline Agent's file
+/// tools (`driver/rig.rs`), ACP callbacks, `send_file` and the confined shell
+/// each open `persona.cwd` by path when they start, and there is no longer
+/// lived handle bound to the grant to hand over instead. So this writer
+/// reaches no further than the teammate's own tools do after the same open.
+/// That the root itself cannot be redirected is the grant layer's invariant,
+/// not this module's, and on macOS it does not hold today: the Seatbelt
+/// profile grants writes on the workspace's own path, so a confined shell can
+/// remove an emptied workspace and put a link in its place (reported with
+/// H-01's fix as a separate finding). That moves the next session's whole
+/// wall, the tools' included, and is fixed there, not here.
 fn open_skills(cwd: &Path) -> Result<Dir, String> {
     std::fs::create_dir_all(cwd).map_err(|error| made(cwd, error))?;
     let root = Dir::open_ambient_dir(cwd, ambient_authority()).map_err(|error| made(cwd, error))?;
@@ -609,18 +625,33 @@ fn child_dir(parent: &Dir, path: &Path) -> Result<Dir, String> {
         return Err(format!("{} is a symbolic link.", path.display()));
     }
     let opened = parent.open_dir(name).map_err(|error| made(path, error))?;
+    let now = opened.dir_metadata().map_err(|error| made(path, error))?;
+    if !same_object(&checked, &now) {
+        return Err(format!(
+            "{} changed while it was being written.",
+            path.display()
+        ));
+    }
+    Ok(opened)
+}
+
+/// Whether what was opened is what was checked before the open. On Unix this
+/// compares device and inode, so an object swapped in between is caught. On
+/// other systems there is no such identity to compare and it says yes: there
+/// the handle's own confinement is the whole guard, which keeps a swap from
+/// leading outside the folder the handle was opened on but does not refuse
+/// it.
+fn same_object(checked: &cap_std::fs::Metadata, opened: &cap_std::fs::Metadata) -> bool {
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
-        let now = opened.dir_metadata().map_err(|error| made(path, error))?;
-        if (now.dev(), now.ino()) != (checked.dev(), checked.ino()) {
-            return Err(format!(
-                "{} changed while it was being written.",
-                path.display()
-            ));
-        }
+        (checked.dev(), checked.ino()) == (opened.dev(), opened.ino())
     }
-    Ok(opened)
+    #[cfg(not(unix))]
+    {
+        let _ = (checked, opened);
+        true
+    }
 }
 
 /// Whose an entry of `.agents/skills` is, read without following any link.
@@ -746,9 +777,10 @@ pub fn add_to_gateway(gateway: &Path, from: &Path) -> Result<SkillEntry, String>
         return Err(format!("The gateway already has a skill named {name}."));
     }
     std::fs::create_dir_all(&destination).map_err(|error| made(&destination, error))?;
+    let source = open_source(from)?;
     let into = Dir::open_ambient_dir(&destination, ambient_authority())
         .map_err(|error| made(&destination, error))?;
-    copy_tree(from, &into, &destination)?;
+    copy_tree(&source, from, &into, &destination)?;
     Ok(entry(&name, &destination, SkillSource::Gateway))
 }
 
@@ -778,44 +810,108 @@ fn removed(path: &Path, error: std::io::Error) -> String {
     format!("{} could not be removed: {error}", path.display())
 }
 
-/// Copies a gateway skill's files into the workspace entry, through the
-/// entry's handle: every folder is made and opened inside the one before, and
-/// every file is written by [`replace_file`], so a link planted in the entry
-/// is replaced or refused, never written through. Links in the skill itself
-/// are skipped, as is anything that is not a plain file or folder, and so is
-/// a marker the operator happened to leave in the gateway. A file keeps its
+/// The folder a skill is copied from, opened once as the handle every file
+/// and folder in it is then opened inside. It is the gateway's entry, the
+/// person's own skill, or the folder the person picked to add: theirs, but
+/// not still, so nothing in it is read by path after this.
+fn open_source(from: &Path) -> Result<Dir, String> {
+    Dir::open_ambient_dir(from, ambient_authority()).map_err(|error| unread(from, error))
+}
+
+/// Copies a skill's files from the source handle into the destination
+/// handle. On the destination side every folder is made and opened inside the
+/// one before, and every file is written by [`replace_file`], so a link
+/// planted there is replaced or refused, never written through. On the
+/// source side every entry is opened inside the source handle: a link is
+/// skipped, and so is anything that is not a plain file or folder and a
+/// marker the operator happened to leave; what is opened must be the object
+/// that was listed, a file a file and a folder a folder, so a file swapped for
+/// a link while the copy runs is refused rather than read. A file keeps its
 /// permissions, so a script stays runnable.
-fn copy_tree(from: &Path, to: &Dir, shown: &Path) -> Result<(), String> {
-    for item in std::fs::read_dir(from)
-        .map_err(|error| made(from, error))?
+fn copy_tree(from: &Dir, from_shown: &Path, to: &Dir, shown: &Path) -> Result<(), String> {
+    for item in from
+        .entries()
+        .map_err(|error| unread(from_shown, error))?
         .flatten()
     {
-        let kind = item
-            .file_type()
-            .map_err(|error| made(&item.path(), error))?;
         let name = item.file_name();
-        if kind.is_symlink() || name == MANAGED_MARKER {
+        if name == MANAGED_MARKER {
             continue;
         }
+        let source = from_shown.join(&name);
+        let listed = from
+            .symlink_metadata(&name)
+            .map_err(|error| unread(&source, error))?;
+        #[cfg(test)]
+        tests::between_listing_and_opening(&source);
         let destination = shown.join(&name);
-        if kind.is_dir() {
-            let inner = child_dir(to, &destination)?;
-            copy_tree(&item.path(), &inner, &destination)?;
-        } else if kind.is_file() {
-            let source = item.path();
+        if listed.is_dir() {
+            let inner_from = from
+                .open_dir(&name)
+                .map_err(|error| unread(&source, error))?;
+            let opened = inner_from
+                .dir_metadata()
+                .map_err(|error| unread(&source, error))?;
+            if !opened.is_dir() || !same_object(&listed, &opened) {
+                return Err(changed(&source));
+            }
+            let inner_to = child_dir(to, &destination)?;
+            copy_tree(&inner_from, &source, &inner_to, &destination)?;
+        } else if listed.is_file() {
+            let mut options = OpenOptions::new();
+            options.read(true);
+            // A FIFO swapped in after the listing would block an open
+            // forever; this way it opens, and is refused as not a file.
+            #[cfg(unix)]
+            cap_std::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+            let file = from
+                .open_with(&name, &options)
+                .map_err(|error| unread(&source, error))?;
+            let opened = file.metadata().map_err(|error| unread(&source, error))?;
+            if !opened.is_file() || !same_object(&listed, &opened) {
+                return Err(changed(&source));
+            }
+            let mut reading = file.into_std();
+            let permissions = reading
+                .metadata()
+                .map_err(|error| unread(&source, error))?
+                .permissions();
             replace_file(to, shown, &name, |file| {
-                let mut reading = std::fs::File::open(&source)?;
                 io::copy(&mut reading, file)?;
-                file.set_permissions(reading.metadata()?.permissions())
+                file.set_permissions(permissions)
             })?;
         }
     }
     Ok(())
 }
 
+fn unread(path: &Path, error: std::io::Error) -> String {
+    format!("{} could not be read: {error}", path.display())
+}
+
+fn changed(path: &Path) -> String {
+    format!("{} changed while it was being copied.", path.display())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    type Swap = Option<Box<dyn FnMut(&Path)>>;
+
+    thread_local! {
+        /// What a test does to a skill's source between the copy listing an
+        /// entry and opening it. Each test runs on its own thread.
+        static BETWEEN: std::cell::RefCell<Swap> = const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn between_listing_and_opening(source: &Path) {
+        BETWEEN.with(|hook| {
+            if let Some(hook) = hook.borrow_mut().as_mut() {
+                hook(source);
+            }
+        });
+    }
 
     const GOOD: &str = "---\nname: cut-release\ndescription: Cut a desktop release. Use when asked to release.\n---\n\n# Steps\n\n1. Bump.\n";
 
@@ -1456,7 +1552,8 @@ mod tests {
         std::os::unix::fs::symlink(&outside, into.join("scripts")).unwrap();
         std::os::unix::fs::symlink(outside.join("thesis.docx"), into.join(FILE)).unwrap();
         let handle = Dir::open_ambient_dir(&into, ambient_authority()).unwrap();
-        let refusal = copy_tree(&gateway.join("cut-release"), &handle, &into);
+        let from = gateway.join("cut-release");
+        let refusal = copy_tree(&open_source(&from).unwrap(), &from, &handle, &into);
         untouched(&outside);
         if let Err(refusal) = refusal {
             assert!(refusal.ends_with("is a symbolic link."), "{refusal}");
@@ -1470,5 +1567,97 @@ mod tests {
         assert_eq!(names(&cwd.join(DIRECTORY)), ["hotline-room"]);
         untouched(&outside);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Every file under `folder`, read without following a link, holds none
+    /// of the outside file's words.
+    #[cfg(unix)]
+    fn holds_nothing_from_outside(folder: &Path) {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                holds_nothing_from_outside(&entry.path());
+            } else if kind.is_file() {
+                let bytes = std::fs::read(entry.path()).unwrap();
+                assert!(
+                    !String::from_utf8_lossy(&bytes).contains("the thesis"),
+                    "{} holds outside bytes",
+                    entry.path().display()
+                );
+            }
+        }
+    }
+
+    /// H-01: the folder a skill is copied from is the person's, not still.
+    /// A file in it swapped for a link (out of the folder, or to another file
+    /// in it) or a subfolder swapped for a link out, after the copy listed it
+    /// and before it opened it, refuses the copy, and no outside byte lands in
+    /// the gateway or the workspace.
+    #[cfg(unix)]
+    #[test]
+    fn a_source_swapped_for_a_link_while_it_is_copied_brings_no_outside_bytes() {
+        type Case = (&'static str, fn(&Path, &Path));
+        let cases: [Case; 3] = [
+            ("notes.md", |source, outside| {
+                relink(source, &outside.join("thesis.docx"));
+            }),
+            ("notes.md", |source, _| {
+                relink(source, &source.with_file_name(FILE));
+            }),
+            ("scripts", |source, outside| {
+                std::fs::remove_dir_all(source).unwrap();
+                std::os::unix::fs::symlink(outside, source).unwrap();
+            }),
+        ];
+        for (swapped, swap) in cases {
+            for through in ["gateway", "workspace"] {
+                let root = scratch("swapped-source");
+                let outside = outside(&root);
+                let picked = root.join("picked");
+                put(&picked, "cut-release", false);
+                let skill = picked.join("cut-release");
+                std::fs::write(skill.join("notes.md"), "notes").unwrap();
+                std::fs::create_dir_all(skill.join("scripts")).unwrap();
+                std::fs::write(skill.join("scripts/bump.sh"), "#!/bin/sh\n").unwrap();
+
+                let target = skill.join(swapped);
+                let outside_for_hook = outside.clone();
+                let mut armed = true;
+                BETWEEN.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move |source: &Path| {
+                        if armed && source == target {
+                            armed = false;
+                            swap(source, &outside_for_hook);
+                        }
+                    }));
+                });
+                let gateway = root.join("gateway");
+                let cwd = root.join("ws");
+                let refusal = if through == "gateway" {
+                    add_to_gateway(&gateway, &skill).map(|_| ())
+                } else {
+                    let granted = SkillPolicy {
+                        mode: PolicyMode::All,
+                        names: Vec::new(),
+                    };
+                    materialize(&cwd, &gateway_only(&picked), &granted)
+                };
+                BETWEEN.with(|hook| *hook.borrow_mut() = None);
+
+                let refusal = refusal.unwrap_err();
+                assert!(
+                    refusal.contains("changed while it was being copied")
+                        || refusal.contains("could not be read"),
+                    "{swapped} via {through}: {refusal}"
+                );
+                holds_nothing_from_outside(&gateway);
+                holds_nothing_from_outside(&cwd);
+                untouched(&outside);
+                std::fs::remove_dir_all(root).unwrap();
+            }
+        }
     }
 }

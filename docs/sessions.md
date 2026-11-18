@@ -1173,12 +1173,16 @@ and shadows a grant of the same name; a revoked grant's entry is removed at
 the next start. The desk writes them through directory handles opened on the
 workspace, as it writes `AGENTS.md`, so a link the teammate plants cannot lead
 a write outside it: a `.agents`, `.agents/skills` or wanted entry that is a
-symlink refuses the start rather than following it, and so does one swapped
-for a link after it was checked; each file is written to a new temporary file
+symlink refuses the start rather than following it, and one swapped for a
+link after it was checked leads nowhere outside (on Unix it is refused too:
+the folder opened must be the one checked); each file is written to a new temporary file
 renamed over its name, which replaces a linked `SKILL.md` or marker instead of
 writing through it; an entry counts as Hotline's only when its marker is a
 plain file, so a linked marker leaves the entry alone; and removing an entry
-removes the links in it without following them. The computer's
+removes the links in it without following them. The folder a granted skill
+is copied from is read the same way, through one handle: a link in it is
+skipped, and an entry swapped for a link while the copy runs refuses the copy
+rather than being read. The computer's
 `hotline-computer` guide is written the same way. Changing `skillPolicy`
 reattaches the
 session, like `mcpPolicy`, so the preamble's index matches the folder.

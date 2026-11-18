@@ -159,6 +159,8 @@ pub(crate) mod fake {
         answers_seen: Arc<std::sync::atomic::AtomicUsize>,
         /// Every answer is refused with a 409, the request untouched.
         refuse_answers: Arc<std::sync::atomic::AtomicBool>,
+        /// How much later than ten minutes an arming says it ends.
+        arm_later_ms: Arc<std::sync::atomic::AtomicI64>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -312,6 +314,13 @@ pub(crate) mod fake {
             self.answers_seen.load(std::sync::atomic::Ordering::SeqCst)
         }
 
+        /// From now on an arming says it ends `ms` later than ten minutes.
+        #[cfg(unix)]
+        pub(crate) fn arm_later(&self, ms: i64) {
+            self.arm_later_ms
+                .store(ms, std::sync::atomic::Ordering::SeqCst);
+        }
+
         /// From now on the computer refuses every answer as not waiting.
         #[cfg(unix)]
         pub(crate) fn refuse_answers(&self) {
@@ -412,7 +421,9 @@ pub(crate) mod fake {
                 json!({"error": format!("{rp_id:?} is not a site for a passkey")}),
             );
         }
-        let expires_at = crate::session::now_ms() + 10 * 60_000;
+        let expires_at = crate::session::now_ms()
+            + 10 * 60_000
+            + taken.arm_later_ms.load(std::sync::atomic::Ordering::SeqCst);
         *taken.arming.lock().unwrap() = Some(FakeArming {
             expires_at,
             rp_id: rp_id.clone(),

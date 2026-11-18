@@ -15,7 +15,7 @@ use crate::browser::authenticator::{self, Key, Refusal, Request, refuse};
 use crate::contract::{PasskeyAsk, PasskeyRegistration, PasskeyRegistrationState};
 
 /// How long the desk browser is armed to make one passkey, as a computer is.
-const ARMED_MS: i64 = 10 * 60_000;
+pub(super) const ARMED_MS: i64 = 10 * 60_000;
 
 impl Room {
     /// Answers a page's passkey call in `persona_id`'s desk browser, or
@@ -110,7 +110,7 @@ impl Room {
         rp_id: &str,
     ) -> PasskeyRegistration {
         self.drop_passkey_arming(persona_id);
-        let expires_at = now_ms() + ARMED_MS;
+        let expires_at = self.passkey_now() + ARMED_MS;
         lock(&self.passkey_armings).insert(
             persona_id.to_owned(),
             PasskeyArming {
@@ -119,6 +119,7 @@ impl Room {
                 name: name.to_owned(),
                 rp_id: rp_id.to_owned(),
                 expires_at,
+                computer_expires_at: None,
                 asked: None,
                 answered: false,
                 operator_approved: false,
@@ -164,7 +165,7 @@ impl Room {
             .filter(|arming| {
                 arming.desk
                     && arming.rp_id == creation.rp_id
-                    && arming.expires_at > now_ms()
+                    && arming.expires_at > self.passkey_now()
                     && !arming.storing
                     && arming.stored.is_none()
             })
@@ -203,7 +204,7 @@ impl Room {
             live.approved_ask = None;
         }
         self.raise_passkey_card(persona_id, &arming, &ask);
-        let left = u64::try_from(arming.expires_at - now_ms()).unwrap_or_default();
+        let left = u64::try_from(arming.expires_at - self.passkey_now()).unwrap_or_default();
         match tokio::time::timeout(std::time::Duration::from_millis(left), answered).await {
             Ok(Ok(true)) => {}
             Ok(Ok(false)) => {

@@ -874,6 +874,9 @@ pub struct Room {
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
+    /// How far a test has moved the passkey armings' clock on.
+    #[cfg(test)]
+    passkey_clock_ahead: std::sync::atomic::AtomicI64,
     #[cfg(test)]
     pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
     #[cfg(test)]
@@ -1065,6 +1068,8 @@ impl Room {
             harness_updates: Arc::default(),
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            passkey_clock_ahead: std::sync::atomic::AtomicI64::new(0),
             secret_uses: Mutex::default(),
             #[cfg(test)]
             cookie_candidates: Mutex::default(),

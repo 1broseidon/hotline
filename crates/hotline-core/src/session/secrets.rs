@@ -139,7 +139,11 @@ impl Room {
                 self.pull_reporter(&persona.id),
             )
             .await?;
-        let expires_at = match crate::computer::passkeys::arm(&ready, rp_id).await {
+        // The desk's own ten minutes, counted from before the computer is
+        // asked: the end the computer answers is its own, kept to tell its
+        // replies about this arming apart, and the earlier of the two holds.
+        let deadline = self.passkey_now() + super::browser_passkeys::ARMED_MS;
+        let computer_expires_at = match crate::computer::passkeys::arm(&ready, rp_id).await {
             Ok(expires_at) => expires_at,
             Err(crate::computer::secrets::Refusal::TooOld) => {
                 return Err(format!(
@@ -151,6 +155,7 @@ impl Room {
                 return Err(format!("The computer could not be armed. {reason}"));
             }
         };
+        let expires_at = deadline.min(computer_expires_at);
         lock(&self.passkey_armings).insert(
             persona.id.clone(),
             PasskeyArming {
@@ -159,6 +164,7 @@ impl Room {
                 name: name.to_owned(),
                 rp_id: rp_id.to_owned(),
                 expires_at,
+                computer_expires_at: Some(computer_expires_at),
                 asked: None,
                 answered: false,
                 operator_approved: false,
@@ -249,7 +255,9 @@ impl Room {
         if let Some(secret) = arming.stored.clone() {
             return Ok((stored(&arming, secret), false));
         }
-        if arming.capture.is_some() && arming.expires_at <= now_ms() {
+        // An arming past the desk's deadline is over, whatever the computer
+        // says of its own.
+        if !arming.desk && arming.expires_at <= self.passkey_now() {
             self.cancel_passkey_arming_of(persona_id, generation)
                 .await?;
             return Ok((idle, false));
@@ -264,7 +272,7 @@ impl Room {
         }
         if arming.desk {
             // No computer to ask: the desk's own browser waits on the card.
-            if arming.expires_at <= now_ms() {
+            if arming.expires_at <= self.passkey_now() {
                 self.drop_passkey_arming(persona_id);
                 return Ok((idle, false));
             }
@@ -563,13 +571,16 @@ impl Room {
             capture.capability.check()?;
             if ask.origin != capture.origin
                 || ask.rp_id != arming.rp_id
-                || now_ms() >= arming.expires_at
+                || self.passkey_now() >= arming.expires_at
             {
                 return Err(
                     "That passkey request is outside the credential card's origin or lifetime."
                         .into(),
                 );
             }
+        }
+        if self.passkey_now() >= arming.expires_at {
+            return Err("That passkey request's arming has run out.".into());
         }
         // The answer is reserved before it leaves the desk: one answer to
         // this request is in flight at a time, and a look meanwhile changes
@@ -867,9 +878,9 @@ impl Room {
             .ok_or("Stored secrets are unavailable on this room.")?;
         let updates = self.policy_update_lock();
         let held = updates.lock().await;
-        // A passkey from a computer is kept only within the arming's ten
+        // A passkey is kept, and granted, only within the arming's ten
         // minutes, as the desk counts them.
-        if ready.is_some() && now_ms() >= arming.expires_at {
+        if self.passkey_now() >= arming.expires_at {
             return Err("The arming ran out before the passkey was stored.".into());
         }
         if let Some(capture) = &arming.capture {
@@ -1000,7 +1011,12 @@ pub(super) struct PasskeyArming {
     pub(super) desk: bool,
     pub(super) name: String,
     pub(super) rp_id: String,
+    /// When the arming ends, as the desk holds it: its own ten minutes from
+    /// before the computer was asked, or the computer's end if earlier.
     pub(super) expires_at: i64,
+    /// The end the computer answered when it was armed: only for telling its
+    /// replies about this arming apart, never a deadline of the desk's.
+    pub(super) computer_expires_at: Option<i64>,
     /// The site's request the card on the tape was raised for, once one
     /// was, and whether that card has been answered — by the person, or
     /// by a look that found the computer already past it.
@@ -1024,6 +1040,31 @@ pub(super) struct PasskeyArming {
     pub(super) stored: Option<crate::contract::SharedSecret>,
 }
 
+impl Room {
+    /// The clock passkey armings are held to: the desk's own, which a test
+    /// can move on.
+    pub(super) fn passkey_now(&self) -> i64 {
+        #[cfg(test)]
+        {
+            now_ms()
+                + self
+                    .passkey_clock_ahead
+                    .load(std::sync::atomic::Ordering::SeqCst)
+        }
+        #[cfg(not(test))]
+        {
+            now_ms()
+        }
+    }
+
+    /// Moves the passkey armings' clock on by `ms`.
+    #[cfg(test)]
+    pub(crate) fn advance_passkey_clock(&self, ms: i64) {
+        self.passkey_clock_ahead
+            .fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// A count of its own for the next arming, never one an earlier arming had.
 pub(super) fn next_passkey_generation() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -1044,8 +1085,9 @@ fn answers_this_arming(
     polled: &crate::computer::passkeys::Registration,
 ) -> bool {
     use crate::computer::passkeys::Registration;
-    let this_arming =
-        |rp_id: &str, expires_at: i64| rp_id == arming.rp_id && expires_at == arming.expires_at;
+    let this_arming = |rp_id: &str, expires_at: i64| {
+        rp_id == arming.rp_id && Some(expires_at) == arming.computer_expires_at
+    };
     let for_the_site = |rp_id: &str| rp_within(rp_id, &arming.rp_id);
     // The request the computer reports is the one the person approved as
     // its card showed it: the same request, site and origin.

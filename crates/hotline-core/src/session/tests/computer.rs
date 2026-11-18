@@ -995,6 +995,73 @@ async fn a_passkey_for_another_name_under_the_site_than_the_card_showed_is_not_s
     );
 }
 
+/// The arming's ten minutes are the desk's, counted before the computer is
+/// asked, whatever end the computer answers: a computer that says its
+/// arming ends an hour later cannot have a passkey stored or granted after
+/// the desk's ten minutes, while one made in time is stored as ever.
+#[tokio::test]
+async fn a_computer_that_says_its_arming_ends_later_cannot_have_a_passkey_kept_after_the_desks_ten_minutes()
+ {
+    use crate::contract::PasskeyRegistrationState;
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-desk-deadline",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    taken.arm_later(60 * 60_000);
+    let before = room.passkey_now();
+    let armed = room
+        .secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ends = armed.expires_at.expect("an end");
+    assert!(
+        ends >= before + 10 * 60_000 && ends < before + 11 * 60_000,
+        "the desk's ten minutes, not the computer's hour: {}",
+        ends - before
+    );
+    let ask = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    room.secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap();
+    room.advance_passkey_clock(10 * 60_000 + 1_000);
+    taken.mint();
+    until_let_go(&room, "ada").await;
+    assert_nothing_kept(&room, &taken);
+
+    // In time, the same computer's passkey is stored.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-desk-deadline-in-time",
+        Some("0.11.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    taken.arm_later(60 * 60_000);
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let ask = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    room.secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap();
+    room.advance_passkey_clock(9 * 60_000);
+    taken.mint();
+    let stored = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
+    assert_eq!(
+        stored.secret.map(|secret| secret.name).as_deref(),
+        Some("GITHUB_PASSKEY")
+    );
+    assert_eq!(
+        room.persona("ada").unwrap().secrets.as_deref(),
+        Some(&["GITHUB_PASSKEY".to_string()][..])
+    );
+}
+
 /// The command names the scripted runtime was given, in order.
 fn runtime_commands(root: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(root.join("argv.log"))

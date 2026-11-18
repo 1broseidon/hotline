@@ -457,7 +457,7 @@ impl Room {
         }
         let delivery = delivered.join(" · ");
         let mut note = format!(
-            "{delivery}. A teammate sees an item's title and who sent it once it is in their inbox, and reads it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. Carry on, or end your turn to wait; do not send it again."
+            "{delivery}. A teammate sees an item's title and who sent it once it is in their inbox, and reads it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. If the person asks where it stands, `read_inbox` with list `sent` says. Carry on, or end your turn to wait; do not send it again."
         );
         if for_person {
             note = format!("{note} {ROW_IS_THE_RECEIPT}");

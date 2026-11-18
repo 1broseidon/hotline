@@ -944,6 +944,32 @@ mod tests {
         assert!(refused.contains("Choose the folder again"), "{refused}");
         assert!(!skills(&elsewhere.join("work")));
         assert_eq!(recorded(&room), None);
+
+        // An older grant whose path is now a link is granted again by the
+        // person, never adopted where it now leads.
+        let log = scratch("agent-root-linked-grant");
+        let work = log.root().join("work");
+        let granted = log.root().join("granted");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(log.root().join("target")).unwrap();
+        std::os::unix::fs::symlink(log.root().join("target"), &granted).unwrap();
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = work.to_string_lossy().into_owned();
+        ada.folders = Some(vec![crate::contract::FolderGrant {
+            path: granted.to_string_lossy().into_owned(),
+            writable: true,
+            identity: None,
+        }]);
+        let room = room_with(&ada, log, Fake::new(Scripted::new(reply("Hello."))));
+        let refused = room.start("ada").await.unwrap_err();
+        assert!(refused.contains("Grant the folder again"), "{refused}");
+        assert!(!skills(&work));
+        assert!(
+            room.persona("ada").unwrap().folders.unwrap()[0]
+                .identity
+                .is_none()
+        );
     }
 
     #[tokio::test]

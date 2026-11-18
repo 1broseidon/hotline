@@ -268,10 +268,11 @@ pub(crate) fn materialize_agents_md_with_capability(
     // The session start path creates the cwd first. Once it exists, all
     // identity-file reads and writes go through the same confined directory
     // handle as agent file callbacks; in particular, a dangling AGENTS.md
-    // symlink cannot cause a write outside the teammate's workspace. Only a
-    // harness gets this file, and its own tools reach past any link at the
-    // root, so the root is opened as the record spells it.
-    let workspace = Workspace::open_following_root(
+    // symlink cannot cause a write outside the teammate's workspace. The
+    // root is the directory the person chose: a link there, or another
+    // directory than the recorded one, is refused before anything is read
+    // or written, unless the teammate has the whole machine.
+    let workspace = crate::session::root_opener(persona)(
         directory.to_path_buf(),
         Reach::Workspace,
         directory.join(".hotline-tool-output"),

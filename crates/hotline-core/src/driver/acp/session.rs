@@ -229,13 +229,14 @@ impl ChildAgent {
     /// the folders the person granted, read-only unless a grant says it may be
     /// changed, for every ACP persona, including records that still carry the
     /// old machine reach value. Runtime ACP mode names never affect this choice.
-    /// A root that is a link is followed, as it always was: the harness's own
-    /// tools reach wherever it points.
+    /// The root is the directory the person chose: a link there, or another
+    /// directory than the recorded one, is refused, unless the teammate has
+    /// the whole machine.
     pub(super) fn callback_workspace(
         persona: &Persona,
         capability: Option<CapabilityLease>,
     ) -> Result<Workspace, String> {
-        Workspace::open_following_root(
+        crate::session::root_opener(persona)(
             PathBuf::from(&persona.cwd),
             Reach::Workspace,
             PathBuf::from(&persona.cwd).join(".hotline-tool-output"),

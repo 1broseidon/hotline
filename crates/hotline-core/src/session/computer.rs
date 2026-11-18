@@ -25,6 +25,11 @@ impl Room {
         {
             return ComputerAtStart::NotWanted;
         }
+        // A computer opens its folders by path; refused here, the teammate
+        // starts without one and is told why.
+        if let Err(reason) = self.computer_overlap(persona) {
+            return ComputerAtStart::Unavailable(reason);
+        }
         if self.computer_links.begin_start(&persona.id) {
             // A download already under way joins when it lands; a second
             // one would race it for the same container.
@@ -288,6 +293,7 @@ impl Room {
         {
             return Ok(Vec::new());
         }
+        self.computer_overlap(persona)?;
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);
@@ -695,6 +701,7 @@ impl Room {
 
         // The computer has to be up to receive the login; a stopped one is
         // started, the same as opening its screen would.
+        self.computer_overlap(&persona)?;
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);

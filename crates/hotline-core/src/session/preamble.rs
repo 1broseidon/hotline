@@ -43,7 +43,7 @@ pub(crate) fn preamble_for(
         .as_ref()
         .is_some_and(|computer| computer.enabled)
     {
-        if crate::skills::computer_entry(Path::new(&persona.cwd))
+        if crate::skills::computer_entry(Path::new(&persona.cwd), super::bound_identity(persona))
             .is_some_and(|entry| entry.invalid.is_none())
         {
             "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. Its guide for the release it is running is your `hotline-computer` skill; read it before your first call on the computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. The person can see its screen and take it over at any time. When a page needs you signed in, a sign-in wall or a private page that shows as 404 because you are not, call `ask_cookies` with the site and why: the person can share their cookies for it, give you a login, or sign in on your screen themselves. For a passkey, use `request_credential` with its full origin. Never ask for the person's passwords or credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
@@ -226,10 +226,11 @@ pub(super) fn skills_index(persona: &Persona) -> String {
         .computer
         .as_ref()
         .is_some_and(|computer| computer.enabled);
-    let listed: Vec<_> = crate::skills::visible(Path::new(&persona.cwd))
-        .into_iter()
-        .filter(|skill| has_computer || skill.name != crate::skills::COMPUTER)
-        .collect();
+    let listed: Vec<_> =
+        crate::skills::visible(Path::new(&persona.cwd), super::bound_identity(persona))
+            .into_iter()
+            .filter(|skill| has_computer || skill.name != crate::skills::COMPUTER)
+            .collect();
     crate::skills::index(&listed)
 }
 

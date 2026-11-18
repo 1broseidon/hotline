@@ -126,6 +126,7 @@ impl Room {
                 persona.name
             ));
         }
+        self.computer_overlap(&persona)?;
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);

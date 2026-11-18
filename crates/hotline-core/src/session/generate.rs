@@ -139,12 +139,7 @@ impl Room {
         // A linked root is refused as the teammate's own tools refuse it; with
         // whole-machine reach there is no wall for it to move, so it is
         // followed as before.
-        let open = if persona.reach.unwrap_or_default() == Reach::Machine {
-            Workspace::open_following_root
-        } else {
-            Workspace::open_with_capability
-        };
-        let output = open(
+        let output = crate::session::root_opener(&persona)(
             PathBuf::from(&persona.cwd),
             Reach::Workspace,
             self.log.root().join("tool-output").join(persona_id),

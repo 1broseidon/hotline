@@ -449,7 +449,9 @@ impl Computer {
     ) -> Result<Ready, String> {
         // A container's workspace mount is made from this path, and a runtime
         // follows a link there as every other holder would.
-        if let Some(refused) = crate::session::moved_workspace(persona, workspace_cwd) {
+        if let Some(refused) = crate::session::moved_workspace(persona, workspace_cwd)
+            .or_else(|| crate::session::moved_folder(persona))
+        {
             return Err(refused);
         }
         let _turn = self.turn_of(&persona.id).lock_owned().await;

@@ -700,9 +700,13 @@ async fn session_new_hands_the_granted_folders_to_a_harness_that_takes_them() {
     }
 }
 
+/// A root that is a link is not the workspace's wall: Hotline's callbacks
+/// and its `AGENTS.md` refuse it under workspace reach (a link the person
+/// chose is resolved when they choose it, so one found later was put there
+/// since), while a teammate given the whole machine may keep following it.
 #[cfg(unix)]
 #[test]
-fn callback_workspace_accepts_the_selected_symlinked_root_alias() {
+fn callbacks_and_agents_md_refuse_a_linked_root_unless_the_whole_machine_is_granted() {
     use std::os::unix::fs::symlink;
 
     let parent = scratch("callbacks-alias");
@@ -710,16 +714,45 @@ fn callback_workspace_accepts_the_selected_symlinked_root_alias() {
     let alias = parent.join("alias");
     std::fs::create_dir(&actual).unwrap();
     symlink(&actual, &alias).unwrap();
-    let file = actual.join("inside.txt");
-    std::fs::write(&file, "through alias\n").unwrap();
+    std::fs::write(actual.join("inside.txt"), "through alias\n").unwrap();
 
-    let ada = persona(&alias.to_string_lossy(), Vec::new());
+    let mut ada = persona(&alias.to_string_lossy(), Vec::new());
+    assert!(ChildAgent::callback_workspace(&ada, None).is_err());
+    assert!(materialize_agents_md(&ada).is_err());
+    assert!(!actual.join("AGENTS.md").exists());
+
+    ada.reach = Some(crate::contract::Reach::Machine);
     let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
     let request = ReadTextFileRequest::new(SessionId::new("s"), alias.join("inside.txt"));
     assert_eq!(
         read_text_file(&workspace, &request).unwrap(),
         "through alias\n"
     );
+}
+
+/// The callbacks and `AGENTS.md` act only in the directory the record says
+/// the workspace is: ordinary reads, writes and the identity file land in
+/// it, and once it is renamed away and another made at its path, both are
+/// refused before anything is read or written there.
+#[cfg(unix)]
+#[test]
+fn callbacks_and_agents_md_act_only_in_the_recorded_workspace() {
+    let parent = scratch("callbacks-bound");
+    let work = parent.join("work");
+    std::fs::create_dir(&work).unwrap();
+    let mut ada = persona(&work.to_string_lossy(), Vec::new());
+    ada.cwd_identity = crate::tools::path_identity(&work);
+    let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+    let write = WriteTextFileRequest::new(SessionId::new("s"), work.join("made.txt"), "made");
+    write_text_file(&workspace, &write).unwrap();
+    materialize_agents_md(&ada).unwrap();
+    assert!(work.join("made.txt").is_file() && work.join("AGENTS.md").is_file());
+
+    std::fs::rename(&work, parent.join("work-was")).unwrap();
+    std::fs::create_dir(&work).unwrap();
+    assert!(ChildAgent::callback_workspace(&ada, None).is_err());
+    assert!(materialize_agents_md(&ada).is_err());
+    assert_eq!(std::fs::read_dir(&work).unwrap().count(), 0);
 }
 
 #[cfg(unix)]

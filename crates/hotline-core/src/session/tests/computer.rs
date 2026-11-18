@@ -1090,7 +1090,7 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     let marker = std::fs::read_to_string(folder.join(".managed-by-hotline")).unwrap();
     assert!(marker.starts_with("computer 0.11.0 "), "{marker}");
 
-    let entry = crate::skills::computer_entry(&cwd).expect("listed");
+    let entry = crate::skills::computer_entry(&cwd, None).expect("listed");
     assert_eq!(entry.source, crate::contract::SkillSource::Computer);
     assert_eq!(entry.name, "hotline-computer");
     assert_eq!(entry.version.as_deref(), Some("0.11.0"));
@@ -1131,7 +1131,7 @@ async fn a_held_computer_without_a_guide_reports_its_label_and_leaves_no_stale_s
     room.start("ada").await.unwrap();
 
     assert!(!cwd.join(".agents/skills/hotline-computer").exists());
-    assert!(crate::skills::computer_entry(&cwd).is_none());
+    assert!(crate::skills::computer_entry(&cwd, None).is_none());
     let heard = lock(&agents.preambles)[0].clone();
     assert!(heard.contains("action `guide`"), "{heard}");
     assert!(!heard.contains("- hotline-computer:"), "{heard}");

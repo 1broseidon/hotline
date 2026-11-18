@@ -422,9 +422,14 @@ async fn a_computer_made_with_other_folders_is_made_again() {
     fs::write(root.join("state"), "absent").unwrap();
     let computers = Computer::with_path(root.as_os_str());
     let mut ada = persona("ada", cwd.to_str().unwrap());
+    // As a grant is stored: the directory it resolves to.
     ada.folders = Some(vec![FolderGrant {
         identity: None,
-        path: folder.to_string_lossy().into_owned(),
+        path: folder
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
         writable: false,
     }]);
     let cwd = cwd.to_str().unwrap();
@@ -1057,4 +1062,63 @@ async fn desk_clients_to_the_computer_do_not_follow_redirects() {
         Vec::<String>::new(),
         "nothing followed a redirect"
     );
+}
+
+/// A computer's runtime binds the workspace and folders by path, so its
+/// start reads each path's directory first: the recorded ones start as
+/// before; with the workspace reached through a folder above it renamed
+/// away and replaced, or a granted folder remade at its path, the start is
+/// refused before the runtime is asked anything.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_computer_is_not_made_on_a_changed_workspace_or_folder() {
+    let root = scratch("bound-mounts").canonicalize().unwrap();
+    let cwd = root.join("holder/mid/work");
+    let folder = root.join("granted");
+    fs::create_dir_all(&cwd).unwrap();
+    fs::create_dir_all(&folder).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    let log = root.join("argv.log");
+    fs::write(root.join("state"), "absent").unwrap();
+    let computers = Computer::with_path(root.as_os_str());
+    let mut ada = persona("ada", cwd.to_str().unwrap());
+    ada.cwd_identity = crate::tools::path_identity(&cwd);
+    ada.folders = Some(vec![FolderGrant {
+        identity: crate::tools::path_identity(&folder),
+        path: folder.to_string_lossy().into_owned(),
+        writable: true,
+    }]);
+    computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect("the chosen directories");
+    computers.stop("ada", None).await.expect("stop");
+    fs::write(root.join("state"), "absent").unwrap();
+
+    fs::rename(&folder, root.join("granted-was")).unwrap();
+    fs::create_dir(&folder).unwrap();
+    fs::write(&log, "").unwrap();
+    let refused = computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect_err("another folder at the grant's path");
+    assert!(
+        refused.contains("no longer the folder that was granted"),
+        "{refused}"
+    );
+    assert_eq!(log_text(&log), "", "the runtime was not asked");
+    fs::remove_dir(&folder).unwrap();
+    fs::rename(root.join("granted-was"), &folder).unwrap();
+
+    let elsewhere = root.join("elsewhere");
+    fs::create_dir_all(elsewhere.join("work")).unwrap();
+    fs::rename(root.join("holder/mid"), root.join("holder/mid-was")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, root.join("holder/mid")).unwrap();
+    let refused = computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect_err("another directory at the workspace's path");
+    assert!(refused.contains("no longer the folder chosen"), "{refused}");
+    assert_eq!(log_text(&log), "", "the runtime was not asked");
 }

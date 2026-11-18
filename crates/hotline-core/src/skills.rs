@@ -238,10 +238,68 @@ pub fn read_folder(folder: &Path, source: SkillSource, own_only: bool) -> Vec<Sk
         .collect()
 }
 
+/// The workspace's `.agents/skills`, opened through a handle on the
+/// workspace that must be `identity` (the record's `cwdIdentity`, under
+/// workspace reach) when one is given: a workspace swapped for another
+/// directory since the person chose it (H-64) lists nothing. Every read
+/// after is resolved inside the handle, never by the path again.
+fn workspace_skills(cwd: &Path, identity: Option<&str>) -> Option<Dir> {
+    let root = Dir::open_ambient_dir(cwd, ambient_authority()).ok()?;
+    if let Some(expected) = identity
+        && crate::tools::dir_identity(&root).as_deref() != Some(expected)
+    {
+        return None;
+    }
+    root.open_dir(DIRECTORY).ok()
+}
+
+/// [`read_folder`] for a teammate's own skills. With the record's
+/// `identity` (workspace reach) they are read through [`workspace_skills`],
+/// so the desk's listing and the preamble's index read only the directory
+/// the person chose, and a skill folder linked out of the workspace, which
+/// the teammate's tools cannot open either, is not listed. Without one
+/// (whole-machine reach) the folder is read by its path as before.
+pub fn read_workspace(cwd: &Path, identity: Option<&str>, own_only: bool) -> Vec<SkillEntry> {
+    if identity.is_none() {
+        return read_folder(&cwd.join(DIRECTORY), SkillSource::Workspace, own_only);
+    }
+    let Some(skills) = workspace_skills(cwd, identity) else {
+        return Vec::new();
+    };
+    let Ok(entries) = skills.entries() else {
+        return Vec::new();
+    };
+    let shown = cwd.join(DIRECTORY);
+    let mut names: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| !name.starts_with('.'))
+        .filter(|name| skills.metadata(name).is_ok_and(|found| found.is_dir()))
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .filter(|name| !(own_only && skills.exists(Path::new(name).join(MANAGED_MARKER))))
+        .map(|name| {
+            let text = skills.read_to_string(Path::new(&name).join(FILE)).ok();
+            entry_of(&name, &shown.join(&name), SkillSource::Workspace, text)
+        })
+        .collect()
+}
+
 fn entry(directory: &str, path: &Path, source: SkillSource) -> SkillEntry {
-    let file = path.join(FILE);
-    let parsed = std::fs::read_to_string(&file)
-        .map_err(|_| format!("{directory} has no {FILE}."))
+    entry_of(
+        directory,
+        path,
+        source,
+        std::fs::read_to_string(path.join(FILE)).ok(),
+    )
+}
+
+/// An entry from its `SKILL.md`'s text, read however the caller reads it.
+fn entry_of(directory: &str, path: &Path, source: SkillSource, text: Option<String>) -> SkillEntry {
+    let parsed = text
+        .ok_or_else(|| format!("{directory} has no {FILE}."))
         .and_then(|text| parse(directory, &text));
     match parsed {
         Ok(skill) => SkillEntry {
@@ -323,14 +381,20 @@ pub fn write_computer(
 /// wrote one into this workspace: source `computer`, with the release it
 /// came from. Nothing when there is no such entry or the marker is not the
 /// computer's.
-pub fn computer_entry(cwd: &Path) -> Option<SkillEntry> {
+pub fn computer_entry(cwd: &Path, identity: Option<&str>) -> Option<SkillEntry> {
+    // Hotline writes this entry as plain files, so it is read through the
+    // workspace handle whatever the reach.
+    let skills = workspace_skills(cwd, identity)?;
     let folder = cwd.join(DIRECTORY).join(COMPUTER);
-    let marker = std::fs::read_to_string(folder.join(MANAGED_MARKER)).ok()?;
+    let marker = skills
+        .read_to_string(Path::new(COMPUTER).join(MANAGED_MARKER))
+        .ok()?;
     let version = marker
         .strip_prefix("computer ")?
         .split_whitespace()
         .next()?;
-    let mut found = entry(COMPUTER, &folder, SkillSource::Computer);
+    let text = skills.read_to_string(Path::new(COMPUTER).join(FILE)).ok();
+    let mut found = entry_of(COMPUTER, &folder, SkillSource::Computer, text);
     found.path = workspace_path(COMPUTER);
     found.version = Some(version.to_string());
     Some(found)
@@ -454,9 +518,9 @@ pub fn workspace_path(name: &str) -> String {
 /// What a teammate can read in its workspace: the built-ins, and every valid
 /// entry in its `.agents/skills`, one per name. An entry on disk wins over a
 /// built-in of the same name, because it is the file that will be read.
-pub fn visible(cwd: &Path) -> Vec<SkillEntry> {
+pub fn visible(cwd: &Path, identity: Option<&str>) -> Vec<SkillEntry> {
     let mut out = builtin_entries();
-    for found in read_folder(&cwd.join(DIRECTORY), SkillSource::Workspace, false) {
+    for found in read_workspace(cwd, identity, false) {
         if found.invalid.is_some() {
             continue;
         }
@@ -1158,7 +1222,7 @@ mod tests {
         std::fs::remove_file(target.join("hotline-room").join(MANAGED_MARKER)).unwrap();
         materialize(&cwd, None, &gateway_only(&gateway), &all).unwrap();
         assert!(!target.join("cut-release").join(MANAGED_MARKER).exists());
-        let seen = visible(&cwd);
+        let seen = visible(&cwd, None);
         let room = seen.iter().find(|one| one.name == "hotline-room").unwrap();
         assert!(room.description.starts_with("My own room rules."));
         assert_eq!(room.path, workspace_path("hotline-room"));
@@ -1389,7 +1453,7 @@ mod tests {
             "the guide"
         );
         assert_eq!(
-            computer_entry(&cwd).unwrap().version.as_deref(),
+            computer_entry(&cwd, None).unwrap().version.as_deref(),
             Some("0.11.0")
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -1481,6 +1545,54 @@ mod tests {
     /// either. The skills handle is held on the folder it opened, so a write
     /// and a removal through it land in that folder, wherever the teammate
     /// moved it inside its workspace, and never where the new link points.
+    /// The desk's skill listing and the preamble's index read only the
+    /// directory the record says the workspace is: its skills and computer
+    /// guide are listed as before; with a folder above it renamed away and
+    /// replaced (as a confined shell on Linux can, inside a writable folder),
+    /// nothing is read from the directory now at its path.
+    #[cfg(unix)]
+    #[test]
+    fn skills_are_read_only_from_the_recorded_workspace() {
+        let root = scratch("skills-bound-read");
+        let cwd = root.join("holder/mid/work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let identity = crate::tools::path_identity(&cwd).unwrap();
+        put(&cwd.join(DIRECTORY), "own-skill", false);
+        write_computer(&cwd, Some(&identity), "0.11.0", "abc", "the guide").unwrap();
+        let listed = |identity: Option<&str>| {
+            let mut names: Vec<String> = read_workspace(&cwd, identity, false)
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect();
+            names.extend(computer_entry(&cwd, identity).map(|entry| entry.name));
+            names
+        };
+        assert_eq!(
+            listed(Some(&identity)),
+            ["hotline-computer", "own-skill", "hotline-computer"]
+        );
+        assert!(
+            visible(&cwd, Some(&identity))
+                .iter()
+                .any(|entry| entry.name == "own-skill")
+        );
+
+        let planted = root.join("planted");
+        put(
+            &planted.join("work").join(DIRECTORY),
+            "planted-skill",
+            false,
+        );
+        std::fs::rename(root.join("holder/mid"), root.join("holder/mid-was")).unwrap();
+        std::os::unix::fs::symlink(&planted, root.join("holder/mid")).unwrap();
+        assert_eq!(listed(Some(&identity)), Vec::<String>::new());
+        assert!(
+            !visible(&cwd, Some(&identity))
+                .iter()
+                .any(|entry| entry.name == "planted-skill")
+        );
+    }
+
     /// The skills writer writes only into the directory the record says the
     /// workspace is: the same one is written as before; another made at its
     /// path since (H-64) gets nothing, and neither does the one moved away.

@@ -110,7 +110,7 @@ pub use hotline_room::provider_auth::ProviderAuth;
 use prompt::{PendingTool, stamped};
 use secrets::PasskeyArming;
 pub use stopping::Stopped;
-pub(crate) use workspace_root::{bound_identity, moved_workspace};
+pub(crate) use workspace_root::{bound_identity, moved_folder, moved_workspace, root_opener};
 
 pub use peers::TEAMMATE_MESSAGE_MAX;
 pub(crate) use schedule::{Brief, Ends, Report, Trigger};

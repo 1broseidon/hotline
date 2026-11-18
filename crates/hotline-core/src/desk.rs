@@ -9,7 +9,7 @@
 use crate::contract::{
     Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
     Credential, CredentialKind, ImageSettings, ImagesStatus, LoginPrompt, LoginState, LoginStatus,
-    SessionInfo, SkillEntry, SkillSource, StreamDelta,
+    SessionInfo, SkillEntry, StreamDelta,
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
@@ -987,12 +987,14 @@ impl RoomHandle for Desk {
                 .into_iter()
                 .find(|persona| persona.id == persona_id)
                 .ok_or_else(|| "There is no such teammate in this room.".to_string())?;
-            entries.extend(skills::read_folder(
-                &Path::new(&persona.cwd).join(skills::DIRECTORY),
-                SkillSource::Workspace,
-                true,
-            ));
-            entries.extend(skills::computer_entry(Path::new(&persona.cwd)));
+            // Read only from the directory the person chose: a workspace
+            // that is now a link or another directory lists nothing.
+            if crate::session::moved_workspace(&persona, &persona.cwd).is_none() {
+                let cwd = Path::new(&persona.cwd);
+                let identity = crate::session::bound_identity(&persona);
+                entries.extend(skills::read_workspace(cwd, identity, true));
+                entries.extend(skills::computer_entry(cwd, identity));
+            }
         }
         Ok(entries)
     }

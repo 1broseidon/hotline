@@ -669,10 +669,10 @@ mod tests {
     /// agent is built and its turns are reached from.
     #[test]
     fn a_clone_is_narrowed_by_what_the_home_agent_left_out() {
-        use crate::contract::{FolderGrant, McpPolicy, PolicyMode};
+        use crate::contract::{McpPolicy, PolicyMode};
         let mut ada = with_computer();
         ada.reach = Some(Reach::Machine);
-        ada.folders = Some(vec![FolderGrant {
+        ada.folders = Some(vec![crate::contract::FolderGrant {
             identity: None,
             path: "/srv/harbour".to_string(),
             writable: true,
@@ -1040,6 +1040,104 @@ mod tests {
         assert_eq!(agents.views().pop().unwrap().cwd_identity, Some(chosen));
         assert!(work.join(".agents/skills").is_dir());
         assert!(!work.with_file_name("work-was").join(".agents").exists());
+    }
+
+    /// A permission change made while a start waits on the policy lock
+    /// always wins: with a granted folder taken away, made read-only, or
+    /// whole-machine reach narrowed, the waiting start does not go on with
+    /// what it had: no agent is built and nothing is written, and the
+    /// reattach the change orders starts it from the record.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_start_does_not_go_on_with_access_taken_away_while_it_waited() {
+        for change in ["revoked", "read-only", "reach"] {
+            let log = scratch(&format!("agent-access-{change}"));
+            let work = log.root().join("work");
+            let shared = log.root().join("shared");
+            std::fs::create_dir_all(&work).unwrap();
+            std::fs::create_dir_all(&shared).unwrap();
+            let shared = shared.canonicalize().unwrap();
+            let mut ada = persona("ada");
+            ada.cwd = work.to_string_lossy().into_owned();
+            ada.cwd_identity = crate::tools::path_identity(&work);
+            ada.reach = (change == "reach").then_some(Reach::Machine);
+            ada.folders = Some(vec![crate::contract::FolderGrant {
+                path: shared.to_string_lossy().into_owned(),
+                writable: true,
+                identity: crate::tools::path_identity(&shared),
+            }]);
+            let agents = Fake::new(Scripted::new(reply("Hello.")));
+            let room = room_with(&ada, log, agents.clone());
+
+            let gate = room.policy_update_lock();
+            let held = gate.lock().await;
+            let starting = tokio::spawn({
+                let room = room.clone();
+                async move { room.start("ada").await }
+            });
+            for _ in 0..200 {
+                tokio::task::yield_now().await;
+            }
+            assert!(
+                !starting.is_finished(),
+                "{change}: the start waits on the lock"
+            );
+            let mut record = room.persona("ada").unwrap();
+            match change {
+                "revoked" => record.folders = None,
+                "read-only" => record.folders.as_mut().unwrap()[0].writable = false,
+                _ => record.reach = None,
+            }
+            crate::room::append_persona(&room.log, &record).unwrap();
+            drop(held);
+
+            let refused = starting.await.unwrap().unwrap_err();
+            assert!(refused.contains("access changed"), "{change}: {refused}");
+            assert!(
+                agents.views().is_empty(),
+                "{change}: no agent ran with the old access"
+            );
+            assert!(
+                !work.join(".agents").exists(),
+                "{change}: nothing was written"
+            );
+        }
+    }
+
+    /// A thread's own narrowing survives the binding: a view without the
+    /// teammate's folders, or with one read-only that the record makes
+    /// writable, is bound as it is and never widened to the record.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_threads_own_narrower_access_survives_the_binding() {
+        let log = scratch("agent-access-narrowed");
+        let work = log.root().join("work");
+        let shared = log.root().join("shared");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        let shared = shared.canonicalize().unwrap();
+        let mut ada = persona("ada");
+        ada.reach = None;
+        ada.cwd = work.to_string_lossy().into_owned();
+        ada.cwd_identity = crate::tools::path_identity(&work);
+        ada.folders = Some(vec![crate::contract::FolderGrant {
+            path: shared.to_string_lossy().into_owned(),
+            writable: true,
+            identity: crate::tools::path_identity(&shared),
+        }]);
+        let room = room_with(&ada, log, Fake::new(Scripted::new(reply("Hello."))));
+
+        let mut without = ada.clone();
+        without.folders = None;
+        room.bind_workspace(&mut without).await.unwrap();
+        assert_eq!(without.folders, None);
+
+        let mut read_only = ada.clone();
+        read_only.folders.as_mut().unwrap()[0].writable = false;
+        room.bind_workspace(&mut read_only).await.unwrap();
+        let folders = read_only.folders.unwrap();
+        assert_eq!(folders.len(), 1);
+        assert!(!folders[0].writable, "never widened to the record");
     }
 
     #[tokio::test]

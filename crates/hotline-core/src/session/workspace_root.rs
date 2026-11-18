@@ -120,7 +120,7 @@ pub(crate) fn overlapping_roots(roster: &[Persona], persona: &Persona) -> Option
     std::iter::once(persona.cwd.as_str())
         .chain(persona.folders.iter().flatten().map(|grant| grant.path.as_str()))
         .map(Path::new)
-        .find(|root| replaceable(&areas, root))
+        .find(|root| replaceable(areas.as_deref(), root))
         .map(|root| {
             format!(
                 "{}'s computer is not started: {} is inside a folder a teammate can change, and a computer opens its folders by path. Move the working directory or folder out of it, or take away write access to it.",
@@ -133,8 +133,9 @@ pub(crate) fn overlapping_roots(roster: &[Persona], persona: &Persona) -> Option
 /// The identity of each folder a workspace-reach teammate may write at its
 /// root: its workspace and its writable grants. One that is gone holds
 /// nothing and is left out.
-fn confined_areas(roster: &[Persona]) -> Vec<String> {
-    roster
+fn confined_areas(roster: &[Persona]) -> Option<Vec<String>> {
+    let mut areas = Vec::new();
+    let paths = roster
         .iter()
         .filter(|persona| persona.reach.unwrap_or_default() == Reach::Workspace)
         .flat_map(|persona| {
@@ -146,18 +147,36 @@ fn confined_areas(roster: &[Persona]) -> Vec<String> {
                     .filter(|grant| grant.writable)
                     .map(|grant| grant.path.as_str()),
             )
-        })
-        .filter_map(|path| crate::tools::path_identity(Path::new(path)))
-        .collect()
+        });
+    for path in paths.map(Path::new) {
+        match crate::tools::path_identity(path) {
+            Some(identity) => areas.push(identity),
+            // Gone: it holds nothing. Any other failure leaves the area
+            // unknown, and so everything it might hold.
+            None if absent(path) => {}
+            None => return None,
+        }
+    }
+    Some(areas)
+}
+
+/// Whether `path` is not there at all, as opposed to there but unreadable.
+fn absent(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// Whether a confined teammate could replace `path` or a folder on the way to
 /// it: a directory holding one of its steps, as spelled (through any link) or
 /// as resolved, is one of `areas` or lies inside one. Compared by directory
 /// identity, so another spelling of a folder (a case-insensitive volume, a
-/// link) is the same folder; a directory whose identity cannot be read counts
+/// link) is the same folder. Unknown ancestry is never read as safe: no
+/// `areas` (one could not be read), a step that is there but cannot be
+/// resolved, or a directory whose identity cannot be read, all count
 /// as replaceable. Steps not made yet hold nothing.
-fn replaceable(areas: &[String], path: &Path) -> bool {
+fn replaceable(areas: Option<&[String]>, path: &Path) -> bool {
+    let Some(areas) = areas else {
+        return true;
+    };
     let spelled = path.ancestors().skip(1).map(Path::to_path_buf);
     let resolved = dunce::canonicalize(path).ok().into_iter().flat_map(|path| {
         path.ancestors()
@@ -167,8 +186,12 @@ fn replaceable(areas: &[String], path: &Path) -> bool {
     });
     let mut holders = std::collections::BTreeSet::new();
     for holder in spelled.chain(resolved) {
-        if let Ok(holder) = dunce::canonicalize(&holder) {
-            holders.extend(holder.ancestors().map(Path::to_path_buf));
+        match dunce::canonicalize(&holder) {
+            Ok(holder) => holders.extend(holder.ancestors().map(Path::to_path_buf)),
+            // A step not made yet holds nothing; its made ancestors are
+            // holders in their own right.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return true,
         }
     }
     holders
@@ -218,7 +241,7 @@ pub(super) fn bind_root(roster: &[Persona], subject: &Persona) -> Result<Binding
             return Err(crate::tools::not_the_chosen_folder(path));
         }
     } else {
-        if replaceable(&areas, path) {
+        if replaceable(areas.as_deref(), path) {
             return Err(reselect(path));
         }
         match std::fs::symlink_metadata(path) {
@@ -233,10 +256,10 @@ pub(super) fn bind_root(roster: &[Persona], subject: &Persona) -> Result<Binding
     }
     for grant in subject.folders.iter().flatten() {
         let path = Path::new(&grant.path);
-        if grant.identity.is_some() || std::fs::symlink_metadata(path).is_err() {
+        if grant.identity.is_some() || absent(path) {
             continue;
         }
-        if replaceable(&areas, path) {
+        if replaceable(areas.as_deref(), path) {
             return Err(grant_again(path, &subject.name));
         }
         let identity =
@@ -267,7 +290,42 @@ fn grant_again(path: &Path, name: &str) -> String {
     )
 }
 
+/// Whether a session's `view` reaches further than `record`: whole-machine
+/// reach the record no longer gives, a folder the record no longer grants, or
+/// a folder writable in the view and read-only on the record. Hotline's own
+/// received folder (`received`) is in every session and never on a record.
+fn wider_than(view: &Persona, record: &Persona, received: Option<&Path>) -> bool {
+    let machine = |persona: &Persona| persona.reach.unwrap_or_default() == Reach::Machine;
+    if machine(view) && !machine(record) {
+        return true;
+    }
+    view.folders.iter().flatten().any(|grant| {
+        if received == Some(Path::new(&grant.path)) {
+            return false;
+        }
+        match record
+            .folders
+            .iter()
+            .flatten()
+            .find(|recorded| recorded.path == grant.path)
+        {
+            None => true,
+            Some(recorded) => grant.writable && !recorded.writable,
+        }
+    })
+}
+
 impl super::Room {
+    /// Where this desk keeps `persona_id`'s received folder, as its grant
+    /// spells it.
+    fn received_path(&self, persona_id: &str) -> Option<PathBuf> {
+        dunce::canonicalize(super::files_between::received_dir(
+            self.log.root(),
+            persona_id,
+        ))
+        .ok()
+    }
+
     /// [`overlapping_roots`] against the desk's roster, before a computer
     /// is made or started with `persona`'s folders.
     pub(crate) fn computer_overlap(&self, persona: &Persona) -> Result<(), String> {
@@ -296,6 +354,18 @@ impl super::Room {
         if record.cwd != view.cwd {
             return Err(format!(
                 "{}'s working directory changed while it was starting; start it again.",
+                view.name
+            ));
+        }
+        // A newer permission change always wins: a session whose reach or
+        // folders are wider than the record now says (a folder taken away or
+        // made read-only, reach narrowed while it waited) does not start with
+        // them, and the reattach the change ordered starts it again from the
+        // record. A session narrower than the record (a thread without
+        // folders, or with fewer) is the thread's own and stays as it is.
+        if wider_than(view, &record, self.received_path(&view.id).as_deref()) {
+            return Err(format!(
+                "{}'s access changed while it was starting; it starts again with the new access.",
                 view.name
             ));
         }
@@ -485,5 +555,47 @@ mod tests {
         ada.reach = Some(Reach::Machine);
         ada.folders = Some(vec![grant(&projects, true)]);
         assert_eq!(overlapping_roots(&roster(&ada, &bob), &ada), None);
+    }
+
+    /// Unknown ancestry is never read as safe: under a folder that is there
+    /// but cannot be read, a path's ancestry cannot be established, so an
+    /// unbound workspace there is not adopted and a computer is not made on
+    /// it, and an area that cannot be read leaves every path unknown; a step
+    /// that is simply not there yet holds nothing.
+    #[test]
+    fn unknown_ancestry_is_never_read_as_safe() {
+        use std::os::unix::fs::PermissionsExt;
+        struct Restore(PathBuf);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().canonicalize().unwrap();
+        let locked = base.join("locked");
+        std::fs::create_dir_all(locked.join("work")).unwrap();
+        std::fs::create_dir_all(base.join("bob")).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let _restore = Restore(locked.clone());
+        if std::fs::read_dir(&locked).is_ok() {
+            return; // Running as root reads it anyway: nothing to show.
+        }
+        let work = locked.join("work");
+        assert!(replaceable(Some(&[]), &work));
+        assert!(!replaceable(Some(&[]), &base.join("absent/work")));
+        assert!(replaceable(None, &base.join("bob")));
+
+        let ada = confined("ada", &work);
+        let bob = confined("bob", &base.join("bob"));
+        let roster = vec![ada.clone(), bob];
+        assert!(bind_root(&roster, &ada).is_err_and(|why| why.contains("Choose the folder again")));
+        assert!(overlapping_roots(&roster, &ada).is_some());
+
+        // An area that cannot be read: Bob's workspace in the locked folder.
+        let bob_locked = confined("bob", &locked.join("bob"));
+        assert_eq!(confined_areas(std::slice::from_ref(&bob_locked)), None);
+        let elsewhere = confined("ada", &base.join("bob"));
+        assert!(overlapping_roots(&[elsewhere.clone(), bob_locked], &elsewhere).is_some());
     }
 }

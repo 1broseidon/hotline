@@ -17,7 +17,7 @@ mod catalog;
 mod clip;
 mod google;
 pub mod local;
-mod ollama;
+pub(crate) mod ollama;
 mod openai_shape;
 mod providers;
 mod wav;
@@ -166,6 +166,12 @@ pub trait Speech: Send + Sync {
         _sample_rate: u32,
     ) -> Result<String, SpeechError> {
         Err(SpeechError::UnsupportedFormat("live PCM".into()))
+    }
+    /// Whether `speak_chunks` yields incremental chunks rather than falling
+    /// back to whole-clip `speak`. Whole-clip providers benefit from 1-deep
+    /// sentence synthesis pipelining in `say_reply`.
+    fn streams_chunks(&self) -> bool {
+        false
     }
     /// One sentence to one playable clip.
     async fn speak(&self, text: &str) -> Result<Clip, SpeechError>;

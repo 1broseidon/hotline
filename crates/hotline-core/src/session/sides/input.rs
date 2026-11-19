@@ -87,6 +87,23 @@ impl Room {
         Ok(())
     }
 
+    /// Leaves the one overrun note for a direct call's running turn, which
+    /// the teammate reads with its next tool results. It is a note, not a
+    /// steered line: a wait goes on and queued tool calls still run.
+    pub(crate) fn nudge_call_overrun(&self, persona: &str, thread: &ThreadId) -> bool {
+        if self.validate_call_thread(persona, thread).is_err() {
+            return false;
+        }
+        let Ok(side) = self.live_side(&thread.key) else {
+            return false;
+        };
+        let turns = lock(&side.turns);
+        turns.running
+            && side
+                .driver()
+                .is_some_and(|driver| driver.note(crate::voice::spoken::OVERRUN_NUDGE.to_string()))
+    }
+
     /// Says something in a side thread in answer to one of its lines, which
     /// `reply_to` names, as a reply in the main conversation does.
     pub async fn prompt_side_replying(

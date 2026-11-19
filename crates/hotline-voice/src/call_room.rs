@@ -43,6 +43,11 @@ pub trait CallRoom: Send + Sync {
     async fn call_prompt(&self, persona: &str, thread: &ThreadId, text: &str)
     -> Result<(), String>;
     fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
+    /// Nudges a direct call's teammate turn once when it has stayed silent
+    /// far beyond a normal tool run after speaking its opening scope.
+    fn nudge_overrun(&self, _persona: &str, _thread: &ThreadId) -> bool {
+        false
+    }
     /// Model information for reply diagnostics.
     fn info(&self, persona: &str) -> Option<SessionInfo>;
     /// Keeps a Turn by turn reply's spoken version on its own thread.

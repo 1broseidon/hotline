@@ -195,7 +195,10 @@ impl Calls {
                 deliveries: CancellationToken::new(),
                 utterance_pending: false,
                 first_clip_started: None,
+                turn_timing: None,
                 waiting_sound: false,
+                last_spoken_at: None,
+                overrun_nudged: false,
                 feedback_at: None,
                 answering: None,
                 streams: HashMap::new(),
@@ -217,6 +220,20 @@ impl Calls {
                 tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));
             } else {
                 tokio::spawn(self.clone().waiting_sound(id.into(), cancel.clone()));
+                if let Some(tts) = calls
+                    .iter()
+                    .find(|call| call.id == id)
+                    .map(|call| call.speech_services.tts.clone())
+                    .filter(|tts| tts.id().provider_id == super::speech::ollama::PROVIDER_ID)
+                {
+                    let cancel = cancel.clone();
+                    tokio::spawn(async move {
+                        tokio::select! {
+                            () = cancel.cancelled() => {}
+                            _ = tokio::time::timeout(std::time::Duration::from_secs(15), tts.speak("ok")) => {}
+                        }
+                    });
+                }
             }
             self.thinking_again(id, cancel.clone());
             let this = self.clone();

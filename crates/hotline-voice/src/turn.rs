@@ -107,13 +107,6 @@ impl Calls {
         mut work: mpsc::Receiver<Work>,
     ) {
         let mut failures = 0u8;
-        let mut progress_lines = [
-            "I'm still working on that.",
-            "Still on it.",
-            "I'm continuing to work on this.",
-        ]
-        .into_iter()
-        .cycle();
         let mut cards = tokio::time::interval(Duration::from_millis(250));
         loop {
             let next = tokio::select! { biased;
@@ -170,6 +163,12 @@ impl Calls {
                     let bytes = committed.load(Ordering::SeqCst);
                     match transcribed {
                         Ok(text) if bytes != 0 && !speech.is_cancelled() => {
+                            let _ = self.change(&id, |call| {
+                                if let Some(timing) = &mut call.turn_timing {
+                                    timing.mark_stt();
+                                }
+                                Ok(())
+                            });
                             self.respond(
                                 &id,
                                 &context.for_utterance(),
@@ -227,24 +226,6 @@ impl Calls {
                     self.answer(&id, event, chunks, speech, &context.cancel)
                         .await
                 }
-                Work::Progress { seq, at, speech } => {
-                    let active = self
-                        .change(&id, |call| {
-                            Ok(call.feedback_at == Some(*at)
-                                && call.answering == Some(*seq)
-                                && call.seq == Some(*seq)
-                                && call.state == VoiceState::Thinking
-                                && !call.caller_speaking
-                                && call.streams.is_empty())
-                        })
-                        .unwrap_or(false);
-                    if active && !speech.is_cancelled() {
-                        let line = progress_lines.next().expect("progress lines never run out");
-                        self.say(&id, line, speech, &context.cancel).await
-                    } else {
-                        Ok(())
-                    }
-                }
                 Work::TurnOver(seq) => {
                     let _ = self.change(&id, |call| {
                         if call.answering.is_some_and(|answering| answering <= *seq) {
@@ -272,7 +253,6 @@ impl Calls {
                             | Work::Text { speech, .. }
                             | Work::Live { speech, .. }
                             | Work::Answer { speech, .. }
-                            | Work::Progress { speech, .. }
                             | Work::Delivery(_, speech)
                             | Work::Notice(_, speech) => Some(speech),
                             Work::TurnOver(_) => None,
@@ -345,6 +325,12 @@ impl Calls {
         if context.cancel.is_cancelled() {
             return Ok(());
         }
+        let _ = self.change(id, |call| {
+            if let Some(timing) = &mut call.turn_timing {
+                timing.mark_stt();
+            }
+            Ok(())
+        });
         self.respond(
             id,
             context,
@@ -435,6 +421,9 @@ impl Calls {
             let room = self.live_room().ok_or("The desk has closed.")?;
             room.call_prompt(&target, &thread, &text).await?;
             return self.change(id, |call| {
+                if let Some(timing) = &mut call.turn_timing {
+                    timing.mark_dispatch();
+                }
                 call.begin_answer(seq);
                 Ok(())
             });
@@ -568,9 +557,19 @@ impl Calls {
                 spoken::Spoken::default()
             };
             let mut whole = String::new();
+            let mut first_unit_recorded = false;
             while let Some(chunk) = chunks.recv().await {
                 whole.push_str(&chunk);
                 for sentence in spoken.push(&chunk) {
+                    if !first_unit_recorded && !spoken::speech_text(&sentence).is_empty() {
+                        first_unit_recorded = true;
+                        let _ = self.change(id, |call| {
+                            if let Some(timing) = &mut call.turn_timing {
+                                timing.mark_first_unit();
+                            }
+                            Ok(())
+                        });
+                    }
                     if sentences.send(sentence).await.is_err() {
                         return;
                     }
@@ -592,6 +591,15 @@ impl Calls {
                 }
             };
             for sentence in rest {
+                if !first_unit_recorded && !spoken::speech_text(&sentence).is_empty() {
+                    first_unit_recorded = true;
+                    let _ = self.change(id, |call| {
+                        if let Some(timing) = &mut call.turn_timing {
+                            timing.mark_first_unit();
+                        }
+                        Ok(())
+                    });
+                }
                 if sentences.send(sentence).await.is_err() {
                     return;
                 }

@@ -528,11 +528,13 @@ impl Witness for Heard<'_> {
         // what the agent wrote, tags and all; a message that may yet turn out
         // to be narration waits to be whole.
         if let Some(origin) = self.on_call()
-            && kind == MessageKind::Agent
-            && !muted
             && let Some(voice) = lock(&self.room.voice).upgrade()
         {
-            voice.reply_delta(&self.session.persona_id, message_id, words.written, &origin);
+            if kind == MessageKind::Thought {
+                voice.thinking_delta(&self.session.persona_id, &origin);
+            } else if kind == MessageKind::Agent && !muted {
+                voice.reply_delta(&self.session.persona_id, message_id, words.written, &origin);
+            }
         }
         if words.shown.is_empty() {
             return;

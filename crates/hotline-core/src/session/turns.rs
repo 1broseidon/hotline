@@ -264,13 +264,15 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
             return;
         }
         if let Some(origin) = &self.voice
-            && kind == MessageKind::Agent
-            && !muted
             && let Some(voice) = lock(&self.threads.room.voice).upgrade()
         {
-            voice.reply_delta(self.seat.persona_id, message_id, words.written, origin);
-            if !self.with_call.iter().any(|id| id == message_id) {
-                self.with_call.push(message_id.to_string());
+            if kind == MessageKind::Thought {
+                voice.thinking_delta(self.seat.persona_id, origin);
+            } else if kind == MessageKind::Agent && !muted {
+                voice.reply_delta(self.seat.persona_id, message_id, words.written, origin);
+                if !self.with_call.iter().any(|id| id == message_id) {
+                    self.with_call.push(message_id.to_string());
+                }
             }
         }
         if words.shown.is_empty() || !(self.open)() {

@@ -29,6 +29,7 @@ pub(crate) struct Fake {
     pub delay: Mutex<Duration>,
     pub fail: bool,
     pub subscription: bool,
+    pub provider_id: Option<&'static str>,
     pub output_mime: &'static str,
     pub fail_transcription: AtomicBool,
     pub answer_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
@@ -55,6 +56,7 @@ impl Default for Fake {
             delay: Mutex::new(Duration::ZERO),
             fail: false,
             subscription: false,
+            provider_id: None,
             output_mime: "audio/wav",
             fail_transcription: AtomicBool::new(false),
             answer_gate: Mutex::new(None),
@@ -75,12 +77,14 @@ impl speech::Speech for Fake {
     }
     fn id(&self) -> SpeechId {
         SpeechId {
-            provider_id: if self.subscription {
-                "xai-subscription"
-            } else {
-                "fixture"
-            }
-            .into(),
+            provider_id: self
+                .provider_id
+                .unwrap_or(if self.subscription {
+                    "xai-subscription"
+                } else {
+                    "fixture"
+                })
+                .into(),
             model_id: "fake".into(),
             voice: None,
         }

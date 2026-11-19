@@ -113,6 +113,10 @@ impl CallRoom for RoomSide {
         room.validate_call_thread(persona, thread)?;
         room.cancel_side(&thread.key)
     }
+    fn nudge_overrun(&self, persona: &str, thread: &ThreadId) -> bool {
+        self.room()
+            .is_ok_and(|room| room.nudge_call_overrun(persona, thread))
+    }
     fn info(&self, persona: &str) -> Option<SessionInfo> {
         self.room.upgrade().map(|room| room.info(persona))
     }

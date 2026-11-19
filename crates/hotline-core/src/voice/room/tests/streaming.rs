@@ -184,6 +184,9 @@ impl speech::Speech for BrokenChunks {
     async fn transcribe(&self, _: Clip) -> Result<String, speech::SpeechError> {
         Ok("hello".into())
     }
+    fn streams_chunks(&self) -> bool {
+        true
+    }
     async fn speak(&self, _: &str) -> Result<Clip, speech::SpeechError> {
         unreachable!("streaming path")
     }

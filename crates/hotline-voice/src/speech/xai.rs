@@ -823,6 +823,10 @@ impl Speech for Xai {
         matches!(self.job, Job::Listen { .. })
     }
 
+    fn streams_chunks(&self) -> bool {
+        matches!(self.job, Job::Speak { .. })
+    }
+
     async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
         self.clock.heard();
         let words = self.hear(clip).await;

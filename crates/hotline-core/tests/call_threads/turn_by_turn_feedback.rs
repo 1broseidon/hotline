@@ -1,14 +1,20 @@
 use super::super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Both session drivers can ignore the requested opening. The shared Turn by turn
-/// runtime still sends audio, then quiet progress, while real tool work waits.
+/// Both session drivers can ignore the requested opening. When unexplained
+/// silence lasts 8 seconds before any spoken clip, the Turn by turn runtime
+/// sends one quiet waiting tone and never loops canned progress lines while
+/// real tool work runs. Ninety seconds on, the one overrun note is left for
+/// the turn, and it cuts nothing short: Hotline Agent's model request in
+/// flight is answered, not asked again.
 #[tokio::test]
-async fn tool_first_turn_by_turn_replies_get_a_cue_and_progress_on_both_drivers() {
+async fn tool_first_turn_by_turn_replies_get_one_delayed_cue_and_no_canned_progress() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let gate = desk.root.path().join("finish-tool-turn");
+        let requests = Arc::new(AtomicUsize::new(0));
         let grok = if matches!(driver, Driver::HotlineAgent) {
-            Some(grok_tool_first(&mut desk, gate.clone()).await)
+            Some(grok_tool_first(&mut desk, gate.clone(), requests.clone()).await)
         } else {
             None
         };
@@ -40,30 +46,30 @@ async fn tool_first_turn_by_turn_replies_get_a_cue_and_progress_on_both_drivers(
             .await;
         // Kernel IO and the ACP child use real time; advance only the core's
         // feedback timer once the actual tool has reached the call thread.
-        desk.advance(2).await;
+        desk.advance(8).await;
         let cue = desk.event(voice_sub, |event| event["type"] == "clip").await;
         assert_eq!(cue["id"], "waiting-1");
         assert_eq!(cue["mimeType"], "audio/wav");
-        let mut progress = Vec::new();
-        for _ in 0..3 {
-            for _ in 0..20 {
-                desk.advance(1).await;
-                tokio::task::yield_now().await;
-            }
-            let said = desk.event(voice_sub, |event| event["type"] == "said").await;
-            let text = said["text"].as_str().unwrap();
-            assert_ne!(text, "");
-            progress.push(text.to_owned());
-            let clip = desk.event(voice_sub, |event| event["type"] == "clip").await;
-            assert_eq!(clip["id"], said["id"]);
-            assert_ne!(clip["data"].as_str().unwrap(), "");
+        // Advance past the old 20s progress timer and the 90s overrun note:
+        // no canned filler fires, and the note interrupts nothing.
+        for _ in 0..100 {
+            desk.advance(1).await;
+            tokio::task::yield_now().await;
         }
-        assert!(progress.windows(2).all(|pair| pair[0] != pair[1]));
-        assert!(progress.iter().any(|line| line != &progress[0]));
         std::fs::write(gate, "ready").unwrap();
         let said = desk.event(voice_sub, |event| event["type"] == "said").await;
-        assert_eq!(said["text"], "The lookup is finished.");
+        assert_eq!(
+            said["text"], "The lookup is finished.",
+            "no canned progress line should precede the real answer"
+        );
         desk.finished(thread_sub).await;
+        if grok.is_some() {
+            assert_eq!(
+                requests.load(Ordering::SeqCst),
+                2,
+                "the overrun note restarted no model request"
+            );
+        }
         desk.hang_up(&call, thread_sub).await;
     }
 }
@@ -73,9 +79,11 @@ async fn tool_first_turn_by_turn_replies_get_a_cue_and_progress_on_both_drivers(
 async fn grok_tool_first(
     desk: &mut Desk,
     gate: std::path::PathBuf,
+    requests: Arc<AtomicUsize>,
 ) -> hotline_core::provider_fixture::Origin {
     let app = axum::Router::new().route("/v1/responses", axum::routing::post(move |body: axum::body::Bytes| {
         let gate = gate.clone();
+        requests.fetch_add(1, Ordering::SeqCst);
         async move {
             let request: Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(request["model"], "grok-4.7");

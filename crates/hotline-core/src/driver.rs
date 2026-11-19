@@ -402,6 +402,14 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// Hands the current activity a line of Hotline's own for the model to
+    /// read at its next step, without interrupting it: nothing running is
+    /// cut short and nothing queued is skipped. False means the activity
+    /// already ended or this driver has no such channel; the line is dropped.
+    fn note(&self, _text: String) -> bool {
+        false
+    }
+
     /// Input admitted just before a failed activity closed, but never used in a request.
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
         Vec::new()

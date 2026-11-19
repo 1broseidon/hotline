@@ -509,6 +509,12 @@ impl Driver for InProcess {
             .is_some_and(|steering| steering.admit(Input::Attachments(text, attachments)))
     }
 
+    fn note(&self, text: String) -> bool {
+        lock(&self.steering)
+            .as_ref()
+            .is_some_and(|steering| steering.note(text))
+    }
+
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
         std::mem::take(&mut *lock(&self.unconsumed))
     }

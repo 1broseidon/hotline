@@ -576,10 +576,17 @@ async fn a_turn_by_turn_reply_without_opening_speech_gets_one_sound_on_the_clip_
             Ok(())
         })
         .unwrap();
-    tokio::time::advance(Duration::from_millis(1_750)).await;
-    tokio::task::yield_now().await;
-    assert!(rx.try_recv().is_err());
-    tokio::time::advance(Duration::from_millis(250)).await;
+    for _ in 0..31 {
+        tokio::time::advance(Duration::from_millis(250)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+                "no early waiting sound before 8s: {event:?}"
+            );
+        }
+    }
+    tokio::time::advance(Duration::from_millis(500)).await;
     let cue = event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
@@ -596,13 +603,15 @@ async fn a_turn_by_turn_reply_without_opening_speech_gets_one_sound_on_the_clip_
         assert!(r#final);
         assert!(STANDARD.decode(data).unwrap().starts_with(b"RIFF"));
     }
-    tokio::time::advance(Duration::from_secs(10)).await;
-    tokio::task::yield_now().await;
-    while let Ok(event) = rx.try_recv() {
-        assert!(
-            !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
-            "no repeated sound or filler: {event:?}"
-        );
+    for _ in 0..30 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+                "no repeated sound or canned filler: {event:?}"
+            );
+        }
     }
     calls.reply_delta(&persona, "reply-1", "<spoken>The tests pass. ", &origin);
     event(
@@ -662,7 +671,7 @@ async fn a_text_opening_does_not_suppress_the_cue_while_tts_is_stalled() {
         .unwrap();
     calls.reply_delta(&persona, "opening", "I'll check the lighthouse. ", &origin);
     event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
-    tokio::time::advance(Duration::from_secs(2)).await;
+    tokio::time::advance(Duration::from_millis(8_250)).await;
     event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
@@ -672,9 +681,194 @@ async fn a_text_opening_does_not_suppress_the_cue_while_tts_is_stalled() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_quiet_turn_by_turn_reply_gets_progress_until_it_ends_or_is_interrupted() {
-    for interrupt in [false, true] {
-        let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+async fn explained_work_stays_silent_and_never_repeats_canned_progress() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    // Teammate speaks a scoped opening line before tools run.
+    let opening = "<spoken>Let me check the logs, give me a moment.</spoken><written>Checking logs.</written>";
+    assert!(calls.delivery(&persona, "opening-1", "Mack", opening, true, Some(&origin)));
+    let (said, _) = one_reply(&mut rx).await;
+    assert_eq!(said.len(), 1);
+    assert_eq!(lock(&fake.spoken).len(), 1);
+    // Tools run quietly for 80 seconds: no 8s waiting chime and no canned 20s progress.
+    for _ in 0..80 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+                "explained work stays silent while tools run: {event:?}"
+            );
+        }
+    }
+    assert_eq!(lock(&fake.spoken).len(), 1);
+    calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn pipelined_whole_clip_tts_preserves_sentence_order() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    *lock(&fake.delay) = Duration::from_millis(150);
+    let reply = "<spoken>First sentence is here. Second sentence follows right behind. Third closes cleanly.</spoken><written>Done.</written>";
+    assert!(calls.delivery(&persona, "pipe-1", "Mack", reply, true, Some(&origin)));
+    let mut indices = Vec::new();
+    let mut saw_final = false;
+    for _ in 0..40 {
+        tokio::time::advance(Duration::from_millis(50)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            if let VoiceEvent::Clip {
+                index,
+                r#final,
+                data,
+                ..
+            } = event
+            {
+                indices.push((index, !data.is_empty(), r#final));
+                if r#final {
+                    saw_final = true;
+                }
+            }
+        }
+        if saw_final {
+            break;
+        }
+    }
+    assert!(saw_final, "expected final clip, got {indices:?}");
+    assert_eq!(
+        indices,
+        vec![
+            (0, true, false),
+            (1, true, false),
+            (2, true, false),
+            (3, false, true)
+        ]
+    );
+    assert_eq!(
+        *lock(&fake.spoken),
+        vec![
+            "First sentence is here.",
+            "Second sentence follows right behind.",
+            "Third closes cleanly.",
+        ]
+    );
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn ollama_tts_is_prewarmed_on_turn_by_turn_call_start_without_spending_budget() {
+    let fake = Arc::new(Fake {
+        provider_id: Some("ollama"),
+        ..Fake::default()
+    });
+    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    until("ollama pre-warm", || !lock(&fake.spoken).is_empty()).await;
+    assert_eq!(*lock(&fake.spoken), vec!["ok"]);
+    let status = calls.status();
+    assert_eq!(status.budget.spent_day_usd, 0.0);
+    calls.end(&id).unwrap();
+}
+
+/// Moves the paused clock on a second at a time, draining what the call sends.
+async fn quietly(rx: &mut broadcast::Receiver<VoiceEvent>, seconds: u64) {
+    for _ in 0..seconds {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while rx.try_recv().is_ok() {}
+    }
+}
+
+fn nudged(calls: &Calls, id: &str) -> bool {
+    calls
+        .test_change(id, |call| Ok(call.overrun_nudged))
+        .unwrap()
+}
+
+/// A turn that said what it is doing is left one overrun note 90 seconds
+/// after it last spoke, and never another however long the work runs.
+#[tokio::test(start_paused = true)]
+async fn the_overrun_note_comes_once_90_seconds_after_the_last_spoken_line() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    let opening = "<spoken>Let me inspect the logs, give me a couple of minutes.</spoken><written>Inspecting logs.</written>";
+    assert!(calls.delivery(
+        &persona,
+        "open-overrun",
+        "Mack",
+        opening,
+        true,
+        Some(&origin)
+    ));
+    let _ = one_reply(&mut rx).await;
+    quietly(&mut rx, 89).await;
+    assert!(!nudged(&calls, &id), "not before 90 seconds of quiet");
+    quietly(&mut rx, 2).await;
+    assert!(nudged(&calls, &id), "one note after 90 seconds of quiet");
+    // Long past what used to be a 180 second cooldown: still the one note,
+    // which only the person's next turn clears.
+    quietly(&mut rx, 400).await;
+    assert!(nudged(&calls, &id));
+    calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
+}
+
+/// A turn that went straight to its tools, with no opening line, still gets
+/// its one note: 90 seconds after the tone that covered its silence.
+#[tokio::test(start_paused = true)]
+async fn a_tool_first_turn_gets_the_overrun_note_too() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    tokio::time::advance(Duration::from_millis(8_250)).await;
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
+    )
+    .await;
+    quietly(&mut rx, 88).await;
+    assert!(!nudged(&calls, &id), "90 seconds counted from the tone");
+    quietly(&mut rx, 3).await;
+    assert!(
+        nudged(&calls, &id),
+        "a silent tool-first turn gets its note"
+    );
+    calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
+}
+
+/// Hold, the person cutting in and the turn ending each take the note off:
+/// nothing is left for work the person is not waiting on.
+#[tokio::test(start_paused = true)]
+async fn hold_interrupt_and_a_finished_turn_leave_no_overrun_note() {
+    for how in ["hold", "interrupt", "ended"] {
+        let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
         let origin = on_turn(&calls, &id, 1);
         calls
             .test_change(&id, |call| {
@@ -684,38 +878,77 @@ async fn a_quiet_turn_by_turn_reply_gets_progress_until_it_ends_or_is_interrupte
                 Ok(())
             })
             .unwrap();
-        tokio::time::advance(Duration::from_secs(2)).await;
-        event(
-            &mut rx,
-            |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
-        )
-        .await;
-        let mut progress = Vec::new();
-        for _ in 0..3 {
-            // The test build refreshes Thinking every 100ms. Drain those
-            // snapshots while moving time, without losing the feedback.
-            for _ in 0..19 {
-                tokio::time::advance(Duration::from_secs(1)).await;
-                tokio::task::yield_now().await;
-                while let Ok(event) = rx.try_recv() {
-                    assert!(matches!(event, VoiceEvent::State { .. }));
-                }
-            }
-            tokio::time::advance(Duration::from_secs(1)).await;
-            let (said, _) = one_reply(&mut rx).await;
-            assert_eq!(said.len(), 1);
-            progress.push(said[0].1.clone());
+        quietly(&mut rx, 30).await;
+        match how {
+            "hold" => calls.hold(&id, true).unwrap(),
+            "interrupt" => calls.interrupt(&id).unwrap(),
+            _ => calls.turn_ended(&persona, &origin),
         }
-        assert!(progress.windows(2).all(|pair| pair[0] != pair[1]));
-        assert!(progress.iter().any(|line| line != &progress[0]));
-        if interrupt {
-            calls.hold(&id, true).unwrap();
-        } else {
-            calls.turn_ended(&persona, &origin);
-        }
-        tokio::time::advance(Duration::from_secs(60)).await;
-        tokio::task::yield_now().await;
-        assert_eq!(lock(&fake.spoken).len(), 3);
+        quietly(&mut rx, 300).await;
+        assert!(!nudged(&calls, &id), "{how} leaves no note");
         calls.end(&id).unwrap();
     }
+}
+
+/// Two sentences synthesizing at once, then the person cuts in or hangs up:
+/// neither of them, nor anything after, is played.
+#[tokio::test(start_paused = true)]
+async fn cutting_in_or_hanging_up_mid_synthesis_plays_nothing_more() {
+    for hang_up in [false, true] {
+        let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+        let origin = on_turn(&calls, &id, 1);
+        calls
+            .test_change(&id, |call| {
+                call.answering = Some(1);
+                Ok(())
+            })
+            .unwrap();
+        *lock(&fake.delay) = Duration::from_secs(1);
+        let reply = "<spoken>First sentence is here. Second sentence follows right behind. Third closes cleanly.</spoken>";
+        assert!(calls.delivery(&persona, "both", "Mack", reply, true, Some(&origin)));
+        for _ in 0..200 {
+            if lock(&fake.spoken).len() == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(lock(&fake.spoken).len(), 2, "two sentences in flight");
+        if hang_up {
+            calls.end(&id).unwrap();
+        } else {
+            calls.interrupt(&id).unwrap();
+        }
+        for _ in 0..50 {
+            tokio::time::advance(Duration::from_millis(100)).await;
+            tokio::task::yield_now().await;
+            while let Ok(event) = rx.try_recv() {
+                assert!(
+                    !matches!(&event, VoiceEvent::Clip { data, .. } if !data.is_empty()),
+                    "no audio after {}: {event:?}",
+                    if hang_up { "hang-up" } else { "barge-in" }
+                );
+            }
+        }
+        assert_eq!(
+            lock(&fake.spoken).len(),
+            2,
+            "the third is never synthesized"
+        );
+        if !hang_up {
+            calls.end(&id).unwrap();
+        }
+    }
+}
+
+/// Only an Ollama voice is warmed when a Turn by turn call starts: a paid or
+/// remote one is never asked to speak before the teammate has said anything.
+#[tokio::test]
+async fn a_voice_other_than_ollama_is_not_prewarmed() {
+    let fake = Arc::new(Fake::default());
+    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(lock(&fake.spoken).is_empty(), "{:?}", lock(&fake.spoken));
+    calls.end(&id).unwrap();
 }

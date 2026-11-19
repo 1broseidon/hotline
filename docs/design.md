@@ -1063,17 +1063,27 @@ generation fails, conservatively avoiding a repeated reminder. A conversational
 turn never reserves one. Generated speech remains distinct from proof of hearing.
 The optional `spoken` field and tape segment layout are unchanged.
 
-Turn by turn speaks the teammate's own first sentence as it arrives, including an
-untagged prose opening, and streams the spoken reply. It never waits for a
-rewrite before saying that opening. If no speech has begun after 1.8 seconds,
-the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
-phone alike. Only an audio clip suppresses that cue, not text awaiting TTS.
-There is no repeating client chime or stock opening acknowledgement. While a
-teammate is still working, twenty seconds without audio queues a short core-owned
-first-person line in the same speech queue as its answer. Neutral lines rotate
-without consecutive repeats; they claim no result, impending completion or
-specific tool activity. The queue checks the turn again;
-finished, interrupted, held or superseded turns cannot start that line.
+Turn by turn speaks the teammate's own opening as it arrives, always cutting
+its first piece at a clause break once the opening sentence passes six words,
+including an untagged prose opening, and streams the spoken reply. It never
+waits for a rewrite before saying that opening. Ordinary turns stay silent
+while the model responds; only after 8 seconds of unexplained silence with no
+speech emitted yet does the core send one warm, wordless WAV on the ordinary
+clip wire, to desk and phone alike. Only an audio clip suppresses that cue,
+not text awaiting TTS. There is no repeating client chime, stock opening
+acknowledgement or repeating canned progress line. Before multi-step tool
+work, the teammate states its action and a coarse size (*a moment*, *a couple
+of minutes*, or *a while*) and works in silence. Once per turn, 90 seconds
+after it last spoke (or after the cue, when it went straight to its tools),
+the core leaves it one overrun note asking for a sentence of real progress.
+The note is `Driver::note`, not a steer: it bumps no steering revision, so a
+wait, a model request in flight and a queued tool call go on, and Hotline
+Agent reads it after its next tool results; an ACP agent takes it through its
+steering extension at its next step. Hold, a cut-in or the turn ending leave
+no note, and it never repeats. The desk window's recognizer ends a turn after
+1.2 seconds of pause, or 0.55 seconds when an English draft ends in `.`, `?`
+or `!` or is at most four words that do not lead into more; other languages
+and audio-only calls keep 1.2 seconds.
 Interruption cancels queued speech as before. Live work that has no spoken
 version can still be rewritten before the live model says it.
 

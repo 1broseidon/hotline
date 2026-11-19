@@ -12,7 +12,12 @@ use std::sync::LazyLock;
 /// What a voice turn asks of the agent, after the person's words.
 pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Keep it short, as on the phone: a sentence or three, one word when that answers it. For a recap or a long result, say the main points and offer more instead of going through every item; go long only when asked. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
 Only when there is something to keep that speech cannot carry, add <written>...</written>: code, a table, a file or link, a substantial list or a long write-up. Make that result stand alone. For conversation, omit written: the spoken words are the written record, with no second answer to invent.
-Before a tool, begin with your own short spoken sentence naming the action when acknowledgement helps. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
+Before a tool, begin with one short spoken sentence naming what you are about to do. If it will take more than a quick lookup, set expectations with a coarse size — a moment, a couple of minutes, or a while — never an exact number of minutes or seconds. Once you have said that, work in silence until you finish. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
+
+/// Hotline's note to a call's teammate, left once per turn when its work has
+/// been silent long past its last spoken line. It is read with the next tool
+/// results, never steered in as the person's words.
+pub const OVERRUN_NUDGE: &str = "[Voice call: this work has been quiet for a while. Before your next tool call, speak one brief sentence with real progress — what's done and what's left — with no revised time estimate.]";
 
 mod context;
 pub use context::{CallContext, carries_more};
@@ -175,6 +180,9 @@ fn table(line: &str) -> bool {
 pub struct Spoken {
     /// Turn by turn says its own prose as it arrives; live work can still be rewritten.
     stream_opening: bool,
+    /// Whether the first spoken unit has already been emitted (only the very
+    /// first unit of a Turn-by-turn reply may flush early on a natural clause).
+    first_unit_sent: bool,
     tags: Tags,
     place: Place,
     /// A spoken version has begun.
@@ -298,6 +306,7 @@ impl Spoken {
             self.prose.push_str(&text);
             let sentences = take_sentences(&mut self.prose, false);
             self.gate(sentences, &mut out);
+            self.maybe_flush_opening_clause(&mut out);
         } else {
             // Not yet known: it waits for the rest of its line.
             self.pending = text;
@@ -332,15 +341,35 @@ impl Spoken {
     fn gate(&mut self, sentences: Vec<String>, out: &mut Vec<String>) {
         for sentence in sentences {
             if self.place == Place::Spoken {
+                self.first_unit_sent = true;
                 out.push(sentence);
             } else if !self.visual && self.said < FALLBACK_SENTENCES {
                 self.said += 1;
                 if self.stream_opening {
+                    self.first_unit_sent = true;
                     out.push(sentence);
                 } else {
                     self.held.push(sentence);
                 }
             }
+        }
+    }
+
+    /// For the very first spoken unit of a Turn-by-turn reply, flushes a
+    /// natural opening clause early so TTS can start before a long opening
+    /// sentence finishes. Subsequent units wait for full sentences.
+    fn maybe_flush_opening_clause(&mut self, out: &mut Vec<String>) {
+        if !self.stream_opening || self.first_unit_sent {
+            return;
+        }
+        let allowed = self.place == Place::Spoken
+            || (self.place == Place::Before && !self.visual && self.said < FALLBACK_SENTENCES);
+        if !allowed {
+            return;
+        }
+        if let Some(clause) = take_opening_clause(&mut self.prose) {
+            self.first_unit_sent = true;
+            out.push(clause);
         }
     }
 }
@@ -715,6 +744,80 @@ pub fn take_sentences(pending: &mut String, finished: bool) -> Vec<String> {
     }
     pending.drain(..start);
     out
+}
+
+/// Minimum size before the first spoken unit of a Turn-by-turn reply may flush
+/// early at a natural clause boundary. Keeps short lead-ins ("Well,", "Sure,")
+/// from clipping prosody while getting long first sentences into TTS sooner.
+const OPENING_CLAUSE_MIN_WORDS: usize = 6;
+const OPENING_CLAUSE_MIN_CHARS: usize = 32;
+
+/// Cuts one opening clause from `pending` when a natural clause boundary
+/// (`, `, `; `, `: `, ` — `, ` - `) follows at least [`OPENING_CLAUSE_MIN_WORDS`]
+/// words and [`OPENING_CLAUSE_MIN_CHARS`] characters, outside parentheses and
+/// formatted numbers.
+pub fn take_opening_clause(pending: &mut String) -> Option<String> {
+    let bytes = pending.as_bytes();
+    let mut paren_depth: usize = 0;
+    let mut prev: Option<char> = None;
+    let mut chars = pending.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '(' => {
+                paren_depth += 1;
+                prev = Some(c);
+                continue;
+            }
+            ')' => {
+                paren_depth = paren_depth.saturating_sub(1);
+                prev = Some(c);
+                continue;
+            }
+            _ => {}
+        }
+        if paren_depth > 0 {
+            prev = Some(c);
+            continue;
+        }
+        let next = chars.peek().copied();
+        let boundary_end = match c {
+            ',' => {
+                let after = next.is_some_and(|(_, n)| n == ' ');
+                let next_after_space =
+                    next.and_then(|(n_at, n_c)| pending[n_at + n_c.len_utf8()..].chars().next());
+                let numeric = prev.is_some_and(|p| p.is_ascii_digit())
+                    && next_after_space.is_some_and(|n| n.is_ascii_digit());
+                (after && !numeric).then_some(at + c.len_utf8())
+            }
+            ';' | ':' => next
+                .is_some_and(|(_, n)| n.is_whitespace())
+                .then_some(at + c.len_utf8()),
+            '—' => next
+                .is_some_and(|(_, n)| n == ' ')
+                .then_some(at + c.len_utf8()),
+            '-' if prev == Some(' ') => next
+                .is_some_and(|(_, n)| n == ' ')
+                .then_some(at + c.len_utf8()),
+            _ => None,
+        };
+        if let Some(end) = boundary_end {
+            let candidate = pending[..end].trim();
+            if candidate.chars().count() >= OPENING_CLAUSE_MIN_CHARS
+                && candidate.split_whitespace().count() >= OPENING_CLAUSE_MIN_WORDS
+                && !candidate.is_empty()
+            {
+                let out = candidate.to_string();
+                let mut drain_to = end;
+                while drain_to < bytes.len() && bytes[drain_to].is_ascii_whitespace() {
+                    drain_to += 1;
+                }
+                pending.drain(..drain_to);
+                return Some(out);
+            }
+        }
+        prev = Some(c);
+    }
+    None
 }
 
 /// The longest piece sent to speech at once. A run-on sentence is cut at a
@@ -1195,5 +1298,61 @@ mod tests {
         ] {
             assert_eq!(speech_text(written), spoken, "{written}");
         }
+    }
+
+    #[test]
+    fn opening_clause_flushes_first_long_sentence_early_and_keeps_later_sentences_whole() {
+        let mut spoken = Spoken::streaming();
+        // Short lead-in must not flush early.
+        assert_eq!(spoken.push("<spoken>Well, "), [] as [String; 0]);
+        assert_eq!(spoken.push("I checked the branch, "), [] as [String; 0]);
+        // Once >= 6 words and >= 32 chars pass a comma + space, the first clause flushes.
+        assert_eq!(
+            spoken.push("and looked at the voice pipeline, and "),
+            ["Well, I checked the branch, and looked at the voice pipeline,"]
+        );
+        // The rest of sentence 1 waits for its full stop even across another comma.
+        assert_eq!(
+            spoken.push("after checking the logs, it is clean. "),
+            ["and after checking the logs, it is clean."]
+        );
+        // Second sentence never splits on a comma, even when long.
+        assert_eq!(
+            spoken.push("Then I checked the second file in detail, and "),
+            [] as [String; 0]
+        );
+        assert_eq!(
+            spoken.push("nothing else broke.</spoken>"),
+            ["Then I checked the second file in detail, and nothing else broke."]
+        );
+        assert_eq!(spoken.finish(), Ending::Spoken(Vec::new()));
+    }
+
+    #[test]
+    fn opening_clause_skips_parentheticals_and_formatted_numbers() {
+        let mut spoken = Spoken::streaming();
+        assert_eq!(
+            spoken.push(
+                "<spoken>I found roughly 1, 2, 3, and 4, 5, 6 items (including the old ones, which "
+            ),
+            [] as [String; 0]
+        );
+        assert_eq!(
+            spoken.push("we can delete) — and "),
+            [
+                "I found roughly 1, 2, 3, and 4, 5, 6 items (including the old ones, which we can delete) —"
+            ]
+        );
+        assert_eq!(
+            spoken.push("all of them look safe.</spoken>"),
+            ["and all of them look safe."]
+        );
+    }
+
+    #[test]
+    fn contract_asks_for_coarse_scope_before_tools_and_defines_overrun_nudge() {
+        assert!(CONTRACT.contains("a moment, a couple of minutes, or a while"));
+        assert!(CONTRACT.contains("work in silence"));
+        assert!(OVERRUN_NUDGE.contains("what's done and what's left"));
     }
 }

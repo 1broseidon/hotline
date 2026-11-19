@@ -320,6 +320,7 @@ type Results = {
 	"computer.remove": null;
 	"computer.update": null;
 	"computer.restart": null;
+	"computer.migration.answer": null;
 	/** The person's cookies shared with a teammate, a row a site. */
 	"computer.cookies.lends": CookieLend[];
 	/** The sites the switched-on sources are signed into; names only. */

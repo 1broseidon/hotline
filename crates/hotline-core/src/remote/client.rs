@@ -275,10 +275,10 @@ impl Client {
     pub(super) async fn open(
         &self,
         desk: &PairedDesk,
-        screen: Option<(super::bridge::Viewer, &str)>,
+        screen: Option<(super::bridge::Viewer, &str, Option<&str>)>,
     ) -> Result<Connection, OpenError> {
         let (path, payload) = match screen {
-            Some((viewer, id)) => {
+            Some((viewer, id, site)) => {
                 if id.is_empty()
                     || !id
                         .bytes()
@@ -287,10 +287,13 @@ impl Client {
                     return Err("Invalid teammate ID.".into());
                 }
                 let named = viewer.name();
-                (
-                    format!("v2/{named}/{id}/ws"),
-                    json!({"purpose":named,"personaId":id}).to_string(),
-                )
+                // A site rides in the authenticated payload, never the path
+                // a proxy or relay could rewrite.
+                let payload = match site {
+                    Some(site) => json!({"purpose":named,"personaId":id,"site":site}),
+                    None => json!({"purpose":named,"personaId":id}),
+                };
+                (format!("v2/{named}/{id}/ws"), payload.to_string())
             }
             None => ("v2".into(), String::new()),
         };

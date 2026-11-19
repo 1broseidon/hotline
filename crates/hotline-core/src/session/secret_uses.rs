@@ -21,6 +21,48 @@ struct UseCard {
     capability: CapabilityLease,
 }
 
+impl UseCard {
+    /// A sign-in waiting for the person to finish it, not a use to answer.
+    fn finishing(&self) -> bool {
+        is_finish(&self.held)
+    }
+}
+
+fn is_finish(held: &HeldUse) -> bool {
+    held.operation
+        .as_ref()
+        .is_some_and(|operation| operation.kind == crate::contract::SecretOperationKind::Finish)
+}
+
+/// How long a "finish signing in" card may stand while the computer still
+/// lists it: a day, as a delivering card's longest wait.
+const FINISH_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// A sign-in the computer could not finish, as the card the person sees: the
+/// login it is, on the site it is for, opened on the site's screen.
+fn finish_card(finish: crate::computer::uses::Finish) -> HeldUse {
+    let site = url::Url::parse(&finish.origin)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .unwrap_or_else(|| finish.origin.clone());
+    HeldUse {
+        id: finish.id(),
+        secret: finish.name,
+        kind: CaptureKind::Login,
+        site,
+        path: String::new(),
+        asked_at: finish.since,
+        expires_at: finish.since.saturating_add(FINISH_MS),
+        operation: Some(crate::contract::SecretOperation {
+            kind: crate::contract::SecretOperationKind::Finish,
+            origin: finish.origin,
+            account: finish.account,
+            rp_id: None,
+        }),
+        attested: false,
+    }
+}
+
 impl Room {
     pub(super) fn use_watch(&self, persona: &str) -> Arc<TokioMutex<UseWatch>> {
         lock(&self.secret_uses)
@@ -52,7 +94,18 @@ impl Room {
 
     async fn look_at_secret_uses(self: &Arc<Self>, persona: &str, watch: &mut UseWatch) {
         let granted = self.ask_me_secrets(persona);
+        // A protected computer may hand the person a sign-in to finish
+        // whatever the login's policy, so it is watched while it holds one.
+        let names: Vec<String> = self
+            .persona(persona)
+            .ok()
+            .and_then(|teammate| teammate.secrets)
+            .unwrap_or_default();
+        let finishes = !names.is_empty()
+            && self.computers.protection(persona)
+                == Some(crate::contract::ComputerProtection::Protected);
         if granted.is_empty()
+            && !finishes
             && watch
                 .cards
                 .values()
@@ -70,12 +123,15 @@ impl Room {
             watch.old = false;
         }
         for card in watch.cards.values_mut() {
-            if now_ms() >= card.held.expires_at
-                || !card.capability.is_current()
-                || !granted.iter().any(|s| s.name == card.held.secret)
-            {
+            let still_granted = if card.finishing() {
+                names.contains(&card.held.secret)
+            } else {
+                granted.iter().any(|s| s.name == card.held.secret)
+            };
+            if now_ms() >= card.held.expires_at || !card.capability.is_current() || !still_granted {
                 // Revocation must also release a page still waiting at the door.
                 if card.status == SecretUseStatus::Pending
+                    && !card.finishing()
                     && let Some(ready) = &ready
                 {
                     let _ = uses::answer(ready, &card.held.id, SecretUseAnswer::Deny).await;
@@ -84,11 +140,15 @@ impl Room {
             }
         }
         let Some(ready) = ready else { return };
-        if watch.old || granted.is_empty() {
+        if watch.old || (granted.is_empty() && !finishes) {
             return;
         }
-        let held = match uses::held(&ready).await {
-            Ok(held) => held,
+        let mut held = match uses::held(&ready).await {
+            Ok((held, finishing)) => {
+                let mut held = held;
+                held.extend(finishing.into_iter().map(finish_card));
+                held
+            }
             Err(Refusal::TooOld) => {
                 watch.old = true;
                 eprintln!(
@@ -114,20 +174,23 @@ impl Room {
                 false
             }
         });
+        held.retain(|held| !is_finish(held) || names.contains(&held.secret));
         for held in held {
+            let finishing = is_finish(&held);
             if watch.cards.contains_key(&held.id)
                 || held.expires_at <= now_ms()
-                || !granted.iter().any(|s| {
-                    s.name == held.secret
-                        && match held.kind {
-                            CaptureKind::Login => {
-                                s.kind == crate::contract::SharedSecretKind::Login
+                || (!finishing
+                    && !granted.iter().any(|s| {
+                        s.name == held.secret
+                            && match held.kind {
+                                CaptureKind::Login => {
+                                    s.kind == crate::contract::SharedSecretKind::Login
+                                }
+                                CaptureKind::Passkey => {
+                                    s.kind == crate::contract::SharedSecretKind::Passkey
+                                }
                             }
-                            CaptureKind::Passkey => {
-                                s.kind == crate::contract::SharedSecretKind::Passkey
-                            }
-                        }
-                })
+                    }))
             {
                 continue;
             }
@@ -138,12 +201,17 @@ impl Room {
                 capability: self.capability_lease(persona),
             };
             self.write_secret_use(persona, &card);
-            self.push.notify(
-                &self.needs_you(persona),
-                &format!(
+            let said = if finishing {
+                format!("Finish signing in to {} on its screen.", card.held.site)
+            } else {
+                format!(
                     "Approve use of {} on {} at the desk or phone.",
                     card.held.secret, card.held.site
-                ),
+                )
+            };
+            self.push.notify(
+                &self.needs_you(persona),
+                &said,
                 persona,
                 Some(crate::push::Waiting::SecretUse {
                     use_id: card.held.id.clone(),
@@ -188,6 +256,12 @@ impl Room {
             .ok_or("That use is no longer waiting.")?;
         if card.status != SecretUseStatus::Pending {
             return Err("That use was already settled.".into());
+        }
+        if card.finishing() {
+            return Err(
+                "There is nothing to answer: Open shows the site, to finish signing in there."
+                    .into(),
+            );
         }
         if !card.capability.is_current()
             || now_ms() >= card.held.expires_at
@@ -261,6 +335,10 @@ impl Room {
         card.status = status;
         self.write_secret_use(persona, card);
         let text = match status {
+            _ if card.finishing() => format!(
+                "{} is no longer waiting for the person to finish signing in. Look at the page again.",
+                card.held.site
+            ),
             SecretUseStatus::Approved => format!(
                 "The person approved this use of {} on {}. Retry the login fill if it was waiting.",
                 card.held.secret, card.held.site
@@ -358,6 +436,9 @@ pub(super) fn use_question(secret: &str, operation: &crate::contract::SecretOper
             .unwrap_or_else(|| origin.to_owned())
     };
     let (site, passkey) = match operation.kind {
+        crate::contract::SecretOperationKind::Finish => {
+            return format!("Finish signing in to {}", host(&operation.origin));
+        }
         crate::contract::SecretOperationKind::Signin => (host(&operation.origin), ""),
         crate::contract::SecretOperationKind::Passkey => (
             operation

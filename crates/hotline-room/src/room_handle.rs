@@ -690,6 +690,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_restart(&self, persona_id: &str) -> Result<(), String>;
+    /// What becomes of the snapshots a computer's move to split mode left.
+    async fn computer_migration_answer(
+        &self,
+        _persona_id: &str,
+        _snapshots: hotline_contract::SnapshotAnswer,
+    ) -> Result<(), String> {
+        Err("This room has no computers.".to_string())
+    }
 
     /// The person's cookies shared with a teammate, a row a site.
     async fn cookie_lends(

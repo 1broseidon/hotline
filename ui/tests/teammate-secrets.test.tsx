@@ -54,6 +54,7 @@ beforeEach(async () => {
 		if (cmd === "secrets.list") return stored;
 		if (cmd === "secrets.services") return services;
 		if (cmd === "computer.status") return status;
+		if (cmd === "computer.migration.answer") return null;
 		throw new Error(`Not in this test: ${cmd}`);
 	}) as typeof wire.command);
 	restores.push(() => command.mockRestore());
@@ -230,4 +231,19 @@ test("on Linux and Windows the desk browser signs with no passkey, so none is ar
 		await act(async () => root.render(null));
 		delete shell.__hotlineDesk;
 	}
+});
+
+test("after the update the one notice asks what becomes of the old snapshots, and sends the answer", async () => {
+	status = { state: "running", release: "0.13.0", protection: "protected", migration: { snapshots: [{ name: "before", bytes: 10 }, { name: "older", bytes: 20 }] } };
+	await mount(persona);
+	const computer = section("Computer")!;
+	expect(computer.textContent).toContain("Old snapshots · 2 on hold");
+	expect(computer.textContent).toContain("change them at their sites");
+	const labels = [...computer.querySelectorAll("button")].map((node) => node.textContent);
+	expect(labels).toEqual(expect.arrayContaining(["Clean", "Delete", "Keep for now"]));
+	status = { state: "running", release: "0.13.0", protection: "protected" };
+	const keep = [...computer.querySelectorAll("button")].find((node) => node.textContent === "Keep for now")!;
+	await act(async () => keep.click());
+	expect(calls.find((call) => call.cmd === "computer.migration.answer")?.params).toEqual({ personaId: "ada", snapshots: "keep" });
+	expect(section("Computer")?.textContent).not.toContain("Old snapshots");
 });

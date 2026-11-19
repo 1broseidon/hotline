@@ -2082,6 +2082,20 @@ async fn shared_cookies_go_to_a_protected_computers_sessions_and_never_to_a_file
     assert_eq!(sessions[0].0, "PUT");
     assert_eq!(sessions[0].2["sites"], json!(["example.com"]));
     assert_eq!(sessions[0].2["cookies"][0]["value"], "laptop-secret-value");
+    assert_eq!(
+        sessions[0].2["storage"],
+        json!({}),
+        "storage by origin, as the signed-in browser takes it"
+    );
+    let id = room.cookie_lends("ada")[0].id.clone();
+    room.cookie_lend_remove("ada", &id).await.unwrap();
+    let sessions = taken.sessions.lock().unwrap().clone();
+    assert_eq!(sessions.len(), 2, "{sessions:?}");
+    assert_eq!(
+        (sessions[1].0.as_str(), sessions[1].1.as_str()),
+        ("DELETE", sessions[0].1.as_str())
+    );
+    assert!(sessions[1].2["domains"].is_array(), "{sessions:?}");
 
     let ComputerRoom { room, taken, .. } = computer_room(
         "sessions-today",
@@ -2093,4 +2107,89 @@ async fn shared_cookies_go_to_a_protected_computers_sessions_and_never_to_a_file
     room.computer_cookies_push("ada", transfer()).await.unwrap();
     assert_eq!(taken.uploads.lock().unwrap().len(), 1);
     assert!(taken.sessions.lock().unwrap().is_empty());
+}
+
+/// After a computer's first split boot, the snapshots from before it wait
+/// for the person's answer in the pane's one notice; the answer reaches the
+/// computer and the notice asks no more. A legacy computer asks nothing.
+#[tokio::test]
+async fn the_snapshots_from_before_split_mode_wait_for_the_persons_answer() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("migration-pending", Some("0.13.0"), TWO_RELEASES, true).await;
+    *taken.migration.lock().unwrap() = json!({
+        "state": "pending", "at": 1, "snapshots": [{"name": "before-update", "bytes": 1024}],
+        "loginsDropped": 2, "sitesCleared": 1, "answer": null,
+    });
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    let asked = room
+        .computer_status("ada")
+        .await
+        .unwrap()
+        .migration
+        .unwrap();
+    assert_eq!(asked.snapshots[0].name, "before-update");
+    assert_eq!(asked.snapshots[0].bytes, 1024);
+    assert!(
+        taken.migration_answers.lock().unwrap().is_empty(),
+        "nothing erased unasked"
+    );
+
+    room.computer_migration_answer("ada", crate::contract::SnapshotAnswer::Clean)
+        .await
+        .unwrap();
+    assert_eq!(
+        *taken.migration_answers.lock().unwrap(),
+        [json!({"snapshots": "clean"})]
+    );
+    assert_eq!(room.computer_status("ada").await.unwrap().migration, None);
+
+    let ComputerRoom { room, taken, .. } =
+        computer_room("migration-legacy", Some("0.13.0"), TWO_RELEASES, true).await;
+    taken
+        .legacy
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    room.start("ada").await.unwrap();
+    assert_eq!(room.computer_status("ada").await.unwrap().migration, None);
+}
+
+/// A sign-in the protected computer could not finish is one card for the
+/// person, whatever the login's policy: it opens the site's screen, takes
+/// no answer, and folds away, telling the agent, once the computer stops
+/// listing it.
+#[tokio::test]
+async fn a_sign_in_to_finish_is_one_card_until_the_computer_clears_it() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("finish-sign-in", Some("0.13.0"), TWO_RELEASES, true).await;
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    taken
+        .uses
+        .finish("GITHUB_LOGIN", "https://github.com", "george");
+    room.poll_secret_uses("ada").await;
+    room.poll_secret_uses("ada").await;
+    let cards: Vec<Value> = tape(&room, "ada")
+        .into_iter()
+        .filter(|event| event["kind"] == "secret_use_ask")
+        .collect();
+    assert_eq!(cards.len(), 1, "one card, polled twice: {cards:?}");
+    assert_eq!(cards[0]["operation"]["kind"], "finish");
+    assert_eq!(cards[0]["operation"]["account"], "george");
+    assert_eq!(cards[0]["site"], "github.com");
+    assert_eq!(cards[0]["status"], "pending");
+    let use_id = cards[0]["useId"].as_str().unwrap().to_owned();
+    let refused = room
+        .secrets_use_answer("ada", &use_id, crate::contract::SecretUseAnswer::Approve)
+        .await
+        .unwrap_err();
+    assert!(refused.contains("nothing to answer"), "{refused}");
+    assert_eq!(taken.uses.answers(), [] as [Value; 0]);
+
+    taken.uses.finished("GITHUB_LOGIN");
+    room.poll_secret_uses("ada").await;
+    let last = tape(&room, "ada")
+        .into_iter()
+        .rfind(|event| event["kind"] == "secret_use_ask")
+        .unwrap();
+    assert_eq!(last["status"], "expired");
 }

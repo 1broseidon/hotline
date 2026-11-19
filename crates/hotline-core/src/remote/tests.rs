@@ -79,6 +79,7 @@ impl Harness {
                 let room = Arc::new(Computered {
                     desk,
                     viewer: std::sync::Mutex::new(None),
+                    protection: std::sync::Mutex::new(None),
                     pending_stop: std::sync::Mutex::new(None),
                     start_gate: std::sync::Mutex::new(None),
                     starts: std::sync::atomic::AtomicUsize::new(0),
@@ -248,6 +249,8 @@ async fn send(socket: &mut PhoneSocket, frame: Value) {
 struct Computered {
     desk: Arc<Desk>,
     viewer: std::sync::Mutex<Option<String>>,
+    /// What the running computer proved, for its sites' screen.
+    protection: std::sync::Mutex<Option<crate::contract::ComputerProtection>>,
     pending_stop: std::sync::Mutex<Option<Arc<BlockedStop>>>,
     /// While set, `start` announces itself on `.0` and waits for `.1`.
     start_gate: std::sync::Mutex<Option<(CancellationToken, CancellationToken)>>,
@@ -566,7 +569,8 @@ impl RoomHandle for Computered {
             available: None,
             update_failed: None,
             limits_changed: false,
-            protection: None,
+            protection: *self.protection.lock().unwrap(),
+            migration: None,
         })
     }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
@@ -606,7 +610,14 @@ async fn fake_computer() -> (u16, Arc<std::sync::Mutex<Option<String>>>) {
             stream,
             move |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
                   response: tokio_tungstenite::tungstenite::handshake::server::Response| {
-                *noted.lock().unwrap() = request.uri().query().map(str::to_owned);
+                *noted.lock().unwrap() = request.uri().query().map(|query| {
+                    // A sites screen is told apart by its path.
+                    if request.uri().path() == "/ws" {
+                        query.to_owned()
+                    } else {
+                        format!("{} {query}", request.uri().path())
+                    }
+                });
                 Ok(response)
             },
         )

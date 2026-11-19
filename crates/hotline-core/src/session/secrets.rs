@@ -109,6 +109,17 @@ impl Room {
                     crate::contract::ComputerProtection::NeedsUpdate
                 };
                 self.computers.learned_protection(&persona.id, protection);
+                // A computer's first split boot may have snapshots from
+                // before it waiting for the person's answer.
+                let migration = if handed.protected {
+                    crate::computer::migration::pending(ready)
+                        .await
+                        .ok()
+                        .flatten()
+                } else {
+                    None
+                };
+                self.computers.learned_migration(&persona.id, migration);
                 if handed.waiting.is_empty() {
                 } else if handed.protected {
                     notice(format!(

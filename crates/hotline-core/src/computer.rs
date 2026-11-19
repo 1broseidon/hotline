@@ -133,6 +133,7 @@ pub(crate) mod files;
 pub(crate) mod gate;
 pub mod guide;
 pub mod login;
+pub mod migration;
 pub mod passkeys;
 pub mod releases;
 pub mod secrets;
@@ -147,6 +148,30 @@ pub fn image_at(release: &str) -> String {
 /// known.
 pub fn default_image() -> String {
     image_at(COMPUTER_VERSION)
+}
+
+/// A site of a protected computer's signed-in browser as its screen is asked
+/// for: a host, with a port if it has one, in lower case, from a host or an
+/// `https://` origin. Nothing else is a site there.
+pub fn site_host(site: &str) -> Option<String> {
+    let site = site.trim();
+    let host = site
+        .strip_prefix("https://")
+        .unwrap_or(site)
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+    let (name, port) = match host.rsplit_once(':') {
+        Some((name, port)) => (name, Some(port)),
+        None => (host.as_str(), None),
+    };
+    let named = !name.is_empty()
+        && name.len() <= 253
+        && !name.starts_with(['.', '-'])
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-');
+    let ported = port.is_none_or(|port| port.parse::<u16>().is_ok_and(|port| port != 0));
+    (named && ported).then_some(host)
 }
 
 pub fn container_name(persona_id: &str) -> String {
@@ -251,6 +276,9 @@ struct Live {
     release: Option<String>,
     /// What it proved about keeping secrets at the last handing over.
     protection: Option<crate::contract::ComputerProtection>,
+    /// The snapshots its move to split mode left for the person, while
+    /// they have not answered.
+    migration: Option<crate::contract::ComputerMigration>,
 }
 
 impl Computer {
@@ -540,6 +568,7 @@ impl Computer {
                 last_activity_ms: now_ms(),
                 release: None,
                 protection: None,
+                migration: None,
             },
         );
         wait_healthy(mcp_port).await?;
@@ -581,6 +610,27 @@ impl Computer {
     ) {
         if let Some(live) = self.lock().containers.get_mut(persona_id) {
             live.protection = Some(protection);
+        }
+    }
+
+    /// What the running computer proved at its last handing over, while
+    /// this desk holds it.
+    pub fn protection(&self, persona_id: &str) -> Option<crate::contract::ComputerProtection> {
+        self.lock()
+            .containers
+            .get(persona_id)
+            .and_then(|live| live.protection)
+    }
+
+    /// Remembers what the computer's move to split mode left for the person
+    /// to decide, for the pane's upgrade notice.
+    pub fn learned_migration(
+        &self,
+        persona_id: &str,
+        migration: Option<crate::contract::ComputerMigration>,
+    ) {
+        if let Some(live) = self.lock().containers.get_mut(persona_id) {
+            live.migration = migration;
         }
     }
 
@@ -680,6 +730,7 @@ impl Computer {
                     update_failed: None,
                     limits_changed: false,
                     protection: None,
+                    migration: None,
                 });
             };
             let limits_changed = limits_changed(&inspection, persona, live.runtime);
@@ -687,6 +738,7 @@ impl Computer {
             status.release = live.release.or(status.release);
             if status.state == ComputerState::Running {
                 status.protection = live.protection;
+                status.migration = live.migration;
             }
             status.limits_changed = limits_changed;
             return Ok(status);
@@ -701,6 +753,7 @@ impl Computer {
                 update_failed: None,
                 limits_changed: false,
                 protection: None,
+                migration: None,
             });
         };
         let Ok(inspection) = inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await else {
@@ -713,6 +766,7 @@ impl Computer {
                 update_failed: None,
                 limits_changed: false,
                 protection: None,
+                migration: None,
             });
         };
         let limits_changed = limits_changed(&inspection, persona, runtime);
@@ -769,6 +823,7 @@ impl Computer {
                                 last_activity_ms: now_ms,
                                 release: seen.release,
                                 protection: None,
+                                migration: None,
                             },
                         );
                         false
@@ -880,6 +935,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             update_failed: None,
             limits_changed: false,
             protection: None,
+            migration: None,
         };
     }
     if !inspection.running {
@@ -892,6 +948,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             update_failed: None,
             limits_changed: false,
             protection: None,
+            migration: None,
         };
     }
     let mcp = inspection.mcp_port.or(known.map(|known| known.0));
@@ -913,6 +970,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             _ => None,
         },
         protection: None,
+        migration: None,
     }
 }
 

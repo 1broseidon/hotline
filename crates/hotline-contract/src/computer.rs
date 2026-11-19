@@ -163,6 +163,41 @@ pub struct ComputerStatus {
     /// the last handing over. Absent until it has been handed its set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<ComputerProtection>,
+    /// After a computer's first split boot, while the person has not yet
+    /// said what becomes of the snapshots from before it: the one choice
+    /// the pane's upgrade notice offers. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration: Option<ComputerMigration>,
+}
+
+/// What a computer's move to split mode left for the person to decide:
+/// the snapshots taken before it, which may hold the old sign-ins and are
+/// not restored until they are cleaned.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct ComputerMigration {
+    pub snapshots: Vec<MigrationSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct MigrationSnapshot {
+    pub name: String,
+    #[ts(type = "number")]
+    pub bytes: u64,
+}
+
+/// What becomes of the snapshots from before split mode: cleaned of the
+/// old sign-ins, deleted, or kept as they are, unrestorable, for now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SnapshotAnswer {
+    Clean,
+    Delete,
+    Keep,
 }
 
 /// A browser found on the host, offered to the operator as a source of
@@ -285,6 +320,9 @@ pub struct SecretOperation {
 pub enum SecretOperationKind {
     Signin,
     Passkey,
+    /// Not a use to approve: the computer's own sign-in step could not
+    /// finish, and the person finishes it on the site's screen.
+    Finish,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

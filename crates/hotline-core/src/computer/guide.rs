@@ -169,6 +169,11 @@ pub(crate) mod fake {
         forms: Arc<Mutex<Vec<u8>>>,
         /// Every `/sessions` call: the method, the name and the body.
         pub(crate) sessions: Arc<Mutex<Vec<(String, String, Value)>>>,
+        /// What `/migration` answers, as a 0.13 computer keeps it; `null`
+        /// until a test says the first split boot left something.
+        pub(crate) migration: Arc<Mutex<Value>>,
+        /// Every answer `POST /migration/answer` was given.
+        pub(crate) migration_answers: Arc<Mutex<Vec<Value>>>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -475,6 +480,53 @@ pub(crate) mod fake {
         )
     }
 
+    /// `GET /migration`: 404 in legacy mode, else the state a test set
+    /// (none until one did).
+    async fn migration(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+    ) -> axum::response::Response {
+        if !bearer_present(&headers) {
+            return json_answer(axum::http::StatusCode::UNAUTHORIZED, json!({}));
+        }
+        if taken.legacy.load(std::sync::atomic::Ordering::SeqCst) {
+            return json_answer(axum::http::StatusCode::NOT_FOUND, json!({}));
+        }
+        let state = taken.migration.lock().unwrap().clone();
+        let state = if state.is_null() {
+            json!({"state": "none", "at": null, "snapshots": [], "loginsDropped": 0, "sitesCleared": 0, "answer": null})
+        } else {
+            state
+        };
+        json_answer(axum::http::StatusCode::OK, state)
+    }
+
+    /// `POST /migration/answer`: kept, and the state is done with it.
+    async fn migration_answer(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::http::StatusCode {
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED;
+        }
+        let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+        if !matches!(
+            body["snapshots"].as_str(),
+            Some("clean" | "delete" | "keep")
+        ) {
+            return axum::http::StatusCode::BAD_REQUEST;
+        }
+        let mut state = taken.migration.lock().unwrap();
+        if state["state"] != "pending" {
+            return axum::http::StatusCode::CONFLICT;
+        }
+        state["state"] = json!("done");
+        state["answer"] = body["snapshots"].clone();
+        taken.migration_answers.lock().unwrap().push(body);
+        axum::http::StatusCode::OK
+    }
+
     /// `PUT` and `DELETE /sessions/{name}`, recorded.
     async fn sessions(
         axum::extract::State(taken): axum::extract::State<Taken>,
@@ -486,7 +538,24 @@ pub(crate) mod fake {
         if !bearer_present(&headers) {
             return axum::http::StatusCode::UNAUTHORIZED;
         }
-        let body = serde_json::from_str(&body).unwrap_or(Value::Null);
+        let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+        // The shapes the signed-in browser takes: a share's sites a list,
+        // its cookies a list and its storage an object by origin; a removal
+        // at most a list of domains.
+        let shaped = if method == axum::http::Method::PUT {
+            body["sites"].is_array()
+                && body["cookies"].is_array()
+                && body["storage"].as_object().is_some_and(|storage| {
+                    storage.iter().all(|(origin, values)| {
+                        origin.starts_with("https://") && values.is_object()
+                    })
+                })
+        } else {
+            body.is_object() && body.get("domains").is_none_or(Value::is_array)
+        };
+        if !shaped {
+            return axum::http::StatusCode::BAD_REQUEST;
+        }
         taken
             .sessions
             .lock()
@@ -963,7 +1032,9 @@ pub(crate) mod fake {
                 .route(
                     "/sessions/{name}",
                     axum::routing::put(sessions).delete(sessions),
-                );
+                )
+                .route("/migration", axum::routing::get(migration))
+                .route("/migration/answer", axum::routing::post(migration_answer));
         }
         if version == Some("0.11.2") || version.is_some_and(has_capabilities) {
             app = app

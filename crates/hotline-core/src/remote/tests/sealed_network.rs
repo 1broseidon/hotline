@@ -524,6 +524,84 @@ async fn sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant() {
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
+/// A protected computer's signed-in browser opens as a screen of one site,
+/// the site bound in the authenticated payload; a computer that has not
+/// proved itself has no such screen, and no binding opens another door.
+#[tokio::test]
+async fn sealed_sites_door_opens_one_site_of_a_protected_computer_only() {
+    use base64::engine::general_purpose::STANDARD;
+    let (port, asked) = fake_computer().await;
+    let (h, room) = Harness::with_computer().await;
+    *room.viewer.lock().unwrap() = Some(format!("http://127.0.0.1:{port}/#secret-bearer"));
+    let (private, _) = sealed::keypair().unwrap();
+    let pairing = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+    let (public, _) = invitation(&pairing);
+    claim(&h, &pairing, &private).await.unwrap();
+    let binding = br#"{"purpose":"sites","personaId":"ada","site":"github.com"}"#;
+
+    let refused: &[(&str, &[u8])] = &[
+        ("/v2/sites/bob/ws", binding),
+        (
+            "/v2/sites/ada/ws",
+            br#"{"purpose":"sites","personaId":"ada"}"#,
+        ),
+        (
+            "/v2/sites/ada/ws",
+            br#"{"purpose":"sites","personaId":"ada","site":"github.com/login?next=x"}"#,
+        ),
+        (
+            "/v2/sites/ada/ws",
+            br#"{"purpose":"computer","personaId":"ada"}"#,
+        ),
+        ("/v2/computer/ada/ws", binding),
+        (
+            "/v2/computer/ada/ws",
+            br#"{"purpose":"computer","personaId":"ada","site":"github.com"}"#,
+        ),
+        ("/v2", binding),
+    ];
+    for (path, payload) in refused {
+        assert!(
+            exchange(&h, path, &private, &public, payload)
+                .await
+                .is_none(),
+            "accepted {path} with {payload:?}"
+        );
+    }
+
+    // Not protected: the handshake completes and nothing is opened.
+    let (mut socket, _, _) = exchange(&h, "/v2/sites/ada/ws", &private, &public, binding)
+        .await
+        .unwrap();
+    closed(&mut socket).await;
+    assert!(
+        asked.lock().unwrap().is_none(),
+        "no upstream for an unproved computer"
+    );
+
+    *room.protection.lock().unwrap() = Some(crate::contract::ComputerProtection::Protected);
+    let (mut socket, mut state, _) = exchange(&h, "/v2/sites/ada/ws", &private, &public, binding)
+        .await
+        .unwrap();
+    assert_eq!(
+        read_sealed(&mut socket, &mut state).await,
+        json!({"type":"binary", "data":STANDARD.encode(b"\x89PNG frame")})
+    );
+    assert_eq!(
+        asked.lock().unwrap().as_deref(),
+        Some("/sites/ws token=secret-bearer&site=github.com")
+    );
+    // A sites screen carries no files.
+    send_sealed(
+        &mut socket,
+        &mut state,
+        json!({"type":"text", "data":"{\"type\":\"files\",\"op\":\"list\"}"}),
+    )
+    .await;
+    closed(&mut socket).await;
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
 #[test]
 fn missing_roles_migrate_to_owner_but_never_create_an_empty_room_grant() {
     let old: RemoteDevice =

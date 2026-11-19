@@ -143,3 +143,22 @@ test("a key's start suggests what it is Used with, the person sees it picked, an
 		expect(calls.at(-1)).toEqual({ cmd: "secrets.used_with.set", params: { name: "OLD_KEY", usedWith: { service: "other", host: "api.example.com" } } });
 	} finally { await act(async () => root.unmount()); command.mockRestore(); await teardown(); }
 });
+
+test("a sign-in to finish is one quiet card that opens the site, with nothing to answer", async () => {
+	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { SecretUseAsk } = await import("../src/components/transcript/SecretUseAsk");
+	const container = document.createElement("div"); document.body.append(container);
+	const root = createRoot(container);
+	const finish: Extract<TranscriptEvent, { kind: "secret_use_ask" }> = { kind: "secret_use_ask", id: "card", ts: 1, useId: "finish:GITHUB", secret: "GITHUB", secretKind: "login", site: "github.com", path: "", teammate: "ada", askedAt: Date.now(), expiresAt: Date.now() + 86_400_000, status: "pending", operation: { kind: "finish", origin: "https://github.com", account: "george" } };
+	try {
+		await act(async () => { root.render(<SecretUseAsk event={finish} teammate="Ada" />); });
+		expect(container.textContent).toContain("Finish signing in to github.com");
+		expect(container.textContent).toContain("as george");
+		expect(Array.from(container.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Open"]);
+		await act(async () => { root.render(<SecretUseAsk event={{ ...finish, status: "expired" }} teammate="Ada" />); });
+		expect(container.querySelectorAll("button").length).toBe(0);
+		expect(container.textContent).toContain("Finish signing in to github.com");
+	} finally { await act(async () => root.unmount()); await teardown(); }
+});

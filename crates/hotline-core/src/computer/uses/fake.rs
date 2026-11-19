@@ -42,6 +42,25 @@ impl Door {
         self.hold_as(secret, site, false)
     }
 
+    /// A sign-in the computer's own step could not finish, listed for the
+    /// person until `finished`.
+    #[cfg(unix)]
+    pub(crate) fn finish(&self, name: &str, origin: &str, account: &str) {
+        let since = crate::session::now_ms();
+        self.0.lock().unwrap().uses.push(
+            json!({"kind": "finish", "name": name, "origin": origin, "account": account, "since": since}),
+        );
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn finished(&self, name: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .uses
+            .retain(|held| !(held["kind"] == "finish" && held["name"] == name));
+    }
+
     /// The same use, as a computer from before split mode holds it: no
     /// operation, no attestation.
     #[cfg(unix)]

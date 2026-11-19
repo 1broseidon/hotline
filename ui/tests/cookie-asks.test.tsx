@@ -19,6 +19,9 @@ const pending: Ask = {
 /** Every card the file renders is its own: answers in flight are kept by card across the file. */
 let key = 0;
 
+/** What `computer.status` answers the card: today's computer unless a test says otherwise. */
+let computer: Record<string, unknown> = { state: "running" };
+
 async function rig() {
 	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
 	const { act } = await import("react");
@@ -27,6 +30,8 @@ async function rig() {
 	const { wire } = await import("../src/wire");
 	const calls: { cmd: string; params: unknown }[] = [];
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: unknown) => {
+		// Open Browser asks what the computer is before it opens anything.
+		if (cmd === "computer.status") return computer;
 		calls.push({ cmd, params });
 		return null;
 	}) as typeof wire.command);
@@ -119,6 +124,20 @@ test("Open Browser answers, then opens the teammate's computer screen", async ()
 		expect(view.calls).toEqual([{ cmd: "computer.cookies.answer", params: { personaId: "kit", id: view.id(), answer: "open_browser" } }]);
 		expect(view.screens()).toBe(1);
 	} finally {
+		await view.done();
+	}
+});
+
+test("on a protected computer Open Browser shows the site's own screen, not the whole computer", async () => {
+	computer = { state: "running", protection: "protected" };
+	const view = await rig();
+	try {
+		await view.render(pending);
+		await view.click("Open Browser");
+		expect(view.calls).toEqual([{ cmd: "computer.cookies.answer", params: { personaId: "kit", id: view.id(), answer: "open_browser" } }]);
+		expect(view.screens(), "the site screen opens instead").toBe(0);
+	} finally {
+		computer = { state: "running" };
 		await view.done();
 	}
 });

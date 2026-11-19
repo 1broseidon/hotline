@@ -694,7 +694,35 @@ never a key granted protected, which waits on the desk while
 split but whose `attest` this bearer did not make is handed nothing at all
 (`computer/secrets.rs`, `session/tests/computer.rs`). Use Cookies follows
 the same answer: a protected computer takes a share through `/sessions`
-into its signed-in browser, any other as the saved login it always took.
+(`{sites, cookies, storage}`, storage by origin) into its signed-in
+browser, any other as the saved login it always took.
+
+On a protected computer, Open Browser and a sign-in its broker could not
+finish show the person one site of the signed-in browser, its `/sites/ws`
+in the computer viewer's protocol, never the whole computer. The window on
+this desk reaches it as it reaches the computer's own screen: the
+container's loopback port, with the bearer the desk already hands the
+window for that screen. A window or phone elsewhere reaches it only through
+the remote listener's sealed door `/v2/sites/{persona}/ws`, which an owner
+or companion grant opens, binds the site inside the authenticated Noise
+payload (`{purpose: "sites", personaId, site}`, a host and nothing else),
+opens nothing for a computer that has not proved itself, and carries no
+files (`remote/tests/sealed_network.rs`
+`sealed_sites_door_opens_one_site_of_a_protected_computer_only`). The
+bridge's viewer token for a site opens that one site once. The agent's
+gate in front of the computer is unchanged: it forwards the MCP path alone
+(`computer/gate.rs`), so no agent opens a site's screen. A sign-in to finish
+is listed among `GET /secrets/uses` as `{kind: "finish", name, origin,
+account, since}`; the desk shows it as one card, for any login policy,
+that opens the site and takes no answer, and folds it away, telling the
+agent, when the computer stops listing it
+(`a_sign_in_to_finish_is_one_card_until_the_computer_clears_it`). After a
+computer's first split boot, `GET /migration` may say snapshots from before
+it are pending; the pane's one upgrade notice asks the person to clean,
+delete or keep them and says once that passwords the computer had before
+may have been read and should be changed, and nothing is sent to the
+computer until they answer (`POST /migration/answer`;
+`the_snapshots_from_before_split_mode_wait_for_the_persons_answer`).
 
 On a computer that does not protect them, which is every computer before
 0.13, the rest of this section is what holds. A login goes to the computer

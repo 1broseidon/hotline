@@ -471,6 +471,25 @@ impl Room {
     /// under way lands the new limits with it. With no session running the
     /// computer only stops: its next start sees the limits differ and
     /// makes it again.
+    /// The person's answer for the snapshots a computer's move to split
+    /// mode left: sent to the running computer, and the notice asks no more
+    /// once the computer says nothing is pending.
+    pub async fn computer_migration_answer(
+        &self,
+        persona_id: &str,
+        snapshots: crate::contract::SnapshotAnswer,
+    ) -> Result<(), String> {
+        let ready = self
+            .computers
+            .running(persona_id)
+            .await
+            .ok_or("The computer is not running; start it to answer.")?;
+        crate::computer::migration::answer(&ready, snapshots).await?;
+        let left = crate::computer::migration::pending(&ready).await?;
+        self.computers.learned_migration(persona_id, left);
+        Ok(())
+    }
+
     pub async fn computer_restart(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         self.persona(persona_id)?;
         if !lock(&self.sessions).contains_key(persona_id) {

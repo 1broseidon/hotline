@@ -106,9 +106,23 @@ the chosen image, the teammate's pane offers the update.
   desk says so and points at the teammate's Update. Bearer-only, like
   `/secrets`.
 - On a protected computer, Use Cookies goes to `PUT /sessions/{name}` with
-  `{sites, cookies, storage}` instead of a saved login in the agent's home,
-  and taking a share back is `DELETE /sessions/{name}` with `{domains?}`.
-  Any other computer takes the saved login as above.
+  `{sites, cookies, storage}` (storage `{origin: {key: value}}`) instead of
+  a saved login in the agent's home, and taking a share back is
+  `DELETE /sessions/{name}` with `{domains?}`. Any other computer takes the
+  saved login as above.
+- On a protected computer, `/sites/ws?token=<bearer>&site=<host>` is one
+  site of the signed-in browser as a screen in the viewer protocol. The
+  window on this desk opens it for Open Browser and for a sign-in to finish;
+  a window or phone elsewhere reaches it through `/v2/sites/{persona}/ws`
+  on the remote listener, the site bound in the Noise payload.
+- `GET /secrets/uses` may list `{kind: "finish", name, origin, account,
+  since}`: a sign-in the computer could not finish, shown to the person as
+  one card that opens the site.
+- `GET /migration` answers `{state, at, snapshots, loginsDropped,
+  sitesCleared, answer}` after a split boot (404 in legacy mode); while
+  `state` is `pending` the pane asks what becomes of the snapshots and
+  `POST /migration/answer {snapshots: "clean"|"delete"|"keep"}` carries the
+  answer.
 
 A paired phone reaches the same viewer socket through a door on the Remote
 listener, `GET /computer/<personaId>/ws` with the phone's own bearer. The

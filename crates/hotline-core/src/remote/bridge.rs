@@ -29,13 +29,16 @@ const VIEWER_PROTOCOL: &str = "hotline-viewer.";
 const VIEWER_TOKEN_TTL: Duration = Duration::from_secs(30);
 
 /// Which of a teammate's screens a viewer opens: its computer's
-/// (`/computer/{persona}/ws`) or its desk browser's
-/// (`/browser/{persona}/ws`, task-390), both in the computer viewer's
-/// protocol. A viewer token opens one of them, for one teammate.
+/// (`/computer/{persona}/ws`), its desk browser's
+/// (`/browser/{persona}/ws`, task-390), or one site of its protected
+/// computer's signed-in browser (`/sites/{persona}/ws`), all in the
+/// computer viewer's protocol. A viewer token opens one of them, for one
+/// teammate, and a site's for that site alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Viewer {
     Computer,
     Browser,
+    Sites,
 }
 
 impl Viewer {
@@ -44,12 +47,13 @@ impl Viewer {
         match self {
             Self::Computer => "computer",
             Self::Browser => "browser",
+            Self::Sites => "sites",
         }
     }
 
     /// `computer` or `browser`, as a viewer page names the screen it asks for.
     pub fn named(name: &str) -> Option<Self> {
-        [Self::Computer, Self::Browser]
+        [Self::Computer, Self::Browser, Self::Sites]
             .into_iter()
             .find(|viewer| viewer.name() == name)
     }
@@ -60,10 +64,16 @@ struct ViewerTokens(HashMap<String, ViewerToken>);
 struct ViewerToken {
     persona: String,
     viewer: Viewer,
+    /// The one site a sites screen's token opens.
+    site: Option<String>,
     expires: Instant,
 }
 impl ViewerTokens {
     fn mint(&mut self, persona: &str, viewer: Viewer) -> String {
+        self.mint_for(persona, viewer, None)
+    }
+
+    fn mint_for(&mut self, persona: &str, viewer: Viewer, site: Option<String>) -> String {
         let now = Instant::now();
         self.0.retain(|_, token| token.expires > now);
         let token = super::secret();
@@ -72,13 +82,16 @@ impl ViewerTokens {
             ViewerToken {
                 persona: persona.to_owned(),
                 viewer,
+                site,
                 expires: now + VIEWER_TOKEN_TTL,
             },
         );
         token
     }
 
-    fn redeem(&mut self, token: &str, persona: &str, viewer: Viewer) -> Result<(), ()> {
+    /// Spends the token on the screen it was minted for, answering the
+    /// site it names when it is a site's.
+    fn redeem(&mut self, token: &str, persona: &str, viewer: Viewer) -> Result<Option<String>, ()> {
         let now = Instant::now();
         self.0.retain(|_, token| token.expires > now);
         let minted = self.0.get(token).ok_or(())?;
@@ -87,8 +100,7 @@ impl ViewerTokens {
         }
         // Validation and removal share the mutex, so simultaneous upgrades
         // cannot both redeem the same capability.
-        self.0.remove(token);
-        Ok(())
+        Ok(self.0.remove(token).and_then(|minted| minted.site))
     }
 }
 
@@ -138,6 +150,13 @@ impl Bridge {
     /// fresh token, even if the remote screen was unavailable.
     pub fn viewer_token(&self, persona_id: &str, viewer: Viewer) -> String {
         lock(&self.viewer_tokens).mint(persona_id, viewer)
+    }
+
+    /// A token that opens `site` of the teammate's protected computer's
+    /// signed-in browser once, or none for what is not a site.
+    pub fn site_token(&self, persona_id: &str, site: &str) -> Option<String> {
+        let site = crate::computer::site_host(site)?;
+        Some(lock(&self.viewer_tokens).mint_for(persona_id, Viewer::Sites, Some(site)))
     }
 
     pub async fn start(desk: &PairedDesk) -> Result<Self, String> {
@@ -195,7 +214,7 @@ impl Bridge {
 }
 
 struct Authorization {
-    screen: Option<(Viewer, String)>,
+    screen: Option<(Viewer, String, Option<String>)>,
     protocol: Option<http::HeaderValue>,
 }
 
@@ -225,7 +244,7 @@ fn authorize(
         None
     } else {
         let (viewer, id) = screen_of(path).ok_or(())?;
-        Some((viewer, id.to_owned()))
+        Some((viewer, id.to_owned(), None))
     };
     let query_tokens: Vec<_> =
         url::form_urlencoded::parse(request.uri().query().unwrap_or("").as_bytes())
@@ -249,14 +268,15 @@ fn authorize(
         }
     }
     if let Some((protocol, token)) = viewer_protocol {
-        let (viewer, id) = screen.as_ref().ok_or(())?;
+        let (viewer, id, _) = screen.as_ref().ok_or(())?;
         // Never fall back to owner authority for a malformed or spent viewer
         // credential, or accept a viewer capability from the query string.
         if !query_tokens.is_empty() {
             return Err(());
         }
         let protocol = protocol.parse().map_err(|_| ())?;
-        lock(viewers).redeem(token, id, *viewer)?;
+        let site = lock(viewers).redeem(token, id, *viewer)?;
+        let screen = screen.map(|(viewer, id, _)| (viewer, id, site));
         return Ok(Authorization {
             screen,
             protocol: Some(protocol),
@@ -317,8 +337,8 @@ async fn serve(
         return;
     };
     let screen = lock(&target).clone();
-    if let Some((screen, persona)) = screen {
-        viewer(local, client, desk, screen, &persona).await;
+    if let Some((screen, persona, site)) = screen {
+        viewer(local, client, desk, screen, &persona, site.as_deref()).await;
         return;
     }
     let mut remote = client.connect(&desk);
@@ -361,8 +381,9 @@ async fn viewer(
     desk: PairedDesk,
     screen: Viewer,
     persona: &str,
+    site: Option<&str>,
 ) {
-    let Ok(mut remote) = client.open(&desk, Some((screen, persona))).await else {
+    let Ok(mut remote) = client.open(&desk, Some((screen, persona, site))).await else {
         return;
     };
     loop {
@@ -433,6 +454,44 @@ mod discovery_tests {
                 .redeem(&token, "ada", Viewer::Browser)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_sites_token_opens_its_one_site_once() {
+        let tokens = Mutex::new(ViewerTokens::default());
+        let token = lock(&tokens).mint_for("ada", Viewer::Sites, Some("github.com".into()));
+        assert!(
+            lock(&tokens)
+                .redeem(&token, "ada", Viewer::Computer)
+                .is_err()
+        );
+        assert_eq!(
+            lock(&tokens).redeem(&token, "ada", Viewer::Sites),
+            Ok(Some("github.com".into()))
+        );
+        assert!(
+            lock(&tokens).redeem(&token, "ada", Viewer::Sites).is_err(),
+            "once"
+        );
+        assert_eq!(screen_of("/sites/ada/ws"), Some((Viewer::Sites, "ada")));
+        assert_eq!(
+            crate::computer::site_host("https://GitHub.com/"),
+            Some("github.com".into())
+        );
+        assert_eq!(
+            crate::computer::site_host("localhost:8443"),
+            Some("localhost:8443".into())
+        );
+        for bad in [
+            "",
+            "github.com/login",
+            "http://github.com",
+            "a b",
+            "github.com:0",
+            "-x.com",
+        ] {
+            assert_eq!(crate::computer::site_host(bad), None, "{bad}");
+        }
     }
 
     #[test]

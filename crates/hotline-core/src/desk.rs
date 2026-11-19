@@ -1386,6 +1386,16 @@ impl RoomHandle for Desk {
         self.room.computer_update(persona_id).await
     }
 
+    async fn computer_migration_answer(
+        &self,
+        persona_id: &str,
+        snapshots: crate::contract::SnapshotAnswer,
+    ) -> Result<(), String> {
+        self.room
+            .computer_migration_answer(persona_id, snapshots)
+            .await
+    }
+
     async fn computer_restart(&self, persona_id: &str) -> Result<(), String> {
         self.room.computer_restart(persona_id).await
     }

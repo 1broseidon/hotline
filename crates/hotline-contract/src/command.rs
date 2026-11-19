@@ -919,6 +919,14 @@ pub enum Command {
     /// has now, between turns if it is running. The volumes survive.
     #[serde(rename = "computer.restart")]
     ComputerRestart { persona_id: String },
+    /// The person's answer to the upgrade notice's question of what
+    /// becomes of the snapshots from before split mode. Owner or local desk
+    /// only.
+    #[serde(rename = "computer.migration.answer")]
+    ComputerMigrationAnswer {
+        persona_id: String,
+        snapshots: SnapshotAnswer,
+    },
     /// The person's cookies lent to this teammate, one row a site, whether
     /// lent from its pane or on a card it raised. Metadata only. Owner or
     /// local desk only.

@@ -58,17 +58,57 @@ async fn request(
     }
 }
 
-pub(crate) async fn held(ready: &Ready) -> Result<Vec<HeldUse>, Refusal> {
+/// A sign-in the computer's own step could not finish, waiting for the
+/// person on the site's screen: `{kind: "finish", name, origin, account,
+/// since}` among the held uses. Gone from the list once it is finished or
+/// given up.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Finish {
+    pub name: String,
+    pub origin: String,
+    #[serde(default)]
+    pub account: String,
+    pub since: i64,
+}
+
+impl Finish {
+    /// The one id the desk keeps a card under: the same sign-in polled
+    /// again is the same card.
+    pub(crate) fn id(&self) -> String {
+        format!("finish:{}:{}:{}", self.name, self.origin, self.since)
+    }
+}
+
+/// What the computer holds: uses waiting for an answer, and sign-ins
+/// waiting for the person to finish them. An entry of a kind this desk
+/// does not know is passed over, so a newer computer's addition never
+/// stops the cards it does know.
+pub(crate) async fn held(ready: &Ready) -> Result<(Vec<HeldUse>, Vec<Finish>), Refusal> {
     #[derive(Deserialize)]
     struct Uses {
-        uses: Vec<HeldUse>,
+        uses: Vec<serde_json::Value>,
     }
-    request(ready, None)
+    let uses = request(ready, None)
         .await?
         .json::<Uses>()
         .await
-        .map(|body| body.uses)
-        .map_err(|_| Refusal::Failed)
+        .map_err(|_| Refusal::Failed)?
+        .uses;
+    let mut held = Vec::new();
+    let mut finishing = Vec::new();
+    for entry in uses {
+        match entry["kind"].as_str() {
+            Some("finish") => {
+                finishing.push(serde_json::from_value(entry).map_err(|_| Refusal::Failed)?);
+            }
+            Some("login" | "passkey") => {
+                held.push(serde_json::from_value(entry).map_err(|_| Refusal::Failed)?);
+            }
+            _ => {}
+        }
+    }
+    Ok((held, finishing))
 }
 
 pub(crate) async fn answer(

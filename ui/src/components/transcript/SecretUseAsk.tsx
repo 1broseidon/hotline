@@ -3,12 +3,37 @@ import type { SecretUseAnswer, SecretUseStatus, TranscriptEvent } from "../../ge
 import { askKey, useAnswer } from "../../answering";
 import { wire } from "../../wire";
 import { SettledAsk } from "./Asks";
+import { openSiteScreen } from "../RemoteBrowser";
 
 const outcomes: Record<SecretUseStatus, string> = {
 	pending: "Needs you", approved: "Approved", allowed: "Allowed for 10 min", denied: "Denied", expired: "Expired",
 };
 
 export function SecretUseAsk({ event, teammate }: { event: Extract<TranscriptEvent, { kind: "secret_use_ask" }>; teammate: string }) {
+	if (event.operation?.kind === "finish") return <FinishSigningIn event={event} teammate={teammate} />;
+	return <UseAsk event={event} teammate={teammate} />;
+}
+
+/**
+ * A sign-in the computer's own browser could not finish: one quiet card
+ * that opens the site's screen for the person to finish it there. Nothing
+ * is answered; it folds to its line when the computer stops listing it.
+ */
+function FinishSigningIn({ event, teammate }: { event: Extract<TranscriptEvent, { kind: "secret_use_ask" }>; teammate: string }) {
+	const origin = event.operation?.origin ?? `https://${event.site}`;
+	const account = event.operation?.account ?? "";
+	const what = `Finish signing in to ${event.site}`;
+	if (event.status !== "pending") return <SettledAsk state="Ended" what={what} who={teammate} />;
+	return <div className="card card-live mt-3">
+		<p className="selectable">{what}</p>
+		<p className="mt-1 text-sm text-ink-3">For {teammate}{account !== "" ? ` · as ${account}` : ""}</p>
+		<div className="mt-2.5 flex flex-wrap gap-1.5">
+			<button type="button" className="control btn-primary" onClick={() => openSiteScreen(event.teammate, teammate, origin)}>Open</button>
+		</div>
+	</div>;
+}
+
+function UseAsk({ event, teammate }: { event: Extract<TranscriptEvent, { kind: "secret_use_ask" }>; teammate: string }) {
 	const { answering, failure: refusal, answer: send } = useAnswer(askKey(event), event.status !== "pending");
 	const [expired, setExpired] = useState(Date.now() >= event.expiresAt);
 	useEffect(() => {

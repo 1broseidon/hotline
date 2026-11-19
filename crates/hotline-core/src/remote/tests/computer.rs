@@ -12,6 +12,7 @@ fn the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running(
         update_failed: None,
         limits_changed: false,
         protection: None,
+        migration: None,
     };
     assert_eq!(
         server::computer_target(&status(

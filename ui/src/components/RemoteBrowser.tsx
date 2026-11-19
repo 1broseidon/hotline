@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { activeDeskId, wireFor } from "../desks";
+import { activeDeskId, allDesks, wireFor } from "../desks";
 import type { BrowserSnapshot, BrowserStep, BrowserView } from "../generated/contract";
 import { CloseIcon } from "../icons";
 import { isDesktop } from "../native";
@@ -32,9 +32,18 @@ import type { RosterEntry, Wire } from "../wire";
  *
  * The PIP and a cookie ask's Open Browser open it with `openRemoteBrowser`;
  * the window mounts one `RemoteBrowser`, which shows it over everything.
+ *
+ * The same viewer shows one site of a teammate's protected computer's
+ * signed-in browser (`openSiteScreen`): Open Browser and Finish signing in
+ * on such a computer. That screen is the computer's `/sites/ws`, in the
+ * same protocol, reached the way the computer's own screen is: on this
+ * desk straight on the container's loopback port with its bearer, as the
+ * computer's window opens `/ws`; on a desk elsewhere through its bridge,
+ * with a token that opens that one site once. It has no address bar: the
+ * site is the screen, and the person signs in or looks, and gives it back.
  */
 
-type Opened = { personaId: string; name: string };
+type Opened = { personaId: string; name: string; site?: string };
 let opened: Opened | null = null;
 const listeners = new Set<() => void>();
 
@@ -53,6 +62,11 @@ export function openRemoteBrowser(personaId: string, name: string): void {
 	setOpened({ personaId, name });
 }
 
+/** Shows one site of a teammate's protected computer's signed-in browser. */
+export function openSiteScreen(personaId: string, name: string, site: string): void {
+	setOpened({ personaId, name, site: site.replace(/^https:\/\//, "").replace(/\/$/, "") });
+}
+
 /** The viewer, over the whole window, while one is open. Mounted once, by the window. */
 export function RemoteBrowser({ roster }: { roster: RosterEntry[] }) {
 	const open = useSyncExternalStore(subscribe, () => opened);
@@ -62,6 +76,9 @@ export function RemoteBrowser({ roster }: { roster: RosterEntry[] }) {
 	const deskId = activeDeskId();
 	if (open === null || deskId === null) return null;
 	const entry = roster.find((one) => one.persona.id === open.personaId);
+	if (open.site !== undefined) {
+		return <SiteViewer key={`${open.personaId} ${open.site}`} deskId={deskId} personaId={open.personaId} name={entry?.persona.name ?? open.name} site={open.site} />;
+	}
 	return (
 		<Viewer
 			key={open.personaId}
@@ -77,13 +94,45 @@ export function RemoteBrowser({ roster }: { roster: RosterEntry[] }) {
 /** What the screen said last of who has the browser, from this socket's side. */
 type ScreenState = { holder: "none" | "agent" | "person" | "you"; driving: boolean };
 
+/** Where a screen's socket is, asked afresh at every connect. */
+type Opener = () => Promise<{ url: string; protocols?: string[] }>;
+
+/** A desk browser's screen on another desk, through its bridge, with a token that opens it once. */
+function bridged(deskId: string, personaId: string): Opener {
+	return () =>
+		invoke<{ origin: string; token: string }>("desk_viewer_token", { deskId, personaId, kind: "browser" }).then(({ origin, token }) => ({
+			url: `${origin.replace(/^http/, "ws")}/browser/${encodeURIComponent(personaId)}/ws`,
+			protocols: [`hotline-viewer.${token}`],
+		}));
+}
+
 /**
- * The teammate's page as a live screen through the desk's bridge, painted on
- * `canvas`: a token that opens it once is asked of the shell at every
- * connect, and a dropped socket is opened again, taking control again if it
- * had it. Answers what it last said and how to speak on it.
+ * A site of a protected computer's signed-in browser: on this desk the
+ * container's own loopback port, with the bearer the computer's status
+ * already hands this window for its screen; on a desk elsewhere, its bridge.
  */
-function useScreen(deskId: string, personaId: string, live: boolean, canvas: React.RefObject<HTMLCanvasElement | null>, say: (reason: unknown) => void) {
+function siteSocket(deskId: string, personaId: string, site: string): Opener {
+	return async () => {
+		const desk = allDesks().find((one) => one.id === deskId);
+		if (desk?.kind === "remote") {
+			const { origin, token } = await invoke<{ origin: string; token: string }>("desk_viewer_token", { deskId, personaId, kind: "sites", site });
+			return { url: `${origin.replace(/^http/, "ws")}/sites/${encodeURIComponent(personaId)}/ws`, protocols: [`hotline-viewer.${token}`] };
+		}
+		const status = await wireFor(deskId).command("computer.status", { personaId });
+		const viewer = status.state === "running" ? status.viewer : undefined;
+		const match = viewer?.match(/^http:\/\/127\.0\.0\.1:(\d+)\/#(.+)$/);
+		if (match === null || match === undefined) throw new Error("The computer is not running.");
+		return { url: `ws://127.0.0.1:${match[1]}/sites/ws?${new URLSearchParams({ token: match[2]!, site })}` };
+	};
+}
+
+/**
+ * A live screen in the computer viewer's protocol, painted on `canvas`:
+ * where it is is asked at every connect, and a dropped socket is opened
+ * again, taking control again if it had it. Answers what it last said and
+ * how to speak on it.
+ */
+function useScreen(open: Opener, live: boolean, canvas: React.RefObject<HTMLCanvasElement | null>, say: (reason: unknown) => void) {
 	const [state, setState] = useState<ScreenState>({ holder: "none", driving: false });
 	const [size, setSize] = useState<{ width: number; height: number } | null>(null);
 	const socket = useRef<WebSocket | null>(null);
@@ -99,10 +148,10 @@ function useScreen(deskId: string, personaId: string, live: boolean, canvas: Rea
 		let retry: ReturnType<typeof setTimeout> | undefined;
 		const painter = new ScreenPainter(drawn, () => setSize({ width: drawn.width, height: drawn.height }));
 		const connect = () => {
-			invoke<{ origin: string; token: string }>("desk_viewer_token", { deskId, personaId, kind: "browser" }).then(
-				({ origin, token }) => {
+			open().then(
+				({ url, protocols }) => {
 					if (gone) return;
-					const opened = new WebSocket(`${origin.replace(/^http/, "ws")}/browser/${encodeURIComponent(personaId)}/ws`, [`hotline-viewer.${token}`]);
+					const opened = new WebSocket(url, protocols);
 					opened.binaryType = "arraybuffer";
 					socket.current = opened;
 					opened.onopen = () => {
@@ -127,7 +176,7 @@ function useScreen(deskId: string, personaId: string, live: boolean, canvas: Rea
 					};
 				},
 				() => {
-					// The desk's bridge is not up yet; the shell retries it, and so do we.
+					// The desk's bridge or the computer is not up yet; try again.
 					if (!gone) retry = setTimeout(connect, 1000);
 				},
 			);
@@ -139,7 +188,7 @@ function useScreen(deskId: string, personaId: string, live: boolean, canvas: Rea
 			socket.current?.close();
 			socket.current = null;
 		};
-	}, [deskId, personaId, live, canvas, say]);
+	}, [open, live, canvas, say]);
 	return { state, size, send };
 }
 
@@ -178,7 +227,8 @@ function Viewer({ deskId, line, personaId, name, view }: { deskId: string; line:
 	}, [error]);
 	const say = useCallback((reason: unknown) => setError({ text: reason instanceof Error ? reason.message : String(reason) }), []);
 
-	const screen = useScreen(deskId, personaId, live, canvas, say);
+	const opener = useMemo(() => bridged(deskId, personaId), [deskId, personaId]);
+	const screen = useScreen(opener, live, canvas, say);
 	// Live, this seat drives once the screen says it took control; by
 	// pictures, whenever the person has the browser.
 	const driving = drive && (live ? screen.state.driving && held : held);
@@ -443,6 +493,99 @@ function Viewer({ deskId, line, personaId, name, view }: { deskId: string; line:
 					>
 						{picture !== undefined && <img src={picture} alt={snapshot?.title ?? ""} draggable={false} />}
 					</div>)}
+				</div>
+			</div>
+		</div>,
+		document.body,
+	);
+}
+
+/**
+ * One site of a protected computer's signed-in browser, live: the person
+ * takes control to sign in or look, and gives it back. What they type goes
+ * to that site's tab and nowhere else on the computer.
+ */
+function SiteViewer({ deskId, personaId, name, site }: { deskId: string; personaId: string; name: string; site: string }) {
+	const canvas = useRef<HTMLCanvasElement>(null);
+	const [error, setError] = useState<string | null>(null);
+	const say = useCallback((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)), []);
+	const opener = useMemo(() => siteSocket(deskId, personaId, site), [deskId, personaId, site]);
+	const screen = useScreen(opener, true, canvas, say);
+	const driving = screen.state.driving || screen.state.holder === "you";
+	const drivingNow = useRef(driving);
+	drivingNow.current = driving;
+	useEffect(() => {
+		const drawn = canvas.current;
+		if (drawn === null) return;
+		const hands = driveFrom(drawn, { send: screen.send, driving: () => drivingNow.current });
+		return () => {
+			hands.letGo();
+			hands.detach();
+		};
+	}, [screen.send]);
+	const close = useCallback(() => {
+		if (drivingNow.current) screen.send({ t: "control", take: false });
+		setOpened(null);
+	}, [screen.send]);
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || (event.target === canvas.current && drivingNow.current)) return;
+			event.stopPropagation();
+			event.preventDefault();
+			close();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [close]);
+	const shape = screen.size ?? { width: 16, height: 10 };
+	return createPortal(
+		<div className="viewer remote-browser" role="dialog" aria-modal="true" aria-label={`${name}'s ${site}`}>
+			<div className="remote-browser-frame">
+				<div className={`browser-bar${driving ? " yours" : ""}`}>
+					<span className="who">
+						<span className="dot" />
+						<span>{driving ? "You have control" : `${name} · signed-in browser`}</span>
+					</span>
+					<span className="where">
+						<span className="lock secure" aria-hidden="true" />
+						<span className="url" aria-label="Site">{site}</span>
+					</span>
+					{error !== null && (
+						<span className="error" role="status">
+							{error}
+						</span>
+					)}
+					<button
+						type="button"
+						className="primary"
+						onClick={() => {
+							screen.send({ t: "control", take: !driving });
+							if (!driving) canvas.current?.focus();
+						}}
+					>
+						{driving ? "Give it back" : "Take control"}
+					</button>
+					<button type="button" className="icon" title="Close" aria-label="Close" onClick={close}>
+						<CloseIcon />
+					</button>
+				</div>
+				<div className="remote-browser-stage">
+					<canvas
+						ref={canvas}
+						className={`remote-browser-page live${driving ? " yours" : ""}`}
+						aria-label={`${name}'s ${site}`}
+						tabIndex={0}
+						width={1}
+						height={1}
+						style={{ aspectRatio: `${shape.width} / ${shape.height}`, width: `min(100cqw, 100cqh * ${shape.width} / ${shape.height})` }}
+						onPaste={(event) => {
+							if (!driving) return;
+							const text = event.clipboardData.getData("text/plain");
+							if (text === "") return;
+							event.preventDefault();
+							screen.send({ t: "paste", text });
+						}}
+					/>
 				</div>
 			</div>
 		</div>,

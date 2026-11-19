@@ -781,8 +781,9 @@ pub async fn desk_pair_ssh(
 }
 
 /// Where a desk's bridge is now, and a token that opens one teammate's
-/// computer screen on it once, within 30 s (BRO-148), or with `kind`
-/// `browser` its desk browser's screen (task-390). A viewer asks for one on
+/// computer screen on it once, within 30 s (BRO-148), with `kind`
+/// `browser` its desk browser's screen (task-390), or with `kind` `sites`
+/// and a `site` that site of its protected computer's signed-in browser. A viewer asks for one on
 /// every connect and never holds the desk's owner token.
 #[tauri::command]
 pub fn desk_viewer_token(
@@ -790,7 +791,19 @@ pub fn desk_viewer_token(
     desk_id: String,
     persona_id: String,
     kind: Option<String>,
+    site: Option<String>,
 ) -> Result<Value, String> {
+    if kind.as_deref() == Some("sites") {
+        let bridges = host.lock_bridges();
+        let bridge = bridges
+            .get(&desk_id)
+            .and_then(|live| live.bridge.as_ref())
+            .ok_or("That desk can't be reached from this computer yet.")?;
+        let token = bridge
+            .site_token(&persona_id, site.as_deref().unwrap_or_default())
+            .ok_or("A site's screen opens one site, by its host.")?;
+        return Ok(json!({ "origin": bridge.origin, "token": token }));
+    }
     let viewer = match kind.as_deref() {
         None => hotline_core::remote::bridge::Viewer::Computer,
         Some(kind) => hotline_core::remote::bridge::Viewer::named(kind)

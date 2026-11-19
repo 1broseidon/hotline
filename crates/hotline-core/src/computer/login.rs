@@ -80,10 +80,12 @@ async fn session(
         .map_err(|error| error.to_string())?;
     let address = format!("{base}/sessions/{name}");
     let request = match sites {
+        // Storage is by origin, `{"https://site": {"key": "value"}}`, as the
+        // signed-in browser takes it; a saved login with none sends none.
         Some(sites) => client.put(address).json(&json!({
             "sites": sites,
-            "cookies": saved["cookies"],
-            "storage": saved["storage"],
+            "cookies": saved["cookies"].as_array().cloned().unwrap_or_default(),
+            "storage": saved["storage"].as_object().cloned().unwrap_or_default(),
         })),
         None => client.delete(address).json(saved),
     };

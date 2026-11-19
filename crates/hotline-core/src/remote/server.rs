@@ -119,6 +119,7 @@ async fn handle(
             || path == "/v2/relay/accept"
             || path == "/v2/link"
             || path.starts_with("/v2/computer/")
+            || path.starts_with("/v2/sites/")
             || path.starts_with("/v2/browser/"))
     {
         return Ok(sealed_door(remote, request, slot, &path).await);
@@ -271,6 +272,10 @@ pub(super) enum Purpose {
     Wire,
     Pair,
     Computer(String),
+    /// A protected computer's signed-in browser, one site of it, as a
+    /// screen in the computer viewer's protocol: what Open Browser and
+    /// Finish signing in show. The site is bound in the Noise payload.
+    Sites(String),
     /// A teammate's desk browser as a live screen (`browser_screen`).
     Browser(String),
     Relay,
@@ -290,6 +295,8 @@ impl Purpose {
                 let rest = path.strip_prefix("/v2")?;
                 if let Some(persona) = screen_path(rest, "browser") {
                     Self::Browser(persona.to_owned())
+                } else if let Some(persona) = screen_path(rest, "sites") {
+                    Self::Sites(persona.to_owned())
                 } else {
                     Self::Computer(screen_path(rest, "computer")?.to_owned())
                 }
@@ -309,7 +316,7 @@ impl Purpose {
     /// Pairing and the link authenticate by other means and name no role.
     pub(super) fn admits(&self, role: DeviceRole) -> bool {
         match self {
-            Self::Wire | Self::Computer(_) | Self::Browser(_) => {
+            Self::Wire | Self::Computer(_) | Self::Sites(_) | Self::Browser(_) => {
                 matches!(role, DeviceRole::Owner | DeviceRole::Companion)
             }
             Self::Relay | Self::RelayAccept => {
@@ -374,6 +381,8 @@ pub(super) async fn sealed_session<S>(
         persona_id: Option<String>,
         #[serde(default)]
         desk_id: Option<String>,
+        #[serde(default)]
+        site: Option<String>,
     }
 
     let cancel = lock(&remote.state).cancel.clone();
@@ -392,6 +401,7 @@ pub(super) async fn sealed_session<S>(
         let size = noise.read_message(&first, &mut payload).ok()?;
         let public = noise.get_remote_static()?.to_vec();
         let mut desk = None;
+        let mut site = None;
         // A grant made for a phone whose confirmation does not get sent is
         // taken back, whether the send fails or this future is dropped first.
         let mut unanswered = None;
@@ -431,9 +441,20 @@ pub(super) async fn sealed_session<S>(
                     if binding.purpose != named
                         || binding.persona_id.as_ref() != Some(persona)
                         || binding.desk_id.is_some()
+                        || binding.site.is_some()
                     {
                         return None;
                     }
+                }
+                Purpose::Sites(persona) => {
+                    let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
+                    if binding.purpose != "sites"
+                        || binding.persona_id.as_ref() != Some(persona)
+                        || binding.desk_id.is_some()
+                    {
+                        return None;
+                    }
+                    site = Some(crate::computer::site_host(binding.site.as_deref()?)?);
                 }
                 Purpose::Relay => {
                     let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
@@ -487,6 +508,7 @@ pub(super) async fn sealed_session<S>(
             super::channel::Channel::new(socket, state),
             phone,
             desk,
+            site,
             authenticated,
         ))
     };
@@ -496,7 +518,7 @@ pub(super) async fn sealed_session<S>(
         () = seat.expired(deadline) => return,
         result = handshake => result,
     };
-    let Some((socket, phone, desk, _authenticated)) = established else {
+    let Some((socket, phone, desk, site, _authenticated)) = established else {
         return;
     };
     // Forward standing cancellation to the wire's own cleanup path. Dropping
@@ -522,7 +544,15 @@ pub(super) async fn sealed_session<S>(
             tokio::select! {
                 biased;
                 () = revoked.cancelled() => {},
-                () = sealed_computer(remote.clone(), socket, &persona) => {},
+                () = sealed_computer(remote.clone(), socket, &persona, None) => {},
+            }
+        }
+        Purpose::Sites(persona) => {
+            let revoked = phone.cancel.clone();
+            tokio::select! {
+                biased;
+                () = revoked.cancelled() => {},
+                () = sealed_computer(remote.clone(), socket, &persona, site) => {},
             }
         }
         Purpose::Browser(persona) => {
@@ -567,10 +597,14 @@ pub(super) async fn sealed_session<S>(
 /// A viewer uses the very same sealed connection, but its plaintext frame is
 /// an envelope: {"type":"text","data":"…"} or {"type":"binary","data":"<base64>"}.
 /// Inputs are text envelopes only. Container addresses and bearers never leave.
+/// With `site`, the screen is the protected computer's signed-in browser on
+/// that site (`/sites/ws`), which only a computer that proved itself has, and
+/// which carries no files.
 async fn sealed_computer<S>(
     remote: Arc<Remote>,
     mut phone: super::channel::Channel<S>,
     persona: &str,
+    site: Option<String>,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
@@ -590,7 +624,13 @@ async fn sealed_computer<S>(
     let Some((port, token)) = computer_target(&status) else {
         return;
     };
-    let address = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    if site.is_some() && status.protection != Some(crate::contract::ComputerProtection::Protected) {
+        return;
+    }
+    let address = match &site {
+        Some(site) => format!("ws://127.0.0.1:{port}/sites/ws?token={token}&site={site}"),
+        None => format!("ws://127.0.0.1:{port}/ws?token={token}"),
+    };
     let config = WebSocketConfig::default()
         .max_message_size(Some(COMPUTER_MESSAGE_MAX))
         .max_frame_size(Some(COMPUTER_MESSAGE_MAX));
@@ -615,6 +655,7 @@ async fn sealed_computer<S>(
                     if input.r#type != "text" || input.data.len() > super::viewer_files::MAX_REQUEST { break; }
                     if let Ok(request) = serde_json::from_str::<Value>(&input.data)
                         && request["type"] == "files" {
+                        if site.is_some() { break; }
                         if let Some(reply) = files.enqueue(request)
                             && phone.send(Message::text(json!({"type":"text","data":reply.to_string()}).to_string())).await.is_err() { break; }
                         continue;

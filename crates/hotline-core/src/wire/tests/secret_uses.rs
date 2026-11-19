@@ -196,7 +196,9 @@ async fn automatic_keys_are_not_held_and_policy_changes_reach_the_next_use_witho
     );
     room.poll_secret_uses("ada").await;
     assert_eq!(cards(room.log()), [] as [Value; 0]);
-    assert_eq!(fixture.taken.uses.polls(), 0);
+    // A protected computer is still looked at, for a sign-in the person
+    // must finish, whatever the logins' policy; nothing there is a card.
+    assert_eq!(fixture.taken.uses.polls(), 1);
     let frame = json!({"id":1,"cmd":"secrets.use.set","params":{"name":"HN_LOGIN","use":"ask"}});
     assert_eq!(
         remote_control_answer(

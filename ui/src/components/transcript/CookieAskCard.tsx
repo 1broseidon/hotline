@@ -6,7 +6,7 @@ import { askKey, useAnswer } from "../../answering";
 import { useActiveDesk } from "../../desks";
 import { isDesktop } from "../../native";
 import { wire } from "../../wire";
-import { openRemoteBrowser } from "../RemoteBrowser";
+import { openRemoteBrowser, openSiteScreen } from "../RemoteBrowser";
 import { SettledAsk } from "./Asks";
 
 type Ask = Extract<TranscriptEvent, { kind: "cookie_ask" }>;
@@ -86,7 +86,13 @@ function Pending({ event, personaId, teammate, onOpenScreen }: { event: Ask; per
 	// the window's viewer of it on another desk, or its computer's screen in
 	// a window of its own.
 	const openBrowser = () => {
-		if (event.deskBrowser !== true) onOpenScreen?.();
+		// A protected computer shows the site itself, from its signed-in
+		// browser; any other, its whole screen, as it always has.
+		if (event.deskBrowser !== true)
+			void wire.command("computer.status", { personaId }).then(
+				(status) => (status?.protection === "protected" ? openSiteScreen(personaId, teammate, event.site) : onOpenScreen?.()),
+				() => onOpenScreen?.(),
+			);
 		else if (remote) openRemoteBrowser(personaId, teammate);
 		else if (isDesktop()) void invoke("browser_pane_open", { personaId, name: teammate }).catch(() => {});
 	};

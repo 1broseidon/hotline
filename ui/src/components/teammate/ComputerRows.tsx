@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { type Capacity, CPU_STEP, MEMORY_STEP_MB, capacityNote, cpuCeiling, cpuLabel, memoryCeilingMb, memoryLabel, memoryMb, memorySpelling, snap } from "../../computer-limits";
-import type { ComputerMount, ComputerStatus, PersonaComputer } from "../../generated/contract";
+import type { ComputerMount, ComputerStatus, PersonaComputer, SnapshotAnswer } from "../../generated/contract";
 import { CloseIcon, PlayIcon, PlusIcon, StopIcon } from "../../icons";
 import { COMPUTER_STATUS_EVERY_MS, computerMoved } from "../../computer";
 import { wire } from "../../wire";
@@ -184,6 +184,22 @@ export function ComputerRows({
 		}
 	};
 
+	// The person's answer for the snapshots from before split mode.
+	const answerSnapshots = async (snapshots: SnapshotAnswer) => {
+		if (acting) return;
+		setActing(true);
+		setRefusal(null);
+		try {
+			await wire.command("computer.migration.answer", { personaId, snapshots });
+			setStatus(await wire.command("computer.status", { personaId }));
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+			setOpenDesktop(true);
+		} finally {
+			setActing(false);
+		}
+	};
+
 	// The desk asks the release endpoint on its own every few hours; this
 	// asks now, and re-reads the status so an offer to update appears at
 	// once rather than on the next poll.
@@ -245,6 +261,22 @@ export function ComputerRows({
 									Update
 								</button>
 							)}
+						</div>
+					)}
+					{/* The same notice after the update: what becomes of the snapshots from before it, asked once, and nothing erased until it is answered. */}
+					{state === "running" && status?.migration !== undefined && (
+						<div className={`${NESTED} flex-col items-stretch gap-1.5`}>
+							<RowText title="Old snapshots" value={`${status.migration.snapshots.length} on hold`} />
+							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+								Snapshots from before the update may hold old sign-ins, so none is restored until you choose. Passwords this computer had before may have been read: change them at their sites.
+							</span>
+							<span className="flex flex-wrap gap-1.5">
+								{(["clean", "delete", "keep"] as const).map((choice) => (
+									<button key={choice} type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void answerSnapshots(choice)}>
+										{choice === "clean" ? "Clean" : choice === "delete" ? "Delete" : "Keep for now"}
+									</button>
+								))}
+							</span>
 						</div>
 					)}
 					{openDesktop && (

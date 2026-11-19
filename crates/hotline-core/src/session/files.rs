@@ -258,7 +258,7 @@ impl Room {
 
     /// The thread a file sent from `thread` came from: the DM's turn said on
     /// a call is the call's, as its replies are.
-    fn sent_from(&self, persona_id: &str, thread: &ThreadId) -> ThreadId {
+    pub(super) fn sent_from(&self, persona_id: &str, thread: &ThreadId) -> ThreadId {
         if thread.kind != ThreadKind::Dm {
             return thread.clone();
         }

@@ -809,21 +809,13 @@ async fn first_contact_holds_an_item_until_the_card_and_a_no_drops_it_unseen() {
     enrol(&log, &named("ada", "Ada", None));
     enrol(&log, &named("bob", "Bob", Some(Reach::Machine)));
     let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(replies()));
-    let sent = tool(
+    let sent = crate::session::tests::send_past_card(
         &room,
         "ada",
-        "send",
         json!({"to": ["bob"], "title": "Psst", "message": "the secret"}),
     )
     .await
     .unwrap();
-    assert!(
-        sent["note"]
-            .as_str()
-            .unwrap()
-            .contains("has not yet allowed"),
-        "{sent}"
-    );
     let id = sent["sent"][0]["id"].as_str().unwrap().to_string();
     assert!(
         kept::received(&room.log, "bob").is_empty(),
@@ -854,7 +846,16 @@ async fn first_contact_holds_an_item_until_the_card_and_a_no_drops_it_unseen() {
     assert_eq!(kept::received(&room.log, "bob"), [] as [InboxItem; 0]);
 
     // Allowed, the next one lands as any other.
-    let next = send(&room, "ada", "bob", "Again", json!({})).await;
+    let next = crate::session::tests::send_past_card(
+        &room,
+        "ada",
+        json!({"to": ["bob"], "title": "Again", "message": "again"}),
+    )
+    .await
+    .unwrap()["sent"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     until("the second card", || card().is_some()).await;
     let request = card().unwrap()["requestId"].as_str().unwrap().to_string();
     room.answer_permission("ada", &request, "allow_always")
@@ -1030,6 +1031,7 @@ async fn the_send_result_says_the_row_is_the_receipt_in_a_turn_the_person_reads(
 mod asked;
 mod brake;
 mod clock;
+mod held;
 mod jobs;
 mod limit;
 mod newer;

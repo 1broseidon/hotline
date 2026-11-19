@@ -699,6 +699,51 @@ pub(crate) fn enrol(log: &Log, persona: &Persona) {
     log.append(&StreamId::Room, &event).unwrap();
 }
 
+/// `send` as `from` calls it, for a test that answers the first-contact card
+/// it raises itself: the call's result when it needs no card, else, once its
+/// items are kept, their ids and receivers, the call left waiting on the
+/// card in a task of its own as the agent's call would be.
+pub(crate) async fn send_past_card(
+    room: &Arc<Room>,
+    from: &str,
+    arguments: Value,
+) -> Result<Value, String> {
+    let sender = room.teammate_named(from)?.id;
+    let receivers = arguments["to"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|to| room.teammate_named(to.as_str()?).ok())
+        .collect::<Vec<_>>();
+    let mut before = std::collections::HashSet::new();
+    for receiver in &receivers {
+        for item in crate::store::inbox::of(&room.log, &receiver.id) {
+            before.insert(item.id);
+        }
+    }
+    let tools = TeammateTools::new(room, from);
+    let sending = tokio::spawn(async move { tools.call("send", &arguments).await });
+    loop {
+        if sending.is_finished() {
+            let sent = sending.await.expect("the send ran")?;
+            return Ok(serde_json::from_str(&sent).unwrap());
+        }
+        let made: Vec<_> = receivers
+            .iter()
+            .filter_map(|receiver| {
+                crate::store::inbox::of(&room.log, &receiver.id)
+                    .into_iter()
+                    .find(|item| item.from == sender && !before.contains(&item.id))
+                    .map(|item| json!({ "id": item.id, "to": receiver.name, "held": item.held }))
+            })
+            .collect();
+        if made.len() == receivers.len() && made.iter().any(|item| item["held"] == true) {
+            return Ok(json!({ "sent": made }));
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 /// A room with one teammate enrolled, on scripted agents, no session started.
 /// A phone paired with the desk, so a push has somewhere to go.
 pub(crate) fn pair_a_phone(room: &Room) {

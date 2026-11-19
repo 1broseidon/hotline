@@ -25,7 +25,7 @@ impl Room {
             };
             let Some((decision, option_name)) = peers::collaboration_decision(option_id) else {
                 self.write_collaboration_decision(&wait, "expired", "Invalid answer");
-                let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                let _ = wait.sender.send(peers::CollaborationDecision::Expired);
                 return Err("That collaboration card has no such answer.".to_string());
             };
 
@@ -37,7 +37,7 @@ impl Room {
                 || wait.sender.is_closed()
             {
                 self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-                let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                let _ = wait.sender.send(peers::CollaborationDecision::Expired);
                 return Err("That request is no longer waiting for an answer.".to_string());
             }
 
@@ -52,12 +52,12 @@ impl Room {
                     || wait.sender.is_closed()
                 {
                     self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-                    let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                    let _ = wait.sender.send(peers::CollaborationDecision::Expired);
                     return Err("That request is no longer waiting for an answer.".to_string());
                 }
                 if let Err(error) = self.allow_sender(&wait.target_id, &wait.caller_id) {
                     self.write_collaboration_decision(&wait, "expired", "Grant failed");
-                    let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                    let _ = wait.sender.send(peers::CollaborationDecision::Expired);
                     return Err(error);
                 }
             }

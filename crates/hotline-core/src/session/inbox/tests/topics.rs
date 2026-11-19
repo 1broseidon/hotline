@@ -184,8 +184,9 @@ async fn send_without_a_title_takes_its_first_plain_line() {
 }
 
 /// The send result says where each recipient's item landed, in the words
-/// the desk uses: in their inbox, or awaiting the person's approval, and
-/// never that a held one was received.
+/// the desk uses, the fact first: in their inbox, or not sent yet while the
+/// person's card is unanswered, never that a held one was received. Cy's
+/// card is left unanswered past the send's wait.
 #[tokio::test]
 async fn the_send_result_says_where_each_recipients_item_landed() {
     // Ada and Bob work in their workspaces, and Cy has the whole machine,
@@ -195,6 +196,7 @@ async fn the_send_result_says_where_each_recipients_item_landed() {
     enrol(&log, &named("bob", "Bob", None));
     enrol(&log, &named("cy", "Cy", Some(Reach::Machine)));
     let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(replies()));
+    tokio::time::pause();
     let sent = tool(
         &room,
         "ada",
@@ -204,21 +206,23 @@ async fn the_send_result_says_where_each_recipients_item_landed() {
     .await
     .unwrap();
     assert_eq!(
-        sent["delivery"], "Bob: in inbox · Cy: awaiting approval",
+        sent["delivery"], "Bob: in inbox · Cy: not sent yet, waiting on the person's card",
         "{sent}"
     );
     assert_eq!(sent["sent"][0]["delivery"], "in inbox");
-    assert_eq!(sent["sent"][1]["delivery"], "awaiting approval");
+    assert_eq!(
+        sent["sent"][1]["delivery"],
+        "not sent yet, waiting on the person's card"
+    );
     let note = sent["note"].as_str().unwrap();
     assert!(
-        note.starts_with("Bob: in inbox · Cy: awaiting approval. "),
+        note.starts_with(
+            "Bob: in inbox · Cy: not sent yet, waiting on the person's card. A teammate sees"
+        ),
         "{note}"
     );
+    assert!(note.contains("Nothing was sent to Cy yet"), "{note}");
     assert!(!note.contains("In their inbox"), "{note}");
-    assert!(
-        note.contains("has not yet allowed you to reach Cy"),
-        "{note}"
-    );
 }
 
 /// A question answered with `send` and `reply_to` closes as answered, as

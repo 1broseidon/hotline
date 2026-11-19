@@ -44,12 +44,15 @@ pub(super) const DENY: &str = "deny";
 pub const TEAMMATE_MESSAGE_MAX: usize = 24_000;
 
 /// The person's answer to the card a request up in access raises: this
-/// request only, this direction for good, or no.
+/// request only, this direction for good, or no; or no answer at all, the
+/// card taken down by an expiry, a Stop or a lease that ended, which is
+/// never told to the sender as the person's no.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CollaborationDecision {
     Once,
     Permanent,
     Deny,
+    Expired,
 }
 
 fn collaboration_options() -> Vec<PermissionOption> {
@@ -159,7 +162,7 @@ impl Drop for CollaborationWaitGuard {
             return;
         };
         room.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-        let _ = wait.sender.send(CollaborationDecision::Deny);
+        let _ = wait.sender.send(CollaborationDecision::Expired);
     }
 }
 
@@ -183,6 +186,14 @@ impl Peers {
                 && !wait.sender.is_closed()
                 && self.scope_current(&wait.caller_id, &wait.target_id, wait.scope)
         })
+    }
+
+    /// Who asks to reach whom behind a card that is still waiting: the
+    /// names a call says it by, which come from the wait, never the title.
+    pub(super) fn waiting_pair(&self, request: &str) -> Option<(String, String)> {
+        lock(&self.waiting)
+            .get(request)
+            .map(|wait| (wait.caller_id.clone(), wait.target_id.clone()))
     }
 
     fn scope(&self, caller_id: &str, target_id: &str) -> CollaborationScope {

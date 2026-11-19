@@ -174,7 +174,10 @@ async fn every_move_of_an_item_keeps_the_fields_a_newer_build_wrote_on_it() {
     assert!(!landed.held && landed.state == InboxState::New);
     kept_its_fields(&room, &let_in, 0, "the person's card letting it in");
     let said_no = left_by_a_newer_build(&room, "Said no", InboxWants::Answer, held);
-    room.consent_decided(&item(&room, "bob", &said_no), Err("No.".into()));
+    room.consent_decided(
+        &item(&room, "bob", &said_no),
+        Err(String::from("No.").into()),
+    );
     assert_eq!(
         item(&room, "bob", &said_no).outcome,
         Some(InboxOutcome::Dropped)

@@ -1,6 +1,6 @@
 use super::container::{
     PullTally, create_args, host_time_zone, memory_of, mount_args, parse_apple, parse_inspect,
-    pids_of, token_from_environment,
+    pids_of, splits_users, token_from_environment,
 };
 use super::fixtures::*;
 use super::*;
@@ -246,6 +246,21 @@ async fn no_create_argument_contains_the_token_and_the_runtime_has_it_in_its_env
     }
 }
 
+/// A release candidate's own version, as its Cargo.toml and so its guide
+/// and `/capabilities` say it (`0.13.0-rc.2`), reads as the release it is
+/// a candidate for, and its tag is that version.
+#[test]
+fn a_release_candidates_version_reads_as_its_release() {
+    assert!(splits_users("0.13.0-rc.2"));
+    assert!(splits_users("0.13.0-rc.2-probe"));
+    assert!(!splits_users("0.12.0-rc.3"));
+    assert_eq!(release_of("hotline-computer:0.13.0-rc.2"), "0.13.0-rc.2");
+    assert_eq!(
+        release_of("hotline-computer:0.13.0-rc.2-probe"),
+        "0.13.0-rc.2-probe"
+    );
+}
+
 #[test]
 fn only_a_release_that_splits_is_made_as_root_with_setuid_and_setgid_alone() {
     let ada = persona("ada", "/tmp");
@@ -260,7 +275,8 @@ fn only_a_release_that_splits_is_made_as_root_with_setuid_and_setgid_alone() {
             (image_at("1.0.0"), true),
             // A release candidate built here, and its probe build.
             ("hotline-computer:0.13.0-rc.1".to_owned(), true),
-            ("hotline-computer:0.13.0-rc.1-probe".to_owned(), true),
+            ("hotline-computer:0.13.0-rc.2".to_owned(), true),
+            ("hotline-computer:0.13.0-rc.2-probe".to_owned(), true),
             (
                 "localhost:5000/hotline-computer:0.13.0-rc.2".to_owned(),
                 true,

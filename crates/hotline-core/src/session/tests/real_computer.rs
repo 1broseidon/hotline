@@ -14,9 +14,9 @@
 //!
 //! What it needs, and what it leaves:
 //! - macOS with Apple `container` running, and the probe build of the
-//!   release candidate (`hotline-computer:0.13.0-rc.1-probe`, or
+//!   release candidate (`hotline-computer:0.13.0-rc.2-probe`, or
 //!   `HOTLINE_E2E_IMAGE`): the release image with its key proxy also
-//!   trusting a test CA upstream (`qa/0.13.0-rc.1/Dockerfile.probe` in the
+//!   trusting a test CA upstream (`qa/0.13.0-rc.2/Dockerfile.probe` in the
 //!   computer repo). The CA is made here and handed to the container by a
 //!   test-only wrapper around `container create`, which also gives the
 //!   computer a named home volume so the update keeps its home, as Docker's
@@ -42,7 +42,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-const SPLIT_IMAGE: &str = "hotline-computer:0.13.0-rc.1-probe";
+const SPLIT_IMAGE: &str = "hotline-computer:0.13.0-rc.2-probe";
 const SITE_PORT: u16 = 8600;
 const SITE: &str = "http://localhost:8600";
 const USERNAME: &str = "rc-user";

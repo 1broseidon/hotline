@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
 import type { Block } from "../../scheduledRuns";
+import { ErrorCard } from "../ErrorCard";
 import { CookieAskCard } from "../transcript/CookieAskCard";
 import { CredentialAsk } from "../transcript/CredentialAsk";
 import { HumanAction, PasskeyAskCard, Permission } from "../transcript/Asks";
@@ -115,6 +116,8 @@ function StreamBlock({
 		case "turn":
 			return event.stopReason === "end_turn" ? null : <p className="instrument mt-1 text-right text-ink-4">{event.stopReason.replace(/_/g, " ")}</p>;
 		case "notice":
+			// A failure reads as the conversation reads it: its title and plain words, the report behind Details.
+			if (event.level === "error") return <ErrorCard text={event.text} />;
 			return (
 				<p className="rule-line rule-line-plain selectable" style={{ color: event.level === "info" ? "var(--ink-3)" : event.level === "warn" ? "var(--warn)" : "var(--danger)" }}>
 					{event.text}

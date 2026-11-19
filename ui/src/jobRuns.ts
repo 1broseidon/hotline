@@ -22,7 +22,7 @@ export type JobRun = {
 	/** What it came to: its last words, after its last step. */
 	found: string;
 	/** Notices said on the thread while it ran: a skipped firing, a stop. */
-	notices: { id: string; text: string }[];
+	notices: { id: string; text: string; failed: boolean }[];
 	steps: Step[];
 };
 
@@ -77,7 +77,7 @@ export function jobRuns(events: TranscriptEvent[], working: boolean): JobRun[] {
 				if (event.text.trim() !== "") run.said.push(event.text.trim());
 				break;
 			case "notice":
-				run.notices.push({ id: event.id, text: event.text });
+				run.notices.push({ id: event.id, text: event.text, failed: event.level === "error" });
 				if (event.level === "error") run.state = "failed";
 				if (event.text.startsWith("Stopped.")) run.state = "stopped";
 				break;

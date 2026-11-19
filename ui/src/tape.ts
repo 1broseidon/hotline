@@ -98,10 +98,12 @@ export function reduceThread(held: Held, fold: Fold): Held {
 				streaming: fold.item.kind === "turn" ? [] : settle(held.streaming, fold.item),
 			};
 		case "words": {
-			if (fold.deltas.length === 0) return held;
 			let streaming = held.streaming;
-			for (const delta of fold.deltas) streaming = append(streaming, delta);
-			return { ...held, streaming };
+			for (const delta of fold.deltas) {
+				if (alreadyWritten(held.events, streaming, delta.messageId)) continue;
+				streaming = append(streaming, delta);
+			}
+			return streaming === held.streaming ? held : { ...held, streaming };
 		}
 		case "page": {
 			const known = new Set(held.events.map((one) => one.id));
@@ -503,6 +505,21 @@ export function settle(live: Streaming[], item: TranscriptEvent): Streaming[] {
 		break;
 	}
 	return next;
+}
+
+/**
+ * Whether words for this message come after its line was written. The desk
+ * sends a thread's words and its lines on two channels and its socket takes
+ * whichever is ready first, so a reply's last words can land after the reply
+ * and after its turn's end. The line holds every word they carried; drawn,
+ * they would be the reply a second time, under the written bubbles' ids, at
+ * the bottom of the conversation until the next turn ended. Words still
+ * streaming have no line yet (it settles them as it lands), so only a
+ * message's first words are looked up.
+ */
+function alreadyWritten(events: TranscriptEvent[], streaming: Streaming[], messageId: string): boolean {
+	if (streaming.some((one) => one.messageId === messageId)) return false;
+	return events.some((one) => one.id === messageId);
 }
 
 /** Words arriving become a bubble of the kind they are, keyed by the id the real line will carry. */

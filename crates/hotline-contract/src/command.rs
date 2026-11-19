@@ -53,6 +53,11 @@ pub enum Command {
         call_id: String,
         seq: u32,
         text: String,
+        /// How long the client waited after the person stopped speaking
+        /// before it ended the turn, in milliseconds: diagnostics for the
+        /// desk's turn timing line. Older clients omit it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        silence_ms: Option<u32>,
     },
     /// Negotiated PCM16 little-endian mono, 16 kHz. Empty final commits.
     #[serde(rename = "voice.audio")]
@@ -62,6 +67,11 @@ pub enum Command {
         index: u32,
         data: String,
         r#final: bool,
+        /// On the final chunk: how long the client waited after the person
+        /// stopped speaking before it ended the turn, in milliseconds, for
+        /// the desk's turn timing line. Older clients omit it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        silence_ms: Option<u32>,
     },
     /// Front call: microphone PCM16 mono at the negotiated input rate, at most
     /// 32 KiB, sequence increasing. A desk that is behind refuses the frame;
@@ -84,6 +94,11 @@ pub enum Command {
         mime_type: String,
         data: String,
         duration_ms: u32,
+        /// How long the client waited after the person stopped speaking
+        /// before it ended the turn, in milliseconds: diagnostics for the
+        /// desk's turn timing line. Older clients omit it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        silence_ms: Option<u32>,
     },
     /// A Turn by turn caller's own capture has the floor before a finalized
     /// clip or text arrives.

@@ -744,7 +744,7 @@ export class Call {
 					if (this.playDeferred()) return;
 					break;
 				case "end":
-					this.send();
+					this.send(turn.silenceMs);
 					return;
 			}
 		}
@@ -779,14 +779,15 @@ export class Call {
 		}
 	}
 
-	private send(): void {
+	/** Sends the turn; `silenceMs` is the pause that ended it, which the desk logs with the turn's timing. */
+	private send(silenceMs?: number): void {
 		this.cutIn();
 		this.endpoint = { at: this.now(), seq: this.input !== null ? this.seq : this.seq + 1 };
 		if (this.input !== null) {
 			const input = this.input;
 			this.awaiting = true;
 			this.settle();
-			void input.finish().then(() => {
+			void input.finish(silenceMs).then(() => {
 				if (this.input === input) this.input = null;
 				if (!this.ended && this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
 			}).catch(() => {}); // Transport errors end the call through streamFailed; cancellation is silent.
@@ -815,6 +816,7 @@ export class Call {
 				mimeType: "audio/wav",
 				data: toBase64(clip),
 				durationMs: Math.round((total / rate) * 1000),
+				...(silenceMs !== undefined ? { silenceMs } : {}),
 			})
 			.then(() => this.delivered(), (error: unknown) => this.refused(error));
 	}
@@ -907,7 +909,7 @@ export class Call {
 							this.listen();
 							return;
 						case "end":
-							void this.sendText();
+							void this.sendText(turn.silenceMs);
 							return;
 					}
 				}
@@ -967,7 +969,7 @@ export class Call {
 	}
 
 	/** The turn has ended: the engine finishes the utterance, and its complete words go to the desk. */
-	private async sendText(): Promise<void> {
+	private async sendText(silenceMs?: number): Promise<void> {
 		const session = this.textSession;
 		this.recognizing = false;
 		this.endpoint = { at: this.now(), seq: this.seq + 1 };
@@ -994,7 +996,7 @@ export class Call {
 		const seq = ++this.seq;
 		this.line({ kind: "you", id: `heard-${seq}`, text });
 		this.transport
-			.command("voice.text", { callId: this.id, seq, text })
+			.command("voice.text", { callId: this.id, seq, text, ...(silenceMs !== undefined ? { silenceMs } : {}) })
 			.then(() => this.delivered(), (error: unknown) => this.refused(error));
 	}
 

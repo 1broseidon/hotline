@@ -33,6 +33,7 @@ impl Calls {
         mime: &str,
         data: &str,
         duration: u32,
+        silence_ms: Option<u32>,
     ) -> Result<(), String> {
         if !(1..=20_000).contains(&duration) || !matches!(mime, "audio/wav" | "audio/mp4") {
             return Err("Send a WAV or AAC/MP4 utterance lasting at most 20 seconds.".into());
@@ -47,7 +48,7 @@ impl Calls {
             return Err("That voice clip is empty or too large.".into());
         }
         let duration = validate_audio(mime, &bytes, duration)?;
-        self.queue_utterance(id, seq, Some(VoiceInputMode::Audio), |speech| {
+        self.queue_utterance(id, seq, Some(VoiceInputMode::Audio), silence_ms, |speech| {
             Work::Utterance {
                 seq,
                 clip: Clip {
@@ -61,8 +62,16 @@ impl Calls {
     }
 
     /// Only a finalized device transcript enters the paid response pipeline.
-    pub fn text(&self, id: &str, seq: u32, text: &str) -> Result<(), String> {
-        self.queue_text(id, seq, text, TranscriptSource::Device)
+    /// `silence_ms` is how long the client waited after the person stopped
+    /// speaking before it ended the turn, for the turn's timing line.
+    pub fn text(
+        &self,
+        id: &str,
+        seq: u32,
+        text: &str,
+        silence_ms: Option<u32>,
+    ) -> Result<(), String> {
+        self.queue_text(id, seq, text, TranscriptSource::Device, silence_ms)
     }
 
     /// Admit work to the call's occupant before acknowledging it. Startup
@@ -95,7 +104,7 @@ impl Calls {
             Ok(target)
         })?;
         let Some((persona, thread)) = target else {
-            return self.queue_text(id, seq, words, TranscriptSource::Front);
+            return self.queue_text(id, seq, words, TranscriptSource::Front, None);
         };
         let result = self.room.call_prompt(&persona, &thread, words).await;
         if result.is_err() {
@@ -156,6 +165,7 @@ impl Calls {
         seq: u32,
         text: &str,
         source: TranscriptSource,
+        silence_ms: Option<u32>,
     ) -> Result<(), String> {
         if text.len() > 32_000 || text.chars().count() > 8_000 {
             return Err("A voice transcript may contain at most 8,000 characters.".into());
@@ -168,7 +178,7 @@ impl Calls {
             TranscriptSource::Front => None,
             _ => Some(VoiceInputMode::Text),
         };
-        self.queue_utterance(id, seq, input, |speech| Work::Text {
+        self.queue_utterance(id, seq, input, silence_ms, |speech| Work::Text {
             seq,
             text: text.into(),
             source,
@@ -184,6 +194,7 @@ impl Calls {
         id: &str,
         seq: u32,
         input_mode: Option<VoiceInputMode>,
+        silence_ms: Option<u32>,
         work: impl FnOnce(CancellationToken) -> Work,
     ) -> Result<(), String> {
         self.change(id, |call| {
@@ -232,7 +243,7 @@ impl Calls {
             call.utterance_pending = true;
             let started = Instant::now();
             call.first_clip_started = Some(started);
-            call.turn_timing = Some(super::TurnTiming::start(started));
+            call.turn_timing = Some(super::TurnTiming::start(started, silence_ms));
             call.waiting_sound = false;
             call.last_spoken_at = None;
             call.overrun_nudged = false;
@@ -324,6 +335,8 @@ impl Calls {
         }
     }
 
+    /// One chunk of a live PCM turn. The last chunk may carry `silence_ms`,
+    /// the pause the client waited for before it ended the turn.
     pub fn audio(
         &self,
         id: &str,
@@ -331,6 +344,7 @@ impl Calls {
         index: u32,
         data: &str,
         last: bool,
+        silence_ms: Option<u32>,
     ) -> Result<(), String> {
         if data.len() > 32_768 * 4 / 3 + 4 {
             return Err("A voice audio chunk is too large.".into());
@@ -449,7 +463,7 @@ impl Calls {
                 drop(input.sender);
                 let started = Instant::now();
                 call.first_clip_started = Some(started);
-                call.turn_timing = Some(super::TurnTiming::start(started));
+                call.turn_timing = Some(super::TurnTiming::start(started, silence_ms));
                 call.waiting_sound = false;
                 call.last_spoken_at = None;
                 call.overrun_nudged = false;

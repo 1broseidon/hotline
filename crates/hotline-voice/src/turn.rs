@@ -37,14 +37,22 @@ impl Calls {
         }
     }
 
-    /// State travels with each Turn by turn exchange, outside the saved caller words.
+    /// State travels with each Turn by turn exchange, outside the saved caller
+    /// words, and so does the acknowledgement the desk will say for this turn
+    /// ([`Self::acknowledgement`]): taken here, so only the prompt that
+    /// carries it is told of it.
     pub fn turn_instruction(&self, id: &str) -> String {
         self.change(id, |call| {
-            Ok(format!(
+            let mut instruction = format!(
                 "{}\n{}",
                 spoken::CONTRACT,
                 call.conversation.instruction(false)
-            ))
+            );
+            if let Some(line) = call.acknowledged.take() {
+                instruction.push('\n');
+                instruction.push_str(&spoken::already_said(&line));
+            }
+            Ok(instruction)
         })
         .unwrap_or_else(|_| spoken::CONTRACT.into())
     }
@@ -344,7 +352,7 @@ impl Calls {
     }
 
     pub(super) async fn hear(
-        &self,
+        self: &Arc<Self>,
         id: &str,
         context: &Context,
         seq: u32,
@@ -389,7 +397,7 @@ impl Calls {
     }
 
     pub(super) async fn respond(
-        &self,
+        self: &Arc<Self>,
         id: &str,
         context: &Context,
         seq: u32,
@@ -465,7 +473,17 @@ impl Calls {
                 .change(id, |call| Ok(call.thread.clone()))?
                 .ok_or("The call has no thread.")?;
             let room = self.live_room().ok_or("The desk has closed.")?;
-            room.call_prompt(&target, &thread, &text).await?;
+            // With `voice.acknowledge` on, the hand-off waits a moment for a
+            // line the desk says for the teammate while it starts.
+            let acknowledged = self
+                .acknowledgement(id, &target, &text, speech_cancel)
+                .await
+                .map(|line| self.acknowledge(id, seq, line, speech_cancel, &context.cancel));
+            let prompted = room.call_prompt(&target, &thread, &text).await;
+            if let Some(told) = acknowledged {
+                self.told(id, told, prompted.is_ok());
+            }
+            prompted?;
             return self.change(id, |call| {
                 if let Some(timing) = &mut call.turn_timing {
                     timing.mark_dispatch();

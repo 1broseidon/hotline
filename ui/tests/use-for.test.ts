@@ -12,6 +12,8 @@ import {
 	currentId,
 	listenForOf,
 	listenForPatch,
+	acknowledgeOf,
+	acknowledgePatch,
 	parseCap,
 	parseWords,
 	pickId,
@@ -291,6 +293,22 @@ describe("the words the desk listens for", () => {
 		expect(listenForOf({ listenFor: ["Ophelia", 7, "Groq"] })).toEqual(["Ophelia", "Groq"]);
 		expect(listenForOf({ listenFor: "Ophelia" })).toEqual([]);
 		expect(listenForOf(undefined)).toEqual([]);
+	});
+});
+
+describe("acknowledging while the teammate thinks", () => {
+	test("is on only when the setting says true", () => {
+		expect(acknowledgeOf({ acknowledge: true })).toBe(true);
+		expect(acknowledgeOf({ acknowledge: "true" })).toBe(false);
+		expect(acknowledgeOf({})).toBe(false);
+		expect(acknowledgeOf(undefined)).toBe(false);
+	});
+
+	test("is written beside the voice picks, and off takes the key away", () => {
+		const voice = { tts: { provider: "ollama", model: "phonon", voice: "Zoey" } };
+		expect(acknowledgePatch(voice, true)).toEqual({ ...voice, acknowledge: true });
+		expect(acknowledgePatch({ ...voice, acknowledge: true }, false)).toEqual(voice);
+		expect(acknowledgePatch({ acknowledge: true }, false)).toBeNull();
 	});
 });
 

@@ -46,6 +46,17 @@ test("ChatGPT images require a picker selection, Automatic clears it, calls with
 		await pick("Automatic");
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { images: null } } });
 		expect(changes).toBe(2);
+		// Turn by turn offers the acknowledgement, off until it is turned on, and the switch writes it beside the rest.
+		const acknowledge = () => container.querySelector<HTMLInputElement>('[aria-label="Acknowledge while the teammate thinks"]')!;
+		expect(acknowledge().checked).toBe(false);
+		expect(acknowledge().closest("label")!.title).toBe("Covers the wait");
+		await act(async () => { acknowledge().click(); });
+		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: { acknowledge: true } } } });
+		await act(async () => { root.render(<UseFor options={options} voice={{ acknowledge: true }} onChanged={() => {}} />); });
+		expect(acknowledge().checked).toBe(true);
+		await act(async () => { acknowledge().click(); });
+		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: null } } });
+		await render();
 		// Nothing chosen and no live voice provider connected: calls run Turn
 		// by turn, as the desk runs them, with no Grok Voice that cannot answer.
 		expect(container.textContent).toContain("Turn by turn");
@@ -96,7 +107,7 @@ test("each call model shows only its own rows: a live model its voice, Turn by t
 
 		for (const provider of ["turn-by-turn", "legacy"]) {
 			await render({ front: { provider }, stt: { provider: "local", model: "parakeet-tdt-0.6b-v3" }, tts: { provider: "ollama", model: "phonon", voice: "Zoey" } });
-			expect(rows()).toEqual(["Images", "Model", "Transcription", "Speech", "Call assistant"]);
+			expect(rows()).toEqual(["Images", "Model", "Transcription", "Speech", "Call assistant", "Acknowledge while the teammate thinks"]);
 			expect(container.textContent).toContain("The teammate answers; the desk transcribes and speaks");
 			expect(container.textContent).toContain("Parakeet · free");
 			expect(container.textContent).toContain("Phonon through Ollama · free");

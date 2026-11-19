@@ -7,6 +7,7 @@
 //! downward on the contract, support, store, room, tools and MCP client;
 //! it must never depend on `hotline-core` or Tauri.
 
+mod acknowledgement;
 mod call;
 pub mod call_room;
 pub mod cards;
@@ -142,7 +143,9 @@ pub const CALLS_OFF: &str = "Calls are off in Settings";
  * a teammate names no call assistant: its turns are the teammate's own, which
  * its session meters as any other, and the call assistant's rewrite of a
  * reply written only to be read is asked of the Chat budget when it is
- * wanted, and falls back to the reply's opening if refused.
+ * wanted, and falls back to the reply's opening if refused. So is its
+ * acknowledgement, with its speech asked of Voice, and either refusal only
+ * means nothing is said for it ([`acknowledgement`]).
  */
 fn paid_kinds(speech: Option<&CallSpeech>, assistant: Option<&dyn Dispatcher>) -> Vec<Kind> {
     let mut kinds = Vec::new();
@@ -302,27 +305,34 @@ enum Hold {
 }
 
 /// Per-turn latency milestones on a Turn-by-turn call, anchored to when the
-/// desk accepted the utterance (or finalized live PCM).
+/// desk accepted the utterance (or finalized live PCM). The person's own wait
+/// began earlier, when they stopped speaking: `silence` is the pause the
+/// client waited for before it called the turn over, as the client reports
+/// it (an older client reports none).
 #[derive(Clone, Debug)]
 pub(crate) struct TurnTiming {
     started: Instant,
+    silence: Option<u32>,
     stt_done: Option<Instant>,
     dispatched: Option<Instant>,
     llm_think: Option<Instant>,
     llm_spoken: Option<Instant>,
     first_unit: Option<Instant>,
+    ack: Option<Instant>,
     tts_started: Option<Instant>,
 }
 
 impl TurnTiming {
-    pub(crate) fn start(started: Instant) -> Self {
+    pub(crate) fn start(started: Instant, silence: Option<u32>) -> Self {
         Self {
             started,
+            silence,
             stt_done: None,
             dispatched: None,
             llm_think: None,
             llm_spoken: None,
             first_unit: None,
+            ack: None,
             tts_started: None,
         }
     }
@@ -347,18 +357,44 @@ impl TurnTiming {
         self.first_unit.get_or_insert_with(Instant::now);
     }
 
+    pub(crate) fn mark_ack(&mut self) {
+        self.ack.get_or_insert_with(Instant::now);
+    }
+
+    /// Whether the teammate has its first piece ready to say on this turn.
+    pub(crate) fn first_unit_ready(&self) -> bool {
+        self.first_unit.is_some()
+    }
+
     pub(crate) fn mark_tts_started(&mut self) {
         self.tts_started.get_or_insert_with(Instant::now);
     }
 
+    /// Where the model's clock starts: the hand-off to it, or as near as
+    /// the turn got.
+    fn llm_anchor(&self) -> Instant {
+        self.dispatched.or(self.stt_done).unwrap_or(self.started)
+    }
+
+    /// How long the teammate's model took to write its first words.
+    pub(crate) fn llm_spoken(&self) -> Option<Duration> {
+        self.llm_spoken
+            .map(|t| t.saturating_duration_since(self.llm_anchor()))
+    }
+
+    /// The turn's one log line, as of `now`, the moment its first clip of
+    /// the teammate's own went out. `desk_total` runs from the desk taking
+    /// the utterance to then; `ack` runs from the end of the person's speech
+    /// (the client's `silence` included when it reported one) to the desk's
+    /// acknowledgement being sent.
     pub(crate) fn format_line(
         &self,
+        now: Instant,
         call_id: &str,
         seq: u32,
         model: Option<&str>,
         tts: &SpeechId,
     ) -> String {
-        let now = Instant::now();
         let opt = |d: Option<u128>| d.map_or_else(|| "-".to_string(), |ms| format!("{ms}ms"));
         let stt = self
             .stt_done
@@ -367,27 +403,31 @@ impl TurnTiming {
         let dispatch = self
             .dispatched
             .map(|t| t.saturating_duration_since(dispatch_anchor).as_millis());
-        let llm_anchor = self.dispatched.or(self.stt_done).unwrap_or(self.started);
+        let llm_anchor = self.llm_anchor();
         let llm_think = self
             .llm_think
             .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
-        let llm_spoken = self
-            .llm_spoken
-            .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
+        let llm_spoken = self.llm_spoken().map(|d| d.as_millis());
         let first_unit = self
             .first_unit
             .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
+        let ack = self.ack.map(|t| {
+            u128::from(self.silence.unwrap_or(0))
+                + t.saturating_duration_since(self.started).as_millis()
+        });
         let tts_done = self
             .tts_started
             .or(self.first_unit)
             .map(|t| now.saturating_duration_since(t).as_millis());
         let desk_total = now.saturating_duration_since(self.started).as_millis();
         format!(
-            "[voice] turn call={call_id} seq={seq} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} tts_done={} desk_total={desk_total}ms model={} tts={}/{}",
+            "[voice] turn call={call_id} seq={seq} silence={} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} ack={} tts_done={} desk_total={desk_total}ms model={} tts={}/{}",
+            opt(self.silence.map(u128::from)),
             opt(dispatch),
             opt(llm_think),
             opt(llm_spoken),
             opt(first_unit),
+            opt(ack),
             opt(tts_done),
             model.unwrap_or("-"),
             tts.provider_id,
@@ -453,6 +493,15 @@ pub struct Call {
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
     pub words: String,
+    /// The acknowledgement the turn being handed to the teammate now carries
+    /// as already said, until its prompt takes it ([`Calls::turn_instruction`]).
+    pub acknowledged: Option<String>,
+    /// The line the desk said as this turn's acknowledgement: its clip is
+    /// not the teammate's first, which the turn's timing waits for.
+    pub(crate) ack_line: Option<String>,
+    /// How long the teammate's model took to write its first words on the
+    /// last turn the call timed: a quick one needs no acknowledgement.
+    pub last_llm_spoken: Option<Duration>,
     /// On a front call, its sound; gone once the front is.
     front: Option<Front>,
     live_error: Option<String>,
@@ -1250,3 +1299,48 @@ impl Calls {
 
 #[cfg(feature = "test-support")]
 pub mod test_support;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tts() -> SpeechId {
+        SpeechId {
+            provider_id: "ollama".into(),
+            model_id: "phonon".into(),
+            voice: None,
+        }
+    }
+
+    /// The line says the client's pause before the desk's clock starts, and
+    /// leaves `desk_total` where it always ran: from the desk taking the
+    /// utterance to the teammate's first clip.
+    #[test]
+    fn the_turn_line_carries_the_pause_and_keeps_desk_total_on_the_desk() {
+        let started = Instant::now();
+        let at = |ms: u64| started + Duration::from_millis(ms);
+        let mut timing = TurnTiming::start(started, Some(1200));
+        timing.stt_done = Some(at(2900));
+        timing.dispatched = Some(at(2950));
+        timing.llm_think = Some(at(3950));
+        timing.llm_spoken = Some(at(13_450));
+        timing.first_unit = Some(at(13_950));
+        timing.tts_started = Some(at(14_000));
+        let line = timing.format_line(at(16_900), "c1", 3, Some("hotline/x/y"), &tts());
+        assert_eq!(
+            line,
+            "[voice] turn call=c1 seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- tts_done=2900ms desk_total=16900ms model=hotline/x/y tts=ollama/phonon"
+        );
+    }
+
+    /// An older client says nothing of its pause, and the line says so.
+    #[test]
+    fn a_client_that_reports_no_pause_leaves_silence_unknown() {
+        let started = Instant::now();
+        let timing = TurnTiming::start(started, None);
+        let line = timing.format_line(started + Duration::from_millis(40), "c1", 1, None, &tts());
+        assert!(line.contains(" silence=- stt=0ms "), "{line}");
+        assert!(line.contains(" ack=- "), "{line}");
+        assert!(line.contains(" desk_total=40ms "), "{line}");
+    }
+}

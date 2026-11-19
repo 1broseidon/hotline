@@ -232,6 +232,7 @@ async fn a_reply_written_as_several_bubbles_is_said_on_the_call_once() {
             "audio/wav",
             &base64::prelude::BASE64_STANDARD.encode(crate::voice::tests::wav()),
             1000,
+            None,
         )
         .unwrap();
     let bubbles = || {

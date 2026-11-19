@@ -19,6 +19,17 @@ Before a tool, begin with one short spoken sentence naming what you are about to
 /// results, never steered in as the person's words.
 pub const OVERRUN_NUDGE: &str = "[Voice call: this work has been quiet for a while. Before your next tool call, speak one brief sentence with real progress — what's done and what's left — with no revised time estimate.]";
 
+/// What a turn's teammate is told when the desk has already said a line for
+/// it in its voice while it started (`voice.acknowledge`): the line is its
+/// own opening, so it neither says another nor repeats it. The line is the
+/// desk's fast model's words, so it travels quoted, as data.
+pub fn already_said(line: &str) -> String {
+    format!(
+        "[Voice call: you have already said this aloud, in your own voice, to open this turn: {}. Do not acknowledge the request again or repeat that line; go straight to the work or the answer.]",
+        serde_json::to_string(line).expect("a string always serializes")
+    )
+}
+
 mod context;
 pub use context::{CallContext, carries_more};
 
@@ -1354,5 +1365,16 @@ mod tests {
         assert!(CONTRACT.contains("a moment, a couple of minutes, or a while"));
         assert!(CONTRACT.contains("work in silence"));
         assert!(OVERRUN_NUDGE.contains("what's done and what's left"));
+    }
+
+    #[test]
+    fn an_already_said_line_is_quoted_and_forbids_a_second_acknowledgement() {
+        let note = already_said("Looking into the \"flaky\" test.");
+        assert!(
+            note.contains(r#""Looking into the \"flaky\" test.""#),
+            "{note}"
+        );
+        assert!(note.contains("Do not acknowledge the request again"));
+        assert!(note.contains("go straight to the work or the answer"));
     }
 }

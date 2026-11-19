@@ -119,8 +119,13 @@ pub(crate) async fn run(
             voice(parts)?.front_barge(&call_id, played_ms).await?;
             Ok(Value::Null)
         }
-        Command::VoiceText { call_id, seq, text } => {
-            voice(parts)?.text(&call_id, seq, &text)?;
+        Command::VoiceText {
+            call_id,
+            seq,
+            text,
+            silence_ms,
+        } => {
+            voice(parts)?.text(&call_id, seq, &text, silence_ms)?;
             Ok(Value::Null)
         }
         Command::VoiceAudio {
@@ -129,8 +134,9 @@ pub(crate) async fn run(
             index,
             data,
             r#final,
+            silence_ms,
         } => {
-            voice(parts)?.audio(&call_id, seq, index, &data, r#final)?;
+            voice(parts)?.audio(&call_id, seq, index, &data, r#final, silence_ms)?;
             Ok(Value::Null)
         }
         Command::VoiceUtterance {
@@ -139,8 +145,9 @@ pub(crate) async fn run(
             mime_type,
             data,
             duration_ms,
+            silence_ms,
         } => {
-            voice(parts)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
+            voice(parts)?.utterance(&call_id, seq, &mime_type, &data, duration_ms, silence_ms)?;
             Ok(Value::Null)
         }
         Command::VoiceInputState { call_id, speaking } => {

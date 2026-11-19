@@ -119,6 +119,9 @@ impl Dispatcher for ScriptDispatcher {
         assert_eq!(written, UNTAGGED_REPLY);
         Ok(REWRITTEN.into())
     }
+    async fn acknowledge(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
+        unreachable!("these desks never turned acknowledging on")
+    }
 }
 fn services() -> Services {
     let speech = Arc::new(FakeSpeech);
@@ -331,6 +334,7 @@ async fn next_asked(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> Asked {
 mod voice {
     use super::*;
 
+    mod acknowledge;
     mod after_call;
     mod direct;
     mod front;

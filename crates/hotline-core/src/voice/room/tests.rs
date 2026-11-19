@@ -48,6 +48,11 @@ pub(crate) struct Fake {
     pub pointer_instructions: Mutex<Vec<String>>,
     /// What each call that readied this listener holds it ready until.
     pub readied: Mutex<Vec<CancellationToken>>,
+    /// What the call assistant's acknowledgement comes back with, after
+    /// `ack_delay`, and what each was asked: the teammate and the words.
+    pub ack: Mutex<Result<String, String>>,
+    pub ack_delay: Mutex<Duration>,
+    pub acks: Mutex<Vec<(String, String)>>,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -73,6 +78,9 @@ impl Default for Fake {
             rewrites: Mutex::new(Vec::new()),
             pointer_instructions: Mutex::new(Vec::new()),
             readied: Mutex::new(Vec::new()),
+            ack: Mutex::new(Err("No acknowledgement is scripted.".into())),
+            ack_delay: Mutex::new(Duration::ZERO),
+            acks: Mutex::new(Vec::new()),
         }
     }
 }
@@ -197,6 +205,12 @@ impl Dispatcher for Fake {
         tokio::time::sleep(delay).await;
         lock(&self.rewrite).clone()
     }
+    async fn acknowledge(&self, name: &str, words: &str, _: Arc<Budget>) -> Result<String, String> {
+        lock(&self.acks).push((name.into(), words.into()));
+        let delay = *lock(&self.ack_delay);
+        tokio::time::sleep(delay).await;
+        lock(&self.ack).clone()
+    }
 }
 pub(crate) fn services() -> Services {
     with_fake(Arc::new(Fake::default()))
@@ -260,7 +274,7 @@ async fn event(
     .unwrap_or_else(|error| panic!("{error}; preceding voice events: {seen:?}"))
 }
 fn utterance(calls: &Calls, id: &str, seq: u32) -> Result<(), String> {
-    calls.utterance(id, seq, "audio/wav", &STANDARD.encode(wav()), 1000)
+    calls.utterance(id, seq, "audio/wav", &STANDARD.encode(wav()), 1000, None)
 }
 
 fn spending(desk: &crate::desk::Desk, value: Value) {
@@ -384,6 +398,7 @@ fn call_link(desk: &crate::desk::Desk, persona: &str) -> Option<Value> {
         .find(|event| event["kind"] == "link" && event["threadKind"] == "call")
 }
 
+mod acknowledge;
 mod budgets;
 mod cards;
 mod clips;

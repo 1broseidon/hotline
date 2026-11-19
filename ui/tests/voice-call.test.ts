@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 const { Call, supportsDirectCalls } = await import("../src/voice/call");
 import { UNHEARD } from "../src/voice/transcription";
+import { AUDIO_SILENCE_MS, FAST_SILENCE_MS } from "../src/voice/turn";
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
 import type { DeviceTranscription, TranscriptionCapability, TranscriptionEvent } from "../src/voice/transcription";
@@ -134,6 +135,7 @@ describe("a call with the desk", () => {
 		expect(r.sent.some((one) => one.cmd === "voice.input_state" && one.params["speaking"] === true)).toBe(true);
 		r.speak(0, 1_650, 3_000);
 		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
+		expect(r.sent.find((one) => one.cmd === "voice.utterance")!.params["silenceMs"]).toBe(AUDIO_SILENCE_MS);
 		expect(r.call.current.phase).toBe("thinking");
 	});
 
@@ -436,6 +438,8 @@ describe("a call with the desk", () => {
 		expect(new Set(chunks.map((one) => one.params["seq"]))).toEqual(new Set([1]));
 		expect(chunks.filter((one) => one.params["final"] === true)).toHaveLength(1);
 		expect(chunks.at(-1)!.params["final"]).toBe(true);
+		// Only the commit says how long the pause that ended the turn was.
+		expect(chunks.filter((one) => one.params["silenceMs"] !== undefined).map((one) => one.params["silenceMs"])).toEqual([AUDIO_SILENCE_MS]);
 		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(false);
 		expect(r.call.current.phase).toBe("thinking");
 		r.call.hangUp();
@@ -740,7 +744,8 @@ describe("a call heard by this Mac", () => {
 		r.levels(-74, 1_450, 2_700);
 		expect(r.call.current.phase).toBe("thinking");
 		await tick();
-		expect(r.sentText()).toEqual([{ callId: r.call.id, seq: 1, text: "Call Mack and ask about the build." }]);
+		// The pause that ended the turn goes with it, for the desk's timing line: a plainly finished English sentence.
+		expect(r.sentText()).toEqual([{ callId: r.call.id, seq: 1, text: "Call Mack and ask about the build.", silenceMs: FAST_SILENCE_MS }]);
 		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "Call Mack and ask about the build." }]);
 		expect(r.sent.some((one) => one.cmd === "voice.audio" || one.cmd === "voice.utterance")).toBe(false);
 

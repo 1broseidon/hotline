@@ -98,6 +98,13 @@ describe("a call's pane", () => {
 		expect(facts()[2]).toMatch(/^Started: (Nov 16, )?10:50\s?AM$/);
 	});
 
+	test("a call with no name yet is headed by who it is with, not by a second Call under the band's", async () => {
+		await draw({ title: "Call", from: "the desktop" });
+		expect(container.querySelector(".band-kind")?.textContent).toBe("Call");
+		expect(container.querySelector(".spine-title")?.textContent).toBe("Pork Chop");
+		expect(facts().map((fact) => fact.split(":")[0])).toEqual(["From", "Started"]);
+	});
+
 	test("ended, the state line says Ended and how long it ran, with no End call and no composer", async () => {
 		await draw({ live: false, endedAt: NOW - 60_000, model: undefined, composer: <textarea aria-label="Message" /> });
 		expect(container.querySelector(".band h2")?.getAttribute("aria-label")).toBe("Call, ended");

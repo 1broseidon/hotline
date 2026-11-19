@@ -199,6 +199,7 @@ export function CallPage({
 	const now = useNow(live && fixedNow === undefined);
 	const at = fixedNow ?? now;
 	const length = startedAt === undefined ? undefined : callClock((live ? at : (endedAt ?? at)) - startedAt);
+	const unnamed = title.trim() === "" || title.trim() === "Call";
 	const written = useMemo(() => toBlocks(heardOnce(events.filter((event) => event.kind !== "link"), true), true), [events]);
 	const blocks = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	return (
@@ -220,11 +221,12 @@ export function CallPage({
 				)}
 				<PaneClose onClose={onClose} />
 			</Band>
+			{/* A call not yet named is headed by who it is with: the band above already says Call. */}
 			<PaneHead
-				title={title}
+				title={unnamed ? name : title}
 				line={<StateLine word={live ? "On the call now" : "Ended"} detail={model} time={length} />}
 				facts={[
-					["With", name],
+					["With", unnamed ? undefined : name],
 					["From", from],
 					["Started", startedAt !== undefined ? clockWords(startedAt) : undefined],
 				]}

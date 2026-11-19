@@ -261,6 +261,8 @@ impl Room {
         // closed longer ago than the desk keeps it, once the held files the
         // requests and items left are swept.
         self.inbox_tidy(now, true);
+        // Each teammate's open loops, each loop's latest line alone.
+        self.loops_tidy();
         // A thread the restart closed is told as one that closed any other way
         // is: with the note its kind takes.
         for thread in closed {

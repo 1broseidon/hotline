@@ -218,6 +218,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Threads list shown with its notes): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
 | `inbox.list` | `{personaId}` | `InboxView` `{personaId, open, closed, sent, unread, newer?}`: the teammate's open items and its closed ones, newest first, the items it sent others, newest first, how many open ones it has not read, and the items a newer Hotline saved that this desk cannot read ([The inbox](#the-inbox)). The desk, owner and phone seats |
 | `inbox.item` | `{id}` | `InboxItemDetail` `{item, replies}`: one item by id, wherever it is kept, with its receipts and the work thread it started, and the items that answer it. The desk, owner and phone seats |
+| `loops.list` | `{personaId}` | `OpenLoop[]`: the teammate's open loops ([Open loops](#open-loops)), active first, then waiting, stale, done and archived, newest first within each. The desk, owner and phone seats |
+| `loops.dismiss` | `{personaId, id}` | the `OpenLoop`, archived: the person's Dismiss takes it out of the teammate's working memory, still searchable; one already archived is answered as it is. The desk, owner and phone seats |
 | `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: an item from the thread's teammate, sent from the thread, marked `loopedIn` and carrying the thread's last lines, lands in the colleague's inbox with no card, the person's act its grant; its answer is an item in the thread's teammate's inbox, heard in the thread while it is live, and the thread gets a looped-in `aside` line to draw. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
 | `inbound.list` | `{}` | `InboundSource[]`, oldest first: the desk's inbound sources ([Inbound sources](#inbound-sources)). The desk, owner and phone seats |
 | `inbound.add` | `{draft}` | the new `InboundSource`; `draft` is an `InboundDraft` (`{type, name, teammates, maxLevel?, filesAllowed?, rate?, secret?}`). Refused for a teammate not on this desk, no teammates, a rate outside 1–120, or a `secret` that names no stored secret. The desk and owner seats |
@@ -952,7 +954,8 @@ carries `"code": "forbidden"`.
 `sub` is a `Target`: `"room"`, `{"tape": "<personaId>"}`,
 `{"thread": "<key>"}`, `{"threadId": {"kind", "key"}}`, `{"run": "<runId>"}`,
 `{"side": "<sideId>"}`, `{"call": "<callId>"}`, `{"view": "roster"}`,
-`{"schedules": "<personaId>"}`, or `{"inbox": "<personaId>"}`.
+`{"schedules": "<personaId>"}`, `{"inbox": "<personaId>"}`, or
+`{"loops": "<personaId>"}`.
 
 | target | snapshot | then |
 | --- | --- | --- |
@@ -965,6 +968,7 @@ carries `"code": "forbidden"`.
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
 | `{"schedules": id}` | that teammate's jobs as `ScheduleEntry`s: name, next run, last post, and `endedAt` for one that has ended | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 | `{"inbox": id}` | that teammate's `InboxView` ([The inbox](#the-inbox)) | the whole view again as a `snapshot` whenever an item it holds or sent changes; `removed` when the teammate is deleted. The phone seat may subscribe |
+| `{"loops": id}` | that teammate's `OpenLoop`s, as `loops.list` answers them ([Open loops](#open-loops)) | the whole list again as a `snapshot` whenever it changes, never one loop as an `event`; `removed` when the teammate is deleted. The phone seat may subscribe |
 
 An `agent` event on a tape may carry `spoken`, what was said on a call for
 it ([Voice calls](#voice-calls)).
@@ -1196,6 +1200,30 @@ written as `thought` lines with `said: true`, the turn's path, and streams as
 it draws those lines as thinking. Once the person's line joins the turn, the
 rest of it is a reply as any is.
 
+## Open loops
+
+A teammate's open loops are the unfinished work it carries from one chapter
+to the next ([sessions.md](sessions.md#open-loops)), kept on its own stream
+([log.md](log.md#open-loops)). Each is an `OpenLoop`:
+
+```json
+{"id": "…", "key": "ca-filing", "summary": "File the California annual report",
+ "state": "waiting", "source": "chapter", "createdAt": 5, "updatedAt": 9,
+ "reviewBy": 1790000000000, "lastChapterId": "…"}
+```
+
+`state` is `active`, `waiting`, `stale` (untouched for 14 days, or past its
+`reviewBy`), `done` or `archived`; the first three are open. `source` is
+`chapter` (a closing note named it) or `outcome` (the teammate's open
+`outcome`). `key` is what the thread index names it by. `jobId` names the
+scheduled job it tracks, `closedAt` when it became done or archived, and
+`updatedAt` when it was last changed by the teammate or the person: aging to
+stale leaves it. A field a newer Hotline wrote is kept on round-trip.
+
+`loops.list` and the `{"loops": "<personaId>"}` subscription answer the list
+in display order; the subscription sends it again, whole, as a `snapshot`
+whenever it changes. `loops.dismiss` archives one.
+
 ## Asides
 
 An aside is a short line left in a teammate's context: heard at the start of
@@ -1404,7 +1432,8 @@ A paired companion's socket is the phone seat: a smaller fixed set of commands
 (`Seat::permits` in `crates/hotline-core/src/wire/seat.rs` lists them) and
 these subscriptions: a tape, a pair's `{"thread": key}`, a subagent's
 `{"run": id}`, a work thread's `{"side": id}`, any thread but a call by
-`{"threadId": …}`, the roster, and a teammate's schedules. It never opens the
+`{"threadId": …}`, the roster, a teammate's schedules, inbox and open loops.
+It never opens the
 room stream, a call or the voice dispatcher's tape (under any spelling: a tape
 it opens is named as a teammate's id could be, and the dispatcher's is
 checked without case), it holds at most eight

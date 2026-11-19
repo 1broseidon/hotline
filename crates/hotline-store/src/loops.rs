@@ -41,18 +41,21 @@ pub fn line(item: &OpenLoop) -> Value {
     value
 }
 
+/// Active work leads, then what waits on someone, then what went quiet: the
+/// thread index shows only the first few open loops, and a pile of stale
+/// ones must not push the live work out of it.
 fn state_rank(state: LoopState) -> u8 {
     match state {
-        LoopState::Stale => 0,
-        LoopState::Active => 1,
-        LoopState::Waiting => 2,
+        LoopState::Active => 0,
+        LoopState::Waiting => 1,
+        LoopState::Stale => 2,
         LoopState::Done => 3,
         LoopState::Archived => 4,
     }
 }
 
-/// Every loop kept for `persona_id`, ordered for display: stale first, then
-/// active, waiting, recently done, archived; newest `updated_at` first within
+/// Every loop kept for `persona_id`, ordered for display: active first, then
+/// waiting, stale, recently done, archived; newest `updated_at` first within
 /// each state.
 pub fn of(log: &Log, persona_id: &str) -> Vec<OpenLoop> {
     let mut loops: Vec<OpenLoop> = log
@@ -101,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn loops_fold_by_id_and_sort_stale_active_waiting_done_archived() {
+    fn loops_fold_by_id_and_sort_active_waiting_stale_done_archived() {
         let dir = TempDir::new().unwrap();
         let log = Log::open(dir.path());
         let stream = StreamId::Loops("ada".into());
@@ -124,7 +127,7 @@ mod tests {
         .unwrap();
 
         let keys: Vec<String> = of(&log, "ada").into_iter().map(|l| l.key).collect();
-        assert_eq!(keys, vec!["old", "act", "fin", "wait"]);
+        assert_eq!(keys, vec!["act", "old", "fin", "wait"]);
         assert_eq!(open_of(&log, "ada").len(), 2);
     }
 }

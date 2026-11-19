@@ -594,7 +594,6 @@ fn number(event: &Value, key: &str) -> Option<i64> {
     event.get(key).and_then(Value::as_i64)
 }
 
-/// A JSON array of non-empty strings, each flattened and cut.
 /// Parses `open_loops` entries from the summariser JSON, accepting both plain
 /// strings and structured `{ key?, summary, waiting?, due? }` objects.
 fn parse_loop_deltas(parsed: &Value, most: usize) -> Vec<super::loops::LoopDelta> {
@@ -652,6 +651,7 @@ fn parse_loop_deltas(parsed: &Value, most: usize) -> Vec<super::loops::LoopDelta
         .unwrap_or_default()
 }
 
+/// A JSON array of non-empty strings, each flattened and cut.
 fn strings(parsed: &Value, key: &str, most: usize) -> Vec<String> {
     parsed
         .get(key)
@@ -947,6 +947,7 @@ impl Room {
                 &note.loop_updates,
                 &note.resolved_loops,
                 ended_at,
+                now_ms(),
             );
             self.close_marker(
                 persona_id,

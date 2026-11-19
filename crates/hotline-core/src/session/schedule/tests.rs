@@ -755,3 +755,39 @@ async fn a_late_skip_is_kept_until_the_loop_next_runs() {
     assert_eq!(kept().skipped, None);
     assert_eq!(kept().ended_at, None);
 }
+
+/// A one-shot that has fired and whose turn is already over ends in
+/// `finish`, and the open loop that tracked it closes with it.
+#[tokio::test]
+async fn a_one_shot_finishing_closes_the_loop_that_tracked_it() {
+    let log = grant_log(true);
+    let now = now_ms();
+    let mut once = calendar_job("once", calendar("12:00", "daily"), now - 1_000);
+    once.kind = ScheduleKind::Schedule;
+    once.every = None;
+    once.calendar = None;
+    room::append_schedule(&log, &once).unwrap();
+    let room = Room::new(log, Arc::new(NoKeys));
+    room.sync_open_outcome(
+        "ada",
+        &crate::contract::ThreadId::dm("ada"),
+        "release",
+        "Watching the release",
+        "open",
+        false,
+        None,
+        Some("once".to_string()),
+        now,
+    );
+
+    finish(&room, "once", Slot::Ran);
+
+    let job = room::all_jobs(&room.log)
+        .into_iter()
+        .find(|job| job.id == "once")
+        .unwrap();
+    assert!(job.ended_at.is_some(), "a one-shot fires once");
+    let tracked = crate::store::loops::of(&room.log, "ada").remove(0);
+    assert_eq!(tracked.state, crate::contract::LoopState::Done);
+    assert!(tracked.closed_at.is_some());
+}

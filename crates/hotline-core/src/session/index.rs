@@ -197,10 +197,10 @@ pub(super) struct Index {
     pub entries: Vec<Entry>,
     /// Ended threads and chapters older than a day, and any the cap left out.
     pub older: usize,
-    /// Open loops (`stale`, `active`, `waiting`), capped to [`super::loops::INDEX_CAP`].
+    /// Every open loop (`active`, `waiting`, `stale`), in the order they are
+    /// listed; only the first [`super::loops::INDEX_CAP`] are told. All are
+    /// kept so a loop pushed past the cap is known to be open, not gone.
     pub loops: Vec<LoopEntry>,
-    /// Additional open loops beyond the index cap.
-    pub more_loops: usize,
     /// Loops marked `done` in the last 24 hours.
     pub recent_done: Vec<LoopEntry>,
 }
@@ -216,21 +216,24 @@ impl Index {
             entries,
             older: older + cut,
             loops: Vec::new(),
-            more_loops: 0,
             recent_done: Vec::new(),
         }
     }
 
-    fn with_loops(
-        mut self,
-        loops: Vec<LoopEntry>,
-        more_loops: usize,
-        recent_done: Vec<LoopEntry>,
-    ) -> Self {
+    fn with_loops(mut self, loops: Vec<LoopEntry>, recent_done: Vec<LoopEntry>) -> Self {
         self.loops = loops;
-        self.more_loops = more_loops;
         self.recent_done = recent_done;
         self
+    }
+
+    /// The open loops the index tells: the first [`super::loops::INDEX_CAP`].
+    fn told_loops(&self) -> &[LoopEntry] {
+        &self.loops[..self.loops.len().min(super::loops::INDEX_CAP)]
+    }
+
+    /// How many open loops the cap leaves untold.
+    fn more_loops(&self) -> usize {
+        self.loops.len() - self.told_loops().len()
     }
 
     fn is_empty(&self) -> bool {
@@ -241,16 +244,17 @@ impl Index {
     }
 
     /// What is compared turn to turn: each thread's state (not its clock or
-    /// its last line) and each open/recent loop's state, summary, and due date.
+    /// its last line), each told or recently done loop's state, summary and
+    /// due date, and how many loops the cap leaves untold.
     fn fingerprint(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for entry in &self.entries {
             entry.state_key().hash(&mut hasher);
         }
-        for item in &self.loops {
+        for item in self.told_loops() {
             item.state_key().hash(&mut hasher);
         }
-        self.more_loops.hash(&mut hasher);
+        self.more_loops().hash(&mut hasher);
         for item in &self.recent_done {
             item.state_key().hash(&mut hasher);
         }
@@ -260,7 +264,7 @@ impl Index {
     /// The fenced list, headed by whose threads they are and when.
     pub(super) fn render(&self, name: &str, person: Option<&str>, now: i64) -> String {
         let listed: Vec<&Entry> = self.entries.iter().collect();
-        let loops: Vec<&LoopEntry> = self.loops.iter().collect();
+        let loops: Vec<&LoopEntry> = self.told_loops().iter().collect();
         let done: Vec<&LoopEntry> = self.recent_done.iter().collect();
         block(
             name,
@@ -269,7 +273,7 @@ impl Index {
             &listed,
             &[],
             &loops,
-            self.more_loops,
+            self.more_loops(),
             &done,
             &[],
             self.older,
@@ -303,11 +307,11 @@ impl Index {
             .filter(|old| !self.entries.iter().any(|entry| entry.is(old)))
             .collect();
         let changed_loops: Vec<&LoopEntry> = self
-            .loops
+            .told_loops()
             .iter()
             .filter(|item| {
                 !before
-                    .loops
+                    .told_loops()
                     .iter()
                     .any(|old| old.state_key() == item.state_key())
             })
@@ -322,14 +326,23 @@ impl Index {
                     .any(|old| old.state_key() == item.state_key())
             })
             .collect();
+        // Gone is against every open loop, not the told few: one the cap
+        // pushed out is still open.
         let gone_loops: Vec<&LoopEntry> = before
-            .loops
+            .told_loops()
             .iter()
             .filter(|old| {
                 !self.loops.iter().any(|item| item.id == old.id)
                     && !self.recent_done.iter().any(|item| item.id == old.id)
             })
             .collect();
+        // The untold count is said again only when it moved, or beside
+        // loops that did.
+        let more_loops = if changed_loops.is_empty() && self.more_loops() == before.more_loops() {
+            0
+        } else {
+            self.more_loops()
+        };
         block(
             name,
             person,
@@ -337,7 +350,7 @@ impl Index {
             &changed,
             &gone,
             &changed_loops,
-            self.more_loops,
+            more_loops,
             &changed_done,
             &gone_loops,
             self.older,
@@ -399,10 +412,8 @@ fn block(
     if !loops.is_empty() {
         lines.push(format!("OPEN LOOPS {}", loops.len()));
         lines.extend(loops.iter().map(|item| item.line(now)));
-        if more_loops > 0 {
-            lines.push(format!("+{more_loops} more open loops"));
-        }
-    } else if !changes && more_loops > 0 {
+    }
+    if more_loops > 0 {
         lines.push(format!("+{more_loops} more open loops"));
     }
     if !recent_done.is_empty() {
@@ -920,14 +931,12 @@ impl Room {
             }
         }
         let all_loops = crate::store::loops::of(&self.log, persona_id);
-        let mut open_loops: Vec<LoopEntry> = all_loops
+        let open_loops: Vec<LoopEntry> = all_loops
             .iter()
             .filter(|item| item.state.is_open())
             .cloned()
             .map(LoopEntry::from_loop)
             .collect();
-        let more_loops = open_loops.len().saturating_sub(super::loops::INDEX_CAP);
-        open_loops.truncate(super::loops::INDEX_CAP);
         let recent_done: Vec<LoopEntry> = all_loops
             .into_iter()
             .filter(|item| {
@@ -938,7 +947,7 @@ impl Room {
             .take(5)
             .map(LoopEntry::from_loop)
             .collect();
-        Index::capped(entries, older).with_loops(open_loops, more_loops, recent_done)
+        Index::capped(entries, older).with_loops(open_loops, recent_done)
     }
 
     /// The main conversation as one entry: working, waiting on a card, or

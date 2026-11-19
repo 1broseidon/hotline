@@ -9,7 +9,7 @@
 //! them ([`Room::dismiss_loop`]), or as they age in [`Room::sweep_loops`].
 
 use super::{Room, lock, new_id, now_ms};
-use crate::contract::{LoopSource, LoopState, OpenLoop};
+use crate::contract::{LoopSource, LoopState, OpenLoop, ThreadId};
 use crate::log::StreamId;
 use crate::room;
 use crate::store::loops as kept;
@@ -78,19 +78,50 @@ pub(crate) fn normalize_key(raw: &str) -> String {
     out.trim_end_matches('-').to_string()
 }
 
-/// Derives a short stable slug from a summary when no explicit key was given.
-fn slug_from_summary(summary: &str) -> String {
+/// A readable key for a loop the summariser gave none: the summary's first
+/// five ASCII words, unless they make no key or one an open loop already
+/// has, when it is the start of the loop's own id. Such a loop is matched
+/// by its whole summary, never by this key, so two loops whose summaries
+/// share their opening words, or have no ASCII words at all, stay two.
+fn derived_key(summary: &str, id: &str, open: &[OpenLoop]) -> String {
     let words: Vec<&str> = summary
         .split(|ch: char| !ch.is_ascii_alphanumeric())
         .filter(|word| !word.is_empty())
         .take(5)
         .collect();
     let slug = normalize_key(&words.join("-"));
-    if slug.is_empty() {
-        "loop".to_string()
+    let taken = open
+        .iter()
+        .any(|item| item.state.is_open() && item.key == slug);
+    if slug.is_empty() || taken {
+        id[..8.min(id.len())].to_string()
     } else {
         slug
     }
+}
+
+/// The loop key an outcome's `id` is mirrored under. The `id` names an
+/// outcome within one thread, and loops are the teammate's across all of
+/// them, so one opened in a work thread or a job carries that thread's tag:
+/// the same `id` in two work threads is two loops. One in the main
+/// conversation keeps its plain key, which is how the chapter summariser
+/// names it too.
+fn outcome_key(persona_id: &str, thread: &ThreadId, key: &str) -> String {
+    let normalized = normalize_key(key);
+    let base = if normalized.is_empty() {
+        key.trim().to_lowercase()
+    } else {
+        normalized
+    };
+    if base.is_empty() || *thread == ThreadId::dm(persona_id) {
+        return base;
+    }
+    let tag: String = normalize_key(&thread.key)
+        .chars()
+        .filter(|ch| *ch != '-')
+        .take(8)
+        .collect();
+    format!("{tag}-{base}")
 }
 
 fn clean_summary(raw: &str) -> String {
@@ -176,12 +207,20 @@ impl Room {
 
     /// Reconciles the open loops and resolved loop keys produced when a chapter
     /// closes. Untouched existing loops are preserved as they are.
+    ///
+    /// The note is written up to [`super::chapters::ANSWER_MS`] after the
+    /// close, while the next chapter may already be working, and an idle
+    /// close dates `ended_at` to when the talk stopped, perhaps weeks ago. So
+    /// a loop changed after `ended_at` is newer than anything the note can
+    /// say and is left alone, and what the note does write is stamped `now`,
+    /// so a loop it opens is not born stale.
     pub(super) fn reconcile_chapter_loops(
         &self,
         persona_id: &str,
         chapter_id: &str,
         deltas: &[LoopDelta],
         resolved: &[String],
+        ended_at: i64,
         now: i64,
     ) {
         if deltas.is_empty() && resolved.is_empty() {
@@ -197,7 +236,7 @@ impl Room {
                 continue;
             }
             for item in &mut existing {
-                if !item.state.is_open() {
+                if !item.state.is_open() || item.updated_at > ended_at {
                     continue;
                 }
                 if item.id == trimmed || item.key == norm || item.key.eq_ignore_ascii_case(trimmed)
@@ -218,12 +257,11 @@ impl Room {
             if summary.is_empty() {
                 continue;
             }
-            let key = delta
+            let given_key = delta
                 .key
                 .as_deref()
                 .map(normalize_key)
-                .filter(|key| !key.is_empty())
-                .unwrap_or_else(|| slug_from_summary(&summary));
+                .filter(|key| !key.is_empty());
             let target_state = if delta.waiting {
                 LoopState::Waiting
             } else {
@@ -236,8 +274,12 @@ impl Room {
 
             if let Some(found) = existing.iter_mut().find(|item| {
                 item.state.is_open()
-                    && (item.key == key || item.summary.eq_ignore_ascii_case(&summary))
+                    && (given_key.as_ref() == Some(&item.key)
+                        || item.summary.eq_ignore_ascii_case(&summary))
             }) {
+                if found.updated_at > ended_at {
+                    continue;
+                }
                 found.summary = summary;
                 found.state = target_state;
                 found.updated_at = now;
@@ -250,8 +292,10 @@ impl Room {
                     eprintln!("{persona_id}: {error}");
                 }
             } else {
+                let id = new_id();
+                let key = given_key.unwrap_or_else(|| derived_key(&summary, &id, &existing));
                 let item = OpenLoop {
-                    id: new_id(),
+                    id,
                     key,
                     summary,
                     state: target_state,
@@ -273,7 +317,8 @@ impl Room {
         }
     }
 
-    /// Mirrors an `outcome` declaration into the teammate's open loops stream.
+    /// Mirrors an `outcome` declaration into the teammate's open loops stream,
+    /// under its `key` scoped by the `thread` its line is on ([`outcome_key`]).
     ///
     /// - `kind == "open"` and not `ended`: opens or updates an active loop.
     /// - `ended`: archives a matching open loop.
@@ -286,6 +331,7 @@ impl Room {
     pub(super) fn sync_open_outcome(
         &self,
         persona_id: &str,
+        thread: &ThreadId,
         key: &str,
         message: &str,
         kind: &str,
@@ -294,21 +340,15 @@ impl Room {
         job_id: Option<String>,
         now: i64,
     ) {
-        let norm = normalize_key(key);
-        let loop_key = if norm.is_empty() {
-            key.trim().to_ascii_lowercase()
-        } else {
-            norm
-        };
+        let loop_key = outcome_key(persona_id, thread, key);
         if loop_key.is_empty() {
             return;
         }
         let summary = clean_summary(message);
         let _guard = lock(&self.loops_lock);
-        let existing = kept::of(&self.log, persona_id);
-        let matched = existing
+        let matched = kept::of(&self.log, persona_id)
             .into_iter()
-            .find(|item| item.state.is_open() && (item.key == loop_key || item.key == key));
+            .find(|item| item.state.is_open() && item.key == loop_key);
 
         if ended {
             if let Some(mut item) = matched {
@@ -392,6 +432,22 @@ impl Room {
         }
     }
 
+    /// Writes each teammate's loop stream again with each loop's latest line
+    /// alone, as the desk opens: every change appends the whole loop again,
+    /// and the stream is read whole each turn and each sweep. A line this
+    /// build cannot read is kept byte for byte ([`crate::log::Log::tidy`]),
+    /// as the inbox's tidy keeps one. Under the loops lock, so no change to
+    /// a loop lands between the read and the rewrite.
+    pub(super) fn loops_tidy(&self) {
+        let _guard = lock(&self.loops_lock);
+        for persona in room::roster(&self.log) {
+            let stream = StreamId::Loops(persona.id.clone());
+            if let Err(error) = self.log.tidy(&stream, |_| true) {
+                eprintln!("{}'s open loops could not be tidied: {error}", persona.id);
+            }
+        }
+    }
+
     /// Archives one open loop at the person's request (`loops.dismiss`).
     pub fn dismiss_loop(&self, persona_id: &str, id: &str) -> Result<OpenLoop, String> {
         if self.persona(persona_id).is_err() {
@@ -464,295 +520,4 @@ impl Room {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::log::Log;
-    use crate::session::{ProviderAuth, ProviderKeys};
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use tempfile::TempDir;
-
-    struct NoKeys;
-    impl ProviderKeys for NoKeys {
-        fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
-            HashMap::new()
-        }
-    }
-
-    fn room_with_ada() -> (TempDir, Log, Arc<Room>) {
-        let dir = TempDir::new().unwrap();
-        let log = Log::open(dir.path());
-        let ada = crate::session::tests::persona("ada");
-        room::append_persona(&log, &ada).unwrap();
-        let room = Room::new(log.clone(), Arc::new(NoKeys));
-        (dir, log, room)
-    }
-
-    #[tokio::test]
-    async fn chapter_reconciliation_opens_updates_resolves_and_preserves_untouched_loops() {
-        let (_dir, log, room) = room_with_ada();
-        let t0 = 1_700_000_000_000;
-
-        room.reconcile_chapter_loops(
-            "ada",
-            "ch-1",
-            &[
-                LoopDelta {
-                    key: Some("CA Filing".into()),
-                    summary: "File California annual report".into(),
-                    waiting: true,
-                    due: Some("30d".into()),
-                },
-                LoopDelta {
-                    key: None,
-                    summary: "Check Larder backup cron".into(),
-                    waiting: false,
-                    due: None,
-                },
-            ],
-            &[],
-            t0,
-        );
-
-        let after_ch1 = kept::of(&log, "ada");
-        assert_eq!(after_ch1.len(), 2);
-        let ca = after_ch1.iter().find(|l| l.key == "ca-filing").unwrap();
-        assert_eq!(ca.state, LoopState::Waiting);
-        assert_eq!(ca.review_by, Some(t0 + 30 * DAY_MS));
-        assert_eq!(ca.last_chapter_id.as_deref(), Some("ch-1"));
-
-        let larder = after_ch1
-            .iter()
-            .find(|l| l.key == "check-larder-backup-cron")
-            .unwrap();
-        assert_eq!(larder.state, LoopState::Active);
-
-        // Chapter 2 updates ca-filing and resolves larder, while leaving another untouched.
-        let t1 = t0 + DAY_MS;
-        room.reconcile_chapter_loops(
-            "ada",
-            "ch-2",
-            &[LoopDelta {
-                key: Some("ca-filing".into()),
-                summary: "California annual report drafted, awaiting signature".into(),
-                waiting: true,
-                due: None,
-            }],
-            &["check-larder-backup-cron".into()],
-            t1,
-        );
-
-        let after_ch2 = kept::of(&log, "ada");
-        let ca2 = after_ch2.iter().find(|l| l.key == "ca-filing").unwrap();
-        assert_eq!(ca2.id, ca.id, "updated in place under same id");
-        assert_eq!(ca2.review_by, Some(t0 + 30 * DAY_MS), "preserved review_by");
-        assert_eq!(ca2.updated_at, t1);
-        assert_eq!(ca2.last_chapter_id.as_deref(), Some("ch-2"));
-
-        let larder2 = after_ch2
-            .iter()
-            .find(|l| l.key == "check-larder-backup-cron")
-            .unwrap();
-        assert_eq!(larder2.state, LoopState::Done);
-        assert_eq!(larder2.closed_at, Some(t1));
-
-        // Chapter 3 talks about something unrelated: ca-filing must remain open.
-        let t2 = t1 + DAY_MS;
-        room.reconcile_chapter_loops(
-            "ada",
-            "ch-3",
-            &[LoopDelta {
-                key: Some("dns".into()),
-                summary: "Move DNS record".into(),
-                waiting: false,
-                due: None,
-            }],
-            &[],
-            t2,
-        );
-        let open = kept::open_of(&log, "ada");
-        assert_eq!(open.len(), 2);
-        assert!(open.iter().any(|l| l.key == "ca-filing"));
-        assert!(open.iter().any(|l| l.key == "dns"));
-    }
-
-    #[tokio::test]
-    async fn outcome_sync_and_job_auto_close_work_end_to_end() {
-        let (_dir, log, room) = room_with_ada();
-        let t0 = 1_700_000_000_000;
-
-        // One-shot `made` creates no open loop.
-        room.sync_open_outcome(
-            "ada",
-            "report",
-            "Wrote report",
-            "made",
-            false,
-            None,
-            None,
-            t0,
-        );
-        assert_eq!(kept::of(&log, "ada"), Vec::new());
-
-        // `open` with job_id creates an Outcome loop.
-        room.sync_open_outcome(
-            "ada",
-            "hn-watch",
-            "Watching HN for Hotline",
-            "open",
-            false,
-            None,
-            Some("job-42".into()),
-            t0,
-        );
-        let items = kept::open_of(&log, "ada");
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].source, LoopSource::Outcome);
-        assert_eq!(items[0].job_id.as_deref(), Some("job-42"));
-
-        // Ending job-42 automatically marks the loop done.
-        room.close_job_loops("ada", "job-42", t0 + 1_000);
-        let all = kept::of(&log, "ada");
-        assert_eq!(all[0].state, LoopState::Done);
-        assert_eq!(all[0].closed_at, Some(t0 + 1_000));
-
-        // Ending an open outcome archives it.
-        room.sync_open_outcome(
-            "ada",
-            "wait-vendor",
-            "Waiting for vendor",
-            "open",
-            false,
-            None,
-            None,
-            t0 + 2_000,
-        );
-        room.sync_open_outcome(
-            "ada",
-            "wait-vendor",
-            "Vendor cancelled",
-            "open",
-            true,
-            None,
-            None,
-            t0 + 3_000,
-        );
-        let vendor = kept::of(&log, "ada")
-            .into_iter()
-            .find(|l| l.key == "wait-vendor")
-            .unwrap();
-        assert_eq!(vendor.state, LoopState::Archived);
-    }
-
-    #[tokio::test]
-    async fn aging_respects_default_windows_and_explicit_review_by_and_keeps_updated_at_truthful() {
-        let (_dir, log, room) = room_with_ada();
-        let t0 = 1_700_000_000_000;
-
-        // Loop A: no review_by -> stale at 14d, archived at 30d.
-        room.sync_open_outcome(
-            "ada",
-            "plain",
-            "Plain open loop",
-            "open",
-            false,
-            None,
-            None,
-            t0,
-        );
-        // Loop B: review_by 45d out -> NOT stale at 14d or 30d; stale at 45d; archived at 45+16=61d.
-        room.sync_open_outcome(
-            "ada",
-            "future-due",
-            "Tax deadline",
-            "open",
-            false,
-            Some(t0 + 45 * DAY_MS),
-            None,
-            t0,
-        );
-        // Loop C: done at t0 -> archived at 7d.
-        room.sync_open_outcome(
-            "ada",
-            "finished",
-            "Quick fix",
-            "open",
-            false,
-            None,
-            None,
-            t0,
-        );
-        room.sync_open_outcome(
-            "ada",
-            "finished",
-            "Quick fix done",
-            "made",
-            false,
-            None,
-            None,
-            t0,
-        );
-
-        let find = |key: &str| {
-            kept::of(&log, "ada")
-                .into_iter()
-                .find(|l| l.key == key)
-                .unwrap()
-        };
-
-        // At 7 days: finished -> archived; plain & future-due still active.
-        room.sweep_loops(t0 + 7 * DAY_MS);
-        assert_eq!(find("finished").state, LoopState::Archived);
-        assert_eq!(find("plain").state, LoopState::Active);
-        assert_eq!(find("future-due").state, LoopState::Active);
-
-        // At 14 days: plain -> stale with original updated_at; future-due still active!
-        room.sweep_loops(t0 + 14 * DAY_MS);
-        let plain_14 = find("plain");
-        assert_eq!(plain_14.state, LoopState::Stale);
-        assert_eq!(
-            plain_14.updated_at, t0,
-            "aging to stale must not bump updated_at"
-        );
-        assert_eq!(find("future-due").state, LoopState::Active);
-
-        // At 30 days: plain -> archived; future-due STILL active!
-        room.sweep_loops(t0 + 30 * DAY_MS);
-        assert_eq!(find("plain").state, LoopState::Archived);
-        assert_eq!(find("future-due").state, LoopState::Active);
-
-        // At 45 days: future-due -> stale.
-        room.sweep_loops(t0 + 45 * DAY_MS);
-        assert_eq!(find("future-due").state, LoopState::Stale);
-
-        // At 61 days (45 + 16): future-due -> archived.
-        room.sweep_loops(t0 + 61 * DAY_MS);
-        assert_eq!(find("future-due").state, LoopState::Archived);
-    }
-
-    #[tokio::test]
-    async fn dismiss_archives_loop_idempotently() {
-        let (_dir, log, room) = room_with_ada();
-        let t0 = 1_700_000_000_000;
-        room.sync_open_outcome(
-            "ada",
-            "cleanup",
-            "Clean old images",
-            "open",
-            false,
-            None,
-            None,
-            t0,
-        );
-        let item = kept::open_of(&log, "ada").remove(0);
-
-        let dismissed = room.dismiss_loop("ada", &item.id).unwrap();
-        assert_eq!(dismissed.state, LoopState::Archived);
-        assert!(dismissed.closed_at.is_some());
-        assert_eq!(kept::open_of(&log, "ada"), Vec::new());
-
-        // Idempotent second dismiss.
-        let again = room.dismiss_loop("ada", &item.id).unwrap();
-        assert_eq!(again.state, LoopState::Archived);
-    }
-}
+mod tests;

@@ -45,7 +45,8 @@ function timingLabel(loop: OpenLoop, now: number): string {
  *
  * Subscribes live to `{"loops": personaId}`, displays active/waiting/stale rows
  * above Schedules with one-tap Ask and Dismiss, and keeps done/archived items
- * tucked behind a collapsed disclosure.
+ * tucked behind a collapsed disclosure. Stale is said in the detail's quiet
+ * ink like the other states: the loop went quiet, nothing failed.
  */
 export function OpenLoops({
 	personaId,
@@ -63,15 +64,9 @@ export function OpenLoops({
 		return wire.subscribe<OpenLoop>(
 			{ loops: personaId },
 			{
+				// The core sends the whole list again on every change, never one loop.
 				snapshot: (entries) => setLoops(entries),
-				event: (entry) =>
-					setLoops((known) => {
-						const at = known.findIndex((item) => item.id === entry.id);
-						if (at === -1) return [entry, ...known];
-						const next = known.slice();
-						next[at] = entry;
-						return next;
-					}),
+				event: () => {},
 				removed: () => setLoops([]),
 			},
 		);
@@ -162,7 +157,7 @@ function LoopRow({
 				</span>
 				<span className="group-row-detail schedule-detail">
 					<span className="schedule-detail-parts">
-						<span style={loop.state === "stale" ? { color: "var(--warn-ink)" } : undefined}>{stateLabel(loop.state)}</span>
+						<span>{stateLabel(loop.state)}</span>
 						<span>
 							<span className="sr-only"> · </span>
 							{timingLabel(loop, now)}

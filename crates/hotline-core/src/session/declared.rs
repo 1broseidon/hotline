@@ -14,6 +14,9 @@
 //! then in the teammate's main conversation, so a job that watches for the
 //! replies can close what the conversation opened. The desk closes nothing
 //! by itself.
+//!
+//! An open outcome is also one of the teammate's open loops (`loops.rs`),
+//! with the `review_by` and the live job (`job_id`) it may carry.
 
 use super::{Room, new_id, now_ms};
 use crate::contract::{ThreadId, TranscriptEvent};
@@ -129,9 +132,17 @@ impl Room {
             })?),
             None => None,
         };
+        // A loop bound to a job closes when that job ends, so the job must be
+        // one of this teammate's that can still end.
         let job_id = word(arguments, "job_id");
-        if let Some(job_id) = job_id {
-            short("outcome", "job_id", job_id, KEY_CHARS)?;
+        if let Some(job_id) = job_id
+            && !crate::room::schedules(&self.log)
+                .iter()
+                .any(|job| job.id == job_id && job.persona_id == persona_id)
+        {
+            return Err(format!(
+                "outcome's `job_id` '{job_id}' is no live job of yours: `list_schedules` names them."
+            ));
         }
         let explicit_key = key.is_some();
         let open = key.and_then(|key| self.open_outcome(persona_id, thread, key));
@@ -170,6 +181,7 @@ impl Room {
         if kind == "open" || open.is_some() || ended || explicit_key {
             self.sync_open_outcome(
                 persona_id,
+                &written_to,
                 &key,
                 message,
                 &kind,

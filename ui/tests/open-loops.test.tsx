@@ -73,6 +73,9 @@ test("renders open loops, supports Ask and Dismiss, and keeps completed/archived
 	expect(container.textContent).toContain("File California report");
 	expect(container.textContent).toContain("Verify Larder backup");
 	expect(container.textContent).toContain("Tracks job");
+	// A loop that went quiet reads in the row's quiet ink, never the warning colour.
+	const staleLabel = [...container.querySelectorAll("span")].find((span) => span.textContent === "Stale")!;
+	expect(staleLabel.getAttribute("style")).toBeNull();
 	// Settled loop is tucked behind the collapsed disclosure.
 	expect(container.textContent).not.toContain("Updated DNS record");
 	expect(container.textContent).toContain("Completed & archived (1)");

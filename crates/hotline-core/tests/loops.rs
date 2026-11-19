@@ -102,13 +102,13 @@ async fn open_loops_list_subscribe_dismiss_and_job_cancel_auto_close_over_wire()
     log.append(&StreamId::Loops("ada".into()), &kept::line(&stale))
         .unwrap();
 
-    // loops.list returns stale first, then active.
+    // loops.list returns active first, then stale.
     let listed = client.call("loops.list", json!({"personaId": "ada"})).await;
     assert_eq!(listed["ok"], true, "{listed}");
     let items = listed["result"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["id"], "l-stale");
-    assert_eq!(items[1]["id"], "l-job");
+    assert_eq!(items[0]["id"], "l-job");
+    assert_eq!(items[1]["id"], "l-stale");
 
     // Subscribe to {"loops": "ada"} and verify initial snapshot.
     let sub = client.subscribe(json!({"loops": "ada"})).await;

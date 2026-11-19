@@ -326,6 +326,23 @@ a one-shot that never carried `when` uses `nextAt` for both. A job
 already present by id is left alone. A job whose teammate is not here
 is skipped.
 
+## Open loops
+
+A teammate's open loops are `open_loop` lines on its own
+`loops/<personaId>.jsonl` (`StreamId::Loops`), read by
+`crates/hotline-store/src/loops.rs`. Each line is the whole `OpenLoop`
+([wire.md](wire.md#open-loops)) with `kind` and a `ts` (when it closed,
+else when it was last changed), written again under its id each time its
+state or summary moves, so the fold is each loop as it stands. Only the core
+writes it, under the room's loops lock (`session/loops.rs`). A line in a
+state this build does not know is no loop here and is never rewritten; a
+field it does not know is kept on every rewrite (`OpenLoop::newer`).
+
+Every change appends the whole loop again, and the stream is read whole on
+each turn's index and each minute's sweep, so as the desk opens each loops
+stream is written again with each loop's latest line, a line this build
+cannot read kept byte for byte (`Log::tidy`), as the inbox's is.
+
 ## Startup settle
 
 Opening the room folds every living teammate's tape, and every thread
@@ -435,7 +452,9 @@ chapters when nothing is typed; `search.thread` stays on the wire) offers only
 the tape's lines, because a hit must open; the agent's `search_thread` offers both. Chapters —
 title, note, tags — answer "what was that thing we did in June". Chapter
 hits come first. Each word becomes a quoted prefix term; the words are
-ANDed, then ORed if nothing matched.
+ANDed, then ORed if nothing matched. A teammate's open loops are indexed as
+lines of its own (`loop:<id>`), by key and summary, so an archived one is
+still found.
 
 The wire that subscribes to these streams is [wire.md](wire.md). What a
 session writes onto a tape is [sessions.md](sessions.md).

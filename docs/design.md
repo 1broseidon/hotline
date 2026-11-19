@@ -1123,7 +1123,8 @@ never needed. A transducer is told the names it should expect (teammates',
 the person's own words) with each utterance, rather than its transcripts
 being corrected afterwards: a correction can only guess at a word the model
 already lost. A model is half a gigabyte, so it is
-never bundled: the owner downloads it once, the archive is pinned by hash, and
+never bundled: the owner downloads it once, each file pinned by hash at one
+Hugging Face commit, never at an address that can be uploaded again, and
 until then nothing is installed. An installed model is automatic's first
 choice for hearing, before any paid key, because it is free and private and
 was the owner's own act; it costs zero in the ledger.

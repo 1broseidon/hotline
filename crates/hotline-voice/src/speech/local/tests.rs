@@ -115,12 +115,78 @@ fn the_most_accurate_installed_model_comes_first_and_strangers_last() {
     );
 }
 
+/// Whether `url` is a file on Hugging Face at one commit: an address whose
+/// bytes never change, unlike a branch or a release's file, which can be
+/// uploaded again under the same name.
+fn at_a_commit(url: &str) -> bool {
+    let Some(path) = url.strip_prefix("https://huggingface.co/") else {
+        return false;
+    };
+    let parts: Vec<&str> = path.split('/').collect();
+    parts.len() >= 5
+        && parts[2] == "resolve"
+        && parts[3].len() == 40
+        && parts[3]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        && parts[..2].iter().chain(&parts[4..]).all(|part| {
+            !part.is_empty() && *part != "." && *part != ".." && !part.contains(['?', '#', '%'])
+        })
+}
+
 #[test]
-fn every_offered_model_that_hears_is_pinned_to_one_https_archive_and_a_sha256() {
-    let models: Vec<Model> = catalogue()
-        .into_iter()
-        .filter(|model| !model.engine.speaks())
-        .collect();
+fn an_address_is_pinned_only_at_a_commit() {
+    let commit = "2bda32ec70b097a55adaa07d9a7173915b43cc78";
+    assert!(at_a_commit(&format!(
+        "https://huggingface.co/owner/repo/resolve/{commit}/tokens.txt"
+    )));
+    for moving in [
+        "https://huggingface.co/owner/repo/resolve/main/tokens.txt".to_string(),
+        "https://huggingface.co/owner/repo/resolve/v1.0/tokens.txt".to_string(),
+        format!(
+            "https://huggingface.co/owner/repo/resolve/{}/tokens.txt",
+            &commit[..12]
+        ),
+        format!(
+            "https://huggingface.co/owner/repo/resolve/{}/tokens.txt",
+            commit.to_uppercase()
+        ),
+        format!("https://huggingface.co/owner/repo/resolve/{commit}/../main/tokens.txt"),
+        format!("http://huggingface.co/owner/repo/resolve/{commit}/tokens.txt"),
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/model.tar.bz2"
+            .to_string(),
+    ] {
+        assert!(!at_a_commit(&moving), "{moving}");
+    }
+}
+
+/// Every model offered, the voice too where this build has it, is its
+/// engine's files and no other, each pinned by size and SHA-256 at an
+/// address that cannot change: a re-upload upstream can neither break a
+/// download nor change what is installed.
+#[test]
+fn every_offered_model_is_its_engines_files_each_pinned_at_a_commit() {
+    let all = catalogue();
+    for model in &all {
+        let mut names: Vec<&str> = model.files.iter().map(|file| file.name.as_str()).collect();
+        let mut wanted = model.engine.files().to_vec();
+        names.sort_unstable();
+        wanted.sort_unstable();
+        assert_eq!(names, wanted, "{}", model.id);
+        for file in &model.files {
+            assert!(at_a_commit(&file.url), "{}: {}", model.id, file.url);
+            assert_eq!(file.sha256.len(), 64, "{}", file.url);
+            assert!(
+                file.sha256
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                "{}",
+                file.url
+            );
+            assert!(file.bytes > 0, "{}", file.url);
+        }
+    }
+    let models: Vec<&Model> = all.iter().filter(|model| !model.engine.speaks()).collect();
     let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
     assert_eq!(
         ids,
@@ -132,21 +198,6 @@ fn every_offered_model_that_hears_is_pinned_to_one_https_archive_and_a_sha256() 
         ]
     );
     for model in &models {
-        let Source::Archive { url, sha256, .. } = &model.source else {
-            panic!("{} is not one archive", model.id);
-        };
-        assert!(
-            url.starts_with("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"),
-            "{url}"
-        );
-        assert!(url.ends_with(".tar.bz2"), "{url}");
-        assert_eq!(sha256.len(), 64);
-        assert!(
-            sha256
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        );
-        assert!(model.download_bytes > 0 && model.disk_bytes > model.download_bytes);
         // The licence asks for credit: who made it, the licence, and where to read it.
         for licence in ["CC BY 4.0", "MIT"] {
             if model.credit.contains(licence) {

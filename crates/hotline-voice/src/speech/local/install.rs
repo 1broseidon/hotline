@@ -1,14 +1,15 @@
 //! Downloading the desk's speech models, which the owner asks for one at a
 //! time: nothing is installed until they do.
 //!
-//! A model that hears is one archive from sherpa-onnx's releases, pinned here
-//! by its size and SHA-256. The archive is hashed as it arrives and refused
-//! whole if it does not match, before any of it is unpacked; from a verified
-//! archive only the model's own files are taken, by name, so nothing in it
-//! chooses a path. The desk's voice is several files from Hugging Face, each
-//! pinned the same way and refused the same way ([`Source::Files`]). Either
-//! way the model appears only when its directory is complete, by renaming it
-//! into place, so a crash or a cancel leaves no half model to load.
+//! Every model is a few files from Hugging Face, each fetched at one commit
+//! and pinned by its size and SHA-256. A commit never changes what it holds,
+//! so a model re-uploaded upstream neither breaks its download nor changes
+//! what the desk installs; an address that can be re-uploaded (a release's
+//! file, a branch) is not used. Each file is hashed as it arrives and refused
+//! whole if it does not match, and is kept under the desk's own name for it,
+//! so nothing downloaded chooses a path. The model appears only when its
+//! directory is complete, by renaming it into place, so a crash or a cancel
+//! leaves no half model to load.
 
 use super::{Engine, FileHash, Installed, MANIFEST, Manifest, installed, models_dir, unload};
 use futures_util::StreamExt;
@@ -32,32 +33,14 @@ pub struct Model {
     pub tag: Option<String>,
     pub detail: String,
     pub engine: Engine,
-    pub source: Source,
-    /// Everything downloaded: the archive, or the files together.
-    pub download_bytes: u64,
-    pub disk_bytes: u64,
+    /// Every file of the model, each pinned.
+    pub files: Vec<Pinned>,
     pub credit: String,
     pub licence_url: String,
     /// A model offered here that hears more languages, by id, for Settings
     /// to suggest to someone whose window is not in English while this is
     /// the only one installed.
     pub more_languages: Option<String>,
-}
-
-/// Where a model's files come from.
-#[derive(Clone, Debug)]
-pub enum Source {
-    /// One archive, whose files are taken out by name.
-    Archive {
-        url: String,
-        /// What the archive's file names carry before the desk's own names:
-        /// Whisper's are `turbo-encoder.int8.onnx` and so on.
-        prefix: String,
-        /// Lowercase hex of the archive's SHA-256.
-        sha256: String,
-    },
-    /// Files downloaded one by one, each kept under its own name.
-    Files(Vec<Pinned>),
 }
 
 /// One file of a model, as it must arrive.
@@ -71,8 +54,45 @@ pub struct Pinned {
     pub sha256: String,
 }
 
-const RELEASES: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
+impl Model {
+    /// What its download comes to, and so what it takes on disk: its files
+    /// are kept as they arrive.
+    pub fn bytes(&self) -> u64 {
+        self.files.iter().map(|file| file.bytes).sum()
+    }
+}
+
+/// One file of a model: the desk's `name` for it, where it is fetched from,
+/// and what it must be.
+pub(super) fn pinned(name: &str, url: String, bytes: u64, sha256: &str) -> Pinned {
+    Pinned {
+        name: name.into(),
+        url,
+        bytes,
+        sha256: sha256.into(),
+    }
+}
+
 const CC_BY: &str = "https://creativecommons.org/licenses/by/4.0/";
+
+/// sherpa-onnx's int8 export of Parakeet TDT 0.6B v3 at its commit of
+/// 2025-08-16: the files Hotline first pinned, in the archive sherpa-onnx's
+/// `asr-models` release had then. On 2026-11-07 sherpa-onnx exported the
+/// model again from the same checkpoint to add a model card (#4167), and
+/// replaced that archive at the same address with different bytes, which a
+/// pin on the address could only refuse.
+const PARAKEET: &str = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78";
+/// sherpa-onnx's Whisper large-v3-turbo at its one upload, 2024-10-02: the
+/// same bytes as its archive in the `asr-models` release.
+const WHISPER: &str = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff";
+/// sherpa-onnx's own repository for Parakeet TDT 110M int8 holds no files,
+/// so this is a mirror of 2026-08-10 whose files are byte for byte those of
+/// sherpa-onnx's archive in the `asr-models` release (uploaded 2026-05-03),
+/// which Hotline pinned before: the hashes, not the host, say what it is.
+const PARAKEET_ENGLISH: &str = "https://huggingface.co/punitd/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8/resolve/66a4fa70643dc7ce25c9b38b2f87e1b35ddad33d";
+/// sherpa-onnx's Moonshine Base int8 at its commit of 2024-10-28: the same
+/// bytes as its archive in the `asr-models` release.
+const MOONSHINE: &str = "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-base-en-int8/resolve/052b0798ad1bf046a140fdd4efcd9426530fa3f5";
 
 /// The models Hotline offers, in the order automatic hearing takes the first
 /// one installed: the multilingual Parakeet, Whisper, which hears more
@@ -91,13 +111,32 @@ pub fn catalogue() -> Vec<Model> {
             tag: Some("25 languages".into()),
             detail: "25 European languages".into(),
             engine: Engine::Transducer,
-            source: Source::Archive {
-                url: format!("{RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"),
-                prefix: String::new(),
-                sha256: "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf".into(),
-            },
-            download_bytes: 487_170_055,
-            disk_bytes: 670_478_772,
+            files: vec![
+                pinned(
+                    "encoder.int8.onnx",
+                    format!("{PARAKEET}/encoder.int8.onnx"),
+                    652_184_281,
+                    "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247",
+                ),
+                pinned(
+                    "decoder.int8.onnx",
+                    format!("{PARAKEET}/decoder.int8.onnx"),
+                    11_845_275,
+                    "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e",
+                ),
+                pinned(
+                    "joiner.int8.onnx",
+                    format!("{PARAKEET}/joiner.int8.onnx"),
+                    6_355_277,
+                    "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3",
+                ),
+                pinned(
+                    "tokens.txt",
+                    format!("{PARAKEET}/tokens.txt"),
+                    93_939,
+                    "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+                ),
+            ],
             credit: "NVIDIA Parakeet TDT 0.6B v3, CC BY 4.0, quantized by sherpa-onnx".into(),
             licence_url: CC_BY.into(),
             more_languages: None,
@@ -108,13 +147,26 @@ pub fn catalogue() -> Vec<Model> {
             tag: Some("99 languages".into()),
             detail: "99 languages, slower".into(),
             engine: Engine::Whisper,
-            source: Source::Archive {
-                url: format!("{RELEASES}/sherpa-onnx-whisper-turbo.tar.bz2"),
-                prefix: "turbo-".into(),
-                sha256: "b11acbbcd660b44a8e0df33724feb5aaa709cf65668f2823d59f656312544f22".into(),
-            },
-            download_bytes: 563_790_207,
-            disk_bytes: 1_036_613_791,
+            files: vec![
+                pinned(
+                    "encoder.int8.onnx",
+                    format!("{WHISPER}/turbo-encoder.int8.onnx"),
+                    674_716_297,
+                    "b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b",
+                ),
+                pinned(
+                    "decoder.int8.onnx",
+                    format!("{WHISPER}/turbo-decoder.int8.onnx"),
+                    361_080_764,
+                    "20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547",
+                ),
+                pinned(
+                    "tokens.txt",
+                    format!("{WHISPER}/turbo-tokens.txt"),
+                    816_730,
+                    "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+                ),
+            ],
             credit: "OpenAI Whisper large-v3-turbo, MIT, quantized by sherpa-onnx".into(),
             licence_url: "https://github.com/openai/whisper/blob/main/LICENSE".into(),
             more_languages: None,
@@ -125,15 +177,32 @@ pub fn catalogue() -> Vec<Model> {
             tag: Some("fast".into()),
             detail: "English only, small and quick".into(),
             engine: Engine::Transducer,
-            source: Source::Archive {
-                url: format!(
-                    "{RELEASES}/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2"
+            files: vec![
+                pinned(
+                    "encoder.int8.onnx",
+                    format!("{PARAKEET_ENGLISH}/encoder.int8.onnx"),
+                    131_113_202,
+                    "0f35509ddeb9b39002fb077d979a9fe74f06eb0bc4dd5c34f512f82e5111d657",
                 ),
-                prefix: String::new(),
-                sha256: "f628312e9fdf8686374cb01a69425c41732529d540860311f16f37cbc32cfe9b".into(),
-            },
-            download_bytes: 108_035_095,
-            disk_bytes: 136_490_421,
+                pinned(
+                    "decoder.int8.onnx",
+                    format!("{PARAKEET_ENGLISH}/decoder.int8.onnx"),
+                    3_955_863,
+                    "f7c331c5504c2e593c76ed22b728e3f554af6c4a383dde862e719ced08b1da19",
+                ),
+                pinned(
+                    "joiner.int8.onnx",
+                    format!("{PARAKEET_ENGLISH}/joiner.int8.onnx"),
+                    1_411_403,
+                    "bf7dff69e9f2cdbe9943d70da358f38b361c115ba0105bae7e908e0d6ec782f6",
+                ),
+                pinned(
+                    "tokens.txt",
+                    format!("{PARAKEET_ENGLISH}/tokens.txt"),
+                    9_953,
+                    "450e56bd2f036fe5b6aa821865838cc5aa9d8b0106134ce9a9ba0664abe6cd10",
+                ),
+            ],
             credit: "NVIDIA Parakeet TDT 110M, CC BY 4.0, quantized by sherpa-onnx".into(),
             licence_url: CC_BY.into(),
             more_languages: Some("parakeet-tdt-0.6b-v3".into()),
@@ -144,13 +213,38 @@ pub fn catalogue() -> Vec<Model> {
             tag: Some("English only".into()),
             detail: "English only".into(),
             engine: Engine::Moonshine,
-            source: Source::Archive {
-                url: format!("{RELEASES}/sherpa-onnx-moonshine-base-en-int8.tar.bz2"),
-                prefix: String::new(),
-                sha256: "21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e".into(),
-            },
-            download_bytes: 250_807_309,
-            disk_bytes: 286_929_760,
+            files: vec![
+                pinned(
+                    "preprocess.onnx",
+                    format!("{MOONSHINE}/preprocess.onnx"),
+                    14_077_290,
+                    "ffa630d395c5ccf76f5d4954be5b882df76aaf6491519ec01fd82ea7a3819fb2",
+                ),
+                pinned(
+                    "encode.int8.onnx",
+                    format!("{MOONSHINE}/encode.int8.onnx"),
+                    50_311_494,
+                    "7e38770f776f2e5583a53b052936005df2ba5c833d7e09c2a5fd796b94bf73e2",
+                ),
+                pinned(
+                    "uncached_decode.int8.onnx",
+                    format!("{MOONSHINE}/uncached_decode.int8.onnx"),
+                    122_120_451,
+                    "c01f4b35093bcac20d352d23a75a539e772964579f9d024a90e5e6f09cae9987",
+                ),
+                pinned(
+                    "cached_decode.int8.onnx",
+                    format!("{MOONSHINE}/cached_decode.int8.onnx"),
+                    99_983_837,
+                    "2db74e51cedf64a8b1be3c8192e0bb5e4923af0e90bd9e87f8e8771873f8ea03",
+                ),
+                pinned(
+                    "tokens.txt",
+                    format!("{MOONSHINE}/tokens.txt"),
+                    436_688,
+                    "1165c2aeb9f72f457a83be2d459a09054f27490acd9b41bd43794dfd25e296ea",
+                ),
+            ],
             credit: "Useful Sensors Moonshine Base, MIT, quantized by sherpa-onnx".into(),
             licence_url: "https://github.com/usefulsensors/moonshine/blob/main/LICENSE".into(),
             more_languages: None,
@@ -182,7 +276,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// What a download is called while it is not yet a model.
+/// Where a build before 0.50 downloaded a model's archive, which a run it
+/// did not finish may have left behind.
 fn archive_path(root: &Path, id: &str) -> PathBuf {
     models_dir(root).join(format!("{id}.download"))
 }
@@ -235,8 +330,8 @@ impl Installs {
                     name: model.name.clone(),
                     tag: model.tag.clone(),
                     detail: model.detail.clone(),
-                    download_bytes: model.download_bytes,
-                    disk_bytes: model.disk_bytes,
+                    download_bytes: model.bytes(),
+                    disk_bytes: model.bytes(),
                     credit: model.credit.clone(),
                     licence_url: model.licence_url.clone(),
                     state,
@@ -299,7 +394,6 @@ impl Installs {
         let this = self.clone();
         tokio::spawn(async move {
             let result = fetch(&this.root, &model, &received, &unpacking, &cancel).await;
-            let _ = std::fs::remove_file(archive_path(&this.root, &model.id));
             let _ = std::fs::remove_dir_all(staging_path(&this.root, &model.id));
             match result {
                 Ok(()) => eprintln!("[voice] installed the speech model {}", model.id),
@@ -346,51 +440,11 @@ fn remove_model(model: &Installed) -> Result<(), String> {
         .map_err(|error| format!("The speech model could not be removed: {error}"))
 }
 
-/// Downloads, verifies and unpacks one model into place.
+/// Each of a model's files, downloaded straight into the staging directory
+/// and refused unless it is the one pinned, then the model put in place.
 async fn fetch(
     root: &Path,
     model: &Model,
-    received: &AtomicU64,
-    unpacking: &std::sync::atomic::AtomicBool,
-    cancel: &CancellationToken,
-) -> Result<(), String> {
-    let dir = models_dir(root);
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|error| format!("Hotline could not make a place for the model: {error}"))?;
-    let (url, prefix, sha256) = match &model.source {
-        Source::Archive {
-            url,
-            prefix,
-            sha256,
-        } => (url, prefix.clone(), sha256),
-        Source::Files(files) => {
-            return fetch_files(root, model, files, received, unpacking, cancel).await;
-        }
-    };
-    let archive = archive_path(root, &model.id);
-    download(
-        url,
-        model.download_bytes,
-        sha256,
-        &archive,
-        received,
-        cancel,
-    )
-    .await?;
-    unpacking.store(true, Ordering::SeqCst);
-    let (root, model, cancel) = (root.to_path_buf(), model.clone(), cancel.clone());
-    tokio::task::spawn_blocking(move || unpack(&root, &model, &prefix, &archive, &cancel))
-        .await
-        .map_err(|_| "Unpacking the model stopped.".to_string())?
-}
-
-/// Each of a model's files, downloaded straight into the staging directory
-/// and refused unless it is the one pinned, then the model put in place.
-async fn fetch_files(
-    root: &Path,
-    model: &Model,
-    files: &[Pinned],
     received: &AtomicU64,
     unpacking: &std::sync::atomic::AtomicBool,
     cancel: &CancellationToken,
@@ -400,7 +454,7 @@ async fn fetch_files(
     let _ = tokio::fs::remove_dir_all(&staging).await;
     tokio::fs::create_dir_all(&staging).await.map_err(failed)?;
     let mut found = Vec::new();
-    for file in files {
+    for file in &model.files {
         // A name is the desk's own, never a path: one of the engine's files.
         if !model.engine.files().contains(&file.name.as_str()) {
             return Err(mismatch());
@@ -438,8 +492,8 @@ async fn download(
     received: &AtomicU64,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
-    // GitHub answers with a redirect to its storage; a stalled body is a
-    // failure, but a large one may take as long as the line needs.
+    // Hugging Face answers with a redirect to its storage; a stalled body is
+    // a failure, but a large one may take as long as the line needs.
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(20))
         .read_timeout(Duration::from_secs(60))
@@ -492,57 +546,6 @@ async fn download(
 
 fn mismatch() -> String {
     "The download was not the model Hotline expects, so it was thrown away.".into()
-}
-
-/// The model's files out of a verified archive, into a directory that is
-/// renamed into place once it is whole. Each name in the archive is
-/// `prefix` and then one of the engine's files.
-fn unpack(
-    root: &Path,
-    model: &Model,
-    prefix: &str,
-    archive: &Path,
-    cancel: &CancellationToken,
-) -> Result<(), String> {
-    let failed = |error: std::io::Error| format!("The model could not be unpacked: {error}");
-    let staging = staging_path(root, &model.id);
-    let _ = std::fs::remove_dir_all(&staging);
-    std::fs::create_dir_all(&staging).map_err(failed)?;
-    let file = std::fs::File::open(archive).map_err(failed)?;
-    let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(std::io::BufReader::new(file)));
-    let files = model.engine.files();
-    let mut found: Vec<FileHash> = Vec::new();
-    for entry in tar.entries().map_err(failed)? {
-        let mut entry = entry.map_err(failed)?;
-        if !entry.header().entry_type().is_file() {
-            continue;
-        }
-        let path = entry.path().map_err(failed)?.into_owned();
-        let Some(name) = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| name.strip_prefix(prefix))
-            .and_then(|name| files.iter().find(|file| **file == name))
-        else {
-            continue;
-        };
-        // An archive that names a file twice keeps the first.
-        if found.iter().any(|file| file.name == *name) {
-            continue;
-        }
-        let mut out = std::fs::File::create(staging.join(name)).map_err(failed)?;
-        let (bytes, sha256) = hash_copy(&mut entry, &mut out, cancel)?;
-        out.sync_all().map_err(failed)?;
-        found.push(FileHash {
-            name: name.to_string(),
-            bytes,
-            sha256,
-        });
-    }
-    if found.len() != files.len() {
-        return Err("The download did not hold the model's files.".into());
-    }
-    settle(root, model, &staging, found)
 }
 
 /// The staged model's manifest written, and the model renamed into place.

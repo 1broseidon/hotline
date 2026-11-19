@@ -36,7 +36,7 @@
 mod install;
 mod voice;
 
-pub use install::{Installs, Model, Pinned, Source, catalogue};
+pub use install::{Installs, Model, Pinned, catalogue};
 pub use voice::{LocalVoice, VOICES};
 
 use super::{Clip, Speech, SpeechError, SpeechId, TurnClock, wav};

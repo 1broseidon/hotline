@@ -1,7 +1,7 @@
 //! Downloads one of the desk's own speech models from where Hotline really
-//! fetches it, verifies and unpacks it as the desk does, and hears the speech
-//! fixtures with it, on a scratch data directory: the check that the pinned
-//! archive is still there and still the one pinned, and that the engine links
+//! fetches it, verifies it as the desk does, and hears the speech fixtures
+//! with it, on a scratch data directory: the check that the pinned files are
+//! still there and still the ones pinned, and that the engine links
 //! and runs on this machine. The timings are what a person would wait, and
 //! the real-time factor is that time over the length of the speech.
 //! Any further arguments are mono WAV files to hear after the fixtures.
@@ -51,7 +51,7 @@ async fn main() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     println!(
-        "{id}: downloaded, verified and unpacked in {:.1}s",
+        "{id}: downloaded and verified in {:.1}s",
         started.elapsed().as_secs_f32()
     );
 

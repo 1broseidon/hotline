@@ -35,6 +35,8 @@ mod preamble;
 mod quiet_returns;
 mod reactions;
 mod reading;
+#[cfg(target_os = "macos")]
+mod real_computer;
 mod run_state;
 mod runs;
 mod scheduled;
@@ -449,6 +451,9 @@ pub(crate) struct Fake {
     /// order the room asked for them.
     views: Arc<Mutex<Vec<Persona>>>,
     tools: Arc<Mutex<Vec<TeammateTools>>>,
+    /// The MCP servers each agent was handed beside Hotline's own, in order:
+    /// a teammate's computer arrives here as its gate.
+    mcps: Arc<Mutex<Vec<Vec<crate::mcp::McpServer>>>>,
     answer: Result<String, String>,
     /// The instructions the summariser was asked each note with, in order.
     pub(super) summarised: Arc<Mutex<Vec<String>>>,
@@ -487,6 +492,12 @@ impl Fake {
     /// The tools each agent was handed, in order.
     pub(super) fn tools(&self) -> Vec<TeammateTools> {
         lock(&self.tools).clone()
+    }
+
+    /// The MCP servers the latest agent was handed beside Hotline's own.
+    #[cfg(target_os = "macos")]
+    pub(super) fn latest_mcps(&self) -> Vec<crate::mcp::McpServer> {
+        lock(&self.mcps).last().cloned().unwrap_or_default()
     }
 
     /// Each teammate view an agent was built for, in order.
@@ -541,6 +552,7 @@ impl Fake {
             seeds: Arc::new(Mutex::new(Vec::new())),
             views: Arc::new(Mutex::new(Vec::new())),
             tools: Arc::new(Mutex::new(Vec::new())),
+            mcps: Arc::new(Mutex::new(Vec::new())),
             answer,
             summarised: Arc::new(Mutex::new(Vec::new())),
             hold_note: Arc::new(tokio::sync::Notify::new()),
@@ -557,9 +569,10 @@ impl Agents for Fake {
         preamble: String,
         said: Vec<Said>,
         tools: TeammateTools,
-        _extra_mcp: Vec<crate::mcp::McpServer>,
+        extra_mcp: Vec<crate::mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String> {
         lock(&self.preambles).push(preamble);
+        lock(&self.mcps).push(extra_mcp);
         lock(&self.seeds).push(said);
         lock(&self.views).push(persona.clone());
         lock(&self.tools).push(tools);

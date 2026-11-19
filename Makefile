@@ -2,7 +2,7 @@
 # nothing done in it can reach real data.
 dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
-.PHONY: check ui-check deps dev build verify icons tray-icons speech-engine precheck precheck-full hooks hooks-nudge
+.PHONY: check ui-check deps dev build verify icons tray-icons speech-engine precheck precheck-full hooks hooks-nudge secrets-e2e
 
 # What GitHub's runners would fail, caught on this Mac before a push: Windows
 # by cross-compiling, each window test file alone, the workflows linted.
@@ -30,6 +30,16 @@ check: hooks-nudge ui-check deps speech-engine
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
+
+# The desk against a real Hotline Computer on Apple container, with made-up
+# secrets and no agent: a computer made with today's flags, then updated to
+# the split release candidate, driven through the desk's own paths
+# (session/tests/real_computer.rs says what it needs and what it checks).
+# IMAGE is a probe build of the candidate: its key proxy also trusts the
+# test's CA. It is ignored by `cargo test` and needs a Mac.
+secrets-e2e: speech-engine
+	HOTLINE_E2E_IMAGE=$(or $(IMAGE),hotline-computer:0.13.0-rc.1-probe) \
+	  cargo test -p hotline-core --lib real_computer -- --ignored --nocapture --test-threads=1
 
 # The desk's speech engine is linked from a prebuilt archive the build never
 # downloads itself: this puts it in .speech-engine, checked against its

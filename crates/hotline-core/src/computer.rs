@@ -249,6 +249,8 @@ struct Live {
     last_activity_ms: i64,
     /// The release the computer reported with its guide, once it has.
     release: Option<String>,
+    /// What it proved about keeping secrets at the last handing over.
+    protection: Option<crate::contract::ComputerProtection>,
 }
 
 impl Computer {
@@ -537,6 +539,7 @@ impl Computer {
                 mcp_port,
                 last_activity_ms: now_ms(),
                 release: None,
+                protection: None,
             },
         );
         wait_healthy(mcp_port).await?;
@@ -566,6 +569,18 @@ impl Computer {
     pub fn learned_release(&self, persona_id: &str, release: &str) {
         if let Some(live) = self.lock().containers.get_mut(persona_id) {
             live.release = Some(release.to_string());
+        }
+    }
+
+    /// Remembers what the computer proved at its last handing over, for
+    /// the pane's one notice when grants wait for an update.
+    pub fn learned_protection(
+        &self,
+        persona_id: &str,
+        protection: crate::contract::ComputerProtection,
+    ) {
+        if let Some(live) = self.lock().containers.get_mut(persona_id) {
+            live.protection = Some(protection);
         }
     }
 
@@ -670,6 +685,9 @@ impl Computer {
             let limits_changed = limits_changed(&inspection, persona, live.runtime);
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
             status.release = live.release.or(status.release);
+            if status.state == ComputerState::Running {
+                status.protection = live.protection;
+            }
             status.limits_changed = limits_changed;
             return Ok(status);
         }
@@ -750,6 +768,7 @@ impl Computer {
                                 mcp_port: seen.mcp_port.unwrap_or(0),
                                 last_activity_ms: now_ms,
                                 release: seen.release,
+                                protection: None,
                             },
                         );
                         false

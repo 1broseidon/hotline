@@ -2525,6 +2525,14 @@ export type SealedPairing = { payload: PairingPayload, link: string, id: string,
 export type SecretGrant = { name: string, readable?: boolean, on?: Array<GrantPlace>, };
 
 /**
+ * One use of a login or passkey an Ask-me card is about: what it does,
+ * where, and for which account. The answer covers this operation only.
+ */
+export type SecretOperation = { kind: SecretOperationKind, origin: string, account: string, rpId?: string, };
+
+export type SecretOperationKind = "signin" | "passkey";
+
+/**
  * One entry of `services.json`: a service a key can be used with, the key
  * prefixes that suggest it, and what its "Used with" resolves to. `other`
  * has no origins of its own; the person names the host.
@@ -3342,7 +3350,18 @@ fromItem?: string, } | { "kind": "cookie_offer", id: string, ts: number, teammat
  * The lend is for the teammate's desk browser, its own web storage on
  * the desk, rather than its computer; Remove takes it back from there.
  */
-deskBrowser?: boolean, } | { "kind": "secret_use_ask", id: string, ts: number, useId: string, secret: string, secretKind: CaptureKind, site: string, path: string, teammate: string, askedAt: number, expiresAt: number, status: SecretUseStatus, } | { "kind": "passkey_ask", 
+deskBrowser?: boolean, } | { "kind": "secret_use_ask", id: string, ts: number, useId: string, secret: string, secretKind: CaptureKind, site: string, path: string, teammate: string, askedAt: number, expiresAt: number, status: SecretUseStatus, 
+/**
+ * What the use is, as a protected computer's broker saw it: a
+ * sign-in or a passkey, on which origin, as which account. Absent
+ * from a computer that cannot say, whose card names the site.
+ */
+operation?: SecretOperation, 
+/**
+ * The broker's own sign-in step asked, not some program on the
+ * computer: only then may the answer cover ten minutes of it.
+ */
+attested?: boolean, } | { "kind": "passkey_ask", 
 /**
  * The call that raised this card in the home chat.
  */

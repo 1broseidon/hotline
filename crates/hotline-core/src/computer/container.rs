@@ -65,9 +65,22 @@ pub(super) fn create_args(
         "create".to_string(),
         "--name".to_string(),
         name.to_string(),
-        // Nothing in the image runs as root, so nothing is added back.
         "--cap-drop=ALL".to_string(),
     ];
+    // A release from 0.13 boots as root only to split itself into its
+    // users, so it keeps the two capabilities that does and no other; an
+    // older one runs as its image's user with nothing added back, and booted
+    // as root it would run everything as root.
+    if splits_users(&release_of(image)) {
+        args.extend([
+            "--user".into(),
+            "0".into(),
+            "--cap-add".into(),
+            "SETUID".into(),
+            "--cap-add".into(),
+            "SETGID".into(),
+        ]);
+    }
     // Apple container does not implement these Docker/Podman hardening flags.
     if runtime != Runtime::AppleContainer {
         args.extend([
@@ -130,6 +143,17 @@ pub(super) fn create_args(
         image.into(),
     ]);
     Ok(args)
+}
+
+/// Whether a release boots split: 0.13 and later. A tag that is not a
+/// release number, `latest` or a local build's, is taken as an older one,
+/// which today's flags run as they always have.
+pub(super) fn splits_users(release: &str) -> bool {
+    let mut parts = release.split(['.', '-']).map(str::parse::<u32>);
+    match (parts.next(), parts.next()) {
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= (0, 13),
+        _ => false,
+    }
 }
 
 /// The zone the computer's clock shows: the host's, so the bar reads the

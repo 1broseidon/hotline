@@ -36,12 +36,71 @@ pub fn name_for(browser_id: &str, profile_id: &str) -> String {
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Uploads the login and loads it into the computer's browser. `saved` is a
+/// Hands the computer's browser a site's cookies. `saved` is a
 /// `SavedLogin` document as the container writes them: `{name, browser,
-/// created_at, cookies, storage}`.
-pub async fn deliver(ready: &Ready, name: &str, saved: &Value) -> Result<(), String> {
+/// created_at, cookies, storage}`. A protected computer takes them into its
+/// signed-in browser through `PUT /sessions/{name}`, so they are never a
+/// file in the agent's home; any other is uploaded and loaded as before.
+pub async fn deliver(
+    ready: &Ready,
+    name: &str,
+    sites: &[String],
+    saved: &Value,
+) -> Result<(), String> {
+    if protected(ready).await? {
+        return session(ready, name, Some(sites), saved).await;
+    }
     upload(ready, name, saved).await?;
     load(ready, name).await
+}
+
+/// Whether the computer proved it keeps sessions from its jobs; one that
+/// claims to and cannot prove it is handed no cookies at all.
+async fn protected(ready: &Ready) -> Result<bool, String> {
+    match super::secrets::door(ready).await {
+        Ok(door) => Ok(door == super::secrets::Door::Protected),
+        Err(super::secrets::Refusal::Failed(reason)) => Err(reason),
+        Err(super::secrets::Refusal::TooOld) => Ok(false),
+    }
+}
+
+/// `PUT /sessions/{name}` with the sites, cookies and storage, or `DELETE`
+/// with the domains to clear (all of them when none are named), which
+/// closes their tabs too.
+async fn session(
+    ready: &Ready,
+    name: &str,
+    sites: Option<&[String]>,
+    saved: &Value,
+) -> Result<(), String> {
+    let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
+    let client = super::door_client()
+        .timeout(TIMEOUT)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let address = format!("{base}/sessions/{name}");
+    let request = match sites {
+        Some(sites) => client.put(address).json(&json!({
+            "sites": sites,
+            "cookies": saved["cookies"],
+            "storage": saved["storage"],
+        })),
+        None => client.delete(address).json(saved),
+    };
+    let response = request
+        .bearer_auth(&ready.token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the computer's signed-in browser: {error}"))?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        // The body may echo what it was sent; the status says enough.
+        Err(format!(
+            "The computer's signed-in browser refused the cookies ({}).",
+            response.status()
+        ))
+    }
 }
 
 /// Writes the document to `.hotline/logins/<name>.json` through the viewer's
@@ -117,11 +176,26 @@ pub struct Forgotten {
     pub kept: usize,
 }
 
-/// `DELETE /logins/{name}` on the computer's bearer door: the browser drops
+/// On a protected computer, `DELETE /sessions/{name}`: its signed-in
+/// browser clears those domains, or every one of the share's, and closes
+/// their tabs. On any other, `DELETE /logins/{name}` on the computer's
+/// bearer door: the browser drops
 /// every cookie for `domains` — every domain of the saved login when none
 /// are named — and the saved login loses them too. A release from before
 /// the door answers 404, which is said as the pane's Update.
 pub async fn forget(ready: &Ready, name: &str, domains: &[String]) -> Result<Forgotten, String> {
+    if protected(ready).await? {
+        let body = if domains.is_empty() {
+            json!({})
+        } else {
+            json!({"domains": domains})
+        };
+        session(ready, name, None, &body).await?;
+        return Ok(Forgotten {
+            forgotten: 0,
+            kept: 0,
+        });
+    }
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
     let client = super::door_client()
         .timeout(TIMEOUT)

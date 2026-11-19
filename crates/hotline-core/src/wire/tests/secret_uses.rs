@@ -41,7 +41,7 @@ async fn sees(desk: &Arc<dyn RoomHandle>, log: &Log, status: &str) {
 
 #[tokio::test]
 async fn ask_me_use_has_one_card_on_desk_and_phone_and_one_answer_reaches_the_computer() {
-    let fixture = secret_use_room("use-two-seats", "0.11.2", SecretUse::Ask).await;
+    let fixture = secret_use_room("use-two-seats", "0.13.0", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     let id = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
@@ -73,7 +73,7 @@ async fn ask_me_use_has_one_card_on_desk_and_phone_and_one_answer_reaches_the_co
 
 #[tokio::test]
 async fn allow_ten_minutes_is_one_key_one_site_one_teammate_and_lapses() {
-    let fixture = secret_use_room("use-allow", "0.11.2", SecretUse::Ask).await;
+    let fixture = secret_use_room("use-allow", "0.13.0", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     let id = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
@@ -98,7 +98,7 @@ async fn allow_ten_minutes_is_one_key_one_site_one_teammate_and_lapses() {
             .hold("GH_PASSKEY", "another.example")
             .is_some()
     );
-    let other = secret_use_room("use-other-teammate", "0.11.2", SecretUse::Ask).await;
+    let other = secret_use_room("use-other-teammate", "0.13.0", SecretUse::Ask).await;
     assert!(other.taken.uses.hold("GH_PASSKEY", "github.com").is_some());
     tokio::time::pause();
     tokio::time::advance(Duration::from_secs(601)).await;
@@ -124,7 +124,7 @@ async fn allow_ten_minutes_is_one_key_one_site_one_teammate_and_lapses() {
 
 #[tokio::test]
 async fn denying_a_secret_use_tells_the_agent_the_person_declined() {
-    let fixture = secret_use_room("use-deny", "0.11.2", SecretUse::Ask).await;
+    let fixture = secret_use_room("use-deny", "0.13.0", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     let id = fixture
@@ -155,7 +155,7 @@ async fn denying_a_secret_use_tells_the_agent_the_person_declined() {
 
 #[tokio::test]
 async fn a_page_that_stops_waiting_expires_both_seats_and_tells_the_agent_it_lapsed() {
-    let fixture = secret_use_room("use-expired", "0.11.2", SecretUse::Ask).await;
+    let fixture = secret_use_room("use-expired", "0.13.0", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     let id = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
@@ -184,7 +184,7 @@ async fn a_page_that_stops_waiting_expires_both_seats_and_tells_the_agent_it_lap
 
 #[tokio::test]
 async fn automatic_keys_are_not_held_and_policy_changes_reach_the_next_use_without_restart() {
-    let fixture = secret_use_room("use-change", "0.11.2", SecretUse::Auto).await;
+    let fixture = secret_use_room("use-change", "0.13.0", SecretUse::Auto).await;
     let room = &fixture.room;
     let desk = desk(room);
     assert!(
@@ -242,7 +242,7 @@ async fn automatic_keys_are_not_held_and_policy_changes_reach_the_next_use_witho
 
 #[tokio::test]
 async fn use_answers_refuse_unknown_wrong_teammate_revoked_and_page_expired_requests() {
-    let fixture = secret_use_room("use-refusals", "0.11.2", SecretUse::Ask).await;
+    let fixture = secret_use_room("use-refusals", "0.13.0", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     assert_eq!(
@@ -278,21 +278,15 @@ async fn use_answers_refuse_unknown_wrong_teammate_revoked_and_page_expired_requ
 }
 
 #[tokio::test]
-async fn an_older_computer_gets_automatic_keys_without_changing_the_vault_choice() {
+async fn an_older_computer_holds_no_login_or_passkey_so_nothing_waits_for_an_answer() {
     let fixture = secret_use_room("use-old-computer", "0.10.3", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     room.poll_secret_uses("ada").await;
+    // Every grant here is a login or a passkey: they wait on the desk.
     assert_eq!(
-        fixture.taken.sets().last().unwrap()["GH_PASSKEY"]["use"],
-        "auto"
-    );
-    assert!(
-        fixture
-            .taken
-            .uses
-            .hold("GH_PASSKEY", "github.com")
-            .is_none()
+        fixture.taken.sets().last().unwrap(),
+        &std::collections::BTreeMap::new()
     );
     let delivered = fixture.taken.sets().len();
     room.poll_secret_uses("ada").await;
@@ -300,15 +294,46 @@ async fn an_older_computer_gets_automatic_keys_without_changing_the_vault_choice
     assert_eq!(
         fixture.taken.sets().len(),
         delivered,
-        "the 404 fallback runs once per running computer"
+        "nothing is handed again"
     );
     assert_eq!(cards(room.log()), [] as [Value; 0]);
     assert_eq!(desk.secrets_list().unwrap()[0].r#use, SecretUse::Ask);
-    desk.secrets_use_set("HN_LOGIN", SecretUse::Ask)
-        .await
+}
+
+/// The card says what the use is, and ten minutes are offered only when
+/// the broker's own sign-in step asked; from anything else on the
+/// computer, the desk refuses Allow and still takes Approve.
+#[tokio::test]
+async fn an_unattested_use_is_one_approval_never_ten_minutes() {
+    let fixture = secret_use_room("use-unattested", "0.13.0", SecretUse::Ask).await;
+    let room = &fixture.room;
+    let desk = desk(room);
+    let id = fixture
+        .taken
+        .uses
+        .hold_unattested("HN_LOGIN", "news.ycombinator.com")
         .unwrap();
+    room.poll_secret_uses("ada").await;
+    let card = cards(room.log())[0].clone();
+    assert_eq!(card["operation"]["kind"], "signin");
+    assert_eq!(card["operation"]["account"], "person");
+    assert!(card.get("attested").is_none(), "{card}");
     assert_eq!(
-        fixture.taken.sets().last().unwrap()["HN_LOGIN"]["use"],
-        "auto"
+        answer(&desk, room.log(), Seat::Owner, &id, "allow").await["ok"],
+        false
     );
+    assert_eq!(fixture.taken.uses.answers(), [] as [Value; 0]);
+    assert_eq!(
+        answer(&desk, room.log(), Seat::Owner, &id, "approve").await["ok"],
+        true
+    );
+
+    let id = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
+    room.poll_secret_uses("ada").await;
+    let card = cards(room.log())
+        .into_iter()
+        .find(|card| card["useId"] == id.as_str())
+        .unwrap();
+    assert_eq!(card["attested"], true);
+    assert_eq!(card["operation"]["rpId"], "github.com");
 }

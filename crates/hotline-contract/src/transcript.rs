@@ -362,6 +362,16 @@ pub enum TranscriptEvent {
         asked_at: i64,
         expires_at: i64,
         status: SecretUseStatus,
+        /// What the use is, as a protected computer's broker saw it: a
+        /// sign-in or a passkey, on which origin, as which account. Absent
+        /// from a computer that cannot say, whose card names the site.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        operation: Option<SecretOperation>,
+        /// The broker's own sign-in step asked, not some program on the
+        /// computer: only then may the answer cover ten minutes of it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        attested: bool,
     },
     /// A site asked the teammate's browser to make a passkey, under an
     /// arming the person started for that site: the request waits in the

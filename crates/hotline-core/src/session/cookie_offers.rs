@@ -25,7 +25,7 @@ impl Sink {
         match self {
             Self::Computer(ready) => {
                 let saved = serde_json::json!({"name":card.login,"browser":card.browser_name,"created_at":chrono::Utc::now().to_rfc3339(),"cookies":cookies,"storage":{}});
-                login::deliver(ready, &card.login, &saved).await
+                login::deliver(ready, &card.login, std::slice::from_ref(&card.site), &saved).await
             }
             Self::Desk(browser) => browser.lend_cookies(persona, &cookies).await,
         }

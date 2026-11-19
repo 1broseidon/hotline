@@ -28,8 +28,22 @@ impl Door {
     pub(crate) fn replace(&self, secrets: &BTreeMap<String, Value>) {
         self.0.lock().unwrap().secrets.clone_from(secrets);
     }
+    /// A use the broker's own sign-in step holds, as a 0.13 computer says
+    /// it: the operation, attested.
     #[cfg(unix)]
     pub(crate) fn hold(&self, secret: &str, site: &str) -> Option<String> {
+        self.hold_as(secret, site, true)
+    }
+
+    /// The same use, asked by something on the computer its broker cannot
+    /// vouch for.
+    #[cfg(unix)]
+    pub(crate) fn hold_unattested(&self, secret: &str, site: &str) -> Option<String> {
+        self.hold_as(secret, site, false)
+    }
+
+    #[cfg(unix)]
+    fn hold_as(&self, secret: &str, site: &str, attested: bool) -> Option<String> {
         let mut state = self.0.lock().unwrap();
         let value = state.secrets[secret].clone();
         if value["use"] != "ask"
@@ -43,7 +57,12 @@ impl Door {
         state.next += 1;
         let id = format!("use-{}", state.next);
         let now = crate::session::now_ms();
-        state.uses.push(json!({"id": id, "secret":secret, "kind":value["kind"], "site":site, "path":"/login", "askedAt":now,"expiresAt":now + 300_000}));
+        let operation = if value["kind"] == "passkey" {
+            json!({"kind": "passkey", "origin": format!("https://{site}"), "account": "person", "rpId": site})
+        } else {
+            json!({"kind": "signin", "origin": format!("https://{site}"), "account": value["username"]})
+        };
+        state.uses.push(json!({"id": id, "secret":secret, "kind":value["kind"], "site":site, "path":"/login", "askedAt":now,"expiresAt":now + 300_000, "operation": operation, "attested": attested, "flow": "flow-1"}));
         Some(id)
     }
     #[cfg(unix)]

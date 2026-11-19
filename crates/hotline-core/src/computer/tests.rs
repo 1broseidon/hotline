@@ -247,6 +247,35 @@ async fn no_create_argument_contains_the_token_and_the_runtime_has_it_in_its_env
 }
 
 #[test]
+fn only_a_release_that_splits_is_made_as_root_with_setuid_and_setgid_alone() {
+    let ada = persona("ada", "/tmp");
+    for runtime in [Runtime::Docker, Runtime::Podman, Runtime::AppleContainer] {
+        // Today's pin, a pin of the room's own and a release from 0.13.
+        for (image, splits) in [
+            (image_at(COMPUTER_VERSION), false),
+            (image_at("0.12.0"), false),
+            ("hotline-computer:test".to_owned(), false),
+            (image_at("0.13.0"), true),
+            (image_at("0.13.0-rc.5"), true),
+            (image_at("1.0.0"), true),
+        ] {
+            let args = create_args(runtime, "test", &image, "/tmp", &ada).unwrap();
+            assert!(args.contains(&"--cap-drop=ALL".to_owned()), "{args:?}");
+            let added = args
+                .windows(6)
+                .any(|six| six == ["--user", "0", "--cap-add", "SETUID", "--cap-add", "SETGID"]);
+            assert_eq!(added, splits, "{runtime:?} {image}: {args:?}");
+            assert_eq!(
+                args.iter().filter(|arg| *arg == "--cap-add").count(),
+                if splits { 2 } else { 0 },
+                "{image}"
+            );
+            assert_eq!(args.contains(&"--user".to_owned()), splits, "{image}");
+        }
+    }
+}
+
+#[test]
 fn the_computers_clock_is_set_to_the_hosts_zone() {
     let zone = host_time_zone();
     assert!(
@@ -1027,12 +1056,16 @@ async fn desk_clients_to_the_computer_do_not_follow_redirects() {
 
     let set = std::collections::BTreeMap::from([(
         "GITHUB_TOKEN".to_owned(),
-        crate::vault::StoredSecret::Variable {
-            value: "ghp_notarealtoken0001".to_owned(),
-            r#use: None,
+        secrets::Granted {
+            secret: crate::vault::StoredSecret::Variable {
+                value: "ghp_notarealtoken0001".to_owned(),
+                r#use: None,
+            },
+            readable: true,
         },
     )]);
     assert!(secrets::deliver(&ready, &set).await.is_err());
+    assert!(secrets::door(&ready).await.is_err());
     assert!(passkeys::arm(&ready, "github.com").await.is_err());
     assert!(passkeys::poll(&ready).await.is_err());
     assert!(passkeys::answer(&ready, "ask-1", true).await.is_err());
@@ -1045,7 +1078,7 @@ async fn desk_clients_to_the_computer_do_not_follow_redirects() {
     );
     assert!(login::forget(&ready, "github", &[]).await.is_err());
     assert!(
-        login::deliver(&ready, "github", &serde_json::json!({}))
+        login::deliver(&ready, "github", &[], &serde_json::json!({}))
             .await
             .is_err()
     );

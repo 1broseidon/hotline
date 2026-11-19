@@ -728,7 +728,8 @@ impl Room {
             "cookies": cookies,
             "storage": {},
         });
-        crate::computer::login::deliver(&ready, &name, &saved).await?;
+        let sites: Vec<String> = imported.iter().map(|site| site.domain.clone()).collect();
+        crate::computer::login::deliver(&ready, &name, &sites, &saved).await?;
 
         // The record the pane lists afterwards: which source, when, and the
         // sites. The ids are what the record is keyed by.

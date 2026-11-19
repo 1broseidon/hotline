@@ -108,7 +108,7 @@ mod tests {
         assert!(github.refuse.contains(&"/authorizations".to_owned()));
         let anthropic = resolve(&choice("anthropic", None)).unwrap();
         assert_eq!(anthropic.header, "x-api-key");
-        assert!(anthropic.schemes.is_empty());
+        assert_eq!(anthropic.schemes, [] as [String; 0]);
     }
 
     #[test]
@@ -116,7 +116,7 @@ mod tests {
         let other = resolve(&choice("other", Some("api.example.com"))).unwrap();
         assert_eq!(other.origins, ["https://api.example.com"]);
         assert_eq!(other.header, "Authorization");
-        assert!(other.refuse.is_empty());
+        assert_eq!(other.refuse, [] as [String; 0]);
         assert!(resolve(&choice("other", None)).is_err());
         assert!(resolve(&choice("other", Some("http://localhost:8080"))).is_err());
         assert!(resolve(&choice("other", Some("https://api.example.com/v1"))).is_err());

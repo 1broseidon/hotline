@@ -265,6 +265,28 @@ impl From<bool> for SecretUse {
     }
 }
 
+/// One use of a login or passkey an Ask-me card is about: what it does,
+/// where, and for which account. The answer covers this operation only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SecretOperation {
+    pub kind: SecretOperationKind,
+    pub origin: String,
+    #[serde(default)]
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rp_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretOperationKind {
+    Signin,
+    Passkey,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]

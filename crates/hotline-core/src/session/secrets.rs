@@ -4,18 +4,24 @@
 use super::*;
 
 impl Room {
-    /// Hands a running computer the secrets its teammate is granted — the
-    /// whole set, so what was unticked or deleted since is gone from it too
-    /// — and says on the tape what could not be handed: a name no longer
-    /// stored, a release too old to take any, a machine that would not
-    /// answer. The values pass vault → this process → container and are
-    /// written nowhere on the way.
+    /// Hands a running computer the secrets its teammate is granted for
+    /// it — the whole set, so what was unticked or deleted since is gone
+    /// from it too — and says what could not be handed: a name no longer
+    /// stored, a grant this computer cannot keep from its programs, a
+    /// release too old to take any, a machine that would not answer or
+    /// prove itself. The values pass vault → this process → container and
+    /// are written nowhere on the way.
     pub(super) async fn hand_secrets(&self, persona: &Persona, ready: &crate::computer::Ready) {
         let watch = self.use_watch(&persona.id);
-        let watch = watch.lock().await;
+        let _watch = watch.lock().await;
         let notice = |text: String| eprintln!("{}: {text}", persona.name);
-        let granted: Vec<String> = persona.secrets.clone().unwrap_or_default();
-        let (mut values, missing) = match &self.vault {
+        let grants: Vec<crate::contract::SecretGrant> = persona
+            .grants()
+            .into_iter()
+            .filter(|grant| grant.reaches(crate::contract::GrantPlace::Computer))
+            .collect();
+        let granted: Vec<String> = grants.iter().map(|grant| grant.name.clone()).collect();
+        let (values, missing) = match &self.vault {
             Some(vault) => match vault.shared_secret_values(&granted) {
                 Ok(read) => read,
                 Err(error) => {
@@ -36,12 +42,47 @@ impl Room {
                 missing.join(", ")
             ));
         }
-        if watch.old && watch.ready.as_ref() == Some(ready) {
-            super::secret_uses::make_automatic(&mut values);
-        }
-        let names: Vec<&str> = values.keys().map(String::as_str).collect();
-        match crate::computer::secrets::deliver(ready, &values).await {
-            Ok(()) => {}
+        let set: std::collections::BTreeMap<String, crate::computer::secrets::Granted> = values
+            .into_iter()
+            .map(|(name, secret)| {
+                let readable = grants
+                    .iter()
+                    .any(|grant| grant.name == name && grant.readable);
+                (name, crate::computer::secrets::Granted { secret, readable })
+            })
+            .collect();
+        let names: Vec<&str> = set.keys().map(String::as_str).collect();
+        let listed = |names: &[String]| {
+            if names.len() == 1 {
+                format!("{} waits", names[0])
+            } else {
+                format!("{} wait", names.join(", "))
+            }
+        };
+        match crate::computer::secrets::deliver(ready, &set).await {
+            Ok(handed) => {
+                let protection = if handed.protected {
+                    crate::contract::ComputerProtection::Protected
+                } else if handed.waiting.is_empty() {
+                    crate::contract::ComputerProtection::Legacy
+                } else {
+                    crate::contract::ComputerProtection::NeedsUpdate
+                };
+                self.computers.learned_protection(&persona.id, protection);
+                if handed.waiting.is_empty() {
+                } else if handed.protected {
+                    notice(format!(
+                        "{} on this desk: a key granted protected needs its Used with under Settings → Secrets.",
+                        listed(&handed.waiting)
+                    ));
+                } else {
+                    notice(format!(
+                        "{}'s computer cannot keep secrets from its programs, so {} on this desk until it is updated.",
+                        persona.name,
+                        listed(&handed.waiting)
+                    ));
+                }
+            }
             // A release from before secrets, granted none: nothing to say.
             Err(crate::computer::secrets::Refusal::TooOld) if names.is_empty() => {}
             Err(crate::computer::secrets::Refusal::TooOld) => notice(format!(

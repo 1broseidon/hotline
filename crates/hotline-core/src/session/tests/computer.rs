@@ -12,10 +12,12 @@ fn passkey_cards(room: &Room, persona_id: &str) -> Vec<Value> {
 }
 
 /// Grants `names` to ada on the room's record, the way `persona.update`
-/// would, without reattaching anything.
+/// from a client that sends names would, without reattaching anything: a
+/// plain variable readable, anything else protected.
 fn grant_secrets(room: &Room, names: &[&str]) {
     let mut ada = room.persona("ada").unwrap();
     ada.secrets = Some(names.iter().map(ToString::to_string).collect());
+    ada.secret_grants = crate::session::grants::settled(&ada, &room.stored_secrets());
     enrol(&room.log, &ada);
 }
 
@@ -56,6 +58,11 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
     );
     let told = notices(&room, "ada");
     assert!(told.is_empty(), "handing secrets is not narrated: {told:?}");
+    // Today's computer, handed only readable variables, is as it was.
+    assert_eq!(
+        room.computer_status("ada").await.unwrap().protection,
+        Some(crate::contract::ComputerProtection::Legacy)
+    );
 
     // The agent hears the names and that it will never see a value; the
     // value itself is on no tape and in no preamble.
@@ -162,7 +169,7 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
     use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
 
     let ComputerRoom { room, taken, .. } =
-        computer_room("computer-passkey", Some("0.11.0"), TWO_RELEASES, true).await;
+        computer_room("computer-passkey", Some("0.13.0"), TWO_RELEASES, true).await;
     let vault = room.vault.as_ref().unwrap();
 
     // Nothing armed: idle, and nothing to cancel.
@@ -335,7 +342,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
         agents,
         taken,
         ..
-    } = computer_room("computer-login", Some("0.11.0"), TWO_RELEASES, true).await;
+    } = computer_room("computer-login", Some("0.13.0"), TWO_RELEASES, true).await;
     let vault = room.vault.as_ref().unwrap();
     vault
         .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
@@ -357,7 +364,11 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
 
     let sets = taken.sets();
     assert_eq!(sets.len(), 1, "{sets:?}");
-    assert_eq!(sets[0]["GITHUB_TOKEN"], "ghp_notarealtoken0001");
+    assert_eq!(taken.forms(), [2], "a protected computer takes the v2 form");
+    assert_eq!(
+        sets[0]["GITHUB_TOKEN"],
+        serde_json::json!({"kind": "variable", "value": "ghp_notarealtoken0001", "readable": true})
+    );
     assert_eq!(
         sets[0]["GITHUB_LOGIN"],
         serde_json::json!({
@@ -486,7 +497,7 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
     use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
     let ComputerRoom { room, taken, .. } = computer_room(
         "computer-passkey-unwatched",
-        Some("0.11.0"),
+        Some("0.13.0"),
         TWO_RELEASES,
         true,
     )
@@ -1724,7 +1735,7 @@ async fn laptop_cookies_reach_the_computer_but_never_the_room_or_tape() {
 async fn a_slow_secret_use_poll_does_not_delay_another_computers_next_card() {
     let fixture = secret_use_room(
         "use-independent-polls",
-        "0.11.2",
+        "0.13.0",
         crate::contract::SecretUse::Ask,
     )
     .await;
@@ -1885,4 +1896,168 @@ async fn a_swap_in_a_closing_room_leaves_the_old_computer_and_waits() {
     drop(room.start_gate("ada").lock_owned().await);
     assert_eq!(commands_starting(&root, "rm"), removes, "nothing removed");
     assert!(room.computer_links.swap_waiting("ada"), "the swap waits");
+}
+
+/// A key Used with GitHub, granted protected; a plain variable, granted
+/// readable as every one was at upgrade; and a login.
+fn grant_a_key_a_variable_and_a_login(room: &Room) {
+    let vault = room.vault.as_ref().unwrap();
+    vault
+        .set_shared(
+            "GITHUB_TOKEN",
+            crate::vault::StoredSecret::Variable {
+                value: "ghp_notarealtoken00000000000000000000001".into(),
+                r#use: Some(
+                    crate::vault::resolve_used_with(&crate::contract::UsedWith {
+                        service: "github".into(),
+                        host: None,
+                    })
+                    .unwrap(),
+                ),
+            },
+        )
+        .unwrap();
+    vault
+        .set_shared_secret("NPM_TOKEN", "npm_notarealtoken0002")
+        .unwrap();
+    vault
+        .set_shared(
+            "GITHUB_LOGIN",
+            crate::vault::StoredSecret::Login {
+                r#use: crate::contract::SecretUse::Auto,
+                sites: vec!["https://github.com".into()],
+                username: "george".into(),
+                password: "correct-horse-battery".into(),
+                totp: None,
+            },
+        )
+        .unwrap();
+    grant_secrets(room, &["GITHUB_LOGIN", "GITHUB_TOKEN", "NPM_TOKEN"]);
+}
+
+async fn protection(room: &Room) -> Option<crate::contract::ComputerProtection> {
+    room.computer_status("ada").await.unwrap().protection
+}
+
+/// Today's pinned computer is handed what it was always handed of a
+/// readable variable, in the form it takes; the protected key and the
+/// login wait on the desk, and the pane is told so once.
+#[tokio::test]
+async fn a_protected_key_never_reaches_an_old_computer() {
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "protected-old",
+        Some(crate::computer::COMPUTER_VERSION),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert_eq!(
+        taken.sets(),
+        [std::collections::BTreeMap::from([(
+            "NPM_TOKEN".to_owned(),
+            json!("npm_notarealtoken0002")
+        )])]
+    );
+    assert_eq!(taken.forms(), [1]);
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+    let everywhere = serde_json::to_string(&taken.sets()).unwrap();
+    assert!(!everywhere.contains("ghp_notarealtoken"), "{everywhere}");
+    assert!(
+        !everywhere.contains("correct-horse-battery"),
+        "{everywhere}"
+    );
+
+    // Only readable variables granted: today's computer is as it was, and
+    // there is nothing to update for.
+    grant_secrets(&room, &["NPM_TOKEN"]);
+    room.secrets_changed().await;
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Legacy)
+    );
+}
+
+#[tokio::test]
+async fn a_login_never_reaches_a_legacy_computer() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-legacy", Some("0.13.0"), TWO_RELEASES, true).await;
+    taken
+        .legacy
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert_eq!(taken.forms(), [1]);
+    assert_eq!(
+        taken.sets()[0].keys().collect::<Vec<_>>(),
+        ["NPM_TOKEN"],
+        "only the readable variable"
+    );
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+}
+
+#[tokio::test]
+async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_none() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-split", Some("0.13.0"), TWO_RELEASES, true).await;
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert_eq!(taken.forms(), [2]);
+    let set = &taken.sets()[0];
+    assert_eq!(set["NPM_TOKEN"]["readable"], true);
+    assert_eq!(set["GITHUB_TOKEN"]["use"]["standIn"]["prefix"], "ghp_");
+    assert!(set["GITHUB_TOKEN"].get("readable").is_none());
+    assert_eq!(set["GITHUB_LOGIN"]["kind"], "login");
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+
+    taken
+        .forged
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    room.secrets_changed().await;
+    assert_eq!(taken.sets().len(), 1, "a forged attest is handed nothing");
+}
+
+/// Use Cookies goes into a protected computer's signed-in browser, never
+/// as a file in the agent's home; today's computer still takes the file.
+#[tokio::test]
+async fn shared_cookies_go_to_a_protected_computers_sessions_and_never_to_a_file() {
+    let transfer = || crate::contract::CookieTransfer {
+        source_id: "laptop".into(),
+        browser_id: "firefox".into(),
+        profile_id: "default".into(),
+        domains: vec!["example.com".into()],
+        cookies: vec![
+            json!({"domain":".example.com","name":"session","value":"laptop-secret-value","path":"/"}),
+        ],
+    };
+    let ComputerRoom { room, taken, .. } =
+        computer_room("sessions-protected", Some("0.13.0"), TWO_RELEASES, true).await;
+    room.computer_cookies_push("ada", transfer()).await.unwrap();
+    assert!(taken.uploads.lock().unwrap().is_empty(), "no file");
+    let sessions = taken.sessions.lock().unwrap().clone();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert_eq!(sessions[0].0, "PUT");
+    assert_eq!(sessions[0].2["sites"], json!(["example.com"]));
+    assert_eq!(sessions[0].2["cookies"][0]["value"], "laptop-secret-value");
+
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "sessions-today",
+        Some(crate::computer::COMPUTER_VERSION),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room.computer_cookies_push("ada", transfer()).await.unwrap();
+    assert_eq!(taken.uploads.lock().unwrap().len(), 1);
+    assert!(taken.sessions.lock().unwrap().is_empty());
 }

@@ -493,9 +493,14 @@ impl Room {
             // In the computer from the moment it is asked, so a failure
             // still takes it out.
             lend.in_computer = true;
-            login::deliver(ready, &lend.login, &lend.saved_login(cookies))
-                .await
-                .map_err(|_| "The computer could not take the cookies.".to_string())?;
+            login::deliver(
+                ready,
+                &lend.login,
+                std::slice::from_ref(&lend.site),
+                &lend.saved_login(cookies),
+            )
+            .await
+            .map_err(|_| "The computer could not take the cookies.".to_string())?;
         }
         lend.copied = true;
         Ok(())

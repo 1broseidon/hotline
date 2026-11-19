@@ -15,6 +15,12 @@ pub(crate) struct HeldUse {
     pub path: String,
     pub asked_at: i64,
     pub expires_at: i64,
+    /// From a protected computer: what the use is, and whether its broker's
+    /// own sign-in step asked.
+    #[serde(default)]
+    pub operation: Option<crate::contract::SecretOperation>,
+    #[serde(default)]
+    pub attested: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]

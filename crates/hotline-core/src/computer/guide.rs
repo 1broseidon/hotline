@@ -161,6 +161,14 @@ pub(crate) mod fake {
         refuse_answers: Arc<std::sync::atomic::AtomicBool>,
         /// How much later than ten minutes an arming says it ends.
         arm_later_ms: Arc<std::sync::atomic::AtomicI64>,
+        /// A release from 0.13 booted as one user: it says `legacy`.
+        pub(crate) legacy: Arc<std::sync::atomic::AtomicBool>,
+        /// It says split, but attests with a key that is not the bearer.
+        pub(crate) forged: Arc<std::sync::atomic::AtomicBool>,
+        /// The version of each set handed over, 1 or 2, beside `sets`.
+        forms: Arc<Mutex<Vec<u8>>>,
+        /// Every `/sessions` call: the method, the name and the body.
+        pub(crate) sessions: Arc<Mutex<Vec<(String, String, Value)>>>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -172,6 +180,12 @@ pub(crate) mod fake {
         #[cfg(unix)]
         pub(crate) fn sets(&self) -> Vec<BTreeMap<String, Value>> {
             self.sets.lock().unwrap().clone()
+        }
+
+        /// The form of each set handed over, 1 or 2, in order.
+        #[cfg(unix)]
+        pub(crate) fn forms(&self) -> Vec<u8> {
+            self.forms.lock().unwrap().clone()
         }
 
         pub(crate) fn armed(&self) -> Option<String> {
@@ -388,14 +402,97 @@ pub(crate) mod fake {
         if !bearer_present(&headers) {
             return axum::http::StatusCode::UNAUTHORIZED;
         }
-        match serde_json::from_str::<BTreeMap<String, Value>>(&body) {
-            Ok(set) => {
+        // The v2 form says so in its type and carries the set inside; the
+        // v1 form is the set itself, as an older desk sends it.
+        let v2 = headers
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            == Some("application/vnd.hotline.secrets.v2+json");
+        let parsed = serde_json::from_str::<Value>(&body).ok().and_then(|body| {
+            let set = if v2 {
+                (body["v"] == 2 && body["generation"].is_i64()).then(|| body["secrets"].clone())?
+            } else {
+                body
+            };
+            serde_json::from_value::<BTreeMap<String, Value>>(set).ok()
+        });
+        match parsed {
+            Some(set) => {
                 taken.uses.replace(&set);
                 taken.sets.lock().unwrap().push(set);
+                taken.forms.lock().unwrap().push(if v2 { 2 } else { 1 });
                 axum::http::StatusCode::NO_CONTENT
             }
-            Err(_) => axum::http::StatusCode::BAD_REQUEST,
+            None => axum::http::StatusCode::BAD_REQUEST,
         }
+    }
+
+    /// `GET /capabilities` as a 0.13 computer answers it: split unless
+    /// told it booted legacy, with the HMAC of the boot and the nonce under
+    /// the bearer it was asked with, or under another key when forged.
+    async fn capabilities(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+        uri: axum::http::Uri,
+    ) -> axum::response::Response {
+        use hmac::Mac;
+        use std::sync::atomic::Ordering::SeqCst;
+        let Some(bearer) = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .filter(|bearer| !bearer.is_empty())
+        else {
+            return json_answer(axum::http::StatusCode::UNAUTHORIZED, json!({}));
+        };
+        let key = if taken.forged.load(SeqCst) {
+            "a key that is not the bearer"
+        } else {
+            bearer
+        };
+        let nonce = uri
+            .query()
+            .and_then(|query| {
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("nonce="))
+            })
+            .unwrap_or_default();
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key.as_bytes()).unwrap();
+        mac.update(format!("hotline-broker-v1|fake-boot|{nonce}").as_bytes());
+        let attest = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            mac.finalize().into_bytes(),
+        );
+        let mode = if taken.legacy.load(SeqCst) {
+            "legacy"
+        } else {
+            "split"
+        };
+        json_answer(
+            axum::http::StatusCode::OK,
+            json!({"version": "0.13.0", "boot": "fake-boot", "protected": {"v": 1, "mode": mode}, "attest": attest}),
+        )
+    }
+
+    /// `PUT` and `DELETE /sessions/{name}`, recorded.
+    async fn sessions(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        method: axum::http::Method,
+        axum::extract::Path(name): axum::extract::Path<String>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::http::StatusCode {
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED;
+        }
+        let body = serde_json::from_str(&body).unwrap_or(Value::Null);
+        taken
+            .sessions
+            .lock()
+            .unwrap()
+            .push((method.to_string(), name, body));
+        axum::http::StatusCode::NO_CONTENT
     }
 
     async fn arm_passkey(
@@ -675,6 +772,16 @@ pub(crate) mod fake {
         (major, minor) >= (0, 10)
     }
 
+    /// Whether a release can split its users and says so at
+    /// `/capabilities`: 0.13 and later do.
+    fn has_capabilities(version: &str) -> bool {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        (major, minor) >= (0, 13)
+    }
+
     /// Whether a release has the passkey door: 0.8 and later do.
     fn has_passkeys(version: &str) -> bool {
         let mut parts = version
@@ -850,7 +957,15 @@ pub(crate) mod fake {
         if version.is_some_and(has_logins_door) {
             app = app.route("/logins/{name}", axum::routing::delete(forget_login));
         }
-        if version == Some("0.11.2") {
+        if version.is_some_and(has_capabilities) {
+            app = app
+                .route("/capabilities", axum::routing::get(capabilities))
+                .route(
+                    "/sessions/{name}",
+                    axum::routing::put(sessions).delete(sessions),
+                );
+        }
+        if version == Some("0.11.2") || version.is_some_and(has_capabilities) {
             app = app
                 .route("/pages", axum::routing::get(pages))
                 .route(

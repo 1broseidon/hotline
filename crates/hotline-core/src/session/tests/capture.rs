@@ -51,7 +51,7 @@ async fn capture_stores_grants_and_delivers_without_values_in_any_sink() {
         taken,
         agents,
         ..
-    } = computer_room("capture-login", Some("0.11.0"), TWO_RELEASES, true).await;
+    } = computer_room("capture-login", Some("0.13.0"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     let tool = tools(&room, CapabilityEpoch::default().lease());
@@ -298,7 +298,7 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
 #[tokio::test]
 async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
     let ComputerRoom { room, taken, .. } =
-        computer_room("capture-passkey", Some("0.11.2"), TWO_RELEASES, true).await;
+        computer_room("capture-passkey", Some("0.13.0"), TWO_RELEASES, true).await;
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     tools(&room, CapabilityEpoch::default().lease())
         .call("request_credential", &request("passkey"))
@@ -475,7 +475,7 @@ async fn capture_passkey_refuses_another_origin_and_minting_without_operator_app
 #[tokio::test]
 async fn capture_an_accepted_answer_finishes_when_its_phone_disconnects() {
     let ComputerRoom { room, taken, .. } =
-        computer_room("capture-disconnect", Some("0.11.0"), TWO_RELEASES, true).await;
+        computer_room("capture-disconnect", Some("0.13.0"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     tools(&room, CapabilityEpoch::default().lease())

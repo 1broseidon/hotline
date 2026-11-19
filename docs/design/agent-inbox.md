@@ -62,11 +62,40 @@ These are George's, and what the inbox holds to.
   the sender's own inbox, sent back to whoever asked it) closes that
   question as Answered, as `update_inbox`'s `answer` does, and wants
   nothing back unless it says so; a reply to an item that wants work is a
-  question about it and leaves it open. It returns at once with each item's
-  id and where each landed, per recipient and in the desk's words, first in
-  its note: "Huck: in inbox · Quill: awaiting approval"; a held item is
-  never said to have arrived (`delivery` on the result and on each `sent`
-  entry). `wants` and `waiting` are described to agents as facts
+  question about it and leaves it open. It returns with each item's id and
+  where each landed, per recipient and in the desk's words, first in its
+  note: "Huck: in inbox · Quill: not sent yet, waiting on the person's
+  card"; a held item is never said to have arrived (`delivery` on the
+  result and on each `sent` entry). A send that needs no card returns at
+  once. One that raised a first-contact card (Up in access, below) waits
+  for the person's answer, up to 45 seconds (`HELD_SEND_WAIT`), so the
+  teammate's one message about it is true:
+  - **Yes in time:** "in inbox", with the same note as a send that needed
+    no card.
+  - **No:** "not sent, the person declined"; the note says nothing was
+    sent, the item was closed as dropped, unseen, and not to send it again
+    or reach that colleague another way for it. A card taken down
+    unanswered (an expiry, the person's Stop) says "not sent" and why.
+  - **No answer by then:** "not sent yet, waiting on the person's card";
+    the note says not to say it was sent or delivered, to say one short
+    line that a card needs their answer before the teammate can do what it
+    was for and nothing else about it, that it goes by itself once allowed
+    and the teammate is told at its next turn, not to send it again, and
+    that `read_inbox` with list `sent` says where it stands. On a call (a
+    call thread, or a main-conversation turn said on a call to the
+    teammate) it says instead that the call announces the card itself, so
+    the teammate says at most that it is waiting.
+
+  A send to several waits for each card it raised against the one 45
+  seconds and says each recipient's line. The 45 is under the shortest
+  bound an agent puts on a tool call: Codex gives an MCP server's tool 60
+  seconds unless its config says otherwise (`tool_timeout_sec`, which
+  Hotline does not set); Claude Code allows hours, and Hotline Agent calls
+  in process with no bound. The wait holds no lock the card's answer or
+  anyone's inbox needs, and ends with the turn: Hotline Agent drops the
+  call when its turn stops, and an ACP agent's cancelled call is dropped
+  when its MCP cancellation arrives. Neither touches the card or the item,
+  which go on as below. `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency. Sent in a turn the person reads, its
   result adds that the person sees the message as a row with where it
   stands, so the teammate does not say it sent it or will pass on its
@@ -139,7 +168,9 @@ new ──▶ noticed ──▶ seen ──▶ taken ──▶ closed (answered 
 - An item that the person's first-contact card has yet to allow is kept
   `held`: the receiver cannot read it, and it does not count as unread. A yes
   lets it in as `new`; a no, an expiry or the person's Stop exchange closes it
-  `dropped`, with why, unseen.
+  `dropped`, with why, unseen. A `send` whose result already said which
+  (it waited, above) marks it told, so the next turn does not say it again;
+  one answered after the wait is told at the sender's next turn.
 
 Items are kept on the receiver's own stream, `inbox/<personaId>.jsonl`
 (`StreamId::Inbox`), one line per item, written again under its id at each
@@ -499,8 +530,12 @@ the items, not a record of its own.
   agent as its settings do: "Huck runs on Codex, which sets its own access.
   If you allow this, Huck does the work with that access." Always for it
   stands until the receiver's access grows or it moves to a different agent. In Needs you it is one question,
-  "Allow Huck to do work for Goldie?". An item the card has yet to allow is
-  held, as above. The card stands for any item, whatever it wants: a
+  "Allow Huck to do work for Goldie?". On a call that can answer it, the
+  call says it from the wait behind it, never its title: "Goldie wants to
+  reach Huck. Say yes to allow it this once, or no to decline." ("I want to
+  reach Huck" on a call to Goldie); one only the desk can answer is "Goldie
+  needs you for an approval: Goldie wants to reach Huck. Please handle it at
+  the desk". An item the card has yet to allow is held, as above. The card stands for any item, whatever it wants: a
   receiver may take an item that wanted an answer into work, and the card
   that let it in stands for that work.
 - **Files.** A file an item carries lands outside the receiver's working

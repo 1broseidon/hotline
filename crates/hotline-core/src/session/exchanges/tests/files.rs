@@ -76,17 +76,14 @@ fn kept(room: &Room, id: &str) -> crate::contract::InboxItem {
 async fn an_item_carries_files_into_the_recipients_inbox_once_it_is_let_in() {
     let (room, _agents, ada, bob) = apart("files-message");
     std::fs::write(ada.path().join("q3.csv"), "quarter,total\nq3,12").unwrap();
-    let sent = call(
+    let sent = crate::session::tests::send_past_card(
         &room,
-        "send",
+        "ada",
         json!({"to": ["bob"], "title": "Q3", "message": "The Q3 numbers.", "files": ["q3.csv"]}),
     )
     .await
     .unwrap();
-    let id = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["sent"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let id = sent["sent"][0]["id"].as_str().unwrap().to_string();
     until("the person's card", || collaboration_card(&room).is_some()).await;
     let landed = from_ada(&room, "q3.csv");
     assert!(!landed.exists(), "nothing lands before the grant");

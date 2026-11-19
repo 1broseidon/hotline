@@ -140,13 +140,13 @@ async fn a_card_up_in_access_raised_by_a_quiet_turns_send_names_it() {
     enrol(&log, &named("bob", "Bob", None));
     let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(replies()));
     let turn = quiet_turn(&room, &[WOKE]);
-    TeammateTools::new(&room, "bob")
-        .call(
-            "send",
-            &json!({"to": ["ada"], "title": "Restart the runner", "wants": "work"}),
-        )
-        .await
-        .unwrap();
+    crate::session::tests::send_past_card(
+        &room,
+        "bob",
+        json!({"to": ["ada"], "title": "Restart the runner", "wants": "work"}),
+    )
+    .await
+    .unwrap();
     drop(turn);
     until("the card is up", || {
         room.tape("bob")

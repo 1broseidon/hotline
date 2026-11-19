@@ -86,18 +86,16 @@ async fn send_wanting(
     message: &str,
     wants: &str,
 ) -> Result<String, String> {
-    let sent = TeammateTools::new(room, from)
-        .call(
-            "send",
-            &json!({ "to": [to], "title": message, "message": message, "wants": wants }),
-        )
-        .await?;
+    let sent = crate::session::tests::send_past_card(
+        room,
+        from,
+        json!({ "to": [to], "title": message, "message": message, "wants": wants }),
+    )
+    .await?;
     let receiver = room.teammate_named(to)?.id;
     Ok(format!(
         "{receiver}/{}",
-        serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
-            .as_str()
-            .unwrap()
+        sent["sent"][0]["id"].as_str().unwrap()
     ))
 }
 

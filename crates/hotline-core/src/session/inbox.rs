@@ -41,6 +41,7 @@ use std::sync::Arc;
 mod asked;
 mod clock;
 mod heard;
+mod held;
 mod limit;
 mod pick_up;
 mod sending;
@@ -49,6 +50,7 @@ mod topics;
 
 pub(in crate::session) use clock::{arrived_at, expire_after};
 pub(in crate::session) use heard::QUIET_WAKE_LINE;
+use held::{Landed, held_key};
 pub(in crate::session) use limit::QuietTurns;
 pub(in crate::session) use pick_up::PickUp;
 pub(crate) use sending::Sending;
@@ -233,14 +235,13 @@ fn short_line(text: &str, most: usize) -> String {
 /// turn's send needs no such word, as the turn is quiet already.
 const ROW_IS_THE_RECEIPT: &str = "The person sees this as a row in their chat with where it stands, so do not say you sent it or will pass on its answer. Say only what the row does not, or end your turn with nothing.";
 
+/// What a send's result says of the items that are in their receivers'
+/// inboxes, after where each landed.
+const IN_INBOX: &str = "A teammate sees an item's title and who sent it once it is in their inbox, and reads it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. If the person asks where it stands, `read_inbox` with list `sent` says. Carry on, or end your turn to wait; do not send it again.";
+
 /// The part of an id the index and notices show.
 pub(super) fn short(id: &str) -> &str {
     id.get(..SHORT_ID).unwrap_or(id)
-}
-
-/// Where an item's files wait while the item is held for the person's card.
-fn held_key(id: &str) -> String {
-    format!("inbox-{id}")
 }
 
 /// Moves an item to `state`, and records the move with its time.
@@ -314,9 +315,10 @@ fn item(
 
 impl Room {
     /// The `send` tool: an item for each teammate `sending.to` names, from
-    /// the thread it was said in. It returns at once. An item the person's
-    /// first-contact card has yet to allow is kept held, and lands when the
-    /// card is answered yes.
+    /// the thread it was said in. An item the person's first-contact card has
+    /// yet to allow is kept held, and lands when the card is answered yes;
+    /// the call waits up to `held::HELD_SEND_WAIT` for that answer and says what
+    /// it was. Otherwise it returns at once.
     pub(crate) async fn send_items(
         self: &Arc<Self>,
         from: &str,
@@ -396,8 +398,8 @@ impl Room {
         // quiet turn sending it, when one alone did.
         let prompted = self.prompted_by(sent_from);
         let mut sent = Vec::new();
-        let mut held = Vec::new();
-        let mut delivered = Vec::new();
+        let mut landed = Vec::new();
+        let mut waits = Vec::new();
         for target in &targets {
             let mut new = item(
                 &caller,
@@ -429,12 +431,16 @@ impl Room {
                 self.keep_item(&new)?;
                 self.count_message(&caller.id, &target.id);
                 self.arrived(&new);
+                landed.push(Landed::In);
             } else {
                 new.held = true;
                 new.files = self.hold(&held_key(&new.id), &files)?;
                 self.keep_item(&new)?;
-                held.push(target.name.clone());
-                self.await_consent(new.clone(), prompted.clone());
+                waits.push((
+                    landed.len(),
+                    self.await_consent(new.clone(), prompted.clone()),
+                ));
+                landed.push(Landed::Held);
             }
             self.threads().write(
                 sent_from,
@@ -447,27 +453,17 @@ impl Room {
                     title: new.title.clone(),
                 },
             );
-            let landed = topics::delivery(new.held);
-            delivered.push(format!("{}: {landed}", target.name));
-            sent.push(json!({ "id": new.id, "to": target.name, "delivery": landed }));
+            sent.push(json!({ "id": new.id, "to": target.name }));
         }
         // What it answers is answered, as `update_inbox`'s `answer` closes it.
         if let Some(asked) = replied.as_ref().filter(|_| answering) {
             self.close_item(&caller.id, &asked.id, InboxOutcome::Answered, None);
         }
-        let delivery = delivered.join(" · ");
-        let mut note = format!(
-            "{delivery}. A teammate sees an item's title and who sent it once it is in their inbox, and reads it when it suits their work; an idle teammate is woken a few seconds after it lands. What becomes of it is told to you at the start of your next turn, and a reply arrives in your own inbox. If the person asks where it stands, `read_inbox` with list `sent` says. Carry on, or end your turn to wait; do not send it again."
-        );
-        if for_person {
-            note = format!("{note} {ROW_IS_THE_RECEIPT}");
-        }
-        if !held.is_empty() {
-            note = format!(
-                "{note} The person has not yet allowed you to reach {}: a card asks them, and the item waits for their answer.",
-                held.join(" or ")
-            );
-        }
+        self.wait_for_cards(waits, &targets, &sent, &mut landed)
+            .await;
+        let on_call = self.sent_from(&caller.id, sent_from).kind == ThreadKind::Call;
+        let (delivery, note) =
+            held::result_words(&targets, &mut sent, &landed, for_person, on_call);
         Ok(json!({ "sent": sent, "delivery": delivery, "note": note }).to_string())
     }
 
@@ -528,75 +524,6 @@ impl Room {
             format!("{}\n\n{line}", item.body)
         };
         Ok(())
-    }
-
-    /// Waits on a task of its own for the person's first-contact card that
-    /// a held item needs, and lets it in on yes, or closes it as dropped,
-    /// unseen by its receiver, on no. `prompted` is the item whose quiet
-    /// turn sent it, which the card names.
-    fn await_consent(self: &Arc<Self>, item: InboxItem, prompted: Option<String>) {
-        let room = self.clone();
-        tokio::spawn(async move {
-            let decided = async {
-                let caller = room.participant(&item.from)?;
-                let target = room.persona(&item.to)?;
-                let caller_lease = room.request_lease(&caller.id);
-                let target_lease = room.request_lease(&target.id);
-                room.authorize_collaboration(
-                    &caller,
-                    &target,
-                    &caller_lease,
-                    &target_lease,
-                    item.wants == InboxWants::Work,
-                    super::peers::delivery::Asked {
-                        thread: Some(&item.from_thread),
-                        prompted,
-                    },
-                )
-                .await
-            }
-            .await;
-            room.consent_decided(&item, decided);
-        });
-    }
-
-    fn consent_decided(self: &Arc<Self>, item: &InboxItem, decided: Result<(), String>) {
-        let key = held_key(&item.id);
-        let files = match decided {
-            Ok(()) => self.held(&key, &item.files),
-            Err(why) => Err(why),
-        };
-        let let_in = files.and_then(|files| {
-            let mut landing = item.clone();
-            self.with_files(&mut landing, &files)?;
-            Ok(landing.body)
-        });
-        self.drop_held(&key);
-        let changed = self.change_item(&item.to, &item.id, |kept| {
-            if !kept.held || kept.state == InboxState::Closed {
-                return false;
-            }
-            match &let_in {
-                Ok(body) => {
-                    kept.held = false;
-                    kept.files.clear();
-                    kept.body.clone_from(body);
-                    moved(kept, InboxState::New, None, None, None);
-                }
-                Err(why) => moved(
-                    kept,
-                    InboxState::Closed,
-                    Some(why.clone()),
-                    Some(InboxOutcome::Dropped),
-                    None,
-                ),
-            }
-            true
-        });
-        if let Some(released) = changed.filter(|released| !released.held) {
-            self.count_message(&released.from, &released.to);
-            self.arrived(&released);
-        }
     }
 
     /// Writes an item to its receiver's stream, and wakes the roster rows

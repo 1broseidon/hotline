@@ -37,10 +37,9 @@ fn team(name: &str) -> (Arc<Room>, Arc<crate::session::tests::Fake>) {
 /// Ada sends in a turn the person reads, as their ask.
 async fn ask(room: &Arc<Room>, to: &[&str], title: &str) -> Vec<String> {
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
-    let sent = tool(
+    let sent = crate::session::tests::send_past_card(
         room,
         "ada",
-        "send",
         json!({"to": to, "title": title, "message": "?"}),
     )
     .await

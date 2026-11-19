@@ -201,8 +201,11 @@ Home-chat answers and voice answers settle both views, but the answer's
 continuation still goes to the agent on the original call thread. Pushes
 outside an active call point to the home chat, including driver permissions.
 
-The core announces a collaboration approval with its session-only scope,
-or an `ask_question` yes/no question, which is also the card a teammate uses
+The core announces a collaboration approval with its session-only scope
+in a line of its own, from the wait behind it and never the card's title
+("Goldie wants to reach Huck. Say yes to allow it this once, or no to
+decline."; "I want to reach Huck" on a call to Goldie), or an `ask_question`
+yes/no question, which is also the card a teammate uses
 to ask approval of its own plan (George, 2026-10-21: an approval card asked
 for on a call must be answerable there). Only the next finalized caller
 yes/no answers the announced card; other words clear that association. The

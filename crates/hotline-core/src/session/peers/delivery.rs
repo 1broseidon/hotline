@@ -18,6 +18,31 @@ pub(in crate::session) struct Asked<'a> {
     pub(in crate::session) prompted: Option<String>,
 }
 
+/// Why a request up in access did not go through, in words, and whether
+/// that was the person's own no on its card: the one refusal a sender is
+/// told not to route around, as opposed to an expiry, a Stop or a lease
+/// that ended.
+#[derive(Debug)]
+pub(in crate::session) struct Refused {
+    pub(in crate::session) why: String,
+    pub(in crate::session) declined: bool,
+}
+
+impl From<String> for Refused {
+    fn from(why: String) -> Self {
+        Self {
+            why,
+            declined: false,
+        }
+    }
+}
+
+impl From<Refused> for String {
+    fn from(refused: Refused) -> Self {
+        refused.why
+    }
+}
+
 impl Room {
     /// Checks the directional collaboration policy before anything is handed
     /// to the recipient ([`Room::collaboration_granted`]): a recipient with no
@@ -32,7 +57,7 @@ impl Room {
         target_capability: &CapabilityLease,
         handoff: bool,
         asked: Asked<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), Refused> {
         let Asked {
             thread: origin,
             prompted,
@@ -105,15 +130,23 @@ impl Room {
         );
         let decision = match tokio::time::timeout(crate::session::HUMAN_DEADLINE, receiver).await {
             Ok(Ok(decision)) => decision,
-            Ok(Err(_)) => return Err("The collaboration request was cancelled.".to_string()),
+            Ok(Err(_)) => {
+                return Err("The collaboration request was cancelled."
+                    .to_string()
+                    .into());
+            }
             Err(_) => {
-                return Err("The collaboration request expired before it was answered.".to_string());
+                return Err("The collaboration request expired before it was answered."
+                    .to_string()
+                    .into());
             }
         };
         caller_capability.check()?;
         target_capability.check()?;
         if !self.peers.scope_current(&caller.id, &target.id, scope) {
-            return Err("That collaboration approval expired before work started.".to_string());
+            return Err("That collaboration approval expired before work started."
+                .to_string()
+                .into());
         }
         match decision {
             // This request only: the next one up in access asks again.
@@ -125,17 +158,25 @@ impl Room {
                     .iter()
                     .any(|sender| sender == &caller.id)
                 {
-                    return Err(
-                        "That collaboration grant was revoked before work started.".to_string()
-                    );
+                    return Err("That collaboration grant was revoked before work started."
+                        .to_string()
+                        .into());
                 }
                 Ok(())
             }
-            CollaborationDecision::Deny => Err(format!(
-                "The operator denied {}'s request to ask {} to work.",
-                crate::session::links::shown(&caller),
-                target.name
-            )),
+            CollaborationDecision::Deny => Err(Refused {
+                why: format!(
+                    "The operator denied {}'s request to ask {} to work.",
+                    crate::session::links::shown(&caller),
+                    target.name
+                ),
+                declined: true,
+            }),
+            CollaborationDecision::Expired => {
+                Err("The card was taken down before the person answered it."
+                    .to_string()
+                    .into())
+            }
         }
     }
 
@@ -224,7 +265,7 @@ impl Room {
     pub(in crate::session) fn settle_collaboration(&self, persona_id: &str) {
         for wait in self.peers.settle_waits(persona_id) {
             self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-            let _ = wait.sender.send(CollaborationDecision::Deny);
+            let _ = wait.sender.send(CollaborationDecision::Expired);
         }
         self.settle_invalid_collaboration();
     }
@@ -234,21 +275,21 @@ impl Room {
     pub(in crate::session) fn settle_pair_collaboration(&self, a: &str, b: &str) {
         for wait in self.peers.settle_pair_waits(a, b) {
             self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-            let _ = wait.sender.send(CollaborationDecision::Deny);
+            let _ = wait.sender.send(CollaborationDecision::Expired);
         }
     }
 
     pub(in crate::session) fn settle_invalid_collaboration(&self) {
         for wait in self.peers.settle_invalid_waits() {
             self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-            let _ = wait.sender.send(CollaborationDecision::Deny);
+            let _ = wait.sender.send(CollaborationDecision::Expired);
         }
     }
 
     pub(in crate::session) fn settle_all_collaboration(&self) {
         for wait in self.peers.settle_all_waits() {
             self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
-            let _ = wait.sender.send(CollaborationDecision::Deny);
+            let _ = wait.sender.send(CollaborationDecision::Expired);
         }
     }
 }

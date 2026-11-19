@@ -234,17 +234,14 @@ fn room_on(log: crate::log::Log) -> Arc<Room> {
 /// Ada sends Bob an item that wants work, and Bob takes it into a work
 /// thread as soon as it lands.
 async fn hand_off(room: &Arc<Room>) {
-    let sent = TeammateTools::new(room, "ada")
-        .call(
-            "send",
-            &json!({"to": ["bob"], "title": "Build it", "message": "Build it.", "wants": "work"}),
-        )
-        .await
-        .unwrap();
-    let id = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let sent = crate::session::tests::send_past_card(
+        room,
+        "ada",
+        json!({"to": ["bob"], "title": "Build it", "message": "Build it.", "wants": "work"}),
+    )
+    .await
+    .unwrap();
+    let id = sent["sent"][0]["id"].as_str().unwrap().to_string();
     let room = room.clone();
     tokio::spawn(async move {
         let landed = || {
@@ -320,13 +317,13 @@ async fn always_asks_no_more_until_the_receivers_access_grows_and_then_asks_agai
         room.persona("bob").unwrap().allowed_senders,
         [] as [String; 0]
     );
-    TeammateTools::new(&room, "ada")
-        .call(
-            "send",
-            &json!({"to": ["bob"], "title": "One more", "wants": "work"}),
-        )
-        .await
-        .unwrap();
+    crate::session::tests::send_past_card(
+        &room,
+        "ada",
+        json!({"to": ["bob"], "title": "One more", "wants": "work"}),
+    )
+    .await
+    .unwrap();
     until("a card asks the person again", || cards() == 2).await;
     let again = open_card(&room).unwrap();
     assert_eq!(again["title"], first["title"]);

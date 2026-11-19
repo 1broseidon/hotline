@@ -41,17 +41,14 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
         .unwrap();
     bob.reach = Some(crate::contract::Reach::Machine);
     crate::room::append_persona(&log, &bob).unwrap();
-    let sent = crate::mcp::server::TeammateTools::new(&room, "ada")
-        .call(
-            "send",
-            &json!({ "to": ["bob"], "title": "Private file", "message": "read Bob's private file" }),
-        )
-        .await
-        .unwrap();
-    let id = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let sent = crate::session::tests::send_past_card(
+        &room,
+        "ada",
+        json!({ "to": ["bob"], "title": "Private file", "message": "read Bob's private file" }),
+    )
+    .await
+    .unwrap();
+    let id = sent["sent"][0]["id"].as_str().unwrap().to_string();
     let card = heard_where(&mut socket, |frame| {
         frame["sub"] == 1 && frame["event"]["kind"] == "permission"
     })

@@ -1663,8 +1663,12 @@ call to either is answered with one line saying to use `send`.
 as one plain line, `fence::one_line`, of at most 80 characters), the `message`, what it `wants` back (`answer`, `work`, `nothing`)
 and whether the sender is `waiting`; optionally `about` (a thread of the
 receiver's, where it is heard while that thread is live), `reply_to` (an item
-in the sender's own inbox) and `files`. It returns at once with each item's
-id and writes an `inbox_sent` row on the thread it was said in. One `send`
+in the sender's own inbox) and `files`. It returns with each item's id and
+where it landed, and writes an `inbox_sent` row on the thread it was said
+in: at once, unless it raised a first-contact card, which it waits on for up
+to 45 seconds so its result says the person's answer (yes: in inbox; no:
+not sent, dropped) or, still unanswered, that nothing was sent yet
+([agent-inbox.md](design/agent-inbox.md#the-tools)). One `send`
 to several makes an item each, and each names the others in `alsoTo`, which
 `read_inbox` and the item's pane say. Each item is kept on the receiver's own
 stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),

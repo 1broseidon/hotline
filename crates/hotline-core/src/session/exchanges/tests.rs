@@ -490,13 +490,14 @@ async fn a_legacy_grant_requires_informed_approval_for_work_but_still_lets_a_que
         .await
         .unwrap();
     assert!(!held(&question), "a question needs no informed approval");
-    let work = tools
-        .call(
-            "send",
-            &json!({"to":["bob"],"title":"some work","wants":"work"}),
-        )
-        .await
-        .unwrap();
+    let work = crate::session::tests::send_past_card(
+        &room,
+        "ada",
+        json!({"to":["bob"],"title":"some work","wants":"work"}),
+    )
+    .await
+    .unwrap()
+    .to_string();
     assert!(held(&work), "work waits for the card");
     let card = || {
         room.tape("ada")

@@ -771,6 +771,7 @@ impl Room {
             },
         )
         .await
+        .map_err(String::from)
     }
 
     fn exchange_pairs(&self) -> Vec<Pair> {

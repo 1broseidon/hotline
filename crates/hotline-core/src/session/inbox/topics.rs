@@ -16,7 +16,7 @@
 //! - **A one-line ask is its own title**: `send` without a `title` takes the
 //!   message's first plain line.
 
-use super::{Room, TITLE_CHARS, kept, short, short_line};
+use super::{Landed, Room, TITLE_CHARS, kept, short, short_line};
 use crate::contract::{InboxItem, InboxState, InboxWants, Persona};
 
 /// What a `send` without a title is kept as: the message's first plain line
@@ -41,13 +41,14 @@ pub(super) fn untitled(message: &str) -> Result<(String, String), String> {
     ))
 }
 
-/// Where a send to one teammate landed, as its result says it: in their
-/// inbox, or waiting for the person's approval, never received before it.
-pub(super) fn delivery(held: bool) -> &'static str {
-    if held {
-        "awaiting approval"
-    } else {
-        "in inbox"
+/// Where a send to one teammate landed, as its result says it, the fact
+/// first: in their inbox, or not sent, never received before it is.
+pub(super) fn delivery(landed: &Landed) -> &'static str {
+    match landed {
+        Landed::In => "in inbox",
+        Landed::Held => "not sent yet, waiting on the person's card",
+        Landed::Declined => "not sent, the person declined",
+        Landed::Refused(_) => "not sent",
     }
 }
 

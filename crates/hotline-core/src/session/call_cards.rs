@@ -33,16 +33,16 @@ impl Room {
             });
         }
         if card.kind == "permission" && self.peers.voice_approval(&card.persona, &card.request) {
-            let TranscriptEvent::Permission {
-                title,
-                decision: None,
-                ..
-            } = self.permission_card(&card.persona, &card.request)?
+            let TranscriptEvent::Permission { decision: None, .. } =
+                self.permission_card(&card.persona, &card.request)?
             else {
                 return None;
             };
             return Some(Notice {
-                text: format!("{title} Say yes to allow it this once, or no to decline."),
+                text: format!(
+                    "{}. Say yes to allow it this once, or no to decline.",
+                    self.first_contact_said(card, first_person)?
+                ),
                 answerable: true,
             });
         }
@@ -114,7 +114,10 @@ impl Room {
                     title,
                     decision: None,
                     ..
-                }) => match spoken_title(&title) {
+                }) => match self
+                    .first_contact_said(card, first_person)
+                    .unwrap_or_else(|| spoken_title(&title))
+                {
                     short if short.is_empty() => String::new(),
                     short => format!(": {short}"),
                 },
@@ -133,6 +136,20 @@ impl Room {
             ),
             answerable: false,
         })
+    }
+
+    /// A first-contact card as a call says it, from the wait behind it
+    /// rather than its title, whose second paragraph explains access to
+    /// someone reading: "Goldie wants to reach Huck", or "I want to reach
+    /// Huck" on a call to Goldie. None for any other card.
+    fn first_contact_said(&self, card: &Card, first_person: bool) -> Option<String> {
+        let (caller, target) = self.peers.waiting_pair(&card.request)?;
+        let target = self.persona(&target).ok()?.name;
+        if first_person && caller == card.persona {
+            return Some(format!("I want to reach {target}"));
+        }
+        let caller = self.participant(&caller).ok()?;
+        Some(format!("{} wants to reach {target}", links::shown(&caller)))
     }
 
     pub(crate) async fn answer_call_card(

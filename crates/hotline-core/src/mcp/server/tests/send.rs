@@ -14,9 +14,68 @@ fn the_send_description_says_a_quick_line_and_a_hand_off() {
         "A quick question or answer is one short line in `message` and no `title`; the person reads it like a chat.",
         "A hand-off is a `title` and a full brief in `message`; the person reads it like a letter.",
         "Answer a quick question with a quick line, `reply_to` its id: that closes it as answered.",
-        "in their inbox, or awaiting the person's approval",
+        "in their inbox, or not sent.",
+        "the call waits up to 45 seconds for their answer and says what it was.",
     ] {
         assert!(said.contains(words), "{words}: {said}");
     }
     assert_eq!(send.input_schema["required"], serde_json::json!(["to"]));
+}
+
+/// A `send` waiting on the person's first-contact card ends when the agent
+/// cancels the call, as an ACP agent does when its turn is stopped or
+/// interrupted: rmcp's client sends the cancellation when the call is
+/// dropped, and the wait lets go of the desk at once, while the card stays
+/// up for the person and the item stays held for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_send_lets_go_of_its_wait_and_leaves_the_card() {
+    let room = room_with_a_conversation("send-cancelled");
+    // Bob has the whole machine, more than Ada's own folders: a card asks.
+    write_persona(
+        room.log(),
+        Persona {
+            reach: Some(Reach::Machine),
+            ..bob()
+        },
+    );
+    let served = serve(tools(&room)).await.unwrap();
+    let connected = client()
+        .serve(transport(served.url(), served.token()))
+        .await
+        .unwrap();
+    let peer = connected.peer().clone();
+    let calling = tokio::spawn(async move {
+        peer.call_tool_once(
+            CallToolRequestParams::new(SEND).with_arguments(
+                json!({ "to": ["bob"], "title": "Psst", "message": "the secret" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        )
+        .await
+    });
+    // Up, and not decided: a decision is the card written again under its id.
+    let open_card = || {
+        let cards: Vec<Value> = room
+            .log()
+            .load(&StreamId::Tape("ada".into()))
+            .into_iter()
+            .filter(|event| event["kind"] == "permission")
+            .collect();
+        !cards.is_empty() && cards.iter().all(|card| card["decision"].is_null())
+    };
+    crate::test_support::until("the card is up", open_card).await;
+    assert!(
+        room.prepare_restart().is_err(),
+        "the send is still working, waiting on the card"
+    );
+
+    calling.abort();
+    crate::test_support::until("the wait lets go", || room.prepare_restart().is_ok()).await;
+    assert!(open_card(), "the card is still the person's");
+    let held = crate::store::inbox::of(room.log(), "bob");
+    assert_eq!(held.len(), 1);
+    assert!(held[0].held);
+    connected.cancel().await.ok();
 }

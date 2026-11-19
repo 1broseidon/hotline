@@ -27,7 +27,7 @@ pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
 pub use providers::{
-    Connected, Options, SignIns, listens_for, live_models, options, resolve, resolve_front,
+    Connected, Options, SignIns, listens_for, live_models, name, options, resolve, resolve_front,
     resolve_output, speaks,
 };
 
@@ -139,6 +139,30 @@ impl fmt::Display for SpeechError {
 }
 
 impl std::error::Error for SpeechError {}
+
+impl SpeechError {
+    /// Why `provider_id`'s voice did not speak, as one sentence for the
+    /// person on the call: the provider by name, and a refusal's status by
+    /// what it means. A `SpeechError` holds no key and no response body, so
+    /// neither can reach the sentence.
+    pub(crate) fn unspoken(&self, provider_id: &str) -> String {
+        let name = providers::name(provider_id);
+        let refused = |why: &str| format!("{name} refused to speak ({why}).");
+        match self {
+            SpeechError::Refused { status: 402, .. } => refused("out of credit"),
+            SpeechError::Refused {
+                status: 401 | 403, ..
+            }
+            | SpeechError::SignInRequired { .. } => refused("key or sign-in not accepted"),
+            SpeechError::Refused { status: 429, .. } => refused("rate limited"),
+            SpeechError::Refused { status, .. } => refused(&format!("HTTP {status}")),
+            SpeechError::Entitlement { .. } => refused("the subscription has no voice"),
+            SpeechError::Unreachable { .. } => format!("{name} couldn't speak (no answer)."),
+            SpeechError::Malformed { .. } => format!("{name} couldn't speak (unusable audio)."),
+            other => format!("{name} couldn't speak. {other}"),
+        }
+    }
+}
 
 #[async_trait]
 pub trait Speech: Send + Sync {

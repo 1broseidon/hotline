@@ -208,12 +208,11 @@ async fn whole_clip_fallback_cannot_use_a_disconnected_subscription_login() {
         tts: primary,
         fallback_tts: Some(subscription.clone()),
     });
-    assert!(
-        calls
-            .test_synthesize(&speech, "Test.")
-            .await
-            .unwrap_err()
-            .contains("no longer connected")
+    // The person is told why the voice they chose did not speak; the
+    // disconnected login is never asked.
+    assert_eq!(
+        calls.test_synthesize(&speech, "Test.").await.unwrap_err(),
+        "Your voice provider couldn't speak (no answer)."
     );
     assert!(lock(&subscription.spoken).is_empty());
 }

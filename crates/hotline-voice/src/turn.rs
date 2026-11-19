@@ -10,7 +10,7 @@ use super::spoken::sentences;
 use super::synthesis::{goodbye, speech_ready};
 use super::{
     BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, RETRY_LINE, REWRITE_WAIT, Reply,
-    TranscriptSource, Work, lock, realtime, spoken,
+    TranscriptSource, Voiced, Work, lock, realtime, spoken,
 };
 use hotline_contract::{VoiceEndReason, VoiceEvent, VoiceState};
 use std::sync::atomic::Ordering;
@@ -106,7 +106,14 @@ impl Calls {
         context: Context,
         mut work: mpsc::Receiver<Work>,
     ) {
+        // Hearing and speaking fail apart: the ears' failures in a row,
+        // which a step that worked clears, and the voice's refusals in a row,
+        // which only speech that worked clears, since a direct call hears
+        // without speaking. Either ends the call at MAX_FAILURES.
         let mut failures = 0u8;
+        let mut unspoken = 0u8;
+        // The person is told the voice refused once a call, not per answer.
+        let mut told_unspoken = false;
         let mut cards = tokio::time::interval(Duration::from_millis(250));
         loop {
             let next = tokio::select! { biased;
@@ -129,6 +136,10 @@ impl Calls {
             let Some(next) = next else {
                 break;
             };
+            let _ = self.change(&id, |call| {
+                call.voiced = Voiced::Silent;
+                Ok(())
+            });
             let result = match &next {
                 Work::Text {
                     seq,
@@ -236,36 +247,71 @@ impl Calls {
                     Ok(())
                 }
             };
+            let voiced = self
+                .change(&id, |call| Ok(std::mem::take(&mut call.voiced)))
+                .unwrap_or_default();
+            if let Err(error) = &result {
+                eprintln!("[voice] call {id}: {} failed: {error}", next.step());
+            }
             // A refused reservation is what ends a call on its budget.
             let budget_failed = result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
             if !context.cancel.is_cancelled() {
+                let interrupted = next.speech();
                 if budget_failed {
                     self.system_line(&id, BUDGET_LINE, include_bytes!("assets/budget.wav"), None);
                     let _ = self.finish(&id, VoiceEndReason::Budget);
-                } else if result.is_err() {
-                    failures += 1;
-                    if failures >= MAX_FAILURES {
-                        self.system_line(&id, ERROR_LINE, include_bytes!("assets/error.wav"), None);
-                        let _ = self.finish(&id, VoiceEndReason::Error);
+                } else if let Err(error) = &result {
+                    // A voice that would not speak is no reason to ask the
+                    // person to say it again: they were heard, and what would
+                    // have been said is on screen.
+                    let refused = match voiced {
+                        Voiced::Refused(why) => Some(why),
+                        _ if next.speaks() => Some(error.clone()),
+                        _ => None,
+                    };
+                    if let Some(why) = refused {
+                        unspoken += 1;
+                        if unspoken >= MAX_FAILURES {
+                            let line = format!("{why} Please continue by text.");
+                            self.system_line(&id, &line, include_bytes!("assets/error.wav"), None);
+                            let _ = self.finish(&id, VoiceEndReason::Error);
+                        } else if !told_unspoken {
+                            // The clip says "I can't speak right now. My answer
+                            // is on screen." without the provider that refused;
+                            // the line shown names it and why.
+                            told_unspoken = true;
+                            let line = format!("{why} The answer is in the transcript.");
+                            self.system_line(
+                                &id,
+                                &line,
+                                include_bytes!("assets/unspoken.wav"),
+                                interrupted,
+                            );
+                        }
                     } else {
-                        let speech = match &next {
-                            Work::Utterance { speech, .. }
-                            | Work::Text { speech, .. }
-                            | Work::Live { speech, .. }
-                            | Work::Answer { speech, .. }
-                            | Work::Delivery(_, speech)
-                            | Work::Notice(_, speech) => Some(speech),
-                            Work::TurnOver(_) => None,
-                        };
-                        self.system_line(
-                            &id,
-                            RETRY_LINE,
-                            include_bytes!("assets/retry.wav"),
-                            speech,
-                        );
+                        failures += 1;
+                        if failures >= MAX_FAILURES {
+                            self.system_line(
+                                &id,
+                                ERROR_LINE,
+                                include_bytes!("assets/error.wav"),
+                                None,
+                            );
+                            let _ = self.finish(&id, VoiceEndReason::Error);
+                        } else {
+                            self.system_line(
+                                &id,
+                                RETRY_LINE,
+                                include_bytes!("assets/retry.wav"),
+                                interrupted,
+                            );
+                        }
                     }
                 } else {
                     failures = 0;
+                    if matches!(voiced, Voiced::Spoke) {
+                        unspoken = 0;
+                    }
                 }
             }
             if let Work::Delivery(delivery, _) | Work::Notice(delivery, _) = &next

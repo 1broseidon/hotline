@@ -32,6 +32,8 @@ pub(crate) struct Fake {
     pub provider_id: Option<&'static str>,
     pub output_mime: &'static str,
     pub fail_transcription: AtomicBool,
+    /// The HTTP status the voice refuses each sentence with, from now on.
+    pub refuse_speech: Mutex<Option<u16>>,
     pub answer_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     pub narration: Mutex<Option<Result<String, String>>>,
     pub narrations: AtomicUsize,
@@ -59,6 +61,7 @@ impl Default for Fake {
             provider_id: None,
             output_mime: "audio/wav",
             fail_transcription: AtomicBool::new(false),
+            refuse_speech: Mutex::new(None),
             answer_gate: Mutex::new(None),
             narration: Mutex::new(None),
             narrations: AtomicUsize::new(0),
@@ -124,6 +127,12 @@ impl speech::Speech for Fake {
         if self.fail {
             return Err(speech::SpeechError::Unreachable {
                 provider_id: "fixture".into(),
+            });
+        }
+        if let Some(status) = *lock(&self.refuse_speech) {
+            return Err(speech::SpeechError::Refused {
+                provider_id: speech::Speech::id(self).provider_id,
+                status,
             });
         }
         Ok(Clip {

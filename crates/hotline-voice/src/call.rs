@@ -3,7 +3,7 @@
 use super::dispatcher::Context;
 use super::duplex::Front;
 use super::record::Record;
-use super::{CALLS_OFF, Call, CallSpeech, Calls, Hold, THINKING_AGAIN, lock, paid_kinds};
+use super::{CALLS_OFF, Call, CallSpeech, Calls, Hold, THINKING_AGAIN, Voiced, lock, paid_kinds};
 use hotline_contract::{
     VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceState,
 };
@@ -215,6 +215,7 @@ impl Calls {
                 live_error: None,
                 cards: super::cards::Queue::default(),
                 caller_speaking: false,
+                voiced: Voiced::Silent,
             });
             if let Some(realtime) = realtime {
                 tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));

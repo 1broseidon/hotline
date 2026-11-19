@@ -284,6 +284,20 @@ export function listenForPatch(current: unknown, words: string[]): Record<string
 	return Object.keys(voice).length === 0 ? null : voice;
 }
 
+/** Whether the desk acknowledges, in the teammate's voice, while the teammate thinks on Turn by turn (`acknowledge`): only `true` is on. */
+export function acknowledgeOf(voice: unknown): boolean {
+	return voice !== null && typeof voice === "object" && !Array.isArray(voice) && (voice as Record<string, unknown>)["acknowledge"] === true;
+}
+
+/** The voice setting with acknowledging on, or off, which takes the key away: the desk reads it absent as off. */
+export function acknowledgePatch(current: unknown, on: boolean): Record<string, unknown> | null {
+	const voice: Record<string, unknown> =
+		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
+	if (on) voice["acknowledge"] = true;
+	else delete voice["acknowledge"];
+	return Object.keys(voice).length === 0 ? null : voice;
+}
+
 /**
  * Speech a sign-in pays for is listed under an id of its own, so voice can
  * say which it is using, but it comes from that provider's one connection.
@@ -395,14 +409,15 @@ export function callKind(front: FrontSetting): CallKind {
 /**
  * The rows of Settings › Calls for each choice: a live model hears and
  * speaks itself, so it has only its voice; Turn by turn has the desk's
- * Transcription and Speech; Off has nothing to set.
+ * Transcription and Speech, and the call assistant's acknowledgement while
+ * the teammate thinks; Off has nothing to set.
  */
 export function callRows(kind: CallKind): string[] {
 	switch (kind) {
 		case "live":
 			return ["Model", "Voice", "Call assistant"];
 		case "turn-by-turn":
-			return ["Model", "Transcription", "Speech", "Call assistant"];
+			return ["Model", "Transcription", "Speech", "Call assistant", "Acknowledge"];
 		case "off":
 			return ["Model"];
 	}

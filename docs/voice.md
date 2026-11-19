@@ -578,7 +578,8 @@ provider's does, and the fallback voice says the reply if there is one.
 { "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "cedar" },
   "fallbackTts": { "provider": "google" },
-  "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
+  "dispatcher": { "provider": "openai", "model": "gpt-5-mini" },
+  "acknowledge": true }
 ```
 
 Every key is optional and a value that cannot be read costs only itself. A
@@ -593,7 +594,9 @@ When nothing can hear or speak, `resolve` returns a sentence for a person.
 desk; Settings › Providers › Calls calls it the call assistant. On a call to
 a teammate it only says again, to be heard, a reply the teammate wrote
 without a spoken version ([A reply written only to be
-read](#a-reply-written-only-to-be-read)). Without that setting the
+read](#a-reply-written-only-to-be-read)), and, with `acknowledge` on, writes
+the line the desk says while the teammate thinks ([Acknowledging while the
+teammate thinks](#acknowledging-while-the-teammate-thinks)). Without that setting the
 desk takes the best-suited quick chat model of the room's default provider: a
 middle-tier one (`flash`, `mini`, `small`, `fast`) first, because the lightest
 tier (`flash-lite`, `nano`, `luna`, `haiku`, `instant`) is too thin to hold a
@@ -786,6 +789,45 @@ speaks in it while calls still run on that front, or that provider and model;
 otherwise, or if the provider refuses the voice, the call uses the desk's
 voice. Desk calls always use the desk's voice.
 
+### Acknowledging while the teammate thinks
+
+A teammate's model can take ten seconds to write its first words, and Turn
+by turn is quiet meanwhile. With `acknowledge` on (Settings › Providers ›
+Calls, Acknowledge while the teammate thinks, shown for Turn by turn; off
+by default), the desk covers that wait with one short line in the
+teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
+
+- Once the person's words are in, the call assistant is asked for one line
+  in the teammate's first person naming what was asked
+  (`dispatcher::ACKNOWLEDGE`): at most eight words, the topic only, never a
+  claim that something is done, a promised result or an answer, no filler
+  opener or stock phrase, and nothing at all for small talk, a yes or no, a
+  correction, or anything a quick answer serves better. A reply of more than
+  one line or twelve words is not said.
+- The hand-off to the teammate waits at most 500 ms for it. A line that
+  arrives in time goes into the turn's prompt, after the contract, as
+  already said aloud, with the instruction not to acknowledge again and to
+  go straight to the work or the answer (`spoken::already_said`). A late
+  line is dropped, so the desk never says a line the teammate was not told
+  of, and neither is one whose prompt did not take it.
+- It is synthesized at once in the call's own voice, never the fallback
+  voice, and said only if the teammate has no piece of its own ready to say
+  when its sound is; otherwise it is dropped. It is one clip under a line of
+  its own, kept on the call's thread as the teammate's line, stopped by a
+  cut-in, a hold or a hang-up like any clip, and it is speech on the turn:
+  the 8 second presence sound does not follow it and the overrun note counts
+  its 90 seconds from it.
+- It is not asked for on a live call, a call to the desk, a turn that
+  arrives while the teammate is still on an earlier one, or when the
+  teammate's first words came in under 3 seconds (`llm_spoken`) on the
+  call's last timed turn; nor without a call assistant.
+- The call assistant's request reserves on Chat and the line's speech on
+  Voice, as a rewrite does; either refused, nothing is said for the turn and
+  the call goes on.
+
+Off, the call assistant is never asked and a turn is what it was without
+the setting.
+
 ### A reply written only to be read
 
 Turn by turn streams an untagged prose opening, up to three sentences and before
@@ -842,14 +884,16 @@ goes out, with the call and sequence and never the words or audio:
   desk hears anything, so it is outside `desk_total`; `-` from a client that
   does not report it.
 - `stt`: the desk taking the utterance to its words (`0` for device text).
-- `dispatch`: the words to the teammate's session being handed them.
+- `dispatch`: the words to the teammate's session being handed them,
+  including up to 500 ms waiting for an acknowledgement when that is on.
 - `llm_think`, `llm_spoken`, `first_unit`: from that hand-off to the model's
   first stream event, its first words, and the first piece ready to say.
 - `ack`: from the end of the person's speech (`silence` included when known)
-  to the desk's own acknowledgement being sent; `-` when none was said.
+  to the desk's own acknowledgement being sent; `-` when none was said
+  ([Acknowledging while the teammate thinks](#acknowledging-while-the-teammate-thinks)).
 - `tts_done`: the first piece's synthesis to its clip.
 - `desk_total`: the desk taking the utterance to the teammate's first clip.
-  What the person waited for the teammate's first word is `silence` plus
+  The acknowledgement is not that clip. What the person waited for the teammate's first word is `silence` plus
   `desk_total`, plus transport.
 
 It measures desk publication, not transport or client playback latency.
@@ -915,7 +959,9 @@ billed per token. A call to a teammate names no call assistant; its turns
 are the teammate's own and are metered by its session, against Chat on a
 per-token key, as typed turns are. A rewrite of a reply written only to be
 read reserves on Chat like any call assistant request, and a refusal only
-means the reply's opening is said instead. `voice.call_start`
+means the reply's opening is said instead; so does an acknowledgement, whose
+speech reserves on Voice, and either refusal only means nothing is said for
+it. `voice.call_start`
 refuses a call whose paid budget is spent with that sentence; during a call
 a refused reservation ends it with the bundled budget line. A call that
 pays for nothing names no kinds, so no budget can end it.
@@ -946,7 +992,8 @@ model from the vault's model metadata first, then the bundled catalogue; a
 sign-in or a local server costs nothing. Each model call reserves an estimate
 before it goes out: the request's bytes (prompt, history, preamble, and 2 KB
 per tool) divided by three as input tokens, plus the request's own output
-ceiling (512 tokens for an answer, 160 for a narration or a rewrite). When the response
+ceiling (512 tokens for an answer, 160 for a narration or a rewrite, 48 for
+an acknowledgement). When the response
 reports usage, the reservation is settled to what it cost: `input_tokens` at
 the input price, cache reads and writes at the catalogue's cache prices, and
 output. Anthropic reports cache tokens beside `input_tokens`; the
@@ -1032,7 +1079,8 @@ there is no Transcription or Speech row, and the hint beneath reads "Talk
 over it to interrupt." Turn by turn shows Transcription (transcription
 models, plus this Mac's own recognizer where the window has one, and the
 Models on the desk fold), Speech (each speaking model's voices, "Phonon ·
-Zoey") and the Call assistant, with "Tap to interrupt." beneath. Each of
+Zoey"), the Call assistant and the Acknowledge while the teammate thinks
+switch, with "Tap to interrupt." beneath. Each of
 Transcription and Speech says what runs it and its price from the voice
 ledger (`ledger::stt_cost`, `ledger::tts_cost`: "Parakeet · free", "Phonon
 through Ollama · free", "Groq · $0.001 a minute"), and carries a small tag

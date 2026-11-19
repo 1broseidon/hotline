@@ -8,6 +8,8 @@ import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
 import { Fold } from "../ui/Fold";
 import { DeskModels } from "./DeskModels";
 import {
+	acknowledgeOf,
+	acknowledgePatch,
 	AUTOMATIC,
 	CALL_WORDS,
 	callFront,
@@ -220,6 +222,23 @@ function Calls({
 							/>
 						)}
 					</JobRow>
+				)}
+				{rows.includes("Acknowledge") && (
+					// The call assistant says a short line in the teammate's voice while its model starts (voice.md).
+					<label className="group-row group-row-choice" title="Covers the wait">
+						<span className="group-row-text">
+							<span className="group-row-title">Acknowledge while the teammate thinks</span>
+						</span>
+						<input
+							type="checkbox"
+							role="switch"
+							className="switch"
+							aria-label="Acknowledge while the teammate thinks"
+							aria-checked={acknowledgeOf(voice)}
+							checked={acknowledgeOf(voice)}
+							onChange={(event) => write({ voice: acknowledgePatch(voice, event.target.checked) })}
+						/>
+					</label>
 				)}
 			</div>
 			{words.hint !== undefined && <p className="group-hint">{words.hint}</p>}

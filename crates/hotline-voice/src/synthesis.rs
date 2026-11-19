@@ -523,14 +523,20 @@ impl Calls {
                     mime_type: clip.mime.clone(),
                     data: STANDARD.encode(&clip.bytes),
                 });
+                // The desk's acknowledgement is not the teammate's first
+                // word, which the turn's timing line waits for.
                 if sent.is_ok()
                     && !clip.bytes.is_empty()
+                    && call.ack_line.as_deref() != Some(line)
                     && let Some(started) = call.first_clip_started.take()
                 {
                     let timing = call
                         .turn_timing
                         .take()
                         .unwrap_or_else(|| super::TurnTiming::start(started, None));
+                    if let Some(spoken) = timing.llm_spoken() {
+                        call.last_llm_spoken = Some(spoken);
+                    }
                     return Ok(Some((
                         call.id.clone(),
                         call.seq.unwrap_or_default(),
@@ -560,7 +566,7 @@ impl Calls {
 
 /// Whether a clip is one the clients can play: a kind they take, some
 /// sound, and with `bytes` of the line's sound so far, not too much.
-fn playable(clip: &Clip, bytes: usize) -> bool {
+pub(super) fn playable(clip: &Clip, bytes: usize) -> bool {
     matches!(clip.mime.as_str(), "audio/wav" | "audio/mpeg")
         && !clip.bytes.is_empty()
         && bytes <= MAX_AUDIO

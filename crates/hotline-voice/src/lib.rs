@@ -7,6 +7,7 @@
 //! downward on the contract, support, store, room, tools and MCP client;
 //! it must never depend on `hotline-core` or Tauri.
 
+mod acknowledgement;
 mod call;
 pub mod call_room;
 pub mod cards;
@@ -142,7 +143,9 @@ pub const CALLS_OFF: &str = "Calls are off in Settings";
  * a teammate names no call assistant: its turns are the teammate's own, which
  * its session meters as any other, and the call assistant's rewrite of a
  * reply written only to be read is asked of the Chat budget when it is
- * wanted, and falls back to the reply's opening if refused.
+ * wanted, and falls back to the reply's opening if refused. So is its
+ * acknowledgement, with its speech asked of Voice, and either refusal only
+ * means nothing is said for it ([`acknowledgement`]).
  */
 fn paid_kinds(speech: Option<&CallSpeech>, assistant: Option<&dyn Dispatcher>) -> Vec<Kind> {
     let mut kinds = Vec::new();
@@ -354,6 +357,15 @@ impl TurnTiming {
         self.first_unit.get_or_insert_with(Instant::now);
     }
 
+    pub(crate) fn mark_ack(&mut self) {
+        self.ack.get_or_insert_with(Instant::now);
+    }
+
+    /// Whether the teammate has its first piece ready to say on this turn.
+    pub(crate) fn first_unit_ready(&self) -> bool {
+        self.first_unit.is_some()
+    }
+
     pub(crate) fn mark_tts_started(&mut self) {
         self.tts_started.get_or_insert_with(Instant::now);
     }
@@ -481,6 +493,15 @@ pub struct Call {
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
     pub words: String,
+    /// The acknowledgement the turn being handed to the teammate now carries
+    /// as already said, until its prompt takes it ([`Calls::turn_instruction`]).
+    pub acknowledged: Option<String>,
+    /// The line the desk said as this turn's acknowledgement: its clip is
+    /// not the teammate's first, which the turn's timing waits for.
+    pub(crate) ack_line: Option<String>,
+    /// How long the teammate's model took to write its first words on the
+    /// last turn the call timed: a quick one needs no acknowledgement.
+    pub last_llm_spoken: Option<Duration>,
     /// On a front call, its sound; gone once the front is.
     front: Option<Front>,
     live_error: Option<String>,

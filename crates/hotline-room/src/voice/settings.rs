@@ -6,6 +6,7 @@
 //!   "fallbackTts": { "provider": "google" },
 //!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" },
 //!   "listenFor": ["Ophelia", "Groq"],
+//!   "acknowledge": true,
 //!   "front": { "provider": "grok", "credential": "xai-subscription",
 //!              "voices": { "grok": "eve", "openai": "marin" } } }
 //! ```
@@ -22,6 +23,10 @@
 //! a provider this build has no adapter for.
 //! `{"provider": "off"}` offers no calls at all, to the desk or to a
 //! teammate.
+//!
+//! `acknowledge`, off unless it is `true`, has the desk say a short line in
+//! a teammate's voice while the teammate starts on a Turn by turn turn
+//! (the voice crate's `acknowledgement`).
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -141,6 +146,10 @@ pub struct VoiceSettings {
     /// Teammates' names, which it listens for too. From the roster, so only
     /// `from_log` fills them.
     pub teammates: Vec<String>,
+    /// Whether the desk acknowledges, in the teammate's voice, what the
+    /// person asked while the teammate thinks on a Turn by turn call
+    /// (`acknowledge`). Off unless the owner turned it on.
+    pub acknowledge: bool,
 }
 
 impl VoiceSettings {
@@ -199,6 +208,7 @@ impl VoiceSettings {
             dispatcher: choice(voice, "dispatcher"),
             listen_for: words(voice, "listenFor"),
             teammates: Vec::new(),
+            acknowledge: voice.get("acknowledge").and_then(Value::as_bool) == Some(true),
         }
     }
 }
@@ -354,6 +364,18 @@ mod tests {
             None,
             "an empty voice is not a voice"
         );
+    }
+
+    #[test]
+    fn acknowledging_is_on_only_when_the_owner_says_true() {
+        assert!(VoiceSettings::from_room(&room(json!({"acknowledge": true}))).acknowledge);
+        for value in [json!(false), json!("true"), json!(1), Value::Null] {
+            assert!(
+                !VoiceSettings::from_room(&room(json!({"acknowledge": value}))).acknowledge,
+                "{value}"
+            );
+        }
+        assert!(!VoiceSettings::from_room(&Map::new()).acknowledge);
     }
 
     #[test]

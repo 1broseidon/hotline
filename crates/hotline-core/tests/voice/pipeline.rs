@@ -113,6 +113,9 @@ impl Dispatcher for ClipCheck {
     async fn rewrite(&self, _: &str, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
         unreachable!("a desk call has no teammate's reply to rewrite")
     }
+    async fn acknowledge(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
+        unreachable!("a desk call has no teammate to acknowledge for")
+    }
 }
 
 async fn check_clip(

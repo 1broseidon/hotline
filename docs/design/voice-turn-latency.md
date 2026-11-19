@@ -194,6 +194,14 @@ Instead of `Work::Progress` firing canned TTS every 20 s:
 
 ---
 
+## 5.6 Desk acknowledgement while the teammate thinks (as shipped)
+
+Measured on a real call, the person waited about 18 s from the end of a sentence to the first word: 1.2 s of endpointing, about 2.9 s of local transcription, about 10.5 s for the teammate's model to write its first words, and about 2.9 s for the voice to return a clip. Only the model's 10 s is a wait the desk can cover with words of its own.
+
+Behind one setting, `voice.acknowledge` (Settings › Providers › Calls, *Acknowledge while the teammate thinks*, off by default), the desk's call assistant writes one line of at most about eight words naming what was asked, in the teammate's first person, or nothing. Dispatch waits at most 500 ms for it; a line in time is put in the teammate's turn prompt as already said, so the teammate goes straight to the work, and a late line is dropped and never said. The line is synthesized in the call's own voice and played only if the teammate has no first piece of its own ready by then. It is skipped on live calls and calls to the desk, while the teammate is still on an earlier turn, after a turn whose `llm_spoken` was under 3 s, and without a call assistant; its model and speech are reserved on Chat and Voice like a rewrite, and a refusal skips it silently. `ack=` in the turn line times it. Rules and edge cases are in [voice.md](../voice.md#acknowledging-while-the-teammate-thinks).
+
+Still owed: a listening check on real calls of how often the line lands before the teammate's own opening, and whether the teammate keeps to "do not acknowledge again".
+
 ## 6. Explicit non-goals & open tuning points
 
 - **Do not lower Sonnet 5.5 medium effort yet.** Wait for Phase 1 telemetry (`llm_spoken - llm_think`) from real M3 calls. If thinking is <600 ms, leave effort alone. Only consider tuning effort (or disabling thinking on simple small-talk turns) if telemetry shows thinking is >1.5 s p50.

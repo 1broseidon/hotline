@@ -93,7 +93,12 @@ A prompt needs a live session; `session.start` is what brings one up. The
 command returns as soon as the turn is started. Hotline Agent admits new operator
 input into its running activity, and so does an ACP agent that offers steering
 (see [Steering an ACP turn](#steering-an-acp-turn)). A driver without
-active-input support queues it. Internal nudges and deliveries remain queued. Joining
+active-input support queues it. Internal nudges and deliveries remain queued.
+A note of Hotline's own for the running activity, such as a call's overrun
+note, is `Driver::note`, not a steer: Hotline Agent reads it after its next
+tool results without bumping its steering revision, so nothing running or
+queued is cut short; an ACP agent takes it through its steering extension,
+and a driver with neither drops it. Joining
 the queue and claiming an idle driver are one decision under one lock, so a
 line cannot be filed behind a turn that has already stopped coming back for
 it. `session.cancel` stops the turn in flight and drops whatever was waiting.

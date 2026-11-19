@@ -835,6 +835,14 @@ impl Driver for ChildAgent {
             .is_some_and(|lane| lane.admit.send((text, attachments)).is_ok())
     }
 
+    /// An ACP agent's one way in mid-turn is its steering extension, which
+    /// queues the line for the agent's next step: Hotline cuts nothing short
+    /// to deliver it. A line the agent refuses comes back unconsumed, and the
+    /// session drops it rather than say it as a prompt (`sides.rs`).
+    fn note(&self, text: String) -> bool {
+        self.steer(text, Vec::new())
+    }
+
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
         std::mem::take(&mut *lock(&self.live.unconsumed))
     }

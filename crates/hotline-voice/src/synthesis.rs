@@ -491,7 +491,6 @@ impl Calls {
                 if !clip.bytes.is_empty() {
                     let now = tokio::time::Instant::now();
                     call.waiting_sound = true;
-                    call.spoken_on_turn = true;
                     call.last_spoken_at = Some(now);
                     call.feedback_at = Some(now);
                 }

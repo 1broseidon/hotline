@@ -139,6 +139,10 @@ struct InputState {
     closed: bool,
     revision: u64,
     pending: Vec<Input>,
+    /// Hotline's own lines for the model, read with the next tool results.
+    /// They are not input: they never bump `revision`, so a wait, a stream or
+    /// a queued tool call goes on as if they were not there.
+    notes: Vec<String>,
 }
 
 impl Steering {
@@ -153,9 +157,24 @@ impl Steering {
         true
     }
 
+    /// Leaves a line for the model to read beside the next tool results,
+    /// without interrupting anything. False once the activity has ended.
+    pub(super) fn note(&self, text: String) -> bool {
+        let mut state = lock(&self.state);
+        if state.closed {
+            return false;
+        }
+        state.notes.push(text);
+        true
+    }
+
     fn take(&self) -> (u64, Vec<Input>) {
         let mut state = lock(&self.state);
         (state.revision, std::mem::take(&mut state.pending))
+    }
+
+    fn take_notes(&self) -> Vec<String> {
+        std::mem::take(&mut lock(&self.state).notes)
     }
 
     fn superseded(&self, revision: u64) -> bool {
@@ -286,6 +305,11 @@ async fn run_inner(
                 .push(publish_job(turn, sender, job, back).await);
         }
         activity.history.append(&mut activity.job_results);
+        // A note rides behind the tool results the model reads next; it is
+        // Hotline's, so it does not make the turn answer anybody.
+        for note in turn.steering.take_notes() {
+            activity.history.push(Message::user(note));
+        }
         let (revision, pending) = turn.steering.take();
         // A line steered into the turn is somebody's, so it is answered.
         activity.asked |= !pending.is_empty();

@@ -4,7 +4,7 @@ import { type Target, wire } from "../wire";
 import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
-import { AUDIO_SILENCE_MS, FAST_SILENCE_MS, SILENCE_MS, TurnDetector, levelFromDb, looksComplete } from "./turn";
+import { AUDIO_SILENCE_MS, SILENCE_MS, TurnDetector, levelFromDb, silenceAfter } from "./turn";
 import {
 	type DeviceTranscription,
 	type TranscriptionEvent,
@@ -265,6 +265,8 @@ export class Call {
 	private textPrefix = "";
 	/** The open session's words so far: each event is the whole of them. */
 	private textPart = "";
+	/** The language this Mac recognizes in, which decides whether a finished-looking draft may end the turn sooner. */
+	private textLocale = "";
 	/** The session's words from before the speaker's onset, which are the room's. */
 	private textIgnored = "";
 	private textSnapshots: { text: string; at: number }[] = [];
@@ -439,6 +441,7 @@ export class Call {
 		if (!Array.isArray(capabilities) || !capabilities.includes("voiceTextInput")) return false;
 		const capability = await transcription.capability();
 		if (!capability.available || this.ended) return false;
+		this.textLocale = capability.locale;
 		return transcription.permit();
 	}
 
@@ -882,8 +885,7 @@ export class Call {
 				if (now < this.quietUntil) return;
 				const level = levelFromDb(rawEquivalentDb(event.levelDb));
 				this.level = level;
-				const draft = this.spoken(this.textPart);
-				const silenceMs = draft !== "" && looksComplete(draft) ? FAST_SILENCE_MS : SILENCE_MS;
+				const silenceMs = silenceAfter(this.spoken(this.textPart), this.textLocale);
 				for (const turn of this.detector.push(level, now, silenceMs)) {
 					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {

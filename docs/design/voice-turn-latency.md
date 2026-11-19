@@ -94,9 +94,11 @@ When the client streams 16 kHz PCM during Turn-by-turn (already supported on des
 
 When the desk does not have live PCM or Smart Turn installed:
 - **Clients with live partial text** (`voice.text` on macOS/iOS): use a two-threshold timer in `TurnDetector`:
-  - **550 ms** when the partial transcript ends in terminal punctuation or is a complete short utterance (≤4 words with no trailing conjunction/filler).
-  - **1,200 ms** when the partial transcript ends mid-clause or on a filler word.
-- **Audio-only whole-clip clients** (older mobile AAC path): lower default `SILENCE_MS` from `1200` to `850` (keep configurable for tuning), and align Android `HotlineSpeechModule.kt` (`EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS` / `POSSIBLY_COMPLETE`) to match rather than staying pinned at `1200L`.
+  - **550 ms** (`FAST_SILENCE_MS`) only when the recognizer's locale is English and the draft ends in terminal punctuation (`.`, `?`, `!`, not a trailing `...`), or is a complete short utterance: ≤4 words not ending on a conjunction, preposition, article, filler, helper verb or "you", and a single word only when it is a whole answer (`thanks`, `nope`, `done`), never an opener (`okay`, `yeah`, `what`, `how`, `so`, `well`, `wait`).
+  - **1,200 ms** (`SILENCE_MS`) for everything else: a draft past four words without a full stop, one ending mid-clause or on a filler, and every draft from a non-English recognizer, since the word lists are English.
+- **Audio-only whole-clip clients**: `AUDIO_SILENCE_MS` stays at **1,200 ms**, the pause before 0.50, as its own constant so it can be lowered once a listening test shows a shorter pause does not cut people off. Android `HotlineSpeechModule.kt` stays at `1200L` with it.
+
+As shipped (desktop, `ui/src/voice/turn.ts`): every threshold is a named constant in that file, and `silenceAfter(draft, locale)` picks one.
 
 ---
 
@@ -113,7 +115,9 @@ Add a **first-piece clause flush** to `spoken::Spoken` (Turn-by-turn streaming m
   3. The boundary is **not** inside parentheses or a formatted number (`1,200`).
 - **Full stops unchanged:** `.` / `!` / `?` + whitespace (or `</spoken>`) still flush immediately at any length (`"Yep."`, `"On it."`).
 
-**Prosody quality gate (required before turning on by default):**
+**As shipped:** the flush is always on for Turn by turn replies (`Spoken::streaming()`); there is no setting. The listening check below was not run before it shipped and is still owed.
+
+**Prosody quality gate:**
 Listen to 10–15 real Phonon clips splitting on commas vs whole sentences. Phonon is sensitive to terminal punctuation for pitch drop. If comma splits sound clipped or fall in pitch too early, restrict the first-piece split to stronger boundaries (`; `, ` — `, `, and `, `, but `, `, so `) or raise the floor to 8 words / 45 chars. Do not ship choppy speech to save 200 ms.
 
 ---
@@ -170,19 +174,19 @@ In `crates/hotline-room/src/voice/spoken.rs`, update the tool-opening paragraph 
 ### 5.4 One-shot overrun update (no canned timer)
 
 Instead of `Work::Progress` firing canned TTS every 20 s:
-1. Track `last_spoken_at: Option<Instant>` and `overrun_nudged_at: Option<Instant>` on the active call turn.
-2. When a tool finishes on a call turn and `last_spoken_at` is **≥ 90 s ago** (or ≥ 180 s since a previous overrun nudge), append a brief internal system note to the tool result fed back into the agent's next step:
+1. Track `last_spoken_at: Option<Instant>` and `overrun_nudged: bool` on the active call turn; both reset when the person's next turn starts.
+2. When **≥ 90 s** have passed since `last_spoken_at`, or since the 8 s cue on a turn that never spoke (`last_spoken_at.or(feedback_at)`), leave the running turn one internal note:
    `[Voice call: this work has been quiet for a while. Before your next tool call, speak one brief sentence with real progress — what's done and what's left — with no revised time estimate.]`
-3. Mark `overrun_nudged_at = Some(now)` so it never loops.
-4. **Why this works:** zero extra API calls (rides the next tool boundary the agent is already taking), real context-aware speech instead of `"Still on it."`, and stays completely quiet if the task finishes cleanly within 90 s.
+3. Set `overrun_nudged = true`. There is no cooldown and no second note on the same turn. Hold, a cut-in and the turn ending suppress it.
+4. **Delivery:** the note goes through `Driver::note`, never `steer`. On Hotline Agent it bumps no steering revision, so a running `wait_jobs`, a model request in flight and tool calls queued in the same response all go on; the loop puts it in history right after the next tool (or job) results, before the next model request. An ACP agent gets it through its steering extension, which takes it at its next step; one it refuses comes back unconsumed and is dropped, never said as the person's prompt.
+5. **Why this works:** zero extra API calls (rides the next tool boundary the agent is already taking), real context-aware speech instead of `"Still on it."`, and stays completely quiet if the task finishes cleanly within 90 s.
 
 ### 5.5 Code & doc cleanup
 
 - **Delete** `Work::Progress` and `progress_lines` in `crates/hotline-voice/src/turn.rs`.
 - **Simplify** `crates/hotline-voice/src/waiting_sound.rs`:
   - Remove the `1_800 ms` trigger and the `20 s` `Work::Progress` branch.
-  - Fire the single soft presence clip **only** when `!call.waiting_sound && !call.spoken_on_turn && at.elapsed() >= Duration::from_secs(8)`.
-  - Reset `call.spoken_on_turn = false` when a new utterance starts, and set `call.spoken_on_turn = true` as soon as the first real spoken clip for that turn is published.
+  - Fire the single soft presence clip **only** when `!call.waiting_sound && at.elapsed() >= Duration::from_secs(8)`; the first real spoken clip sets `waiting_sound`, so a turn that has spoken never gets the cue.
 - **Audit** `hotline-mobile/src/voice/call.ts` and `tones.ts` to ensure no legacy client-side `cue('think')` fires during a Turn-by-turn wait on 0.50+ desks.
 - **Update** `docs/voice.md` (lines 140–142) to document the 8 s unexplained-wait cue, coarse work-turn scope, and one-shot overrun update.
 
@@ -193,7 +197,8 @@ Instead of `Work::Progress` firing canned TTS every 20 s:
 - **Do not lower Sonnet 5.5 medium effort yet.** Wait for Phase 1 telemetry (`llm_spoken - llm_think`) from real M3 calls. If thinking is <600 ms, leave effort alone. Only consider tuning effort (or disabling thinking on simple small-talk turns) if telemetry shows thinking is >1.5 s p50.
 - **No speculative LLM prefill or early generation.** Cloud call models don't offer a free prefill-only call, and speculative agent turns carry tool side-effect risk.
 - **Pocket-phone tuning check:** After Phase 1 lands, test a locked-screen iPhone call (CallKit) to verify whether the unexplained-wait threshold feels better at **6 s** or **8 s** in a pocket.
-- **Overrun threshold check:** Start at **90 s** (with 180 s cooldown); revisit if "a while" tasks feel nagged too soon.
+- **Overrun threshold check:** Start at **90 s**, once per turn; revisit if "a while" tasks feel nagged too soon.
+- **Audio-only endpointing:** `AUDIO_SILENCE_MS` stays at 1,200 ms until a listening test on real calls shows a shorter pause does not cut people off.
 
 ---
 
@@ -202,9 +207,9 @@ Instead of `Work::Progress` firing canned TTS every 20 s:
 ### Phase 1 — Telemetry, presence grammar, pre-warm, and clause streaming (fast, low risk)
 1. Ship per-stage turn timing logs (desk + client).
 2. Remove `Work::Progress` / canned lines; move `waiting_sound.rs` to single 8 s unexplained-silence cue; redesign `waiting.wav`.
-3. Update `spoken::CONTRACT` for coarse scope + add one-shot tool-boundary overrun nudge.
+3. Update `spoken::CONTRACT` for coarse scope + add one-shot tool-boundary overrun nudge (a `Driver::note`, never a steer).
 4. Add Ollama Phonon pre-warm on `voice.call_start` + 1-deep TTS pipelining in `say_reply`.
-5. Implement first-piece clause flushing in `spoken::Spoken`; run a 10–15 clip Phonon listening check before enabling by default.
+5. Implement first-piece clause flushing in `spoken::Spoken` (shipped always on; the 10–15 clip Phonon listening check is still owed).
 
 **Verification:** Capture 10+ real turns on the M3 (mix of short Q&A, longer spoken answers, and multi-minute tool work) and confirm baseline vs Phase 1 stage numbers + zero phone-tree blips / zero `"Still on it."` loops.
 

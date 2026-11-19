@@ -14,8 +14,9 @@ pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken
 Only when there is something to keep that speech cannot carry, add <written>...</written>: code, a table, a file or link, a substantial list or a long write-up. Make that result stand alone. For conversation, omit written: the spoken words are the written record, with no second answer to invent.
 Before a tool, begin with one short spoken sentence naming what you are about to do. If it will take more than a quick lookup, set expectations with a coarse size — a moment, a couple of minutes, or a while — never an exact number of minutes or seconds. Once you have said that, work in silence until you finish. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
 
-/// Internal steering nudge sent at most once when announced work on a voice
-/// call has stayed silent well past its opening line.
+/// Hotline's note to a call's teammate, left once per turn when its work has
+/// been silent long past its last spoken line. It is read with the next tool
+/// results, never steered in as the person's words.
 pub const OVERRUN_NUDGE: &str = "[Voice call: this work has been quiet for a while. Before your next tool call, speak one brief sentence with real progress — what's done and what's left — with no revised time estimate.]";
 
 mod context;

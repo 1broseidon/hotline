@@ -459,6 +459,8 @@ impl Occupant for LiveSide {
                     matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
                 });
             let mut handed_back = Vec::new();
+            // The overrun note is Hotline's, not the person's: an ACP agent
+            // that refused it hands it back, and it is not said as a prompt.
             for (text, attachments) in unconsumed
                 .into_iter()
                 .rev()

@@ -11,12 +11,17 @@
  * to pause. The noise floor is learned only before speech is confirmed.
  */
 
-/** Full silence ceiling when a turn looks unfinished or mid-thought. */
+/**
+ * Every pause that can end a turn, in one place. `SILENCE_MS` is the pause
+ * every call waited before 0.50 and still the default: a turn that may not be
+ * finished keeps it. `FAST_SILENCE_MS` is only for a draft this Mac heard in
+ * English that is plainly finished (see `silenceAfter`). `AUDIO_SILENCE_MS`
+ * is for a call with no words to judge, the same pause until a listening test
+ * shows a shorter one does not cut people off.
+ */
 export const SILENCE_MS = 1200;
-/** Shorter silence threshold when recognized text already looks syntactically complete. */
 export const FAST_SILENCE_MS = 550;
-/** Silence threshold for audio-only Turn-by-turn calls without client partial transcripts. */
-export const AUDIO_SILENCE_MS = 850;
+export const AUDIO_SILENCE_MS = 1200;
 /** Voice shorter than this is a cough or a tap, not a sentence. */
 export const MIN_SPEECH_MS = 250;
 /** The desk takes at most 20s per clip, so a turn is cut here. */
@@ -239,40 +244,61 @@ export function isGoodbye(transcript: string): boolean {
   return GOODBYE.test(spoken);
 }
 
+/** A last word that says more is coming: a conjunction, a preposition, an article, a filler, a helper verb. */
 const TRAILING_OPEN = new Set([
-  'a', 'about', 'actually', 'an', 'and', 'as', 'at', 'basically', 'because',
-  'but', 'by', 'erm', 'for', 'from', 'her', 'his', 'hmm', 'if', 'in', 'into',
-  'like', 'my', 'of', 'on', 'or', 'our', 'so', 'than', 'that', 'the', 'their',
-  'these', 'this', 'those', 'to', 'uh', 'uhh', 'um', 'umm', 'well', 'when',
-  'which', 'while', 'who', 'with', 'your',
-]);
-
-const COMPLETE_SINGLE = new Set([
-  'alright', 'awesome', 'bye', 'cancel', 'cool', 'correct', 'done', 'exactly',
-  'fine', 'good', 'goodbye', 'great', 'hello', 'hey', 'hi', 'how', 'nah',
-  'nevermind', 'nice', 'no', 'nope', 'ok', 'okay', 'perfect', 'please',
-  'really', 'right', 'sorry', 'stop', 'sure', 'thank', 'thanks', 'wait',
-  'what', 'when', 'where', 'who', 'why', 'yeah', 'yep', 'yes', 'yo', 'yup',
+  'a', 'about', 'actually', 'also', 'am', 'an', 'and', 'are', 'as', 'at',
+  'basically', 'be', 'because', 'but', 'by', 'can', 'could', 'did', 'do',
+  'does', 'erm', 'for', 'from', 'gonna', 'had', 'has', 'have', 'he', 'her',
+  'his', 'hmm', 'how', 'i', "i'm", "i'll", 'if', 'in', 'into', 'is', 'just',
+  "let's", 'like', 'maybe', 'my', 'not', 'of', 'on', 'or', 'our', 'she',
+  'should', 'so', 'some', 'than', 'that', "that's", 'the', 'their', 'then',
+  "there's", 'these', 'they', 'this', 'those', 'to', 'uh', 'uhh',
+  'um', 'umm', 'wanna', 'was', 'we', 'well', 'were', 'what', 'when', 'where',
+  'which', 'while', 'who', 'why', 'will', 'with', 'would', 'you', 'your',
 ]);
 
 /**
- * Whether an in-progress transcript already looks like a finished thought, so
- * endpointing can commit after `FAST_SILENCE_MS` instead of waiting a full
- * `SILENCE_MS`. Returns false on empty strings, trailing conjunctions,
- * prepositions, articles, or fillers so mid-sentence pauses never clip speech.
+ * Words that are a whole turn on their own. Openers that usually lead into
+ * more ("okay", "yeah", "what", "so", "well", "wait") are not here: a pause
+ * after one of them keeps the full `SILENCE_MS`.
+ */
+const COMPLETE_SINGLE = new Set([
+  'bye', 'cancel', 'correct', 'done', 'exactly', 'goodbye', 'nah',
+  'nevermind', 'nope', 'perfect', 'stop', 'thanks', 'yep', 'yup',
+]);
+
+/** The longest draft without a full stop that may still count as finished. */
+const SHORT_UTTERANCE_WORDS = 4;
+
+/**
+ * Whether a draft is plainly a finished turn: it ends in `.`, `?` or `!`
+ * (not a trailing "..."), or it is at most four words that do not end on a
+ * word leading into more, and a single word only if it is a whole answer.
  */
 export function looksComplete(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed === '') return false;
+  if (/(?:\.\.\.|…)$/.test(trimmed)) return false;
   if (/[.?!]$/.test(trimmed)) return true;
-  if (/[,;:\-—…]$/.test(trimmed)) return false;
+  if (/[,;:\-—]$/.test(trimmed)) return false;
   const words = trimmed
     .toLowerCase()
+    .replace(/’/g, "'")
     .split(/\s+/)
     .map((word) => word.replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, ''))
     .filter((word) => word !== '');
-  if (words.length === 0) return false;
+  if (words.length === 0 || words.length > SHORT_UTTERANCE_WORDS) return false;
   const last = words[words.length - 1]!;
   if (words.length === 1) return COMPLETE_SINGLE.has(last);
   return !TRAILING_OPEN.has(last);
+}
+
+/**
+ * The pause that ends a turn whose recognized words so far are `draft`, from
+ * a recognizer listening in `locale`. The word lists are English, so another
+ * language keeps the full pause.
+ */
+export function silenceAfter(draft: string, locale: string): number {
+  const english = /^en(?:[-_]|$)/i.test(locale.trim());
+  return english && looksComplete(draft) ? FAST_SILENCE_MS : SILENCE_MS;
 }

@@ -3,9 +3,11 @@
 //!   (unexplained silence — e.g. slow STT, provider hiccup, or a tool-first
 //!   turn that skipped its opening line). Never fires once the teammate has
 //!   already spoken on the turn.
-//! - One-shot overrun nudge into the teammate's running turn if 90 seconds of
-//!   silence pass after its last spoken clip while tools are still running
-//!   (with a 180 second cooldown), replacing the old repeating canned timer.
+//! - One overrun note per turn, left for the teammate's running turn when 90
+//!   seconds pass with nothing said since its last spoken clip (or, on a turn
+//!   that never spoke, since the tone): the teammate reads it with its next
+//!   tool results and says where the work stands. It never repeats, and it
+//!   never interrupts the work to arrive.
 
 use super::Calls;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -16,7 +18,6 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) const UNEXPLAINED_WAIT: Duration = Duration::from_secs(8);
 pub(crate) const OVERRUN_SILENCE: Duration = Duration::from_secs(90);
-pub(crate) const OVERRUN_COOLDOWN: Duration = Duration::from_secs(180);
 
 impl Calls {
     pub(super) async fn waiting_sound(self: Arc<Self>, id: String, cancel: CancellationToken) {
@@ -37,7 +38,6 @@ impl Calls {
                 }
                 let now = tokio::time::Instant::now();
                 if !call.waiting_sound
-                    && !call.spoken_on_turn
                     && let Some(at) = call.feedback_at
                     && at.elapsed() >= UNEXPLAINED_WAIT
                 {
@@ -52,18 +52,15 @@ impl Calls {
                     });
                     return Ok(None);
                 }
-                if call.spoken_on_turn
+                if !call.overrun_nudged
                     && call.state == VoiceState::Thinking
                     && call.streams.is_empty()
                     && call.answering.is_some()
-                    && let Some(last_spoken) = call.last_spoken_at
-                    && last_spoken.elapsed() >= OVERRUN_SILENCE
-                    && call
-                        .overrun_nudged_at
-                        .is_none_or(|nudged| nudged.elapsed() >= OVERRUN_COOLDOWN)
+                    && let Some(quiet_since) = call.last_spoken_at.or(call.feedback_at)
+                    && quiet_since.elapsed() >= OVERRUN_SILENCE
                     && let (Some(target), Some(thread)) = (call.target.clone(), call.thread.clone())
                 {
-                    call.overrun_nudged_at = Some(now);
+                    call.overrun_nudged = true;
                     return Ok(Some((target, thread)));
                 }
                 Ok(None)

@@ -234,9 +234,8 @@ impl Calls {
             call.first_clip_started = Some(started);
             call.turn_timing = Some(super::TurnTiming::start(started));
             call.waiting_sound = false;
-            call.spoken_on_turn = false;
             call.last_spoken_at = None;
-            call.overrun_nudged_at = None;
+            call.overrun_nudged = false;
             call.feedback_at = Some(tokio::time::Instant::now());
             call.seq = Some(seq);
             call.activity = Instant::now();
@@ -452,9 +451,8 @@ impl Calls {
                 call.first_clip_started = Some(started);
                 call.turn_timing = Some(super::TurnTiming::start(started));
                 call.waiting_sound = false;
-                call.spoken_on_turn = false;
                 call.last_spoken_at = None;
-                call.overrun_nudged_at = None;
+                call.overrun_nudged = false;
                 call.feedback_at = Some(tokio::time::Instant::now());
                 call.state(VoiceState::Thinking, None);
             }

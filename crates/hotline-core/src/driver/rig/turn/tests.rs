@@ -821,6 +821,135 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
     assert!(waited["jobs"][0].get("output").is_none(), "{waited}");
 }
 
+/// A note left while the turn waits on a job is Hotline's, not the person's:
+/// the wait runs until the job is done, the tool call queued behind it still
+/// runs, and the model reads the note after their results.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_note_ends_no_wait_skips_no_queued_call_and_follows_the_tool_results() {
+    const NOTE: &str = "[Voice call: say where the work stands.]";
+    let root = tempfile::tempdir().unwrap();
+    let outputs = root.path().join("outputs");
+    let shell = RunCommand::new(
+        Workspace::open(root.path().into(), Reach::Machine, outputs.clone()).unwrap(),
+    );
+    let (mut turn, request) = fixture();
+    turn.output_dir = outputs;
+    let steering = turn.steering.clone();
+    let (seen, mut requests) = mpsc::unbounded_channel();
+    let (first, first_stream) = mpsc::channel(8);
+    let (second, second_stream) = mpsc::channel(8);
+    let (third, third_stream) = mpsc::channel(8);
+    let model = scripted(
+        seen,
+        [Some(first_stream), Some(second_stream), Some(third_stream)],
+    );
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let mut tools = ToolSet::default();
+    tools.add_dynamic_tool(DynamicTool::new(
+        rig::message::ToolName::new("next_step").unwrap(),
+        "The step queued behind the wait",
+        serde_json::json!({"type": "object"}),
+        move |_arguments| {
+            let started = started.clone();
+            Box::pin(async move {
+                started.send(()).unwrap();
+                Ok(ToolOutput::text("the next step ran"))
+            })
+        },
+    ));
+    let (updates, mut receiver) = mpsc::channel(64);
+    let task =
+        tokio::spawn(
+            async move { run(&model, request, &tools, &turn, &updates, Some(shell)).await },
+        );
+    let call =
+        |id: &str, name: &str, arguments: Value| MockStreamEvent::tool_call(id, name, arguments);
+    let done = || MockStreamEvent::FinalResponse(mock_final(Usage::default()));
+    receive(&mut requests).await;
+    first
+        .send(Ok(call(
+            "build",
+            "shell",
+            serde_json::json!({"command": "sleep 1; echo built"}),
+        )))
+        .await
+        .unwrap();
+    first.send(Ok(done())).await.unwrap();
+    drop(first);
+    let receipt = serde_json::to_string(&receive(&mut requests).await.chat_history).unwrap();
+    let job_id = receipt
+        .split("job_id\\\":\\\"")
+        .nth(1)
+        .and_then(|rest| rest.split("\\\"").next())
+        .expect("the receipt names the job")
+        .to_owned();
+    second
+        .send(Ok(call(
+            "wait",
+            "wait_jobs",
+            serde_json::json!({"job_ids": [job_id], "timeout_seconds": 30}),
+        )))
+        .await
+        .unwrap();
+    second
+        .send(Ok(call("next", "next_step", serde_json::json!({}))))
+        .await
+        .unwrap();
+    second.send(Ok(done())).await.unwrap();
+    drop(second);
+    // The note lands once the wait has begun.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(update) = receiver.recv().await {
+            if matches!(&update, Update::ToolCall { kind, .. } if kind == "wait_jobs") {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the wait began");
+    assert!(steering.note(NOTE.into()));
+    tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+    let last = receive(&mut requests).await;
+    receive(&mut starts).await;
+    answer(third).await;
+    task.await.unwrap().unwrap();
+
+    let said = said(&last);
+    let mut waited = None;
+    let mut next_step = None;
+    let mut note_at = None;
+    let mut last_result_at = 0;
+    for (index, part) in said.iter().enumerate() {
+        match part {
+            Said::User(UserContent::ToolResult(result)) => {
+                let text = result
+                    .content
+                    .iter()
+                    .filter_map(rig::message::ToolResultContent::as_text)
+                    .collect::<String>();
+                match result.call.wire().as_ref() {
+                    "wait" => waited = Some(serde_json::from_str::<Value>(&text).unwrap()),
+                    "next" => next_step = Some(text),
+                    _ => {}
+                }
+                last_result_at = index;
+            }
+            Said::User(UserContent::Text(text)) if text.text == NOTE => note_at = Some(index),
+            _ => {}
+        }
+    }
+    let waited = waited.expect("wait_jobs answered");
+    assert_eq!(waited["jobs"][0]["state"], "succeeded", "{waited}");
+    assert_eq!(waited["status"], "completed", "{waited}");
+    assert_eq!(next_step.as_deref(), Some("the next step ran"));
+    let note_at = note_at.expect("the model read the note");
+    assert!(
+        note_at > last_result_at,
+        "the note follows the tool results"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_side_question_preserves_the_job_and_stop_waits_for_its_exit() {

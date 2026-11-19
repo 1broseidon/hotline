@@ -117,9 +117,18 @@ it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it
 interrupts, with its own echo handling. A `thinking` that says `listening`
 is listened through: the call's phase is `listening` while the teammate
-works. Turn by turn stays silent on ordinary turns and receives one soft presence clip
-from the core only if no speech has begun after 8 seconds of unexplained
-silence; there is no local repeating chime or canned progress filler.
+works. A turn ends after a pause of 1.2 seconds (`SILENCE_MS`, every pause
+kept in `ui/src/voice/turn.ts`). On a text call whose recognizer listens in
+English, a draft that is plainly finished ends it after 0.55 seconds
+(`FAST_SILENCE_MS`, `silenceAfter`): it ends in `.`, `?` or `!`, or it is at
+most four words that do not end on a word leading into more ("and", "the",
+"can you"), and a single word only when it is a whole answer ("thanks",
+"nope", "done"; never an opener such as "okay", "yeah", "what", "so" or
+"well"). Any other language, and an audio call with no words to judge
+(`AUDIO_SILENCE_MS`), keeps the 1.2 seconds. Turn by turn stays silent on
+ordinary turns and receives one soft presence clip from the core only if no
+speech has begun after 8 seconds of unexplained silence; there is no local
+repeating chime or canned progress filler.
 What the desk begins to say while the person is
 talking does not play over them: it waits until their turn ends, and goes if
 they said something (the desk stops it on taking their words) or plays if it
@@ -665,15 +674,24 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
-On a Turn by turn call, the teammate's own opening is said as it streams (flushing
-the opening clause early when the first sentence runs long), including prose
-before a tool. The prompt asks for that sentence before tools with a coarse size
-(*a moment*, *a couple of minutes*, or *a while*) for multi-step work, with no
-stock filler. Ordinary turns stay silent while waiting; only if no speech has
-begun after 8 seconds of unexplained silence does the core send one warm
-presence sound on the normal clip wire, on desk and phone. If announced work
-runs quiet past 90 seconds, the core steers one internal overrun nudge at the
-next tool boundary so the teammate gives real progress instead of canned filler.
+On a Turn by turn call, the teammate's own opening is said as it streams,
+including prose before a tool. Its first piece is always cut at the first
+clause break (`, `, `; `, `: `, ` — `, ` - `) past six words and 32
+characters (`spoken::take_opening_clause`), so speech starts before a long
+first sentence ends; every later piece is a whole sentence. The prompt asks
+for that sentence before tools with a coarse size (*a moment*, *a couple of
+minutes*, or *a while*) for multi-step work, with no stock filler. Ordinary
+turns stay silent while waiting; only if no speech has begun after 8 seconds
+of unexplained silence does the core send one warm presence sound on the
+normal clip wire, on desk and phone. Once per turn, when 90 seconds pass with
+nothing said since the teammate last spoke (or since that sound, on a turn
+that went straight to its tools), the core leaves the turn one overrun note
+(`spoken::OVERRUN_NUDGE`, `Driver::note`) asking for one sentence of real
+progress. It is a note, not a steered line: Hotline Agent reads it after the
+results of its next tool round, and a wait, a model request in flight or a
+tool call queued behind it goes on; an ACP agent gets it through its steering
+extension, which takes it at its next step, and one it refuses is dropped.
+Hold, a cut-in and the turn ending each leave no note. It never repeats.
 The reply stays interruptible, and the written answer stays intact. Each message
 said is one reply id, growing piece by piece, with clips under that id.
 

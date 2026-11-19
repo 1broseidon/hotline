@@ -842,6 +842,28 @@ describe("a call heard by this Mac", () => {
 		expect(r.sentText().map((one) => one["text"])).toEqual(["Call Mack about the build."]);
 	});
 
+	for (const [locale, draft, early] of [
+		["en-US", "Check the build", true],
+		["en-US", "Okay", false],
+		["en-US", "I want you to look at the failing test", false],
+		["de-DE", "Check the build", false],
+	] as const) {
+		test(`a pause after "${draft}" heard in ${locale} ${early ? "ends the turn sooner" : "waits the full pause"}`, async () => {
+			const r = textRig(fakeSpeech({ locale }));
+			await r.call.start();
+			r.levels(-20, 1_200, 1_400);
+			r.speech.emit({ type: "partial", text: draft });
+			r.speech.finalize(draft);
+			// Past the short pause, short of the full one.
+			r.levels(-74, 1_450, 2_200);
+			await tick();
+			expect(r.sentText().map((one) => one["text"])).toEqual(early ? [draft] : []);
+			r.levels(-74, 2_250, 2_700);
+			await tick();
+			expect(r.sentText().map((one) => one["text"])).toEqual([draft]);
+		});
+	}
+
 	for (const [why, capabilities, speech] of [
 		["the desk takes no text", ["voice", "voiceDirectCalls"], fakeSpeech()],
 		["this Mac cannot recognize speech", TEXT_DESK, fakeSpeech({ available: false, reason: "No speech here" })],

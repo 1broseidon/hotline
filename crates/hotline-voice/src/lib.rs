@@ -428,14 +428,11 @@ pub struct Call {
     pub first_clip_started: Option<Instant>,
     pub(crate) turn_timing: Option<TurnTiming>,
     waiting_sound: bool,
-    /// Whether any non-empty spoken clip has played on the current turn.
-    /// Once true, the unexplained-silence cue does not fire for this turn.
-    pub spoken_on_turn: bool,
-    /// When the last non-empty spoken clip played on this turn, used for the
-    /// one-shot overrun nudge on long tool runs.
+    /// When the last non-empty spoken clip played on this turn: the overrun
+    /// note counts its 90 seconds from here.
     pub last_spoken_at: Option<tokio::time::Instant>,
-    /// When an overrun nudge was last injected into the teammate's running turn.
-    pub overrun_nudged_at: Option<tokio::time::Instant>,
+    /// Whether this turn has had its one overrun note.
+    pub overrun_nudged: bool,
     /// Last audible clip or queued feedback; independent of first-clip telemetry.
     pub feedback_at: Option<tokio::time::Instant>,
     /// On a direct call, the latest turn handed to the teammate whose session
@@ -1151,7 +1148,7 @@ impl Calls {
         if call.answering.is_some_and(|seq| seq <= origin.seq) {
             call.feedback_at = None;
             call.last_spoken_at = None;
-            call.overrun_nudged_at = None;
+            call.overrun_nudged = false;
         }
         if call.work.try_send(Work::TurnOver(origin.seq)).is_err()
             && call

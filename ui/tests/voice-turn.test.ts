@@ -6,6 +6,7 @@ import {
   isGoodbye,
   levelFromDb,
   looksComplete,
+  silenceAfter,
   MAX_TURN_MS,
   MIN_SPEECH_MS,
   SILENCE_MS,
@@ -462,32 +463,61 @@ describe('goodbye', () => {
 });
 
 describe('adaptive endpointing', () => {
-  test('looksComplete recognizes finished thoughts and holds open clauses', () => {
+  test('a draft is finished when it ends in a full stop, or is four words or fewer that do not lead on', () => {
     for (const complete of [
-      'Yeah',
-      'Okay',
       'Thanks',
+      'Nope',
       'Check the build',
+      'Run the tests now',
       'What did Pork Chop say?',
       'Ship it.',
-      'Can you run the tests',
+      'I want you to look at the failing test.',
     ]) {
       expect(looksComplete(complete)).toBe(true);
     }
     for (const incomplete of [
       '',
       '   ',
+      // Openers: a pause after them is a breath, not the end of a turn.
+      'Okay',
+      'Yeah',
+      'What',
+      'How',
+      'So',
+      'Well',
+      'Wait',
       'Check',
       'Tell',
+      // Past four words, only a full stop says the thought is done.
+      'I want you to look at the failing test',
+      'Can you run the tests',
       'Can you check the build and',
       'I wanted to ask about',
       'Wait so um',
       'Look at the',
+      'Can you',
       'Open it,',
       'Wait —',
+      'So...',
     ]) {
       expect(looksComplete(incomplete)).toBe(false);
     }
+  });
+
+  test('only an English recognizer gets the shorter pause', () => {
+    expect(silenceAfter('Ship it.', 'en-US')).toBe(FAST_SILENCE_MS);
+    expect(silenceAfter('Check the build', 'en_GB')).toBe(FAST_SILENCE_MS);
+    expect(silenceAfter('Okay', 'en-US')).toBe(SILENCE_MS);
+    expect(silenceAfter('I want you to look at the failing test', 'en-US')).toBe(SILENCE_MS);
+    for (const locale of ['de-DE', 'fr-FR', 'es-ES', 'ja-JP', '']) {
+      expect(silenceAfter('Ja.', locale)).toBe(SILENCE_MS);
+      expect(silenceAfter('Mach das jetzt', locale)).toBe(SILENCE_MS);
+    }
+  });
+
+  test('a call with no words to judge waits as long as before 0.50', () => {
+    expect(AUDIO_SILENCE_MS).toBe(1200);
+    expect(SILENCE_MS).toBe(1200);
   });
 
   test('ends early when push receives a fast silence threshold and reports it', () => {
@@ -501,18 +531,6 @@ describe('adaptive endpointing', () => {
     if (end.kind === 'end') {
       expect(end.silenceMs).toBe(FAST_SILENCE_MS);
       expect(end.at).toBeGreaterThan(984 + FAST_SILENCE_MS);
-      expect(end.at).toBeLessThan(984 + SILENCE_MS);
-    }
-  });
-
-  test('constructor default silence supports AUDIO_SILENCE_MS', () => {
-    const detector = new TurnDetector(0, undefined, AUDIO_SILENCE_MS);
-    const events = [...talk(detector, 0, 1000), ...run(detector, QUIET, 1000, 2000)];
-    expect(events.map((event) => event.kind)).toEqual(['start', 'end']);
-    const end = events[1]!;
-    if (end.kind === 'end') {
-      expect(end.silenceMs).toBe(AUDIO_SILENCE_MS);
-      expect(end.at).toBeGreaterThan(984 + AUDIO_SILENCE_MS);
       expect(end.at).toBeLessThan(984 + SILENCE_MS);
     }
   });

@@ -137,15 +137,18 @@ relaxes length for that answer only, in numbered parts with a check-in.
 lines and actual chat posts at turn/tool boundaries and on a half-second
 change check. Context is bounded and scrubbed; interruption notices distinguish
 generated words from what the caller heard. Small talk stays on the call thread.
-Turn by turn streams its own opening and reply, opening on the first natural
-clause when the first sentence runs long. Ordinary turns stay quiet while the
-model responds; only an unexplained silent wait past 8 seconds with no speech
-emitted yet plays one warm core-supplied presence cue, once per turn. No client
-repeating chime or canned progress filler is generated. Before multi-step tool
-work, the teammate states what it is doing and a coarse size (*a moment*, *a
-couple of minutes*, or *a while*) in its own words and works in silence; if
-announced work stays silent past 90 seconds, the core steers a single internal
-overrun nudge so the teammate shares real news at the next tool boundary.
+Turn by turn streams its own opening and reply, always cutting the first
+piece at a clause break once the first sentence passes six words. Ordinary
+turns stay quiet while the model responds; only an unexplained silent wait
+past 8 seconds with no speech emitted yet plays one warm core-supplied
+presence cue, once per turn. No client repeating chime or canned progress
+filler is generated. Before multi-step tool work, the teammate states what it
+is doing and a coarse size (*a moment*, *a couple of minutes*, or *a while*)
+in its own words and works in silence. Ninety seconds after it last spoke (or
+after the cue, on a tool-first turn), the core leaves it one overrun note per
+turn, read with its next tool results, which ends no wait and skips no tool
+call. On the desk's own recognizer, a pause ends a turn after 1.2 seconds, or
+0.55 seconds for a plainly finished English draft ([voice.md](voice.md#calls-from-the-window-on-a-mac)).
 
 `realtime::scripted_front` runs a fixed spoken deck against each live model,
 rejecting relay wording and repeated acknowledgements within one call. The

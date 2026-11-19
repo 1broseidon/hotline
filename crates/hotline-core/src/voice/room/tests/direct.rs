@@ -781,8 +781,25 @@ async fn ollama_tts_is_prewarmed_on_turn_by_turn_call_start_without_spending_bud
     calls.end(&id).unwrap();
 }
 
+/// Moves the paused clock on a second at a time, draining what the call sends.
+async fn quietly(rx: &mut broadcast::Receiver<VoiceEvent>, seconds: u64) {
+    for _ in 0..seconds {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while rx.try_recv().is_ok() {}
+    }
+}
+
+fn nudged(calls: &Calls, id: &str) -> bool {
+    calls
+        .test_change(id, |call| Ok(call.overrun_nudged))
+        .unwrap()
+}
+
+/// A turn that said what it is doing is left one overrun note 90 seconds
+/// after it last spoke, and never another however long the work runs.
 #[tokio::test(start_paused = true)]
-async fn overrun_nudge_fires_at_90s_and_respects_180s_cooldown() {
+async fn the_overrun_note_comes_once_90_seconds_after_the_last_spoken_line() {
     let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
@@ -803,56 +820,135 @@ async fn overrun_nudge_fires_at_90s_and_respects_180s_cooldown() {
         Some(&origin)
     ));
     let _ = one_reply(&mut rx).await;
+    quietly(&mut rx, 89).await;
+    assert!(!nudged(&calls, &id), "not before 90 seconds of quiet");
+    quietly(&mut rx, 2).await;
+    assert!(nudged(&calls, &id), "one note after 90 seconds of quiet");
+    // Long past what used to be a 180 second cooldown: still the one note,
+    // which only the person's next turn clears.
+    quietly(&mut rx, 400).await;
+    assert!(nudged(&calls, &id));
+    calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
+}
 
-    // Still under 90s of silence after opening speech: no overrun nudge yet.
-    for _ in 0..89 {
-        tokio::time::advance(Duration::from_secs(1)).await;
-        tokio::task::yield_now().await;
-        while rx.try_recv().is_ok() {}
-    }
-    let before_90 = calls
-        .test_change(&id, |call| Ok(call.overrun_nudged_at))
+/// A turn that went straight to its tools, with no opening line, still gets
+/// its one note: 90 seconds after the tone that covered its silence.
+#[tokio::test(start_paused = true)]
+async fn a_tool_first_turn_gets_the_overrun_note_too() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
         .unwrap();
-    assert!(before_90.is_none(), "should not nudge before 90s");
-
-    // Cross 90s: one-shot overrun nudge arms and records overrun_nudged_at.
-    for _ in 0..2 {
-        tokio::time::advance(Duration::from_secs(1)).await;
-        tokio::task::yield_now().await;
-        while rx.try_recv().is_ok() {}
-    }
-    let first_nudge = calls
-        .test_change(&id, |call| Ok(call.overrun_nudged_at))
-        .unwrap();
-    assert!(first_nudge.is_some(), "expected overrun nudge after 90s");
-
-    // Inside the 180s cooldown (170s later): timestamp does not advance.
-    for _ in 0..170 {
-        tokio::time::advance(Duration::from_secs(1)).await;
-        tokio::task::yield_now().await;
-        while rx.try_recv().is_ok() {}
-    }
-    let during_cooldown = calls
-        .test_change(&id, |call| Ok(call.overrun_nudged_at))
-        .unwrap();
-    assert_eq!(
-        during_cooldown, first_nudge,
-        "cooldown must prevent re-nudge"
-    );
-
-    // Past the 180s cooldown: a second nudge is allowed.
-    for _ in 0..15 {
-        tokio::time::advance(Duration::from_secs(1)).await;
-        tokio::task::yield_now().await;
-        while rx.try_recv().is_ok() {}
-    }
-    let second_nudge = calls
-        .test_change(&id, |call| Ok(call.overrun_nudged_at))
-        .unwrap();
+    tokio::time::advance(Duration::from_millis(8_250)).await;
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
+    )
+    .await;
+    quietly(&mut rx, 88).await;
+    assert!(!nudged(&calls, &id), "90 seconds counted from the tone");
+    quietly(&mut rx, 3).await;
     assert!(
-        second_nudge > first_nudge,
-        "expected a follow-up nudge after the 180s cooldown"
+        nudged(&calls, &id),
+        "a silent tool-first turn gets its note"
     );
     calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
+}
+
+/// Hold, the person cutting in and the turn ending each take the note off:
+/// nothing is left for work the person is not waiting on.
+#[tokio::test(start_paused = true)]
+async fn hold_interrupt_and_a_finished_turn_leave_no_overrun_note() {
+    for how in ["hold", "interrupt", "ended"] {
+        let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+        let origin = on_turn(&calls, &id, 1);
+        calls
+            .test_change(&id, |call| {
+                call.answering = Some(1);
+                call.feedback_at = Some(tokio::time::Instant::now());
+                call.state(VoiceState::Thinking, None);
+                Ok(())
+            })
+            .unwrap();
+        quietly(&mut rx, 30).await;
+        match how {
+            "hold" => calls.hold(&id, true).unwrap(),
+            "interrupt" => calls.interrupt(&id).unwrap(),
+            _ => calls.turn_ended(&persona, &origin),
+        }
+        quietly(&mut rx, 300).await;
+        assert!(!nudged(&calls, &id), "{how} leaves no note");
+        calls.end(&id).unwrap();
+    }
+}
+
+/// Two sentences synthesizing at once, then the person cuts in or hangs up:
+/// neither of them, nor anything after, is played.
+#[tokio::test(start_paused = true)]
+async fn cutting_in_or_hanging_up_mid_synthesis_plays_nothing_more() {
+    for hang_up in [false, true] {
+        let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+        let origin = on_turn(&calls, &id, 1);
+        calls
+            .test_change(&id, |call| {
+                call.answering = Some(1);
+                Ok(())
+            })
+            .unwrap();
+        *lock(&fake.delay) = Duration::from_secs(1);
+        let reply = "<spoken>First sentence is here. Second sentence follows right behind. Third closes cleanly.</spoken>";
+        assert!(calls.delivery(&persona, "both", "Mack", reply, true, Some(&origin)));
+        for _ in 0..200 {
+            if lock(&fake.spoken).len() == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(lock(&fake.spoken).len(), 2, "two sentences in flight");
+        if hang_up {
+            calls.end(&id).unwrap();
+        } else {
+            calls.interrupt(&id).unwrap();
+        }
+        for _ in 0..50 {
+            tokio::time::advance(Duration::from_millis(100)).await;
+            tokio::task::yield_now().await;
+            while let Ok(event) = rx.try_recv() {
+                assert!(
+                    !matches!(&event, VoiceEvent::Clip { data, .. } if !data.is_empty()),
+                    "no audio after {}: {event:?}",
+                    if hang_up { "hang-up" } else { "barge-in" }
+                );
+            }
+        }
+        assert_eq!(
+            lock(&fake.spoken).len(),
+            2,
+            "the third is never synthesized"
+        );
+        if !hang_up {
+            calls.end(&id).unwrap();
+        }
+    }
+}
+
+/// Only an Ollama voice is warmed when a Turn by turn call starts: a paid or
+/// remote one is never asked to speak before the teammate has said anything.
+#[tokio::test]
+async fn a_voice_other_than_ollama_is_not_prewarmed() {
+    let fake = Arc::new(Fake::default());
+    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(lock(&fake.spoken).is_empty(), "{:?}", lock(&fake.spoken));
     calls.end(&id).unwrap();
 }

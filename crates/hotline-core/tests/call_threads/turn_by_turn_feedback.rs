@@ -1,16 +1,20 @@
 use super::super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Both session drivers can ignore the requested opening. When unexplained
 /// silence lasts 8 seconds before any spoken clip, the Turn by turn runtime
 /// sends one quiet waiting tone and never loops canned progress lines while
-/// real tool work runs.
+/// real tool work runs. Ninety seconds on, the one overrun note is left for
+/// the turn, and it cuts nothing short: Hotline Agent's model request in
+/// flight is answered, not asked again.
 #[tokio::test]
 async fn tool_first_turn_by_turn_replies_get_one_delayed_cue_and_no_canned_progress() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let gate = desk.root.path().join("finish-tool-turn");
+        let requests = Arc::new(AtomicUsize::new(0));
         let grok = if matches!(driver, Driver::HotlineAgent) {
-            Some(grok_tool_first(&mut desk, gate.clone()).await)
+            Some(grok_tool_first(&mut desk, gate.clone(), requests.clone()).await)
         } else {
             None
         };
@@ -46,8 +50,9 @@ async fn tool_first_turn_by_turn_replies_get_one_delayed_cue_and_no_canned_progr
         let cue = desk.event(voice_sub, |event| event["type"] == "clip").await;
         assert_eq!(cue["id"], "waiting-1");
         assert_eq!(cue["mimeType"], "audio/wav");
-        // Advance past the old 20s progress timer: no canned filler should fire.
-        for _ in 0..30 {
+        // Advance past the old 20s progress timer and the 90s overrun note:
+        // no canned filler fires, and the note interrupts nothing.
+        for _ in 0..100 {
             desk.advance(1).await;
             tokio::task::yield_now().await;
         }
@@ -58,6 +63,13 @@ async fn tool_first_turn_by_turn_replies_get_one_delayed_cue_and_no_canned_progr
             "no canned progress line should precede the real answer"
         );
         desk.finished(thread_sub).await;
+        if grok.is_some() {
+            assert_eq!(
+                requests.load(Ordering::SeqCst),
+                2,
+                "the overrun note restarted no model request"
+            );
+        }
         desk.hang_up(&call, thread_sub).await;
     }
 }
@@ -67,9 +79,11 @@ async fn tool_first_turn_by_turn_replies_get_one_delayed_cue_and_no_canned_progr
 async fn grok_tool_first(
     desk: &mut Desk,
     gate: std::path::PathBuf,
+    requests: Arc<AtomicUsize>,
 ) -> hotline_core::provider_fixture::Origin {
     let app = axum::Router::new().route("/v1/responses", axum::routing::post(move |body: axum::body::Bytes| {
         let gate = gate.clone();
+        requests.fetch_add(1, Ordering::SeqCst);
         async move {
             let request: Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(request["model"], "grok-4.7");

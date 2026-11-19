@@ -146,6 +146,19 @@ its own to say yet, and it obeys cut-in, hold and hang-up as any clip. It
 is never said on a live call or a call to the desk
 ([voice.md](voice.md#acknowledging-while-the-teammate-thinks)).
 
+Under the same setting, a turn that is still quiet 6 seconds after the
+person's last word (or after the acknowledgement's sound ends) while the
+teammate is running or has just finished a step the call pane shows gets
+one short line on what it is doing, in its voice, in place of the 8 second
+tone: "I'm searching the web for that now." It is built from the kind of
+step alone, never a tool's name or arguments; the call assistant words it
+knowing what was already said aloud, so it never opens with "still" or
+leans on a line nobody heard, and code drops one that does. Without a call
+assistant a fixed line is said for web search, reading, running and the
+browser, and nothing for other work. A teammate only thinking gets the tone.
+The line obeys cut-in, hold and hang-up, gives way to the teammate's own
+words, is kept as the teammate's, and is never sent to the teammate.
+
 A Turn by turn call to a teammate starts its call thread's agent when the
 call is placed, without saying anything to it, so the first turn does not wait
 for a process to start and a session to open; a call nobody spoke on lets it
@@ -160,7 +173,8 @@ Turn by turn streams its own opening and reply, always cutting the first
 piece at a clause break once the first sentence passes six words. Ordinary
 turns stay quiet while the model responds; only an unexplained silent wait
 past 8 seconds with no speech emitted yet plays one warm core-supplied
-presence cue, once per turn. No client repeating chime or canned progress
+presence cue, once per turn, unless the desk said what the working teammate
+is doing (above). No client repeating chime or canned progress
 filler is generated. Before multi-step tool work, the teammate states what it
 is doing and a coarse size (*a moment*, *a couple of minutes*, or *a while*)
 in its own words and works in silence. Ninety seconds after it last spoke (or

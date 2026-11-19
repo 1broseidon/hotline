@@ -781,7 +781,10 @@ for that sentence before tools with a coarse size (*a moment*, *a couple of
 minutes*, or *a while*) for multi-step work, with no stock filler. Ordinary
 turns stay silent while waiting; only if no speech has begun after 8 seconds
 of unexplained silence does the core send one warm presence sound on the
-normal clip wire, on desk and phone. Once per turn, when 90 seconds pass with
+normal clip wire, on desk and phone; with Acknowledge while the teammate
+thinks on, a teammate visibly working gets one line on what it is doing in
+its place ([Acknowledging while the teammate
+thinks](#acknowledging-while-the-teammate-thinks)). Once per turn, when 90 seconds pass with
 nothing said since the teammate last spoke (or since that sound, on a turn
 that went straight to its tools), the core leaves the turn one overrun note
 (`spoken::OVERRUN_NUDGE`, `Driver::note`) asking for one sentence of real
@@ -915,8 +918,59 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   time, the teammate spoke first, or the person spoke again, over it, or
   held the call.
 
-Off, the call assistant is never asked and a turn is what it was without
-the setting.
+The same setting covers a turn that then goes quiet while the teammate
+works (`hotline-voice`'s `progress.rs`). The teammate's session tells the
+call of each step as it writes it (`Calls::step`, from the turn's witness in
+`session/turns.rs`), by the group the call pane says the step by
+(`glance::step_said`'s `key`); the call keeps only the kind of work that
+group is (`progress::Activity`): searching the web, reading a web page,
+reading files, searching through files, editing files, running a command,
+working in the browser, using its computer, looking back through the
+conversation, or starting a helper. A connected service, thinking, asking,
+posting and every other group are no work to name. Nothing from a step's
+title or arguments is kept, so no tool name, path, address, command or id
+can reach the line.
+
+- Once a turn, when the teammate has said nothing of its own, the turn has
+  been quiet for 6 seconds since the end of the person's speech
+  (`QUIET_AFTER_SPEECH`, `silence` included) or, when an acknowledgement
+  was said, since its sound ended (`QUIET_AFTER_ACK`, its clip's length
+  read from the WAV), and a step is running or finished within the last 10
+  seconds (`STEP_FRESH`), the desk says one line on what the teammate is
+  doing now.
+- The call assistant words it (`dispatcher::PROGRESS`), handed the
+  person's words, the kind of work in plain words and what was said aloud
+  on the turn so far (the acknowledgement, or nothing): first person, at
+  most eight words, no result, nothing done, no time, no filler, no raw
+  name. Code checks the line too (`progress::checked`): one line of at most
+  ten words, no `/`, `_`, address, `file.ext`, flag or id; no claim of a
+  result or a time; no filler opener; never "still"; and, when nothing was
+  said before it, nothing that leans on an earlier line ("also", "again",
+  "as I said", "continuing", "keep"); after an acknowledgement, never the
+  acknowledgement again. A line that fails is not said.
+- Without a call assistant the desk says its own line for four kinds: "I'm
+  searching the web for that now.", "I'm reading that now." (files or a web
+  page), "I'm running that now." and "I'm working on that in the browser
+  now."; any other kind says nothing.
+- It is reserved on Chat and Voice like the acknowledgement, synthesized
+  in the call's own voice, and said only if its sound is ready within 4
+  seconds of being asked for (`PROGRESS_CAP`), the teammate still has no
+  words of its own, and the person has not spoken again, over it, held or
+  hung up. Said, it is the teammate's line on the call's thread and in what
+  later turns are told, and it is speech on the turn: no waiting tone
+  follows it and the overrun note counts from it. The teammate is not told
+  of it.
+- While it is being made the 8 second tone waits; if it is not said, the
+  tone plays as before. A turn with nothing to name gets the tone, and once
+  the tone has played no line follows it.
+- A turn with no line leaves `[voice] call <id>: no progress line: <why>`:
+  the teammate spoke before the quiet was long enough, showed no work to
+  name (so the tone played), the line failed its checks or was refused, was
+  late, or the teammate or the person spoke first.
+
+Off, the call assistant is never asked, no step is kept and a turn is what
+it was without the setting. Live calls and calls to the desk have neither
+line.
 
 ### A reply written only to be read
 
@@ -965,7 +1019,7 @@ Each Turn by turn turn writes one line when the teammate's first clip of it
 goes out, with the call and sequence and never the words or audio:
 
 ```text
-[voice] turn call=<id> seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- tts_done=2900ms desk_total=16900ms model=hotline/<provider>/<model> tts=ollama/phonon
+[voice] turn call=<id> seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- progress=- tts_done=2900ms desk_total=16900ms model=hotline/<provider>/<model> tts=ollama/phonon
 ```
 
 A call's first timed turn adds `session_ready=` after `desk_total`: see
@@ -985,9 +1039,11 @@ A call's first timed turn adds `session_ready=` after `desk_total`: see
   to the sound of the desk's own acknowledgement being ready and sent; `-`
   when none was said, and the log says why
   ([Acknowledging while the teammate thinks](#acknowledging-while-the-teammate-thinks)).
+- `progress`: the same, for the desk's line on what a quiet teammate is
+  doing; `-` when none was said, and the log says why.
 - `tts_done`: the first piece's synthesis to its clip.
 - `desk_total`: the desk taking the utterance to the teammate's first clip.
-  The acknowledgement is not that clip. What the person waited for the teammate's first word is `silence` plus
+  Neither of the desk's own lines is that clip. What the person waited for the teammate's first word is `silence` plus
   `desk_total`, plus transport.
 
 It measures desk publication, not transport or client playback latency.

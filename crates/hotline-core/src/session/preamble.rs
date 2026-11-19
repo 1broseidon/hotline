@@ -81,17 +81,43 @@ pub(crate) fn preamble_for(
         .filter(|names| !names.is_empty())
     {
         Some(names) => {
+            let grants = persona.grants();
+            // A key granted protected is one whose value the computer adds
+            // to requests for its service, when the computer can keep it
+            // from the agent's programs, and is not handed over otherwise.
+            let protected_key = |secret: &SharedSecret| {
+                secret.used_with.is_some()
+                    && grants
+                        .iter()
+                        .any(|grant| grant.name == secret.name && !grant.readable)
+            };
+            let mut keys = false;
             let described: Vec<String> = names
                 .iter()
                 .map(
                     |name| match stored.iter().find(|secret| &secret.name == name) {
+                        Some(secret) if protected_key(secret) => {
+                            keys = true;
+                            let hosts: Vec<&str> = secret
+                                .used_with
+                                .iter()
+                                .flat_map(|usage| usage.origins.iter())
+                                .map(|origin| origin.trim_start_matches("https://"))
+                                .collect();
+                            format!("{name} (a key used with {})", hosts.join(", "))
+                        }
                         Some(secret) => format!("{name} ({})", describe_secret(secret)),
                         None => format!("{name} (not stored right now)"),
                     },
                 )
                 .collect();
+            let keys_sentence = if keys {
+                " A key used with a service reaches your computer only when the computer can keep it from your programs; there $NAME holds a stand-in, and the real key is added only to requests to that service, so use it as you would the key. When the computer cannot yet, the key is not there, and a tool that needs it fails: tell the person."
+            } else {
+                ""
+            };
             format!(
-                "\n\nThe person has put these secrets in your computer, by name: {}. A variable is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable. A login is typed for you: on a sign-in form of one of its sites, use `browser fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; the computer types it only on that login's own sites and refuses any other page, and that refusal is right. A passkey signs in by itself when the site asks the browser for one; nothing types it. You never see a value: the computer redacts every one from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                "\n\nThe person has put these secrets in your computer, by name: {}. A variable is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable.{keys_sentence} A login is typed for you: on a sign-in form of one of its sites, use `browser fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; the computer types it only on that login's own sites and refuses any other page, and that refusal is right. A passkey signs in by itself when the site asks the browser for one; nothing types it. You never see a value: the computer redacts every one from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
                 described.join(", ")
             )
         }
@@ -102,7 +128,7 @@ pub(crate) fn preamble_for(
             .filter(|names| !has_computer && !names.is_empty())
         {
             Some(names) => format!(
-                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`, on the ref of the field for that part: a username into the username or email field, a password into the password field, a code into the one-time-code field. It is typed only on that login's own sites and only into such a field, and that refusal is right. You never see a value, and none is ever read back to you: no picture of the page is taken while one shows outside a password field. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`, on the ref of the field for that part: a username into the username or email field, a password into the password field, a code into the one-time-code field. It is typed only on that login's own sites and only into such a field, and that refusal is right. You never see a value, and none is ever read back to you: once a password or code is typed, the page is not read or pictured until another page loads, so submit the form, or reload, before you look again. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
                 names.join(", ")
             ),
             None => String::new(),

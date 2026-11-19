@@ -1064,7 +1064,7 @@ async fn no_observation_between_a_desk_secret_fill_and_the_next_page() {
         .await
         .unwrap();
     assert!(call(json!({ "action": "text" })).await.is_err());
-    *fake.showing.lock().unwrap() = ("".into(), vec!["hunter22".into()]);
+    *fake.showing.lock().unwrap() = (String::new(), vec!["hunter22".into()]);
     call(json!({ "action": "click_ref", "ref": "e9" }))
         .await
         .unwrap();

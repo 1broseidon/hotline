@@ -33,12 +33,36 @@ the chosen image, the teammate's pane offers the update.
 - `/` is the viewer page and `/ws` its socket, which takes the same token as a
   `token` query. Hotline opens `http://127.0.0.1:<host port>/#<token>`; the page
   reads the fragment and the token never appears in a request line.
-- Nothing in the image runs as root, so Hotline creates the container with
-  `--cap-drop=ALL` and nothing added back, `no-new-privileges`, memory and PID
-  limits, a sized `/dev/shm`, and the one port published on loopback.
+- Up to 0.12 nothing in the image runs as root, so Hotline creates the
+  container with `--cap-drop=ALL` and nothing added back, `no-new-privileges`,
+  memory and PID limits, a sized `/dev/shm`, and the one port published on
+  loopback. A release from 0.13 boots as root only to split itself into
+  users, so for its image, and no other, Hotline adds `--user 0 --cap-add
+  SETUID --cap-add SETGID` and nothing else; a tag that is not a release
+  number gets the older flags.
+- `GET /capabilities?nonce=N` says whether the computer keeps secrets from
+  its jobs: `{version, boot, protected: {v: 1, mode}, attest}`, where
+  `attest` is base64 HMAC-SHA256 under the bearer of
+  `hotline-broker-v1|<boot>|<N>`. The desk asks with a fresh nonce before
+  every handing over and before Use Cookies. `mode: "split"` with an
+  `attest` this bearer made is a protected computer; a 404 (a release before
+  0.13) or `mode: "legacy"` is not; `split` with any other `attest` is
+  handed nothing at all.
 - The workspace is mounted at `/home/agent/workspace`.
-- `PUT /secrets` takes the whole set of secrets the teammate is granted, a
-  JSON object of name to secret, bearer in the `Authorization` header. A
+- `PUT /secrets` takes the whole set of secrets the teammate is granted for
+  its computer, bearer in the `Authorization` header. A protected computer
+  is sent the v2 form, `Content-Type:
+  application/vnd.hotline.secrets.v2+json`, `{v: 2, generation, secrets}`:
+  a readable variable is `{kind: "variable", value, readable: true}`, a key
+  granted protected is `{kind: "variable", value, use: {origins, header,
+  schemes, refuse?, standIn: {prefix, length}}}` from its "Used with"
+  (`crates/hotline-core/src/vault/services.json`), and a login or passkey is
+  the record below. What the computer does with a key's `use` is that
+  release's to document. Any other computer is sent the v1 form, as 0.49
+  sent it, a JSON object of name to secret, and is never sent a key granted
+  protected: that waits on the desk, and `computer.status` says
+  `protection: "needsUpdate"` (`"legacy"` when nothing waits, `"protected"`
+  for a protected computer). In the v1 form a
   variable is its bare value; a login is `{"kind":"login", sites, username,
   password, totp?}`; a passkey is `{"kind":"passkey", rpId, credentialId,
   privateKey, userHandle?, userName?, userDisplayName?}`. The computer keeps
@@ -81,6 +105,10 @@ the chosen image, the teammate's pane offers the update.
   A release from before the door (0.8.0 and earlier) answers 404, and the
   desk says so and points at the teammate's Update. Bearer-only, like
   `/secrets`.
+- On a protected computer, Use Cookies goes to `PUT /sessions/{name}` with
+  `{sites, cookies, storage}` instead of a saved login in the agent's home,
+  and taking a share back is `DELETE /sessions/{name}` with `{domains?}`.
+  Any other computer takes the saved login as above.
 
 A paired phone reaches the same viewer socket through a door on the Remote
 listener, `GET /computer/<personaId>/ws` with the phone's own bearer. The

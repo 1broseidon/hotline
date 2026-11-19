@@ -614,7 +614,15 @@ retained-image budget or cleanup, so repeated messages consume additional disk.
 
 The operator keeps three kinds of secret in the vault, each under a name.
 A variable — a GitHub PAT, an npm token, a Stripe test key — is a value
-that becomes an environment variable: `secrets.set {name, value}`. A login
+that becomes an environment variable: `secrets.set {name, value}`. A
+variable may be "Used with" a service: GitHub, OpenAI, Anthropic, or Other
+with an `https` host the person names, from
+`crates/hotline-core/src/vault/services.json`, which gives the origins, the
+header and its schemes, and a short list of paths that mint keys (none for
+Other). A key's start suggests one in the window and the person confirms it
+by storing; it is metadata in the sidecar, set by `secrets.set {usedWith}`
+or `secrets.used_with.set` without the value being read, and a new value
+keeps it. A login
 is one or more sites, a username, a password and optionally a TOTP seed:
 `secrets.login.set`. A passkey is a WebAuthn credential of the teammate's
 own, which is never sent in but made (below). Every record is written to
@@ -629,10 +637,26 @@ require owner or local desk authority. The bounded
 `secrets.capture.answer` flow below also allows the phone seat.
 
 A teammate gets a secret only by the operator ticking its name on that
-teammate, `secrets`, a standing choice like a folder, nothing pre-ticked.
-The grant is the teammate's, not its computer's: whichever shell and
-browser it has uses the one list, and a record from before kept it as
-`computer.secrets`, which is read as the teammate's. `persona.update` changes that set from the desk;
+teammate, a standing choice like a folder, nothing pre-ticked. The grant is
+the teammate's, not its computer's: whichever shell and browser it has uses
+the one list, and a record from before kept it as `computer.secrets`, which
+is read as the teammate's. Each grant in `secretGrants` is readable or
+protected, and may name where it goes (`on`: its computer, its desk shell);
+`secrets` holds the names in step, for a client from before. A readable
+grant is today's grant said plainly: the pane labels it "Readable by this
+teammate's programs", and the teammate's programs can read the value. A
+variable with no "Used with" can only be granted readable, and the pane asks
+before it is; a login or a passkey is never granted readable. At upgrade
+every granted variable became readable, so it is handed over where it was
+before. A teammate that runs as the person — whole-machine reach, or any ACP
+harness — can read the desk's data and reach the container runtime, its own
+computer included, so every key it is granted is readable and every grant on
+it carries the label; a key granted to it protected (from before it ran so) is
+never handed over (`session/grants.rs`). The choice of where a grant goes is
+not drawn until the desk shell takes secrets, which it does not yet: today a
+grant reaches the teammate's computer and, with no computer, its desk
+browser. `persona.update` changes the grants from the desk (an older
+client's names are settled into grants, a plain variable readable);
 answering a credential card also ticks its one key for its bound requester. At every grant — session start, reattach, and whenever a stored
 value is replaced or deleted — the desk reads the granted values from the
 vault and hands the computer the whole set through `PUT /secrets` on its
@@ -651,8 +675,30 @@ still read its service's environment, so holding the bearer must never be
 worth a value. The agent is told the names and kinds, in the preamble and
 by `state info`, and told it will never see a value.
 
-A login goes to the computer as a record with its sites, and is typed only
-there. The agent asks `browser fill` for `NAME.username`, `NAME.password`
+What a computer is handed depends on what it proves it is. Before every
+handing over the desk asks `GET /capabilities` with a fresh nonce. A
+computer that says it runs split (0.13 and later, booted with the flags
+only that release is made with) and whose `attest` is the HMAC this bearer
+makes over its boot and the nonce is protected, and takes every grant: a
+readable variable as readable, a key granted protected with its "Used
+with" and a stand-in's shape, logins and passkeys. What it does with them —
+keeping them from its jobs, adding a key only to its service's requests —
+is that computer release's claim, documented and tested there; this desk
+claims only that it hands a key to no computer that has not proved it
+supports that. A computer with no such door, or one that says legacy, is
+handed exactly what 0.49 handed it: readable variables, logins and
+passkeys, everything readable by its programs as described below, and
+never a key granted protected, which waits on the desk while
+`computer.status` says `needsUpdate`; with nothing waiting it says
+`legacy`, and the pane says that once per teammate. A computer that says
+split but whose `attest` this bearer did not make is handed nothing at all
+(`computer/secrets.rs`, `session/tests/computer.rs`). Use Cookies follows
+the same answer: a protected computer takes a share through `/sessions`
+into its signed-in browser, any other as the saved login it always took.
+
+On a computer that does not protect them, which is every computer before
+0.13, the rest of this section is what holds. A login goes to the computer
+as a record with its sites, and is typed only there. The agent asks `browser fill` for `NAME.username`, `NAME.password`
 or `NAME.code` — the six TOTP digits of this moment, computed in the
 container from the seed — by name, in place of text; the computer types it
 into the referenced field only when the page's origin is one of the login's
@@ -764,8 +810,20 @@ cannot be told of a change keeps its set until it is stopped, and the
 teammate's tape says so. A release from before `/secrets` answers 404: the
 teammate starts, the tape names what is not in its shell, and the pane's
 Update is the fix. Network-layer injection, where a proxy adds the header
-and the value never exists in the sandbox, is the stronger follow-up for
-HTTP APIs and is not built.
+and the value never exists where the agent's programs run, is the stronger
+follow-up for HTTP APIs: the desk side of it is the "Used with" above, and
+the proxy is the 0.13 computer's, so a key is protected only when the
+computer supports it, and only for that key's service.
+
+In the desk browser (below), a login is typed by the core itself. From a
+typed password or code to the next page nothing of the page reaches the
+agent: `text`, `links`, a picture, a full-page look, `send_file` with
+source `browser` and `wait_for` are refused until the agent reloads,
+navigates or goes back, or an act takes the page to another address where
+no granted value shows (`mcp/server/tests/desk_browser.rs`
+`no_observation_between_a_desk_secret_fill_and_the_next_page`). A username
+leaves the page readable: it is who signs in, as the pane lists it. Passkey
+arming is offered only on the Mac app, the one desk browser with a signer.
 
 ## The method for a new capability
 
@@ -1379,7 +1437,9 @@ themselves are compiled and linted for Windows from the Mac
     ran out, at the time it would have, so it cannot spell a value out a
     guess at a time. A `screenshot`, a full-page look and `send_file` with
     source `browser` are refused while a value shows on the page outside a
-    masked password field: the page answers its rendered text (with open
+    masked password field, and every read, picture and wait is refused from
+    a typed password or code to the next page (above, Secrets a teammate
+    uses without seeing): the page answers its rendered text (with open
     shadow roots and frames of its own origin) and the value of every field
     but a hidden one and a password field it keeps masked
     (`browser/showing.js`), the core looks for the values in that before

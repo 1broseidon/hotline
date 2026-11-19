@@ -2022,8 +2022,12 @@ async fn a_whole_machine_teammates_protected_key_is_held_back() {
 
 #[tokio::test]
 async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_none() {
-    let ComputerRoom { room, taken, .. } =
-        computer_room("protected-split", Some("0.13.0"), TWO_RELEASES, true).await;
+    let ComputerRoom {
+        room,
+        taken,
+        agents,
+        ..
+    } = computer_room("protected-split", Some("0.13.0"), TWO_RELEASES, true).await;
     grant_a_key_a_variable_and_a_login(&room);
     room.start("ada").await.unwrap();
     assert_eq!(taken.forms(), [2]);
@@ -2036,6 +2040,18 @@ async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_
         protection(&room).await,
         Some(crate::contract::ComputerProtection::Protected)
     );
+    // The agent is told the key is used with its service, and what that
+    // means for it, never the value.
+    let heard = lock(&agents.preambles)[0].clone();
+    assert!(
+        heard.contains(
+            "GITHUB_TOKEN (a key used with api.github.com, github.com, uploads.github.com)"
+        ),
+        "{heard}"
+    );
+    assert!(heard.contains("holds a stand-in"), "{heard}");
+    assert!(heard.contains("NPM_TOKEN (a variable)"), "{heard}");
+    assert!(!heard.contains("ghp_notarealtoken"), "{heard}");
 
     taken
         .forged

@@ -166,6 +166,9 @@ impl Seat {
                     // A teammate's inbox, read as its threads are read.
                     | Command::InboxList { .. }
                     | Command::InboxItem { .. }
+                    // A teammate's open loops, to read and dismiss from the phone.
+                    | Command::LoopsList { .. }
+                    | Command::LoopsDismiss { .. }
                     // The desk's inbound sources, to read, and to mute or
                     // unmute one: quieting a grant is the person's anywhere,
                     // while adding one, widening it or removing it stays at
@@ -283,6 +286,7 @@ impl Seat {
                                 | Target::View(ViewName::Roster)
                                 | Target::Schedules(_)
                                 | Target::Inbox(_)
+                                | Target::Loops(_)
                         ),
                     }
             }

@@ -1127,3 +1127,70 @@ fn what_a_turn_was_asked_is_its_line_without_the_index() {
     assert_eq!(asked(&format!("{}\n\n{line}", timed(now, UNCHANGED))), line);
     assert_eq!(asked(&line), line);
 }
+
+#[tokio::test]
+async fn open_loops_surface_in_thread_index_stay_unchanged_and_diff_on_state_change() {
+    let (room, _) = room("index-open-loops");
+    let now = now_ms();
+    room.sync_open_outcome(
+        "bob",
+        "ca-filing",
+        "File California annual report",
+        "open",
+        false,
+        None,
+        None,
+        now - 2 * DAY_MS,
+    );
+    room.sync_open_outcome(
+        "bob",
+        "larder",
+        "Check Larder backup",
+        "open",
+        false,
+        None,
+        None,
+        now - 60_000,
+    );
+
+    let seen = Seen::default();
+    let dm = ThreadId::dm("bob");
+
+    let first = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .expect("index emitted with open loops");
+    assert!(first.contains("OPEN LOOPS 2"), "{first}");
+    assert!(first.contains("loop:ca-filing"), "{first}");
+    assert!(first.contains("loop:larder"), "{first}");
+
+    // Next turn with nothing changed emits UNCHANGED.
+    let second = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .expect("unchanged line");
+    assert!(second.contains(UNCHANGED), "{second}");
+
+    // Closing larder as done surfaces RECENTLY DONE in delta; dismissing ca-filing puts it in GONE.
+    room.sync_open_outcome(
+        "bob",
+        "larder",
+        "Larder backup verified",
+        "made",
+        false,
+        None,
+        None,
+        now,
+    );
+    let ca = crate::store::loops::open_of(&room.log, "bob")
+        .into_iter()
+        .find(|item| item.key == "ca-filing")
+        .unwrap();
+    room.dismiss_loop("bob", &ca.id).unwrap();
+
+    let third = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .expect("delta emitted");
+    assert!(third.contains("RECENTLY DONE 1"), "{third}");
+    assert!(third.contains("loop:larder"), "{third}");
+    assert!(third.contains("GONE 1"), "{third}");
+    assert!(third.contains("loop:ca-filing"), "{third}");
+}

@@ -64,6 +64,7 @@ impl Room {
             self.sweep_chapters(looked_again).await;
         }
         self.sweep_threads(now);
+        self.sweep_loops(now);
     }
 
     /// The idle policy of the kinds whose live threads the room holds in

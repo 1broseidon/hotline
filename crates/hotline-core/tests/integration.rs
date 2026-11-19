@@ -17,6 +17,8 @@ mod folders;
 mod list_sources;
 #[path = "local_speech.rs"]
 mod local_speech;
+#[path = "loops.rs"]
+mod loops;
 #[path = "mcp.rs"]
 mod mcp;
 #[path = "permission_cards.rs"]

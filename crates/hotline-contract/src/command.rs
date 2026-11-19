@@ -1197,6 +1197,13 @@ pub enum Command {
     /// items that answer it.
     #[serde(rename = "inbox.item")]
     InboxItem { id: String },
+    /// One teammate's living open loops, as `OpenLoop`s.
+    #[serde(rename = "loops.list")]
+    LoopsList { persona_id: String },
+    /// Archives an open loop on the operator's tap, taking it out of active
+    /// working memory while keeping it searchable.
+    #[serde(rename = "loops.dismiss")]
+    LoopsDismiss { persona_id: String, id: String },
     /// Loops a colleague into a work thread: an item from the thread's
     /// teammate lands in the colleague's inbox, and its answer is heard back
     /// in the thread.

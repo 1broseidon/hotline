@@ -675,6 +675,9 @@ fn finish(room: &Room, job_id: &str, slot: Slot) {
         }
     }
     write_or_log(room::append_schedule(&room.log, &next));
+    if next.ended_at.is_some() {
+        room.close_job_loops(&next.persona_id, &next.id, now);
+    }
 }
 
 /// Whether the job firing at `now` ends after this firing: a one-shot, or a
@@ -905,17 +908,21 @@ impl Room {
         else {
             return;
         };
-        job.ended_at = Some(now_ms());
+        let ended_at = now_ms();
+        job.ended_at = Some(ended_at);
         job.awaiting = None;
         write_or_log(room::append_schedule(&self.log, &job));
+        self.close_job_loops(&job.persona_id, &job.id, ended_at);
         self.schedule_changed.notify_one();
     }
 
     /// Writes `job` as ended now. The caller holds the schedule guard.
     fn end_job_record(&self, mut job: ScheduledJob) -> Result<ScheduledJob, String> {
-        job.ended_at = Some(now_ms());
+        let ended_at = now_ms();
+        job.ended_at = Some(ended_at);
         job.awaiting = None;
         room::append_schedule(&self.log, &job)?;
+        self.close_job_loops(&job.persona_id, &job.id, ended_at);
         Ok(job)
     }
 

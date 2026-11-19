@@ -31,6 +31,7 @@ import type {
 	LinkPreview,
 	LoginPrompt,
 	LoginStatus,
+	OpenLoop,
 	PasskeyRegistration,
 	PeerThreadSummary,
 	PairedRelay,
@@ -293,6 +294,10 @@ type Results = {
 	"inbox.list": InboxView;
 	/** One item with its receipts, and the items that answer it. */
 	"inbox.item": InboxItemDetail;
+	/** One teammate's living open loops in display order. */
+	"loops.list": OpenLoop[];
+	/** Dismisses one open loop, returning its archived record. */
+	"loops.dismiss": OpenLoop;
 	/** The colleague has an item in its inbox, and its answer is heard in the thread. */
 	"thread.loop_in": null;
 	/** The desk's inbound sources, oldest first. */

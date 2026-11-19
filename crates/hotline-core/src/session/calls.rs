@@ -201,6 +201,8 @@ impl Room {
                         note: "The calls ended, but I could not prepare their summary. Open the linked calls for the conversation and finished work.".into(),
                         status: crate::contract::ChapterStatus::InProgress,
                         tags: Vec::new(),
+                        loop_updates: Vec::new(),
+                        resolved_loops: Vec::new(),
                     });
                     // A model cannot infer missing work from an interrupted spoken rendition.
                     if !posted.is_empty() && claims_missing_result(&note.note) {

@@ -340,6 +340,15 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Asides are unavailable on this room.".to_string())
     }
 
+    /// Marks one open loop archived from the person's UI.
+    fn loops_dismiss(
+        &self,
+        _persona_id: &str,
+        _id: &str,
+    ) -> Result<hotline_contract::OpenLoop, String> {
+        Err("Open loops are unavailable on this room.".to_string())
+    }
+
     /// Loops a colleague into a work thread: an item in its inbox, whose
     /// answer is heard in the thread.
     async fn side_loop_in(&self, _side_id: &str, _persona_id: &str) -> Result<(), String> {

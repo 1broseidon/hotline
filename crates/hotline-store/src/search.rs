@@ -470,6 +470,18 @@ fn outcome_line(event: &Value) -> Option<Value> {
     }))
 }
 
+/// A teammate's living open loop is found by its key and summary, even after
+/// it has been archived out of the active index.
+fn loop_line(event: &Value) -> Option<Value> {
+    let item = crate::loops::read(event)?;
+    Some(serde_json::json!({
+        "kind": "agent",
+        "id": format!("loop:{}", item.id),
+        "ts": item.closed_at.unwrap_or(item.updated_at),
+        "text": format!("Open loop ({}) [{}]: {}", item.state.name(), item.key, item.summary),
+    }))
+}
+
 fn index_message(
     database: &Connection,
     persona_id: &str,
@@ -480,7 +492,8 @@ fn index_message(
     let synthetic = side_line(event)
         .or_else(|| work_result(event))
         .or_else(|| aside_line(event))
-        .or_else(|| outcome_line(event));
+        .or_else(|| outcome_line(event))
+        .or_else(|| loop_line(event));
     let replaces = synthetic.is_some();
     let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
@@ -719,6 +732,12 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
             index_message(database, persona_id, None, Some(&source), &event)?;
         }
     }
+    // Living and archived open loops, searchable by key or summary.
+    for event in log.load(&StreamId::Loops(persona_id.to_string())) {
+        if crate::loops::read(&event).is_some() {
+            index_message(database, persona_id, None, None, &event)?;
+        }
+    }
     stamp(database, log.root(), persona_id)?;
     Ok(open_chapter(&events)
         .and_then(|chapter| chapter.get("id"))
@@ -880,6 +899,16 @@ impl Indexer {
         let source = crate::asides::source_name(&aside.from);
         let transaction = self.database.transaction()?;
         index_message(&transaction, persona_id, None, Some(&source), event)?;
+        transaction.commit()
+    }
+
+    /// Indexes an open loop as it is written or updated on its stream.
+    pub fn index_loop(&mut self, persona_id: &str, event: &Value) -> rusqlite::Result<()> {
+        if crate::loops::read(event).is_none() {
+            return Ok(());
+        }
+        let transaction = self.database.transaction()?;
+        index_message(&transaction, persona_id, None, None, event)?;
         transaction.commit()
     }
 

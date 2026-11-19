@@ -741,6 +741,15 @@ pub(crate) async fn run(
         Command::InboxList { persona_id } => {
             super::inbox::read(log, &persona_id).map(|view| json!(view))
         }
+        Command::LoopsList { persona_id } => super::loops::read(log, &persona_id)
+            .map(|loops| json!(loops))
+            .map_err(|unreadable| match unreadable {
+                super::loops::Unreadable::NoTeammate(error)
+                | super::loops::Unreadable::Failed(error) => error,
+            }),
+        Command::LoopsDismiss { persona_id, id } => {
+            room.loops_dismiss(&persona_id, &id).map(|item| json!(item))
+        }
         Command::InboxItem { id } => super::inbox::item(log, &id).map(|item| json!(item)),
         Command::ThreadLoopIn { thread, persona_id } => {
             threads::loop_in(room, &thread, &persona_id).await

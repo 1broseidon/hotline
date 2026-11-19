@@ -18,6 +18,7 @@ import { Picker } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
+import { OpenLoops } from "./OpenLoops";
 import { Schedules } from "./Schedules";
 import { LocalAddresses } from "./teammate/LocalAddresses";
 import { ComputerRows } from "./teammate/ComputerRows";
@@ -54,6 +55,7 @@ export function Teammate({
 	roster,
 	focusSchedules,
 	onOpenInboxItem,
+	onAskLoop,
 	onClose,
 	onDeleted,
 }: {
@@ -64,6 +66,8 @@ export function Teammate({
 	focusSchedules: boolean;
 	/** Opens an inbox item in the right-hand pane: the message a job came from. */
 	onOpenInboxItem?: ((itemId: string) => void) | undefined;
+	/** Prefills the conversation composer to ask about an open loop. */
+	onAskLoop?: ((text: string) => void) | undefined;
 	onClose(): void;
 	onDeleted(): void;
 }) {
@@ -405,6 +409,8 @@ export function Teammate({
 							<ToolLedger personaId={persona.id} sessionState={session.state} servers={servers} />
 						</div>
 					</section>
+
+					<OpenLoops personaId={persona.id} onAskLoop={onAskLoop} />
 
 					<Schedules
 						personaId={persona.id}

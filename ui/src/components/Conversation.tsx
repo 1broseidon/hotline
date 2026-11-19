@@ -69,7 +69,7 @@ export function promptOf(personaId: string, text: string, quoted: { reply: Reply
  * line follows up on its item (`aboutItem`), or Go to the card, which
  * opens the card that lets a held message to `to` in.
  */
-export type FromPane = { at: number } & ({ kind: "follow"; aboutItem: string; quote: string } | { kind: "card"; to: string });
+export type FromPane = { at: number } & ({ kind: "follow"; aboutItem: string; quote: string } | { kind: "card"; to: string } | { kind: "loop"; text: string });
 
 export function Conversation({
 	entry,
@@ -316,6 +316,12 @@ export function Conversation({
 		if (fromPane.kind === "follow") {
 			setReplying(null);
 			setFollowing({ aboutItem: fromPane.aboutItem, quote: fromPane.quote });
+			return;
+		}
+		if (fromPane.kind === "loop") {
+			setReplying(null);
+			setFollowing(null);
+			setRefill({ text: fromPane.text, attachments: [], nonce: fromPane.at, merge: true });
 			return;
 		}
 		const to = nameIn(roster, [], fromPane.to);

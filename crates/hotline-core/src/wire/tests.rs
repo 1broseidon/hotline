@@ -263,6 +263,14 @@ impl RoomHandle for CoreHandle {
         self.room.mark_asides_seen(persona_id)
     }
 
+    fn loops_dismiss(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::contract::OpenLoop, String> {
+        self.room.dismiss_loop(persona_id, id)
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.room.policy_update_lock()
     }

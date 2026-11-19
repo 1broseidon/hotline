@@ -121,6 +121,19 @@ impl Room {
             .get("ended")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let now = now_ms();
+        let review_by = match word(arguments, "review_by") {
+            Some(raw) => Some(super::schedule::parse_when(raw, now).ok_or_else(|| {
+                "outcome's `review_by` must be a duration (like '3d') or a date/time (like '2026-12-31')."
+                    .to_string()
+            })?),
+            None => None,
+        };
+        let job_id = word(arguments, "job_id");
+        if let Some(job_id) = job_id {
+            short("outcome", "job_id", job_id, KEY_CHARS)?;
+        }
+        let explicit_key = key.is_some();
         let open = key.and_then(|key| self.open_outcome(persona_id, thread, key));
         if ended && open.is_none() {
             return Err(format!(
@@ -128,7 +141,6 @@ impl Room {
                 key.unwrap_or_default()
             ));
         }
-        let now = now_ms();
         let (id, ts, closed_at, written_to) = match &open {
             Some((line, on)) => (
                 line["id"].as_str().unwrap_or_default().to_string(),
@@ -155,6 +167,18 @@ impl Room {
             closed_at,
         };
         self.threads().write(&written_to, persona_id, &event);
+        if kind == "open" || open.is_some() || ended || explicit_key {
+            self.sync_open_outcome(
+                persona_id,
+                &key,
+                message,
+                &kind,
+                ended,
+                review_by,
+                job_id.map(str::to_string),
+                now,
+            );
+        }
         let mut said = match (&open, ended, kind.as_str()) {
             (Some(_), true, _) => "Ended. It has left the line.".to_string(),
             (Some(_), false, "open") => "Updated.".to_string(),

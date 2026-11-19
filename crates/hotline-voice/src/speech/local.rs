@@ -1,6 +1,8 @@
 //! The desk's own ears: speech to text on the desk's machine, with a model
 //! the owner downloaded (`install.rs`). Nothing said leaves the machine and
-//! nothing is charged, so it is the provider `local` at a price of zero.
+//! nothing is charged, so it is the provider `local` at a price of zero. The
+//! desk's own voice is the same provider speaking (`voice.rs`): one more
+//! model the owner downloads here, kept and let go the same way.
 //!
 //! The engine is sherpa-onnx, linked statically with onnxruntime, so it runs
 //! wherever the desk does with nothing installed beside it. It runs three
@@ -32,8 +34,10 @@
 //! the engine's own syntax.
 
 mod install;
+mod voice;
 
-pub use install::{Installs, Model, catalogue};
+pub use install::{Installs, Model, Pinned, Source, catalogue};
+pub use voice::{LocalVoice, VOICES};
 
 use super::{Clip, Speech, SpeechError, SpeechId, TurnClock, wav};
 use async_trait::async_trait;
@@ -64,6 +68,8 @@ pub enum Engine {
     Transducer,
     Whisper,
     Moonshine,
+    /// Gradium's Phonon, which speaks rather than hears: the desk's voice.
+    Phonon,
 }
 
 impl Engine {
@@ -84,7 +90,13 @@ impl Engine {
                 "cached_decode.int8.onnx",
                 "tokens.txt",
             ],
+            Engine::Phonon => &voice::FILES,
         }
+    }
+
+    /// Whether a model of this kind speaks; every other kind hears.
+    pub fn speaks(self) -> bool {
+        self == Engine::Phonon
     }
 
     /// The most a model hears at once. Whisper's engine keeps only the first
@@ -92,7 +104,7 @@ impl Engine {
     /// long one, so either hears a long clip in pieces.
     fn longest_piece(self) -> Option<Duration> {
         match self {
-            Engine::Transducer => None,
+            Engine::Transducer | Engine::Phonon => None,
             Engine::Whisper | Engine::Moonshine => Some(Duration::from_secs(28)),
         }
     }
@@ -160,7 +172,8 @@ pub struct Installed {
 }
 
 /// The models on disk, in the catalogue's order (most accurate first), then
-/// any the catalogue no longer lists. A directory without its manifest or one
+/// any the catalogue no longer lists. The voice is among them: what hears
+/// is the ones whose engine does not speak. A directory without its manifest or one
 /// of its files is not a model: a download that never finished leaves one.
 pub fn installed(root: &Path) -> Vec<Installed> {
     let Ok(entries) = std::fs::read_dir(models_dir(root)) else {
@@ -240,7 +253,9 @@ fn verify(model: &Installed) -> Result<(), SpeechError> {
 
 /// The installed model to hear with: the one named, or the first installed.
 pub fn chosen(root: &Path, model_id: Option<&str>) -> Option<Installed> {
-    let installed = installed(root);
+    let installed = installed(root)
+        .into_iter()
+        .filter(|model| !model.engine.speaks());
     match model_id {
         Some(id) => installed.into_iter().find(|model| model.id == id),
         None => installed.into_iter().next(),
@@ -339,6 +354,14 @@ impl<T: Send + 'static> Slot<T> {
         false
     }
 
+    /// Lets go of the model in `dir`, if it is the one in memory.
+    fn let_go(&self, dir: &Path) {
+        let mut slot = self.loaded();
+        if slot.as_ref().is_some_and(|current| current.dir == dir) {
+            *slot = None;
+        }
+    }
+
     /// Keeps the model in `dir` from being let go until the guard drops.
     fn keep(&'static self, dir: &Path) -> Kept<T> {
         self.kept().push(dir.to_path_buf());
@@ -417,6 +440,8 @@ fn config(model: &Installed) -> std::io::Result<OfflineRecognizerConfig> {
                 ..Default::default()
             };
         }
+        // A voice is never listed to hear with (`chosen`), so this is never asked.
+        Engine::Phonon => return Err(std::io::Error::other("a voice does not hear")),
         Engine::Moonshine => {
             config.model_config.moonshine = OfflineMoonshineModelConfig {
                 preprocessor: path("preprocess.onnx"),
@@ -529,10 +554,8 @@ fn pieces(samples: &[f32], rate: usize, longest: Duration) -> Vec<&[f32]> {
 
 /// Lets go of the model in `dir`, if it is the one in memory: it is being removed.
 pub(crate) fn unload(dir: &Path) {
-    let mut slot = LOADED.loaded();
-    if slot.as_ref().is_some_and(|current| current.dir == dir) {
-        *slot = None;
-    }
+    LOADED.let_go(dir);
+    voice::SPEAKING.let_go(dir);
     VERIFIED
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

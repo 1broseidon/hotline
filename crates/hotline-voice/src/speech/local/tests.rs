@@ -116,8 +116,11 @@ fn the_most_accurate_installed_model_comes_first_and_strangers_last() {
 }
 
 #[test]
-fn every_offered_model_is_pinned_to_one_https_archive_and_a_sha256() {
-    let models = catalogue();
+fn every_offered_model_that_hears_is_pinned_to_one_https_archive_and_a_sha256() {
+    let models: Vec<Model> = catalogue()
+        .into_iter()
+        .filter(|model| !model.engine.speaks())
+        .collect();
     let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
     assert_eq!(
         ids,
@@ -129,18 +132,17 @@ fn every_offered_model_is_pinned_to_one_https_archive_and_a_sha256() {
         ]
     );
     for model in &models {
+        let Source::Archive { url, sha256, .. } = &model.source else {
+            panic!("{} is not one archive", model.id);
+        };
         assert!(
-            model
-                .url
-                .starts_with("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"),
-            "{}",
-            model.url
+            url.starts_with("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"),
+            "{url}"
         );
-        assert!(model.url.ends_with(".tar.bz2"), "{}", model.url);
-        assert_eq!(model.sha256.len(), 64);
+        assert!(url.ends_with(".tar.bz2"), "{url}");
+        assert_eq!(sha256.len(), 64);
         assert!(
-            model
-                .sha256
+            sha256
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         );

@@ -451,8 +451,8 @@ The adapter is provider `local`, named On the desk, and hears `audio/wav`
 (mono PCM16 at any rate, which the engine resamples), `audio/mp4` (AAC,
 decoded with symphonia) and live PCM, which it gathers until the turn ends,
 so a phone that streams its microphone keeps streaming it. It takes at most a
-minute at a time and never speaks. Its price is zero, so a zero Voice
-budget never stops it.
+minute at a time and never speaks; the desk's voice (below) is the same
+provider speaking. Its price is zero, so a zero Voice budget never stops it.
 
 `voice.transcribe` hears one clip outside any call, for dictation: with the
 model picked for hearing when that is one of the desk's, else the first
@@ -463,6 +463,62 @@ keeps nothing.
 [clip.wav ...]` downloads a model from where the desk would, verifies,
 unpacks and loads it, and hears the fixtures and any clips given, printing
 each one's words, time and real-time factor.
+
+## Speaking on the desk
+
+The desk can speak itself too, with no provider and no network: Gradium's
+Phonon 31M English, run in the desk's process by Gradium's `ptts` crate
+(0.7.1, pure Rust on their `xn` runtime, CPU only) in
+`speech/local/voice.rs`. It makes 24 kHz mono in 80 ms frames. Only this
+model is offered: its weights, tokenizer and voices are Apache 2.0, and
+Phonon's 40M models, in English or other languages, are CC BY-NC 4.0.
+
+It downloads like a model that hears, as the row Phonon · voice in Models
+on the desk, but as nine files rather than an archive: `config.json`,
+`tokenizer.json` and the eight-bit `model.q8.gguf` from
+`gradium/phonon-31m-en`, and six voices from `gradium/phonon-voices`, 66 MB
+in all. Each is pinned in `voice.rs` by size and SHA-256 at one commit of
+its repository, downloaded straight into `<id>.unpacking/` and hashed as it
+arrives; one file that is not the one pinned throws the whole model away.
+Its `model.json` names its kind `phonon`, and a model of that kind is never
+chosen to hear with.
+
+Once installed it is one more choice in the Speech picker, under On the
+desk: Phonon · Hadley, Delia, Pippa, Preston, Trevor or Edwin, neutral adult
+voices of Gradium's 25 English ones, two American women, a British woman,
+two American men and a British man, their median pitch from about 230 Hz
+down to about 105 Hz. Hadley is the one a pick without a voice gets.
+Automatic never picks it, as it never picks Ollama: installing is not
+choosing to be spoken to by it. It is free, and with it picked a call
+falls back to the first connected provider that speaks.
+
+A call that speaks with it loads it as it starts and keeps it while the
+call is open, in a slot of its own beside the hearing model's, and it is
+let go after five minutes unused, as a hearing model is. A sentence's audio
+goes out as it is made: a fifth of a second first, then half a second at a
+time, as xAI's voice streams. Hanging up or interrupting drops what the
+model is handing on, and it stops within a frame. Its arithmetic runs on
+four threads (xn's own pool, sized by the desk): on an M-series Mac four
+were twice as fast as one, and every core was slower than four. Each
+sentence ends with about half a second of the model's own silence.
+
+Measured on an M-series Mac, release build, through the adapter a call
+uses (`phonon_on_this_machine`, an ignored test in `voice/tests.rs`):
+
+| | Loads in | First clip | Whole | Audio | Cores busy | Memory held |
+| -- | -- | -- | -- | -- | -- | -- |
+| 6 words | 38 ms | 25 to 35 ms | 65 ms | 2.5 s | 4 | 125 MB loaded, about 360 MB once it has spoken |
+| 30 words | | 20 to 35 ms | 245 ms | 9.4 s | 4 | |
+
+The first load also hashes the 66 MB once. The full-precision weights
+(`model.safetensors`, 103 MB) load in 134 ms against 15 ms and speak a
+third slower, with the same length, loudness and silences, so the desk
+takes the eight-bit ones.
+
+Phonon is not built on aarch64 Linux: xn-gemm 0.20's half-precision
+kernels are assembly that needs the FP16 extension, which that target's
+baseline does not promise, so `ptts` is a dependency everywhere else and
+the voice is not offered there.
 
 ## Providers
 

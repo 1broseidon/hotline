@@ -3,11 +3,13 @@
 //! has already connected it. The desk's own models (`local.rs`) hear beside
 //! them once the owner has downloaded one, and a connected Ollama server
 //! (`ollama.rs`) speaks once the owner has pulled a speech model into it and
-//! chosen one of its voices.
+//! chosen one of its voices. The desk's own voice (`local/voice.rs`) speaks
+//! once the owner has downloaded it and chosen it; like Ollama's, it is
+//! never what Automatic picks.
 
 use super::catalog::{self, Found};
 use super::google::{self, Google};
-use super::local::{self, Installed, Local};
+use super::local::{self, Installed, Local, LocalVoice};
 use super::ollama;
 use super::xai::{self, Xai};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechOutput, SpeechSet, TurnClock};
@@ -361,11 +363,21 @@ fn default_first<T>(mut models: Vec<T>, default: &str, id: impl Fn(&T) -> &str) 
     models
 }
 
+/// The desk's models that hear, and its voice if that is installed too.
+fn hears_and_speaks(local: &[Installed]) -> (Vec<Installed>, Option<Installed>) {
+    let (speaks, hears): (Vec<Installed>, Vec<Installed>) = local
+        .iter()
+        .cloned()
+        .partition(|model| model.engine.speaks());
+    (hears, speaks.into_iter().next())
+}
+
 fn options_from(
     local: &[Installed],
     connections: &[Connection],
     found: &HashMap<String, Found>,
 ) -> Options {
+    let (local, voice) = hears_and_speaks(local);
     let provider =
         |connection: &Connection, models: Vec<CapabilityModel>, cost: String| CapabilityProvider {
             provider_id: connection.provider_id.clone(),
@@ -394,6 +406,25 @@ fn options_from(
     };
     let mut stt = Vec::new();
     let mut tts = Vec::new();
+    if let Some(voice) = &voice {
+        tts.push(CapabilityProvider {
+            provider_id: local::PROVIDER_ID.into(),
+            provider_name: local::PROVIDER_NAME.into(),
+            on_device: true,
+            cost: Some(ledger::tts_cost(local::PROVIDER_ID)),
+            models: vec![CapabilityModel {
+                id: voice.id.clone(),
+                label: Some(voice.name.clone()),
+                voices: Some(
+                    local::VOICES
+                        .iter()
+                        .map(|one| one.name.to_string())
+                        .collect(),
+                ),
+                efforts: None,
+            }],
+        });
+    }
     if !local.is_empty() {
         stt.push(CapabilityProvider {
             provider_id: local::PROVIDER_ID.into(),
@@ -744,7 +775,10 @@ fn words_for(
     settings: &VoiceSettings,
 ) -> Vec<String> {
     let desk = ["Hotline", "Parakeet"].map(String::from);
-    let models = local.iter().map(|model| model.name.clone());
+    let models = local
+        .iter()
+        .filter(|model| !model.engine.speaks())
+        .map(|model| model.name.clone());
     let providers = connections.iter().map(|connection| connection.name.clone());
     settings
         .listen_for
@@ -762,47 +796,77 @@ pub fn resolve_output(
     connected: &Connected,
     settings: &VoiceSettings,
 ) -> Result<SpeechOutput, String> {
-    output_from(&connections(connected), settings, &TurnClock::default())
+    output_from(
+        &local::installed(&connected.root),
+        &connections(connected),
+        settings,
+        &TurnClock::default(),
+    )
 }
 
+/// What speaks: the desk's own voice in the voice named, or a connected
+/// provider's.
+enum Voicing<'a> {
+    Local(Installed, Option<String>),
+    Provider(&'a Connection, Speaking),
+}
+
+/// The owner's pick for speaking, or else the first connected provider that
+/// can. The desk's own voice speaks only when picked.
 fn chosen_voice<'a>(
+    voice: Option<&Installed>,
     connections: &'a [Connection],
     settings: &VoiceSettings,
-) -> Result<Option<(&'a Connection, Speaking)>, String> {
+) -> Result<Option<Voicing<'a>>, String> {
     match &settings.tts {
+        Some(pick) if pick.provider_id == local::PROVIDER_ID => {
+            let model = voice
+                .filter(|model| pick.model_id.as_ref().is_none_or(|id| *id == model.id))
+                .ok_or("Voice is set to speak with the desk's own voice, which is not installed. Download it in Settings, or pick another.")?;
+            Ok(Some(Voicing::Local(model.clone(), pick.voice.clone())))
+        }
         Some(pick) => {
             let connection = named(connections, pick)?;
             let voice =
                 speaking(connection, Some(pick)).ok_or_else(|| cannot(connection, "speak"))?;
-            Ok(Some((connection, voice)))
+            Ok(Some(Voicing::Provider(connection, voice)))
         }
         None => Ok(connections
             .iter()
             .filter(|connection| connection.login.is_none())
-            .find_map(|connection| Some((connection, speaking(connection, None)?)))),
+            .find_map(|connection| {
+                Some(Voicing::Provider(connection, speaking(connection, None)?))
+            })),
     }
 }
 
 fn output_from(
+    local: &[Installed],
     connections: &[Connection],
     settings: &VoiceSettings,
     clock: &TurnClock,
 ) -> Result<SpeechOutput, String> {
-    let Some((connection, voice)) = chosen_voice(connections, settings)? else {
+    let (_, voice) = hears_and_speaks(local);
+    let Some(voicing) = chosen_voice(voice.as_ref(), connections, settings)? else {
         return Err(nothing_can(true, false));
     };
-    output_for(connections, settings, connection, &voice, clock)
+    output_for(connections, settings, &voicing, clock)
 }
 
 fn output_for(
     connections: &[Connection],
     settings: &VoiceSettings,
-    speak_from: &Connection,
-    voice: &Speaking,
+    voicing: &Voicing,
     clock: &TurnClock,
 ) -> Result<SpeechOutput, String> {
+    let (speaks_from, login) = match voicing {
+        Voicing::Local(..) => (local::PROVIDER_ID, false),
+        Voicing::Provider(connection, _) => {
+            (connection.provider_id.as_str(), connection.login.is_some())
+        }
+    };
     // A fallback that cannot be used never prevents a call from starting.
-    let fallback = if speak_from.login.is_some() {
+    let fallback = if login {
         // Choosing the subscription never authorizes a paid API fallback.
         None
     } else {
@@ -813,13 +877,19 @@ fn output_for(
                 .and_then(|connection| Some((connection, speaking(connection, Some(pick))?))),
             None => connections
                 .iter()
-                .filter(|connection| connection.provider_id != speak_from.provider_id)
+                .filter(|connection| connection.provider_id != speaks_from)
                 .filter(|connection| connection.login.is_none())
                 .find_map(|connection| Some((connection, speaking(connection, None)?))),
         }
     };
+    let tts: Arc<dyn Speech> = match voicing {
+        Voicing::Local(model, voice) => {
+            Arc::new(LocalVoice::new(model.clone(), voice.as_deref()).with_clock(clock))
+        }
+        Voicing::Provider(connection, voice) => speaker(connection, voice, clock)?,
+    };
     Ok(SpeechOutput {
-        tts: speaker(speak_from, voice, clock)?,
+        tts,
         fallback_tts: fallback
             .map(|(connection, voice)| speaker(connection, &voice, clock))
             .transpose()?,
@@ -872,18 +942,19 @@ fn resolve_from(
     connections: &[Connection],
     settings: &VoiceSettings,
 ) -> Result<SpeechSet, String> {
-    let hearing = hearing(local, connections, settings)?;
-    let voice = chosen_voice(connections, settings)?;
-    let (Some(hear_from), Some((speak_from, voice))) = (&hearing, &voice) else {
-        return Err(nothing_can(hearing.is_some(), voice.is_some()));
+    let (hears, voice) = hears_and_speaks(local);
+    let hearing = hearing(&hears, connections, settings)?;
+    let voicing = chosen_voice(voice.as_ref(), connections, settings)?;
+    let (Some(hear_from), Some(voicing)) = (&hearing, &voicing) else {
+        return Err(nothing_can(hearing.is_some(), voicing.is_some()));
     };
 
     // One stopwatch for the set: the ears start it and the voices stop it.
     let clock = TurnClock::default();
-    let output = output_for(connections, settings, speak_from, voice, &clock)?;
+    let output = output_for(connections, settings, voicing, &clock)?;
     let stt: Arc<dyn Speech> = match hear_from {
         Hearing::Local(model) => {
-            let words = words_for(local, connections, settings);
+            let words = words_for(&hears, connections, settings);
             Arc::new(
                 Local::new((*model).clone())
                     .listening_for(&words)
@@ -1223,6 +1294,7 @@ mod tests {
         assert!(resolve_from(&[], &connections, &VoiceSettings::default()).is_err());
         assert!(
             output_from(
+                &[],
                 &connections,
                 &VoiceSettings::default(),
                 &TurnClock::default()
@@ -1258,7 +1330,7 @@ mod tests {
             stt: Some(pick("disconnected", None, None)),
             ..VoiceSettings::default()
         };
-        let output = output_from(&connections, &settings, &TurnClock::default()).unwrap();
+        let output = output_from(&[], &connections, &settings, &TurnClock::default()).unwrap();
         assert!(output.tts.is_subscription());
         assert!(output.fallback_tts.is_none());
         assert!(resolve_from(&[], &connections, &settings).is_err());
@@ -1663,6 +1735,64 @@ mod tests {
         };
         let set = resolve_from(&models, &[connected("openai")], &settings).unwrap();
         assert_eq!(set.stt.id().model_id, "parakeet-tdt-110m-en");
+    }
+
+    #[test]
+    fn the_desks_voice_is_one_more_speech_choice_and_speaks_only_when_picked() {
+        let mut voice = local::listed("phonon-31m-en", "Phonon");
+        voice.engine = local::Engine::Phonon;
+        let models = [
+            local::listed("parakeet-tdt-110m-en", "Parakeet English"),
+            voice,
+        ];
+
+        let options = options_from(&models, &[connected("openai")], &HashMap::new());
+        assert_eq!(options.stt[0].models.len(), 1, "the voice never hears");
+        let offered = &options.tts[0];
+        assert_eq!(
+            (
+                offered.provider_id.as_str(),
+                offered.on_device,
+                offered.cost.as_deref()
+            ),
+            (local::PROVIDER_ID, true, Some("free"))
+        );
+        assert_eq!(offered.models[0].label.as_deref(), Some("Phonon"));
+        let voices = offered.models[0].voices.clone().unwrap();
+        assert_eq!(voices[0], "Hadley");
+        assert_eq!(voices.len(), local::VOICES.len());
+        // Automatic stays on the connected provider; installing is not choosing.
+        assert_eq!(options.automatic_tts.unwrap().provider_id, "openai");
+        let set = resolve_from(&models, &[connected("openai")], &VoiceSettings::default()).unwrap();
+        assert_eq!(set.tts.id().provider_id, "openai");
+        assert_eq!(set.stt.id().model_id, "parakeet-tdt-110m-en");
+
+        // Picked, it speaks, in the voice picked, with a connected provider to fall back on.
+        let settings = VoiceSettings {
+            tts: Some(pick(
+                local::PROVIDER_ID,
+                Some("phonon-31m-en"),
+                Some("Edwin"),
+            )),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&models, &[connected("openai")], &settings).unwrap();
+        assert_eq!(
+            set.tts.id(),
+            id(local::PROVIDER_ID, "phonon-31m-en", Some("Edwin"))
+        );
+        assert!(set.tts.streams_chunks());
+        assert_eq!(set.fallback_tts.unwrap().id().provider_id, "openai");
+        // A text call needs no ears, and nothing connected at all.
+        let output = output_from(&models, &[], &settings, &TurnClock::default()).unwrap();
+        assert_eq!(output.tts.id().voice.as_deref(), Some("Edwin"));
+        assert!(output.fallback_tts.is_none());
+
+        // Picked but not installed, it is an error, never another provider's voice.
+        let Err(error) = resolve_from(&models[..1], &[connected("openai")], &settings) else {
+            panic!("a voice that is not installed cannot speak");
+        };
+        assert!(error.contains("not installed"), "{error}");
     }
 
     #[test]

@@ -46,6 +46,8 @@ pub(crate) struct Fake {
     /// The person's words and the written reply each rewrite was handed.
     pub rewrites: Mutex<Vec<(String, String)>>,
     pub pointer_instructions: Mutex<Vec<String>>,
+    /// What each call that readied this listener holds it ready until.
+    pub readied: Mutex<Vec<CancellationToken>>,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -70,6 +72,7 @@ impl Default for Fake {
             rewrite_delay: Mutex::new(Duration::ZERO),
             rewrites: Mutex::new(Vec::new()),
             pointer_instructions: Mutex::new(Vec::new()),
+            readied: Mutex::new(Vec::new()),
         }
     }
 }
@@ -106,6 +109,9 @@ impl speech::Speech for Fake {
     }
     fn supports_live_input(&self) -> bool {
         true
+    }
+    async fn stay_ready(&self, until: CancellationToken) {
+        lock(&self.readied).push(until);
     }
     async fn transcribe_live(
         &self,

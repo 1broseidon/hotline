@@ -221,10 +221,19 @@ impl Calls {
                 tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));
             } else {
                 tokio::spawn(self.clone().waiting_sound(id.into(), cancel.clone()));
-                if let Some(tts) = calls
+                let speech_services = calls
                     .iter()
                     .find(|call| call.id == id)
-                    .map(|call| call.speech_services.tts.clone())
+                    .map(|call| call.speech_services.clone());
+                // The desk's own model is let go when idle and takes seconds
+                // to load, so it loads now rather than inside the first
+                // utterance, and stays loaded through a long work turn.
+                if let Some(stt) = speech_services.as_ref().and_then(|s| s.stt.clone()) {
+                    let cancel = cancel.clone();
+                    tokio::spawn(async move { stt.stay_ready(cancel).await });
+                }
+                if let Some(tts) = speech_services
+                    .map(|services| services.tts)
                     .filter(|tts| tts.id().provider_id == super::speech::ollama::PROVIDER_ID)
                 {
                     let cancel = cancel.clone();

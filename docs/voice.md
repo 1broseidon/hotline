@@ -377,7 +377,13 @@ transducer, a transducer set up for hotwords without its vocabulary file,
 and a hotword line in the engine's own syntax.
 
 One model is in memory at a time. It is let go after five minutes unused,
-and decoding takes up to four threads and one utterance at a time. Whisper
+but never while a call hearing with it is open, so a teammate working for
+longer than that does not cost the person's next words a reload. A
+turn-by-turn call starts loading its model as it starts, hearing nothing,
+writing nothing and charging nothing, because a load (with the first run's
+file check) can take two seconds or more and would otherwise sit inside the
+first utterance; an utterance that arrives during that load waits for it
+rather than loading again. Decoding takes up to four threads and one utterance at a time. Whisper
 keeps only the first thirty seconds of a clip, and Moonshine repeats itself
 on a long one, so either hears a clip longer than 28 seconds in pieces, cut
 at the quietest tenth of a second in each piece's last eight seconds, and

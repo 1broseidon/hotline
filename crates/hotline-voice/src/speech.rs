@@ -191,6 +191,11 @@ pub trait Speech: Send + Sync {
     ) -> Result<String, SpeechError> {
         Err(SpeechError::UnsupportedFormat("live PCM".into()))
     }
+    /// Readies what hearing needs before anyone speaks, and keeps it ready
+    /// until `until` is cancelled; a call holds this open while it lasts.
+    /// It hears nothing, so nothing is written or charged. Only the desk's
+    /// own model has anything to load; every other listener returns at once.
+    async fn stay_ready(&self, _until: tokio_util::sync::CancellationToken) {}
     /// Whether `speak_chunks` yields incremental chunks rather than falling
     /// back to whole-clip `speak`. Whole-clip providers benefit from 1-deep
     /// sentence synthesis pipelining in `say_reply`.

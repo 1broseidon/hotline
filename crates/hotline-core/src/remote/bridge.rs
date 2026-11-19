@@ -482,10 +482,18 @@ mod discovery_tests {
             crate::computer::site_host("localhost:8443"),
             Some("localhost:8443".into())
         );
+        // A login on the computer's own loopback over http, as a real 0.13
+        // computer takes one, is named by its origin.
+        assert_eq!(
+            crate::computer::site_host("http://LocalHost:8600/"),
+            Some("http://localhost:8600".into())
+        );
         for bad in [
             "",
             "github.com/login",
             "http://github.com",
+            "http://localhost.evil.com",
+            "http://https://localhost",
             "a b",
             "github.com:0",
             "-x.com",

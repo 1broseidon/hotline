@@ -13,8 +13,9 @@ use std::time::Duration;
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// The snapshots waiting for the person, or none: a computer with nothing
-/// pending, one already answered, and one with no such door (before 0.13,
-/// or legacy) all have nothing to ask.
+/// pending, one already answered (a 0.13 computer told to keep them still
+/// says `pending`, with the answer beside it), and one with no such door
+/// (before 0.13, or legacy) all have nothing to ask.
 pub async fn pending(ready: &Ready) -> Result<Option<ComputerMigration>, String> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
     let client = super::door_client()
@@ -40,7 +41,9 @@ pub async fn pending(ready: &Ready) -> Result<Option<ComputerMigration>, String>
         .json()
         .await
         .map_err(|_| "The computer's answer could not be read.".to_string())?;
-    if answer["state"] != "pending" {
+    // "keep" leaves the snapshots quarantined, so the computer still says
+    // pending; the person answered, and the notice asks no more.
+    if answer["state"] != "pending" || !answer["answer"].is_null() {
         return Ok(None);
     }
     serde_json::from_value(json!({"snapshots": answer["snapshots"]}))

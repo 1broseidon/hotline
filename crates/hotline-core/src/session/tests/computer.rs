@@ -1122,11 +1122,19 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     assert!(!unheard.contains("hotline-computer"), "{unheard}");
     assert!(unheard.contains("\n- hotline-room: "), "{unheard}");
 
-    // The pane sees the release running against the one it would be made
-    // on now, which is the image tag the teammate asked for.
+    // The pane sees the release running. A computer made on the very image
+    // it would be made on now has nothing to update to, though its guide
+    // names another version, as a release candidate's does (0.13.0 for
+    // 0.13.0-rc.1): an Update would only make it again on the same image.
     let status = room.computer_status("ada").await.unwrap();
     assert_eq!(status.release.as_deref(), Some("0.11.0"));
-    assert_eq!(status.available.as_deref(), Some("test"));
+    assert_eq!(status.available, None);
+    // Pinned to another image, it is offered that one.
+    let mut ada = room.persona("ada").unwrap();
+    ada.computer.as_mut().unwrap().image = Some("hotline-computer:0.13.0-rc.2".into());
+    enrol(&room.log, &ada);
+    let status = room.computer_status("ada").await.unwrap();
+    assert_eq!(status.available.as_deref(), Some("0.13.0-rc.2"));
 }
 
 /// An image too old to serve a guide leaves no stale skill. The teammate
@@ -1676,7 +1684,14 @@ async fn an_older_computer_is_offered_the_newest_release_on_the_six_hour_clock()
     use crate::computer::releases::CHECK_EVERY_MS;
     use std::sync::atomic::Ordering;
     let older = computer_room("computer-older", Some("0.8.0"), TWO_RELEASES, false).await;
+    // Made on 0.8.0 by an older desk's choice, now the desk's to choose.
+    let mut ada = older.room.persona("ada").unwrap();
+    ada.computer.as_mut().unwrap().image = Some(crate::computer::image_at("0.8.0"));
+    enrol(&older.room.log, &ada);
     older.room.start("ada").await.unwrap();
+    ada.computer.as_mut().unwrap().image = None;
+    enrol(&older.room.log, &ada);
+    older.room.computers.refresh_releases(now_ms()).await;
     let status = older.room.computer_status("ada").await.unwrap();
     assert_eq!(status.release.as_deref(), Some("0.8.0"));
     assert_eq!(status.available.as_deref(), Some("0.11.1"));
@@ -2096,6 +2111,16 @@ async fn shared_cookies_go_to_a_protected_computers_sessions_and_never_to_a_file
         ("DELETE", sessions[0].1.as_str())
     );
     assert!(sessions[1].2["domains"].is_array(), "{sessions:?}");
+    // The computer says what a removal cleared, and a share it does not
+    // have (a computer made again starts without its shares) is nothing
+    // left to take back rather than a failure.
+    let ready = room.computers.running("ada").await.unwrap();
+    let name = sessions[0].1.clone();
+    let gone = crate::computer::login::forget(&ready, &name, &[]).await;
+    assert_eq!(gone.map(|gone| gone.forgotten), Ok(0));
+    room.computer_cookies_push("ada", transfer()).await.unwrap();
+    let gone = crate::computer::login::forget(&ready, &name, &[]).await;
+    assert_eq!(gone.map(|gone| gone.forgotten), Ok(1));
 
     let ComputerRoom { room, taken, .. } = computer_room(
         "sessions-today",
@@ -2118,7 +2143,7 @@ async fn the_snapshots_from_before_split_mode_wait_for_the_persons_answer() {
         computer_room("migration-pending", Some("0.13.0"), TWO_RELEASES, true).await;
     *taken.migration.lock().unwrap() = json!({
         "state": "pending", "at": 1, "snapshots": [{"name": "before-update", "bytes": 1024}],
-        "loginsDropped": 2, "sitesCleared": 1, "answer": null,
+        "loginsDropped": 2, "sitesCleared": ["github.com"], "answer": null,
     });
     grant_a_key_a_variable_and_a_login(&room);
     room.start("ada").await.unwrap();
@@ -2143,6 +2168,36 @@ async fn the_snapshots_from_before_split_mode_wait_for_the_persons_answer() {
         [json!({"snapshots": "clean"})]
     );
     assert_eq!(room.computer_status("ada").await.unwrap().migration, None);
+
+    // Keep leaves the snapshots quarantined, so a real 0.13 computer still
+    // says pending, with the answer beside it: the person answered, and the
+    // notice asks no more.
+    let ComputerRoom { room, taken, .. } =
+        computer_room("migration-keep", Some("0.13.0"), TWO_RELEASES, true).await;
+    *taken.migration.lock().unwrap() = json!({
+        "state": "pending", "at": 1, "snapshots": [{"name": "before-update", "bytes": 1024}],
+        "loginsDropped": 0, "sitesCleared": [], "answer": null,
+    });
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert!(
+        room.computer_status("ada")
+            .await
+            .unwrap()
+            .migration
+            .is_some()
+    );
+    room.computer_migration_answer("ada", crate::contract::SnapshotAnswer::Keep)
+        .await
+        .unwrap();
+    assert_eq!(taken.migration.lock().unwrap()["state"], "pending");
+    assert_eq!(room.computer_status("ada").await.unwrap().migration, None);
+    room.secrets_changed().await;
+    assert_eq!(
+        room.computer_status("ada").await.unwrap().migration,
+        None,
+        "nor at the next handing over"
+    );
 
     let ComputerRoom { room, taken, .. } =
         computer_room("migration-legacy", Some("0.13.0"), TWO_RELEASES, true).await;

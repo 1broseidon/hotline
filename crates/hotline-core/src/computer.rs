@@ -152,9 +152,22 @@ pub fn default_image() -> String {
 
 /// A site of a protected computer's signed-in browser as its screen is asked
 /// for: a host, with a port if it has one, in lower case, from a host or an
-/// `https://` origin. Nothing else is a site there.
+/// `https://` origin. A login may also be for a site on the computer's own
+/// loopback over plain http, which the computer names by its origin (a bare
+/// host there means https), so such an origin stays one. Nothing else is a
+/// site there.
 pub fn site_host(site: &str) -> Option<String> {
     let site = site.trim();
+    if let Some(local) = site.strip_prefix("http://") {
+        if local.contains("://") {
+            return None;
+        }
+        let host = site_host(local)?;
+        let name = host
+            .rsplit_once(':')
+            .map_or(host.as_str(), |(name, _)| name);
+        return matches!(name, "localhost" | "127.0.0.1").then(|| format!("http://{host}"));
+    }
     let host = site
         .strip_prefix("https://")
         .unwrap_or(site)
@@ -274,6 +287,10 @@ struct Live {
     last_activity_ms: i64,
     /// The release the computer reported with its guide, once it has.
     release: Option<String>,
+    /// The release its image was named when it was made (the label): what
+    /// an update would make it on again, which a release candidate's guide,
+    /// saying its version without the `-rc.N`, does not tell.
+    made_on: Option<String>,
     /// What it proved about keeping secrets at the last handing over.
     protection: Option<crate::contract::ComputerProtection>,
     /// The snapshots its move to split mode left for the person, while
@@ -536,6 +553,7 @@ impl Computer {
             inspection.running = false;
         }
         let token = known_token.clone().unwrap_or_else(new_token);
+        let mut made_on = inspection.release.clone();
         if !inspection.exists {
             // A computer made now is made on the newest release, so a desk
             // that has not asked yet asks first. A pinned image never asks.
@@ -546,6 +564,7 @@ impl Computer {
             if !image_present(&cmd, runtime, &image).await {
                 pull(&cmd, runtime, &image, report).await?;
             }
+            made_on = Some(release_of(&image));
             let args = create_args(runtime, &name, &image, &cwd, persona)?;
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
             create(&cmd, &arg_refs, &token).await?;
@@ -567,6 +586,7 @@ impl Computer {
                 mcp_port,
                 last_activity_ms: now_ms(),
                 release: None,
+                made_on,
                 protection: None,
                 migration: None,
             },
@@ -599,6 +619,15 @@ impl Computer {
         if let Some(live) = self.lock().containers.get_mut(persona_id) {
             live.release = Some(release.to_string());
         }
+    }
+
+    /// The release a teammate's running computer was made on, as its image
+    /// named it, while this desk holds it.
+    pub fn made_on(&self, persona_id: &str) -> Option<String> {
+        self.lock()
+            .containers
+            .get(persona_id)
+            .and_then(|live| live.made_on.clone())
     }
 
     /// Remembers what the computer proved at its last handing over, for
@@ -821,6 +850,7 @@ impl Computer {
                                 token,
                                 mcp_port: seen.mcp_port.unwrap_or(0),
                                 last_activity_ms: now_ms,
+                                made_on: seen.release.clone(),
                                 release: seen.release,
                                 protection: None,
                                 migration: None,

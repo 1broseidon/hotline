@@ -48,7 +48,7 @@ pub async fn deliver(
     saved: &Value,
 ) -> Result<(), String> {
     if protected(ready).await? {
-        return session(ready, name, Some(sites), saved).await;
+        return session(ready, name, Some(sites), saved).await.map(drop);
     }
     upload(ready, name, saved).await?;
     load(ready, name).await
@@ -66,13 +66,16 @@ async fn protected(ready: &Ready) -> Result<bool, String> {
 
 /// `PUT /sessions/{name}` with the sites, cookies and storage, or `DELETE`
 /// with the domains to clear (all of them when none are named), which
-/// closes their tabs too.
+/// closes their tabs too. Answers what the computer said: for a removal,
+/// `{name, domains, forgotten, closed}`, and `null` for a share the
+/// signed-in browser does not have, which a recreated computer starts
+/// without, so there is nothing left to take back.
 async fn session(
     ready: &Ready,
     name: &str,
     sites: Option<&[String]>,
     saved: &Value,
-) -> Result<(), String> {
+) -> Result<Value, String> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
     let client = super::door_client()
         .timeout(TIMEOUT)
@@ -94,8 +97,11 @@ async fn session(
         .send()
         .await
         .map_err(|error| format!("Could not reach the computer's signed-in browser: {error}"))?;
+    if sites.is_none() && response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Value::Null);
+    }
     if response.status().is_success() {
-        Ok(())
+        Ok(response.json().await.unwrap_or(Value::Null))
     } else {
         // The body may echo what it was sent; the status says enough.
         Err(format!(
@@ -192,9 +198,9 @@ pub async fn forget(ready: &Ready, name: &str, domains: &[String]) -> Result<For
         } else {
             json!({"domains": domains})
         };
-        session(ready, name, None, &body).await?;
+        let answer = session(ready, name, None, &body).await?;
         return Ok(Forgotten {
-            forgotten: 0,
+            forgotten: answer["forgotten"].as_u64().unwrap_or(0) as usize,
             kept: 0,
         });
     }

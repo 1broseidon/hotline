@@ -494,14 +494,16 @@ pub(crate) mod fake {
         }
         let state = taken.migration.lock().unwrap().clone();
         let state = if state.is_null() {
-            json!({"state": "none", "at": null, "snapshots": [], "loginsDropped": 0, "sitesCleared": 0, "answer": null})
+            json!({"state": "none", "at": null, "snapshots": [], "loginsDropped": 0, "sitesCleared": [], "answer": null})
         } else {
             state
         };
         json_answer(axum::http::StatusCode::OK, state)
     }
 
-    /// `POST /migration/answer`: kept, and the state is done with it.
+    /// `POST /migration/answer`, as a 0.13 computer takes it: clean and
+    /// delete leave nothing quarantined, so the state is done; keep leaves
+    /// the snapshots as they are, still `pending`, with the answer beside.
     async fn migration_answer(
         axum::extract::State(taken): axum::extract::State<Taken>,
         headers: axum::http::HeaderMap,
@@ -521,22 +523,28 @@ pub(crate) mod fake {
         if state["state"] != "pending" {
             return axum::http::StatusCode::CONFLICT;
         }
-        state["state"] = json!("done");
+        if body["snapshots"] != "keep" {
+            state["state"] = json!("done");
+            state["snapshots"] = json!([]);
+        }
         state["answer"] = body["snapshots"].clone();
         taken.migration_answers.lock().unwrap().push(body);
         axum::http::StatusCode::OK
     }
 
-    /// `PUT` and `DELETE /sessions/{name}`, recorded.
+    /// `PUT` and `DELETE /sessions/{name}`, recorded, answered as a 0.13
+    /// broker answers them: the share, or what a removal cleared, and 404
+    /// for a share the signed-in browser does not have.
     async fn sessions(
         axum::extract::State(taken): axum::extract::State<Taken>,
         method: axum::http::Method,
         axum::extract::Path(name): axum::extract::Path<String>,
         headers: axum::http::HeaderMap,
         body: String,
-    ) -> axum::http::StatusCode {
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
         if !bearer_present(&headers) {
-            return axum::http::StatusCode::UNAUTHORIZED;
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
         let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
         // The shapes the signed-in browser takes: a share's sites a list,
@@ -554,14 +562,30 @@ pub(crate) mod fake {
             body.is_object() && body.get("domains").is_none_or(Value::is_array)
         };
         if !shaped {
-            return axum::http::StatusCode::BAD_REQUEST;
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
         }
-        taken
-            .sessions
-            .lock()
-            .unwrap()
-            .push((method.to_string(), name, body));
-        axum::http::StatusCode::NO_CONTENT
+        let mut sessions = taken.sessions.lock().unwrap();
+        // The cookies the share holds now: its last PUT's, unless a DELETE
+        // for every domain came after it.
+        let shared = sessions
+            .iter()
+            .rev()
+            .find(|(_, held, _)| *held == name)
+            .filter(|(verb, _, _)| verb == "PUT")
+            .map(|(_, _, share)| share["cookies"].as_array().map_or(0, Vec::len));
+        let answer = if method == axum::http::Method::PUT {
+            json!({"name": name, "sites": body["sites"], "cookies": body["cookies"].as_array().map_or(0, Vec::len), "storage": 0})
+        } else {
+            let Some(forgotten) = shared else {
+                return json_answer(
+                    axum::http::StatusCode::NOT_FOUND,
+                    json!({"error": format!("no shared sign-in {name:?}")}),
+                );
+            };
+            json!({"name": name, "domains": body["domains"].as_array().cloned().unwrap_or_default(), "forgotten": forgotten, "closed": 0})
+        };
+        sessions.push((method.to_string(), name, body));
+        json_answer(axum::http::StatusCode::OK, answer)
     }
 
     async fn arm_passkey(

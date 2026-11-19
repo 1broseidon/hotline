@@ -396,6 +396,9 @@ impl Room {
             .await?;
         // An existing container keeps the release it was made on, so the
         // pane is told when the one it would be made on now is different.
+        // A computer made on that very image has nothing to update to, even
+        // when its guide names its version otherwise: a release candidate
+        // tagged 0.13.0-rc.1 says 0.13.0.
         if let Some(release) = &status.release
             && let Some(persona) = &persona
         {
@@ -404,7 +407,9 @@ impl Room {
                 crate::computer::preferred_image(&settings).as_deref(),
             );
             let wanted = crate::computer::release_of(&image);
-            if wanted != *release {
+            if wanted != *release
+                && self.computers.made_on(persona_id).as_deref() != Some(wanted.as_str())
+            {
                 status.available = Some(wanted);
             }
         }

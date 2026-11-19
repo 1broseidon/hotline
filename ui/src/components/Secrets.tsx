@@ -684,19 +684,21 @@ function LoginForm({
  * readable grant says so. A teammate that runs as the person (the whole
  * machine, or an ACP harness) can read whatever it is given, its own
  * computer's included, so every key it gets is readable and every grant
- * says so. Where the teammate has both a computer and a desk shell that
- * takes secrets, a variable's grant says which of them it reaches; a login
- * or a passkey goes to whichever browser the teammate has.
+ * says so. `places` is where this teammate's variables can go: with both a
+ * computer and a desk shell, a variable's grant says which of them it
+ * reaches, its computer alone until the person adds the shell; with only a
+ * desk shell, a variable ticked here goes there. A login or a passkey goes
+ * to whichever browser the teammate has.
  */
 export function TeammateSecrets({
 	grants,
-	bothPlaces,
+	places,
 	asPerson,
 	disabled,
 	onChange,
 }: {
 	grants: SecretGrant[];
-	bothPlaces: boolean;
+	places: GrantPlace[];
 	asPerson: boolean;
 	disabled: boolean;
 	onChange(grants: SecretGrant[]): void;
@@ -726,9 +728,12 @@ export function TeammateSecrets({
 	const storedNames = stored === null ? null : stored.map((one) => one.name);
 	const names = storedNames === null ? granted : [...storedNames, ...granted.filter((name) => !storedNames.includes(name))];
 	const sorted = (next: SecretGrant[]) => [...next].sort((left, right) => left.name.localeCompare(right.name));
-	const give = (grant: SecretGrant) => {
+	const give = (grant: SecretGrant, record: SharedSecret | undefined) => {
 		setAsking(null);
-		onChange(sorted([...grants, grant]));
+		// A grant without `on` is its computer's; a teammate whose only shell
+		// is the desk's is given a variable there.
+		const deskOnly = places.length === 1 && places[0] === "desk" && record?.kind === "variable";
+		onChange(sorted([...grants, deskOnly ? { ...grant, on: ["desk"] } : grant]));
 	};
 	const toggle = (name: string, record: SharedSecret | undefined) => {
 		if (granted.includes(name)) {
@@ -739,15 +744,17 @@ export function TeammateSecrets({
 			setAsking((was) => (was === name ? null : name));
 			return;
 		}
-		give({ name });
+		give({ name }, record);
 	};
+	const reached = (grant: SecretGrant): GrantPlace[] => grant.on ?? ["computer"];
 	const place = (grant: SecretGrant, where: GrantPlace) => {
-		const on = grant.on ?? ["computer", "desk"];
+		const on = reached(grant);
 		const next = on.includes(where) ? on.filter((one) => one !== where) : [...on, where];
 		// A grant reaches somewhere; untick it to take it away.
 		if (next.length === 0) return;
 		const { on: _was, ...rest } = grant;
-		onChange(grants.map((one) => (one.name === grant.name ? (next.length === 2 ? rest : { ...rest, on: next }) : one)));
+		const computerOnly = next.length === 1 && next[0] === "computer";
+		onChange(grants.map((one) => (one.name === grant.name ? (computerOnly ? rest : { ...rest, on: next }) : one)));
 	};
 
 	return (
@@ -784,15 +791,15 @@ export function TeammateSecrets({
 								<button type="button" className="control btn-quiet btn-sm" disabled={disabled} onClick={() => setAsking(null)}>
 									Cancel
 								</button>
-								<button type="button" className="control btn btn-sm" disabled={disabled} onClick={() => give({ name, readable: true })}>
+								<button type="button" className="control btn btn-sm" disabled={disabled} onClick={() => give({ name, readable: true }, record)}>
 									Give
 								</button>
 							</div>
 						)}
-						{grant !== undefined && bothPlaces && record?.kind === "variable" && (
+						{grant !== undefined && places.length === 2 && record?.kind === "variable" && (
 							<fieldset className="chips min-w-0 pb-1.5 pl-7" aria-label={`Where ${name} goes`}>
 								{([["computer", "Computer"], ["desk", "Shell"]] as const).map(([where, label]) => {
-									const on = grant.on === undefined || grant.on.includes(where);
+									const on = reached(grant).includes(where);
 									return (
 										<button key={where} type="button" aria-pressed={on} className="nt-chip" data-on={on ? "" : undefined} disabled={disabled} onClick={() => place(grant, where)}>
 											{label}

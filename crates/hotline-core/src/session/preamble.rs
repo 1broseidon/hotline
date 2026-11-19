@@ -134,6 +134,35 @@ pub(crate) fn preamble_for(
             None => String::new(),
         },
     };
+    // What its desk shell is handed: only the grants that name it.
+    let desk_variables: Vec<String> = persona
+        .grants()
+        .iter()
+        .filter(|grant| grant.reaches(crate::contract::GrantPlace::Desk))
+        .filter_map(|grant| {
+            let secret = stored.iter().find(|secret| secret.name == grant.name)?;
+            (secret.kind == crate::contract::SharedSecretKind::Variable).then_some((grant, secret))
+        })
+        .map(|(grant, secret)| match &secret.used_with {
+            Some(usage) if !grant.readable => {
+                let hosts: Vec<&str> = usage
+                    .origins
+                    .iter()
+                    .map(|origin| origin.trim_start_matches("https://"))
+                    .collect();
+                format!("{} (a key used with {})", grant.name, hosts.join(", "))
+            }
+            _ => grant.name.clone(),
+        })
+        .collect();
+    let desk_shell_sentence = if desk_variables.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\nYour shell on this desk has these environment variables, by name: {}. A key used with a service holds a stand-in there, and the real key is added only to HTTPS requests to that service through the proxy your shell is given, so use $NAME as you would the key; a program that ignores HTTPS_PROXY or trusts only its own certificates gets no key.",
+            desk_variables.join(", ")
+        )
+    };
     let goal = persona.goal.trim();
     let identity = if goal.is_empty() {
         format!("You are {}.", persona.name)
@@ -158,7 +187,7 @@ pub(crate) fn preamble_for(
     // cannot drive.
     let skills = skills_index(persona);
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\n{}\n\n{}\n\n{skills}\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}{desk_shell_sentence}\n\n{}\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,
         clock(open_link),
         crate::mcp::server::how_to_use(has),

@@ -77,12 +77,43 @@ fn deadline<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<
 #[derive(Clone)]
 pub struct RunCommand {
     workspace: Workspace,
+    secrets: Option<std::sync::Arc<dyn ShellSecrets>>,
 }
 
 impl RunCommand {
     pub fn new(workspace: Workspace) -> Self {
-        Self { workspace }
+        Self {
+            workspace,
+            secrets: None,
+        }
     }
+
+    /// Commands that are handed the teammate's grants for its shell.
+    #[must_use]
+    pub fn with_secrets(mut self, secrets: std::sync::Arc<dyn ShellSecrets>) -> Self {
+        self.secrets = Some(secrets);
+        self
+    }
+}
+
+/// What one command is handed besides the shell's own environment: the
+/// teammate's readable variables, and in a confined shell the stand-ins of
+/// its protected keys, the proxy that adds them, and that proxy's CA.
+/// `held` lives exactly as long as the command; dropping it ends the run's
+/// proxy user, so its stand-ins die with it.
+#[derive(Default)]
+pub struct RunEnv {
+    pub vars: Vec<(String, String)>,
+    /// A CA the confined command trusts beside the system's, added to the
+    /// bundle it is pointed at inside the sandbox.
+    pub ca_pem: Option<String>,
+    pub held: Option<Box<dyn std::any::Any + Send + Sync>>,
+}
+
+/// Where a teammate's shell grants come from, asked as each command starts
+/// so a grant changed meanwhile is the one the command gets.
+pub trait ShellSecrets: Send + Sync {
+    fn for_run(&self, reach: Reach) -> RunEnv;
 }
 
 impl Tool for RunCommand {
@@ -265,13 +296,22 @@ impl RunCommand {
             return Err(ToolError::new("A command is required."));
         }
         let cwd = self.workspace.display_root();
-        let mut process = match self.workspace.reach() {
-            Reach::Machine => unconfined(&command, cwd),
+        let reach = self.workspace.reach();
+        let env = self
+            .secrets
+            .as_ref()
+            .map(|secrets| secrets.for_run(reach))
+            .unwrap_or_default();
+        // `env.held`, the run's proxy user, lives until this function
+        // returns: after the command and everything in its group ended.
+        let mut process = match reach {
+            Reach::Machine => unconfined(&command, cwd, &env.vars),
             Reach::Workspace => confined(
                 &command,
                 cwd,
                 &self.workspace.folders(),
                 &self.workspace.opened_identities(),
+                &env,
             )
             .map_err(ToolError::other)?,
         };
@@ -408,7 +448,7 @@ fn workspace_shell_on_path(path: Option<&std::ffi::OsStr>) -> Result<(), String>
     }
 }
 
-fn unconfined(command: &str, workspace: &Path) -> Command {
+fn unconfined(command: &str, workspace: &Path, vars: &[(String, String)]) -> Command {
     #[cfg(windows)]
     let mut process = {
         // cmd.exe does not read CommandLineToArgvW escaping, so the standard
@@ -426,6 +466,7 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
         process
     };
     process.current_dir(workspace);
+    process.envs(vars.iter().map(|(name, value)| (name, value)));
     process
 }
 
@@ -435,6 +476,20 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
 /// sandbox granted, read with the system `stat` at its absolute path, never
 /// one on the teammate's PATH. A path that now names another directory runs
 /// nothing.
+/// Inside the sandbox, before the command: the system's CA bundle with the
+/// run's proxy CA added, written to private scratch and named by every
+/// variable a common client reads its roots from. `system` is a command
+/// that prints the system bundle.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn ca_setup(system: &str) -> String {
+    format!(
+        "if [ -n \"${{HOTLINE_PROXY_CA:-}}\" ]; then b=\"$TMPDIR/hotline-ca-bundle.pem\"; \
+         {{ {system}; printf '%s\\n' \"$HOTLINE_PROXY_CA\"; }} > \"$b.$$\" && mv -f \"$b.$$\" \"$b\" || exit; \
+         export SSL_CERT_FILE=\"$b\" NIX_SSL_CERT_FILE=\"$b\" CURL_CA_BUNDLE=\"$b\" GIT_SSL_CAINFO=\"$b\" \
+         REQUESTS_CA_BUNDLE=\"$b\" NODE_EXTRA_CA_CERTS=\"$b\"; fi; unset HOTLINE_PROXY_CA; "
+    )
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn identity_checks(identities: &[(PathBuf, String)]) -> Result<String, String> {
     let quoted = |text: &str| format!("'{}'", text.replace('\'', "'\\''"));
@@ -478,8 +533,9 @@ fn confined(
     workspace: &Path,
     folders: &[(PathBuf, bool)],
     identities: &[(PathBuf, String)],
+    env: &RunEnv,
 ) -> Result<Command, String> {
-    linux::command(command, workspace, folders, identities)
+    linux::command(command, workspace, folders, identities, env)
 }
 
 #[cfg(target_os = "macos")]
@@ -488,8 +544,9 @@ fn confined(
     workspace: &Path,
     folders: &[(PathBuf, bool)],
     identities: &[(PathBuf, String)],
+    env: &RunEnv,
 ) -> Result<Command, String> {
-    macos::command(command, workspace, folders, identities)
+    macos::command(command, workspace, folders, identities, env)
 }
 
 #[cfg(target_os = "windows")]
@@ -498,6 +555,7 @@ fn confined(
     _workspace: &Path,
     _folders: &[(PathBuf, bool)],
     _identities: &[(PathBuf, String)],
+    _env: &RunEnv,
 ) -> Result<Command, String> {
     Err(WINDOWS_UNCONFINED.to_string())
 }
@@ -508,6 +566,7 @@ fn confined(
     _workspace: &Path,
     _folders: &[(PathBuf, bool)],
     _identities: &[(PathBuf, String)],
+    _env: &RunEnv,
 ) -> Result<Command, String> {
     Err(
         "The shell is not confined to the workspace on this operating system; give the teammate machine reach."

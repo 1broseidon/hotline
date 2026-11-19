@@ -386,6 +386,9 @@ impl Room {
             Some(opener) => OpenedBy::Handoff(opener),
             None => OpenedBy::Person,
         };
+        // What its desk shell is handed is read now, so a harness started
+        // below and every command after it get the grants as they stand.
+        self.refresh_desk_shell(&view);
         let stored = self.stored_secrets();
         // A job's agent is told only of the tools it is served.
         let offered = tools_of(self, &thread, &view.id, &lease).offered_names();

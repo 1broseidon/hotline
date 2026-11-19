@@ -20,6 +20,7 @@ pub mod driver;
 pub mod glance;
 pub mod imagegen;
 pub mod import;
+pub(crate) mod keyproxy;
 pub(crate) mod link_preview;
 pub(crate) use hotline_room::linked;
 pub use hotline_store::log;

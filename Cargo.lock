@@ -4502,6 +4502,7 @@ dependencies = [
  "ts-rs",
  "url",
  "uuid",
+ "webpki-roots 1.0.10",
  "windows-sys 0.61.2",
  "zip",
 ]

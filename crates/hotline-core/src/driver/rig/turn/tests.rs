@@ -116,6 +116,10 @@ fn fixture() -> (Turn, Template) {
         mcp_tools: Vec::new(),
         capability: None,
         delegate: None,
+        shell_secrets: crate::session::desk_shell::for_teammate(
+            std::sync::Weak::new(),
+            "ada".into(),
+        ),
         meter: None,
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,

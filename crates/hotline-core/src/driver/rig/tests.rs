@@ -484,6 +484,10 @@ async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() 
         mcp_tools: Vec::new(),
         capability: None,
         delegate: None,
+        shell_secrets: crate::session::desk_shell::for_teammate(
+            std::sync::Weak::new(),
+            "ada".into(),
+        ),
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,
         returns: None,
@@ -1218,6 +1222,10 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
         mcp_tools: Vec::new(),
         capability: None,
         delegate: None,
+        shell_secrets: crate::session::desk_shell::for_teammate(
+            std::sync::Weak::new(),
+            "ada".into(),
+        ),
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,
         returns: None,

@@ -107,7 +107,10 @@ ring = "0.17"
 snow = "0.10"
 rcgen = "0.14"
 tokio-rustls = "0.26"
-hyper = { version = "1", features = ["server", "http1"] }
+hyper = { version = "1", features = ["server", "client", "http1"] }
+# The desk shell's key proxy checks an upstream against the web roots built
+# into the binary, never the machine's own store (`keyproxy`).
+webpki-roots = "1"
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 if-addrs = "0.14"

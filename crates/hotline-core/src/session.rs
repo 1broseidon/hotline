@@ -40,6 +40,7 @@ mod call_files;
 mod chapters;
 mod computer;
 pub(crate) mod declared;
+pub(crate) mod desk_shell;
 mod dm;
 mod driver_info;
 pub(crate) mod exchanges;
@@ -873,6 +874,9 @@ pub struct Room {
     /// Where the secrets a computer is granted are read from, on their way
     /// to it. A room without one — a test's — grants none.
     vault: Option<Arc<Vault>>,
+    /// What each teammate's desk shell is handed of its grants, and the key
+    /// proxy its confined commands use a protected key through.
+    desk_shell: desk_shell::DeskShell,
     /// The passkey each teammate's computer is armed to make, by teammate:
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
@@ -1074,6 +1078,7 @@ impl Room {
             computers,
             harness_updates: Arc::default(),
             vault,
+            desk_shell: desk_shell::DeskShell::default(),
             passkey_armings: Mutex::new(HashMap::new()),
             #[cfg(test)]
             passkey_clock_ahead: std::sync::atomic::AtomicI64::new(0),

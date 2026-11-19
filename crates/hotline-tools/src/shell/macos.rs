@@ -14,6 +14,7 @@ pub(super) fn command(
     workspace: &Path,
     folders: &[(PathBuf, bool)],
     identities: &[(PathBuf, String)],
+    run: &super::RunEnv,
 ) -> Result<Command, String> {
     let workspace = workspace
         .canonicalize()
@@ -82,6 +83,18 @@ pub(super) fn command(
             env.push(("DEVELOPER_DIR", developer.into_os_string()));
             break;
         }
+    }
+    // The teammate's grants for its shell, after the shell's own names so
+    // the fixed list is what a grant cannot replace (the vault refuses
+    // those names too), and the proxy's CA for the setup below.
+    for (name, value) in &run.vars {
+        if !env.iter().any(|(fixed, _)| fixed == name) {
+            env.push((name.as_str(), value.into()));
+        }
+    }
+    if let Some(ca) = &run.ca_pem {
+        env.push(("HOTLINE_PROXY_CA", ca.into()));
+        setup.push_str(&super::ca_setup("cat /private/etc/ssl/cert.pem"));
     }
     // env runs after Seatbelt, so even an environment value added by a caller
     // cannot reach the command. The launcher's own environment is also empty.
@@ -385,11 +398,17 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     async fn output(workspace: &Path, script: &str) -> std::process::Output {
-        command(script, workspace, &[], &[])
-            .unwrap()
-            .output()
-            .await
-            .unwrap()
+        command(
+            script,
+            workspace,
+            &[],
+            &[],
+            &crate::shell::RunEnv::default(),
+        )
+        .unwrap()
+        .output()
+        .await
+        .unwrap()
     }
 
     #[test]
@@ -662,11 +681,17 @@ mod tests {
             let folders = folders.clone();
             let work = work.clone();
             async move {
-                command(&script, &work, &folders, &[])
-                    .unwrap()
-                    .output()
-                    .await
-                    .unwrap()
+                command(
+                    &script,
+                    &work,
+                    &folders,
+                    &[],
+                    &crate::shell::RunEnv::default(),
+                )
+                .unwrap()
+                .output()
+                .await
+                .unwrap()
             }
         };
         let read = run(format!("cat '{}'", read_only.join("notes.txt").display())).await;
@@ -712,11 +737,17 @@ mod tests {
         }
         std::fs::write(outside.join("secret.txt"), "host-canary").unwrap();
         let run = |workspace: PathBuf, folders: Vec<(PathBuf, bool)>, script: String| async move {
-            command(&script, &workspace, &folders, &[])
-                .unwrap()
-                .output()
-                .await
-                .unwrap()
+            command(
+                &script,
+                &workspace,
+                &folders,
+                &[],
+                &crate::shell::RunEnv::default(),
+            )
+            .unwrap()
+            .output()
+            .await
+            .unwrap()
         };
         let quoted = |path: &Path| format!("'{}'", path.display());
         // Each of these removes, renames or replaces a writable root, with

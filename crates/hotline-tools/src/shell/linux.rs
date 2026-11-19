@@ -14,15 +14,28 @@ pub(super) fn command(
     workspace: &Path,
     folders: &[(PathBuf, bool)],
     identities: &[(PathBuf, String)],
+    run: &super::RunEnv,
 ) -> Result<Command, String> {
     let workspace = workspace
         .canonicalize()
         .map_err(|error| format!("Cannot open the shell workspace: {error}"))?;
     let mut process = launcher(Some(&workspace), folders)?;
+    // The teammate's grants for its shell. The fixed names were set by the
+    // launcher, and the vault refuses them as secret names.
+    for (name, value) in &run.vars {
+        process.arg("--setenv").arg(name).arg(value);
+    }
+    let mut ca = String::new();
+    if let Some(pem) = &run.ca_pem {
+        process.arg("--setenv").arg("HOTLINE_PROXY_CA").arg(pem);
+        ca = super::ca_setup(
+            "cat /etc/ssl/certs/ca-certificates.crt 2>/dev/null || cat /etc/pki/tls/certs/ca-bundle.crt",
+        );
+    }
     // Create the home *inside* the sandbox: a project-controlled symlink here
     // must never cause Hotline to create directories elsewhere on the host.
     let setup = format!(
-        "{}mkdir -p -- \"$HOME\" || exit; {} exec /bin/sh -c \"$1\"",
+        "{}mkdir -p -- \"$HOME\" || exit; {ca}{} exec /bin/sh -c \"$1\"",
         super::identity_checks(identities)?,
         super::RUSTUP_SETUP
     );

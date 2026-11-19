@@ -7,13 +7,6 @@ import { Cookies } from "./Cookies";
 import { FoldRow } from "./rows";
 
 /**
- * Whether the desk hands a teammate's desk shell its secrets. Not yet: the
- * desk shell's key proxy is W2.3 of the protected-secrets plan, and until
- * it lands nothing would be behind a grant's choice of Shell.
- */
-const DESK_SHELL_TAKES_SECRETS: boolean = false;
-
-/**
  * The stored secrets this teammate is granted, as its own section: the
  * grant is the teammate's, and whichever shell and browser it has uses it.
  * One fold, closed until asked, because opening it reads the keychain's
@@ -23,8 +16,9 @@ const DESK_SHELL_TAKES_SECRETS: boolean = false;
  * rather than let a tick look like it did something. A passkey for the
  * teammate's browser, its desk browser's or its computer's, is made here.
  * Under it, the person's cookies shared with that browser: one list for
- * either, in sight without opening anything. With a computer, a grant may
- * reach its computer, its desk shell or both.
+ * either, in sight without opening anything. With a computer, a variable's
+ * grant may reach its computer, its desk shell or both; without one, a
+ * variable goes to its desk shell.
  */
 export function SecretRows({
 	personaId,
@@ -58,13 +52,13 @@ export function SecretRows({
 			<h3 className="label">Secrets</h3>
 			<div className="grouped">
 				<FoldRow title="Logins and passkeys" value={granted === 0 ? "none given" : `${granted} given`} open={open} onToggle={() => setOpen((was) => !was)} />
-				{open && <TeammateSecrets grants={grants} bothPlaces={computer && DESK_SHELL_TAKES_SECRETS} asPerson={asPerson} disabled={disabled} onChange={onChange} />}
+				{open && <TeammateSecrets grants={grants} places={computer ? ["computer", "desk"] : ["desk"]} asPerson={asPerson} disabled={disabled} onChange={onChange} />}
 				{deskSigner && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
 				{computer && <PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />}
 			</div>
 			{open && <p className="group-hint">Kept in Settings › Secrets. A passkey made for this teammate is given by itself.</p>}
-			{deskBrowser && granted > 0 && <p className="group-hint">{deskSigner ? "Its browser types these logins and signs in with these passkeys." : "Its browser types these logins."} A variable needs a computer's shell.</p>}
-			{!computer && !deskBrowser && granted > 0 && <p className="group-hint">Its computer's shell and browser use these. It has no computer, so nothing does yet.</p>}
+			{deskBrowser && granted > 0 && <p className="group-hint">{deskSigner ? "Its browser types these logins and signs in with these passkeys." : "Its browser types these logins."} Its shell gets the variables.</p>}
+			{!computer && !deskBrowser && granted > 0 && <p className="group-hint">Its shell gets the variables. It has no browser for a login or passkey here.</p>}
 			{(computer || deskBrowser) && <Cookies personaId={personaId} disabled={disabled} />}
 		</section>
 	);

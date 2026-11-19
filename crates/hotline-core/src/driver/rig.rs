@@ -744,6 +744,7 @@ impl InProcess {
             mcp_tools,
             capability: self.capability.clone(),
             delegate: self.teammate.delegate(),
+            shell_secrets: self.teammate.shell_secrets(),
             processes: self.processes.clone(),
             asked,
             returns: self.teammate.returns(),
@@ -835,6 +836,8 @@ struct Turn {
     capability: Option<CapabilityLease>,
     /// Who runs this teammate's subagents, when this session may start them.
     delegate: Option<Arc<dyn crate::session::jobs::Delegate>>,
+    /// What each shell command is handed of the teammate's desk-shell grants.
+    shell_secrets: Arc<dyn tools::ShellSecrets>,
     /// Where a command the turn leaves running goes.
     processes: Arc<crate::session::jobs::Processes>,
     /// Whether the person is waiting on this turn's reply: it began on
@@ -891,7 +894,7 @@ impl Turn {
         tools.add_tool(EditFile::new(workspace.clone()));
         let shell = tools::shell_available(self.reach)
             .is_ok()
-            .then(|| RunCommand::new(workspace));
+            .then(|| RunCommand::new(workspace).with_secrets(self.shell_secrets.clone()));
         for tool in &self.mcp_tools {
             tools.add_dynamic_tool(tool.clone());
         }

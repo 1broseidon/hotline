@@ -1062,11 +1062,13 @@ impl Room {
         Ok(())
     }
 
-    /// After a secret was stored, replaced or deleted: every running computer
-    /// is handed the set its teammate is granted now, so a rotation or a
-    /// revocation reaches the machine without a restart. A stopped computer
-    /// gets the current set at its next start, as every start does.
+    /// After a secret was stored, replaced or deleted, or a grant changed:
+    /// every desk shell and every running computer is handed the set its
+    /// teammate is granted now, so a rotation or a revocation reaches it
+    /// without a restart. A stopped computer gets the current set at its
+    /// next start, as every start does.
     pub async fn secrets_changed(&self) {
+        self.refresh_desk_shells();
         for persona in room::roster(&self.log) {
             if !persona
                 .computer

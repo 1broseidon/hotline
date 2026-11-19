@@ -16,6 +16,9 @@ impl ChildAgent {
         command
             .args(&launch.args)
             .envs(launch.env.iter().cloned())
+            // The readable variables its desk shell is granted: a harness
+            // runs as the person, so it is never handed a protected key.
+            .envs(self.teammate.desk_readable())
             .current_dir(&persona.cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

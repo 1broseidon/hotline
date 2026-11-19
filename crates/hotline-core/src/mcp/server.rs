@@ -977,6 +977,20 @@ impl TeammateTools {
         }
     }
 
+    /// Where this teammate's shell commands get its desk-shell grants.
+    pub(crate) fn shell_secrets(&self) -> Arc<dyn hotline_tools::ShellSecrets> {
+        crate::session::desk_shell::for_teammate(self.room.clone(), self.persona_id.clone())
+    }
+
+    /// The readable variables this teammate's desk shell is granted, for an
+    /// ACP harness's environment.
+    pub(crate) fn desk_readable(&self) -> Vec<(String, String)> {
+        self.room
+            .upgrade()
+            .map(|room| room.desk_shell_readable(&self.persona_id))
+            .unwrap_or_default()
+    }
+
     /// Makes these one work thread's: see [`WORK_WITHOUT`]. Subagent runs hang
     /// off the DM's tape, so a thread starts none.
     pub(crate) fn for_work(mut self, thread_id: impl Into<String>) -> Self {

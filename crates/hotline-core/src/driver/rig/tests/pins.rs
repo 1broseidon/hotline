@@ -148,6 +148,10 @@ fn turn_on(
         mcp_tools: Vec::new(),
         capability: None,
         delegate: None,
+        shell_secrets: crate::session::desk_shell::for_teammate(
+            std::sync::Weak::new(),
+            "ada".into(),
+        ),
         processes: crate::session::jobs::Processes::new(scratch.join("processes")),
         asked: true,
         returns: None,

@@ -2534,8 +2534,10 @@ export type SealedPairing = { payload: PairingPayload, link: string, id: string,
  * One stored secret granted to a teammate, by name. `readable` is today's
  * grant, said plainly: the teammate's programs can read the value. Without
  * it the secret is protected, and goes only where it can stay unread: a
- * computer that proved it keeps values from its jobs. `on` absent is
- * wherever the teammate works.
+ * computer that proved it keeps values from its jobs, or a confined desk
+ * shell's key proxy. `on` absent is its computer alone: a grant reaches the
+ * desk shell only when it names it, so no grant made before the desk
+ * shell took secrets lands there.
  */
 export type SecretGrant = { name: string, readable?: boolean, on?: Array<GrantPlace>, };
 

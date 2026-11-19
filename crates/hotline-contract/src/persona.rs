@@ -271,7 +271,7 @@ impl Persona {
     }
 
     /// Every grant this teammate holds: each name in `secrets`, with its
-    /// entry in `secretGrants`, or protected and wherever it works when it
+    /// entry in `secretGrants`, or protected and on its computer when it
     /// has none, as a login or passkey the desk ticked by itself does.
     pub fn grants(&self) -> Vec<SecretGrant> {
         let entries = self.secret_grants.as_deref().unwrap_or_default();

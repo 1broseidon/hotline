@@ -434,8 +434,10 @@ pub struct UsedWith {
 /// One stored secret granted to a teammate, by name. `readable` is today's
 /// grant, said plainly: the teammate's programs can read the value. Without
 /// it the secret is protected, and goes only where it can stay unread: a
-/// computer that proved it keeps values from its jobs. `on` absent is
-/// wherever the teammate works.
+/// computer that proved it keeps values from its jobs, or a confined desk
+/// shell's key proxy. `on` absent is its computer alone: a grant reaches the
+/// desk shell only when it names it, so no grant made before the desk
+/// shell took secrets lands there.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -451,7 +453,10 @@ pub struct SecretGrant {
 impl SecretGrant {
     /// Whether the grant reaches `place`.
     pub fn reaches(&self, place: GrantPlace) -> bool {
-        self.on.as_ref().is_none_or(|on| on.contains(&place))
+        match &self.on {
+            None => place == GrantPlace::Computer,
+            Some(on) => on.contains(&place),
+        }
     }
 }
 

@@ -338,12 +338,14 @@ impl Room {
     }
 
     /// A deleted teammate: its own session stopped, with the collaboration
-    /// grants it held or was given, its start gate let go, and its desk
-    /// browser closed with its web storage wiped, because nothing should wait
-    /// behind — or be kept for — an id that names nobody any more.
+    /// grants it held or was given, its start gate let go, its desk shell's
+    /// grants taken back, and its desk browser closed with its web storage
+    /// wiped, because nothing should wait behind — or be kept for — an id
+    /// that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
         self.browser_forget(persona_id);
+        self.forget_desk_shell(persona_id);
         super::consent::forget(&self.log, persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);

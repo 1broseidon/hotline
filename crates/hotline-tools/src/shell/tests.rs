@@ -451,6 +451,7 @@ async fn workspace_shell_has_a_private_persistent_home_and_no_host_environment()
         root.path(),
         &[],
         &[],
+        &RunEnv::default(),
     )
     .unwrap();
     // Even variables accidentally added by a caller must not reach the shell.

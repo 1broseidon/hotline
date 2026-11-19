@@ -41,7 +41,7 @@ fn variable(name: &str, stored: &[SharedSecret]) -> bool {
 
 /// The grant a name gets when nobody said how: readable for a plain
 /// variable, and for any variable to a teammate that runs as the person;
-/// protected and wherever the teammate works for anything else.
+/// protected and on its computer for anything else.
 fn default_grant(persona: &Persona, name: &str, stored: &[SharedSecret]) -> SecretGrant {
     SecretGrant {
         name: name.to_owned(),

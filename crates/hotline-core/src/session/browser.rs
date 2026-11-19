@@ -341,7 +341,7 @@ impl Hidden {
         let mut values = Vec::new();
         for (name, secret) in stored {
             let hidden: Vec<String> = match secret {
-                StoredSecret::Variable { value } => vec![value],
+                StoredSecret::Variable { value, .. } => vec![value],
                 StoredSecret::Login { password, totp, .. } => {
                     let codes: Vec<String> = totp
                         .iter()
@@ -1627,12 +1627,14 @@ mod hiding {
                 "NPM".to_string(),
                 StoredSecret::Variable {
                     value: "npm_abc".into(),
+                    r#use: None,
                 },
             ),
             (
                 "SHORT".to_string(),
                 StoredSecret::Variable {
                     value: "abc".into(),
+                    r#use: None,
                 },
             ),
         ];

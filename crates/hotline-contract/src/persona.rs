@@ -229,6 +229,11 @@ pub struct Persona {
     /// reads them from there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<String>>,
+    /// The same grants with how each is given: readable, or protected, and
+    /// where. `secrets` is still written in step, for a client from before
+    /// these; a name there with no entry here is a protected grant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_grants: Option<Vec<SecretGrant>>,
     /// The voice this teammate speaks in on a direct call, as picked from the
     /// desk's speaking model. It applies only while the desk still speaks
     /// with that provider and model; otherwise the desk's own voice is used.
@@ -263,6 +268,28 @@ impl Persona {
             persona.secrets = Option::<Vec<String>>::deserialize(names)?;
         }
         Ok(persona)
+    }
+
+    /// Every grant this teammate holds: each name in `secrets`, with its
+    /// entry in `secretGrants`, or protected and wherever it works when it
+    /// has none, as a login or passkey the desk ticked by itself does.
+    pub fn grants(&self) -> Vec<SecretGrant> {
+        let entries = self.secret_grants.as_deref().unwrap_or_default();
+        self.secrets
+            .iter()
+            .flatten()
+            .map(|name| {
+                entries
+                    .iter()
+                    .find(|grant| grant.name == *name)
+                    .cloned()
+                    .unwrap_or_else(|| SecretGrant {
+                        name: name.clone(),
+                        readable: false,
+                        on: None,
+                    })
+            })
+            .collect()
     }
 }
 

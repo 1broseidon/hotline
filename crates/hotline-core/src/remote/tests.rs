@@ -566,6 +566,7 @@ impl RoomHandle for Computered {
             available: None,
             update_failed: None,
             limits_changed: false,
+            protection: None,
         })
     }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {

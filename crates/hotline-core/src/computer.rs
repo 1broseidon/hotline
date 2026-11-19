@@ -664,6 +664,7 @@ impl Computer {
                     available: None,
                     update_failed: None,
                     limits_changed: false,
+                    protection: None,
                 });
             };
             let limits_changed = limits_changed(&inspection, persona, live.runtime);
@@ -681,6 +682,7 @@ impl Computer {
                 available: None,
                 update_failed: None,
                 limits_changed: false,
+                protection: None,
             });
         };
         let Ok(inspection) = inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await else {
@@ -692,6 +694,7 @@ impl Computer {
                 available: None,
                 update_failed: None,
                 limits_changed: false,
+                protection: None,
             });
         };
         let limits_changed = limits_changed(&inspection, persona, runtime);
@@ -857,6 +860,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             available: None,
             update_failed: None,
             limits_changed: false,
+            protection: None,
         };
     }
     if !inspection.running {
@@ -868,6 +872,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             available: None,
             update_failed: None,
             limits_changed: false,
+            protection: None,
         };
     }
     let mcp = inspection.mcp_port.or(known.map(|known| known.0));
@@ -888,6 +893,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             (Some(port), Some(token)) => Some(viewer_url(port, token)),
             _ => None,
         },
+        protection: None,
     }
 }
 

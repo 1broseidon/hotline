@@ -1489,11 +1489,36 @@ impl RoomHandle for Desk {
         &self,
         name: &str,
         value: &str,
+        used_with: Option<&crate::contract::UsedWith>,
     ) -> Result<crate::contract::SharedSecret, String> {
         let updates = self.room.policy_update_lock();
         let held = updates.lock().await;
+        // A new value keeps the "Used with" the key had, so replacing it
+        // from a client that does not offer the choice leaves its teammates'
+        // protected grants as they were.
+        let usage = match used_with {
+            Some(choice) => {
+                Some(crate::vault::resolve_used_with(choice).map_err(|error| error.to_string())?)
+            }
+            None => self
+                .vault
+                .shared_secrets()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|secret| {
+                    secret.name == name
+                        && secret.kind == crate::contract::SharedSecretKind::Variable
+                })
+                .and_then(|secret| secret.used_with),
+        };
         self.vault
-            .set_shared_secret(name, value)
+            .set_shared(
+                name,
+                crate::vault::StoredSecret::Variable {
+                    value: value.to_owned(),
+                    r#use: usage,
+                },
+            )
             .map_err(|error| error.to_string())?;
         let stored = self
             .vault
@@ -1505,6 +1530,32 @@ impl RoomHandle for Desk {
         drop(held);
         self.room.secrets_changed().await;
         Ok(stored)
+    }
+
+    async fn secrets_used_with_set(
+        &self,
+        name: &str,
+        used_with: Option<&crate::contract::UsedWith>,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        let usage = used_with
+            .map(crate::vault::resolve_used_with)
+            .transpose()
+            .map_err(|error| error.to_string())?;
+        let updates = self.room.policy_update_lock();
+        let held = updates.lock().await;
+        self.vault
+            .set_secret_used_with(name, usage)
+            .map_err(|error| error.to_string())?;
+        let secret = self
+            .vault
+            .shared_secrets()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|secret| secret.name == name)
+            .ok_or("The secret is no longer stored.")?;
+        drop(held);
+        self.room.secrets_changed().await;
+        Ok(secret)
     }
 
     async fn secrets_delete(&self, name: &str) -> Result<(), String> {
@@ -1882,6 +1933,7 @@ mod tests {
             folders: None,
             computer: None,
             secrets: None,
+            secret_grants: None,
             voice: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,

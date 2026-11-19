@@ -1019,8 +1019,30 @@ pub enum Command {
     /// new value to every running computer granted that name. The value goes
     /// to the OS credential store and is never answered back — not by this
     /// command, not by a list, not by a subscription. Owner or local desk only.
+    ///
+    /// `usedWith` is a variable's "Used with"; absent keeps the one it had.
     #[serde(rename = "secrets.set")]
-    SecretsSet { name: String, value: String },
+    SecretsSet {
+        name: String,
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        used_with: Option<UsedWith>,
+    },
+    /// Sets or clears a stored variable's "Used with" without its value
+    /// being typed again, and hands every running computer granted it the
+    /// new set. Owner or local desk only.
+    #[serde(rename = "secrets.used_with.set")]
+    SecretsUsedWithSet {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        used_with: Option<UsedWith>,
+    },
+    /// The services a key can be used with, from `services.json`, with the
+    /// prefixes that suggest each.
+    #[serde(rename = "secrets.services")]
+    SecretsServices {},
     /// Takes a stored secret away, and out of every running computer it was
     /// granted to. Owner or local desk only.
     #[serde(rename = "secrets.delete")]

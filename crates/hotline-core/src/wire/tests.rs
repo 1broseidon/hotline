@@ -1049,6 +1049,7 @@ impl RoomHandle for Quiet {
             available: None,
             update_failed: None,
             limits_changed: false,
+            protection: None,
         })
     }
 

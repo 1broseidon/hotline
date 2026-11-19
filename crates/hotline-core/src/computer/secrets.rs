@@ -39,7 +39,7 @@ pub fn wire_form(secrets: &BTreeMap<String, StoredSecret>) -> BTreeMap<String, V
         .iter()
         .map(|(name, secret)| {
             let value = match secret {
-                StoredSecret::Variable { value } => Value::String(value.clone()),
+                StoredSecret::Variable { value, .. } => Value::String(value.clone()),
                 typed => serde_json::to_value(typed).unwrap_or(Value::Null),
             };
             (name.clone(), value)
@@ -137,6 +137,7 @@ mod tests {
             "GITHUB_TOKEN".to_owned(),
             StoredSecret::Variable {
                 value: "ghp_notarealtoken0001".to_owned(),
+                r#use: None,
             },
         );
         set.insert(

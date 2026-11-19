@@ -24,9 +24,11 @@ use tokio::sync::Mutex as AsyncMutex;
 mod launch;
 mod models;
 use models::ModelSources;
+mod services;
 mod shared;
 mod web_search;
 
+pub use services::{resolve as resolve_used_with, services, stand_in_prefix};
 pub use shared::{StoredSecret, check_rp_id, check_secret_name, check_site};
 
 /// The store a desk and its vault keep secrets in: the OS one, and in this

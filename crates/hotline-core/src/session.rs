@@ -46,6 +46,7 @@ pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod files_between;
 pub(crate) mod generate;
+pub(crate) mod grants;
 mod harness_updates;
 mod inbound;
 pub(crate) mod inbox;
@@ -1091,6 +1092,7 @@ impl Room {
             browser_passkey_asks: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);
+        room.settle_secret_grants();
         room.settle();
         secret_uses::watch(Arc::downgrade(&room));
         cookie_lends::start(&room);

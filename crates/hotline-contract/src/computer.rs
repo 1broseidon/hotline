@@ -159,6 +159,10 @@ pub struct ComputerStatus {
     )]
     #[ts(as = "Option<bool>", optional)]
     pub limits_changed: bool,
+    /// What the running computer said of keeping secrets from its jobs, at
+    /// the last handing over. Absent until it has been handed its set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<ComputerProtection>,
 }
 
 /// A browser found on the host, offered to the operator as a source of
@@ -312,6 +316,107 @@ pub struct SharedSecret {
     /// The account name the site gave a passkey, when it gave one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_name: Option<String>,
+    /// A variable's "Used with": the service a key is sent to, which a
+    /// protected computer adds it for and nowhere else. Absent on a plain
+    /// variable, which can only be granted as readable. (`use` on this
+    /// record is already a login's or passkey's Automatic or Ask me.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_with: Option<VariableUse>,
+}
+
+/// Where a key goes and how it rides, as the person's "Used with" choice
+/// resolves through `services.json`: the HTTPS origins it is added for, the
+/// header it goes in, the schemes that header may carry it under, and the
+/// paths at those origins it is never added for. This is the `use` a
+/// protected computer is handed beside the value.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct VariableUse {
+    pub origins: Vec<String>,
+    pub header: String,
+    /// Empty: the header's whole value is the key, as Anthropic's `x-api-key`.
+    pub schemes: Vec<String>,
+    /// Paths a request with the key is refused on: the service's known
+    /// key-minting routes. `*` stands for one path segment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub refuse: Vec<String>,
+}
+
+/// One entry of `services.json`: a service a key can be used with, the key
+/// prefixes that suggest it, and what its "Used with" resolves to. `other`
+/// has no origins of its own; the person names the host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SecretService {
+    pub id: String,
+    pub name: String,
+    pub prefixes: Vec<String>,
+    pub origins: Vec<String>,
+    pub header: String,
+    pub schemes: Vec<String>,
+    pub refuse: Vec<String>,
+}
+
+/// The person's "Used with" choice for a key: a service's id, and for
+/// `other` the host they named.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct UsedWith {
+    pub service: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+}
+
+/// One stored secret granted to a teammate, by name. `readable` is today's
+/// grant, said plainly: the teammate's programs can read the value. Without
+/// it the secret is protected, and goes only where it can stay unread: a
+/// computer that proved it keeps values from its jobs. `on` absent is
+/// wherever the teammate works.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SecretGrant {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub readable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on: Option<Vec<GrantPlace>>,
+}
+
+impl SecretGrant {
+    /// Whether the grant reaches `place`.
+    pub fn reaches(&self, place: GrantPlace) -> bool {
+        self.on.as_ref().is_none_or(|on| on.contains(&place))
+    }
+}
+
+/// A place a teammate's grant can reach: its computer, or the shell it has
+/// on the desk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum GrantPlace {
+    Computer,
+    Desk,
+}
+
+/// Whether a running computer keeps protected secrets from its jobs:
+/// `protected`, it proved it does and takes every grant; `legacy`, it does
+/// not, and holds only readable variables, which is all it is granted;
+/// `needsUpdate`, it does not, and some of the teammate's grants wait on
+/// the desk until it is updated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ComputerProtection {
+    Protected,
+    NeedsUpdate,
+    Legacy,
 }
 
 /// Where the making of a passkey stands. `armed` is the ten minutes in

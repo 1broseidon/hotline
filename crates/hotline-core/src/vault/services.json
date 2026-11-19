@@ -1,0 +1,38 @@
+[
+  {
+    "id": "github",
+    "name": "GitHub",
+    "prefixes": ["github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"],
+    "origins": ["https://api.github.com", "https://github.com", "https://uploads.github.com"],
+    "header": "Authorization",
+    "schemes": ["Bearer", "token", "Basic"],
+    "refuse": ["/authorizations", "/app/installations/*/access_tokens"]
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "prefixes": ["sk-proj-", "sk-svcacct-", "sk-admin-", "sk-"],
+    "origins": ["https://api.openai.com"],
+    "header": "Authorization",
+    "schemes": ["Bearer"],
+    "refuse": ["/v1/organization/admin_api_keys"]
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "prefixes": ["sk-ant-"],
+    "origins": ["https://api.anthropic.com"],
+    "header": "x-api-key",
+    "schemes": [],
+    "refuse": ["/v1/organizations/api_keys"]
+  },
+  {
+    "id": "other",
+    "name": "Other",
+    "prefixes": [],
+    "origins": [],
+    "header": "Authorization",
+    "schemes": ["Bearer", "token", "Basic"],
+    "refuse": []
+  }
+]

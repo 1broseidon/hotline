@@ -775,6 +775,16 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         _name: &str,
         _value: &str,
+        _used_with: Option<&hotline_contract::UsedWith>,
+    ) -> Result<hotline_contract::SharedSecret, String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
+    /// Sets or clears a variable's "Used with", and hands every running
+    /// computer granted it the new set.
+    async fn secrets_used_with_set(
+        &self,
+        _name: &str,
+        _used_with: Option<&hotline_contract::UsedWith>,
     ) -> Result<hotline_contract::SharedSecret, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }

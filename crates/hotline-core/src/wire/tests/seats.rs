@@ -477,6 +477,7 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
     let set = Command::SecretsSet {
         name: "GITHUB_TOKEN".to_string(),
         value: "ghp_notarealtoken0001".to_string(),
+        used_with: None,
     };
     let delete = Command::SecretsDelete {
         name: "GITHUB_TOKEN".to_string(),

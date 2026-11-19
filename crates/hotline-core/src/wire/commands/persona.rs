@@ -108,6 +108,7 @@ pub(crate) fn drafted_persona(
         web_search_policy: None,
         computer: draft.computer,
         secrets: None,
+        secret_grants: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -437,7 +438,10 @@ async fn apply_persona_update_locked(
     drop(held);
     if reattaches {
         room.reattach(id).await?;
-    } else if patch.get("computer").is_some() || patch.get("secrets").is_some() {
+    } else if patch.get("computer").is_some()
+        || patch.get("secrets").is_some()
+        || patch.get("secretGrants").is_some()
+    {
         room.computer_settings_changed(id).await;
     }
     Ok(updated)
@@ -496,6 +500,18 @@ pub(super) fn update_persona(
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
     if patch.get("cwd").is_some() {
         (updated.cwd, updated.cwd_identity) = kept_cwd(std::mem::take(&mut updated.cwd))?;
+    }
+    // Grants and the names they cover are written together: a client
+    // that sends grants has the names follow; one from before grants had
+    // options sends names, and each new one gets today's grant.
+    if changes.contains_key("secretGrants") || changes.contains_key("secrets") {
+        let stored = room.secrets_list().unwrap_or_default();
+        if changes.contains_key("secretGrants") {
+            let grants = updated.secret_grants.take().unwrap_or_default();
+            crate::session::grants::apply(&mut updated, grants, &stored)?;
+        } else {
+            updated.secret_grants = crate::session::grants::settled(&updated, &stored);
+        }
     }
     // Checked here, before anything is revoked or written, so a refused
     // folder leaves the teammate exactly as it was.

@@ -962,10 +962,19 @@ pub(crate) async fn run(
             .await
             .map(|()| Value::Null),
         Command::SecretsList {} => room.secrets_list().map(|secrets| json!(secrets)),
-        Command::SecretsSet { name, value } => room
-            .secrets_set(&name, &value)
+        Command::SecretsSet {
+            name,
+            value,
+            used_with,
+        } => room
+            .secrets_set(&name, &value, used_with.as_ref())
             .await
             .map(|secret| json!(secret)),
+        Command::SecretsUsedWithSet { name, used_with } => room
+            .secrets_used_with_set(&name, used_with.as_ref())
+            .await
+            .map(|secret| json!(secret)),
+        Command::SecretsServices {} => Ok(json!(crate::vault::services())),
         Command::SecretsDelete { name } => room.secrets_delete(&name).await.map(|()| Value::Null),
         Command::SecretsLoginSet {
             r#use,

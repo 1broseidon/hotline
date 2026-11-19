@@ -96,6 +96,7 @@ fn persona(id: &str, cwd: &str) -> Persona {
             mounts: None,
         }),
         secrets: None,
+        secret_grants: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -1028,6 +1029,7 @@ async fn desk_clients_to_the_computer_do_not_follow_redirects() {
         "GITHUB_TOKEN".to_owned(),
         crate::vault::StoredSecret::Variable {
             value: "ghp_notarealtoken0001".to_owned(),
+            r#use: None,
         },
     )]);
     assert!(secrets::deliver(&ready, &set).await.is_err());

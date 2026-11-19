@@ -2567,6 +2567,7 @@ mod tests {
             folders: None,
             computer: None,
             secrets: None,
+            secret_grants: None,
             voice: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,

@@ -22,7 +22,7 @@
 //! which is identity, not a secret, so the list never opens the store.
 
 use super::*;
-use crate::contract::{SecretUse, SharedSecret, SharedSecretKind};
+use crate::contract::{SecretUse, SharedSecret, SharedSecretKind, VariableUse};
 use std::time::UNIX_EPOCH;
 
 /// A value shorter than this is refused. The computer redacts every granted
@@ -56,13 +56,17 @@ const RESERVED: [&str; 12] = [
 
 /// A stored secret as the keychain holds it and a computer takes it: the
 /// shape on both sides of the wire; the sidecar supplies its current use
-/// policy before `PUT /secrets` sends it. A variable is kept as its bare value, which is
-/// what every record from before kinds is.
+/// policy before `PUT /secrets` sends it — a login's or passkey's Automatic
+/// or Ask me, a variable's "Used with". A variable is kept as its bare
+/// value, which is what every record from before kinds is.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum StoredSecret {
     Variable {
         value: String,
+        /// Its "Used with", from the sidecar; never in the keychain.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        r#use: Option<VariableUse>,
     },
     #[serde(rename_all = "camelCase")]
     Login {
@@ -116,9 +120,9 @@ impl StoredSecret {
     fn checked(self, name: &str) -> io::Result<StoredSecret> {
         let refuse = |text: String| io::Error::new(io::ErrorKind::InvalidInput, text);
         match self {
-            StoredSecret::Variable { value } => {
+            StoredSecret::Variable { value, r#use } => {
                 check_secret_value(&value)?;
-                Ok(StoredSecret::Variable { value })
+                Ok(StoredSecret::Variable { value, r#use })
             }
             StoredSecret::Login {
                 r#use,
@@ -205,7 +209,9 @@ impl StoredSecret {
     /// What the listing says of it beside the name: never a value.
     fn about(&self) -> Option<About> {
         match self {
-            StoredSecret::Variable { .. } => None,
+            StoredSecret::Variable { r#use, .. } => {
+                r#use.clone().map(|r#use| About::Variable { r#use })
+            }
             StoredSecret::Login {
                 sites,
                 username,
@@ -235,7 +241,7 @@ impl StoredSecret {
     /// from before kinds reads the same; anything else as JSON.
     fn bytes(&self) -> io::Result<Vec<u8>> {
         match self {
-            StoredSecret::Variable { value } => Ok(value.as_bytes().to_vec()),
+            StoredSecret::Variable { value, .. } => Ok(value.as_bytes().to_vec()),
             typed => serde_json::to_vec(typed).map_err(io::Error::other),
         }
     }
@@ -247,15 +253,19 @@ impl StoredSecret {
         {
             return Some(typed);
         }
-        Some(StoredSecret::Variable { value })
+        Some(StoredSecret::Variable { value, r#use: None })
     }
 }
 
 /// The sidecar beside a login's or a passkey's reference: the part of the
-/// record the listing shows. A variable has none.
+/// record the listing shows. A variable has one only once it is "Used
+/// with" a service.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum About {
+    Variable {
+        r#use: VariableUse,
+    },
     Login {
         #[serde(default)]
         r#use: SecretUse,
@@ -518,9 +528,11 @@ impl Vault {
             totp: None,
             rp_id: None,
             user_name: None,
+            used_with: None,
         };
         match about {
             None => {}
+            Some(About::Variable { r#use }) => secret.used_with = Some(r#use),
             Some(About::Login {
                 r#use,
                 sites,
@@ -554,6 +566,7 @@ impl Vault {
             name,
             StoredSecret::Variable {
                 value: value.to_owned(),
+                r#use: None,
             },
         )
     }
@@ -599,11 +612,55 @@ impl Vault {
                 .map_err(io::Error::other)?;
         match &mut about {
             About::Login { r#use, .. } | About::Passkey { r#use, .. } => *r#use = usage,
+            About::Variable { .. } => {
+                return Err(io::Error::other(
+                    "A variable has no Automatic or Ask me; a login or passkey does.",
+                ));
+            }
         }
         crate::credentials::atomic_write(
             &self.about_path(name),
             &serde_json::to_vec(&about).map_err(io::Error::other)?,
         )
+    }
+
+    /// A variable's "Used with" is metadata too: setting or clearing it
+    /// writes the sidecar and never opens the keychain. A login or a passkey
+    /// is refused, since it already says where it is used.
+    pub fn set_secret_used_with(&self, name: &str, usage: Option<VariableUse>) -> io::Result<()> {
+        check_secret_name(name)?;
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        self.check_layout()?;
+        if !self.shared_path(name).symlink_metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("There is no secret named {name}."),
+            ));
+        }
+        match crate::credentials::private_read(&self.about_path(name)) {
+            Ok(file) => {
+                let about: About = serde_json::from_reader(file).map_err(io::Error::other)?;
+                if !matches!(about, About::Variable { .. }) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("{name} is not a variable; only a key is used with a service."),
+                    ));
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        match usage {
+            Some(r#use) => crate::credentials::atomic_write(
+                &self.about_path(name),
+                &serde_json::to_vec(&About::Variable { r#use }).map_err(io::Error::other)?,
+            ),
+            None => match fs::remove_file(self.about_path(name)) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error),
+            },
+        }
     }
 
     /// Takes a secret away: its chunks out of the OS store and its records
@@ -654,23 +711,34 @@ impl Vault {
                 Some(mut secret) => {
                     // The sidecar owns policy, so a metadata-only change reaches
                     // the next delivery without rewriting the keychain value.
-                    match &mut secret {
-                        StoredSecret::Login { r#use, .. } | StoredSecret::Passkey { r#use, .. } => {
-                            *r#use =
-                                match crate::credentials::private_read(&self.about_path(name)) {
-                                    Ok(file) => match serde_json::from_reader::<_, About>(file)
-                                        .map_err(io::Error::other)?
-                                    {
-                                        About::Login { r#use, .. }
-                                        | About::Passkey { r#use, .. } => r#use,
-                                    },
-                                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                                        SecretUse::Auto
-                                    }
-                                    Err(error) => return Err(error),
-                                };
+                    let about = match crate::credentials::private_read(&self.about_path(name)) {
+                        Ok(file) => Some(
+                            serde_json::from_reader::<_, About>(file).map_err(io::Error::other)?,
+                        ),
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                        Err(error) => return Err(error),
+                    };
+                    match (&mut secret, about) {
+                        (
+                            StoredSecret::Login { r#use, .. } | StoredSecret::Passkey { r#use, .. },
+                            Some(
+                                About::Login { r#use: usage, .. }
+                                | About::Passkey { r#use: usage, .. },
+                            ),
+                        ) => *r#use = usage,
+                        (
+                            StoredSecret::Login { r#use, .. } | StoredSecret::Passkey { r#use, .. },
+                            _,
+                        ) => {
+                            *r#use = SecretUse::Auto;
                         }
-                        StoredSecret::Variable { .. } => {}
+                        (
+                            StoredSecret::Variable { r#use, .. },
+                            Some(About::Variable { r#use: usage }),
+                        ) => {
+                            *r#use = Some(usage);
+                        }
+                        (StoredSecret::Variable { r#use, .. }, _) => *r#use = None,
                     }
                     values.insert(name.clone(), secret);
                 }

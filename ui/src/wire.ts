@@ -45,6 +45,7 @@ import type {
 	RuntimeReport,
 	ScheduledJob,
 	SessionInfo,
+	SecretService,
 	SharedSecret,
 	SideThreadSummary,
 	SkillEntry,
@@ -343,6 +344,9 @@ type Results = {
 	"secrets.use.set": SharedSecret;
 	"secrets.use.answer": null;
 	"secrets.set": SharedSecret;
+	"secrets.used_with.set": SharedSecret;
+	/** The services a key can be used with, and the prefixes that suggest each. */
+	"secrets.services": SecretService[];
 	"secrets.login.set": SharedSecret;
 	"secrets.delete": null;
 	/** Where the making of a teammate's passkey stands. */

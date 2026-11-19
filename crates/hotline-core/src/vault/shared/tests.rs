@@ -72,7 +72,8 @@ fn a_shared_secret_is_listed_by_name_and_never_by_value() {
     assert_eq!(
         values["GITHUB_TOKEN"],
         StoredSecret::Variable {
-            value: "ghp_notarealtoken0001".to_owned()
+            value: "ghp_notarealtoken0001".to_owned(),
+            r#use: None,
         }
     );
     assert_eq!(missing, ["NPM_TOKEN"]);
@@ -389,7 +390,8 @@ fn replacing_keeps_one_record_and_deleting_takes_it() {
     assert_eq!(
         values["NPM_TOKEN"],
         StoredSecret::Variable {
-            value: "npm_second_value".to_owned()
+            value: "npm_second_value".to_owned(),
+            r#use: None,
         }
     );
 
@@ -526,4 +528,49 @@ fn keys_stored_before_use_policy_are_automatic() {
     assert_eq!(wire["LOGIN"]["use"], "auto");
     assert_eq!(wire["PASSKEY"]["use"], "auto");
     assert_eq!(wire["TOKEN"], "long-enough-token");
+}
+
+#[test]
+fn a_keys_used_with_is_metadata_beside_it_and_reaches_its_delivery() {
+    let root = tempfile::tempdir().unwrap();
+    let vault = vault(root.path());
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
+        .unwrap();
+    let github = crate::vault::resolve_used_with(&crate::contract::UsedWith {
+        service: "github".into(),
+        host: None,
+    })
+    .unwrap();
+    vault
+        .set_secret_used_with("GITHUB_TOKEN", Some(github.clone()))
+        .unwrap();
+    let listed = vault.shared_secrets().unwrap();
+    assert_eq!(listed[0].kind, SharedSecretKind::Variable);
+    assert_eq!(listed[0].used_with.as_ref(), Some(&github));
+    let (values, _) = vault
+        .shared_secret_values(&["GITHUB_TOKEN".to_owned()])
+        .unwrap();
+    assert_eq!(
+        values["GITHUB_TOKEN"],
+        StoredSecret::Variable {
+            value: "ghp_notarealtoken0001".to_owned(),
+            r#use: Some(github),
+        }
+    );
+
+    vault.set_secret_used_with("GITHUB_TOKEN", None).unwrap();
+    assert_eq!(vault.shared_secrets().unwrap()[0].used_with, None);
+    vault
+        .set_shared("GITHUB", login(&["https://github.com"], None))
+        .unwrap();
+    assert!(
+        vault.set_secret_used_with("GITHUB", None).is_err(),
+        "a login says where it is used already"
+    );
+    assert!(
+        vault
+            .set_secret_use("GITHUB_TOKEN", SecretUse::Ask)
+            .is_err()
+    );
 }

@@ -140,11 +140,27 @@ impl Room {
             }
         }
         let Some(ready) = ready else { return };
-        if watch.old || (granted.is_empty() && !finishes) {
+        let asks = !watch.old && !granted.is_empty();
+        if !asks && !finishes {
             return;
         }
-        let mut held = match uses::held(&ready).await {
-            Ok((held, finishing)) => {
+        // Sign-ins to finish are their own door, so a desk that reads the
+        // held uses strictly never meets a kind it does not know there.
+        let finishing = if finishes {
+            match uses::pending_signins(&ready).await {
+                Ok(finishing) => finishing,
+                Err(_) => return,
+            }
+        } else {
+            Vec::new()
+        };
+        let held = if asks {
+            uses::held(&ready).await
+        } else {
+            Ok(Vec::new())
+        };
+        let mut held = match held {
+            Ok(held) => {
                 let mut held = held;
                 held.extend(finishing.into_iter().map(finish_card));
                 held

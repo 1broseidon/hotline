@@ -196,9 +196,9 @@ async fn automatic_keys_are_not_held_and_policy_changes_reach_the_next_use_witho
     );
     room.poll_secret_uses("ada").await;
     assert_eq!(cards(room.log()), [] as [Value; 0]);
-    // A protected computer is still looked at, for a sign-in the person
-    // must finish, whatever the logins' policy; nothing there is a card.
-    assert_eq!(fixture.taken.uses.polls(), 1);
+    // A protected computer is still looked at for a sign-in the person
+    // must finish (`/signin/pending`), never at its held uses for this.
+    assert_eq!(fixture.taken.uses.polls(), 0);
     let frame = json!({"id":1,"cmd":"secrets.use.set","params":{"name":"HN_LOGIN","use":"ask"}});
     assert_eq!(
         remote_control_answer(
@@ -374,4 +374,27 @@ async fn an_older_computers_allow_is_as_it_was() {
         true
     );
     assert_eq!(cards(room.log())[0]["status"], "allowed");
+}
+
+/// A kind of held use this desk does not know is passed over, and the
+/// cards it does know still come; a computer without `/signin/pending`
+/// has no sign-in to finish.
+#[tokio::test]
+async fn an_unknown_held_use_is_passed_over_and_no_pending_door_is_none() {
+    let fixture = secret_use_room("use-unknown-kind", "0.13.0", SecretUse::Ask).await;
+    let room = &fixture.room;
+    fixture.taken.uses.hold_unknown();
+    fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
+    room.poll_secret_uses("ada").await;
+    assert_eq!(cards(room.log()).len(), 1);
+
+    let (port, _) = crate::computer::guide::fake::serve_taking(Some("0.12.0")).await;
+    let ready = crate::computer::Ready {
+        url: format!("http://127.0.0.1:{port}/mcp"),
+        token: "fixture-token".into(),
+    };
+    assert_eq!(
+        crate::computer::uses::pending_signins(&ready).await,
+        Ok(Vec::new())
+    );
 }

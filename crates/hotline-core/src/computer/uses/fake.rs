@@ -14,6 +14,8 @@ use tokio::time::{Duration, Instant};
 struct StateData {
     secrets: BTreeMap<String, Value>,
     uses: Vec<Value>,
+    /// What `GET /signin/pending` lists: sign-ins waiting to be finished.
+    pending: Vec<Value>,
     answers: Vec<Value>,
     allows: BTreeMap<(String, String), Instant>,
     #[cfg(unix)]
@@ -47,7 +49,7 @@ impl Door {
     #[cfg(unix)]
     pub(crate) fn finish(&self, name: &str, origin: &str, account: &str) {
         let since = crate::session::now_ms();
-        self.0.lock().unwrap().uses.push(
+        self.0.lock().unwrap().pending.push(
             json!({"kind": "finish", "name": name, "origin": origin, "account": account, "since": since}),
         );
     }
@@ -57,8 +59,19 @@ impl Door {
         self.0
             .lock()
             .unwrap()
+            .pending
+            .retain(|held| held["name"] != name);
+    }
+
+    /// An entry of a kind this desk does not know, among the held uses, as
+    /// a newer computer might list one.
+    #[cfg(unix)]
+    pub(crate) fn hold_unknown(&self) {
+        self.0
+            .lock()
+            .unwrap()
             .uses
-            .retain(|held| !(held["kind"] == "finish" && held["name"] == name));
+            .push(json!({"kind": "something-newer", "id": "x"}));
     }
 
     /// The same use, as a computer from before split mode holds it: no
@@ -130,6 +143,22 @@ pub(crate) async fn held(
     let mut state = taken.uses.0.lock().unwrap();
     state.polls += 1;
     (StatusCode::OK, encoded(json!({"uses": state.uses})))
+}
+
+/// `GET /signin/pending`, as a split computer answers it; 404 in legacy
+/// mode, as a computer that runs no signed-in browser has no such door.
+pub(crate) async fn pending(
+    State(taken): State<crate::computer::guide::fake::Taken>,
+    headers: HeaderMap,
+) -> (StatusCode, String) {
+    if !authenticated(&headers) {
+        return (StatusCode::UNAUTHORIZED, encoded(json!({})));
+    }
+    if taken.legacy.load(std::sync::atomic::Ordering::SeqCst) {
+        return (StatusCode::NOT_FOUND, encoded(json!({})));
+    }
+    let state = taken.uses.0.lock().unwrap();
+    (StatusCode::OK, encoded(json!({"pending": state.pending})))
 }
 
 pub(crate) async fn answer(

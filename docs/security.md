@@ -750,8 +750,8 @@ files (`remote/tests/sealed_network.rs`
 bridge's viewer token for a site opens that one site once. The agent's
 gate in front of the computer is unchanged: it forwards the MCP path alone
 (`computer/gate.rs`), so no agent opens a site's screen. A sign-in to finish
-is listed among `GET /secrets/uses` as `{kind: "finish", name, origin,
-account, since}`; the desk shows it as one card, for any login policy,
+is listed by its own bearer-only door, `GET /signin/pending`, as `{kind:
+"finish", name, origin, account, since}` (a 404 is none); the desk shows it as one card, for any login policy,
 that opens the site and takes no answer, and folds it away, telling the
 agent, when the computer stops listing it
 (`a_sign_in_to_finish_is_one_card_until_the_computer_clears_it`). After a

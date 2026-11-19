@@ -60,8 +60,9 @@ async fn request(
 
 /// A sign-in the computer's own step could not finish, waiting for the
 /// person on the site's screen: `{kind: "finish", name, origin, account,
-/// since}` among the held uses. Gone from the list once it is finished or
-/// given up.
+/// since}` from `GET /signin/pending`. The computer lists one 30 s after a
+/// secret was typed while the tab still shows that document, and clears it
+/// on a new document, the tab closing or a revoke.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Finish {
@@ -80,11 +81,10 @@ impl Finish {
     }
 }
 
-/// What the computer holds: uses waiting for an answer, and sign-ins
-/// waiting for the person to finish them. An entry of a kind this desk
+/// The uses the computer holds for an answer. An entry of a kind this desk
 /// does not know is passed over, so a newer computer's addition never
 /// stops the cards it does know.
-pub(crate) async fn held(ready: &Ready) -> Result<(Vec<HeldUse>, Vec<Finish>), Refusal> {
+pub(crate) async fn held(ready: &Ready) -> Result<Vec<HeldUse>, Refusal> {
     #[derive(Deserialize)]
     struct Uses {
         uses: Vec<serde_json::Value>,
@@ -95,20 +95,46 @@ pub(crate) async fn held(ready: &Ready) -> Result<(Vec<HeldUse>, Vec<Finish>), R
         .await
         .map_err(|_| Refusal::Failed)?
         .uses;
-    let mut held = Vec::new();
-    let mut finishing = Vec::new();
-    for entry in uses {
-        match entry["kind"].as_str() {
-            Some("finish") => {
-                finishing.push(serde_json::from_value(entry).map_err(|_| Refusal::Failed)?);
-            }
-            Some("login" | "passkey") => {
-                held.push(serde_json::from_value(entry).map_err(|_| Refusal::Failed)?);
-            }
-            _ => {}
-        }
+    uses.into_iter()
+        .filter(|entry| matches!(entry["kind"].as_str(), Some("login" | "passkey")))
+        .map(|entry| serde_json::from_value(entry).map_err(|_| Refusal::Failed))
+        .collect()
+}
+
+/// The sign-ins waiting for the person to finish them, from `GET
+/// /signin/pending`. A computer without the door (before 0.13, or legacy)
+/// has none; an entry of another kind is passed over.
+pub(crate) async fn pending_signins(ready: &Ready) -> Result<Vec<Finish>, Refusal> {
+    #[derive(Deserialize)]
+    struct Pending {
+        pending: Vec<serde_json::Value>,
     }
-    Ok((held, finishing))
+    let base = ready.url.strip_suffix("/mcp").unwrap_or(&ready.url);
+    let client = super::door_client()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|_| Refusal::Failed)?;
+    let response = client
+        .get(format!("{base}/signin/pending"))
+        .bearer_auth(&ready.token)
+        .send()
+        .await
+        .map_err(|_| Refusal::Failed)?;
+    match response.status() {
+        reqwest::StatusCode::OK => {}
+        reqwest::StatusCode::NOT_FOUND => return Ok(Vec::new()),
+        _ => return Err(Refusal::Failed),
+    }
+    let pending = response
+        .json::<Pending>()
+        .await
+        .map_err(|_| Refusal::Failed)?
+        .pending;
+    pending
+        .into_iter()
+        .filter(|entry| entry["kind"] == "finish")
+        .map(|entry| serde_json::from_value(entry).map_err(|_| Refusal::Failed))
+        .collect()
 }
 
 pub(crate) async fn answer(

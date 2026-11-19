@@ -115,9 +115,15 @@ the chosen image, the teammate's pane offers the update.
   window on this desk opens it for Open Browser and for a sign-in to finish;
   a window or phone elsewhere reaches it through `/v2/sites/{persona}/ws`
   on the remote listener, the site bound in the Noise payload.
-- `GET /secrets/uses` may list `{kind: "finish", name, origin, account,
-  since}`: a sign-in the computer could not finish, shown to the person as
-  one card that opens the site.
+- `GET /signin/pending` (bearer-only) answers `{pending: [{kind: "finish",
+  name, origin, account, since}]}`: sign-ins the computer could not finish.
+  An entry appears 30 s after a secret was typed while the tab still shows
+  the same document, and clears on a new document, the tab closing or a
+  revoke. The desk asks it on a protected computer at the cadence it asks
+  `GET /secrets/uses`, shows each entry as one card that opens the site,
+  and reads a 404 (a release before 0.13, or legacy) as none. These are not
+  among `/secrets/uses`, whose kinds an older desk reads strictly; the desk
+  passes over a kind it does not know there.
 - `GET /migration` answers `{state, at, snapshots, loginsDropped,
   sitesCleared, answer}` after a split boot (404 in legacy mode); while
   `state` is `pending` the pane asks what becomes of the snapshots and

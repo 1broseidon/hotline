@@ -1034,6 +1034,10 @@ pub(crate) mod fake {
                     axum::routing::put(sessions).delete(sessions),
                 )
                 .route("/migration", axum::routing::get(migration))
+                .route(
+                    "/signin/pending",
+                    axum::routing::get(crate::computer::uses::fake::pending),
+                )
                 .route("/migration/answer", axum::routing::post(migration_answer));
         }
         if version == Some("0.11.2") || version.is_some_and(has_capabilities) {

@@ -1,6 +1,7 @@
 //! Typed input and live-call work enter the same thread occupant.
 use super::*;
 use crate::session::exchanges::steered_text;
+use hotline_voice::call_room::Handed;
 
 impl Room {
     /// Says something in a side thread. Returns at once: the turn runs on its
@@ -17,20 +18,31 @@ impl Room {
             .await
     }
 
-    /// Live work keeps one occupant. Its brief includes everything said on
-    /// the call, including speech since an ACP session last ran a turn.
+    /// What the person said on a call, handed to its thread's one occupant,
+    /// and where it went. On Turn by turn it is a line like a typed one,
+    /// except that it waits behind a turn in flight rather than joining it
+    /// (`say_in_side`). Live work's brief includes everything said on the
+    /// call, including speech since an ACP session last ran a turn, and
+    /// steers the turn in flight when its driver takes it.
     pub(crate) async fn prompt_call_work(
         self: &Arc<Self>,
         persona: &str,
         thread: &ThreadId,
         text: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Handed, String> {
         self.validate_call_thread(persona, thread)?;
         let live_voice = self
             .attached_voice(thread)
             .is_some_and(|origin| origin.front);
         if !live_voice {
-            return self.prompt_side(&thread.key, text, None).await;
+            let waits = self
+                .prompt_side_placed(&thread.key, text, None, None)
+                .await?;
+            return Ok(if waits {
+                Handed::Waits
+            } else {
+                Handed::NewTurn
+            });
         }
         let _working = self.working()?;
         let _admission = self.sides.waking.lock().await;
@@ -65,13 +77,15 @@ impl Room {
                     .driver()
                     .is_some_and(|driver| driver.steer(brief.clone(), Vec::new()))
         };
-        if !steered {
+        let handed = if steered {
+            Handed::Joined
+        } else {
             self.queue_in_side(
                 &side,
                 Line {
                     said: None,
                     voice: self.attached_voice(thread),
-                    text: brief,
+                    text: brief.clone(),
                     attachments: Vec::new(),
                     request: None,
                     from: None,
@@ -80,11 +94,16 @@ impl Room {
                     steer: false,
                 },
             );
-        }
+            if side.waits_behind_turn(&brief) {
+                Handed::Waits
+            } else {
+                Handed::NewTurn
+            }
+        };
         if let Some(launch) = launch {
             self.launch(launch);
         }
-        Ok(())
+        Ok(handed)
     }
 
     /// Starts the agent of a call's thread the moment a Turn by turn call is
@@ -161,6 +180,19 @@ impl Room {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
+        self.prompt_side_placed(side_id, text, reply_to, attachments)
+            .await
+            .map(drop)
+    }
+
+    /// The same, answering whether the line waits behind the turn in flight.
+    async fn prompt_side_placed(
+        self: &Arc<Self>,
+        side_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    ) -> Result<bool, String> {
         let _working = self.working()?;
         let _admission = self.sides.waking.lock().await;
         let text = text.trim();
@@ -176,12 +208,14 @@ impl Room {
                 return Err("Answer what it asked you first: your words are its card's note, and files cannot ride on it.".to_string());
             }
             self.heard_from_person(&persona_id);
-            return self.answer_human(
-                &persona_id,
-                &action,
-                crate::contract::HumanAnswer::Done,
-                Some(text.to_string()),
-            );
+            return self
+                .answer_human(
+                    &persona_id,
+                    &action,
+                    crate::contract::HumanAnswer::Done,
+                    Some(text.to_string()),
+                )
+                .map(|()| false);
         }
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
@@ -190,11 +224,11 @@ impl Room {
         // The person's line in any thread of a teammate's is the person
         // writing to it, as one in its main conversation is.
         self.heard_from_person(&side.persona_id);
-        self.say_in_side(&side, text, reply_to, attachments);
+        let waits = self.say_in_side(&side, text, reply_to, attachments);
         if let Some(launch) = launch {
             self.launch(launch);
         }
-        Ok(())
+        Ok(waits)
     }
 
     /// The card in a thread that a handoff still open waits on, the oldest if
@@ -232,6 +266,13 @@ impl Room {
         let side = self.live_side(side_id)?;
         *lock(&side.cut) = Some(Cut::Stop);
         let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        // A call waiting on words dropped here stops waiting, and says nothing
+        // came of them.
+        if let Some(voice) = lock(&self.voice).upgrade() {
+            for origin in dropped.iter().filter_map(|line| line.voice.as_ref()) {
+                voice.turn_ended(&side.persona_id, origin);
+            }
+        }
         if let Some(driver) = side.driver() {
             driver.cancel();
         }

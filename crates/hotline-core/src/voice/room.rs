@@ -7,7 +7,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use hotline_voice::{
-    call_room::CallRoom,
+    call_room::{CallRoom, Handed},
     front_tools::{DeskTools, FrontReach},
 };
 use serde_json::{Map, Value};
@@ -106,7 +106,7 @@ impl CallRoom for RoomSide {
         persona: &str,
         thread: &ThreadId,
         text: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Handed, String> {
         let room = self.room()?;
         room.validate_call_thread(persona, thread)?;
         room.prompt_call_work(persona, thread, text).await

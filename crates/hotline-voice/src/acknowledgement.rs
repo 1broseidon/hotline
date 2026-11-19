@@ -48,8 +48,9 @@ impl Calls {
     /// and has the turn's prompt told one is coming
     /// ([`Self::turn_instruction`]). None, and nothing changed, when the
     /// setting is off, the call is a live one or the desk's own, the teammate
-    /// is still on an earlier turn or answered quickly last time, or there is
-    /// no call assistant or Chat budget for it. The sender answers whether the
+    /// answered quickly last time and is on no earlier turn, or there is no
+    /// call assistant or Chat budget for it. Words said while the teammate is
+    /// still on an earlier turn wait behind it, so they are acknowledged. The sender answers whether the
     /// teammate was told: until it says so, nothing is played.
     ///
     /// With the setting on, a direct call's turn may also have one line on
@@ -88,11 +89,10 @@ impl Calls {
         if !direct {
             return None;
         }
-        if busy {
-            skipped(id, "the teammate is still on an earlier turn");
-            return None;
-        }
-        if quick {
+        // Words said while the teammate is still on an earlier turn wait for
+        // that turn to end, however quick the teammate is: the line is how
+        // the person hears they were taken.
+        if quick && !busy {
             skipped(id, "the teammate answered quickly last time");
             return None;
         }

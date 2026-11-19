@@ -1,6 +1,8 @@
 //! A call's turn: hearing the person, answering through the dispatcher or a
 //! teammate, and keeping what was said.
 
+use super::acknowledgement::own_words;
+use super::call_room::Handed;
 use super::dispatcher::Context;
 use super::ledger::{self, Kind};
 use super::metering::BUDGET_ERROR;
@@ -9,8 +11,8 @@ use super::speech::{self, Clip};
 use super::spoken::sentences;
 use super::synthesis::{goodbye, speech_ready};
 use super::{
-    BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, RETRY_LINE, REWRITE_WAIT, Reply,
-    TranscriptSource, Voiced, Work, lock, realtime, spoken,
+    BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, NOTHING_SAID, RETRY_LINE, REWRITE_WAIT,
+    Reply, TranscriptSource, Voiced, Work, lock, realtime, spoken,
 };
 use hotline_contract::{VoiceEndReason, VoiceEvent, VoiceState};
 use std::sync::atomic::Ordering;
@@ -19,6 +21,17 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+/// The reason a transcribed utterance is dropped because the person moved
+/// on: they spoke over the call, held it, or said something newer first.
+const SUPERSEDED: &str = "dropped: the person spoke over the call, held it or spoke again first";
+
+/// Where the person's words of turn `seq` went: one line in the log for every
+/// utterance heard, so a report of words that got no answer can be read from
+/// the log.
+fn routed(id: &str, seq: u32, place: impl std::fmt::Display) {
+    eprintln!("[voice] call {id}: utterance {seq}: {place}");
+}
 
 impl Calls {
     /// Playback context for the next call-thread turn, separate from the caller's words.
@@ -200,8 +213,24 @@ impl Calls {
                             )
                             .await
                         }
-                        Ok(_) => Ok(()),
-                        Err(error) => Err(error),
+                        Ok(_) => {
+                            routed(
+                                &id,
+                                *seq,
+                                if context.cancel.is_cancelled() {
+                                    "dropped: the call ended"
+                                } else if speech.is_cancelled() {
+                                    SUPERSEDED
+                                } else {
+                                    "dropped: its audio stopped before its last piece came"
+                                },
+                            );
+                            Ok(())
+                        }
+                        Err(error) => {
+                            routed(&id, *seq, format_args!("not heard: {error}"));
+                            Err(error)
+                        }
                     }
                 }
                 Work::Utterance {
@@ -244,15 +273,7 @@ impl Calls {
                     self.answer(&id, event, chunks, speech, &context.cancel)
                         .await
                 }
-                Work::TurnOver(seq) => {
-                    let _ = self.change(&id, |call| {
-                        if call.answering.is_some_and(|answering| answering <= *seq) {
-                            call.answering = None;
-                        }
-                        Ok(())
-                    });
-                    Ok(())
-                }
+                Work::TurnOver(seq) => self.turn_over(&id, *seq, &context.cancel).await,
             };
             let voiced = self
                 .change(&id, |call| Ok(std::mem::take(&mut call.voiced)))
@@ -372,10 +393,17 @@ impl Calls {
         )?;
         let text = tokio::select! {
             () = context.cancel.cancelled() => return Ok(()),
-            () = speech_cancel.cancelled() => return Ok(()),
-            text = stt.transcribe(clip) => text.map_err(|e| e.to_string())?,
+            () = speech_cancel.cancelled() => {
+                routed(id, seq, SUPERSEDED);
+                return Ok(());
+            }
+            text = stt.transcribe(clip) => text.map_err(|e| {
+                routed(id, seq, format_args!("not heard: {e}"));
+                e.to_string()
+            })?,
         };
         if context.cancel.is_cancelled() {
+            routed(id, seq, "dropped: the call ended");
             return Ok(());
         }
         let _ = self.change(id, |call| {
@@ -404,7 +432,12 @@ impl Calls {
         source: TranscriptSource,
         speech_cancel: &CancellationToken,
     ) -> Result<(), String> {
-        if context.cancel.is_cancelled() || speech_cancel.is_cancelled() {
+        if context.cancel.is_cancelled() {
+            routed(id, seq, "dropped: the call ended");
+            return Ok(());
+        }
+        if speech_cancel.is_cancelled() {
+            routed(id, seq, SUPERSEDED);
             return Ok(());
         }
         let text = text.trim().chars().take(8_000).collect::<String>();
@@ -420,6 +453,7 @@ impl Calls {
             );
         }
         if text.is_empty() {
+            routed(id, seq, "dropped: no words were heard in it");
             return Ok(());
         }
         let target = self.change(id, |call| {
@@ -444,6 +478,7 @@ impl Calls {
                 Ok(())
             });
             if let Some(answer) = self.answer_card_words(id, &text).await {
+                routed(id, seq, "the answer to the card the call said");
                 if target.is_some() {
                     self.keep(id, Speaker::Person, &text);
                 }
@@ -451,6 +486,7 @@ impl Calls {
             }
         }
         if goodbye(&text) && source.permits_goodbye() {
+            routed(id, seq, "goodbye: the call ends");
             if self
                 .say(id, "Goodbye.", speech_cancel, &context.cancel)
                 .await
@@ -466,29 +502,26 @@ impl Calls {
             let _ = self.finish(id, VoiceEndReason::Goodbye);
             return Ok(());
         }
-        self.ready_for(id)?;
         if let Some(target) = target {
-            let thread = self
-                .change(id, |call| Ok(call.thread.clone()))?
-                .ok_or("The call has no thread.")?;
-            let room = self.live_room().ok_or("The desk has closed.")?;
-            // With `voice.acknowledge` on, the desk asks for a line to say for
-            // the teammate beside the hand-off, never holding it up.
-            let acknowledging =
-                self.acknowledge(id, seq, &target, &text, speech_cancel, &context.cancel);
-            let prompted = room.call_prompt(&target, &thread, &text).await;
-            if let Some(tell) = acknowledging {
-                self.told(id, tell, prompted.is_ok());
-            }
-            prompted?;
-            return self.change(id, |call| {
-                if let Some(timing) = &mut call.turn_timing {
-                    timing.mark_dispatch();
+            return match self
+                .hand_over(id, context, seq, &target, &text, speech_cancel)
+                .await
+            {
+                Ok(handed) => {
+                    routed(id, seq, handed);
+                    Ok(())
                 }
-                call.begin_answer(seq);
-                Ok(())
-            });
+                Err(error) => {
+                    routed(id, seq, format_args!("not handed to the teammate: {error}"));
+                    Err(error)
+                }
+            };
         }
+        if let Err(error) = self.ready_for(id) {
+            routed(id, seq, format_args!("not answered: {error}"));
+            return Err(error);
+        }
+        routed(id, seq, "for the call assistant to answer");
         let dispatcher = self.dispatcher()?;
         let context = context.clone();
         let (output, mut answers) = mpsc::channel(8);
@@ -514,6 +547,66 @@ impl Calls {
                 }
             } => result,
         }
+    }
+
+    /// Hands the person's words on a direct call to the teammate's session,
+    /// with the desk's acknowledgement asked for beside them when it is on,
+    /// and waits for the turn they are, wherever they went.
+    async fn hand_over(
+        self: &Arc<Self>,
+        id: &str,
+        context: &Context,
+        seq: u32,
+        target: &str,
+        text: &str,
+        speech_cancel: &CancellationToken,
+    ) -> Result<Handed, String> {
+        self.ready_for(id)?;
+        let thread = self
+            .change(id, |call| Ok(call.thread.clone()))?
+            .ok_or("The call has no thread.")?;
+        let room = self.live_room().ok_or("The desk has closed.")?;
+        // With `voice.acknowledge` on, the desk asks for a line to say for
+        // the teammate beside the hand-off, never holding it up.
+        let acknowledging = self.acknowledge(id, seq, target, text, speech_cancel, &context.cancel);
+        let prompted = room.call_prompt(target, &thread, text).await;
+        if let Some(tell) = acknowledging {
+            self.told(id, tell, prompted.is_ok());
+        }
+        let handed = prompted?;
+        self.change(id, |call| {
+            if let Some(timing) = &mut call.turn_timing {
+                timing.mark_dispatch();
+            }
+            call.wait_for_turn(seq);
+            Ok(())
+        })?;
+        Ok(handed)
+    }
+
+    /// The teammate's session is done with turn `seq`: the call stops
+    /// waiting on it, and on any earlier turn. When that was the turn of the
+    /// person's latest words and nothing of the teammate's was said since
+    /// them, as when a turn fails or ends silent, the call says so
+    /// ([`NOTHING_SAID`]) rather than only going back to listening.
+    async fn turn_over(&self, id: &str, seq: u32, ended: &CancellationToken) -> Result<(), String> {
+        let unanswered = self.change(id, |call| {
+            let Some(finished) = call.answering.filter(|answering| *answering <= seq) else {
+                return Ok(None);
+            };
+            call.answering = None;
+            let silent = call.front.is_none()
+                && call.state != VoiceState::Held
+                && !call.utterance_pending
+                && call.seq == Some(finished)
+                && !own_words(call);
+            Ok(silent.then(|| (finished, call.speech.clone())))
+        });
+        let Ok(Some((finished, speech))) = unanswered else {
+            return Ok(());
+        };
+        eprintln!("[voice] call {id}: turn {finished} ended with nothing said for it");
+        self.say(id, NOTHING_SAID, &speech, ended).await
     }
 
     pub(super) async fn summary(

@@ -15,6 +15,28 @@ pub fn prompt_client() -> Option<hotline_contract::Client> {
     PROMPT_CLIENT.try_with(|client| *client).ok()
 }
 
+/// Where the person's words went in the teammate's session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handed {
+    /// They are the turn the session runs now, or first once its agent is up.
+    NewTurn,
+    /// They wait behind the teammate's turn in flight, as its next turn: a
+    /// Turn by turn call's words are never steered into a turn.
+    Waits,
+    /// They joined the turn in flight, as a live call's work steers it.
+    Joined,
+}
+
+impl std::fmt::Display for Handed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Handed::NewTurn => "a new turn for the teammate",
+            Handed::Waits => "waits behind the teammate's turn in flight, as its next turn",
+            Handed::Joined => "joined the teammate's running turn",
+        })
+    }
+}
+
 #[async_trait]
 pub trait CallRoom: Send + Sync {
     /// Hold the live room for one operation; calls themselves do not own it.
@@ -43,8 +65,14 @@ pub trait CallRoom: Send + Sync {
     /// Starts the agent of a call's thread before anything is said on the
     /// call, and answers once it is up. Nothing is sent to the agent.
     async fn prepare_call(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
-    async fn call_prompt(&self, persona: &str, thread: &ThreadId, text: &str)
-    -> Result<(), String>;
+    /// Hands the person's words to the teammate's session on the call's
+    /// thread, and says where they went.
+    async fn call_prompt(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+    ) -> Result<Handed, String>;
     fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
     /// Nudges a direct call's teammate turn once when it has stayed silent
     /// far beyond a normal tool run after speaking its opening scope.

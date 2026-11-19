@@ -114,10 +114,10 @@ impl Room {
                     title,
                     decision: None,
                     ..
-                }) => format!(
-                    ": {}",
-                    hotline_room::text::clip(&title, 500).trim_end_matches(['.', ' '])
-                ),
+                }) => match spoken_title(&title) {
+                    short if short.is_empty() => String::new(),
+                    short => format!(": {short}"),
+                },
                 _ => String::new(),
             },
             _ => String::new(),
@@ -201,6 +201,56 @@ impl Room {
 }
 
 /// Only cards carry a mirrored status, never arbitrary model output.
+/// How many words of an approval's title a call says.
+const SPOKEN_TITLE_WORDS: usize = 8;
+
+/// An approval's title as a call says it. A driver titles its approval with
+/// the tool's own line, a whole command or a path from the root, which a
+/// voice reads out letter by letter. So a path is said as its last name, a
+/// link as its host, flags and shell punctuation are left out, a command
+/// stops at its first pipe or `&&`, and only the first few words are said:
+/// the full line is on the card at the desk, which is where it is answered.
+pub(super) fn spoken_title(title: &str) -> String {
+    let line = title.lines().next().unwrap_or_default();
+    let mut words: Vec<String> = Vec::new();
+    let mut cut = false;
+    for token in line.split_whitespace() {
+        let token = token.trim_matches(|ch: char| matches!(ch, '`' | '"' | '\'' | '(' | ')' | ','));
+        if matches!(token, "|" | "||" | "&&" | ";" | ">" | ">>" | "<") {
+            cut = true;
+            break;
+        }
+        if token.starts_with('-') || !token.chars().any(char::is_alphanumeric) {
+            continue;
+        }
+        let word = if let Some((_, rest)) = token.split_once("://") {
+            rest.split(['/', '?', '#']).next().unwrap_or_default()
+        } else if token.contains(['/', '\\']) {
+            token
+                .split(['/', '\\'])
+                .rfind(|part| !part.is_empty())
+                .unwrap_or_default()
+        } else {
+            token
+        };
+        let word = word.trim_end_matches(['.', ':', ';']);
+        if word.is_empty() {
+            continue;
+        }
+        if words.len() == SPOKEN_TITLE_WORDS {
+            cut = true;
+            break;
+        }
+        words.push(word.to_string());
+    }
+    let said = words.join(" ");
+    if cut && !said.is_empty() {
+        format!("{said}, and more")
+    } else {
+        said
+    }
+}
+
 pub(super) fn is_card(event: &Value) -> bool {
     matches!(
         event["kind"].as_str(),
@@ -228,5 +278,36 @@ impl Room {
             return std::borrow::Cow::Owned(stamped);
         }
         std::borrow::Cow::Borrowed(event)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spoken_title;
+
+    #[test]
+    fn a_call_says_an_approvals_title_short_with_no_path_flag_or_pipe_read_out() {
+        assert_eq!(
+            spoken_title("Read /Users/ada/Projects/hotline/crates/hotline-voice/src/turn.rs"),
+            "Read turn.rs"
+        );
+        assert_eq!(
+            spoken_title("Run `cargo test -p hotline-voice --lib -- --nocapture | tail -5`"),
+            "Run cargo test hotline-voice, and more"
+        );
+        assert_eq!(
+            spoken_title("Fetch https://www.nhl.com/devils/schedule?month=12"),
+            "Fetch www.nhl.com"
+        );
+        assert_eq!(
+            spoken_title("Edit C:\\Users\\ada\\notes\\plan.md\nsecond line"),
+            "Edit plan.md"
+        );
+        assert_eq!(
+            spoken_title("one two three four five six seven eight nine ten"),
+            "one two three four five six seven eight, and more"
+        );
+        assert_eq!(spoken_title("Search the web."), "Search the web");
+        assert_eq!(spoken_title(" -- | "), "");
     }
 }

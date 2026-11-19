@@ -791,7 +791,7 @@ export function TeammateSecrets({
 						)}
 						{grant !== undefined && bothPlaces && record?.kind === "variable" && (
 							<fieldset className="chips min-w-0 pb-1.5 pl-7" aria-label={`Where ${name} goes`}>
-								{([["computer", "Its computer"], ["desk", "Its desk shell"]] as const).map(([where, label]) => {
+								{([["computer", "Computer"], ["desk", "Shell"]] as const).map(([where, label]) => {
 									const on = grant.on === undefined || grant.on.includes(where);
 									return (
 										<button key={where} type="button" aria-pressed={on} className="nt-chip" data-on={on ? "" : undefined} disabled={disabled} onClick={() => place(grant, where)}>

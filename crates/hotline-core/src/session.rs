@@ -912,6 +912,10 @@ pub struct Room {
     /// Until when an ask-me key may fill on a site without asking again,
     /// by teammate, key and site.
     browser_key_allows: Mutex<HashMap<(String, String, String), i64>>,
+    /// The teammates whose desk browser had a password or code typed and
+    /// has not loaded another page since, with the address it was typed on:
+    /// nothing of the page is read or pictured for them until it has.
+    browser_withheld: Mutex<HashMap<String, String>>,
     /// A page's request to make a passkey in a teammate's desk browser,
     /// waiting for the person's answer on its card, by teammate
     /// (`session/browser_passkeys.rs`).
@@ -1089,6 +1093,7 @@ impl Room {
             browser_waits: Mutex::default(),
             browser_views: Mutex::default(),
             browser_key_allows: Mutex::default(),
+            browser_withheld: Mutex::default(),
             browser_passkey_asks: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);

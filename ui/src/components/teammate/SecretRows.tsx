@@ -9,7 +9,7 @@ import { FoldRow } from "./rows";
 /**
  * Whether the desk hands a teammate's desk shell its secrets. Not yet: the
  * desk shell's key proxy is W2.3 of the protected-secrets plan, and until
- * it lands nothing would be behind a choice of "Its desk shell".
+ * it lands nothing would be behind a grant's choice of Shell.
  */
 const DESK_SHELL_TAKES_SECRETS: boolean = false;
 
@@ -47,6 +47,9 @@ export function SecretRows({
 	const granted = grants.length;
 	const [open, setOpen] = useState(false);
 	const deskBrowser = !computer && isDesktop() && ["macos", "linux", "windows"].includes(platform());
+	// Only the Mac app's desk browser signs with a passkey; elsewhere a page's
+	// passkey call is refused, so there is nothing to arm.
+	const deskSigner = deskBrowser && platform() === "macos";
 	// The room ticks a passkey it stores, and the roster brings the tick.
 	const stored = useCallback(() => {}, []);
 
@@ -56,11 +59,11 @@ export function SecretRows({
 			<div className="grouped">
 				<FoldRow title="Logins and passkeys" value={granted === 0 ? "none given" : `${granted} given`} open={open} onToggle={() => setOpen((was) => !was)} />
 				{open && <TeammateSecrets grants={grants} bothPlaces={computer && DESK_SHELL_TAKES_SECRETS} asPerson={asPerson} disabled={disabled} onChange={onChange} />}
-				{deskBrowser && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
+				{deskSigner && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
 				{computer && <PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />}
 			</div>
 			{open && <p className="group-hint">Kept in Settings › Secrets. A passkey made for this teammate is given by itself.</p>}
-			{deskBrowser && granted > 0 && <p className="group-hint">Its browser types these logins and signs in with these passkeys. A variable needs a computer's shell.</p>}
+			{deskBrowser && granted > 0 && <p className="group-hint">{deskSigner ? "Its browser types these logins and signs in with these passkeys." : "Its browser types these logins."} A variable needs a computer's shell.</p>}
 			{!computer && !deskBrowser && granted > 0 && <p className="group-hint">Its computer's shell and browser use these. It has no computer, so nothing does yet.</p>}
 			{(computer || deskBrowser) && <Cookies personaId={personaId} disabled={disabled} />}
 		</section>

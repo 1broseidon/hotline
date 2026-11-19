@@ -25,6 +25,10 @@ const SNAPSHOT_WIDTH: u32 = 960;
 /// browser.
 const TAKEN: &str = "The person has taken over your browser and is using it now. Wait for them to hand it back: you can still read the page with text, links and screenshot, but navigating, acting and a full-page screenshot, which scrolls, wait until then.";
 
+/// What a read or a picture is answered between a typed password or code
+/// and the next page.
+const WITHHELD: &str = "A password or code was just typed on this page, so nothing of it is read or pictured until another page loads. Submit the form, or reload or navigate, then look again.";
+
 /// What a seat away from the desk is answered for input while the teammate
 /// drives, as the pane's bar answers it.
 const TAKE_FIRST: &str = "Take over first: the teammate is driving.";
@@ -628,6 +632,7 @@ impl Room {
     fn browser_let_go(&self, persona_id: &str, wipe: bool) -> Option<Arc<dyn DeskBrowser>> {
         lock(&self.browser_views).remove(persona_id);
         lock(&self.browser_key_allows).retain(|(persona, _, _), _| persona != persona_id);
+        lock(&self.browser_withheld).remove(persona_id);
         lock(&self.browser_passkey_asks).remove(persona_id);
         if wipe {
             self.browser_gate.forget(&self.log, persona_id);
@@ -717,6 +722,9 @@ impl Room {
             return Err("You have no desk browser, so there is no browser page to send.".into());
         }
         let browser = self.desk_browser().ok_or("The desk browser has closed.")?;
+        if lock(&self.browser_withheld).contains_key(persona_id) {
+            return Err(WITHHELD.into());
+        }
         let hidden = self.hidden(persona_id).await?;
         let png = shown_clear(persona_id, browser.as_ref(), &hidden, async {
             browser.screenshot(persona_id).await
@@ -749,10 +757,21 @@ impl Room {
         if !reads && self.browser_phase(persona_id) == Some(BrowserPhase::Person) {
             return Err(TAKEN.into());
         }
+        // From a typed password or code to the next page, the agent is
+        // told nothing of the page: no text, no picture, not even whether
+        // something shows up on it. Only the page line an act answers.
+        if matches!(action, "text" | "links" | "screenshot" | "wait_for")
+            && lock(&self.browser_withheld).contains_key(persona_id)
+        {
+            return Err(WITHHELD.into());
+        }
         let hidden = self.hidden(persona_id).await?;
         let answer = self
             .browser_do(persona_id, action, arguments, browser.as_ref(), &hidden)
             .await;
+        if answer.is_ok() && matches!(action, "navigate" | "back" | "forward" | "reload") {
+            lock(&self.browser_withheld).remove(persona_id);
+        }
         // A move that failed still moved the page, to a warning the person
         // may be needed for: the PIP follows it too, once there is a page.
         if !reads && (answer.is_ok() || browser.current(persona_id).is_some()) {
@@ -827,6 +846,8 @@ impl Room {
                 let act = act_of(action, arguments)?;
                 let started = std::time::Instant::now();
                 let acted = browser.act(persona_id, &act).await?;
+                self.leave_withheld_after(persona_id, &acted.page, browser, hidden)
+                    .await;
                 if let Act::WaitFor {
                     text: Some(find),
                     timeout_ms,
@@ -921,6 +942,16 @@ impl Room {
             ));
         }
         let value = self.secret_value(persona_id, name, part, browser).await?;
+        // Withheld from before the value is typed, so no read can land
+        // between the typing and the mark. A username is who signs in, as
+        // the Secrets pane lists it; a password or a code is the secret.
+        let marked = part != LoginPart::Username;
+        if marked {
+            let here = browser.current(persona_id).unwrap_or_default();
+            lock(&self.browser_withheld)
+                .entry(persona_id.to_string())
+                .or_insert(here);
+        }
         let acted = browser
             .act(
                 persona_id,
@@ -936,6 +967,28 @@ impl Room {
             "Typed {secret} into the field; its value is never shown to you.\n{}",
             page_line(&acted.page)
         )))
+    }
+
+    /// An act that took the page to another address, where no granted
+    /// value shows, has loaded the next page: what was typed is behind it,
+    /// and the page may be read again. One that stayed on the address the
+    /// value was typed on, or where a value still shows, has not.
+    async fn leave_withheld_after(
+        &self,
+        persona_id: &str,
+        page: &Page,
+        browser: &dyn DeskBrowser,
+        hidden: &Hidden,
+    ) {
+        let Some(typed_on) = lock(&self.browser_withheld).get(persona_id).cloned() else {
+            return;
+        };
+        if page.url == typed_on
+            || !matches!(secret_shows(persona_id, browser, hidden).await, Ok(false))
+        {
+            return;
+        }
+        lock(&self.browser_withheld).remove(persona_id);
     }
 
     /// The login `NAME.field` names and the part it asks for, once the

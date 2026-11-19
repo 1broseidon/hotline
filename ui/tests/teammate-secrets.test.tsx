@@ -137,7 +137,7 @@ test("no surfaces choice is drawn while the desk shell takes no secrets", async 
 	await act(async () => secrets.querySelector<HTMLButtonElement>("[aria-expanded]")!.click());
 	expect(secrets.textContent).toContain("GITHUB_TOKEN");
 	expect(secrets.querySelector('fieldset[aria-label^="Where"]')).toBeNull();
-	expect(secrets.textContent).not.toContain("Its desk shell");
+	expect(secrets.textContent).not.toContain("Shell");
 });
 
 test("where both places take secrets a variable's grant says which it reaches", async () => {
@@ -149,9 +149,9 @@ test("where both places take secrets a variable's grant says which it reaches", 
 	const places = container.querySelector('fieldset[aria-label="Where GITHUB_TOKEN goes"]');
 	if (!places) throw new Error("No surfaces choice");
 	const chip = (label: string) => [...places.querySelectorAll("button")].find((node) => node.textContent === label)!;
-	expect(chip("Its computer").getAttribute("aria-pressed")).toBe("true");
-	expect(chip("Its desk shell").getAttribute("aria-pressed")).toBe("true");
-	await act(async () => chip("Its desk shell").click());
+	expect(chip("Computer").getAttribute("aria-pressed")).toBe("true");
+	expect(chip("Shell").getAttribute("aria-pressed")).toBe("true");
+	await act(async () => chip("Shell").click());
 	expect(saved).toEqual([{ name: "GITHUB_TOKEN", on: ["computer"] }]);
 });
 
@@ -216,4 +216,18 @@ test("on the Mac app, a teammate with no computer arms its desk browser for a pa
 		[...(section("Secrets")?.querySelectorAll("button") ?? [])].some((node) => node.textContent?.includes("Add a passkey")),
 		"a teammate with a computer arms its computer's browser under Secrets too",
 	).toBe(true);
+});
+
+test("on Linux and Windows the desk browser signs with no passkey, so none is armed there", async () => {
+	for (const platform of ["linux", "windows"]) {
+		const shell = window as unknown as { __hotlineDesk?: { platform: string } };
+		shell.__hotlineDesk = { platform };
+		await mount({ ...persona, computer: { enabled: false } });
+		const secrets = section("Secrets")!;
+		expect([...secrets.querySelectorAll("button")].some((node) => node.textContent?.includes("Add a passkey")), platform).toBe(false);
+		expect(secrets.textContent).toContain("Its browser types these logins.");
+		expect(secrets.textContent).not.toContain("passkeys.");
+		await act(async () => root.render(null));
+		delete shell.__hotlineDesk;
+	}
 });

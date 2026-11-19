@@ -975,6 +975,10 @@ async fn a_login_fills_on_its_own_site_and_never_comes_back() {
     assert_eq!(&values[..2], ["hunter22", "ada"]);
     assert!(values[2].len() == 6 && values[2].chars().all(|c| c.is_ascii_digit()));
 
+    tools(&room)
+        .call(BROWSER, &json!({ "action": "reload" }))
+        .await
+        .unwrap();
     let read = tools(&room)
         .call(BROWSER, &json!({ "action": "text" }))
         .await
@@ -999,6 +1003,92 @@ async fn a_login_fills_on_its_own_site_and_never_comes_back() {
         .unwrap_err();
     assert!(refused.contains("Nothing was typed"), "{refused}");
     assert_eq!(typed(&fake).len(), 3, "a refused fill types nothing");
+}
+
+/// From a typed password or code to the next page, nothing of the page
+/// reaches the agent: no text, links, picture or wait. A username is not
+/// the secret, and leaves the page readable. The next page is a load the
+/// agent asks for, or an act that took the page to another address where
+/// no value shows; an act that stays put, or lands where a value shows,
+/// is not.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_observation_between_a_desk_secret_fill_and_the_next_page() {
+    let (room, fake) = with_login("browser-withheld", false);
+    let call = |arguments: Value| {
+        let room = room.clone();
+        async move { tools(&room).call(BROWSER, &arguments).await }
+    };
+    let looks = || {
+        [
+            json!({ "action": "text" }),
+            json!({ "action": "links" }),
+            json!({ "action": "screenshot" }),
+            json!({ "action": "screenshot", "full_page": true }),
+            json!({ "action": "wait_for", "text": "Dashboard" }),
+        ]
+    };
+    call(navigate("https://github.com/login")).await.unwrap();
+    call(json!({ "action": "fill", "ref": "e1", "secret": "GITHUB.username" }))
+        .await
+        .unwrap();
+    call(json!({ "action": "text" }))
+        .await
+        .expect("a username leaves the page readable");
+
+    call(json!({ "action": "fill", "ref": "e2", "secret": "GITHUB.password" }))
+        .await
+        .unwrap();
+    for look in looks() {
+        let refused = call(look.clone()).await.unwrap_err();
+        assert!(
+            refused.contains("nothing of it is read"),
+            "{look}: {refused}"
+        );
+    }
+    assert!(
+        room.browser_screenshot("ada").await.is_err(),
+        "nor sent to the person by the agent"
+    );
+
+    // An act on the same page, or one that lands where a value still
+    // shows, has not left it.
+    *fake.acted.lock().unwrap() = Some(Ok(crate::browser::Acted {
+        page: Page {
+            url: "https://github.com/login".into(),
+            title: "Sign in".into(),
+            loaded: true,
+        },
+        note: None,
+    }));
+    call(json!({ "action": "click_ref", "ref": "e9" }))
+        .await
+        .unwrap();
+    assert!(call(json!({ "action": "text" })).await.is_err());
+    *fake.showing.lock().unwrap() = ("".into(), vec!["hunter22".into()]);
+    call(json!({ "action": "click_ref", "ref": "e9" }))
+        .await
+        .unwrap();
+    assert!(call(json!({ "action": "text" })).await.is_err());
+
+    // Submitted to another address where no value shows: the next page.
+    *fake.showing.lock().unwrap() = ("Dashboard".into(), Vec::new());
+    call(json!({ "action": "click_ref", "ref": "e9" }))
+        .await
+        .unwrap();
+    for look in looks() {
+        call(look.clone()).await.unwrap();
+    }
+
+    // A code withholds as a password does, until a load the agent asks for.
+    call(navigate("https://github.com/sessions/two-factor"))
+        .await
+        .unwrap();
+    call(json!({ "action": "fill", "ref": "e3", "secret": "GITHUB.code" }))
+        .await
+        .unwrap();
+    assert!(call(json!({ "action": "screenshot" })).await.is_err());
+    call(json!({ "action": "reload" })).await.unwrap();
+    call(json!({ "action": "screenshot" })).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

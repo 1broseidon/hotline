@@ -54,6 +54,12 @@ opus = "=0.4.0"
 # on the host), which scripts/fetch-speech-engine puts in .speech-engine, and
 # the C API under the wrapper moves between releases.
 sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["static"] }
+# The desk's own voice: Gradium's Phonon text to speech, pure Rust on their
+# xn tensor runtime, CPU only. Pinned exactly, with xn, because the model
+# files the desk downloads are read by this release's loader. `hf` reads the
+# model's tokenizer.json; without `hub` the crate never downloads anything.
+ptts = { version = "=0.7.1", default-features = false, features = ["hf"] }
+xn = "=0.2.14"
 # A phone's utterance is AAC in MP4; the local engine needs its samples.
 symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 

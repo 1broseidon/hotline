@@ -45,6 +45,12 @@ ignore = [
     { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
     { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
 
+    # Build time only: paste 1.0.15, a macro crate whose author archived it,
+    # under the desk's own voice (ptts 0.7.1's tokenizers 0.23, xn-gemm 0.20
+    # and pulp 0.22). It expands at compile time and links nothing. Look
+    # again when those crates move to pastey or drop it.
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 via tokenizers 0.23, xn-gemm 0.20 and pulp 0.22 (ptts, the desk's voice; build time only); review when they drop it" },
+
     # Run time on Linux: zbus 5.19 for D-Bus, under notify-rust (the
     # notification plugin) and the opener plugin. zbus folded these crates
     # into itself (z-galaxy/zbus#2043). Look again when a zbus release

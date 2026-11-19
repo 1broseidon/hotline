@@ -3,6 +3,7 @@ import type { Root } from "react-dom/client";
 import type { Persona, RosterEntry, RunningSubagent, SessionInfo, ThreadSummary, TranscriptEvent } from "../src/generated/contract";
 import type { Wire } from "../src/wire";
 import { installDom } from "./dom";
+import { CAPACITY_FAILURE, quietFailure } from "./failure-notice";
 
 // task-393: a subagent's pane shows its task, its steps and words live, and its result.
 
@@ -242,6 +243,21 @@ describe("the task", () => {
 });
 
 describe("the stream", () => {
+	test("a failed turn in the stream says its title and plain words, the provider's report behind Details, never the raw envelope", async () => {
+		next();
+		first = [link("closed", "failed", 9_000), task, read("t1", "c1", "Read Dock.tsx"), { kind: "notice", id: "n1", ts: STARTED + 3000, level: "error", text: CAPACITY_FAILURE }];
+		await show(undefined);
+		const stream = container.querySelector<HTMLDivElement>(".pane-stream")!;
+		expect(quietFailure(stream)).toEqual({
+			title: "Turn failed",
+			said: "The activity could not finish. Expand the details for the reported error.",
+			open: false,
+			shown: "Turn failedThe activity could not finish. Expand the details for the reported error.",
+		});
+		expect(stream.textContent).not.toContain("hotlineFailure");
+		expect(stream.querySelector("details.error-line pre")?.textContent).toContain("The model is currently at capacity due to high demand.");
+	});
+
 	test("Steps and words in one stream that follows the newest until scrolled up; a Latest pill returns; a step opens to its output", async () => {
 		next();
 		first = [link("live"), task, read("t1", "c1", "Read Dock.tsx", "export function Dock() {}"), said("a1", "The right pane opens a run through ThreadView.")];

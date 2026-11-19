@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { TranscriptEvent } from "../src/generated/contract";
 import { installDom } from "./dom";
+import { CAPACITY_FAILURE, quietFailure } from "./failure-notice";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
@@ -211,6 +212,18 @@ describe("a call's pane", () => {
 		expect(opened).toEqual([{ thread: { kind: "dm", key: "pork" }, eventId: "human:q1" }]);
 		await draw({ events: [{ ...card, status: "done" }] });
 		expect(container.textContent).toContain("Settled: Use blue?");
+	});
+
+	test("a failed turn says its title and plain words as the conversation does, the provider's report behind Details, never the raw envelope", async () => {
+		await draw({ events: [...transcript, { kind: "notice", id: "n1", ts: 6, level: "error", text: CAPACITY_FAILURE }] });
+		expect(quietFailure(container)).toEqual({
+			title: "Turn failed",
+			said: "The activity could not finish. Expand the details for the reported error.",
+			open: false,
+			shown: "Turn failedThe activity could not finish. Expand the details for the reported error.",
+		});
+		expect(container.textContent).not.toContain("hotlineFailure");
+		expect(container.querySelector("details.error-line pre")?.textContent).toContain("The model is currently at capacity due to high demand.");
 	});
 
 	test("its own link line is not drawn as a line of the transcript", async () => {

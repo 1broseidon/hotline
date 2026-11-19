@@ -9,6 +9,7 @@ import { threadFamily } from "../../threadKinds";
 import { Band } from "../../ui/Band";
 import { PaneClose } from "../../ui/PaneClose";
 import { powersOf, withoutWords } from "../../dock";
+import { ErrorCard } from "../ErrorCard";
 import { Markdown } from "../Markdown";
 import type { ThreadRef } from "../Transcript";
 import { TrailSteps, useHot } from "../transcript/Trail";
@@ -239,11 +240,16 @@ function RunSection({ run, numbered }: { run: JobRun; numbered: boolean }) {
 							<Markdown text={run.found} />
 						</div>
 					)}
-					{run.notices.map((notice) => (
-						<p key={notice.id} className="job-run-notice selectable">
-							{notice.text}
-						</p>
-					))}
+					{run.notices.map((notice) =>
+						// A failure reads as the conversation reads it: its title and plain words, the report behind Details.
+						notice.failed ? (
+							<ErrorCard key={notice.id} text={notice.text} />
+						) : (
+							<p key={notice.id} className="job-run-notice selectable">
+								{notice.text}
+							</p>
+						),
+					)}
 					{run.steps.length > 0 && (
 						<div className="spine-nested">
 							<TrailSteps items={run.steps} settled={!live} hot={hot} />

@@ -3,6 +3,7 @@ import type { Root } from "react-dom/client";
 import type { ScheduleEntry, ScheduledRun, TranscriptEvent } from "../src/generated/contract";
 import { calendarWords, countdown, jobRuns, postingWords, scheduleWords } from "../src/jobRuns";
 import { installDom } from "./dom";
+import { CAPACITY_FAILURE, quietFailure } from "./failure-notice";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
@@ -160,6 +161,29 @@ describe("a job's pane", () => {
 		const stopped = [...container.querySelectorAll<HTMLButtonElement>(".job-run-head")][1]!;
 		await act(async () => stopped.click());
 		expect(stopped.closest(".job-run")?.querySelector(".job-run-notice")?.textContent).toContain("Stopped.");
+	});
+
+	test("a run that failed opens to its failure as the conversation says it, the report behind Details, and the main conversation says it the same", async () => {
+		const failedRun: TranscriptEvent[] = [
+			{ kind: "user", id: "f1", ts: at(19, 46), text: "Fire.", scheduled: firing },
+			{ kind: "notice", id: "n1", ts: at(19, 46), level: "error", text: CAPACITY_FAILURE },
+			{ kind: "turn", id: "e1", ts: at(19, 46), stopReason: "end_turn" },
+		];
+		await draw({ events: failedRun, working: false });
+		const head = container.querySelector<HTMLButtonElement>('.job-run[data-state="failed"] .job-run-head')!;
+		await act(async () => head.click());
+		const section = head.closest(".job-run")!;
+		const inPane = quietFailure(section);
+		expect(inPane).toEqual({
+			title: "Turn failed",
+			said: "The activity could not finish. Expand the details for the reported error.",
+			open: false,
+			shown: "Turn failedThe activity could not finish. Expand the details for the reported error.",
+		});
+		expect(section.textContent).not.toContain("hotlineFailure");
+		expect(section.querySelector("details.error-line pre")?.textContent).toContain("The model is currently at capacity due to high demand.");
+		await act(async () => root.render(<Transcript personaId="pork" name="Pork Chop" events={failedRun} streaming={[]} live={false} focus={null} />));
+		expect(quietFailure(container)).toEqual(inPane);
 	});
 
 	test("the band has End job while the job lives and Stop while a run runs, and no Run now, which the desk cannot do", async () => {

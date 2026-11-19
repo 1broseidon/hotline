@@ -13,6 +13,7 @@ import { PaneClose } from "../../ui/PaneClose";
 import { liveName } from "../../useFor";
 import { startCall, useCall, useCallSnapshot } from "../../voice/call";
 import { wire } from "../../wire";
+import { ErrorCard } from "../ErrorCard";
 import { Markdown } from "../Markdown";
 import { SentFiles } from "../SentFile";
 import type { ThreadRef } from "../Transcript";
@@ -316,6 +317,13 @@ function CallRow({
 		case "credential_ask":
 			return <li><CardHome event={event} personaId={personaId} onOpenThread={onOpenThread} /></li>;
 		case "notice":
+			// A failure reads as the conversation reads it: its title and plain words, the report behind Details.
+			if (event.level === "error")
+				return (
+					<li>
+						<ErrorCard text={event.text} />
+					</li>
+				);
 			return (
 				<li className="rule-line rule-line-plain" style={{ color: event.level === "info" ? "var(--ink-3)" : event.level === "warn" ? "var(--warn)" : "var(--danger)" }}>
 					<span className="selectable font-normal">{event.text}</span>

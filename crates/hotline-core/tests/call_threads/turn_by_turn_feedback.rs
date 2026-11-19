@@ -1,9 +1,11 @@
 use super::super::*;
 
-/// Both session drivers can ignore the requested opening. The shared Turn by turn
-/// runtime still sends audio, then quiet progress, while real tool work waits.
+/// Both session drivers can ignore the requested opening. When unexplained
+/// silence lasts 8 seconds before any spoken clip, the Turn by turn runtime
+/// sends one quiet waiting tone and never loops canned progress lines while
+/// real tool work runs.
 #[tokio::test]
-async fn tool_first_turn_by_turn_replies_get_a_cue_and_progress_on_both_drivers() {
+async fn tool_first_turn_by_turn_replies_get_one_delayed_cue_and_no_canned_progress() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let gate = desk.root.path().join("finish-tool-turn");
@@ -40,29 +42,21 @@ async fn tool_first_turn_by_turn_replies_get_a_cue_and_progress_on_both_drivers(
             .await;
         // Kernel IO and the ACP child use real time; advance only the core's
         // feedback timer once the actual tool has reached the call thread.
-        desk.advance(2).await;
+        desk.advance(8).await;
         let cue = desk.event(voice_sub, |event| event["type"] == "clip").await;
         assert_eq!(cue["id"], "waiting-1");
         assert_eq!(cue["mimeType"], "audio/wav");
-        let mut progress = Vec::new();
-        for _ in 0..3 {
-            for _ in 0..20 {
-                desk.advance(1).await;
-                tokio::task::yield_now().await;
-            }
-            let said = desk.event(voice_sub, |event| event["type"] == "said").await;
-            let text = said["text"].as_str().unwrap();
-            assert_ne!(text, "");
-            progress.push(text.to_owned());
-            let clip = desk.event(voice_sub, |event| event["type"] == "clip").await;
-            assert_eq!(clip["id"], said["id"]);
-            assert_ne!(clip["data"].as_str().unwrap(), "");
+        // Advance past the old 20s progress timer: no canned filler should fire.
+        for _ in 0..30 {
+            desk.advance(1).await;
+            tokio::task::yield_now().await;
         }
-        assert!(progress.windows(2).all(|pair| pair[0] != pair[1]));
-        assert!(progress.iter().any(|line| line != &progress[0]));
         std::fs::write(gate, "ready").unwrap();
         let said = desk.event(voice_sub, |event| event["type"] == "said").await;
-        assert_eq!(said["text"], "The lookup is finished.");
+        assert_eq!(
+            said["text"], "The lookup is finished.",
+            "no canned progress line should precede the real answer"
+        );
         desk.finished(thread_sub).await;
         desk.hang_up(&call, thread_sub).await;
     }

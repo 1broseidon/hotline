@@ -87,6 +87,23 @@ impl Room {
         Ok(())
     }
 
+    /// Injects a one-shot internal overrun nudge into a direct call's running
+    /// turn so the teammate gives one natural update at its next tool boundary
+    /// instead of a canned repeating timer.
+    pub(crate) fn nudge_call_overrun(&self, persona: &str, thread: &ThreadId) -> bool {
+        if self.validate_call_thread(persona, thread).is_err() {
+            return false;
+        }
+        let Ok(side) = self.live_side(&thread.key) else {
+            return false;
+        };
+        let turns = lock(&side.turns);
+        turns.running
+            && side.driver().is_some_and(|driver| {
+                driver.steer(crate::voice::spoken::OVERRUN_NUDGE.to_string(), Vec::new())
+            })
+    }
+
     /// Says something in a side thread in answer to one of its lines, which
     /// `reply_to` names, as a reply in the main conversation does.
     pub async fn prompt_side_replying(

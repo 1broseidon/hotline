@@ -459,7 +459,11 @@ impl Occupant for LiveSide {
                     matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
                 });
             let mut handed_back = Vec::new();
-            for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
+            for (text, attachments) in unconsumed
+                .into_iter()
+                .rev()
+                .filter(|(text, _)| !cancelled && text != crate::voice::spoken::OVERRUN_NUDGE)
+            {
                 // A line steered in goes back as it was said, with the request
                 // it carries; matched from the end, as the driver hands them
                 // back last first.

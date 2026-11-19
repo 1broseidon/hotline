@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AUDIO_SILENCE_MS,
+  FAST_SILENCE_MS,
   IDLE_DROP_MS,
   isGoodbye,
   levelFromDb,
+  looksComplete,
   MAX_TURN_MS,
   MIN_SPEECH_MS,
   SILENCE_MS,
@@ -454,6 +457,63 @@ describe('goodbye', () => {
       'Hello',
     ]) {
       expect(isGoodbye(said)).toBe(false);
+    }
+  });
+});
+
+describe('adaptive endpointing', () => {
+  test('looksComplete recognizes finished thoughts and holds open clauses', () => {
+    for (const complete of [
+      'Yeah',
+      'Okay',
+      'Thanks',
+      'Check the build',
+      'What did Pork Chop say?',
+      'Ship it.',
+      'Can you run the tests',
+    ]) {
+      expect(looksComplete(complete)).toBe(true);
+    }
+    for (const incomplete of [
+      '',
+      '   ',
+      'Check',
+      'Tell',
+      'Can you check the build and',
+      'I wanted to ask about',
+      'Wait so um',
+      'Look at the',
+      'Open it,',
+      'Wait —',
+    ]) {
+      expect(looksComplete(incomplete)).toBe(false);
+    }
+  });
+
+  test('ends early when push receives a fast silence threshold and reports it', () => {
+    const detector = new TurnDetector(0);
+    const events: TurnEvent[] = [];
+    for (let t = 0; t < 1000; t += 16) events.push(...detector.push(SPEECH, t));
+    for (let t = 1000; t < 1800; t += 16) events.push(...detector.push(QUIET, t, FAST_SILENCE_MS));
+    expect(events.map((event) => event.kind)).toEqual(['start', 'end']);
+    const end = events[1]!;
+    expect(end.kind).toBe('end');
+    if (end.kind === 'end') {
+      expect(end.silenceMs).toBe(FAST_SILENCE_MS);
+      expect(end.at).toBeGreaterThan(984 + FAST_SILENCE_MS);
+      expect(end.at).toBeLessThan(984 + SILENCE_MS);
+    }
+  });
+
+  test('constructor default silence supports AUDIO_SILENCE_MS', () => {
+    const detector = new TurnDetector(0, undefined, AUDIO_SILENCE_MS);
+    const events = [...talk(detector, 0, 1000), ...run(detector, QUIET, 1000, 2000)];
+    expect(events.map((event) => event.kind)).toEqual(['start', 'end']);
+    const end = events[1]!;
+    if (end.kind === 'end') {
+      expect(end.silenceMs).toBe(AUDIO_SILENCE_MS);
+      expect(end.at).toBeGreaterThan(984 + AUDIO_SILENCE_MS);
+      expect(end.at).toBeLessThan(984 + SILENCE_MS);
     }
   });
 });

@@ -210,7 +210,7 @@ export class WordlessVoice {
 	turn(event: TurnEvent): boolean {
 		if (event.kind === "start") this.turnStart = event.at;
 		else if (this.turnStart !== null) {
-			if (event.kind === "end") this.voiceMs += event.at - this.turnStart - (event.reason === "silence" ? SILENCE_MS : 0);
+			if (event.kind === "end") this.voiceMs += event.at - this.turnStart - (event.reason === "silence" ? (event.silenceMs ?? SILENCE_MS) : 0);
 			this.turnStart = null;
 		}
 		return !this.words && this.voiceMs >= WORDLESS_VOICE_MS;

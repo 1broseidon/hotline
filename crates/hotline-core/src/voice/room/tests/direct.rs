@@ -576,10 +576,17 @@ async fn a_turn_by_turn_reply_without_opening_speech_gets_one_sound_on_the_clip_
             Ok(())
         })
         .unwrap();
-    tokio::time::advance(Duration::from_millis(1_750)).await;
-    tokio::task::yield_now().await;
-    assert!(rx.try_recv().is_err());
-    tokio::time::advance(Duration::from_millis(250)).await;
+    for _ in 0..31 {
+        tokio::time::advance(Duration::from_millis(250)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+                "no early waiting sound before 8s: {event:?}"
+            );
+        }
+    }
+    tokio::time::advance(Duration::from_millis(500)).await;
     let cue = event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
@@ -596,13 +603,15 @@ async fn a_turn_by_turn_reply_without_opening_speech_gets_one_sound_on_the_clip_
         assert!(r#final);
         assert!(STANDARD.decode(data).unwrap().starts_with(b"RIFF"));
     }
-    tokio::time::advance(Duration::from_secs(10)).await;
-    tokio::task::yield_now().await;
-    while let Ok(event) = rx.try_recv() {
-        assert!(
-            !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
-            "no repeated sound or filler: {event:?}"
-        );
+    for _ in 0..30 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+                "no repeated sound or canned filler: {event:?}"
+            );
+        }
     }
     calls.reply_delta(&persona, "reply-1", "<spoken>The tests pass. ", &origin);
     event(
@@ -662,7 +671,7 @@ async fn a_text_opening_does_not_suppress_the_cue_while_tts_is_stalled() {
         .unwrap();
     calls.reply_delta(&persona, "opening", "I'll check the lighthouse. ", &origin);
     event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
-    tokio::time::advance(Duration::from_secs(2)).await;
+    tokio::time::advance(Duration::from_millis(8_250)).await;
     event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
@@ -672,50 +681,178 @@ async fn a_text_opening_does_not_suppress_the_cue_while_tts_is_stalled() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_quiet_turn_by_turn_reply_gets_progress_until_it_ends_or_is_interrupted() {
-    for interrupt in [false, true] {
-        let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
-        let origin = on_turn(&calls, &id, 1);
-        calls
-            .test_change(&id, |call| {
-                call.answering = Some(1);
-                call.feedback_at = Some(tokio::time::Instant::now());
-                call.state(VoiceState::Thinking, None);
-                Ok(())
-            })
-            .unwrap();
-        tokio::time::advance(Duration::from_secs(2)).await;
-        event(
-            &mut rx,
-            |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
-        )
-        .await;
-        let mut progress = Vec::new();
-        for _ in 0..3 {
-            // The test build refreshes Thinking every 100ms. Drain those
-            // snapshots while moving time, without losing the feedback.
-            for _ in 0..19 {
-                tokio::time::advance(Duration::from_secs(1)).await;
-                tokio::task::yield_now().await;
-                while let Ok(event) = rx.try_recv() {
-                    assert!(matches!(event, VoiceEvent::State { .. }));
+async fn explained_work_stays_silent_and_never_repeats_canned_progress() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    // Teammate speaks a scoped opening line before tools run.
+    let opening = "<spoken>Let me check the logs, give me a moment.</spoken><written>Checking logs.</written>";
+    assert!(calls.delivery(&persona, "opening-1", "Mack", opening, true, Some(&origin)));
+    let (said, _) = one_reply(&mut rx).await;
+    assert_eq!(said.len(), 1);
+    assert_eq!(lock(&fake.spoken).len(), 1);
+    // Tools run quietly for 80 seconds: no 8s waiting chime and no canned 20s progress.
+    for _ in 0..80 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+                "explained work stays silent while tools run: {event:?}"
+            );
+        }
+    }
+    assert_eq!(lock(&fake.spoken).len(), 1);
+    calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn pipelined_whole_clip_tts_preserves_sentence_order() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    *lock(&fake.delay) = Duration::from_millis(150);
+    let reply = "<spoken>First sentence is here. Second sentence follows right behind. Third closes cleanly.</spoken><written>Done.</written>";
+    assert!(calls.delivery(&persona, "pipe-1", "Mack", reply, true, Some(&origin)));
+    let mut indices = Vec::new();
+    let mut saw_final = false;
+    for _ in 0..40 {
+        tokio::time::advance(Duration::from_millis(50)).await;
+        tokio::task::yield_now().await;
+        while let Ok(event) = rx.try_recv() {
+            if let VoiceEvent::Clip {
+                index,
+                r#final,
+                data,
+                ..
+            } = event
+            {
+                indices.push((index, !data.is_empty(), r#final));
+                if r#final {
+                    saw_final = true;
                 }
             }
-            tokio::time::advance(Duration::from_secs(1)).await;
-            let (said, _) = one_reply(&mut rx).await;
-            assert_eq!(said.len(), 1);
-            progress.push(said[0].1.clone());
         }
-        assert!(progress.windows(2).all(|pair| pair[0] != pair[1]));
-        assert!(progress.iter().any(|line| line != &progress[0]));
-        if interrupt {
-            calls.hold(&id, true).unwrap();
-        } else {
-            calls.turn_ended(&persona, &origin);
+        if saw_final {
+            break;
         }
-        tokio::time::advance(Duration::from_secs(60)).await;
-        tokio::task::yield_now().await;
-        assert_eq!(lock(&fake.spoken).len(), 3);
-        calls.end(&id).unwrap();
     }
+    assert!(saw_final, "expected final clip, got {indices:?}");
+    assert_eq!(
+        indices,
+        vec![
+            (0, true, false),
+            (1, true, false),
+            (2, true, false),
+            (3, false, true)
+        ]
+    );
+    assert_eq!(
+        *lock(&fake.spoken),
+        vec![
+            "First sentence is here.",
+            "Second sentence follows right behind.",
+            "Third closes cleanly.",
+        ]
+    );
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn ollama_tts_is_prewarmed_on_turn_by_turn_call_start_without_spending_budget() {
+    let fake = Arc::new(Fake {
+        provider_id: Some("ollama"),
+        ..Fake::default()
+    });
+    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    until("ollama pre-warm", || !lock(&fake.spoken).is_empty()).await;
+    assert_eq!(*lock(&fake.spoken), vec!["ok"]);
+    let status = calls.status();
+    assert_eq!(status.budget.spent_day_usd, 0.0);
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn overrun_nudge_fires_at_90s_and_respects_180s_cooldown() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    let opening = "<spoken>Let me inspect the logs, give me a couple of minutes.</spoken><written>Inspecting logs.</written>";
+    assert!(calls.delivery(
+        &persona,
+        "open-overrun",
+        "Mack",
+        opening,
+        true,
+        Some(&origin)
+    ));
+    let _ = one_reply(&mut rx).await;
+
+    // Still under 90s of silence after opening speech: no overrun nudge yet.
+    for _ in 0..89 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while rx.try_recv().is_ok() {}
+    }
+    let before_90 = calls
+        .test_change(&id, |call| Ok(call.overrun_nudged_at))
+        .unwrap();
+    assert!(before_90.is_none(), "should not nudge before 90s");
+
+    // Cross 90s: one-shot overrun nudge arms and records overrun_nudged_at.
+    for _ in 0..2 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while rx.try_recv().is_ok() {}
+    }
+    let first_nudge = calls
+        .test_change(&id, |call| Ok(call.overrun_nudged_at))
+        .unwrap();
+    assert!(first_nudge.is_some(), "expected overrun nudge after 90s");
+
+    // Inside the 180s cooldown (170s later): timestamp does not advance.
+    for _ in 0..170 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while rx.try_recv().is_ok() {}
+    }
+    let during_cooldown = calls
+        .test_change(&id, |call| Ok(call.overrun_nudged_at))
+        .unwrap();
+    assert_eq!(
+        during_cooldown, first_nudge,
+        "cooldown must prevent re-nudge"
+    );
+
+    // Past the 180s cooldown: a second nudge is allowed.
+    for _ in 0..15 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        while rx.try_recv().is_ok() {}
+    }
+    let second_nudge = calls
+        .test_change(&id, |call| Ok(call.overrun_nudged_at))
+        .unwrap();
+    assert!(
+        second_nudge > first_nudge,
+        "expected a follow-up nudge after the 180s cooldown"
+    );
+    calls.turn_ended(&persona, &origin);
+    calls.end(&id).unwrap();
 }

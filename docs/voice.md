@@ -117,8 +117,9 @@ it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it
 interrupts, with its own echo handling. A `thinking` that says `listening`
 is listened through: the call's phase is `listening` while the teammate
-works. Turn by turn receives one soft waiting clip from the core if its own
-speech has not begun after 1.8 seconds; there is no local repeating chime.
+works. Turn by turn stays silent on ordinary turns and receives one soft presence clip
+from the core only if no speech has begun after 8 seconds of unexplained
+silence; there is no local repeating chime or canned progress filler.
 What the desk begins to say while the person is
 talking does not play over them: it waits until their turn ends, and goes if
 they said something (the desk stops it on taking their words) or plays if it
@@ -664,12 +665,17 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
-On a Turn by turn call, the teammate's own first sentence is said as it streams,
-including prose before a tool. The prompt asks for that sentence before tools,
-with no stock filler. If no speech has begun after 1.8 seconds, the core sends
-one soft sound on the normal clip wire, on desk and phone. The reply stays
-interruptible, and the written answer stays intact. Each message said is one
-reply id, growing sentence by sentence, with clips under that id.
+On a Turn by turn call, the teammate's own opening is said as it streams (flushing
+the opening clause early when the first sentence runs long), including prose
+before a tool. The prompt asks for that sentence before tools with a coarse size
+(*a moment*, *a couple of minutes*, or *a while*) for multi-step work, with no
+stock filler. Ordinary turns stay silent while waiting; only if no speech has
+begun after 8 seconds of unexplained silence does the core send one warm
+presence sound on the normal clip wire, on desk and phone. If announced work
+runs quiet past 90 seconds, the core steers one internal overrun nudge at the
+next tool boundary so the teammate gives real progress instead of canned filler.
+The reply stays interruptible, and the written answer stays intact. Each message
+said is one reply id, growing piece by piece, with clips under that id.
 
 
 The call is `thinking` from an utterance until the teammate's session has

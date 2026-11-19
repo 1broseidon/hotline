@@ -11,8 +11,12 @@
  * to pause. The noise floor is learned only before speech is confirmed.
  */
 
-/** A pause this long ends a turn. */
+/** Full silence ceiling when a turn looks unfinished or mid-thought. */
 export const SILENCE_MS = 1200;
+/** Shorter silence threshold when recognized text already looks syntactically complete. */
+export const FAST_SILENCE_MS = 550;
+/** Silence threshold for audio-only Turn-by-turn calls without client partial transcripts. */
+export const AUDIO_SILENCE_MS = 850;
 /** Voice shorter than this is a cough or a tap, not a sentence. */
 export const MIN_SPEECH_MS = 250;
 /** The desk takes at most 20s per clip, so a turn is cut here. */
@@ -49,7 +53,7 @@ const FLOOR_RISE_MS = 5000;
 
 export type TurnEvent =
   | { kind: 'start'; at: number }
-  | { kind: 'end'; at: number; reason: 'silence' | 'max' }
+  | { kind: 'end'; at: number; reason: 'silence' | 'max'; silenceMs?: number }
   | { kind: 'drop'; at: number; reason: 'idle' | 'noise' };
 
 const NONE: readonly TurnEvent[] = [];
@@ -87,6 +91,7 @@ export class TurnDetector {
   constructor(
     now: number,
     private minimumSpeechMs = MIN_SPEECH_MS,
+    private defaultSilenceMs = SILENCE_MS,
   ) {
     this.clipStart = now;
     this.lastSample = now;
@@ -110,7 +115,7 @@ export class TurnDetector {
     this.recent = [];
   }
 
-  push(level: number | null, now: number): readonly TurnEvent[] {
+  push(level: number | null, now: number, silenceMs = this.defaultSilenceMs): readonly TurnEvent[] {
     if (!this.armed) return NONE;
     const elapsed = Math.max(0, now - this.lastSample);
     const available = level !== null && Number.isFinite(level) && level >= 0;
@@ -175,9 +180,9 @@ export class TurnDetector {
       this.lastVoice = now;
     }
 
-    if (this.started && now - this.lastVoice > SILENCE_MS) {
+    if (this.started && now - this.lastVoice > silenceMs) {
       this.armed = false;
-      events.push({ kind: 'end', at: now, reason: 'silence' });
+      events.push({ kind: 'end', at: now, reason: 'silence', silenceMs });
     } else if (this.started && now - this.clipStart > MAX_TURN_MS) {
       this.armed = false;
       events.push({ kind: 'end', at: now, reason: 'max' });
@@ -232,4 +237,42 @@ export function isGoodbye(transcript: string): boolean {
     .replace(/\s+/g, ' ')
     .trim();
   return GOODBYE.test(spoken);
+}
+
+const TRAILING_OPEN = new Set([
+  'a', 'about', 'actually', 'an', 'and', 'as', 'at', 'basically', 'because',
+  'but', 'by', 'erm', 'for', 'from', 'her', 'his', 'hmm', 'if', 'in', 'into',
+  'like', 'my', 'of', 'on', 'or', 'our', 'so', 'than', 'that', 'the', 'their',
+  'these', 'this', 'those', 'to', 'uh', 'uhh', 'um', 'umm', 'well', 'when',
+  'which', 'while', 'who', 'with', 'your',
+]);
+
+const COMPLETE_SINGLE = new Set([
+  'alright', 'awesome', 'bye', 'cancel', 'cool', 'correct', 'done', 'exactly',
+  'fine', 'good', 'goodbye', 'great', 'hello', 'hey', 'hi', 'how', 'nah',
+  'nevermind', 'nice', 'no', 'nope', 'ok', 'okay', 'perfect', 'please',
+  'really', 'right', 'sorry', 'stop', 'sure', 'thank', 'thanks', 'wait',
+  'what', 'when', 'where', 'who', 'why', 'yeah', 'yep', 'yes', 'yo', 'yup',
+]);
+
+/**
+ * Whether an in-progress transcript already looks like a finished thought, so
+ * endpointing can commit after `FAST_SILENCE_MS` instead of waiting a full
+ * `SILENCE_MS`. Returns false on empty strings, trailing conjunctions,
+ * prepositions, articles, or fillers so mid-sentence pauses never clip speech.
+ */
+export function looksComplete(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === '') return false;
+  if (/[.?!]$/.test(trimmed)) return true;
+  if (/[,;:\-—…]$/.test(trimmed)) return false;
+  const words = trimmed
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, ''))
+    .filter((word) => word !== '');
+  if (words.length === 0) return false;
+  const last = words[words.length - 1]!;
+  if (words.length === 1) return COMPLETE_SINGLE.has(last);
+  return !TRAILING_OPEN.has(last);
 }

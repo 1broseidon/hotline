@@ -18,7 +18,7 @@ Every bundled clip is explicitly tagged `audio/wav`, regardless of provider.
 ffmpeg -f lavfi -i "flite=text='Sorry, say that again.':voice=slt" -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 retry.wav
 ```
 
-`waiting.wav` is a 200 ms, 440 Hz sine at amplitude 1800/32768, with a sine-squared envelope, sampled as 16 kHz mono PCM16. It is a soft sound, with no speech. The core sends it once after 1.8 seconds only if a Turn by turn reply has not started speaking.
+`waiting.wav` is a 240 ms, 330 Hz tone with a subtle 660 Hz overtone (0.25x) at peak amplitude 1400/32768, with a sine-squared envelope, sampled as 16 kHz mono PCM16. It is a warm, soft presence cue, with no speech. The core sends it at most once per turn after 8 seconds of unexplained silence, only if a Turn by turn reply has not started speaking.
 
 The two `live-*.wav` notices use the same Flite `slt` voice directly:
 `flite -voice slt -t 'SENTENCE' -o FILE.wav`. They are 16 kHz mono PCM16,

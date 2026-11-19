@@ -4,7 +4,7 @@ import { type Target, wire } from "../wire";
 import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
-import { TurnDetector, levelFromDb } from "./turn";
+import { AUDIO_SILENCE_MS, FAST_SILENCE_MS, SILENCE_MS, TurnDetector, levelFromDb, looksComplete } from "./turn";
 import {
 	type DeviceTranscription,
 	type TranscriptionEvent,
@@ -197,7 +197,7 @@ export class Call {
 	private seq = 0;
 	private pcm = false;
 	private input: PcmTurn | null = null;
-	private endpoint: { at: number; seq: number } | null = null;
+	private endpoint: { at: number; seq: number; clipAt?: number } | null = null;
 	/** A progressive output line can temporarily drain before its final chunk arrives. */
 	private readonly outputLines = new Set<string>();
 	private holdGeneration = 0;
@@ -360,8 +360,9 @@ export class Call {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return;
 		}
-		if (this.textInput) this.detector = new TurnDetector(this.now(), TEXT_MIN_SPEECH_MS);
+		if (this.textInput) this.detector = new TurnDetector(this.now(), TEXT_MIN_SPEECH_MS, SILENCE_MS);
 		else {
+			if (this.front === null) this.detector = new TurnDetector(this.now(), undefined, AUDIO_SILENCE_MS);
 			try {
 				await this.audio.openMic();
 			} catch (error) {
@@ -583,7 +584,12 @@ export class Call {
 					if (event.data !== "") this.deferred.push({ id: event.id, mimeType: event.mimeType, data: event.data });
 					return;
 				}
-				try { if (event.data !== "") this.audio.play(event.mimeType, event.data); }
+				try {
+					if (event.data !== "") {
+						if (this.endpoint !== null && this.endpoint.clipAt === undefined) this.endpoint.clipAt = this.now();
+						this.audio.play(event.mimeType, event.data);
+					}
+				}
 				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
 				this.settle();
 				return;
@@ -876,7 +882,9 @@ export class Call {
 				if (now < this.quietUntil) return;
 				const level = levelFromDb(rawEquivalentDb(event.levelDb));
 				this.level = level;
-				for (const turn of this.detector.push(level, now)) {
+				const draft = this.spoken(this.textPart);
+				const silenceMs = draft !== "" && looksComplete(draft) ? FAST_SILENCE_MS : SILENCE_MS;
+				for (const turn of this.detector.push(level, now, silenceMs)) {
 					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {
 						case "start":
@@ -1022,9 +1030,14 @@ export class Call {
 
 	private audible(): void {
 		if (this.endpoint === null || this.ended || this.held) return;
-		const { at, seq } = this.endpoint;
+		const { at, seq, clipAt } = this.endpoint;
 		this.endpoint = null;
-		console.info("Hotline voice endpoint to audible start", { seq, durationMs: Math.round(this.now() - at) });
+		const now = this.now();
+		console.info("Hotline voice endpoint to audible start", {
+			seq,
+			durationMs: Math.round(now - at),
+			...(clipAt !== undefined ? { decodeMs: Math.round(now - clipAt) } : {}),
+		});
 	}
 
 	// ------------------------------------------------------------- the rest

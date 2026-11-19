@@ -301,6 +301,101 @@ enum Hold {
     },
 }
 
+/// Per-turn latency milestones on a Turn-by-turn call, anchored to when the
+/// desk accepted the utterance (or finalized live PCM).
+#[derive(Clone, Debug)]
+pub(crate) struct TurnTiming {
+    started: Instant,
+    stt_done: Option<Instant>,
+    dispatched: Option<Instant>,
+    llm_think: Option<Instant>,
+    llm_spoken: Option<Instant>,
+    first_unit: Option<Instant>,
+    tts_started: Option<Instant>,
+}
+
+impl TurnTiming {
+    pub(crate) fn start(started: Instant) -> Self {
+        Self {
+            started,
+            stt_done: None,
+            dispatched: None,
+            llm_think: None,
+            llm_spoken: None,
+            first_unit: None,
+            tts_started: None,
+        }
+    }
+
+    pub(crate) fn mark_stt(&mut self) {
+        self.stt_done.get_or_insert_with(Instant::now);
+    }
+
+    pub(crate) fn mark_dispatch(&mut self) {
+        self.dispatched.get_or_insert_with(Instant::now);
+    }
+
+    pub(crate) fn mark_llm_think(&mut self) {
+        self.llm_think.get_or_insert_with(Instant::now);
+    }
+
+    pub(crate) fn mark_llm_spoken(&mut self) {
+        self.llm_spoken.get_or_insert_with(Instant::now);
+    }
+
+    pub(crate) fn mark_first_unit(&mut self) {
+        self.first_unit.get_or_insert_with(Instant::now);
+    }
+
+    pub(crate) fn mark_tts_started(&mut self) {
+        self.tts_started.get_or_insert_with(Instant::now);
+    }
+
+    pub(crate) fn format_line(
+        &self,
+        call_id: &str,
+        seq: u32,
+        model: Option<&str>,
+        tts: &SpeechId,
+    ) -> String {
+        let now = Instant::now();
+        let opt = |d: Option<u128>| d.map_or_else(|| "-".to_string(), |ms| format!("{ms}ms"));
+        let stt = self
+            .stt_done
+            .map_or(0, |t| t.saturating_duration_since(self.started).as_millis());
+        let dispatch_anchor = self.stt_done.unwrap_or(self.started);
+        let dispatch = self
+            .dispatched
+            .map(|t| t.saturating_duration_since(dispatch_anchor).as_millis());
+        let llm_anchor = self.dispatched.or(self.stt_done).unwrap_or(self.started);
+        let llm_think = self
+            .llm_think
+            .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
+        let llm_spoken = self
+            .llm_spoken
+            .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
+        let first_unit = self
+            .first_unit
+            .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
+        let tts_done = self
+            .tts_started
+            .or(self.first_unit)
+            .map(|t| now.saturating_duration_since(t).as_millis());
+        let desk_total = now.saturating_duration_since(self.started).as_millis();
+        format!(
+            "[voice] turn call={call_id} seq={seq} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} tts_done={} desk_total={desk_total}ms model={} tts={}/{}",
+            opt(dispatch),
+            opt(llm_think),
+            opt(llm_spoken),
+            opt(first_unit),
+            opt(tts_done),
+            model.unwrap_or("-"),
+            tts.provider_id,
+            tts.model_id,
+        )
+    }
+}
+
 #[doc(hidden)]
 pub struct Call {
     conversation: spoken::CallContext,
@@ -331,7 +426,16 @@ pub struct Call {
     pub deliveries: CancellationToken,
     pub utterance_pending: bool,
     pub first_clip_started: Option<Instant>,
+    pub(crate) turn_timing: Option<TurnTiming>,
     waiting_sound: bool,
+    /// Whether any non-empty spoken clip has played on the current turn.
+    /// Once true, the unexplained-silence cue does not fire for this turn.
+    pub spoken_on_turn: bool,
+    /// When the last non-empty spoken clip played on this turn, used for the
+    /// one-shot overrun nudge on long tool runs.
+    pub last_spoken_at: Option<tokio::time::Instant>,
+    /// When an overrun nudge was last injected into the teammate's running turn.
+    pub overrun_nudged_at: Option<tokio::time::Instant>,
     /// Last audible clip or queued feedback; independent of first-clip telemetry.
     pub feedback_at: Option<tokio::time::Instant>,
     /// On a direct call, the latest turn handed to the teammate whose session
@@ -541,12 +645,6 @@ enum Work {
     Answer {
         event: String,
         chunks: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
-        speech: CancellationToken,
-    },
-    /// Quiet-turn feedback shares the speech queue, so it cannot overlap an answer.
-    Progress {
-        seq: u32,
-        at: tokio::time::Instant,
         speech: CancellationToken,
     },
     /// The teammate's session finished the turn of this utterance.
@@ -963,6 +1061,20 @@ impl Calls {
         true
     }
 
+    /// Records when the teammate's model began thinking on a direct call turn,
+    /// for per-turn latency diagnostics.
+    pub fn thinking_delta(&self, persona: &str, origin: &Origin) {
+        if !origin.direct {
+            return;
+        }
+        let mut calls = lock(&self.calls);
+        if let Some(call) = calling(&mut calls, persona, origin)
+            && let Some(timing) = &mut call.turn_timing
+        {
+            timing.mark_llm_think();
+        }
+    }
+
     /// Words of a teammate's reply as it streams, on the turn of a call to
     /// it: its spoken version said as it comes, from the reply's first words
     /// ([`spoken::Spoken`]). The reply's whole text follows as
@@ -980,6 +1092,11 @@ impl Calls {
             .is_some_and(|seq| origin.seq <= seq)
         {
             return;
+        }
+        if !chunk.is_empty()
+            && let Some(timing) = &mut call.turn_timing
+        {
+            timing.mark_llm_spoken();
         }
         if let Some(stream) = call.streams.get(event) {
             let _ = stream.send(chunk.into());
@@ -1033,6 +1150,8 @@ impl Calls {
         call.streams.clear();
         if call.answering.is_some_and(|seq| seq <= origin.seq) {
             call.feedback_at = None;
+            call.last_spoken_at = None;
+            call.overrun_nudged_at = None;
         }
         if call.work.try_send(Work::TurnOver(origin.seq)).is_err()
             && call

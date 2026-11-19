@@ -19,7 +19,7 @@ speech recognition.
 
 ## Set up calls
 
-**Settings → Providers → Calls → Model** chooses how a call runs:
+**Settings → Voice → Calls → Model** chooses how a call runs:
 
 - **A live model**: Grok Voice, GPT-Live or GPT Realtime, listed once for
   each connected login or key that runs it. It hears, talks and uses tools
@@ -140,7 +140,7 @@ room. An assistant answers in a sentence or two, hands work to your teammates
 by name, and tells you when it lands. Use it when you want to start several
 things at once without opening each conversation.
 
-Pick the model that answers in **Settings → Providers → Calls → Call
+Pick the model that answers in **Settings → Voice → Calls → Call
 assistant**. The same assistant also rewrites a teammate's reply for speech
 when the teammate wrote only the full version. A call to the desk is not
 kept as a thread; the work it hands out lands in each teammate's conversation.

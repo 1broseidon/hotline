@@ -1,17 +1,27 @@
 //! The desk's acknowledgement while a teammate thinks, over the wire with a
-//! real teammate session: the line is said only when the teammate's turn
-//! was told of it, and with the setting off the call is as it always was.
+//! real teammate session: the turn reaches the teammate's model before the
+//! line is written, the turn is told the desk acknowledges it and asked for
+//! no opening of its own, and with the setting off the call is as it always
+//! was.
 use super::*;
+use hotline_core::voice::spoken::{ACKNOWLEDGED_CONTRACT, CONTRACT};
+use std::time::Instant;
 
 const LINE: &str = "Looking into the failing PR.";
-/// What the teammate's turn is told when the line was said for it.
-const TOLD: &str = "you have already said this aloud";
 
-/// A call assistant that only acknowledges, with `line` after `delay`.
+/// A contract as it reads inside the JSON of the model's request.
+fn as_sent(contract: &str) -> String {
+    let quoted = serde_json::to_string(contract).unwrap();
+    quoted[1..quoted.len() - 1].to_string()
+}
+
+/// A call assistant that only acknowledges, with `line` after `delay`, and
+/// notes when it answered.
 struct Acknowledger {
     line: &'static str,
     delay: Duration,
     asked: Arc<AtomicUsize>,
+    answered: Arc<std::sync::Mutex<Option<Instant>>>,
 }
 
 #[async_trait::async_trait]
@@ -33,16 +43,17 @@ impl Dispatcher for Acknowledger {
         assert_eq!(words, "ask Mack to check the failing PR");
         self.asked.fetch_add(1, Ordering::SeqCst);
         tokio::time::sleep(self.delay).await;
+        *self.answered.lock().unwrap() = Some(Instant::now());
         Ok(self.line.into())
     }
 }
 
 /// A teammate's model that takes `delay` before it answers `reply`, and
-/// keeps what it was sent.
+/// keeps what it was sent and when.
 async fn slow_model(
     reply: &'static str,
     delay: Duration,
-) -> (String, Arc<std::sync::Mutex<Vec<Value>>>) {
+) -> (String, Arc<std::sync::Mutex<Vec<(Instant, Value)>>>) {
     use axum::{Router, body::Bytes, routing::post};
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let requests = seen.clone();
@@ -52,7 +63,7 @@ async fn slow_model(
             let requests = requests.clone();
             async move {
                 if let Ok(request) = serde_json::from_slice::<Value>(&body) {
-                    requests.lock().unwrap().push(request);
+                    requests.lock().unwrap().push((Instant::now(), request));
                 }
                 tokio::time::sleep(delay).await;
                 let delta = json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":reply},"finish_reason":null}]});
@@ -72,30 +83,36 @@ async fn slow_model(
     (url, seen)
 }
 
-/// What one turn of a call to Mack said, in order, and what Mack's model
-/// was asked.
+/// What one turn of a call to Mack said, in order, what Mack's model was
+/// asked and when, and when the call assistant answered.
 struct Turn {
     said: Vec<String>,
     asked: String,
+    asked_at: Instant,
     acknowledgements: usize,
+    answered_at: Option<Instant>,
 }
 
 /// One device-text turn of a call to Mack, with acknowledging `on`, the
-/// call assistant's line after `line_delay`, and Mack's model taking
+/// person's speech ending `silence_ms` before the desk takes it, the call
+/// assistant's line after `line_delay`, and Mack's model taking
 /// `model_delay` to answer.
 async fn one_turn(
     on: bool,
+    silence_ms: u32,
     line: &'static str,
     line_delay: Duration,
     model_delay: Duration,
 ) -> Turn {
     let root = tempfile::tempdir().unwrap();
     let asked = Arc::new(AtomicUsize::new(0));
+    let answered = Arc::new(std::sync::Mutex::new(None));
     let mut services = services();
     services.dispatcher = Some(Arc::new(Acknowledger {
         line,
         delay: line_delay,
         asked: asked.clone(),
+        answered: answered.clone(),
     }));
     let desk = Arc::new(
         hotline_core::desk::Desk::open_with_voice_services(
@@ -139,7 +156,7 @@ async fn one_turn(
     assert_eq!(started["ok"], true, "{started}");
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
     frame_where(&mut socket, |f| f["snapshot"].is_array()).await;
-    send(&mut socket, json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR","silenceMs":550}})).await;
+    send(&mut socket, json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR","silenceMs":silence_ms}})).await;
     // Everything said until the teammate's reply has been said whole.
     let mut said = Vec::new();
     loop {
@@ -152,30 +169,50 @@ async fn one_turn(
             break;
         }
     }
-    let asked_model = requests
+    let (asked_at, asked_model) = requests
         .lock()
         .unwrap()
         .iter()
-        .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
-        .filter(|message| message["role"] == "user")
-        .map(|message| message["content"].to_string())
-        .find(|content| content.contains("[Voice call: answer naturally"))
+        .find_map(|(at, request)| {
+            request["messages"]
+                .as_array()?
+                .iter()
+                .filter(|message| message["role"] == "user")
+                .map(|message| message["content"].to_string())
+                .find(|content| content.contains("[Voice call: answer naturally"))
+                .map(|content| (*at, content))
+        })
         .expect("the turn's input carries the contract");
     socket.close(None).await.unwrap();
     server.abort();
     Turn {
         said,
         asked: asked_model,
+        asked_at,
         acknowledgements: asked.load(Ordering::SeqCst),
+        answered_at: *answered.lock().unwrap(),
     }
 }
 
-/// A slow teammate: the line is said first, the teammate's turn was told it
-/// was said and not to acknowledge again, and the teammate's own words follow.
+/// A slow teammate: its model is asked before the call assistant answers,
+/// told the desk acknowledges the turn and asked for no opening of its own;
+/// the line is said first and the teammate's own words follow.
 #[tokio::test]
-async fn a_slow_teammate_is_told_its_line_was_said_and_it_is_said_first() {
-    let turn = one_turn(true, LINE, Duration::ZERO, Duration::from_millis(1_500)).await;
+async fn a_slow_teammate_is_asked_at_once_and_its_line_is_said_first() {
+    let turn = one_turn(
+        true,
+        550,
+        LINE,
+        Duration::from_millis(800),
+        Duration::from_millis(2_500),
+    )
+    .await;
     assert_eq!(turn.acknowledgements, 1);
+    assert!(
+        turn.answered_at
+            .is_some_and(|answered| turn.asked_at < answered),
+        "the teammate's model is asked before the line is written"
+    );
     assert_eq!(
         turn.said.first().map(String::as_str),
         Some(LINE),
@@ -186,35 +223,53 @@ async fn a_slow_teammate_is_told_its_line_was_said_and_it_is_said_first() {
         turn.said.last().map(String::as_str),
         Some("The checks passed.")
     );
-    assert!(turn.asked.contains(TOLD), "{}", turn.asked);
-    assert!(turn.asked.contains(LINE), "{}", turn.asked);
     assert!(
-        turn.asked.contains("Do not acknowledge the request again"),
+        turn.asked.contains(&as_sent(ACKNOWLEDGED_CONTRACT)),
         "{}",
         turn.asked
     );
+    assert!(!turn.asked.contains("Before a tool"), "{}", turn.asked);
+    assert!(!turn.asked.contains(LINE), "{}", turn.asked);
 }
 
-/// An empty line, or one later than the hand-off waits for: nothing is said
-/// for it and the teammate's turn is not told of any.
+/// An empty line, or one past the cap from the end of the person's speech:
+/// nothing is said for it, and the teammate, told the desk would
+/// acknowledge, simply answers.
 #[tokio::test]
-async fn an_empty_or_late_line_is_neither_said_nor_told() {
-    for (line, delay) in [("", Duration::ZERO), (LINE, Duration::from_millis(900))] {
-        let turn = one_turn(true, line, delay, Duration::from_millis(1_500)).await;
+async fn an_empty_or_late_line_is_not_said() {
+    for (silence, line, delay) in [
+        (550, "", Duration::ZERO),
+        (3_800, LINE, Duration::from_millis(900)),
+    ] {
+        let turn = one_turn(true, silence, line, delay, Duration::from_millis(1_500)).await;
         assert_eq!(turn.acknowledgements, 1);
         assert_eq!(turn.said, ["The checks passed."], "{line:?}");
-        assert!(!turn.asked.contains(TOLD), "{}", turn.asked);
-        assert!(!turn.asked.contains(LINE), "{}", turn.asked);
+        assert!(
+            turn.asked.contains(&as_sent(ACKNOWLEDGED_CONTRACT)),
+            "{}",
+            turn.asked
+        );
     }
 }
 
 /// Off, the call assistant is never asked and the turn is today's: the
-/// teammate's words alone, and a prompt with no line in it.
+/// teammate's words alone, and the contract that asks for its own opening.
 #[tokio::test]
 async fn with_the_setting_off_the_turn_is_unchanged() {
-    let turn = one_turn(false, LINE, Duration::ZERO, Duration::from_millis(1_500)).await;
+    let turn = one_turn(
+        false,
+        550,
+        LINE,
+        Duration::ZERO,
+        Duration::from_millis(1_500),
+    )
+    .await;
     assert_eq!(turn.acknowledgements, 0);
     assert_eq!(turn.said, ["The checks passed."]);
-    assert!(!turn.asked.contains(TOLD), "{}", turn.asked);
-    assert!(!turn.asked.contains(LINE), "{}", turn.asked);
+    assert!(turn.asked.contains(&as_sent(CONTRACT)), "{}", turn.asked);
+    assert!(
+        !turn.asked.contains("brief acknowledgement"),
+        "{}",
+        turn.asked
+    );
 }

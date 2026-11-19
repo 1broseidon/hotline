@@ -21,7 +21,7 @@
 #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
 mod phonon;
 
-use super::{Installed, Slot, install::Model, install::Pinned, install::Source};
+use super::{Installed, Slot, install::Model, install::pinned};
 use crate::speech::{Clip, Speech, SpeechChunk, SpeechError, SpeechId, TurnClock, wav};
 use async_trait::async_trait;
 use std::sync::PoisonError;
@@ -125,12 +125,6 @@ fn voice_file(voice: &Voice) -> String {
 
 /// The voice as the desk offers it for download: every file pinned.
 pub(super) fn offered() -> Model {
-    let pinned = |name: &str, url: String, bytes: u64, sha256: &str| Pinned {
-        name: name.into(),
-        url,
-        bytes,
-        sha256: sha256.into(),
-    };
     let mut files = vec![
         pinned(
             "config.json",
@@ -159,16 +153,13 @@ pub(super) fn offered() -> Model {
             voice.sha256,
         ));
     }
-    let bytes = files.iter().map(|file| file.bytes).sum();
     Model {
         id: MODEL_ID.into(),
         name: "Phonon".into(),
         tag: Some("voice".into()),
         detail: "Speaks English".into(),
         engine: super::Engine::Phonon,
-        source: Source::Files(files),
-        download_bytes: bytes,
-        disk_bytes: bytes,
+        files,
         credit: "Gradium Phonon 31M English and its voices, Apache 2.0, built on Kyutai's Pocket TTS and Mimi".into(),
         licence_url: "https://www.apache.org/licenses/LICENSE-2.0".into(),
         more_languages: None,

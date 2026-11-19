@@ -301,15 +301,29 @@ arm64) with nothing installed beside it. It adds about 18 MB to a stripped binar
 on a Mac and 26 to 30 MB on Linux. The one library runs all three kinds of
 model the desk offers, so no platform needs another library or feature for
 any of them. The models are sherpa-onnx's own exports, quantized to eight
-bits, from its `asr-models` release, in the order automatic hearing takes
-the first one installed:
+bits, in the order automatic hearing takes the first one installed:
 
-| Model | Tag | id | Hears | Download | On disk | Licence |
-| -- | -- | -- | -- | -- | -- | -- |
-| Parakeet | 25 languages | `parakeet-tdt-0.6b-v3` | 25 European languages | 487 MB | 670 MB | CC BY 4.0 |
-| Whisper | 99 languages | `whisper-large-v3-turbo` | 99 languages | 564 MB | 1,037 MB | MIT |
-| Parakeet English | fast | `parakeet-tdt-110m-en` | English | 108 MB | 136 MB | CC BY 4.0 |
-| Moonshine | English only | `moonshine-base-en` | English | 251 MB | 287 MB | MIT |
+| Model | Tag | id | Hears | Download and on disk | Licence |
+| -- | -- | -- | -- | -- | -- |
+| Parakeet | 25 languages | `parakeet-tdt-0.6b-v3` | 25 European languages | 670 MB | CC BY 4.0 |
+| Whisper | 99 languages | `whisper-large-v3-turbo` | 99 languages | 1,037 MB | MIT |
+| Parakeet English | fast | `parakeet-tdt-110m-en` | English | 136 MB | CC BY 4.0 |
+| Moonshine | English only | `moonshine-base-en` | English | 287 MB | MIT |
+
+Each is a few files on Hugging Face, fetched at one commit, never from a
+branch or a release whose files can be uploaded again under the same name.
+sherpa-onnx's `asr-models` release on GitHub has the same models as
+archives, a third smaller, but an archive there is replaced in place when
+sherpa-onnx exports a model again: on 2026-11-07 a re-export of Parakeet
+(to add a model card) replaced its archive with different bytes, and a desk
+pinned to the old ones could only refuse it. A commit cannot change, so a
+re-upload upstream neither breaks the download nor changes what is
+installed. Parakeet is pinned at sherpa-onnx's commit of 2025-08-16, the
+export the desk first shipped with; Whisper and Moonshine at sherpa-onnx's
+commits, the same bytes as their archives; Parakeet English, whose
+repository at sherpa-onnx is empty, at a mirror whose files are byte for
+byte those of sherpa-onnx's archive, which the hashes, not the host,
+vouch for.
 
 Parakeet and Parakeet English are NVIDIA's Parakeet TDT transducers;
 Whisper is OpenAI's large-v3-turbo; Moonshine is Useful Sensors' first
@@ -341,14 +355,13 @@ as Parakeet, in a quarter of the time, so for English it is the one to
 install.
 
 Nothing is installed until the owner asks. `voice.model_install` downloads
-the model's one archive into `<data dir>/speech-models/<id>.download`,
-hashing it as it arrives; an archive that is not the size and SHA-256
-pinned in `local/install.rs` is deleted before any of it is read. From a
-verified archive only the model's own files are taken, by name, whatever
-path the archive gives them; links and every other entry are skipped. A
-transducer's are `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`
-and `tokens.txt`; Whisper's are its encoder, decoder and tokens, which the
-archive names with a `turbo-` in front and the desk keeps under the plain
+the model's files one by one, hashing each as it arrives; a file that is not
+the size and SHA-256 pinned in `local/install.rs` throws the whole model
+away. Each is kept under the desk's own name for it, one of its engine's
+files, never a name the download chooses. A transducer's are
+`encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx` and
+`tokens.txt`; Whisper's are its encoder, decoder and tokens, which its
+repository names with a `turbo-` in front and the desk keeps under the plain
 names; Moonshine's are `preprocess.onnx`, `encode.int8.onnx`,
 `uncached_decode.int8.onnx`, `cached_decode.int8.onnx` and `tokens.txt`.
 They go into `<id>.unpacking/` beside a `model.json` recording the kind of
@@ -414,7 +427,7 @@ Beam search is what can be biased, so a transducer always decodes with it
 (four paths): about a tenth slower than greedy decoding (Parakeet English's
 real-time factor 0.015 becomes 0.017), whatever the number of words. The
 engine's hotword encoder splits a word into pieces from a scored vocabulary,
-which the archives do not carry; the desk writes one beside the model
+which the models do not carry; the desk writes one beside the model
 (`bpe.vocab`) each time it loads it, from the verified `tokens.txt`, scoring
 every piece at about one so a word becomes the fewest pieces, as the model's
 own BPE mostly spells it. Scoring by merge order instead splits words into
@@ -460,8 +473,8 @@ installed, listening for the same words as a call. It asks no budget and
 keeps nothing.
 
 `cargo run --release -p hotline-core --example local_speech_check -- <id>
-[clip.wav ...]` downloads a model from where the desk would, verifies,
-unpacks and loads it, and hears the fixtures and any clips given, printing
+[clip.wav ...]` downloads a model from where the desk would, verifies and
+loads it, and hears the fixtures and any clips given, printing
 each one's words, time and real-time factor.
 
 ## Speaking on the desk
@@ -474,7 +487,7 @@ model is offered: its weights, tokenizer and voices are Apache 2.0, and
 Phonon's 40M models, in English or other languages, are CC BY-NC 4.0.
 
 It downloads like a model that hears, as the row Phonon · voice in Models
-on the desk, but as nine files rather than an archive: `config.json`,
+on the desk, as nine files: `config.json`,
 `tokenizer.json` and the eight-bit `model.q8.gguf` from
 `gradium/phonon-31m-en`, and six voices from `gradium/phonon-voices`, 66 MB
 in all. Each is pinned in `voice.rs` by size and SHA-256 at one commit of
@@ -860,26 +873,47 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   opener or stock phrase, and nothing at all for small talk, a yes or no, a
   correction, or anything a quick answer serves better. A reply of more than
   one line or twelve words is not said.
-- The hand-off to the teammate waits at most 500 ms for it. A line that
-  arrives in time goes into the turn's prompt, after the contract, as
-  already said aloud, with the instruction not to acknowledge again and to
-  go straight to the work or the answer (`spoken::already_said`). A late
-  line is dropped, so the desk never says a line the teammate was not told
-  of, and neither is one whose prompt did not take it.
-- It is synthesized at once in the call's own voice, never the fallback
-  voice, and said only if the teammate has no piece of its own ready to say
-  when its sound is; otherwise it is dropped. It is one clip under a line of
-  its own, kept on the call's thread as the teammate's line, stopped by a
-  cut-in, a hold or a hang-up like any clip, and it is speech on the turn:
-  the 8 second presence sound does not follow it and the overrun note counts
-  its 90 seconds from it.
+- It is asked for beside the hand-off, never before it: the person's turn
+  goes to the teammate at once, as with the setting off, because a hosted
+  fast model does not answer in the half second a hand-off could wait. The
+  line's words cannot be in the teammate's prompt, so the turn's prompt
+  carries a contract that says the desk will say a brief acknowledgement of
+  the request aloud for it, not to open with one of its own (no "let me
+  check", no restating the request) and never to refer to it, and to go
+  straight to the work or the answer, speaking next with progress or the
+  answer itself (`spoken::ACKNOWLEDGED_CONTRACT`). That contract replaces the
+  usual one's opening line before a tool; the rest is the same. If the desk
+  then says nothing, the teammate's first words are its work or its answer,
+  and the 8 second presence sound still covers the silence.
+- It is synthesized in the call's own voice, never the fallback voice, and
+  said only if the teammate has no piece of its own ready or being
+  synthesized, checked before its speech is asked for and again once its
+  sound is ready, and only if that sound is ready within 4 seconds of the
+  end of the person's speech (`ACK_CAP`, `silence` included): a late
+  acknowledgement is worse than none. It is one clip under a line of its
+  own, stopped by a cut-in, a hold or a hang-up like any clip, and it is
+  speech on the turn: the 8 second presence sound does not follow it and
+  the overrun note counts its 90 seconds from it.
+- Said, it is kept on the call's thread as the teammate's line and among
+  the recent speech every later turn's prompt carries, so the teammate's
+  later context shows it was said. The turn it opened is not interrupted to
+  be told.
 - It is not asked for on a live call, a call to the desk, a turn that
   arrives while the teammate is still on an earlier one, or when the
   teammate's first words came in under 3 seconds (`llm_spoken`) on the
-  call's last timed turn; nor without a call assistant.
+  call's last timed turn; nor without a call assistant, or when the Chat
+  budget has no room. The teammate's turn is told of a line only when one
+  is asked for.
 - The call assistant's request reserves on Chat and the line's speech on
   Voice, as a rewrite does; either refused, nothing is said for the turn and
   the call goes on.
+- On a direct Turn by turn call with the setting on, every turn with no
+  line leaves `[voice] call <id>: no acknowledgement: <why>` in the log: the
+  teammate was on an earlier turn or quick last time, there was no call
+  assistant or Chat budget, the call assistant wrote no line (small talk, a
+  yes or no) or failed, its voice refused or failed, it was not ready in
+  time, the teammate spoke first, or the person spoke again, over it, or
+  held the call.
 
 Off, the call assistant is never asked and a turn is what it was without
 the setting.
@@ -940,12 +974,13 @@ goes out, with the call and sequence and never the words or audio:
   desk hears anything, so it is outside `desk_total`; `-` from a client that
   does not report it.
 - `stt`: the desk taking the utterance to its words (`0` for device text).
-- `dispatch`: the words to the teammate's session being handed them,
-  including up to 500 ms waiting for an acknowledgement when that is on.
+- `dispatch`: the words to the teammate's session being handed them; an
+  acknowledgement never adds to it.
 - `llm_think`, `llm_spoken`, `first_unit`: from that hand-off to the model's
   first stream event, its first words, and the first piece ready to say.
 - `ack`: from the end of the person's speech (`silence` included when known)
-  to the desk's own acknowledgement being sent; `-` when none was said
+  to the sound of the desk's own acknowledgement being ready and sent; `-`
+  when none was said, and the log says why
   ([Acknowledging while the teammate thinks](#acknowledging-while-the-teammate-thinks)).
 - `tts_done`: the first piece's synthesis to its clip.
 - `desk_total`: the desk taking the utterance to the teammate's first clip.
@@ -1081,22 +1116,23 @@ OPENAI_API_KEY=... GEMINI_API_KEY=... cargo run -p hotline-core --example speech
 ```
 
 `local_speech_check` downloads one of the desk's own models from its pinned
-release, verifies and unpacks it through the desk's own code, and hears the
-speech fixtures with it, on a scratch data directory, printing how long each
-step took. It is the check that the pinned archive is still there and the
-engine links and runs on the machine at hand:
+commit, verifies it through the desk's own code, and hears the speech
+fixtures with it, on a scratch data directory, printing how long each step
+took. It is the check that the pinned files are still there and the engine
+links and runs on the machine at hand:
 
 ```sh
 cargo run --release -p hotline-core --example local_speech_check -- parakeet-tdt-110m-en
 ```
 
-On an M5 Max over a home line the English model took 5 seconds to fetch,
-check and unpack and Parakeet 24; the first clip after that took 0.5 and 1.8
+On an M5 Max over a home line, from the archives the desk used before 0.50,
+the English model took 5 seconds to fetch, check and unpack and Parakeet 24;
+the first clip after that took 0.5 and 1.8
 seconds (loading, and the run's one hash check), and each clip after it 40
 and 150 ms.
 
 The tests in `hotline-voice`'s `speech/` use mock servers on localhost and never reach the
-network. `tests/local_speech.rs` serves small fake archives on localhost, and
+network. `tests/local_speech.rs` serves small fake model files on localhost, and
 runs a real model only with `--ignored` and `HOTLINE_TEST_SPEECH_MODEL`
 naming a directory holding one.
 

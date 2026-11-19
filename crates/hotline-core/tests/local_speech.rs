@@ -1,10 +1,10 @@
 //! The desk's own speech models over the same door the window uses: nothing
-//! is installed until the owner asks; a download is verified against its
-//! pinned hash before any of it is unpacked, and only the model's own files
-//! are taken from it; a download can be cancelled and a model removed; and an
-//! installed model is offered for hearing, and chosen first by automatic.
+//! is installed until the owner asks; each of a model's files is verified
+//! against its pinned size and hash and kept under the desk's own name for
+//! it; a download can be cancelled and a model removed; and an installed
+//! model is offered for hearing, and chosen first by automatic.
 //!
-//! The archives here are small fakes served on localhost, which no test lets
+//! The files here are small fakes served on localhost, which no test lets
 //! the engine load. `HOTLINE_TEST_SPEECH_MODEL`, naming a directory with a
 //! real sherpa-onnx Parakeet model in it, with `--ignored`, also runs
 //! `a_real_model_installs_and_hears_what_was_said`, which hears the speech
@@ -17,7 +17,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use common::Client;
 use futures_util::StreamExt;
 use hotline_core::wire::Door;
-use hotline_voice::speech::local::{self, Model};
+use hotline_voice::speech::local::{self, Model, Pinned};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -53,52 +53,24 @@ fn model<'a>(models: &'a [Value], id: &str) -> &'a Value {
     models.iter().find(|one| one["id"] == id).unwrap()
 }
 
-/// A tar.bz2 of `entries`, named exactly as given, so an entry may name a
-/// path tar's own checks would refuse to write. A `None` body is a symlink
-/// to `/etc/passwd`.
-fn archive(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
-    let mut builder = tar::Builder::new(bzip2::write::BzEncoder::new(
-        Vec::new(),
-        bzip2::Compression::fast(),
-    ));
-    for (path, body) in entries {
-        let mut header = tar::Header::new_gnu();
-        header.as_gnu_mut().unwrap().name[..path.len()].copy_from_slice(path.as_bytes());
-        header.set_mode(0o644);
-        if let Some(body) = body {
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_size(body.len() as u64);
-            header.set_cksum();
-            builder.append(&header, *body).unwrap();
-        } else {
-            header.set_entry_type(tar::EntryType::Symlink);
-            header.set_size(0);
-            header.set_link_name("/etc/passwd").unwrap();
-            header.set_cksum();
-            builder.append(&header, std::io::empty()).unwrap();
-        }
-    }
-    builder.into_inner().unwrap().finish().unwrap()
-}
-
-fn offered(id: &str, url: String, bytes: &[u8]) -> Model {
-    offered_with_prefix(id, url, "", bytes)
-}
-
-fn offered_with_prefix(id: &str, url: String, prefix: &str, bytes: &[u8]) -> Model {
+/// The model `id`, offered as `files`: for each, the desk's name for it,
+/// where under `url` it is served, and the bytes it is pinned to.
+fn offered(id: &str, url: &str, files: &[(&str, &str, &[u8])]) -> Model {
     Model {
         id: id.into(),
         name: format!("Model {id}"),
         tag: None,
         detail: "For the harness".into(),
         engine: local::Engine::Transducer,
-        source: local::Source::Archive {
-            url,
-            prefix: prefix.into(),
-            sha256: hex::encode(Sha256::digest(bytes)),
-        },
-        download_bytes: bytes.len() as u64,
-        disk_bytes: 1,
+        files: files
+            .iter()
+            .map(|(name, path, body)| Pinned {
+                name: (*name).into(),
+                url: format!("{url}/{path}"),
+                bytes: body.len() as u64,
+                sha256: hex::encode(Sha256::digest(body)),
+            })
+            .collect(),
         credit: "Nobody, CC BY 4.0".into(),
         licence_url: "https://creativecommons.org/licenses/by/4.0/".into(),
         more_languages: None,
@@ -106,11 +78,11 @@ fn offered_with_prefix(id: &str, url: String, prefix: &str, bytes: &[u8]) -> Mod
 }
 
 /// Serves `routes` on localhost; a route with no body sends a little and then stalls.
-async fn serve(routes: Vec<(&'static str, Option<Vec<u8>>)>) -> String {
+async fn serve(routes: Vec<(String, Option<Vec<u8>>)>) -> String {
     let mut app = Router::new();
     for (path, body) in routes {
         app = app.route(
-            path,
+            &path,
             axum::routing::get(move || {
                 let body = body.clone();
                 async move {
@@ -154,44 +126,42 @@ fn hearing_options(options: &Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks() {
+async fn a_model_is_downloaded_verified_offered_and_removed_only_when_the_owner_asks() {
     let root = tempfile::tempdir().unwrap();
     let data = root.path().join("data");
-    let file = |name: &str| format!("model-{name}").into_bytes();
-    let bodies: Vec<Vec<u8>> = FILES.iter().map(|name| file(name)).collect();
-    let mut entries: Vec<(&str, Option<&[u8]>)> = vec![
-        // Nothing an archive names chooses where a file lands.
-        ("../../escaped.txt", Some(b"out")),
-        ("sherpa/tokens.txt", None),
-    ];
-    let named: Vec<String> = FILES.iter().map(|name| format!("sherpa/{name}")).collect();
-    for (path, body) in named.iter().zip(&bodies) {
-        entries.push((path, Some(body)));
+    let bodies: Vec<Vec<u8>> = FILES
+        .iter()
+        .map(|name| format!("model-{name}").into_bytes())
+        .collect();
+    let pinned: Vec<(&str, &str, &[u8])> = FILES
+        .iter()
+        .zip(&bodies)
+        .map(|(name, body)| (*name, *name, body.as_slice()))
+        .collect();
+    let mut routes = Vec::new();
+    for (name, body) in FILES.iter().zip(&bodies) {
+        routes.push((format!("/good/{name}"), Some(body.clone())));
+        let mut flipped = body.clone();
+        flipped[0] ^= 1;
+        routes.push((format!("/tampered/{name}"), Some(flipped)));
+        routes.push((format!("/short/{name}"), Some(body[1..].to_vec())));
+        routes.push((format!("/stalled/{name}"), None));
     }
-    let good = archive(&entries);
-    let short = archive(&entries[..entries.len() - 1]);
-    let tampered = {
-        let mut bytes = good.clone();
-        let last = bytes.len() - 1;
-        bytes[last] ^= 1;
-        bytes
-    };
-    let url = serve(vec![
-        ("/good.tar.bz2", Some(good.clone())),
-        ("/short.tar.bz2", Some(short.clone())),
-        ("/tampered.tar.bz2", Some(tampered)),
-        ("/stalled.tar.bz2", None),
-    ])
-    .await;
-    let mut stalled = offered("stalled", format!("{url}/stalled.tar.bz2"), &good);
-    stalled.download_bytes = 1 << 20;
+    let url = serve(routes).await;
+    let mut escaped = pinned.clone();
+    // Nothing a catalogue names chooses where a file lands but the engine.
+    escaped[0].0 = "../../escaped.txt";
+    let mut stalled = offered("stalled", &format!("{url}/stalled"), &pinned);
+    stalled.files[0].bytes = 1 << 20;
     let mut client = open(
         &data,
         vec![
-            offered("good", format!("{url}/good.tar.bz2"), &good),
-            offered("short", format!("{url}/short.tar.bz2"), &short),
-            // Pinned to the good archive; the server sends one with a bit flipped.
-            offered("tampered", format!("{url}/tampered.tar.bz2"), &good),
+            offered("good", &format!("{url}/good"), &pinned),
+            // Pinned to the good files; the server sends one with a bit
+            // flipped, or one a byte short.
+            offered("tampered", &format!("{url}/tampered"), &pinned),
+            offered("short", &format!("{url}/short"), &pinned),
+            offered("escaped", &format!("{url}/good"), &escaped),
             stalled,
         ],
     )
@@ -214,7 +184,7 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
         .await;
     assert_eq!(refused["ok"], false);
 
-    // A good archive becomes a model, with only its own files.
+    // Good files become a model, under the desk's names for them.
     let asked = client
         .call("voice.model_install", json!({"modelId":"good"}))
         .await;
@@ -227,10 +197,6 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
     let installed = data.join("speech-models").join("good");
     for (name, body) in FILES.iter().zip(&bodies) {
         let path = installed.join(name);
-        assert!(
-            !path.is_symlink(),
-            "{name} is the archive's file, not its link"
-        );
         assert_eq!(&std::fs::read(path).unwrap(), body);
     }
     let mut left: Vec<String> = std::fs::read_dir(data.join("speech-models"))
@@ -240,7 +206,6 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
     left.sort();
     assert_eq!(left, ["good"], "the download and its staging are gone");
     assert!(!root.path().join("escaped.txt").exists());
-    assert!(!data.join("escaped.txt").exists());
 
     // Installed, it is offered for hearing and automatic picks it first.
     let options = client.call("capabilities.options", json!({})).await;
@@ -255,38 +220,35 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
         "On the desk"
     );
 
-    // An archive that is not the one pinned is thrown away before it is unpacked.
-    client
-        .call("voice.model_install", json!({"modelId":"tampered"}))
+    // A file that is not the one pinned, or a name that is not the
+    // engine's, is no model, and nothing of it is kept.
+    for id in ["tampered", "short", "escaped"] {
+        client
+            .call("voice.model_install", json!({"modelId":id}))
+            .await;
+        let models = models_until(&mut client, |models| {
+            model(models, id).get("error").is_some()
+        })
         .await;
-    let models = models_until(&mut client, |models| {
-        model(models, "tampered").get("error").is_some()
-    })
-    .await;
-    assert_eq!(model(&models, "tampered")["state"], "available");
-    assert!(
-        model(&models, "tampered")["error"]
-            .as_str()
-            .unwrap()
-            .contains("not the model Hotline expects")
-    );
-    assert!(!data.join("speech-models").join("tampered").exists());
-
-    // A verified archive without every file of a model is not a model.
-    client
-        .call("voice.model_install", json!({"modelId":"short"}))
-        .await;
-    let models = models_until(&mut client, |models| {
-        model(models, "short").get("error").is_some()
-    })
-    .await;
-    assert!(
-        model(&models, "short")["error"]
-            .as_str()
-            .unwrap()
-            .contains("did not hold the model's files")
-    );
-    assert!(!data.join("speech-models").join("short").exists());
+        assert_eq!(model(&models, id)["state"], "available", "{id}");
+        assert!(
+            model(&models, id)["error"]
+                .as_str()
+                .unwrap()
+                .contains("not the model Hotline expects"),
+            "{id}"
+        );
+        assert!(!data.join("speech-models").join(id).exists(), "{id}");
+        assert!(
+            !data
+                .join("speech-models")
+                .join(format!("{id}.unpacking"))
+                .exists(),
+            "{id}"
+        );
+    }
+    assert!(!root.path().join("escaped.txt").exists());
+    assert!(!data.join("escaped.txt").exists());
 
     // A download under way reports its progress and can be cancelled.
     client
@@ -306,7 +268,12 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
     })
     .await;
     assert!(model(&models, "stalled").get("error").is_none());
-    assert!(!data.join("speech-models").join("stalled.download").exists());
+    assert!(
+        !data
+            .join("speech-models")
+            .join("stalled.unpacking")
+            .exists()
+    );
 
     // Removed, it is gone from the disk and from the picker.
     let removed = client
@@ -323,39 +290,32 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
 }
 
 #[tokio::test]
-async fn a_whisper_archive_gives_its_prefixed_files_under_the_desks_own_names() {
+async fn a_whisper_models_files_are_kept_under_the_desks_own_names() {
     let root = tempfile::tempdir().unwrap();
     let data = root.path().join("data");
-    let packed = archive(&[
-        // A file of another kind's name is not one of this model's.
-        (
-            "sherpa-onnx-whisper-turbo/encoder.int8.onnx",
-            Some(b"decoy"),
-        ),
-        (
-            "sherpa-onnx-whisper-turbo/turbo-encoder.int8.onnx",
-            Some(b"encoder"),
-        ),
-        (
-            "sherpa-onnx-whisper-turbo/turbo-decoder.int8.onnx",
-            Some(b"decoder"),
-        ),
-        (
-            "sherpa-onnx-whisper-turbo/turbo-tokens.txt",
-            Some(b"tokens"),
-        ),
-        ("sherpa-onnx-whisper-turbo/test_wavs/0.wav", Some(b"RIFF")),
-    ]);
-    let url = serve(vec![("/whisper.tar.bz2", Some(packed.clone()))]).await;
-    let mut whisper = offered_with_prefix(
+    let url = serve(
+        [
+            ("turbo-encoder.int8.onnx", b"encoder".as_slice()),
+            ("turbo-decoder.int8.onnx", b"decoder"),
+            ("turbo-tokens.txt", b"tokens"),
+        ]
+        .into_iter()
+        .map(|(name, body)| (format!("/{name}"), Some(body.to_vec())))
+        .collect(),
+    )
+    .await;
+    let mut whisper = offered(
         "whisper",
-        format!("{url}/whisper.tar.bz2"),
-        "turbo-",
-        &packed,
+        &url,
+        &[
+            ("encoder.int8.onnx", "turbo-encoder.int8.onnx", b"encoder"),
+            ("decoder.int8.onnx", "turbo-decoder.int8.onnx", b"decoder"),
+            ("tokens.txt", "turbo-tokens.txt", b"tokens"),
+        ],
     );
     whisper.engine = local::Engine::Whisper;
     whisper.tag = Some("99 languages".into());
-    let mut english = offered("english", format!("{url}/missing.tar.bz2"), b"");
+    let mut english = offered("english", &url, &[("tokens.txt", "missing.txt", b"")]);
     english.more_languages = Some("whisper".into());
     let mut client = open(&data, vec![whisper, english]).await;
 
@@ -405,19 +365,21 @@ async fn a_real_model_installs_and_hears_what_was_said() {
         .iter()
         .map(|name| std::fs::read(source.join(name)).unwrap())
         .collect();
-    let entries: Vec<(&str, Option<&[u8]>)> = FILES
-        .iter()
-        .zip(&bodies)
-        .map(|(name, body)| (*name, Some(body.as_slice())))
-        .collect();
-    let packed = archive(&entries);
-    let url = serve(vec![("/model.tar.bz2", Some(packed.clone()))]).await;
-    let root = tempfile::tempdir().unwrap();
-    let mut client = open(
-        root.path(),
-        vec![offered("real", format!("{url}/model.tar.bz2"), &packed)],
+    let url = serve(
+        FILES
+            .iter()
+            .zip(&bodies)
+            .map(|(name, body)| (format!("/{name}"), Some(body.clone())))
+            .collect(),
     )
     .await;
+    let pinned: Vec<(&str, &str, &[u8])> = FILES
+        .iter()
+        .zip(&bodies)
+        .map(|(name, body)| (*name, *name, body.as_slice()))
+        .collect();
+    let root = tempfile::tempdir().unwrap();
+    let mut client = open(root.path(), vec![offered("real", &url, &pinned)]).await;
     client
         .call("voice.model_install", json!({"modelId":"real"}))
         .await;

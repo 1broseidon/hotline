@@ -211,7 +211,7 @@ impl Calls {
                     target.as_deref(),
                 )),
                 words: String::new(),
-                acknowledged: None,
+                acknowledging: false,
                 ack_line: None,
                 last_llm_spoken: None,
                 front: realtime.is_some().then(|| Front::new(mic_rate)),

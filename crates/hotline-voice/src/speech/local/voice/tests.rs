@@ -4,7 +4,7 @@
 //! end, which needs its files.
 
 use super::*;
-use crate::speech::local::{IDLE, Installs, catalogue, installed, models_dir};
+use crate::speech::local::{IDLE, Installs, Pinned, catalogue, installed, models_dir};
 use axum::Router;
 use hotline_contract::SpeechModelState;
 use sha2::{Digest, Sha256};
@@ -92,16 +92,9 @@ fn only_phonon_31m_english_is_offered_every_file_pinned_at_one_commit() {
     assert_eq!(offered.len(), usize::from(BUILT));
     let model = offered.first().cloned().unwrap_or_else(super::offered);
     assert_eq!(model.id, "phonon-31m-en");
-    let Source::Files(files) = &model.source else {
-        panic!("the voice is files, not an archive");
-    };
-    let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+    let names: Vec<&str> = model.files.iter().map(|file| file.name.as_str()).collect();
     assert_eq!(names, FILES, "every file the engine reads, and no other");
-    assert_eq!(
-        model.download_bytes,
-        files.iter().map(|file| file.bytes).sum::<u64>()
-    );
-    for file in files {
+    for file in &model.files {
         // The two repos whose weights and voices are Apache 2.0, each at one commit:
         // never phonon-40m, which is CC BY-NC, and never a branch that can move.
         assert!(
@@ -163,8 +156,7 @@ fn offered_from(url: &str, files: &[(String, Vec<u8>)]) -> Model {
         })
         .collect();
     Model {
-        source: Source::Files(pinned),
-        download_bytes: files.iter().map(|(_, body)| body.len() as u64).sum(),
+        files: pinned,
         ..super::offered()
     }
 }

@@ -38,21 +38,20 @@ impl Calls {
     }
 
     /// State travels with each Turn by turn exchange, outside the saved caller
-    /// words, and so does the acknowledgement the desk will say for this turn
-    /// ([`Self::acknowledgement`]): taken here, so only the prompt that
-    /// carries it is told of it.
+    /// words, and so does the news that the desk will acknowledge this turn
+    /// ([`Self::acknowledge`]), which changes the contract: taken here, so
+    /// only the prompt that carries it is told.
     pub fn turn_instruction(&self, id: &str) -> String {
         self.change(id, |call| {
-            let mut instruction = format!(
-                "{}\n{}",
-                spoken::CONTRACT,
+            let contract = if std::mem::take(&mut call.acknowledging) {
+                spoken::ACKNOWLEDGED_CONTRACT
+            } else {
+                spoken::CONTRACT
+            };
+            Ok(format!(
+                "{contract}\n{}",
                 call.conversation.instruction(false)
-            );
-            if let Some(line) = call.acknowledged.take() {
-                instruction.push('\n');
-                instruction.push_str(&spoken::already_said(&line));
-            }
-            Ok(instruction)
+            ))
         })
         .unwrap_or_else(|_| spoken::CONTRACT.into())
     }
@@ -473,15 +472,13 @@ impl Calls {
                 .change(id, |call| Ok(call.thread.clone()))?
                 .ok_or("The call has no thread.")?;
             let room = self.live_room().ok_or("The desk has closed.")?;
-            // With `voice.acknowledge` on, the hand-off waits a moment for a
-            // line the desk says for the teammate while it starts.
-            let acknowledged = self
-                .acknowledgement(id, &target, &text, speech_cancel)
-                .await
-                .map(|line| self.acknowledge(id, seq, line, speech_cancel, &context.cancel));
+            // With `voice.acknowledge` on, the desk asks for a line to say for
+            // the teammate beside the hand-off, never holding it up.
+            let acknowledging =
+                self.acknowledge(id, seq, &target, &text, speech_cancel, &context.cancel);
             let prompted = room.call_prompt(&target, &thread, &text).await;
-            if let Some(told) = acknowledged {
-                self.told(id, told, prompted.is_ok());
+            if let Some(tell) = acknowledging {
+                self.told(id, tell, prompted.is_ok());
             }
             prompted?;
             return self.change(id, |call| {

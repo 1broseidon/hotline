@@ -40,8 +40,6 @@ bytes = "1"
 getrandom = "0.3"
 hex = "0.4"
 sha2 = "0.10"
-tar = "0.4"
-bzip2 = "0.6"
 # GPT-Live on a ChatGPT login is a WebRTC call, as the Codex app places it:
 # the desk is the peer and sends the person's audio as Opus over RTP; the
 # model's speech and events come back on a sideband socket. Pinned with the

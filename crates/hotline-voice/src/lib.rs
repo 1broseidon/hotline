@@ -320,6 +320,9 @@ pub(crate) struct TurnTiming {
     first_unit: Option<Instant>,
     ack: Option<Instant>,
     tts_started: Option<Instant>,
+    /// On the call's first timed turn only: how long after the call was
+    /// placed its thread's agent was up, when the call started one.
+    session_ready: Option<Option<Duration>>,
 }
 
 impl TurnTiming {
@@ -334,7 +337,14 @@ impl TurnTiming {
             first_unit: None,
             ack: None,
             tts_started: None,
+            session_ready: None,
         }
+    }
+
+    /// Makes this the call's first timed turn, whose line says how long the
+    /// call took to have its thread's agent up (`-` when it started none).
+    pub(crate) fn first_of_call(&mut self, session_ready: Option<Duration>) {
+        self.session_ready = Some(session_ready);
     }
 
     pub(crate) fn mark_stt(&mut self) {
@@ -426,8 +436,11 @@ impl TurnTiming {
             .or(self.first_unit)
             .map(|t| now.saturating_duration_since(t).as_millis());
         let desk_total = now.saturating_duration_since(self.started).as_millis();
+        let session_ready = self.session_ready.map_or_else(String::new, |ready| {
+            format!(" session_ready={}", opt(ready.map(|d| d.as_millis())))
+        });
         format!(
-            "[voice] turn call={call_id} seq={seq} silence={} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} ack={} tts_done={} desk_total={desk_total}ms model={} tts={}/{}",
+            "[voice] turn call={call_id} seq={seq} silence={} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} ack={} tts_done={} desk_total={desk_total}ms{session_ready} model={} tts={}/{}",
             opt(self.silence.map(u128::from)),
             opt(dispatch),
             opt(llm_think),
@@ -509,6 +522,9 @@ pub struct Call {
     /// How long the teammate's model took to write its first words on the
     /// last turn the call timed: a quick one needs no acknowledgement.
     pub last_llm_spoken: Option<Duration>,
+    /// Until the call's first turn is timed: how long after the call was
+    /// placed its thread's agent was up, once it is, for that turn's line.
+    pub(crate) session_ready: Option<Option<Duration>>,
     /// On a front call, its sound; gone once the front is.
     front: Option<Front>,
     live_error: Option<String>,
@@ -1349,5 +1365,26 @@ mod tests {
         assert!(line.contains(" silence=- stt=0ms "), "{line}");
         assert!(line.contains(" ack=- "), "{line}");
         assert!(line.contains(" desk_total=40ms "), "{line}");
+    }
+
+    /// Only a call's first timed turn says when its thread's agent was up,
+    /// and `-` when the call started none.
+    #[test]
+    fn the_first_turn_line_says_when_the_session_was_ready() {
+        let started = Instant::now();
+        let later = started + Duration::from_millis(40);
+        let mut first = TurnTiming::start(started, None);
+        first.first_of_call(Some(Duration::from_millis(2300)));
+        let line = first.format_line(later, "c1", 1, None, &tts());
+        assert!(
+            line.contains(" desk_total=40ms session_ready=2300ms model="),
+            "{line}"
+        );
+        let mut unprepared = TurnTiming::start(started, None);
+        unprepared.first_of_call(None);
+        let line = unprepared.format_line(later, "c1", 1, None, &tts());
+        assert!(line.contains(" session_ready=- "), "{line}");
+        let line = TurnTiming::start(started, None).format_line(later, "c1", 2, None, &tts());
+        assert!(!line.contains("session_ready"), "{line}");
     }
 }

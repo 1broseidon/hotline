@@ -137,6 +137,33 @@ Two small desk-side wins in `hotline-voice` with zero UX downside:
 
 ---
 
+### 4.4 The call thread's agent starts with the call (0.50)
+
+A call runs in its own call thread with an agent of its own, and until 0.50
+that agent was started by the first utterance: the first turn of a call paid
+for it and later turns did not (real calls: Claude Code over ACP
+`llm_spoken` 17.5 s first, 0.84 s second). What the first turn alone did,
+from `Room::prompt_call_work` → `wake_work` → `bring_up` → `launch` →
+`Room::thread_agent`: bind the workspace, write `AGENTS.md` for a child, take
+the computer's grant, read the main conversation's tail, build the driver, and
+`Driver::start` — an ACP child's spawn, `initialize`, Hotline's MCP endpoint,
+`session/new` with the MCP servers, then model, mode and effort put back; on
+Hotline Agent, MCP connect and tool listing. Then its first prompt carried the
+ACP briefing, and the provider saw an uncached prefix.
+
+Measured with the scripted agents (debug build): the desk's own part is
+~2 ms on Hotline Agent and ~150 ms on the ACP fixture, of which spawn and
+handshake ~35 ms; reading a 10 MB tape's tail ~80 ms. The fixture spawns in
+milliseconds, so the real harness's start (Node, its CLI, MCP connections
+inside `session/new`) is not measured here and is inferred at several
+seconds; the provider's first uncached request is the rest.
+
+Now `Room::prepare_call` makes that start when the call is placed and sends
+nothing; the first line joins it. `session_ready=` on the first turn's line
+says how long it took, so a real call shows how much of the first turn it
+covered. What cannot move without a prompt stays on the first turn: the ACP
+briefing and the provider's cache.
+
 ## 5. Part 3 — Presence, silence, and work-turn grammar
 
 Unify desktop and mobile under one calm, predictable audio contract.

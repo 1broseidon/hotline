@@ -152,6 +152,11 @@ pub(super) struct LiveSide {
     saved: Mutex<Option<String>>,
     /// The thread index this agent was last told (`session/index.rs`).
     indexed: super::index::Seen,
+    /// The link the thread had before a call brought its agent up ahead of
+    /// anything said on it ([`Room::prepare_call`]), until a turn begins. A
+    /// call that ends with it still here puts the link back and lets the
+    /// agent go ([`Room::let_go_of_unused_call`]).
+    warm: Mutex<Option<Link>>,
 }
 
 /// How far a thread has gone from open to ended, which only moves forward and
@@ -180,10 +185,14 @@ impl Phase {
         self.0.load(Ordering::SeqCst) == Self::CLOSING
     }
 
-    /// Claims the ending, and says whether this call was the one to.
+    /// Claims the ending, and says whether this call was the one to. A
+    /// thread put back as an open link stays open, as a parked one does.
     fn claim(&self, ending: &Ending) -> bool {
         let to = match ending {
             Ending::Park => Self::PARKING,
+            Ending::Restore(prior) if !matches!(prior.state, ThreadState::Closed(_)) => {
+                Self::PARKING
+            }
             Ending::Close(..) | Ending::Restore(_) => Self::CLOSING,
         };
         self.0
@@ -319,6 +328,8 @@ impl Occupant for LiveSide {
     /// A request's turn is the exchange's: it begins only while the request
     /// is still running, and what came of it is saved when it ends.
     async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: Line) -> Begin<WorkTurn> {
+        // A call's agent that a line has reached is no longer unused.
+        lock(&self.warm).take();
         // A result that came back from a colleague is heard once: it is
         // consumed once its turn is certain to run, and one the exchange has
         // since stopped, or whose authority has been revoked, is never heard,
@@ -835,8 +846,9 @@ pub(super) enum Ending {
     /// The thread is over, `by` whom or what, with `outcome` in a line if it
     /// was said.
     Close(End, Option<String>),
-    /// A start that could not come up puts back the link an archived thread
-    /// had before it was continued.
+    /// The link the thread had before its agent was started is put back: an
+    /// archived thread whose continuing could not come up, or a call's thread
+    /// whose agent was started ahead of anything said and never used.
     Restore(Box<Link>),
 }
 
@@ -1003,6 +1015,7 @@ impl Room {
             reported: Mutex::new(None),
             saved: Mutex::new(kept),
             indexed: Mutex::new(None),
+            warm: Mutex::new(None),
         });
         {
             // Publication and revocation share this lock, so a stop or policy
@@ -1031,6 +1044,16 @@ impl Room {
     /// the lines that waited for it. A start that fails says so in the thread
     /// and puts it away: see [`Room::start_failed`].
     pub(super) fn launch(self: &Arc<Self>, launch: Launch) {
+        self.launch_telling(launch, None);
+    }
+
+    /// [`Room::launch`], telling `ready` how the start went the moment the
+    /// agent is up or could not be, before any line that waited for it runs.
+    pub(super) fn launch_telling(
+        self: &Arc<Self>,
+        launch: Launch,
+        ready: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) {
         let room = self.clone();
         let Ok(working) = self.lease() else {
             // The desk is stopping for an update: the thread keeps its place
@@ -1041,10 +1064,13 @@ impl Room {
         tokio::spawn(async move {
             let _working = working;
             let side = launch.side.clone();
-            match room
+            let started = room
                 .start_agent(&side, launch.persona.clone(), launch.requested)
-                .await
-            {
+                .await;
+            if let Some(ready) = ready {
+                let _ = ready.send(started.clone());
+            }
+            match started {
                 Ok(()) => {
                     let first = lock(&side.turns).next_line();
                     match first {
@@ -1120,6 +1146,11 @@ impl Room {
             return;
         }
         eprintln!("{} could not start a thread: {error}", launch.persona.name);
+        // A call's agent started before anything was said goes back unseen:
+        // the first line said starts it again and meets the failure there.
+        if self.let_go_of_unused(side) {
+            return;
+        }
         let reason = format!(
             "{} could not start this thread: {error}",
             launch.persona.name

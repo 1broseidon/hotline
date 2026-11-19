@@ -40,6 +40,9 @@ pub trait CallRoom: Send + Sync {
     fn call_detached(&self, call: &ThreadId);
     fn call_ended(&self, call: &ThreadId, persona: Option<&str>, end: End, outcome: &str, ts: i64);
     fn validate_call_thread(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
+    /// Starts the agent of a call's thread before anything is said on the
+    /// call, and answers once it is up. Nothing is sent to the agent.
+    async fn prepare_call(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
     async fn call_prompt(&self, persona: &str, thread: &ThreadId, text: &str)
     -> Result<(), String>;
     fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;

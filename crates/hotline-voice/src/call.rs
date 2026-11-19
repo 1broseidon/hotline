@@ -167,6 +167,11 @@ impl Calls {
             while calls.len() >= 32 {
                 calls.pop_front();
             }
+            // A call to a teammate, not the desk, has its thread's agent
+            // started now, below, when it is Turn by turn.
+            let prepare = (!desk)
+                .then(|| target.clone().zip(thread.clone()))
+                .flatten();
             let (tx, rx) = mpsc::channel(16);
             let cancel = CancellationToken::new();
             calls.push_back(Call {
@@ -214,6 +219,7 @@ impl Calls {
                 acknowledging: false,
                 ack_line: None,
                 last_llm_spoken: None,
+                session_ready: Some(None),
                 front: realtime.is_some().then(|| Front::new(mic_rate)),
                 live_error: None,
                 cards: super::cards::Queue::default(),
@@ -239,6 +245,14 @@ impl Calls {
                 if let Some(tts) = speech_services.as_ref().map(|s| s.tts.clone()) {
                     let cancel = cancel.clone();
                     tokio::spawn(async move { tts.stay_ready(cancel).await });
+                }
+                if let Some((persona, thread)) = prepare {
+                    tokio::spawn(self.clone().prepare_thread(
+                        id.into(),
+                        persona,
+                        thread,
+                        cancel.clone(),
+                    ));
                 }
                 if let Some(tts) = speech_services
                     .map(|services| services.tts)
@@ -302,6 +316,47 @@ impl Calls {
                 .output
                 .clone(),
         })
+    }
+
+    /// Starts the teammate's agent for the call's thread while the person is
+    /// still finding their first sentence, so their first turn does not wait
+    /// for a process to start and a session to open (`CallRoom::prepare_call`).
+    /// How long it took is kept for the first turn's timing line.
+    async fn prepare_thread(
+        self: Arc<Self>,
+        id: String,
+        persona: String,
+        thread: hotline_contract::ThreadId,
+        cancel: CancellationToken,
+    ) {
+        let Some(room) = self.live_room() else { return };
+        let placed = Instant::now();
+        eprintln!("[voice] call {id}: preparing the teammate's session");
+        let prepared = tokio::select! {
+            () = cancel.cancelled() => {
+                eprintln!("[voice] call {id}: ended before the teammate's session was ready");
+                return;
+            }
+            prepared = room.prepare_call(&persona, &thread) => prepared,
+        };
+        match prepared {
+            Ok(()) => {
+                let ready = placed.elapsed();
+                eprintln!(
+                    "[voice] call {id}: the teammate's session is ready after {}ms",
+                    ready.as_millis()
+                );
+                let _ = self.change(&id, |call| {
+                    if let Some(first) = &mut call.session_ready {
+                        *first = Some(ready);
+                    }
+                    Ok(())
+                });
+            }
+            Err(why) => {
+                eprintln!("[voice] call {id}: the teammate's session was not prepared: {why}");
+            }
+        }
     }
 
     /// While the call thinks, it says so again every [`THINKING_AGAIN`], so a

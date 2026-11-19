@@ -530,10 +530,13 @@ impl Calls {
                     && call.ack_line.as_deref() != Some(line)
                     && let Some(started) = call.first_clip_started.take()
                 {
-                    let timing = call
+                    let mut timing = call
                         .turn_timing
                         .take()
                         .unwrap_or_else(|| super::TurnTiming::start(started, None));
+                    if let Some(ready) = call.session_ready.take() {
+                        timing.first_of_call(ready);
+                    }
                     if let Some(spoken) = timing.llm_spoken() {
                         call.last_llm_spoken = Some(spoken);
                     }

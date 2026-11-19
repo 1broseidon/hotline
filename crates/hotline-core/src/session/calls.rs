@@ -150,6 +150,7 @@ impl Room {
         _ts: i64,
     ) {
         let Some(room) = self.this() else { return };
+        self.let_go_of_unused_call(thread);
         let ticket = new_id();
         {
             let mut closings = lock(&self.call_closings);

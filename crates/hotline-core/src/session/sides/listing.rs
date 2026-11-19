@@ -15,11 +15,12 @@ impl Room {
     }
 
     /// Call threads with a turn in flight, separate from their saved lifetime.
+    /// An agent a call is starting before anything was said runs no turn.
     pub fn working_calls(&self, persona_id: &str) -> Vec<String> {
         self.sides
             .of(persona_id)
             .iter()
-            .filter(|side| side.thread.kind == ThreadKind::Call && side.working())
+            .filter(|side| side.thread.kind == ThreadKind::Call && side.turn_running())
             .map(|side| side.id.clone())
             .collect()
     }

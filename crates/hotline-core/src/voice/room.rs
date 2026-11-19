@@ -98,6 +98,9 @@ impl CallRoom for RoomSide {
     fn validate_call_thread(&self, persona: &str, thread: &ThreadId) -> Result<(), String> {
         self.room()?.validate_call_thread(persona, thread)
     }
+    async fn prepare_call(&self, persona: &str, thread: &ThreadId) -> Result<(), String> {
+        self.room()?.prepare_call(persona, thread).await
+    }
     async fn call_prompt(
         &self,
         persona: &str,

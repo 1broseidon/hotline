@@ -210,6 +210,16 @@ const SPOKEN_TITLE_WORDS: usize = 8;
 /// link as its host, flags and shell punctuation are left out, a command
 /// stops at its first pipe or `&&`, and only the first few words are said:
 /// the full line is on the card at the desk, which is where it is answered.
+/// Whether a word is an id no one can follow by ear: a UUID, a hash, a
+/// long number. A call leaves it out, and says a path that ends in one by
+/// the nearest folder that has a name.
+fn is_id(word: &str) -> bool {
+    let plain: String = word.chars().filter(|ch| *ch != '-' && *ch != '_').collect();
+    let digits = plain.chars().filter(char::is_ascii_digit).count();
+    digits >= 6
+        || (plain.len() >= 8 && digits > 0 && plain.chars().all(|ch| ch.is_ascii_hexdigit()))
+}
+
 pub(super) fn spoken_title(title: &str) -> String {
     let line = title.lines().next().unwrap_or_default();
     let mut words: Vec<String> = Vec::new();
@@ -228,13 +238,13 @@ pub(super) fn spoken_title(title: &str) -> String {
         } else if token.contains(['/', '\\']) {
             token
                 .split(['/', '\\'])
-                .rfind(|part| !part.is_empty())
+                .rfind(|part| !part.is_empty() && !is_id(part))
                 .unwrap_or_default()
         } else {
             token
         };
         let word = word.trim_end_matches(['.', ':', ';']);
-        if word.is_empty() {
+        if word.is_empty() || is_id(word) {
             continue;
         }
         if words.len() == SPOKEN_TITLE_WORDS {
@@ -308,6 +318,16 @@ mod tests {
             "one two three four five six seven eight, and more"
         );
         assert_eq!(spoken_title("Search the web."), "Search the web");
+        assert_eq!(
+            spoken_title("ls cb9e5e24-98df-44be-82a8-59bbd8c865c6"),
+            "ls"
+        );
+        assert_eq!(
+            spoken_title("ls /Users/ada/workspaces/cb9e5e24-98df-44be-82a8-59bbd8c865c6/"),
+            "ls workspaces"
+        );
+        assert_eq!(spoken_title("git show 49af8b0f1c2d"), "git show");
+        assert_eq!(spoken_title("Read decade.rs"), "Read decade.rs");
         assert_eq!(spoken_title(" -- | "), "");
     }
 }

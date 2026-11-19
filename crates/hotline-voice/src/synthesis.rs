@@ -523,13 +523,18 @@ impl Calls {
                     mime_type: clip.mime.clone(),
                     data: STANDARD.encode(&clip.bytes),
                 });
-                // The desk's acknowledgement is not the teammate's first
-                // word, which the turn's timing line waits for.
+                // The desk's acknowledgement and its line on what the
+                // teammate is doing are not the teammate's first word, which
+                // the turn's timing line waits for.
                 if sent.is_ok()
                     && !clip.bytes.is_empty()
                     && call.ack_line.as_deref() != Some(line)
+                    && call.progress.line.as_deref() != Some(line)
                     && let Some(started) = call.first_clip_started.take()
                 {
+                    if let Some(why) = call.progress.unsaid(call.seq) {
+                        super::progress::skipped(&call.id, why);
+                    }
                     let mut timing = call
                         .turn_timing
                         .take()

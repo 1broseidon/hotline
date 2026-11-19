@@ -300,6 +300,30 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         if !(self.open)() {
             return;
         }
+        // A Turn by turn call hears of each step as the call pane shows it,
+        // so a turn working in silence can say what it is doing.
+        if let Some(origin) = &self.voice
+            && !origin.front
+            && let TranscriptEvent::Tool {
+                tool_call_id,
+                status,
+                said: Some(said),
+                ..
+            } = &event
+            && let Some(voice) = lock(&self.threads.room.voice).upgrade()
+        {
+            let running = matches!(
+                status,
+                crate::contract::ToolStatus::Pending | crate::contract::ToolStatus::InProgress
+            );
+            voice.step(
+                self.seat.persona_id,
+                origin,
+                tool_call_id,
+                &said.key,
+                running,
+            );
+        }
         if self.seat.thread.kind == crate::contract::ThreadKind::Call
             && let TranscriptEvent::Tool {
                 status: crate::contract::ToolStatus::Completed,

@@ -19,7 +19,7 @@ use super::ledger::{self, Kind};
 use super::record::Speaker;
 use super::speech::Clip;
 use super::synthesis::playable;
-use super::{Calls, spoken};
+use super::{Calls, progress, spoken};
 use hotline_contract::{VoiceEvent, VoiceState};
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,6 +51,10 @@ impl Calls {
     /// is still on an earlier turn or answered quickly last time, or there is
     /// no call assistant or Chat budget for it. The sender answers whether the
     /// teammate was told: until it says so, nothing is played.
+    ///
+    /// With the setting on, a direct call's turn may also have one line on
+    /// what the teammate is doing if it works in silence
+    /// ([`super::progress`]), whether or not an acknowledgement is asked for.
     pub(super) fn acknowledge(
         self: &Arc<Self>,
         id: &str,
@@ -65,8 +69,16 @@ impl Calls {
         }
         let (direct, busy, quick) = self
             .change(id, |call| {
+                let direct = !call.desk && call.front.is_none();
+                if direct {
+                    let since_speech_end = call
+                        .turn_timing
+                        .as_ref()
+                        .map_or(Duration::ZERO, super::TurnTiming::since_speech_end);
+                    call.progress.arm(seq, since_speech_end);
+                }
                 Ok((
-                    !call.desk && call.front.is_none(),
+                    direct,
                     call.answering.is_some(),
                     call.last_llm_spoken
                         .is_some_and(|spoken| spoken < QUICK_TEAMMATE),
@@ -158,7 +170,7 @@ impl Calls {
             if self.change(id, |call| Ok(own_words(call))).unwrap_or(true) {
                 return Err("the teammate spoke first".to_string());
             }
-            let clip = self.acknowledgement_sound(id, &line).await?;
+            let clip = self.teammate_sound(id, &line).await?;
             Ok((line, clip))
         };
         let outcome = tokio::select! {
@@ -175,8 +187,36 @@ impl Calls {
             Ok(said) => said,
             Err(why) => return skipped(id, &why),
         };
+        let length = progress::sound_length(&clip, &line);
+        let said = self.say_for_teammate(id, turn.seq, &line, &clip, &interrupted, |call, said| {
+            call.ack_line = Some(said.to_string());
+            if let Some(timing) = &mut call.turn_timing {
+                timing.mark_ack();
+            }
+            call.progress.acknowledged(turn.seq, &line, length);
+        });
+        if let Err(why) = said {
+            skipped(id, why);
+        }
+    }
+
+    /// Says `line`, whose sound is `clip`, as the teammate's on turn `seq`,
+    /// unless the person has spoken again or over the call, held it, or the
+    /// teammate has words of its own ready: `mark` notes the line on the
+    /// call by the id it is said under. It is kept on the call's thread and
+    /// in what later turns are told was said, and its clip counts as speech
+    /// on the turn. A call that has ended says nothing and gives no reason.
+    pub(super) fn say_for_teammate(
+        &self,
+        id: &str,
+        seq: u32,
+        line: &str,
+        clip: &Clip,
+        interrupted: &CancellationToken,
+        mark: impl FnOnce(&mut super::Call, &str),
+    ) -> Result<(), &'static str> {
         let said = self.change(id, |call| {
-            let why = if call.seq != Some(turn.seq) {
+            let why = if call.seq != Some(seq) {
                 Some("the person has spoken again")
             } else if call.state == VoiceState::Held {
                 Some("the call is on hold")
@@ -191,33 +231,30 @@ impl Calls {
                 return Ok(Err(why));
             }
             let said = uuid::Uuid::new_v4().to_string();
-            call.ack_line = Some(said.clone());
-            if let Some(timing) = &mut call.turn_timing {
-                timing.mark_ack();
-            }
-            call.conversation.remember(&line);
+            mark(call, &said);
+            call.conversation.remember(line);
             Ok(Ok(said))
         });
         let said = match said {
-            Ok(Ok(said)) => said,
-            Ok(Err(why)) => return skipped(id, why),
-            Err(_) => return,
+            Ok(said) => said?,
+            Err(_) => return Ok(()),
         };
-        self.keep_as(id, Speaker::Voice, &said, &line);
+        self.keep_as(id, Speaker::Voice, &said, line);
         self.emit(
             id,
             VoiceEvent::Said {
                 id: said.clone(),
-                text: line,
+                text: line.to_string(),
             },
         );
-        self.clip(id, &said, 0, true, &clip, Some(&interrupted));
+        self.clip(id, &said, 0, true, clip, Some(interrupted));
+        Ok(())
     }
 
-    /// The line's sound in the call's own voice, its speech asked of the
+    /// A line's sound in the call's own voice, its speech asked of the
     /// Voice budget first. Its own voice or nothing: a fallback voice would
     /// be someone else.
-    async fn acknowledgement_sound(&self, id: &str, line: &str) -> Result<Clip, String> {
+    pub(super) async fn teammate_sound(&self, id: &str, line: &str) -> Result<Clip, String> {
         let voice = self.speech_for(id)?.tts;
         self.pay(
             Kind::Tts,
@@ -234,7 +271,7 @@ impl Calls {
 /// Whether the teammate has a piece of its own to say on the call's turn, or
 /// is saying it: its first piece is marked before it is synthesized, and the
 /// turn's timing is gone once its first clip went out.
-fn own_words(call: &super::Call) -> bool {
+pub(super) fn own_words(call: &super::Call) -> bool {
     call.turn_timing
         .as_ref()
         .is_none_or(super::TurnTiming::first_unit_ready)

@@ -63,7 +63,7 @@ Definitions (all durations in ms, anchored to utterance arrival on desk, plus op
 - `tts_hdr` / `tts_done`: TTS request start to response headers and full clip ready (tied to `seq`, reusing `speech::Timing`).
 - `desk_total`: utterance arrival to first `VoiceEvent::Clip` emitted.
 
-**As shipped:** the line is `[voice] turn call= seq= silence= stt= dispatch= llm_think= llm_spoken= first_unit= ack= tts_done= desk_total= model= tts=` ([voice.md](../voice.md#timing)). `silence` is the desktop window's turn detector pause, sent as `silenceMs` with `voice.text`, `voice.utterance` and the final `voice.audio` chunk; the phone does not send it yet, so its turns say `silence=-`. `upload` and `tts_hdr` are not in it.
+**As shipped:** the line is `[voice] turn call= seq= silence= stt= dispatch= llm_think= llm_spoken= first_unit= ack= progress= tts_done= desk_total= model= tts=` ([voice.md](../voice.md#timing)). `silence` is the desktop window's turn detector pause, sent as `silenceMs` with `voice.text`, `voice.utterance` and the final `voice.audio` chunk; the phone does not send it yet, so its turns say `silence=-`. `upload` and `tts_hdr` are not in it.
 
 Client side (`ui/src/voice/call.ts` and `hotline-mobile/src/voice/call.ts`): keep logging `endpoint → first audible sample` (`onLatency`), and split `clip_received → audio_started` so decode/buffering overhead is visible too.
 
@@ -173,6 +173,7 @@ Unify desktop and mobile under one calm, predictable audio contract.
 | Situation | Audio | Visual UI (desktop & phone) |
 |---|---|---|
 | **Ordinary turn, 0–8 s** | **Silence** | Calm `thinking` state (CallCard / CallScreen / Live Activity) |
+| **Quiet ≥ 6 s, teammate visibly working** (with `voice.acknowledge` on; 6 s from end of speech, or from the end of the acknowledgement's sound) | **One** short line in the teammate's voice on what it is doing now, from the kind of step (§5.7); no presence cue follows | Remains in `thinking` + live `activity` label |
 | **Unexplained wait ≥ 8 s** (no speech emitted yet on this turn) | **One** soft, warm presence cue (max once per turn, never repeats) | Remains in `thinking` |
 | **Work turn — before tools** | Teammate's own short opening sentence naming the action + coarse scope | Switches to `speaking`, then `thinking` + live `activity` label |
 | **Work turn — tools running** | **Silence** (caller can still speak to steer or ask) | Live `activity` text updates CallCard / Live Activity |
@@ -230,6 +231,16 @@ Behind one setting, `voice.acknowledge` (Settings › Providers › Calls, *Ackn
 The first version held dispatch up to 500 ms for the line so its exact words could go in the teammate's prompt as already said. On a real call no line came in time on any of three turns (`dispatch` 686, 672 and 703 ms against about 160 ms without the setting), while the teammate then took 5 to 13 s to say its first words: a hosted fast model does not answer inside 500 ms, so the feature only added delay. Now dispatch is never held. The turn goes to the teammate at once, as with the setting off, and the line is asked for in parallel. Since its words cannot be in the prompt, the turn's contract says instead that the desk will say a brief acknowledgement of the request aloud for the teammate, so it must not open with one of its own or refer to it, and goes straight to the work or the answer (`spoken::ACKNOWLEDGED_CONTRACT`, which drops the usual opening line before a tool). A line that is said is kept on the call's thread as the teammate's and among the recent speech later turns are told of; the turn it opened is not interrupted.
 
 Still owed: a listening check on real calls of how often the line lands before the teammate's own opening, and whether the teammate keeps to not opening with its own acknowledgement.
+
+## 5.7 Saying what a working teammate is doing (as shipped)
+
+The owner's case: the agent goes straight to work, and a few seconds later the desk should say something like "I'm searching the web for that now." The failure to avoid, which he had heard: "Still searching the schedule" with nothing said before it.
+
+Under the same `voice.acknowledge` setting, the teammate's session tells the call of each tool step as it writes it, by the group the call pane says the step by (`glance::step_said`'s `key`), and the call keeps only the kind of work (`progress::Activity`). Once a turn, when the teammate has said nothing of its own, the turn has been quiet 6 s since the end of speech (`QUIET_AFTER_SPEECH`) or since the acknowledgement's sound ended (`QUIET_AFTER_ACK`), and a step is running or ended within 10 s (`STEP_FRESH`), the call assistant writes one line (`dispatcher::PROGRESS`) from the person's words, that kind of work in plain words, and what was said aloud on the turn so far. The code drops a line that leans on an earlier one when nothing was said ("still", "also", "again", "as I said", "continuing", "keep"), says "still" at all, repeats the acknowledgement, claims a result or a time, opens with filler, runs past ten words or carries a path, address, flag, `file.ext`, `_` or id. Without a call assistant a fixed line covers web search, reading, running and the browser; other kinds say nothing. The 8 s tone waits while the line is made (at most 4 s, `PROGRESS_CAP`) and plays if it is not said; a turn with nothing to name gets the tone, and no line follows the tone. `progress=` in the turn line times it from the end of speech, and each turn without one logs why.
+
+On a slow turn without an acknowledgement the person hears the line at about 6 s instead of the tone at 8; with one, the acknowledgement at about 2.5 s, then the line about 6 s after it ends, and never the tone.
+
+Still owed: a listening check on real calls of whether 6 s feels right, and how often the fast model's line is dropped by the checks.
 
 ## 6. Explicit non-goals & open tuning points
 

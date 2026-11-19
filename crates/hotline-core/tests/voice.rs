@@ -122,6 +122,16 @@ impl Dispatcher for ScriptDispatcher {
     async fn acknowledge(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
         unreachable!("these desks never turned acknowledging on")
     }
+    async fn progress(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        unreachable!("these desks never turned acknowledging on")
+    }
 }
 fn services() -> Services {
     let speech = Arc::new(FakeSpeech);

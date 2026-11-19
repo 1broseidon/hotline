@@ -18,6 +18,7 @@ mod front_context;
 mod front_prompt;
 pub mod front_tools;
 mod input;
+mod progress;
 pub mod realtime;
 mod record;
 mod replies;
@@ -319,6 +320,7 @@ pub(crate) struct TurnTiming {
     llm_spoken: Option<Instant>,
     first_unit: Option<Instant>,
     ack: Option<Instant>,
+    progress: Option<Instant>,
     tts_started: Option<Instant>,
     /// On the call's first timed turn only: how long after the call was
     /// placed its thread's agent was up, when the call started one.
@@ -336,6 +338,7 @@ impl TurnTiming {
             llm_spoken: None,
             first_unit: None,
             ack: None,
+            progress: None,
             tts_started: None,
             session_ready: None,
         }
@@ -371,6 +374,10 @@ impl TurnTiming {
         self.ack.get_or_insert_with(Instant::now);
     }
 
+    pub(crate) fn mark_progress(&mut self) {
+        self.progress.get_or_insert_with(Instant::now);
+    }
+
     /// How long ago the person stopped speaking: the pause the client waited
     /// (none when it did not say) and the desk's time since it took the turn.
     pub(crate) fn since_speech_end(&self) -> Duration {
@@ -400,9 +407,10 @@ impl TurnTiming {
 
     /// The turn's one log line, as of `now`, the moment its first clip of
     /// the teammate's own went out. `desk_total` runs from the desk taking
-    /// the utterance to then; `ack` runs from the end of the person's speech
-    /// (the client's `silence` included when it reported one) to the sound of
-    /// the desk's acknowledgement being ready and sent.
+    /// the utterance to then; `ack` and `progress` run from the end of the
+    /// person's speech (the client's `silence` included when it reported one)
+    /// to the sound of the desk's acknowledgement, or its line on what the
+    /// teammate is doing, being ready and sent.
     pub(crate) fn format_line(
         &self,
         now: Instant,
@@ -427,10 +435,12 @@ impl TurnTiming {
         let first_unit = self
             .first_unit
             .map(|t| t.saturating_duration_since(llm_anchor).as_millis());
-        let ack = self.ack.map(|t| {
+        let since_speech_end = |t: Instant| {
             u128::from(self.silence.unwrap_or(0))
                 + t.saturating_duration_since(self.started).as_millis()
-        });
+        };
+        let ack = self.ack.map(since_speech_end);
+        let progress = self.progress.map(since_speech_end);
         let tts_done = self
             .tts_started
             .or(self.first_unit)
@@ -440,13 +450,14 @@ impl TurnTiming {
             format!(" session_ready={}", opt(ready.map(|d| d.as_millis())))
         });
         format!(
-            "[voice] turn call={call_id} seq={seq} silence={} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} ack={} tts_done={} desk_total={desk_total}ms{session_ready} model={} tts={}/{}",
+            "[voice] turn call={call_id} seq={seq} silence={} stt={stt}ms dispatch={} llm_think={} llm_spoken={} first_unit={} ack={} progress={} tts_done={} desk_total={desk_total}ms{session_ready} model={} tts={}/{}",
             opt(self.silence.map(u128::from)),
             opt(dispatch),
             opt(llm_think),
             opt(llm_spoken),
             opt(first_unit),
             opt(ack),
+            opt(progress),
             opt(tts_done),
             model.unwrap_or("-"),
             tts.provider_id,
@@ -519,6 +530,9 @@ pub struct Call {
     /// The line the desk said as this turn's acknowledgement: its clip is
     /// not the teammate's first, which the turn's timing waits for.
     pub(crate) ack_line: Option<String>,
+    /// The turn's one line on what the teammate is doing while it works in
+    /// silence, with acknowledging on ([`progress`]).
+    pub(crate) progress: progress::Progress,
     /// How long the teammate's model took to write its first words on the
     /// last turn the call timed: a quick one needs no acknowledgement.
     pub last_llm_spoken: Option<Duration>,
@@ -1352,8 +1366,21 @@ mod tests {
         let line = timing.format_line(at(16_900), "c1", 3, Some("hotline/x/y"), &tts());
         assert_eq!(
             line,
-            "[voice] turn call=c1 seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- tts_done=2900ms desk_total=16900ms model=hotline/x/y tts=ollama/phonon"
+            "[voice] turn call=c1 seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- progress=- tts_done=2900ms desk_total=16900ms model=hotline/x/y tts=ollama/phonon"
         );
+    }
+
+    /// The desk's acknowledgement and its line on what the teammate is doing
+    /// are each timed from the end of the person's speech, pause included.
+    #[test]
+    fn the_turn_line_times_the_desks_own_lines_from_the_end_of_speech() {
+        let started = Instant::now();
+        let at = |ms: u64| started + Duration::from_millis(ms);
+        let mut timing = TurnTiming::start(started, Some(550));
+        timing.ack = Some(at(1_850));
+        timing.progress = Some(at(8_400));
+        let line = timing.format_line(at(16_000), "c1", 2, None, &tts());
+        assert!(line.contains(" ack=2400ms progress=8950ms "), "{line}");
     }
 
     /// An older client says nothing of its pause, and the line says so.
@@ -1363,7 +1390,7 @@ mod tests {
         let timing = TurnTiming::start(started, None);
         let line = timing.format_line(started + Duration::from_millis(40), "c1", 1, None, &tts());
         assert!(line.contains(" silence=- stt=0ms "), "{line}");
-        assert!(line.contains(" ack=- "), "{line}");
+        assert!(line.contains(" ack=- progress=- "), "{line}");
         assert!(line.contains(" desk_total=40ms "), "{line}");
     }
 

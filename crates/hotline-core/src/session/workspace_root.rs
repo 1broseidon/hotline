@@ -178,12 +178,14 @@ fn replaceable(areas: Option<&[String]>, path: &Path) -> bool {
         return true;
     };
     let spelled = path.ancestors().skip(1).map(Path::to_path_buf);
-    let resolved = dunce::canonicalize(path).ok().into_iter().flat_map(|path| {
-        path.ancestors()
-            .skip(1)
-            .map(Path::to_path_buf)
-            .collect::<Vec<_>>()
-    });
+    // The path itself is a step too: one that is there but cannot be
+    // resolved (Linux resolves a folder it cannot read, and a path under
+    // it then fails) is unknown ancestry.
+    let resolved: Vec<_> = match dunce::canonicalize(path) {
+        Ok(path) => path.ancestors().skip(1).map(Path::to_path_buf).collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && absent(path) => Vec::new(),
+        Err(_) => return true,
+    };
     let mut holders = std::collections::BTreeSet::new();
     for holder in spelled.chain(resolved) {
         match dunce::canonicalize(&holder) {

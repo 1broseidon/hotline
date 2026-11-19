@@ -209,7 +209,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 
 function SkillRow({ entry, onOpen }: { entry: SkillEntry; onOpen(): void }) {
 	return (
-		<button type="button" className="group-row group-row-choice w-full text-left" onClick={onOpen}>
+		<button type="button" className="group-row group-row-choice group-row-page w-full text-left" onClick={onOpen}>
 			<span className="group-row-text">
 				<span className="group-row-title">{entry.name}</span>
 				<span className={entry.invalid !== undefined ? "group-row-detail text-danger" : "group-row-detail"}>

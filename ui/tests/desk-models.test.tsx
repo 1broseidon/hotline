@@ -1,7 +1,6 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { CapabilityOptions, SpeechModel } from "../src/generated/contract";
-import { busy, installedChanged, languageHint, megabytes, modelLine, progress } from "../src/voice/deskModels";
-import { installDom } from "./dom";
+import { busy, installedChanged, installedSummary, languageHint, megabytes, modelKind, modelLine, progress, usedForCalls } from "../src/voice/deskModels";
 
 function model(overrides: Partial<SpeechModel> = {}): SpeechModel {
 	return {
@@ -30,7 +29,7 @@ describe("the desk's speech models in words", () => {
 		expect(modelLine(model({ state: "downloading", receivedBytes: 54_000_000 }))).toBe("Downloading 54 MB of 108 MB");
 		expect(progress(model({ state: "downloading", receivedBytes: 54_017_547 }))).toBeCloseTo(0.5, 3);
 		expect(modelLine(model({ state: "unpacking" }))).toBe("Unpacking");
-		expect(modelLine(model({ state: "installed" }))).toBe("136 MB on the desk");
+		expect(modelLine(model({ state: "installed" }))).toBe("136 MB");
 		// A model the catalogue no longer lists has nothing more to say.
 		expect(modelLine(model({ state: "installed", detail: "", diskBytes: 0 }))).toBe("");
 	});
@@ -65,168 +64,44 @@ describe("which model to suggest", () => {
 	});
 });
 
-test("each row names the model with its tag from the catalogue, and a window not in English is offered the model that hears more", async () => {
-	const { dom, teardown } = installDom();
-	Object.defineProperty(dom.navigator, "language", { value: "fr-FR", configurable: true });
-	const { act } = await import("react");
-	const { createRoot } = await import("react-dom/client");
-	const { DeskModels } = await import("../src/components/DeskModels");
-	const { wire } = await import("../src/wire");
-	const models: SpeechModel[] = [
-		model({ id: "parakeet-tdt-0.6b-v3", name: "Parakeet", tag: "25 languages", downloadBytes: 487_170_055 }),
-		model({ id: "whisper-large-v3-turbo", name: "Whisper", tag: "99 languages" }),
-		model({ state: "installed", tag: "fast", moreLanguages: "parakeet-tdt-0.6b-v3" }),
-		model({ id: "a-retired-model", name: "Old", detail: "", diskBytes: 0, credit: "", state: "installed" }),
-	];
-	const command = spyOn(wire, "command").mockImplementation((async () => models) as typeof wire.command);
-	const container = document.createElement("div");
-	document.body.append(container);
-	const root = createRoot(container);
-	try {
-		await act(async () => { root.render(<DeskModels onInstalledChanged={() => {}} />); });
-		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-		const titles = [...container.querySelectorAll(".group-row-title")].map((node) => node.textContent);
-		expect(titles).toEqual(["Free and private local models", "Parakeet · 25 languages", "Whisper · 99 languages", "Parakeet English · fast", "Old"]);
-		// Another model is installed, so nothing is suggested yet.
-		expect(container.textContent).not.toContain("hears more languages");
-		models.pop();
-		await act(async () => { root.render(<DeskModels onInstalledChanged={() => {}} key="again" />); });
-		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-		const lines = [...container.querySelectorAll(".group-row-detail")].map((node) => node.textContent);
-		expect(lines).toEqual(["136 MB on the desk · Parakeet hears more languages"]);
-	} finally {
-		await act(async () => { root.unmount(); });
-		command.mockRestore();
-		await teardown();
-	}
-});
-
-test("a model is downloaded only when asked, followed until it lands, and removed; the desk's models open under Transcription even with nothing connected", async () => {
-	const { teardown } = installDom();
-	const { act } = await import("react");
-	const { createRoot } = await import("react-dom/client");
-	const { UseFor } = await import("../src/components/UseFor");
-	const { wire } = await import("../src/wire");
-	// What the desk answers next, as the test moves it along.
-	let models: SpeechModel[] = [model({ id: "parakeet-tdt-0.6b-v3", name: "Parakeet", downloadBytes: 487_170_055 }), model()];
-	const asked: { cmd: string; params: unknown }[] = [];
-	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: unknown) => {
-		asked.push({ cmd, params });
-		if (cmd === "voice.model_install") models = models.map((one) => (one.id === (params as { modelId: string }).modelId ? { ...one, state: "downloading", receivedBytes: 0 } : one));
-		if (cmd === "voice.model_remove") models = models.map((one) => ({ ...one, state: "available" }));
-		if (cmd.startsWith("voice.model")) return models;
-		return {};
-	}) as typeof wire.command);
-	const container = document.createElement("div");
-	document.body.append(container);
-	const root = createRoot(container);
-	// Nothing connected: nothing can speak or hear, and the desk has no model yet.
-	const options: CapabilityOptions = {
+describe("the Voice models row and page", () => {
+	const options = (overrides: Partial<CapabilityOptions> = {}): CapabilityOptions => ({
 		images: { options: [] },
-		stt: { options: [], unavailable: "Download a speech model for the desk, or connect OpenAI, Google, OpenRouter, Groq or Mistral to hear you." },
-		tts: { options: [], unavailable: "Connect OpenAI, Google, OpenRouter or Groq to speak." },
-		dispatcher: { options: [] },
-		spending: { budgets: [] },
-	};
-	let refreshed = 0;
-	const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-	const button = (label: string) =>
-		[...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === label || node.getAttribute("aria-label") === label);
-	try {
-		await act(async () => { root.render(<UseFor options={options} voice={{ front: { provider: "turn-by-turn" } }} onChanged={() => { refreshed += 1; }} />); });
-		expect(asked).toEqual([]);
-		await act(async () => { [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent?.startsWith("Models on the desk"))!.click(); });
-		await settle();
-		expect(asked.map((one) => one.cmd)).toEqual(["voice.models"]);
-		expect(container.textContent).toContain("Download a speech model for the desk");
-		expect(container.textContent).toContain("Parakeet English");
-		// The credits wait behind a button; the list is titles and sizes.
-		expect(container.textContent).not.toContain("NVIDIA Parakeet TDT 110M, CC BY 4.0");
-		await act(async () => { button("Credits")!.click(); });
-		expect(container.textContent).toContain("NVIDIA Parakeet TDT 110M, CC BY 4.0");
-
-		await act(async () => { button("Download 108 MB")!.click(); });
-		await settle();
-		expect(asked.at(-1)).toEqual({ cmd: "voice.model_install", params: { modelId: "parakeet-tdt-110m-en" } });
-		expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("0");
-		expect(button("Stop downloading Parakeet English")).toBeDefined();
-		// The bigger model was not asked for, and is not coming.
-		expect(button("Download 487 MB")).toBeDefined();
-
-		// The window asks again while it downloads; the desk says half, then done.
-		models = models.map((one) => (one.state === "downloading" ? { ...one, receivedBytes: 54_017_547 } : one));
-		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
-		expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("50");
-		expect(refreshed).toBe(0);
-		models = models.map((one) => {
-			if (one.state !== "downloading") return one;
-			const { receivedBytes: _, ...installed } = one;
-			return { ...installed, state: "installed" };
-		});
-		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
-		expect(container.querySelector('[role="progressbar"]')).toBeNull();
-		expect(container.textContent).toContain("136 MB on the desk");
-		expect(refreshed).toBe(1);
-
-		await act(async () => { button("Remove Parakeet English")!.click(); });
-		await settle();
-		expect(asked.at(-1)).toEqual({ cmd: "voice.model_remove", params: { modelId: "parakeet-tdt-110m-en" } });
-		expect(refreshed).toBe(2);
-	} finally {
-		await act(async () => { root.unmount(); });
-		command.mockRestore();
-		await teardown();
-	}
-});
-
-test("Words to listen for is one fold under the desk's models, and saving writes them beside the voice picks", async () => {
-	const { dom, teardown } = installDom();
-	const { act } = await import("react");
-	const { createRoot } = await import("react-dom/client");
-	const { UseFor } = await import("../src/components/UseFor");
-	const { wire } = await import("../src/wire");
-	const asked: { cmd: string; params: unknown }[] = [];
-	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: unknown) => {
-		asked.push({ cmd, params });
-		if (cmd === "voice.models") return [model({ state: "installed" })];
-		return {};
-	}) as typeof wire.command);
-	const container = document.createElement("div");
-	document.body.append(container);
-	const root = createRoot(container);
-	const desk = { providerId: "local", providerName: "On the desk", modelId: "parakeet-tdt-110m-en" };
-	const options: CapabilityOptions = {
-		images: { options: [] },
-		stt: { automatic: desk, options: [{ providerId: "local", providerName: "On the desk", models: [{ id: "parakeet-tdt-110m-en", label: "Parakeet English" }] }] },
+		stt: { options: [] },
 		tts: { options: [] },
 		dispatcher: { options: [] },
 		spending: { budgets: [] },
-	};
-	const voice = { front: { provider: "turn-by-turn" }, stt: { provider: "local", model: "parakeet-tdt-110m-en" }, listenFor: ["Ophelia"] };
-	const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-	const button = (starts: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => (node.textContent ?? "").startsWith(starts) || node.getAttribute("aria-label") === starts);
-	try {
-		await act(async () => { root.render(<UseFor options={options} voice={voice} onChanged={() => {}} />); });
-		expect(button("Words to listen for")).toBeUndefined();
-		await act(async () => { button("Models on the desk")!.click(); });
-		await settle();
-		// Closed, it says what it is now; open, it is one field and Save.
-		expect(button("Words to listen for")!.textContent).toBe("Words to listen forOpheliaChange");
-		await act(async () => { button("Words to listen for")!.click(); });
-		const field = container.querySelector<HTMLInputElement>('input[aria-label="Words to listen for"]')!;
-		expect(field.value).toBe("Ophelia");
-		expect(button("Save")!.disabled).toBe(true);
-		await act(async () => {
-			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(field, "Ophelia, Groq, ophelia");
-			field.dispatchEvent(new window.Event("input", { bubbles: true }));
-		});
-		await act(async () => { button("Save")!.click(); });
-		await settle();
-		expect(asked.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: { ...voice, listenFor: ["Ophelia", "Groq"] } } } });
-		expect(container.querySelector('input[aria-label="Words to listen for"]')).toBeNull();
-	} finally {
-		await act(async () => { root.unmount(); });
-		command.mockRestore();
-		await teardown();
-	}
+		...overrides,
+	});
+	const desk = (models: { id: string; label: string }[]) => ({ providerId: "local", providerName: "On the desk", models });
+
+	test("the row sums what is installed, and says when nothing is", () => {
+		expect(installedSummary([model()])).toBe("None installed");
+		expect(installedSummary([model({ state: "installed", diskBytes: 670_000_000 }), model({ id: "phonon-31m-en", state: "installed", diskBytes: 66_000_000 }), model({ id: "w" })])).toBe("2 installed · 736 MB");
+		// A model the catalogue no longer lists has no size to add.
+		expect(installedSummary([model({ state: "installed", diskBytes: 0 })])).toBe("1 installed");
+	});
+
+	test("the desk's voice speaks before it is installed, a model Speech lists speaks, and every other one transcribes", () => {
+		expect(modelKind(model({ id: "phonon-31m-en", name: "Phonon" }), null)).toBe("Speech");
+		expect(modelKind(model(), null)).toBe("Transcription");
+		const speaking = options({ tts: { options: [desk([{ id: "another-voice", label: "Another" }])] } });
+		expect(modelKind(model({ id: "another-voice", state: "installed" }), speaking)).toBe("Speech");
+		// A desk model Transcription lists is not a speaker for that.
+		expect(modelKind(model({ state: "installed" }), options({ stt: { options: [desk([{ id: "parakeet-tdt-110m-en", label: "Parakeet English" }])] } }))).toBe("Transcription");
+	});
+
+	test("a model is used for calls while Turn by turn's Transcription or Speech runs on it, chosen or by Automatic", () => {
+		const parakeet = model({ state: "installed" });
+		const phonon = model({ id: "phonon-31m-en", name: "Phonon", state: "installed" });
+		const stt = { automatic: { providerId: "local", providerName: "On the desk", modelId: "parakeet-tdt-110m-en" }, options: [desk([{ id: "parakeet-tdt-110m-en", label: "Parakeet English" }])] };
+		const tts = { selected: { providerId: "local", providerName: "On the desk", modelId: "phonon-31m-en" }, options: [desk([{ id: "phonon-31m-en", label: "Phonon" }])] };
+		const turnByTurn = { front: { provider: "turn-by-turn" } };
+		expect(usedForCalls(parakeet, options({ stt, tts }), turnByTurn)).toBe(true);
+		expect(usedForCalls(phonon, options({ stt, tts }), turnByTurn)).toBe(true);
+		// Not while another provider hears, nor while a live model runs calls itself, nor with calls off.
+		expect(usedForCalls(parakeet, options({ stt: { options: stt.options, automatic: { providerId: "openai", providerName: "OpenAI", modelId: "gpt-4o-transcribe" } }, tts }), turnByTurn)).toBe(false);
+		expect(usedForCalls(parakeet, options({ stt, tts }), { front: { provider: "grok" } })).toBe(false);
+		expect(usedForCalls(phonon, options({ stt, tts }), { front: { provider: "off" } })).toBe(false);
+	});
 });

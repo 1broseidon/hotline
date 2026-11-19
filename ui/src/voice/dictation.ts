@@ -96,7 +96,7 @@ type DictationField = {
 	done?(heard: string): void;
 };
 
-export const DICTATION_UNAVAILABLE = "Dictation isn't available yet. Download a speech model for the desk in Settings › Providers.";
+export const DICTATION_UNAVAILABLE = "Dictation isn't available yet. Download a speech model for the desk in Settings › Voice.";
 export const DICTATION_DENIED =
 	"Hotline can't hear you. Allow Hotline under Speech Recognition and Microphone in System Settings › Privacy & Security, then try again.";
 const DICTATION_NOT_STARTED ="Dictation couldn't start. Try again.";

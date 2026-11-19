@@ -31,6 +31,8 @@ function byName(a: { name: string }, b: { name: string }) {
  * picker name the account ("Anthropic · Work"); its page renames it. The form exists only while you are
  * adding. Tools is drawn the same way, on purpose: a list the room has,
  * an add row over it, a page behind each row with the way out at its foot.
+ * Below the list, which provider makes images, and Budgets; how calls run,
+ * and the desk's own speech models, are Voice's.
  *
  * The pane is this section's own rather than Settings', because it has
  * a page under it and the band has to say which one you are on.
@@ -55,7 +57,6 @@ export function ProvidersSection({
 	const [capabilities, setCapabilities] = useState<CapabilityOptions | null>(null);
 	const modelsRevision = useModelsRevision();
 	const images = useRawSetting("images");
-	const voice = useRawSetting("voice");
 	const spending = useRawSetting("spending");
 
 	const reloadCapabilities = () =>
@@ -69,7 +70,7 @@ export function ProvidersSection({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: these settings and modelsRevision are what change the answer; reloadCapabilities reads only a setter.
 	useEffect(() => {
 		void reloadCapabilities();
-	}, [modelsRevision, JSON.stringify([images, voice, spending])]);
+	}, [modelsRevision, JSON.stringify([images, spending])]);
 
 	const reload = () =>
 		wire
@@ -202,7 +203,7 @@ export function ProvidersSection({
 									<button
 										key={one.credential.id}
 										type="button"
-										className="group-row group-row-choice w-full text-left"
+										className="group-row group-row-choice group-row-page w-full text-left"
 										onClick={() => setOpen(one.credential.id)}
 									>
 										<span className="group-row-text">
@@ -223,7 +224,7 @@ export function ProvidersSection({
 						</div>
 						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
-					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
+					{capabilities !== null && <UseFor options={capabilities} onChanged={() => void reloadCapabilities()} />}
 					{capabilities !== null && <Budgets spending={capabilities.spending} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>

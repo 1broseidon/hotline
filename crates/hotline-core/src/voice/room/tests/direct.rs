@@ -652,7 +652,8 @@ async fn narrator_points_at_real_results_only_once_every_three_turns() {
     }
     let instructions = lock(&fake.pointer_instructions);
     assert_eq!(instructions.len(), 2);
-    assert!(instructions[1].contains("5 turns in"));
+    // The count that spaces the pointers is the desk's: it is not in what the model reads.
+    assert!(!instructions[1].contains("turns in"));
     assert!(instructions[1].contains("Answer 4."));
     calls.end(&id).unwrap();
 }

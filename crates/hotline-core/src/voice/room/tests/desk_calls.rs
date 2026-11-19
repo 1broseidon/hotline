@@ -7,33 +7,58 @@ fn a_link_keeps_a_desk_reply_from_being_said_as_written() {
     assert!(speech_ready("The checks passed."));
 }
 
-/// A turn-by-turn call readies its listener as it starts, before anyone
-/// speaks, so the desk's own model is loaded ahead of the first utterance,
-/// and holds it ready until the call ends. A call of typed words hears
-/// nothing and readies nothing.
+/// A turn-by-turn call readies its listener and its voice as it starts,
+/// before anyone speaks, so the desk's own models are loaded ahead of the
+/// first utterance and the first reply, and holds them ready until the call
+/// ends. A call of typed words hears nothing, so it readies only the voice.
 #[tokio::test]
-async fn a_call_readies_its_listener_as_it_starts_and_until_it_ends() {
-    let fake = Arc::new(Fake::default());
-    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+async fn a_call_readies_its_listener_and_voice_as_it_starts_and_until_it_ends() {
+    let (ears, voice) = (Arc::new(Fake::default()), Arc::new(Fake::default()));
+    let services = Services {
+        speech: SpeechSet {
+            stt: ears.clone(),
+            tts: voice.clone(),
+            fallback_tts: None,
+        },
+        dispatcher: Some(ears.clone()),
+        realtime: None,
+    };
+    let (_root, desk, calls) = desk(services);
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk.clone()).unwrap();
-    until("the listener is readied", || lock(&fake.readied).len() == 1).await;
+    until("the listener and the voice are readied", || {
+        lock(&ears.readied).len() == 1 && lock(&voice.readied).len() == 1
+    })
+    .await;
     assert_eq!(
-        fake.transcriptions.load(Ordering::SeqCst),
+        ears.transcriptions.load(Ordering::SeqCst),
         0,
         "nothing heard"
     );
-    let held = lock(&fake.readied)[0].clone();
-    assert!(!held.is_cancelled(), "held while the call is open");
+    assert_eq!(lock(&voice.spoken).len(), 0, "nothing said");
+    let held = [
+        lock(&ears.readied)[0].clone(),
+        lock(&voice.readied)[0].clone(),
+    ];
+    assert!(
+        held.iter().all(|until| !until.is_cancelled()),
+        "held while the call is open"
+    );
     calls.end(&id).unwrap();
-    assert!(held.is_cancelled(), "let go when the call ends");
+    assert!(
+        held.iter().all(CancellationToken::is_cancelled),
+        "let go when the call ends"
+    );
 
     let typed = Uuid::new_v4().to_string();
     calls
         .start_with_input(&typed, None, false, VoiceInputMode::Text, desk.clone())
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(lock(&fake.readied).len(), 1, "typed words need no listener");
+    until("the voice is readied for typed words", || {
+        lock(&voice.readied).len() == 2
+    })
+    .await;
+    assert_eq!(lock(&ears.readied).len(), 1, "typed words need no listener");
     calls.end(&typed).unwrap();
 }
 

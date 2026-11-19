@@ -301,7 +301,7 @@ mod tests {
             "small talk",
             "a yes or a no",
             "a correction",
-            "a quick direct answer",
+            "A question still gets a line",
         ] {
             assert!(ACKNOWLEDGE.contains(rule), "{rule}");
         }

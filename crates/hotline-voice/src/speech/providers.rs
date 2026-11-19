@@ -149,6 +149,17 @@ fn row(provider_id: &str) -> Option<&'static Row> {
     ROWS.iter().find(|row| row.provider_id == provider_id)
 }
 
+/// What a sentence for the person calls a voice provider. A custom
+/// connection's id is a random one nobody would recognise, so it and any
+/// other provider without a known name is "Your voice provider".
+pub fn name(provider_id: &str) -> &'static str {
+    match row(provider_id) {
+        Some(row) => row.name,
+        None if provider_id == ollama::PROVIDER_ID => ollama::NAME,
+        None => "Your voice provider",
+    }
+}
+
 /// A provider the owner has connected, with what it takes to call it.
 #[derive(Clone)]
 struct Connection {

@@ -150,6 +150,15 @@ turn, read with its next tool results, which ends no wait and skips no tool
 call. On the desk's own recognizer, a pause ends a turn after 1.2 seconds, or
 0.55 seconds for a plainly finished English draft ([voice.md](voice.md#calls-from-the-window-on-a-mac)).
 
+A Turn by turn step that fails is either the ears' or the voice's. Only the
+ears' failure asks "Sorry, say that again." A voice that refuses to say a
+teammate's reply leaves the reply on screen and on the thread, and the call
+says so once, as a `said` line naming the provider and its reason (*OpenRouter
+refused to speak (out of credit). The answer is in the transcript.*) over the
+bundled "I can't speak right now. My answer is on screen." Three failures of
+either kind in a row end the call with reason `error`; when the voice's did,
+the last line names the provider and reason ([voice.md](voice.md#the-seam)).
+
 `realtime::scripted_front` runs a fixed spoken deck against each live model,
 rejecting relay wording and repeated acknowledgements within one call. The
 provider runs require explicit test credentials; the checker and local wire

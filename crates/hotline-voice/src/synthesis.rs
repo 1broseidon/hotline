@@ -2,10 +2,11 @@
 //! when the person interrupts.
 
 use super::ledger::{self, Kind};
+use super::metering::BUDGET_ERROR;
 use super::record::Speaker;
 use super::settings::{self, VoiceSettings};
-use super::speech::{self, Clip};
-use super::{Call, CallSpeech, Calls, MAX_AUDIO, Origin, Reply, Work, lock, spoken};
+use super::speech::{self, Clip, SpeechError};
+use super::{Call, CallSpeech, Calls, MAX_AUDIO, Origin, Reply, Voiced, Work, lock, spoken};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use futures_util::stream::FuturesOrdered;
@@ -34,35 +35,54 @@ struct Line<'a> {
 }
 
 impl Calls {
+    /// One sentence's clip, from the call's voice or else its fallback. `Err`
+    /// is [`BUDGET_ERROR`], or the voice's refusal as a sentence for the
+    /// person ([`SpeechError::unspoken`]): the voice they chose is the one
+    /// named, even when the fallback failed after it.
     pub(super) async fn synthesize(&self, speech: &CallSpeech, text: &str) -> Result<Clip, String> {
+        let provider = speech.tts.id().provider_id;
+        self.pay(Kind::Tts, ledger::tts_usd(&provider, text.chars().count()))?;
+        let unusable = || {
+            SpeechError::Malformed {
+                provider_id: provider.clone(),
+            }
+            .unspoken(&provider)
+        };
+        let unspoken = match speech.tts.speak(text).await {
+            Ok(clip) if playable(&clip, clip.bytes.len()) => return Ok(clip),
+            Ok(_) => return Err(unusable()),
+            Err(error) => error.unspoken(&provider),
+        };
+        let Some(fallback) = &speech.fallback_tts else {
+            return Err(unspoken);
+        };
+        if speech.tts.is_subscription() || !self.connected(fallback.as_ref()) {
+            return Err(unspoken);
+        }
         self.pay(
             Kind::Tts,
-            ledger::tts_usd(&speech.tts.id().provider_id, text.chars().count()),
+            ledger::tts_usd(&fallback.id().provider_id, text.chars().count()),
         )?;
-        let clip = match speech.tts.speak(text).await {
-            Ok(clip) => Ok(clip),
-            Err(error) => match &speech.fallback_tts {
-                Some(_) if speech.tts.is_subscription() => Err(error.to_string()),
-                Some(fallback) => {
-                    if !self.connected(fallback.as_ref()) {
-                        return Err("The fallback voice provider is no longer connected.".into());
-                    }
-                    self.pay(
-                        Kind::Tts,
-                        ledger::tts_usd(&fallback.id().provider_id, text.chars().count()),
-                    )?;
-                    fallback.speak(text).await.map_err(|e| e.to_string())
-                }
-                None => Err(error.to_string()),
-            },
-        }?;
-        if !matches!(clip.mime.as_str(), "audio/wav" | "audio/mpeg")
-            || clip.bytes.is_empty()
-            || clip.bytes.len() > MAX_AUDIO
-        {
-            return Err("The speech provider returned an unusable sentence clip.".into());
+        match fallback.speak(text).await {
+            Ok(clip) if playable(&clip, clip.bytes.len()) => Ok(clip),
+            Ok(_) | Err(_) => Err(unspoken),
         }
-        Ok(clip)
+    }
+
+    /// Notes what became of a sentence sent to the call's voice, for the turn
+    /// loop to read when the step is over ([`Voiced`]). A refusal stands for
+    /// the rest of the step; the budget is no refusal, since it ends the call.
+    fn voiced<T>(&self, id: &str, result: &Result<T, String>) {
+        let _ = self.change(id, |call| {
+            match result {
+                Ok(_) if matches!(call.voiced, Voiced::Silent) => call.voiced = Voiced::Spoke,
+                Err(error) if error != BUDGET_ERROR => {
+                    call.voiced = Voiced::Refused(error.clone());
+                }
+                _ => {}
+            }
+            Ok(())
+        });
     }
 
     /// Speaks a line at once, kept as the call's own on a direct call's
@@ -186,6 +206,7 @@ impl Calls {
                     in_flight.clear();
                 }
                 Some((line, result)) = in_flight.next(), if can_poll_tts => {
+                    self.voiced(id, &result);
                     if let Some(Some((said_id, said_text))) = pending_said.pop_front() {
                         self.emit(
                             id,
@@ -346,13 +367,19 @@ impl Calls {
             return tokio::select! {
                 () = line.interrupted.cancelled() => Ok(()),
                 () = line.ended.cancelled() => Ok(()),
-                result = self.synthesize_stream(line, speech, sentence, index, last) => result,
+                result = self.synthesize_stream(line, speech, sentence, index, last) => {
+                    self.voiced(line.call, &result);
+                    result
+                }
             };
         }
         let clip = tokio::select! {
             () = line.interrupted.cancelled() => return Ok(()),
             () = line.ended.cancelled() => return Ok(()),
-            clip = self.synthesize(speech, sentence) => clip?,
+            clip = self.synthesize(speech, sentence) => {
+                self.voiced(line.call, &clip);
+                clip?
+            }
         };
         // A hold/interrupt can arrive at the same time as the provider.
         if line.interrupted.is_cancelled() || line.ended.is_cancelled() {
@@ -387,10 +414,11 @@ impl Calls {
         if interrupted.is_cancelled() {
             return Ok(());
         }
-        self.pay(
-            Kind::Tts,
-            ledger::tts_usd(&services.tts.id().provider_id, text.chars().count()),
-        )?;
+        let provider = services.tts.id().provider_id;
+        self.pay(Kind::Tts, ledger::tts_usd(&provider, text.chars().count()))?;
+        let unusable = || SpeechError::Malformed {
+            provider_id: provider.clone(),
+        };
         let (output, chunks) = mpsc::channel(4);
         let produce = services.tts.speak_chunks(text, output);
         let mut published = false;
@@ -399,16 +427,11 @@ impl Calls {
             let mut bytes = 0;
             let mut finished = false;
             while let Some(chunk) = chunks.recv().await {
-                if finished {
-                    return Err("The speech provider sent audio after its final chunk.".to_string());
-                }
                 let clip = chunk.clip;
                 bytes += clip.bytes.len();
-                if !matches!(clip.mime.as_str(), "audio/wav" | "audio/mpeg")
-                    || clip.bytes.is_empty()
-                    || bytes > MAX_AUDIO
-                {
-                    return Err("The speech provider returned unusable audio.".to_string());
+                // Audio after the final chunk is as unusable as the wrong kind.
+                if finished || !playable(&clip, bytes) {
+                    return Err(unusable());
                 }
                 self.clip(
                     id,
@@ -422,57 +445,56 @@ impl Calls {
                 published = true;
                 finished = chunk.final_chunk;
             }
-            if finished {
-                Ok(())
-            } else {
-                Err("The speech provider ended before its final audio chunk.".to_string())
-            }
+            if finished { Ok(()) } else { Err(unusable()) }
         };
         let attempted = match tokio::time::timeout(Duration::from_secs(30), async {
             tokio::join!(produce, consume)
         })
         .await
         {
-            Ok((produced, consumed)) => consumed.and(produced.map_err(|e| e.to_string())),
-            Err(_) => Err("The speech provider timed out.".to_string()),
+            // A provider that refused also leaves the sound unfinished: the
+            // refusal is the reason, unless it only stopped because the
+            // unusable sound was turned away.
+            Ok((Err(refused), _)) if refused != SpeechError::Cancelled => Err(refused),
+            Ok((produced, consumed)) => consumed.and(produced),
+            Err(_) => Err(SpeechError::Unreachable {
+                provider_id: provider.clone(),
+            }),
         };
-        if attempted.is_ok() || interrupted.is_cancelled() {
+        let Err(error) = attempted else {
+            return Ok(());
+        };
+        if interrupted.is_cancelled() {
             return Ok(());
         }
+        let unspoken = error.unspoken(&provider);
         // A replacement after audible output would repeat words. Only an attempt
         // that produced no usable chunks may use the configured paid fallback.
-        if !published
-            && !services.tts.is_subscription()
-            && let Some(fallback) = &services.fallback_tts
-        {
-            if interrupted.is_cancelled() {
-                return Ok(());
-            }
-            if !self.connected(fallback.as_ref()) {
-                return Err("The fallback voice provider is no longer connected.".into());
-            }
-            self.pay(
-                Kind::Tts,
-                ledger::tts_usd(&fallback.id().provider_id, text.chars().count()),
-            )?;
-            if interrupted.is_cancelled() {
-                return Ok(());
-            }
-            let clip = tokio::time::timeout(Duration::from_secs(30), fallback.speak(text))
-                .await
-                .map_err(|_| "The fallback speech provider timed out.".to_string())?
-                .map_err(|e| e.to_string())?;
-            if !matches!(clip.mime.as_str(), "audio/wav" | "audio/mpeg")
-                || clip.bytes.is_empty()
-                || clip.bytes.len() > MAX_AUDIO
-            {
-                return Err("The speech provider returned unusable audio.".into());
-            }
-            self.clip(id, line, *index, final_sentence, &clip, Some(interrupted));
-            *index += 1;
+        let Some(fallback) = services
+            .fallback_tts
+            .as_ref()
+            .filter(|_| !published && !services.tts.is_subscription())
+        else {
+            return Err(unspoken);
+        };
+        if !self.connected(fallback.as_ref()) {
+            return Err(unspoken);
+        }
+        self.pay(
+            Kind::Tts,
+            ledger::tts_usd(&fallback.id().provider_id, text.chars().count()),
+        )?;
+        if interrupted.is_cancelled() {
             return Ok(());
         }
-        attempted
+        match tokio::time::timeout(Duration::from_secs(30), fallback.speak(text)).await {
+            Ok(Ok(clip)) if playable(&clip, clip.bytes.len()) => {
+                self.clip(id, line, *index, final_sentence, &clip, Some(interrupted));
+                *index += 1;
+                Ok(())
+            }
+            _ => Err(unspoken),
+        }
     }
 
     pub(super) fn clip(
@@ -528,6 +550,14 @@ impl Calls {
             );
         }
     }
+}
+
+/// Whether a clip is one the clients can play: a kind they take, some
+/// sound, and with `bytes` of the line's sound so far, not too much.
+fn playable(clip: &Clip, bytes: usize) -> bool {
+    matches!(clip.mime.as_str(), "audio/wav" | "audio/mpeg")
+        && !clip.bytes.is_empty()
+        && bytes <= MAX_AUDIO
 }
 
 /// The call to `persona` a line of its session belongs to: one still going

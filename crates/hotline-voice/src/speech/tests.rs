@@ -715,3 +715,38 @@ async fn gemini_shares_the_clock_too_and_a_failed_clip_leaves_it_running() {
         .unwrap();
     assert!(!clock.waiting());
 }
+
+#[test]
+fn a_voice_that_did_not_speak_is_named_with_what_its_refusal_means() {
+    let refused = |status| SpeechError::Refused {
+        provider_id: "openrouter".into(),
+        status,
+    };
+    for (status, sentence) in [
+        (402, "OpenRouter refused to speak (out of credit)."),
+        (
+            401,
+            "OpenRouter refused to speak (key or sign-in not accepted).",
+        ),
+        (
+            403,
+            "OpenRouter refused to speak (key or sign-in not accepted).",
+        ),
+        (429, "OpenRouter refused to speak (rate limited)."),
+        (500, "OpenRouter refused to speak (HTTP 500)."),
+    ] {
+        assert_eq!(refused(status).unspoken("openrouter"), sentence);
+    }
+    let unreachable = SpeechError::Unreachable {
+        provider_id: "groq".into(),
+    };
+    assert_eq!(
+        unreachable.unspoken("groq"),
+        "Groq couldn't speak (no answer)."
+    );
+    // A custom connection's id means nothing to the person.
+    assert_eq!(
+        refused(402).unspoken("custom-0b7c"),
+        "Your voice provider refused to speak (out of credit)."
+    );
+}

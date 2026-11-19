@@ -55,6 +55,26 @@ Each clip carries its own type: `audio/wav` where the provider can make one,
 A speech error carries the provider and an HTTP status and never a response
 body, because a provider's error text can echo what was said.
 
+A Turn by turn call tells hearing that failed from speaking that failed
+(`Calls::run`). When the person was not heard and answered (transcribing a
+clip or live audio failed, or the call assistant did) the call says the
+bundled "Sorry, say that again." When the voice refuses (the speech provider, and
+then its fallback, would not say a sentence of an answer, a delivery, a
+notice or the call assistant's reply) the person was heard and answered, so
+nothing asks them to repeat it: the answer's words are already on screen
+and kept on the call. The first refusal of a call adds one line that names
+the provider and what its refusal means (`SpeechError::unspoken`): HTTP 402
+is out of credit, 401 and 403 a key or sign-in not accepted, 429 rate
+limited, any other status by its number. For example *OpenRouter refused to
+speak (out of credit). The answer is in the transcript.*, played as the
+bundled "I can't speak right now. My answer is on screen." Later refusals
+are only shown. Three hearing failures in a row end the call with the
+bundled "Voice keeps failing. Please continue by text."; three refusals in
+a row end it the same way, with a line that says which provider refused and
+why. Any step that works clears the hearing failures, but only speech
+that worked clears the refusals, since a call to a teammate hears without
+speaking. Each failed step logs `[voice] call <id>: <step> failed: <error>`.
+
 ## Device text on a Mac
 
 The macOS desktop shell can hear an utterance on the machine itself, the

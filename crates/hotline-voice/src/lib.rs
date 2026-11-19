@@ -458,6 +458,24 @@ pub struct Call {
     live_error: Option<String>,
     cards: cards::Queue,
     caller_speaking: bool,
+    /// What became of what the turn loop's current step sent the voice.
+    voiced: Voiced,
+}
+
+/// What became of the sentences one step of a call sent its voice to say,
+/// noted where they are synthesised and read by the turn loop once the step
+/// is over. It tells a voice that refused, after the person was heard and
+/// answered, from a step that failed to hear them.
+#[derive(Default)]
+enum Voiced {
+    /// Nothing was sent to the voice.
+    #[default]
+    Silent,
+    /// The voice spoke.
+    Spoke,
+    /// The voice would not speak, and this sentence for the person says why
+    /// ([`speech::SpeechError::unspoken`]).
+    Refused(String),
 }
 
 impl Call {
@@ -646,6 +664,42 @@ enum Work {
     },
     /// The teammate's session finished the turn of this utterance.
     TurnOver(u32),
+}
+
+impl Work {
+    /// What the step does, as the log names it when it fails.
+    fn step(&self) -> &'static str {
+        match self {
+            Work::Text { .. } => "typed line",
+            Work::Live { .. } => "live transcription",
+            Work::Utterance { .. } => "transcription",
+            Work::Delivery(..) => "delivery",
+            Work::Notice(..) => "notice",
+            Work::Answer { .. } => "spoken answer",
+            Work::TurnOver(_) => "turn end",
+        }
+    }
+
+    /// Whether the step only speaks, so that its failure is never the ears'.
+    fn speaks(&self) -> bool {
+        matches!(
+            self,
+            Work::Delivery(..) | Work::Notice(..) | Work::Answer { .. }
+        )
+    }
+
+    /// What stops the step's speech when the person speaks over it.
+    fn speech(&self) -> Option<&CancellationToken> {
+        match self {
+            Work::Utterance { speech, .. }
+            | Work::Text { speech, .. }
+            | Work::Live { speech, .. }
+            | Work::Answer { speech, .. }
+            | Work::Delivery(_, speech)
+            | Work::Notice(_, speech) => Some(speech),
+            Work::TurnOver(_) => None,
+        }
+    }
 }
 
 pub struct Calls {

@@ -99,7 +99,7 @@ async function mountPane(computer: boolean) {
 		restores.push(() => delete shell.__hotlineDesk);
 	}
 	const { SecretRows } = await import("../src/components/teammate/SecretRows");
-	await act(async () => root.render(<SecretRows personaId="kit" teammate="Kit" granted={[]} computer={computer} disabled={false} onChange={() => {}} />));
+	await act(async () => root.render(<SecretRows personaId="kit" teammate="Kit" grants={[]} computer={computer} disabled={false} onChange={() => {}} />));
 }
 
 test("Cookies sits under the teammate's secrets, with Add Cookies at its head, and the pane reads no browser", async () => {

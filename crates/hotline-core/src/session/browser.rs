@@ -1014,34 +1014,40 @@ impl Room {
                 page.origin().ascii_serialization()
             ));
         }
-        let (value, field) = match part {
-            LoginPart::Username => (username, "username"),
-            LoginPart::Password => (password, "password"),
+        let account = username.clone();
+        let value = match part {
+            LoginPart::Username => username,
+            LoginPart::Password => password,
             LoginPart::Code => {
                 let seed = totp.ok_or_else(|| format!("{name} has no code."))?;
                 let now = u64::try_from(now_ms() / 1000).unwrap_or_default();
-                let code = desk_browser::totp_code(&seed, now)
-                    .ok_or_else(|| format!("{name}'s code could not be made."))?;
-                (code, "code")
+                desk_browser::totp_code(&seed, now)
+                    .ok_or_else(|| format!("{name}'s code could not be made."))?
             }
         };
         if r#use == crate::contract::SecretUse::Ask {
-            let doing = format!("type its {field} on {page}");
-            self.ask_for_key(persona_id, &persona.name, name, &doing, &page)
+            let operation = crate::contract::SecretOperation {
+                kind: crate::contract::SecretOperationKind::Signin,
+                origin: page.origin().ascii_serialization(),
+                account,
+                rp_id: None,
+            };
+            self.ask_for_key(persona_id, &persona.name, name, &operation, &page)
                 .await?;
         }
         Ok(value)
     }
 
     /// An ask-me key is used only once the person approves this use, or has
-    /// allowed it on this site for a while. `doing` says what the use is:
-    /// "type its password on …", "sign in with it on …".
+    /// allowed it on this site for a while: one key, one account, one
+    /// origin, which the core itself is signing in to, so ten minutes of it
+    /// may be allowed. The card asks in the words a computer's card does.
     pub(super) async fn ask_for_key(
         &self,
         persona_id: &str,
         persona_name: &str,
         name: &str,
-        doing: &str,
+        operation: &crate::contract::SecretOperation,
         page: &url::Url,
     ) -> Result<(), String> {
         let site = page.origin().ascii_serialization();
@@ -1053,7 +1059,8 @@ impl Room {
             return Ok(());
         }
         let title = format!(
-            "{persona_name} wants to use {name} on {site}.\n\nIt would {doing} in its browser. You never see the value, and neither does {persona_name}."
+            "{}\n\nFor {persona_name}. You never see the value, and neither does {persona_name}.",
+            super::secret_uses::use_question(name, operation)
         );
         let decision = self
             .ask_in_browser(persona_id, Asking::Use, title)

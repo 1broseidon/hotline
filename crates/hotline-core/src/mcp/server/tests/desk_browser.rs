@@ -1022,7 +1022,7 @@ async fn an_ask_me_login_waits_for_the_persons_approval() {
     let card = guard_card(&room, "ada").await;
     let title = card["title"].as_str().unwrap();
     assert!(
-        title.starts_with("Ada wants to use GITHUB on https://github.com."),
+        title.starts_with("Sign in to github.com as ada with GITHUB?"),
         "{title}"
     );
     assert!(!title.contains("hunter22"));

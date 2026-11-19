@@ -320,3 +320,67 @@ pub(super) fn watch(room: Weak<Room>) {
         }
     });
 }
+
+/// What an Ask-me card asks, bound to its one operation: a sign-in as an
+/// account on a site, or a passkey sign-in. The window's card for a
+/// computer's use asks the same words (`SecretUseAsk.tsx`), and so does the
+/// desk browser's.
+pub(super) fn use_question(secret: &str, operation: &crate::contract::SecretOperation) -> String {
+    let host = |origin: &str| {
+        url::Url::parse(origin)
+            .ok()
+            .and_then(|url| {
+                url.host_str().map(|host| match url.port() {
+                    Some(port) => format!("{host}:{port}"),
+                    None => host.to_owned(),
+                })
+            })
+            .unwrap_or_else(|| origin.to_owned())
+    };
+    let (site, passkey) = match operation.kind {
+        crate::contract::SecretOperationKind::Signin => (host(&operation.origin), ""),
+        crate::contract::SecretOperationKind::Passkey => (
+            operation
+                .rp_id
+                .clone()
+                .unwrap_or_else(|| host(&operation.origin)),
+            "the passkey ",
+        ),
+    };
+    let account = if operation.account.is_empty() {
+        String::new()
+    } else {
+        format!(" as {}", operation.account)
+    };
+    format!("Sign in to {site}{account} with {passkey}{secret}?")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contract::{SecretOperation, SecretOperationKind};
+
+    #[test]
+    fn the_card_asks_about_one_sign_in_in_the_windows_words() {
+        let signin = SecretOperation {
+            kind: SecretOperationKind::Signin,
+            origin: "https://github.com".into(),
+            account: "george".into(),
+            rp_id: None,
+        };
+        assert_eq!(
+            use_question("GITHUB", &signin),
+            "Sign in to github.com as george with GITHUB?"
+        );
+        let passkey = SecretOperation {
+            kind: SecretOperationKind::Passkey,
+            origin: "https://github.com".into(),
+            account: String::new(),
+            rp_id: Some("github.com".into()),
+        };
+        assert_eq!(
+            use_question("GITHUB_PASSKEY", &passkey),
+            "Sign in to github.com with the passkey GITHUB_PASSKEY?"
+        );
+    }
+}

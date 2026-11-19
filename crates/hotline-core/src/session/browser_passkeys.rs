@@ -92,8 +92,13 @@ impl Room {
                 .map_err(|error| refuse("NotAllowedError", error))?;
             let page = url::Url::parse(origin)
                 .map_err(|_| refuse("SecurityError", format!("{origin} is not an origin")))?;
-            let doing = format!("sign in to {rp_id} with it on {origin}");
-            self.ask_for_key(persona_id, &persona.name, &key.name, &doing, &page)
+            let operation = crate::contract::SecretOperation {
+                kind: crate::contract::SecretOperationKind::Passkey,
+                origin: origin.to_owned(),
+                account: String::new(),
+                rp_id: Some(rp_id.clone()),
+            };
+            self.ask_for_key(persona_id, &persona.name, &key.name, &operation, &page)
                 .await
                 .map_err(|error| refuse("NotAllowedError", error))?;
         }

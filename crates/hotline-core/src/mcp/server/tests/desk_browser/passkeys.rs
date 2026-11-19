@@ -143,10 +143,10 @@ async fn an_ask_me_passkey_holds_on_the_card_until_the_person_answers() {
     let card = guard_card(&room, "ada").await;
     let title = card["title"].as_str().unwrap();
     assert!(
-        title.starts_with("Ada wants to use GITHUB_PASSKEY on https://github.com."),
+        title.starts_with("Sign in to github.com with the passkey GITHUB_PASSKEY?"),
         "{title}"
     );
-    assert!(title.contains("sign in to github.com"), "{title}");
+    assert!(title.contains("For Ada."), "{title}");
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(!page.is_finished(), "the page waits for the answer");
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), "deny")

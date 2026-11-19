@@ -379,10 +379,10 @@ export function Teammate({
 					<SecretRows
 						personaId={persona.id}
 						teammate={persona.name}
-						granted={persona.secrets ?? []}
+						grants={persona.secretGrants ?? (persona.secrets ?? []).map((name) => ({ name }))}
 						computer={persona.computer?.enabled === true}
 						disabled={busy}
-						onChange={(secrets) => save({ secrets })}
+						onChange={(secretGrants) => save({ secretGrants })}
 					/>
 
 					{/* What it is given to work with, and what actually attached at the last start. */}

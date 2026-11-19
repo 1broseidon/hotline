@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { Persona, SecretUse, SharedSecret, SharedSecretKind } from "../generated/contract";
+import type { GrantPlace, Persona, SecretGrant, SecretService, SecretUse, SharedSecret, SharedSecretKind, UsedWith, VariableUse } from "../generated/contract";
 import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Chips } from "../ui/Chips";
@@ -16,20 +16,54 @@ const MIN_VALUE_CHARS = 8;
 const UNREAD = "Couldn't read the keychain";
 const UNSAVED = "Couldn't store secret";
 
+/** The label a readable grant carries, and the line that confirms one. */
+const READABLE = "Readable by this teammate's programs";
+
+/** The services a key can be used with, from the desk's `services.json`. */
+function useServices(): SecretService[] {
+	const [services, setServices] = useState<SecretService[]>([]);
+	useEffect(() => {
+		let gone = false;
+		wire
+			.command("secrets.services", {})
+			.then((list) => !gone && setServices(list))
+			.catch(() => {});
+		return () => {
+			gone = true;
+		};
+	}, []);
+	return services;
+}
+
+/** The service a key's "Used with" names, or the host the person gave. */
+function usedWithName(use: VariableUse, services: readonly SecretService[]): string {
+	const known = services.find((service) => service.id !== "other" && service.origins.length === use.origins.length && service.origins.every((origin) => use.origins.includes(origin)));
+	return known?.name ?? use.origins.map((origin) => origin.replace(/^https:\/\//, "")).join(", ");
+}
+
+/** The service a key's start suggests: the longest prefix any service lists. */
+function suggestedService(value: string, services: readonly SecretService[]): string | null {
+	let best: { id: string; length: number } | null = null;
+	for (const service of services)
+		for (const prefix of service.prefixes)
+			if (value.startsWith(prefix) && (best === null || prefix.length > best.length)) best = { id: service.id, length: prefix.length };
+	return best?.id ?? null;
+}
+
 /** What a secret is for, as its row says it: never a value. */
-function describe(secret: SharedSecret): string {
+function describe(secret: SharedSecret, services: readonly SecretService[]): string {
 	switch (secret.kind) {
 		case "login":
 			return `Login for ${(secret.sites ?? []).join(", ")} as ${secret.username ?? "?"}${secret.totp === true ? ", with a code" : ""}`;
 		case "passkey":
 			return `Passkey for ${secret.rpId ?? "?"}${secret.userName !== undefined ? ` as ${secret.userName}` : ""}`;
 		default:
-			return "Variable";
+			return secret.usedWith !== undefined ? `Key used with ${usedWithName(secret.usedWith, services)}` : "Variable";
 	}
 }
 
 /** The same, short, beside a tick. */
-function describeShort(secret: SharedSecret, capital = false): string {
+function describeShort(secret: SharedSecret, services: readonly SecretService[], capital = false): string {
 	const said = (() => {
 		switch (secret.kind) {
 			case "login":
@@ -37,10 +71,70 @@ function describeShort(secret: SharedSecret, capital = false): string {
 			case "passkey":
 				return `passkey for ${secret.rpId ?? "?"}`;
 			default:
-				return "variable";
+				return secret.usedWith !== undefined ? `key used with ${usedWithName(secret.usedWith, services)}` : "variable";
 		}
 	})();
 	return capital ? said.charAt(0).toUpperCase() + said.slice(1) : said;
+}
+
+/**
+ * The "Used with" choice for a key: none, one of the desk's services, or
+ * Other with the host the key is sent to. A key's start may suggest one;
+ * the person sees it picked and stores it, or picks another.
+ */
+function UsedWithRow({
+	services,
+	choice,
+	host,
+	suggested,
+	busy,
+	onChoice,
+	onHost,
+}: {
+	services: readonly SecretService[];
+	choice: string;
+	host: string;
+	suggested: boolean;
+	busy: boolean;
+	onChoice(choice: string): void;
+	onHost(host: string): void;
+}) {
+	return (
+		<>
+			<div className="group-row items-start">
+				<span className="w-24 shrink-0 pt-1.5 text-sm text-ink-2">Used with</span>
+				<div className="min-w-0 flex-1">
+					<Chips
+						label="Used with"
+						value={choice}
+						choices={[{ id: "none", name: "None" }, ...services.map((service) => ({ id: service.id, name: service.name }))]}
+						disabled={busy}
+						onChange={onChoice}
+					/>
+					{suggested && choice !== "none" && <p className="hint">Picked from how the key starts.</p>}
+				</div>
+			</div>
+			{choice === "other" && (
+				<FieldRow label="Host" htmlFor="secret-host">
+					<input
+						id="secret-host"
+						className="field font-mono text-sm"
+						placeholder="api.example.com"
+						autoComplete="off"
+						spellCheck={false}
+						value={host}
+						onChange={(event) => onHost(event.target.value)}
+					/>
+				</FieldRow>
+			)}
+		</>
+	);
+}
+
+/** A "Used with" choice as the desk takes it, or none. */
+function chosen(choice: string, host: string): UsedWith | undefined {
+	if (choice === "none") return undefined;
+	return choice === "other" ? { service: "other", host: host.trim() } : { service: choice };
 }
 
 /**
@@ -73,7 +167,10 @@ export function SecretsSection({
 	// The name being replaced, if one is.
 	const [editing, setEditing] = useState<string | null>(null);
 	const [removing, setRemoving] = useState<string | null>(null);
+	// The key whose "Used with" is being changed, if one is.
+	const [using, setUsing] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const services = useServices();
 
 	const refresh = useCallback(() => {
 		void wire
@@ -90,13 +187,14 @@ export function SecretsSection({
 		setAdding(null);
 		setEditing(null);
 		setRemoving(null);
+		setUsing(null);
 	};
 
-	const storeVariable = async (name: string, value: string) => {
+	const storeVariable = async (name: string, value: string, usedWith?: UsedWith) => {
 		setBusy(true);
 		setRefusal(null);
 		try {
-			await wire.command("secrets.set", { name, value });
+			await wire.command("secrets.set", { name, value, ...(usedWith !== undefined ? { usedWith } : {}) });
 			close();
 			refresh();
 		} catch (error) {
@@ -128,6 +226,20 @@ export function SecretsSection({
 			setStored((was) => was?.map((one) => one.name === name ? secret : one) ?? null);
 		} catch (error) {
 			setRefusal(refused("Couldn't change use", error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const changeUsedWith = async (name: string, usedWith?: UsedWith) => {
+		setBusy(true);
+		setRefusal(null);
+		try {
+			const secret = await wire.command("secrets.used_with.set", { name, ...(usedWith !== undefined ? { usedWith } : {}) });
+			setStored((was) => was?.map((one) => one.name === name ? secret : one) ?? null);
+			setUsing(null);
+		} catch (error) {
+			setRefusal(refused("Couldn't change Used with", error));
 		} finally {
 			setBusy(false);
 		}
@@ -176,7 +288,7 @@ export function SecretsSection({
 								{adding === "login" ? (
 									<LoginForm key="login" busy={busy} onStore={storeLogin} onCancel={close} />
 								) : (
-									<VariableForm key="variable" busy={busy} onStore={storeVariable} onCancel={close} />
+									<VariableForm key="variable" services={services} busy={busy} onStore={storeVariable} onCancel={close} />
 								)}
 							</div>
 						</section>
@@ -209,7 +321,7 @@ export function SecretsSection({
 											<span className="group-row-text">
 												<span className="group-row-title font-mono text-sm">{secret.name}</span>
 												<span className="group-row-detail">
-													{describe(secret)} · stored {new Date(secret.updatedAt).toLocaleDateString()}
+													{describe(secret, services)} · stored {new Date(secret.updatedAt).toLocaleDateString()}
 												</span>
 											</span>
 											{secret.kind !== "variable" && <Chips
@@ -217,6 +329,19 @@ export function SecretsSection({
 												choices={[{ id: "auto", name: "Automatic" }, { id: "ask", name: "Ask me" }]}
 												onChange={(use) => void changeUse(secret.name, use as SecretUse)}
 											/>}
+											{secret.kind === "variable" && (
+												<button
+													type="button"
+													className="control btn-quiet btn-sm"
+													disabled={busy}
+													onClick={() => {
+														close();
+														setUsing(secret.name);
+													}}
+												>
+													Used with
+												</button>
+											)}
 											{secret.kind !== "passkey" && (
 												<button
 													type="button"
@@ -245,7 +370,10 @@ export function SecretsSection({
 											</button>
 										</div>
 										{editing === secret.name && secret.kind === "variable" && (
-											<VariableForm name={secret.name} busy={busy} onStore={storeVariable} onCancel={close} />
+											<VariableForm name={secret.name} services={services} busy={busy} onStore={storeVariable} onCancel={close} />
+										)}
+										{using === secret.name && (
+											<UsedWithForm secret={secret} services={services} busy={busy} onSave={(usedWith) => void changeUsedWith(secret.name, usedWith)} onCancel={close} />
 										)}
 										{editing === secret.name && secret.kind === "login" && (
 											<LoginForm name={secret.name} usage={secret.use} sites={secret.sites ?? []} username={secret.username ?? ""} busy={busy} onStore={storeLogin} onCancel={close} />
@@ -313,21 +441,32 @@ function FormFoot({ note, busy, ready, label, onCancel, onSubmit }: { note: stri
 /** A variable: a name, unless replacing, and a value that is typed once and never read back. */
 function VariableForm({
 	name: fixed,
+	services,
 	busy,
 	onStore,
 	onCancel,
 }: {
 	name?: string;
+	services: readonly SecretService[];
 	busy: boolean;
-	onStore(name: string, value: string): Promise<void>;
+	onStore(name: string, value: string, usedWith?: UsedWith): Promise<void>;
 	onCancel(): void;
 }) {
 	const [name, setName] = useState(fixed ?? "");
 	const [value, setValue] = useState("");
-	const ready = name.trim() !== "" && value.length >= MIN_VALUE_CHARS;
+	// Replacing keeps the "Used with" the key has; only a new key asks.
+	const [choice, setChoice] = useState("none");
+	const [host, setHost] = useState("");
+	const [picked, setPicked] = useState(false);
+	const ready = name.trim() !== "" && value.length >= MIN_VALUE_CHARS && (choice !== "other" || host.trim() !== "");
 	const submit = () => {
 		if (!ready || busy) return;
-		void onStore(name.trim(), value);
+		void onStore(name.trim(), value, chosen(choice, host));
+	};
+	const typed = (next: string) => {
+		setValue(next);
+		if (fixed !== undefined || picked) return;
+		setChoice(suggestedService(next, services) ?? "none");
 	};
 
 	return (
@@ -358,7 +497,7 @@ function VariableForm({
 					spellCheck={false}
 					placeholder="At least eight characters"
 					value={value}
-					onChange={(event) => setValue(event.target.value)}
+					onChange={(event) => typed(event.target.value)}
 					onKeyDown={(event) => {
 						if (event.key !== "Enter") return;
 						event.preventDefault();
@@ -366,7 +505,55 @@ function VariableForm({
 					}}
 				/>
 			</FieldRow>
+			{fixed === undefined && (
+				<UsedWithRow
+					services={services}
+					choice={choice}
+					host={host}
+					suggested={!picked}
+					busy={busy}
+					onChoice={(next) => {
+						setPicked(true);
+						setChoice(next);
+					}}
+					onHost={setHost}
+				/>
+			)}
 			<FormFoot note="Never shown again." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
+		</>
+	);
+}
+
+/** A stored key's "Used with", changed without its value typed again. */
+function UsedWithForm({
+	secret,
+	services,
+	busy,
+	onSave,
+	onCancel,
+}: {
+	secret: SharedSecret;
+	services: readonly SecretService[];
+	busy: boolean;
+	onSave(usedWith?: UsedWith): void;
+	onCancel(): void;
+}) {
+	const current = secret.usedWith;
+	const known = current === undefined ? "none" : (services.find((service) => service.id !== "other" && usedWithName(current, [service]) === service.name)?.id ?? "other");
+	const [choice, setChoice] = useState(known);
+	const [host, setHost] = useState(known === "other" && current !== undefined ? (current.origins[0] ?? "").replace(/^https:\/\//, "") : "");
+	const ready = choice !== "other" || host.trim() !== "";
+	return (
+		<>
+			<UsedWithRow services={services} choice={choice} host={host} suggested={false} busy={busy} onChoice={setChoice} onHost={setHost} />
+			<FormFoot
+				note={choice === "none" ? READABLE : "Added only to requests there."}
+				busy={busy}
+				ready={ready}
+				label="Save"
+				onCancel={onCancel}
+				onSubmit={() => onSave(chosen(choice, host))}
+			/>
 		</>
 	);
 }
@@ -492,19 +679,29 @@ function LoginForm({
  * tick is the grant — nothing is ticked until the person ticks it — and a
  * name the keychain no longer has stays in the list with a warning until
  * it is unticked, so a stale grant is seen rather than silently dropped.
- * Unticking a passkey is one of the three ways to take it back.
+ * Unticking a passkey is one of the three ways to take it back. A plain
+ * variable can only be given readable, so its tick asks first, and a
+ * readable grant says so. Where the teammate has both a computer and a
+ * desk shell, a variable's grant says which of them it reaches; a login or
+ * a passkey goes to whichever browser the teammate has.
  */
 export function TeammateSecrets({
-	granted,
+	grants,
+	bothPlaces,
 	disabled,
 	onChange,
 }: {
-	granted: string[];
+	grants: SecretGrant[];
+	bothPlaces: boolean;
 	disabled: boolean;
-	onChange(granted: string[]): void;
+	onChange(grants: SecretGrant[]): void;
 }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [note, setNote] = useState<Refused | null>(null);
+	// The plain variable whose tick waits for the person to say yes.
+	const [asking, setAsking] = useState<string | null>(null);
+	const services = useServices();
+	const granted = grants.map((grant) => grant.name);
 
 	// Re-read whenever the ticks change from elsewhere — a passkey the room
 	// just stored and ticked shows as what it is, not as "not stored".
@@ -523,8 +720,30 @@ export function TeammateSecrets({
 
 	const storedNames = stored === null ? null : stored.map((one) => one.name);
 	const names = storedNames === null ? granted : [...storedNames, ...granted.filter((name) => !storedNames.includes(name))];
-	const toggle = (name: string) =>
-		onChange(granted.includes(name) ? granted.filter((one) => one !== name) : [...granted, name].sort());
+	const sorted = (next: SecretGrant[]) => [...next].sort((left, right) => left.name.localeCompare(right.name));
+	const give = (grant: SecretGrant) => {
+		setAsking(null);
+		onChange(sorted([...grants, grant]));
+	};
+	const toggle = (name: string, record: SharedSecret | undefined) => {
+		if (granted.includes(name)) {
+			onChange(grants.filter((grant) => grant.name !== name));
+			return;
+		}
+		if (record?.kind === "variable" && record.usedWith === undefined) {
+			setAsking((was) => (was === name ? null : name));
+			return;
+		}
+		give({ name });
+	};
+	const place = (grant: SecretGrant, where: GrantPlace) => {
+		const on = grant.on ?? ["computer", "desk"];
+		const next = on.includes(where) ? on.filter((one) => one !== where) : [...on, where];
+		// A grant reaches somewhere; untick it to take it away.
+		if (next.length === 0) return;
+		const { on: _was, ...rest } = grant;
+		onChange(grants.map((one) => (one.name === grant.name ? (next.length === 2 ? rest : { ...rest, on: next }) : one)));
+	};
 
 	return (
 		<div className={`${NESTED} flex-col items-stretch gap-0.5 py-2`}>
@@ -534,23 +753,50 @@ export function TeammateSecrets({
 			{names.map((name) => {
 				const record = stored?.find((one) => one.name === name);
 				const missing = stored !== null && record === undefined;
+				const grant = grants.find((one) => one.name === name);
 				return (
-					<label key={name} className="flex cursor-pointer items-center gap-2.5 py-1.5">
-						<input type="checkbox" className="check" checked={granted.includes(name)} disabled={disabled} onChange={() => toggle(name)} />
-						<span className="min-w-0 flex-1">
-							<span className="block truncate text-sm">{record !== undefined ? describeShort(record, true) : name}</span>
-							{record !== undefined && <span className="group-row-detail font-mono">{name}</span>}
-						</span>
-						{missing && (
-							<span
-								className="flex items-center gap-1 text-danger"
-								title="Store it in Secrets"
-							>
-								<WarningIcon />
-								<span className="group-row-detail text-danger">not stored</span>
+					<Fragment key={name}>
+						<label className="flex cursor-pointer items-center gap-2.5 py-1.5">
+							<input type="checkbox" className="check" checked={grant !== undefined} disabled={disabled} onChange={() => toggle(name, record)} />
+							<span className="min-w-0 flex-1">
+								<span className="block truncate text-sm">{record !== undefined ? describeShort(record, services, true) : name}</span>
+								{record !== undefined && <span className="group-row-detail font-mono">{name}</span>}
+								{grant?.readable === true && <span className="group-row-detail block">{READABLE}</span>}
 							</span>
+							{missing && (
+								<span
+									className="flex items-center gap-1 text-danger"
+									title="Store it in Secrets"
+								>
+									<WarningIcon />
+									<span className="group-row-detail text-danger">not stored</span>
+								</span>
+							)}
+						</label>
+						{asking === name && (
+							<div className="flex items-center gap-2 pb-1.5 pl-7">
+								<span className="min-w-0 flex-1 text-sm text-ink-2">{READABLE}</span>
+								<button type="button" className="control btn-quiet btn-sm" disabled={disabled} onClick={() => setAsking(null)}>
+									Cancel
+								</button>
+								<button type="button" className="control btn btn-sm" disabled={disabled} onClick={() => give({ name, readable: true })}>
+									Give
+								</button>
+							</div>
 						)}
-					</label>
+						{grant !== undefined && bothPlaces && record?.kind === "variable" && (
+							<fieldset className="chips min-w-0 pb-1.5 pl-7" aria-label={`Where ${name} goes`}>
+								{([["computer", "Its computer"], ["desk", "Its desk shell"]] as const).map(([where, label]) => {
+									const on = grant.on === undefined || grant.on.includes(where);
+									return (
+										<button key={where} type="button" aria-pressed={on} className="nt-chip" data-on={on ? "" : undefined} disabled={disabled} onClick={() => place(grant, where)}>
+											{label}
+										</button>
+									);
+								})}
+							</fieldset>
+						)}
+					</Fragment>
 				);
 			})}
 		</div>

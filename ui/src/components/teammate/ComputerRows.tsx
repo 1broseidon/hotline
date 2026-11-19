@@ -236,6 +236,17 @@ export function ComputerRows({
 			{(current.enabled || state !== "absent") && (
 				<>
 					<FoldRow title="Desktop" value={shown} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} action={desktopKey} />
+					{/* The one notice a teammate gets when some of its secrets wait for a computer that can keep them from its programs. */}
+					{state === "running" && status?.protection === "needsUpdate" && (
+						<div className={NESTED}>
+							<RowText title="Secrets waiting" value={status.available !== undefined ? `until ${status.available}` : "until a newer computer"} />
+							{status.available !== undefined && (
+								<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.update")}>
+									Update
+								</button>
+							)}
+						</div>
+					)}
 					{openDesktop && (
 						<>
 							<div className={NESTED}>

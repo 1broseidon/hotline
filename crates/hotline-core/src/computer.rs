@@ -1021,8 +1021,10 @@ pub fn image_of(persona: &Persona, room_image: Option<&str>, newest: Option<&str
 }
 
 /// The release an image reference names: its tag, or `latest` when it has
-/// none. The registry's own port is not a tag.
+/// none. The registry's own port is not a tag, nor a pinned digest
+/// (`repo:0.13.0@sha256:…` is 0.13.0; `repo@sha256:…` names no release).
 pub fn release_of(image: &str) -> String {
+    let image = image.split_once('@').map_or(image, |(named, _)| named);
     let name = image.rsplit('/').next().unwrap_or(image);
     match name.split_once(':') {
         Some((_, tag)) if !tag.is_empty() => tag.to_string(),

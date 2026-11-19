@@ -258,6 +258,28 @@ fn only_a_release_that_splits_is_made_as_root_with_setuid_and_setgid_alone() {
             (image_at("0.13.0"), true),
             (image_at("0.13.0-rc.5"), true),
             (image_at("1.0.0"), true),
+            // A release candidate built here, and its probe build.
+            ("hotline-computer:0.13.0-rc.1".to_owned(), true),
+            ("hotline-computer:0.13.0-rc.1-probe".to_owned(), true),
+            (
+                "localhost:5000/hotline-computer:0.13.0-rc.2".to_owned(),
+                true,
+            ),
+            // A release pinned by digest is the release its tag names.
+            (
+                format!("{}@sha256:{}", image_at("0.13.0"), "a".repeat(64)),
+                true,
+            ),
+            // Nothing that names no release: today's flags, so the computer
+            // runs legacy and says so at /capabilities.
+            ("hotline-computer:latest".to_owned(), false),
+            ("hotline-computer".to_owned(), false),
+            ("localhost:5000/hotline-computer".to_owned(), false),
+            (
+                format!("{COMPUTER_REPOSITORY}@sha256:{}", "a".repeat(64)),
+                false,
+            ),
+            ("hl-secrets-w1:dev".to_owned(), false),
         ] {
             let args = create_args(runtime, "test", &image, "/tmp", &ada).unwrap();
             assert!(args.contains(&"--cap-drop=ALL".to_owned()), "{args:?}");

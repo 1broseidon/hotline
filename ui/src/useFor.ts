@@ -1,7 +1,7 @@
 import type { CapabilityJob, CapabilityLiveModel, CapabilityModel, CapabilityOptions, CapabilityPick, CapabilityProvider } from "./generated/contract";
 
 /**
- * What Settings › Providers › Use for needs from `capabilities.options`:
+ * What Settings › Providers › Use for and Settings › Voice need from `capabilities.options`:
  * the picker's choices, the writes a pick makes, and the words for the
  * spending line. Kept apart from the component so the rules can be tested
  * without a window.
@@ -162,6 +162,12 @@ function runsOn(job: CapabilityJob): RunsOn | undefined {
 
 /** The desk's own models' provider, whose models are named family first ("Parakeet TDT 0.6B"). */
 const ON_THE_DESK = "local";
+
+/** Which of the desk's own models a Transcription or Speech job runs on now, if it runs on one. */
+export function deskModelOf(job: CapabilityJob): string | undefined {
+	const now = runsOn(job);
+	return now?.pick.providerId === ON_THE_DESK ? now.model?.id : undefined;
+}
 
 /**
  * The Transcription row's second line: who hears, and what it costs
@@ -416,7 +422,7 @@ export function callKind(front: FrontSetting): CallKind {
 }
 
 /**
- * The rows of Settings › Calls for each choice: a live model hears and
+ * The rows of Settings › Voice › Calls for each choice: a live model hears and
  * speaks itself, so it has only its voice; Turn by turn has the desk's
  * Transcription and Speech, and the call assistant's acknowledgement while
  * the teammate thinks; Off has nothing to set.

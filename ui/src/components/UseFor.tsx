@@ -6,7 +6,6 @@ import { wire } from "../wire";
 import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
 import { Fold } from "../ui/Fold";
-import { DeskModels } from "./DeskModels";
 import {
 	acknowledgeOf,
 	acknowledgePatch,
@@ -51,18 +50,80 @@ const ON_THIS_MAC = "|this-mac";
 const ON_THE_DESK = "local";
 
 /**
- * Which connected provider and model does each job (what they may spend is
+ * Which connected provider and model makes images (what it may spend is
  * Budgets, below). It sits under Providers' connections because it is about
- * them: a picker lists only what is already connected, grouped by provider,
- * and Automatic, the first choice, is the key being absent — the desk picks
- * the first provider that can. A job nothing connected can do says what to
- * connect instead of offering a picker.
- *
+ * them: the picker lists only what is already connected, grouped by
+ * provider, and Automatic, the first choice, is the key being absent — the
+ * desk picks the first provider that can. How calls run is Settings › Voice
+ * (`CallSettings`).
+ */
+export function UseFor({
+	options,
+	onChanged,
+}: {
+	options: CapabilityOptions;
+	/** The options are stale: ask for them again. */
+	onChanged(): void;
+}) {
+	const { write, refusal } = useWrite(onChanged);
+	return (
+		<section>
+			<h3 className="group-title">Use for</h3>
+			<div className="grouped use-for">
+				<JobRow title="Images" detail={options.images.selected?.providerId === OFF ? "Teammates cannot make images" : inUse(options.images)} job={options.images}>
+					<Picker
+						value={currentId(options.images)}
+						choices={withOff(shortChoices(options.images))}
+						placeholder="Automatic"
+						label="Model for images"
+						onChange={(id) => {
+							const next = pickModel(id);
+							write({ images: next === null ? null : stored(next.provider, next.model) });
+						}}
+					/>
+				</JobRow>
+			</div>
+			{refusal !== null && <Refusal message={refusal} />}
+		</section>
+	);
+}
+
+/**
  * Every write is one `settings.update` of the whole setting, so the voice
  * object is merged from what the room holds and not rebuilt from the
  * options, which would drop the caps and the fallback.
  */
-export function UseFor({
+function useWrite(onChanged: () => void): { write(patch: Record<string, unknown>): void; refusal: string | null } {
+	const [refusal, setRefusal] = useState<string | null>(null);
+	const write = (patch: Record<string, unknown>) => {
+		setRefusal(null);
+		wire
+			.command("settings.update", { patch })
+			.then(onChanged)
+			.catch((error: Error) => setRefusal(error.message));
+	};
+	return { write, refusal };
+}
+
+function pickModel(id: string): Stored | null {
+	if (id === AUTOMATIC) return null;
+	const { providerId, modelId } = splitPickId(id);
+	return stored(providerId, modelId);
+}
+
+/**
+ * How calls run, to the desk or to a teammate, and the rows that choice
+ * has. A live model (Grok Voice, GPT-Live, GPT Realtime) hears, talks and
+ * runs the teammate's lookups itself in one stream, so it has only its
+ * voice; it is listed once for every connected login or key that runs it,
+ * since that decides who pays, and never for a provider that is not
+ * connected. Turn by turn is the teammate answering on its own model while
+ * the desk transcribes and speaks, so it has Transcription and Speech, and
+ * the words the desk's own models listen for once one is installed. The
+ * call assistant answers calls to the desk either way. Settings › Voice
+ * holds it, over the page of the desk's own models.
+ */
+export function CallSettings({
 	options,
 	voice,
 	onChanged,
@@ -73,73 +134,7 @@ export function UseFor({
 	/** The options are stale: ask for them again. */
 	onChanged(): void;
 }) {
-	const [refusal, setRefusal] = useState<string | null>(null);
-
-	const write = (patch: Record<string, unknown>) => {
-		setRefusal(null);
-		wire
-			.command("settings.update", { patch })
-			.then(onChanged)
-			.catch((error: Error) => setRefusal(error.message));
-	};
-
-	const pickModel = (id: string): Stored | null => {
-		if (id === AUTOMATIC) return null;
-		const { providerId, modelId } = splitPickId(id);
-		return stored(providerId, modelId);
-	};
-
-	return (
-		<>
-			<section>
-				<h3 className="group-title">Use for</h3>
-				<div className="grouped use-for">
-					<JobRow title="Images" detail={options.images.selected?.providerId === OFF ? "Teammates cannot make images" : inUse(options.images)} job={options.images}>
-						<Picker
-							value={currentId(options.images)}
-							choices={withOff(shortChoices(options.images))}
-							placeholder="Automatic"
-							label="Model for images"
-							onChange={(id) => {
-								const next = pickModel(id);
-								write({ images: next === null ? null : stored(next.provider, next.model) });
-							}}
-						/>
-					</JobRow>
-				</div>
-			</section>
-			<section>
-				<Calls options={options} voice={voice} write={write} pickModel={pickModel} onChanged={onChanged} />
-				{refusal !== null && <Refusal message={refusal} />}
-			</section>
-		</>
-	);
-}
-
-/**
- * How calls run, to the desk or to a teammate, and the rows that choice
- * has. A live model (Grok Voice, GPT-Live, GPT Realtime) hears, talks and
- * runs the teammate's lookups itself in one stream, so it has only its
- * voice; it is listed once for every connected login or key that runs it,
- * since that decides who pays, and never for a provider that is not
- * connected. Turn by turn is the teammate answering on its own model while
- * the desk transcribes and speaks, so it has Transcription and Speech. The
- * call assistant answers calls to the desk either way.
- */
-function Calls({
-	options,
-	voice,
-	write,
-	pickModel,
-	onChanged,
-}: {
-	options: CapabilityOptions;
-	voice: unknown;
-	write(patch: Record<string, unknown>): void;
-	pickModel(id: string): Stored | null;
-	/** The options are stale: ask for them again. */
-	onChanged(): void;
-}) {
+	const { write, refusal } = useWrite(onChanged);
 	const live = options.live ?? [];
 	const front = callFront(voice, live);
 	const kind = callKind(front);
@@ -148,8 +143,9 @@ function Calls({
 	const setVoice = (job: "stt" | "tts" | "dispatcher", choice: Stored | null) => write({ voice: voicePatch(voice, job, choice) });
 	const words = CALL_WORDS[kind];
 	const detail = kind === "live" && chosen === undefined ? "Not connected. Connect its provider above, or choose another." : words.detail;
+	const onDesk = options.stt.options.some((one) => one.providerId === ON_THE_DESK);
 	return (
-		<>
+		<section>
 			<h3 className="group-title">Calls</h3>
 			<div className="grouped use-for">
 				<div className="group-row">
@@ -180,7 +176,7 @@ function Calls({
 						/>
 					</div>
 				)}
-				{rows.includes("Transcription") && <Transcription options={options} voice={voice} write={write} pickModel={pickModel} onChanged={onChanged} />}
+				{rows.includes("Transcription") && <Transcription options={options} voice={voice} write={write} />}
 				{rows.includes("Speech") && (
 					<JobRow title="Speech" detail={speechLine(options.tts)} tag={whereTag(options.tts, options.deviceName)} job={options.tts}>
 						<Picker
@@ -240,70 +236,54 @@ function Calls({
 						/>
 					</label>
 				)}
+				{rows.includes("Transcription") && onDesk && <ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />}
 			</div>
 			{words.hint !== undefined && <p className="group-hint">{words.hint}</p>}
-		</>
+			{refusal !== null && <Refusal message={refusal} />}
+		</section>
 	);
 }
 
 /**
  * Turn by turn's Transcription: the model that turns what is said into
- * words, which only Turn by turn uses, with the desk's own free models
- * folded under it to download. This Mac's own recognizer is offered too
- * where the window has one (macOS's speech recognition, so only ever on a
- * Mac), for calls placed from this window.
+ * words, which only Turn by turn uses; the desk's own free models are
+ * downloaded on the Voice models page. This Mac's own recognizer is offered
+ * too where the window has one (macOS's speech recognition, so only ever
+ * on a Mac), for calls placed from this window.
  */
 function Transcription({
 	options,
 	voice,
 	write,
-	pickModel,
-	onChanged,
 }: {
 	options: CapabilityOptions;
 	voice: unknown;
 	write(patch: Record<string, unknown>): void;
-	pickModel(id: string): Stored | null;
-	onChanged(): void;
 }) {
-	const [open, setOpen] = useState(false);
 	const hearsHere = useSpeechOnThisMac();
 	const hearHere = useHearOnThisMac() && hearsHere;
 	const job = options.stt;
 	const choices: PickerChoice[] = [...(hearsHere ? [{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }] : []), ...shortChoices(job)];
-	const onDesk = job.options.find((one) => one.providerId === ON_THE_DESK);
 	return (
-		<>
-			<JobRow
-				title="Transcription"
-				detail={hearHere ? "Apple speech recognition · free" : transcriptionLine(job)}
-				tag={hearHere ? "on this Mac" : whereTag(job, options.deviceName)}
-				job={job}
-				ownChoice={hearsHere}
-			>
-				<Picker
-					value={hearHere ? ON_THIS_MAC : currentId(job)}
-					choices={choices}
-					placeholder="Automatic"
-					label="Transcription"
-					onChange={(id) => {
-						if (id === ON_THIS_MAC) return setHearOnThisMac(true);
-						setHearOnThisMac(false);
-						write({ voice: voicePatch(voice, "stt", pickModel(id)) });
-					}}
-				/>
-			</JobRow>
-			<Fold
-				title="Models on the desk"
-				value={onDesk === undefined ? "Download one, free" : onDesk.models.map((one) => one.label ?? one.id).join(", ")}
-				action={onDesk === undefined ? "Set up" : "Change"}
-				open={open}
-				onToggle={() => setOpen((was) => !was)}
-			>
-				<DeskModels onInstalledChanged={onChanged} />
-				{onDesk !== undefined && <ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />}
-			</Fold>
-		</>
+		<JobRow
+			title="Transcription"
+			detail={hearHere ? "Apple speech recognition · free" : transcriptionLine(job)}
+			tag={hearHere ? "on this Mac" : whereTag(job, options.deviceName)}
+			job={job}
+			ownChoice={hearsHere}
+		>
+			<Picker
+				value={hearHere ? ON_THIS_MAC : currentId(job)}
+				choices={choices}
+				placeholder="Automatic"
+				label="Transcription"
+				onChange={(id) => {
+					if (id === ON_THIS_MAC) return setHearOnThisMac(true);
+					setHearOnThisMac(false);
+					write({ voice: voicePatch(voice, "stt", pickModel(id)) });
+				}}
+			/>
+		</JobRow>
 	);
 }
 

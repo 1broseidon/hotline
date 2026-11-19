@@ -533,6 +533,12 @@
 	.use-for-nested .group-row-title {
 		color: var(--ink-2);
 	}
+	/* What a desk model does, beside its name on the Voice models page. */
+	.group-row-title .model-kind {
+		height: 18px;
+		margin-left: 8px;
+		vertical-align: 1px;
+	}
 	/* Beside Transcription or Speech: the model runs on the desk's own machine. */
 	.use-for-tag {
 		margin-left: 8px;
@@ -753,8 +759,11 @@
 		margin: 0 0 8px 16px;
 	}
 	/* A group of one setting is a row, not a card: the card is for rows that
-	 * belong together. */
-	.pane-column .grouped:has(> .group-row:only-child) {
+	 * belong together. A row that opens a page under the section (a
+	 * provider, a server, a skill, Voice models) keeps its card alone too:
+	 * the card is what says it can be pressed, and without it the row's
+	 * chevron floats in the column. */
+	.pane-column .grouped:has(> .group-row:only-child:not(.group-row-page)) {
 		background: none;
 		box-shadow: none;
 	}

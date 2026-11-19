@@ -160,7 +160,7 @@ once the meter has heard a voice, less any words recognized more than half
 a second before that onset, which were the room's. When the detector ends
 the turn, the window stops the session for its complete final text and
 sends it once with `voice.text` under the next sequence number; an empty
-final sends nothing. Settings › Providers › Calls offers it as On this Mac
+final sends nothing. Settings › Voice › Calls offers it as On this Mac
 under Transcription while this Mac can hear.
 
 ## Three ways to talk
@@ -435,28 +435,34 @@ small pieces the model never emits, and Parakeet heard "Parakeek".
 
 ### In Settings
 
-In the window the models are rows in Settings › Providers › Calls, in the
-Models on the desk fold under Transcription (`ui/src/components/DeskModels.tsx`),
-shown while calls are Turn by turn, which is what uses them. Folded, it
-names the installed models, or reads "Download one, free" with Set up. A
-row is the model's name with its tag after a dot
-(Parakeet English · fast), from the catalogue, and its Download button names
-the size; while it downloads the row shows how much has arrived over a bar
-and offers Cancel, and once installed it shows its size on the desk and
-offers Remove. While Parakeet English is the only model installed and the
-window's language is not English, its row adds one line, Parakeet hears
-more languages; in English it says nothing, since there Parakeet English
-hears as well. The window asks `voice.models` every half second while
-anything is downloading or unpacking, and asks for the options again when
-what is installed changes, so the Transcribes with picker gains or loses On
+In the window the models are on Voice models, a page under Settings ›
+Voice (`ui/src/components/DeskModels.tsx`), opened from one row beneath the
+Calls group that sums what is installed ("2 installed · 736 MB", or None
+installed). The page opens with the space the installed models take, then
+two groups. Installed lists each model with a tag saying what it does,
+Transcription or Speech, then its size, its catalogue line, Used for calls
+while Turn by turn's Transcription or Speech runs on it, and Credits (the
+model's credit with a link to its licence) and Remove. Recommended lists
+what Hotline offers that is not installed, each with its tag and catalogue
+line, and a Download button that names the size; while one downloads the
+row shows how much has arrived over a bar and offers Cancel. The wire does
+not say whether a model hears or speaks, so the window tags as Speech any
+desk model Speech lists, and the desk's voice by its id before it is
+installed. While Parakeet English is the only model installed and the
+window's language is not English, its line adds Parakeet hears more
+languages; in English it says nothing, since there Parakeet English hears
+as well. The window asks `voice.models` every half second while anything
+is downloading or unpacking, and asks for the options again when what is
+installed changes, so the Transcription and Speech pickers gain or lose On
 the desk. A failed download's sentence takes the row's second line until
-the next try. Credits opens each model's credit with a link to its licence.
+the next try.
 
-Once a model is installed, Words to listen for is a fold under the models:
-closed it shows the words, open it is one field of words separated by
-commas, and Save writes them to `voice.listenFor`, keeping the rest of the
-voice setting. Its hint says Parakeet listens for them and for teammates'
-names, which are never typed.
+Once a model that hears is installed, Words to listen for is the last row
+of Settings › Voice › Calls while calls are Turn by turn: closed it shows
+the words, open it is one field of words separated by commas, and Save
+writes them to `voice.listenFor`, keeping the rest of the voice setting.
+Its hint says Parakeet listens for them and for teammates' names, which
+are never typed.
 
 ### The adapter
 
@@ -582,7 +588,7 @@ when the completion frame omits text, without dispatching interim recognition.
 
 ### What the picker offers
 
-Settings › Providers › Calls lists, under Transcription and Speech, every
+Settings › Voice › Calls lists, under Transcription and Speech, every
 speech model the owner's connected
 providers offer, not just the defaults, after the desk's own installed models
 under On the desk. `capabilities.options` asks each
@@ -660,7 +666,7 @@ the same error. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
 `dispatcher` names the chat model that routes what was said on a call to the
-desk; Settings › Providers › Calls calls it the call assistant. On a call to
+desk; Settings › Voice › Calls calls it the call assistant. On a call to
 a teammate it only says again, to be heard, a reply the teammate wrote
 without a spoken version ([A reply written only to be
 read](#a-reply-written-only-to-be-read)), and, with `acknowledge` on, writes
@@ -864,7 +870,7 @@ voice. Desk calls always use the desk's voice.
 ### Acknowledging while the teammate thinks
 
 A teammate's model can take ten seconds to write its first words, and Turn
-by turn is quiet meanwhile. With `acknowledge` on (Settings › Providers ›
+by turn is quiet meanwhile. With `acknowledge` on (Settings › Voice ›
 Calls, Acknowledge while the teammate thinks, shown for Turn by turn; off
 by default), the desk covers that wait with one short line in the
 teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
@@ -1241,7 +1247,7 @@ connected xAI login or key: a live model is the default for calls to the
 desk and to a teammate. `openai` is GPT Realtime (`gpt-realtime-2.1`) on an
 OpenAI API key; a ChatGPT sign-in does not run it.
 
-Settings › Providers › Calls › Model has two groups. **Live** lists
+Settings › Voice › Calls › Model has two groups. **Live** lists
 `capabilities.options.live`: the realtime models the desk can open on what
 is connected (`speech::live_models`, which asks `resolve_front` of each
 model on each login or key that runs it, so nothing is listed a call could
@@ -1260,10 +1266,10 @@ The rows follow the choice. A live model shows Voice (its voices, "Eve on
 Grok subscription") and the Call assistant; it hears and speaks itself, so
 there is no Transcription or Speech row, and the hint beneath reads "Talk
 over it to interrupt." Turn by turn shows Transcription (transcription
-models, plus this Mac's own recognizer where the window has one, and the
-Models on the desk fold), Speech (each speaking model's voices, "Phonon ·
-Zoey"), the Call assistant and the Acknowledge while the teammate thinks
-switch, with "Tap to interrupt." beneath. Each of
+models, plus this Mac's own recognizer where the window has one), Speech
+(each speaking model's voices, "Phonon · Zoey"), the Call assistant, the
+Acknowledge while the teammate thinks switch, and Words to listen for once
+a desk model hears, with "Tap to interrupt." beneath. Each of
 Transcription and Speech says what runs it and its price from the voice
 ledger (`ledger::stt_cost`, `ledger::tts_cost`: "Parakeet · free", "Phonon
 through Ollama · free", "Groq · $0.001 a minute"), and carries a small tag

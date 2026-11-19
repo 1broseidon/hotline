@@ -24,6 +24,7 @@ import { ImportSection } from "./settings/Import";
 import { InboundSection } from "./settings/Inbound";
 import { ProvidersSection } from "./settings/Providers";
 import { ToolsSection } from "./settings/Tools";
+import { VoiceSection } from "./settings/Voice";
 
 export { McpOAuthControls } from "./settings/Tools";
 
@@ -31,6 +32,7 @@ export type SettingsSection =
 	| "general"
 	| "desks"
 	| "providers"
+	| "voice"
 	| "tools"
 	| "skills"
 	| "computer"
@@ -46,6 +48,7 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
 	{ id: "desks", title: "Desks" },
 	{ id: "providers", title: "Providers" },
+	{ id: "voice", title: "Voice" },
 	{ id: "tools", title: "Tools" },
 	{ id: "skills", title: "Skills" },
 	{ id: "computer", title: "Computer" },
@@ -206,9 +209,10 @@ export function Settings({
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
-	// Providers, Tools and Skills have a page under them, so their bands are
-	// their own; Secrets keeps its own list, so it draws itself the same way.
+	// Providers, Voice, Tools and Skills have a page under them, so their bands
+	// are their own; Secrets keeps its own list, so it draws itself the same way.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
+	if (section === "voice") return <VoiceSection onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
 	if (section === "secrets") return <SecretsSection onBack={onBack} team={team} onOpenTeammate={onOpenTeammate} />;

@@ -123,7 +123,7 @@ export function ToolsSection({
 									<button
 										key={server.id}
 										type="button"
-										className="group-row group-row-choice w-full text-left"
+										className="group-row group-row-choice group-row-page w-full text-left"
 										onClick={() => setOpen(server.id)}
 									>
 										<span className="group-row-text">

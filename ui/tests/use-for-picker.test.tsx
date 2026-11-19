@@ -2,12 +2,25 @@ import { expect, spyOn, test } from "bun:test";
 import type { CapabilityOptions } from "../src/generated/contract";
 import { installDom } from "./dom";
 
+/** Providers' Use for over Voice's call settings: what was one block before Voice had a tab. */
+async function bothBlocks() {
+	const { UseFor, CallSettings } = await import("../src/components/UseFor");
+	return function Both({ options, voice, onChanged }: { options: CapabilityOptions; voice: unknown; onChanged(): void }) {
+		return (
+			<>
+				<UseFor options={options} onChanged={onChanged} />
+				<CallSettings options={options} voice={voice} onChanged={onChanged} />
+			</>
+		);
+	};
+}
+
 test("ChatGPT images require a picker selection, Automatic clears it, calls with no live voice provider are Turn by turn, and a chosen live model that is not connected says so", async () => {
 	const { teardown } = installDom();
 	// React probes event support at module load; install the DOM before loading it.
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
-	const { UseFor } = await import("../src/components/UseFor");
+	const Blocks = await bothBlocks();
 	const { wire } = await import("../src/wire");
 	const calls: { cmd: string; params: unknown }[] = [];
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: unknown) => {
@@ -26,7 +39,7 @@ test("ChatGPT images require a picker selection, Automatic clears it, calls with
 		spending: { budgets: [] },
 	};
 	let changes = 0;
-	const render = () => act(async () => { root.render(<UseFor options={options} voice={undefined} onChanged={() => { changes += 1; }} />); });
+	const render = () => act(async () => { root.render(<Blocks options={options} voice={undefined} onChanged={() => { changes += 1; }} />); });
 	const pick = async (name: string) => {
 		await act(async () => { (container.querySelector('[aria-label="Model for images"]') as HTMLButtonElement).click(); });
 		expect(document.body.textContent).toContain("Codex (ChatGPT subscription)");
@@ -52,7 +65,7 @@ test("ChatGPT images require a picker selection, Automatic clears it, calls with
 		expect(acknowledge().closest("label")!.title).toBe("Covers the wait");
 		await act(async () => { acknowledge().click(); });
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: { acknowledge: true } } } });
-		await act(async () => { root.render(<UseFor options={options} voice={{ acknowledge: true }} onChanged={() => {}} />); });
+		await act(async () => { root.render(<Blocks options={options} voice={{ acknowledge: true }} onChanged={() => {}} />); });
 		expect(acknowledge().checked).toBe(true);
 		await act(async () => { acknowledge().click(); });
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: null } } });
@@ -63,7 +76,7 @@ test("ChatGPT images require a picker selection, Automatic clears it, calls with
 		expect(container.textContent).toContain("Transcription");
 		expect(container.textContent).not.toContain("Not connected");
 		// A live model the owner chose stays shown, and says it is not connected.
-		await act(async () => { root.render(<UseFor options={options} voice={{ front: { provider: "grok" } }} onChanged={() => {}} />); });
+		await act(async () => { root.render(<Blocks options={options} voice={{ front: { provider: "grok" } }} onChanged={() => {}} />); });
 		expect(container.textContent).toContain("Not connected. Connect its provider above, or choose another.");
 		expect(container.textContent).not.toContain("Transcription");
 	} finally {
@@ -77,7 +90,7 @@ test("each call model shows only its own rows: a live model its voice, Turn by t
 	const { teardown } = installDom();
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
-	const { UseFor } = await import("../src/components/UseFor");
+	const Blocks = await bothBlocks();
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
@@ -97,7 +110,7 @@ test("each call model shows only its own rows: a live model its voice, Turn by t
 		deviceName: "this computer",
 	};
 	const rows = () => [...container.querySelectorAll(".group-row-title")].map((node) => node.firstChild?.textContent);
-	const render = (voice: unknown) => act(async () => root.render(<UseFor options={options} voice={voice} onChanged={() => {}} />));
+	const render = (voice: unknown) => act(async () => root.render(<Blocks options={options} voice={voice} onChanged={() => {}} />));
 	try {
 		await render({ front: { provider: "grok", credential: "xai-subscription" } });
 		expect(rows()).toEqual(["Images", "Model", "Voice", "Call assistant"]);

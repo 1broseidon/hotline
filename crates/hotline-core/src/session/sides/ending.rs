@@ -76,6 +76,49 @@ impl Room {
         true
     }
 
+    /// Lets go of a call's agent that was started ahead of anything said on
+    /// it ([`Room::prepare_call`]) and that no line has reached since, and
+    /// puts the thread's link back as it was: a call that ended unused leaves
+    /// what a call that never started one leaves. Says whether it did. The
+    /// look and the claim are one step under the turn lock, as in
+    /// [`Room::park_if_idle`], and the claim is a park's, so a line that
+    /// comes after finds the thread ending and reopens it.
+    pub(in crate::session) fn let_go_of_unused(&self, side: &Arc<LiveSide>) -> bool {
+        let ending = {
+            let turns = lock(&side.turns);
+            // A turn runs, or a line waits for the agent to come up.
+            if turns.running && (side.up.get().is_some() || !turns.waiting.is_empty()) {
+                return false;
+            }
+            let Some(prior) = lock(&side.warm).take() else {
+                return false;
+            };
+            let ending = Ending::Restore(Box::new(prior));
+            if !side.closed.claim(&ending) {
+                return false;
+            }
+            ending
+        };
+        self.carry_out(side, ending);
+        true
+    }
+
+    /// The agent a call started for its thread, let go of when the call
+    /// ended before anything said reached it, unless another call is on the
+    /// thread now.
+    pub(in crate::session) fn let_go_of_unused_call(&self, thread: &ThreadId) {
+        if self.on_the_call(thread) {
+            return;
+        }
+        if let Some(side) = self
+            .sides
+            .get(&thread.key)
+            .filter(|side| side.thread == *thread)
+        {
+            self.let_go_of_unused(&side);
+        }
+    }
+
     /// What an ending claimed does. The thread stays in the room's map, ending,
     /// until its link says where it went, so nothing that asks sees a live
     /// link with no thread behind it, or a thread with a link that still says

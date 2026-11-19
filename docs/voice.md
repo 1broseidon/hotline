@@ -968,6 +968,9 @@ goes out, with the call and sequence and never the words or audio:
 [voice] turn call=<id> seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- tts_done=2900ms desk_total=16900ms model=hotline/<provider>/<model> tts=ollama/phonon
 ```
 
+A call's first timed turn adds `session_ready=` after `desk_total`: see
+[The call's thread starts with the call](#the-calls-thread-starts-with-the-call).
+
 - `silence`: the pause the client waited for after the person stopped
   speaking before it ended the turn (`silenceMs` on `voice.text`,
   `voice.utterance` or the final `voice.audio` chunk). It happens before the
@@ -988,6 +991,38 @@ goes out, with the call and sequence and never the words or audio:
   `desk_total`, plus transport.
 
 It measures desk publication, not transport or client playback latency.
+
+### The call's thread starts with the call
+
+A call to a teammate runs in its own call thread beside the main
+conversation, with an agent of its own. On Turn by turn, that agent is
+started the moment the call is placed (`Room::prepare_call`), while the
+person finds their first sentence: the process and its session (`session/new`
+or `session/load` on ACP), Hotline's tools served and the teammate's MCP
+servers handed over (Hotline Agent connects and lists them; an ACP child is
+named them and connects them itself), `AGENTS.md`, the computer's grant and
+the main conversation's tail read. Nothing is sent to the agent, so no model
+is asked anything and no tokens are spent. What a harness takes only with a
+prompt waits for the first line: an ACP child's briefing (the preamble) rides
+its first prompt, and the provider's first uncached request is still the
+first turn's.
+
+The first line said finds the thread live and is the agent's first turn; said
+while the agent is still starting, it waits behind that one start. A call
+that ends before any line reaches the agent lets it go and puts the thread's
+link back as `call_began` wrote it, so a call nobody spoke on leaves what it
+always left. A start that fails is put back the same way, without a word in
+the thread: the first line starts the agent again and meets the failure
+there. Live calls, calls to the desk, and calls that continue a thread whose
+agent is already up start nothing. Two log lines bracket it:
+
+```text
+[voice] call <id>: preparing the teammate's session
+[voice] call <id>: the teammate's session is ready after 2300ms
+```
+
+and the call's first timed turn says `session_ready=2300ms` (`-` when the
+call started no agent, or it failed).
 
 A shared speech adapter set also logs `transcription to synthesized clip` when
 its first TTS result follows transcription. That provider-only measurement

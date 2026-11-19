@@ -87,6 +87,54 @@ impl Room {
         Ok(())
     }
 
+    /// Starts the agent of a call's thread the moment a Turn by turn call is
+    /// placed, so the first thing the person says finds it up: the process
+    /// and its session, its tools served and its MCP servers handed over,
+    /// the context it is told read. Nothing is said to it, so no model is
+    /// asked anything; what a harness takes only with a prompt (an ACP
+    /// child's briefing rides its first one) waits for the first line.
+    /// Answers once the agent is up, or why it is not.
+    ///
+    /// It is the start the first line would make, made sooner: that line
+    /// finds the thread live, waits behind the start if it is not over, and
+    /// is the agent's first turn. A call that ends before any line reaches
+    /// the agent lets it go and puts the thread's link back as it was
+    /// ([`Room::let_go_of_unused_call`]), and so does a start that fails,
+    /// without a word in the thread: the first line starts it again and
+    /// meets the failure where it would have.
+    pub(crate) async fn prepare_call(
+        self: &Arc<Self>,
+        persona: &str,
+        thread: &ThreadId,
+    ) -> Result<(), String> {
+        self.validate_call_thread(persona, thread)?;
+        let ready = {
+            let _working = self.working()?;
+            let _admission = self.sides.waking.lock().await;
+            let prior = self.link_of(thread).ok_or("There is no such thread.")?;
+            let (side, launch) = self.wake_work(&thread.key, false, None).await?;
+            let Some(launch) = launch else {
+                return if side.driver().is_some() {
+                    Ok(())
+                } else {
+                    Err("its agent is already starting for a line said on it".into())
+                };
+            };
+            *lock(&side.warm) = Some(prior);
+            let (ready, started) = tokio::sync::oneshot::channel();
+            self.launch_telling(launch, Some(ready));
+            // A call that ended before the agent was marked unused found
+            // nothing to let go of, so it is let go of here.
+            if !self.on_the_call(thread) {
+                self.let_go_of_unused(&side);
+            }
+            started
+        };
+        ready
+            .await
+            .map_err(|_| "the desk stopped before its agent was up".to_string())?
+    }
+
     /// Leaves the one overrun note for a direct call's running turn, which
     /// the teammate reads with its next tool results. It is a note, not a
     /// steered line: a wait goes on and queued tool calls still run.

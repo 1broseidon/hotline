@@ -146,6 +146,12 @@ its own to say yet, and it obeys cut-in, hold and hang-up as any clip. It
 is never said on a live call or a call to the desk
 ([voice.md](voice.md#acknowledging-while-the-teammate-thinks)).
 
+A Turn by turn call to a teammate starts its call thread's agent when the
+call is placed, without saying anything to it, so the first turn does not wait
+for a process to start and a session to open; a call nobody spoke on lets it
+go and leaves the thread as it was
+([voice.md](voice.md#the-calls-thread-starts-with-the-call)).
+
 `session.update` refreshes running work, the call so far, recent already-said
 lines and actual chat posts at turn/tool boundaries and on a half-second
 change check. Context is bounded and scrubbed; interruption notices distinguish

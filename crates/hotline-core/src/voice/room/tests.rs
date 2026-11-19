@@ -20,6 +20,10 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+/// What a progress line was asked with: the teammate, the person's words,
+/// what the teammate is doing and what was said aloud before it.
+type ProgressAsked = (String, String, String, Option<String>);
+
 pub(crate) struct Fake {
     pub transcript: Mutex<String>,
     pub answers: AtomicUsize,
@@ -53,6 +57,10 @@ pub(crate) struct Fake {
     pub ack: Mutex<Result<String, String>>,
     pub ack_delay: Mutex<Duration>,
     pub acks: Mutex<Vec<(String, String)>>,
+    /// What the call assistant's progress line comes back with, and what
+    /// each was asked.
+    pub progress: Mutex<Result<String, String>>,
+    pub progresses: Mutex<Vec<ProgressAsked>>,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -81,6 +89,8 @@ impl Default for Fake {
             ack: Mutex::new(Err("No acknowledgement is scripted.".into())),
             ack_delay: Mutex::new(Duration::ZERO),
             acks: Mutex::new(Vec::new()),
+            progress: Mutex::new(Err("No progress line is scripted.".into())),
+            progresses: Mutex::new(Vec::new()),
         }
     }
 }
@@ -210,6 +220,22 @@ impl Dispatcher for Fake {
         let delay = *lock(&self.ack_delay);
         tokio::time::sleep(delay).await;
         lock(&self.ack).clone()
+    }
+    async fn progress(
+        &self,
+        name: &str,
+        words: &str,
+        doing: &str,
+        said: Option<&str>,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        lock(&self.progresses).push((
+            name.into(),
+            words.into(),
+            doing.into(),
+            said.map(str::to_string),
+        ));
+        lock(&self.progress).clone()
     }
 }
 pub(crate) fn services() -> Services {
@@ -409,6 +435,7 @@ mod front_calls;
 mod front_turns;
 mod handoffs;
 mod holds;
+mod progress;
 mod streaming;
 mod text;
 

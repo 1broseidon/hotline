@@ -218,6 +218,7 @@ impl Calls {
                 words: String::new(),
                 acknowledging: false,
                 ack_line: None,
+                progress: super::progress::Progress::default(),
                 last_llm_spoken: None,
                 session_ready: Some(None),
                 front: realtime.is_some().then(|| Front::new(mic_rate)),

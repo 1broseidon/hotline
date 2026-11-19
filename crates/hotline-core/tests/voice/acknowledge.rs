@@ -2,7 +2,8 @@
 //! real teammate session: the turn reaches the teammate's model before the
 //! line is written, the turn is told the desk acknowledges it and asked for
 //! no opening of its own, and with the setting off the call is as it always
-//! was.
+//! was. A teammate that then works in silence has one line said on what it
+//! is doing, from the step its session took.
 use super::*;
 use hotline_core::voice::spoken::{ACKNOWLEDGED_CONTRACT, CONTRACT};
 use std::time::Instant;
@@ -15,13 +16,33 @@ fn as_sent(contract: &str) -> String {
     quoted[1..quoted.len() - 1].to_string()
 }
 
+/// What a progress line was asked with: what the teammate is doing, and
+/// what was said aloud before it.
+type Progressed = (String, Option<String>);
+
 /// A call assistant that only acknowledges, with `line` after `delay`, and
-/// notes when it answered.
+/// notes when it answered; and says `progress` of a teammate working in
+/// silence, noting what it was told the teammate is doing and had said.
 struct Acknowledger {
     line: &'static str,
     delay: Duration,
     asked: Arc<AtomicUsize>,
     answered: Arc<std::sync::Mutex<Option<Instant>>>,
+    progress: &'static str,
+    progressed: Arc<std::sync::Mutex<Vec<Progressed>>>,
+}
+
+impl Acknowledger {
+    fn new(line: &'static str, delay: Duration, progress: &'static str) -> Self {
+        Self {
+            line,
+            delay,
+            asked: Arc::default(),
+            answered: Arc::default(),
+            progress,
+            progressed: Arc::default(),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -46,31 +67,74 @@ impl Dispatcher for Acknowledger {
         *self.answered.lock().unwrap() = Some(Instant::now());
         Ok(self.line.into())
     }
+    async fn progress(
+        &self,
+        name: &str,
+        words: &str,
+        doing: &str,
+        said: Option<&str>,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        assert_eq!(name, "Mack");
+        assert_eq!(words, "ask Mack to check the failing PR");
+        self.progressed
+            .lock()
+            .unwrap()
+            .push((doing.into(), said.map(str::to_string)));
+        Ok(self.progress.into())
+    }
 }
 
-/// A teammate's model that takes `delay` before it answers `reply`, and
-/// keeps what it was sent and when.
-async fn slow_model(
-    reply: &'static str,
-    delay: Duration,
-) -> (String, Arc<std::sync::Mutex<Vec<(Instant, Value)>>>) {
+/// What a fixture model was sent, and when.
+type Requests = Arc<std::sync::Mutex<Vec<(Instant, Value)>>>;
+
+/// The stream chunks of a reply that says `text`.
+fn text_chunks(text: &str) -> Vec<Value> {
+    vec![
+        json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":text},"finish_reason":null}]}),
+        json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}),
+    ]
+}
+
+/// The stream chunks of a reply that reads `path`, with no words before it.
+fn read_chunks(path: &str) -> Vec<Value> {
+    let arguments = json!({ "path": path }).to_string();
+    vec![
+        json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_read","type":"function","function":{"name":"read","arguments":arguments}}]},"finish_reason":null}]}),
+        json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}),
+    ]
+}
+
+/// A teammate's model that answers its requests in turn from `answers`,
+/// each after its delay (the last answers any later request), and keeps
+/// what it was sent and when.
+async fn model_answering(answers: Vec<(Duration, Vec<Value>)>) -> (String, Requests) {
     use axum::{Router, body::Bytes, routing::post};
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let requests = seen.clone();
+    let answers = Arc::new(answers);
     let app = Router::new().route(
         "/v1/chat/completions",
         post(move |body: Bytes| {
             let requests = requests.clone();
+            let answers = answers.clone();
             async move {
-                if let Ok(request) = serde_json::from_slice::<Value>(&body) {
-                    requests.lock().unwrap().push((Instant::now(), request));
-                }
-                tokio::time::sleep(delay).await;
-                let delta = json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":reply},"finish_reason":null}]});
-                let done = json!({"id":"slow","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}});
+                let asked = {
+                    let mut requests = requests.lock().unwrap();
+                    if let Ok(request) = serde_json::from_slice::<Value>(&body) {
+                        requests.push((Instant::now(), request));
+                    }
+                    requests.len()
+                };
+                let (delay, chunks) = &answers[asked.min(answers.len()) - 1];
+                tokio::time::sleep(*delay).await;
+                let body: String = chunks
+                    .iter()
+                    .map(|chunk| format!("data: {chunk}\n\n"))
+                    .collect();
                 (
                     [("Content-Type", "text/event-stream")],
-                    format!("data: {delta}\n\ndata: {done}\n\ndata: [DONE]\n\n"),
+                    format!("{body}data: [DONE]\n\n"),
                 )
             }
         }),
@@ -93,44 +157,29 @@ struct Turn {
     answered_at: Option<Instant>,
 }
 
-/// One device-text turn of a call to Mack, with acknowledging `on`, the
-/// person's speech ending `silence_ms` before the desk takes it, the call
-/// assistant's line after `line_delay`, and Mack's model taking
-/// `model_delay` to answer.
-async fn one_turn(
+/// A desk with `assistant` for its call assistant and acknowledging `on`,
+/// Mack on `model` working in `root`, and a device-text call to Mack: the
+/// socket, what stops the desk's server, and the call.
+async fn call_to_mack(
     on: bool,
-    silence_ms: u32,
-    line: &'static str,
-    line_delay: Duration,
-    model_delay: Duration,
-) -> Turn {
-    let root = tempfile::tempdir().unwrap();
-    let asked = Arc::new(AtomicUsize::new(0));
-    let answered = Arc::new(std::sync::Mutex::new(None));
+    assistant: Acknowledger,
+    model: &str,
+    root: &std::path::Path,
+) -> (Socket, tokio::task::AbortHandle, String) {
     let mut services = services();
-    services.dispatcher = Some(Arc::new(Acknowledger {
-        line,
-        delay: line_delay,
-        asked: asked.clone(),
-        answered: answered.clone(),
-    }));
+    services.dispatcher = Some(Arc::new(assistant));
     let desk = Arc::new(
-        hotline_core::desk::Desk::open_with_voice_services(
-            root.path(),
-            common::store(),
-            Some(services),
-        )
-        .unwrap(),
+        hotline_core::desk::Desk::open_with_voice_services(root, common::store(), Some(services))
+            .unwrap(),
     );
     let log = desk.log.clone();
     let parts = desk.parts();
     let door = Door::bind(log, "ack-test".into(), desk, parts).unwrap();
     let port = door.port();
-    let server = tokio::spawn(door.run());
+    let server = tokio::spawn(door.run()).abort_handle();
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=ack-test"))
         .await
         .unwrap();
-    let (model, requests) = slow_model("<spoken>The checks passed.</spoken>", model_delay).await;
     let saved = answer(&mut socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Slow fixture","baseUrl":model,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
     assert_eq!(saved["ok"], true, "{saved}");
     if on {
@@ -142,7 +191,7 @@ async fn one_turn(
         .await;
         assert_eq!(set["ok"], true, "{set}");
     }
-    let made = answer(&mut socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let made = answer(&mut socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await;
     let persona = made["result"]["id"].as_str().unwrap().to_string();
     let started = answer(
         &mut socket,
@@ -156,19 +205,60 @@ async fn one_turn(
     assert_eq!(started["ok"], true, "{started}");
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
     frame_where(&mut socket, |f| f["snapshot"].is_array()).await;
-    send(&mut socket, json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR","silenceMs":silence_ms}})).await;
-    // Everything said until the teammate's reply has been said whole.
+    (socket, server, call)
+}
+
+/// What the waiting tone is heard as among the lines said.
+const TONE: &str = "(the waiting tone)";
+
+/// The person asks Mack to check the failing PR, their speech ending
+/// `silence_ms` before the desk takes it; then everything said, and when,
+/// and the waiting tone as [`TONE`], until the teammate's reply has been
+/// said whole.
+async fn ask_and_hear(socket: &mut Socket, call: &str, silence_ms: u32) -> Vec<(Instant, String)> {
+    send(socket, json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR","silenceMs":silence_ms}})).await;
     let mut said = Vec::new();
     loop {
-        let frame = frame_where(&mut socket, |f| f["event"].is_object()).await;
+        let frame = frame_where(socket, |f| f["event"].is_object()).await;
         let event = &frame["event"];
         if event["type"] == "said" {
-            said.push(event["text"].as_str().unwrap().to_string());
+            said.push((Instant::now(), event["text"].as_str().unwrap().to_string()));
+        }
+        if event["type"] == "clip"
+            && event["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("waiting-"))
+        {
+            said.push((Instant::now(), TONE.to_string()));
         }
         if event["type"] == "clip" && event["final"] == true && event["data"] == "" {
-            break;
+            return said;
         }
     }
+}
+
+/// One device-text turn of a call to Mack, with acknowledging `on`, the
+/// person's speech ending `silence_ms` before the desk takes it, the call
+/// assistant's line after `line_delay`, and Mack's model taking
+/// `model_delay` to answer.
+async fn one_turn(
+    on: bool,
+    silence_ms: u32,
+    line: &'static str,
+    line_delay: Duration,
+    model_delay: Duration,
+) -> Turn {
+    let root = tempfile::tempdir().unwrap();
+    let assistant = Acknowledger::new(line, line_delay, "");
+    let asked = assistant.asked.clone();
+    let answered = assistant.answered.clone();
+    let (model, requests) = model_answering(vec![(
+        model_delay,
+        text_chunks("<spoken>The checks passed.</spoken>"),
+    )])
+    .await;
+    let (mut socket, server, call) = call_to_mack(on, assistant, &model, root.path()).await;
+    let said = ask_and_hear(&mut socket, &call, silence_ms).await;
     let (asked_at, asked_model) = requests
         .lock()
         .unwrap()
@@ -186,7 +276,7 @@ async fn one_turn(
     socket.close(None).await.unwrap();
     server.abort();
     Turn {
-        said,
+        said: said.into_iter().map(|(_, line)| line).collect(),
         asked: asked_model,
         asked_at,
         acknowledgements: asked.load(Ordering::SeqCst),
@@ -271,5 +361,43 @@ async fn with_the_setting_off_the_turn_is_unchanged() {
         !turn.asked.contains("brief acknowledgement"),
         "{}",
         turn.asked
+    );
+}
+
+/// A teammate that goes straight to work and stays silent: about six seconds
+/// after the person stopped speaking, with nothing said yet, the desk says
+/// one line on what its session is doing, worded by the call assistant from
+/// the step it took and told nothing was said before it; the waiting tone
+/// does not follow, and the teammate's own answer comes after.
+#[tokio::test]
+async fn a_teammate_working_in_silence_is_heard_saying_what_it_is_doing() {
+    const PROGRESS: &str = "Reading the PR notes now.";
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("notes.md"), "The PR fails on lint.").unwrap();
+    let assistant = Acknowledger::new("", Duration::ZERO, PROGRESS);
+    let progressed = assistant.progressed.clone();
+    let (model, _requests) = model_answering(vec![
+        (Duration::ZERO, read_chunks("notes.md")),
+        (
+            Duration::from_secs(9),
+            text_chunks("<spoken>The PR fails on lint.</spoken>"),
+        ),
+    ])
+    .await;
+    let (mut socket, server, call) = call_to_mack(true, assistant, &model, root.path()).await;
+    let asked = Instant::now();
+    let said = ask_and_hear(&mut socket, &call, 550).await;
+    socket.close(None).await.unwrap();
+    server.abort();
+    let lines: Vec<&str> = said.iter().map(|(_, line)| line.as_str()).collect();
+    assert_eq!(lines, [PROGRESS, "The PR fails on lint."]);
+    let after = said[0].0.duration_since(asked);
+    assert!(
+        after >= Duration::from_millis(5_400) && after < Duration::from_millis(7_500),
+        "six seconds after the person's last word, 550 ms of it before the desk took the turn: {after:?}"
+    );
+    assert_eq!(
+        *progressed.lock().unwrap(),
+        [("reading files".to_string(), None)]
     );
 }

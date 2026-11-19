@@ -43,6 +43,16 @@ pub struct Clip {
     pub bytes: Vec<u8>,
 }
 
+impl Clip {
+    /// How long the clip plays, when it is the mono 16-bit WAV the desk can
+    /// read; None for any other sound.
+    pub(crate) fn wav_length(&self) -> Option<Duration> {
+        let (rate, samples) = wav::mono_pcm16(&self.bytes)?;
+        let millis = (samples.len() as u64 / 2).saturating_mul(1_000) / u64::from(rate);
+        Some(Duration::from_millis(millis))
+    }
+}
+
 /// One ordered piece of a spoken reply. The final marker lets a caller
 /// publish immediately instead of holding a playable clip for lookahead.
 #[derive(Clone, Debug, PartialEq, Eq)]

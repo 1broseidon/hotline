@@ -116,6 +116,16 @@ impl Dispatcher for ClipCheck {
     async fn acknowledge(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
         unreachable!("a desk call has no teammate to acknowledge for")
     }
+    async fn progress(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        unreachable!("a desk call has no teammate working in silence")
+    }
 }
 
 async fn check_clip(

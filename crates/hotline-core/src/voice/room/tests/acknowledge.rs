@@ -7,7 +7,7 @@ use super::*;
 
 const LINE: &str = "Looking at the build now.";
 
-fn acknowledging(desk: &crate::desk::Desk, on: bool) {
+pub(super) fn acknowledging(desk: &crate::desk::Desk, on: bool) {
     desk.log
         .append(
             &StreamId::Room,
@@ -20,7 +20,7 @@ fn acknowledging(desk: &crate::desk::Desk, on: bool) {
 }
 
 /// What a call sends within `window`: every line said and every clip.
-async fn sent_within(
+pub(super) async fn sent_within(
     rx: &mut broadcast::Receiver<VoiceEvent>,
     window: Duration,
 ) -> Vec<VoiceEvent> {
@@ -38,14 +38,14 @@ async fn sent_within(
     sent
 }
 
-fn says(events: &[VoiceEvent], line: &str) -> bool {
+pub(super) fn says(events: &[VoiceEvent], line: &str) -> bool {
     events
         .iter()
         .any(|event| matches!(event, VoiceEvent::Said { text, .. } if text == line))
 }
 
 /// The turn has gone to the teammate: what the person said is in its hands.
-async fn handed_over(calls: &Calls, id: &str) {
+pub(super) async fn handed_over(calls: &Calls, id: &str) {
     until("the turn goes to the teammate", || {
         calls
             .test_change(id, |call| Ok(call.answering.is_some()))
@@ -68,7 +68,7 @@ fn utterance_after(calls: &Calls, id: &str, silence_ms: u32) {
         .unwrap();
 }
 
-fn thread_lines(desk: &crate::desk::Desk, persona: &str) -> Vec<Value> {
+pub(super) fn thread_lines(desk: &crate::desk::Desk, persona: &str) -> Vec<Value> {
     desk.log.load(&StreamId::Call(
         call_link(desk, persona).unwrap()["thread"]
             .as_str()

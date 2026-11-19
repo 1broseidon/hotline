@@ -169,6 +169,10 @@ export function App() {
 	const followUp = useCallback((personaId: string, follow: { aboutItem: string; quote: string }) => setFromPane({ personaId, kind: "follow", ...follow, at: Date.now() }), []);
 	const goToCard = useCallback((personaId: string, to: string) => setFromPane({ personaId, kind: "card", to, at: Date.now() }), []);
 	const askLoop = useCallback((personaId: string, text: string) => setFromPane({ personaId, kind: "loop", text, at: Date.now() }), []);
+	// An ask from the pane is for the conversation open when it was made: left
+	// standing, coming back to this teammate would hand it over again.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: dropped when the conversation shown changes.
+	useEffect(() => setFromPane(null), [selectedId]);
 	const jobs = useRoomJobs();
 	const modelsRevision = useModelsRevision();
 	/* The other desks' teammates, for the one rail and its ⌃1–9. */

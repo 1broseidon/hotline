@@ -15,8 +15,10 @@
 //! utterance, so they change without reloading the model.
 //!
 //! One model is loaded at a time and kept while it is used, because loading
-//! takes a quarter to half a second and the larger model holds about a
-//! gigabyte; a model nobody has asked for in [`IDLE`] is let go.
+//! takes a quarter of a second to two and the larger model holds about a
+//! gigabyte; a model nobody has asked for in [`IDLE`] is let go, unless a
+//! call that hears with it is open. A call loads its model when it starts
+//! ([`Speech::stay_ready`]), so the first thing said does not wait for it.
 //!
 //! The engine is C++ under a C API, and an exception it throws cannot be
 //! caught from Rust: the whole desk would stop. Two inputs throw. A damaged
@@ -247,51 +249,140 @@ pub fn chosen(root: &Path, model_id: Option<&str>) -> Option<Installed> {
 
 // ------------------------------------------------------------ the engine
 
-struct Loaded {
+struct Loaded<T> {
     dir: PathBuf,
-    recognizer: Arc<Mutex<OfflineRecognizer>>,
+    engine: Arc<Mutex<T>>,
     used: Instant,
+}
+
+/// Where the one model in memory is kept: what is loaded, and which models
+/// an open call keeps. Generic over the engine only so a test can load a
+/// stand-in; the desk has one, [`LOADED`].
+struct Slot<T> {
+    loaded: Mutex<Option<Loaded<T>>>,
+    /// One entry per open call hearing with the model in that directory.
+    kept: Mutex<Vec<PathBuf>>,
 }
 
 /// The one model in memory. Decoding takes the recognizer's own lock, so a
 /// second utterance waits for the first rather than splitting the cores.
-static LOADED: Mutex<Option<Loaded>> = Mutex::new(None);
+static LOADED: Slot<OfflineRecognizer> = Slot::new();
 
-fn loaded() -> MutexGuard<'static, Option<Loaded>> {
-    LOADED.lock().unwrap_or_else(PoisonError::into_inner)
+impl<T: Send + 'static> Slot<T> {
+    const fn new() -> Self {
+        Slot {
+            loaded: Mutex::new(None),
+            kept: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn loaded(&self) -> MutexGuard<'_, Option<Loaded<T>>> {
+        self.loaded.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn kept(&self) -> MutexGuard<'_, Vec<PathBuf>> {
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The engine for the model in `dir`, made by `load` (letting any other
+    /// go) if it is not the one in memory. The slot stays locked while
+    /// `load` runs, so whoever asks for the model meanwhile, such as a call's
+    /// first utterance during the load its start began, waits for that load
+    /// and gets its engine rather than loading a second.
+    fn get(
+        &'static self,
+        dir: &Path,
+        load: impl FnOnce() -> Result<T, SpeechError>,
+    ) -> Result<Arc<Mutex<T>>, SpeechError> {
+        let mut slot = self.loaded();
+        if let Some(current) = slot.as_mut().filter(|current| current.dir == dir) {
+            current.used = Instant::now();
+            return Ok(current.engine.clone());
+        }
+        *slot = None;
+        let engine = Arc::new(Mutex::new(load()?));
+        *slot = Some(Loaded {
+            dir: dir.to_path_buf(),
+            engine: engine.clone(),
+            used: Instant::now(),
+        });
+        let dir = dir.to_path_buf();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(IDLE / 5);
+                if !self.let_go_if_idle(&dir) {
+                    return;
+                }
+            }
+        });
+        Ok(engine)
+    }
+
+    /// One look at the model in `dir`: let go if nobody has used it for
+    /// [`IDLE`] and no open call keeps it. A kept model counts as used, so
+    /// its idle time starts when the last call keeping it ends. Whether it
+    /// is still the one in memory, to keep watching.
+    fn let_go_if_idle(&self, dir: &Path) -> bool {
+        let mut slot = self.loaded();
+        let Some(current) = slot.as_mut().filter(|current| current.dir == dir) else {
+            return false;
+        };
+        if self.kept().iter().any(|kept| kept == dir) {
+            current.used = Instant::now();
+            return true;
+        }
+        if current.used.elapsed() < IDLE {
+            return true;
+        }
+        *slot = None;
+        eprintln!("[voice] let go of {} after it sat idle", dir.display());
+        false
+    }
+
+    /// Keeps the model in `dir` from being let go until the guard drops.
+    fn keep(&'static self, dir: &Path) -> Kept<T> {
+        self.kept().push(dir.to_path_buf());
+        Kept {
+            slot: self,
+            dir: dir.to_path_buf(),
+        }
+    }
+}
+
+/// An open call's hold on its model. Dropping it takes only the `kept`
+/// lock, never the one a load holds, so it never waits for a load.
+struct Kept<T: Send + 'static> {
+    slot: &'static Slot<T>,
+    dir: PathBuf,
+}
+
+impl<T: Send + 'static> Drop for Kept<T> {
+    fn drop(&mut self) {
+        let mut kept = self.slot.kept();
+        if let Some(index) = kept.iter().position(|dir| *dir == self.dir) {
+            kept.remove(index);
+        }
+    }
 }
 
 /// The recognizer for `model`, loading it (and letting any other go) if it
 /// is not the one in memory.
 fn recognizer(model: &Installed) -> Result<Arc<Mutex<OfflineRecognizer>>, SpeechError> {
-    let dir = model.dir.as_path();
-    let mut slot = loaded();
-    if let Some(current) = slot.as_mut().filter(|current| current.dir == dir) {
-        current.used = Instant::now();
-        return Ok(current.recognizer.clone());
-    }
-    *slot = None;
-    let started = Instant::now();
-    verify(model)?;
-    let unloadable = || {
-        SpeechError::Engine("The speech model on the desk could not be loaded. Remove it in Settings and download it again.".into())
-    };
-    let config = config(model).map_err(|_| unloadable())?;
-    let recognizer = OfflineRecognizer::create(&config).ok_or_else(unloadable)?;
-    eprintln!(
-        "[voice] loaded {}: {}ms",
-        dir.display(),
-        started.elapsed().as_millis()
-    );
-    let recognizer = Arc::new(Mutex::new(recognizer));
-    *slot = Some(Loaded {
-        dir: dir.to_path_buf(),
-        recognizer: recognizer.clone(),
-        used: Instant::now(),
-    });
-    let dir = dir.to_path_buf();
-    std::thread::spawn(move || let_go_when_idle(&dir));
-    Ok(recognizer)
+    LOADED.get(&model.dir, || {
+        let started = Instant::now();
+        verify(model)?;
+        let unloadable = || {
+            SpeechError::Engine("The speech model on the desk could not be loaded. Remove it in Settings and download it again.".into())
+        };
+        let config = config(model).map_err(|_| unloadable())?;
+        let recognizer = OfflineRecognizer::create(&config).ok_or_else(unloadable)?;
+        eprintln!(
+            "[voice] loaded {}: {}ms",
+            model.dir.display(),
+            started.elapsed().as_millis()
+        );
+        Ok(recognizer)
+    })
 }
 
 /// How the engine runs `model`. A transducer decodes with beam search, the
@@ -436,27 +527,9 @@ fn pieces(samples: &[f32], rate: usize, longest: Duration) -> Vec<&[f32]> {
     pieces
 }
 
-/// Watches the model in `dir` until it is idle for [`IDLE`], or another took its place.
-fn let_go_when_idle(dir: &Path) {
-    loop {
-        std::thread::sleep(IDLE / 5);
-        let mut slot = loaded();
-        match slot.as_ref() {
-            Some(current) if current.dir == dir => {
-                if current.used.elapsed() >= IDLE {
-                    *slot = None;
-                    eprintln!("[voice] let go of {} after it sat idle", dir.display());
-                    return;
-                }
-            }
-            _ => return,
-        }
-    }
-}
-
 /// Lets go of the model in `dir`, if it is the one in memory: it is being removed.
 pub(crate) fn unload(dir: &Path) {
-    let mut slot = loaded();
+    let mut slot = LOADED.loaded();
     if slot.as_ref().is_some_and(|current| current.dir == dir) {
         *slot = None;
     }
@@ -695,6 +768,23 @@ impl Speech for Local {
 
     fn supports_live_input(&self) -> bool {
         true
+    }
+
+    /// Loads the model, hearing nothing, and keeps it until `until`. An
+    /// utterance that arrives during the load waits for it ([`Slot::get`]).
+    async fn stay_ready(&self, until: CancellationToken) {
+        let _kept = LOADED.keep(&self.model.dir);
+        let model = self.model.clone();
+        let load = tokio::task::spawn_blocking(move || recognizer(&model).map(drop));
+        tokio::select! {
+            () = until.cancelled() => return,
+            loaded = load => {
+                if let Ok(Err(error)) = loaded {
+                    eprintln!("[voice] could not load {} ahead: {error}", self.model.dir.display());
+                }
+            }
+        }
+        until.cancelled().await;
     }
 
     /// The model hears a whole utterance, so live audio is gathered until

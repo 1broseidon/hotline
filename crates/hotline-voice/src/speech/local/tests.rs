@@ -423,3 +423,80 @@ async fn a_damaged_model_is_refused_before_the_engine_could_throw_on_it() {
         "{heard:?}"
     );
 }
+
+#[test]
+fn a_model_asked_for_while_it_loads_is_loaded_once_and_shared() {
+    static SLOT: Slot<usize> = Slot::new();
+    static LOADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let slow_load = || {
+        LOADS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(300));
+        Ok(7)
+    };
+    let dir = PathBuf::from("whisper");
+    // The call's start begins the load; the first utterance asks while it runs.
+    let started = std::thread::spawn({
+        let dir = dir.clone();
+        move || SLOT.get(&dir, slow_load).unwrap()
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    let heard = SLOT.get(&dir, slow_load).unwrap();
+    let started = started.join().unwrap();
+    assert_eq!(LOADS.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(Arc::ptr_eq(&started, &heard), "both have the one engine");
+}
+
+#[test]
+fn a_model_an_open_call_keeps_is_not_let_go_however_long_nobody_speaks() {
+    static SLOT: Slot<usize> = Slot::new();
+    let dir = PathBuf::from("whisper");
+    let long_ago = || Instant::now().checked_sub(IDLE * 2).unwrap();
+    let sit = || SLOT.loaded().as_mut().unwrap().used = long_ago();
+    SLOT.get(&dir, || Ok(1)).unwrap();
+
+    // A teammate works for longer than IDLE while the call stays open.
+    let call = SLOT.keep(&dir);
+    sit();
+    assert!(SLOT.let_go_if_idle(&dir));
+    assert!(SLOT.loaded().is_some(), "kept while the call is open");
+
+    // The call ends; the idle time starts then, not at the last utterance.
+    drop(call);
+    assert!(SLOT.let_go_if_idle(&dir));
+    assert!(SLOT.loaded().is_some());
+    sit();
+    assert!(!SLOT.let_go_if_idle(&dir));
+    assert!(SLOT.loaded().is_none(), "let go once idle with no call");
+}
+
+#[tokio::test]
+async fn a_listener_kept_ready_holds_its_model_until_the_call_ends() {
+    let root = tempfile::tempdir().unwrap();
+    // No model files: the load fails reading them, before the engine is reached.
+    let model = Installed {
+        id: "absent".into(),
+        name: "Absent".into(),
+        engine: Engine::Transducer,
+        dir: root.path().join("absent"),
+        files: Vec::new(),
+    };
+    let kept = || LOADED.kept().contains(&model.dir);
+    let local = Arc::new(Local::new(model.clone()));
+    let until = CancellationToken::new();
+    let ready = tokio::spawn({
+        let (local, until) = (local.clone(), until.clone());
+        async move { local.stay_ready(until).await }
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !kept() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("kept once the call starts");
+    tokio::task::yield_now().await;
+    assert!(!ready.is_finished(), "held while the call is open");
+    until.cancel();
+    ready.await.unwrap();
+    assert!(!kept(), "let go of when the call ends");
+}

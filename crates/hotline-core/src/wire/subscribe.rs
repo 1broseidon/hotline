@@ -151,6 +151,32 @@ pub(super) fn subscribe(
             subscriptions.insert(id, tokio::spawn(view));
             return Ok(());
         }
+        Target::Loops(persona_id) => {
+            let loop_events = log.subscribe(&StreamId::Loops(persona_id.clone()));
+            let room_events = log.subscribe(&StreamId::Room);
+            let shown =
+                super::loops::read(log, &persona_id).map_err(|unreadable| match unreadable {
+                    super::loops::Unreadable::NoTeammate(error) => {
+                        Refused::because(UNKNOWN_TEAMMATE, error)
+                    }
+                    super::loops::Unreadable::Failed(error) => Refused::because(UNREADABLE, error),
+                })?;
+            reply(sender, id, Ok(Value::Null));
+            if !send(sender, json!({ "sub": id, "snapshot": shown })) {
+                return Ok(());
+            }
+            let view = super::loops::view(
+                id,
+                persona_id,
+                log.clone(),
+                loop_events,
+                room_events,
+                shown,
+                sender.clone(),
+            );
+            subscriptions.insert(id, tokio::spawn(view));
+            return Ok(());
+        }
         Target::View(ViewName::Roster) => {
             reply(sender, id, Ok(Value::Null));
             let room_events = log.subscribe(&StreamId::Room);

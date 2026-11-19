@@ -34,6 +34,9 @@
 //! - [`StreamId::Inbox`] is the items sent to one teammate, in
 //!   `inbox/<id>.jsonl`: one line per item, rewritten each time its state
 //!   changes. Not a conversation either.
+//! - [`StreamId::Loops`] is one teammate's living open loops, in
+//!   `loops/<id>.jsonl`: one line per loop, rewritten each time its state or
+//!   summary changes. Not a conversation either.
 //!
 //! [`Log`] is the only door to all of them, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
@@ -83,6 +86,7 @@ pub enum StreamId {
     Job(String),
     Asides(String),
     Inbox(String),
+    Loops(String),
 }
 
 impl StreamId {
@@ -695,6 +699,13 @@ impl Log {
                 fs::create_dir_all(hotline_support::paths::inbox_dir(&self.root))?;
                 Ok((file, 1))
             }
+            StreamId::Loops(persona_id) => {
+                let file = hotline_support::paths::loops_path(&self.root, persona_id).ok_or_else(
+                    || io::Error::other(format!("Invalid teammate id: {persona_id}")),
+                )?;
+                fs::create_dir_all(hotline_support::paths::loops_dir(&self.root))?;
+                Ok((file, 1))
+            }
         }
     }
 
@@ -728,6 +739,11 @@ impl Log {
             }
             StreamId::Inbox(persona_id) => {
                 hotline_support::paths::inbox_path(&self.root, persona_id)
+                    .into_iter()
+                    .collect()
+            }
+            StreamId::Loops(persona_id) => {
+                hotline_support::paths::loops_path(&self.root, persona_id)
                     .into_iter()
                     .collect()
             }

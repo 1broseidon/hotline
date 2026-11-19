@@ -64,6 +64,7 @@ impl Room {
             self.sweep_chapters(looked_again).await;
         }
         self.sweep_threads(now);
+        self.sweep_loops(now);
     }
 
     /// The idle policy of the kinds whose live threads the room holds in
@@ -260,6 +261,8 @@ impl Room {
         // closed longer ago than the desk keeps it, once the held files the
         // requests and items left are swept.
         self.inbox_tidy(now, true);
+        // Each teammate's open loops, each loop's latest line alone.
+        self.loops_tidy();
         // A thread the restart closed is told as one that closed any other way
         // is: with the note its kind takes.
         for thread in closed {

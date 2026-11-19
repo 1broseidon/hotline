@@ -54,6 +54,7 @@ pub(crate) mod inbox;
 mod index;
 mod job_thread;
 pub(crate) mod jobs;
+mod loops;
 pub(crate) use hotline_room::tool_ledger as ledger;
 mod calls;
 mod lifecycle;
@@ -837,6 +838,8 @@ pub struct Room {
     /// Held while an inbox item is read and written again, so two changes
     /// to one item never lose each other (`session/inbox.rs`).
     inbox_lock: Mutex<()>,
+    /// Serializes reads and appends to a teammate's open-loop stream (`session/loops.rs`).
+    loops_lock: Mutex<()>,
     /// The threads waiting out the inbox's gather delay, by teammate and
     /// thread, so items that land together wake a thread once.
     inbox_gathers: Mutex<HashSet<String>>,
@@ -1064,6 +1067,7 @@ impl Room {
             exchange_lock: Mutex::new(()),
             asides_lock: Mutex::new(()),
             inbox_lock: Mutex::new(()),
+            loops_lock: Mutex::new(()),
             inbox_gathers: Mutex::default(),
             quiet_turns: Mutex::default(),
             person_lines: Mutex::default(),

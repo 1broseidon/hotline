@@ -31,6 +31,7 @@ pub(crate) mod commands;
 mod door;
 mod files;
 mod inbox;
+mod loops;
 mod phone;
 mod queue;
 mod relay_door;

@@ -7,10 +7,14 @@
 //! left behind are lines on the thread it said them in, sent to a watching
 //! window as they land and read back the same after a restart; an open
 //! outcome is closed by its `id`, from the thread or from another of the
-//! teammate's threads, and rewritten where it stands.
+//! teammate's threads, and rewritten where it stands. An open outcome is
+//! also one of the teammate's open loops, with its `review_by` and the job
+//! it tracks.
 
 use super::post_to_chat::{Desk, Driver, open, says};
+use hotline_core::contract::{LoopSource, LoopState};
 use hotline_core::log::{Log, StreamId};
+use hotline_store::loops as kept;
 use serde_json::{Value, json};
 
 /// The declarations on a tape, as a fresh read of the disk has them: what a
@@ -194,6 +198,85 @@ async fn an_open_outcome_closes_by_its_id(driver: Driver) {
     assert_eq!(quotes["type"], "made");
     assert_eq!(quotes["message"], "Three quotes in");
     assert!(quotes["closedAt"].is_i64(), "{quotes}");
+}
+
+/// An open outcome is mirrored into the teammate's open loops through the
+/// real tool: `review_by` becomes its review date, `job_id` binds it to a
+/// live job of the teammate's, and ending that job closes it. A `job_id`
+/// that names no live job of the teammate's is refused, and nothing lands.
+async fn an_open_outcome_is_an_open_loop_tracking_its_job(driver: Driver) {
+    let mut desk = open().await;
+    let (ada, tape) = desk.teammate("Ada", driver, false).await;
+    let job = desk
+        .client
+        .call(
+            "schedule.create",
+            json!({
+                "personaId": ada,
+                "kind": "schedule",
+                "when": chrono::Utc::now().timestamp_millis() + 86_400_000,
+                "prompt": "Check the release",
+            }),
+        )
+        .await;
+    assert_eq!(job["ok"], true, "{job}");
+    let job_id = job["result"]["id"].as_str().unwrap().to_owned();
+    let before = chrono::Utc::now().timestamp_millis();
+    let script = [
+        format!(
+            r#"CALL outcome {{"type":"open","message":"Watching the release","id":"rel","review_by":"7d","job_id":"{job_id}"}}"#
+        ),
+        r#"CALL outcome {"type":"open","message":"Watching nothing","id":"bogus","job_id":"no-such-job"}"#
+            .to_string(),
+    ]
+    .join("\n");
+    let sent = desk
+        .client
+        .call("session.prompt", json!({"personaId": ada, "text": script}))
+        .await;
+    assert_eq!(sent["ok"], true, "{sent}");
+    let results = desk.results(tape).await;
+    says(&results, 0, "id 'rel'");
+    says(&results, 1, "no live job");
+
+    let loops = kept::of(&desk.log, &ada);
+    assert_eq!(loops.len(), 1, "the refused one opened no loop: {loops:#?}");
+    let watching = &loops[0];
+    assert_eq!(watching.key, "rel");
+    assert_eq!(watching.summary, "Watching the release");
+    assert_eq!(watching.state, LoopState::Active);
+    assert_eq!(watching.source, LoopSource::Outcome);
+    assert_eq!(watching.job_id.as_deref(), Some(job_id.as_str()));
+    let week = 7 * 86_400_000;
+    let review_by = watching.review_by.expect("review_by is kept");
+    assert!(
+        review_by >= before + week && review_by <= chrono::Utc::now().timestamp_millis() + week,
+        "{review_by}"
+    );
+    assert!(
+        declared_on_disk(&desk, &ada)
+            .iter()
+            .all(|line| line["key"] != "bogus"),
+        "a refused outcome leaves no line"
+    );
+
+    let cancelled = desk
+        .client
+        .call("schedule.cancel", json!({"id": job_id}))
+        .await;
+    assert_eq!(cancelled["ok"], true, "{cancelled}");
+    let closed = kept::of(&desk.log, &ada).remove(0);
+    assert_eq!(closed.state, LoopState::Done, "{closed:#?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hotline_agent_mirrors_an_open_outcome_into_its_open_loops() {
+    an_open_outcome_is_an_open_loop_tracking_its_job(Driver::HotlineAgent).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_acp_child_mirrors_an_open_outcome_into_its_open_loops() {
+    an_open_outcome_is_an_open_loop_tracking_its_job(Driver::Acp).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

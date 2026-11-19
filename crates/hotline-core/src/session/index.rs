@@ -22,7 +22,7 @@
 
 use super::sides::cut;
 use super::{Room, lock, now_ms, timed};
-use crate::contract::{Aside, End, SessionState, ThreadId, ThreadKind};
+use crate::contract::{Aside, End, LoopState, OpenLoop, SessionState, ThreadId, ThreadKind};
 use crate::fence::quoted;
 use crate::thread::{Link, Participant, Thread, ThreadState, ThreadStore};
 use chrono::{Local, TimeZone};
@@ -127,12 +127,82 @@ fn abbreviates(short: &str, full: &str) -> bool {
             .all(|(short, full)| !short.is_empty() && full.starts_with(short))
 }
 
-/// A teammate's threads, ready to be told.
+/// One living open loop (or recently finished loop) as the index lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct LoopEntry {
+    pub id: String,
+    pub key: String,
+    pub summary: String,
+    pub state: LoopState,
+    pub updated_at: i64,
+    pub review_by: Option<i64>,
+}
+
+impl LoopEntry {
+    fn from_loop(item: OpenLoop) -> Self {
+        Self {
+            id: item.id,
+            key: item.key,
+            summary: cut(&plain(&item.summary), 96),
+            state: item.state,
+            updated_at: item.updated_at,
+            review_by: item.review_by,
+        }
+    }
+
+    fn state_key(&self) -> (&str, &str, &str, LoopState, Option<i64>) {
+        (
+            &self.id,
+            &self.key,
+            &self.summary,
+            self.state,
+            self.review_by,
+        )
+    }
+
+    fn line(&self, now: i64) -> String {
+        if self.state == LoopState::Done {
+            return format!("done · {} · loop:{}", quoted(&self.summary), self.key);
+        }
+        let timing = match self.review_by {
+            Some(due) => {
+                let at = Local
+                    .timestamp_millis_opt(due)
+                    .single()
+                    .unwrap_or_else(Local::now);
+                let label = match self.state {
+                    LoopState::Waiting | LoopState::Stale => "due",
+                    _ => "review",
+                };
+                format!("{label} {}", at.format("%-d %b"))
+            }
+            None => since(now - self.updated_at),
+        };
+        format!(
+            "{} · {} · {timing} · loop:{}",
+            self.state.name(),
+            quoted(&self.summary),
+            self.key
+        )
+    }
+
+    fn gone_line(&self) -> String {
+        format!("loop:{} {}", self.key, quoted(&self.summary))
+    }
+}
+
+/// A teammate's threads and living open loops, ready to be told.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) struct Index {
     pub entries: Vec<Entry>,
     /// Ended threads and chapters older than a day, and any the cap left out.
     pub older: usize,
+    /// Every open loop (`active`, `waiting`, `stale`), in the order they are
+    /// listed; only the first [`super::loops::INDEX_CAP`] are told. All are
+    /// kept so a loop pushed past the cap is known to be open, not gone.
+    pub loops: Vec<LoopEntry>,
+    /// Loops marked `done` in the last 24 hours.
+    pub recent_done: Vec<LoopEntry>,
 }
 
 impl Index {
@@ -145,20 +215,48 @@ impl Index {
         Self {
             entries,
             older: older + cut,
+            loops: Vec::new(),
+            recent_done: Vec::new(),
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty() && self.older == 0
+    fn with_loops(mut self, loops: Vec<LoopEntry>, recent_done: Vec<LoopEntry>) -> Self {
+        self.loops = loops;
+        self.recent_done = recent_done;
+        self
     }
 
-    /// What is compared turn to turn: each thread's state, not its clock or
-    /// its last line. A colleague's thread that only said more is not news
-    /// enough to be told again; one that started, ended or raised a card is.
+    /// The open loops the index tells: the first [`super::loops::INDEX_CAP`].
+    fn told_loops(&self) -> &[LoopEntry] {
+        &self.loops[..self.loops.len().min(super::loops::INDEX_CAP)]
+    }
+
+    /// How many open loops the cap leaves untold.
+    fn more_loops(&self) -> usize {
+        self.loops.len() - self.told_loops().len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+            && self.older == 0
+            && self.loops.is_empty()
+            && self.recent_done.is_empty()
+    }
+
+    /// What is compared turn to turn: each thread's state (not its clock or
+    /// its last line), each told or recently done loop's state, summary and
+    /// due date, and how many loops the cap leaves untold.
     fn fingerprint(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for entry in &self.entries {
             entry.state_key().hash(&mut hasher);
+        }
+        for item in self.told_loops() {
+            item.state_key().hash(&mut hasher);
+        }
+        self.more_loops().hash(&mut hasher);
+        for item in &self.recent_done {
+            item.state_key().hash(&mut hasher);
         }
         hasher.finish()
     }
@@ -166,7 +264,21 @@ impl Index {
     /// The fenced list, headed by whose threads they are and when.
     pub(super) fn render(&self, name: &str, person: Option<&str>, now: i64) -> String {
         let listed: Vec<&Entry> = self.entries.iter().collect();
-        block(name, person, now, &listed, &[], self.older, false)
+        let loops: Vec<&LoopEntry> = self.told_loops().iter().collect();
+        let done: Vec<&LoopEntry> = self.recent_done.iter().collect();
+        block(
+            name,
+            person,
+            now,
+            &listed,
+            &[],
+            &loops,
+            self.more_loops(),
+            &done,
+            &[],
+            self.older,
+            false,
+        )
     }
 
     /// Only what moved since `before`: the entries whose state is new, under
@@ -194,19 +306,76 @@ impl Index {
             .iter()
             .filter(|old| !self.entries.iter().any(|entry| entry.is(old)))
             .collect();
-        block(name, person, now, &changed, &gone, self.older, true)
+        let changed_loops: Vec<&LoopEntry> = self
+            .told_loops()
+            .iter()
+            .filter(|item| {
+                !before
+                    .told_loops()
+                    .iter()
+                    .any(|old| old.state_key() == item.state_key())
+            })
+            .collect();
+        let changed_done: Vec<&LoopEntry> = self
+            .recent_done
+            .iter()
+            .filter(|item| {
+                !before
+                    .recent_done
+                    .iter()
+                    .any(|old| old.state_key() == item.state_key())
+            })
+            .collect();
+        // Gone is against every open loop, not the told few: one the cap
+        // pushed out is still open.
+        let gone_loops: Vec<&LoopEntry> = before
+            .told_loops()
+            .iter()
+            .filter(|old| {
+                !self.loops.iter().any(|item| item.id == old.id)
+                    && !self.recent_done.iter().any(|item| item.id == old.id)
+            })
+            .collect();
+        // The untold count is said again only when it moved, or beside
+        // loops that did.
+        let more_loops = if changed_loops.is_empty() && self.more_loops() == before.more_loops() {
+            0
+        } else {
+            self.more_loops()
+        };
+        block(
+            name,
+            person,
+            now,
+            &changed,
+            &gone,
+            &changed_loops,
+            more_loops,
+            &changed_done,
+            &gone_loops,
+            self.older,
+            true,
+        )
     }
 }
 
-/// The fenced list: `listed` under their sections, `gone` after them, and
-/// the count of older threads. `changes` heads it as what moved since the
-/// agent's last turn, rather than the whole.
+/// The fenced list: `listed` under their sections, `loops` and `recent_done`,
+/// `gone` after them, and the count of older threads. `changes` heads it as
+/// what moved since the agent's last turn, rather than the whole.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "private renderer shared between full index and delta views"
+)]
 fn block(
     name: &str,
     person: Option<&str>,
     now: i64,
     listed: &[&Entry],
     gone: &[&Entry],
+    loops: &[&LoopEntry],
+    more_loops: usize,
+    recent_done: &[&LoopEntry],
+    gone_loops: &[&LoopEntry],
     older: usize,
     changes: bool,
 ) -> String {
@@ -240,9 +409,22 @@ fn block(
         lines.push(format!("{heading} {}", in_section.len()));
         lines.extend(in_section.into_iter().map(|entry| entry.line(now)));
     }
-    if !gone.is_empty() {
-        lines.push(format!("GONE {}", gone.len()));
+    if !loops.is_empty() {
+        lines.push(format!("OPEN LOOPS {}", loops.len()));
+        lines.extend(loops.iter().map(|item| item.line(now)));
+    }
+    if more_loops > 0 {
+        lines.push(format!("+{more_loops} more open loops"));
+    }
+    if !recent_done.is_empty() {
+        lines.push(format!("RECENTLY DONE {}", recent_done.len()));
+        lines.extend(recent_done.iter().map(|item| item.line(now)));
+    }
+    let total_gone = gone.len() + gone_loops.len();
+    if total_gone > 0 {
+        lines.push(format!("GONE {total_gone}"));
         lines.extend(gone.iter().map(|entry| entry.gone_line()));
+        lines.extend(gone_loops.iter().map(|item| item.gone_line()));
     }
     if older > 0 && (!changes || listed.is_empty() && gone.is_empty() || !gone.is_empty()) {
         lines.push(format!("{older} older · search_thread finds them"));
@@ -622,6 +804,7 @@ impl Room {
             ThreadKind::Job | ThreadKind::Run => Index {
                 entries: vec![self.main_entry(persona_id, Section::Parent)],
                 older: 0,
+                ..Index::default()
             },
             _ => self.index_of(persona_id, thread, now),
         };
@@ -747,7 +930,24 @@ impl Room {
                 None => older += 1,
             }
         }
-        Index::capped(entries, older)
+        let all_loops = crate::store::loops::of(&self.log, persona_id);
+        let open_loops: Vec<LoopEntry> = all_loops
+            .iter()
+            .filter(|item| item.state.is_open())
+            .cloned()
+            .map(LoopEntry::from_loop)
+            .collect();
+        let recent_done: Vec<LoopEntry> = all_loops
+            .into_iter()
+            .filter(|item| {
+                item.state == LoopState::Done
+                    && now - item.closed_at.unwrap_or(item.updated_at)
+                        <= super::loops::RECENT_DONE_MS
+            })
+            .take(5)
+            .map(LoopEntry::from_loop)
+            .collect();
+        Index::capped(entries, older).with_loops(open_loops, recent_done)
     }
 
     /// The main conversation as one entry: working, waiting on a card, or

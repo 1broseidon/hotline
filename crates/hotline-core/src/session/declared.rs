@@ -14,6 +14,9 @@
 //! then in the teammate's main conversation, so a job that watches for the
 //! replies can close what the conversation opened. The desk closes nothing
 //! by itself.
+//!
+//! An open outcome is also one of the teammate's open loops (`loops.rs`),
+//! with the `review_by` and the live job (`job_id`) it may carry.
 
 use super::{Room, new_id, now_ms};
 use crate::contract::{ThreadId, TranscriptEvent};
@@ -121,6 +124,27 @@ impl Room {
             .get("ended")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let now = now_ms();
+        let review_by = match word(arguments, "review_by") {
+            Some(raw) => Some(super::schedule::parse_when(raw, now).ok_or_else(|| {
+                "outcome's `review_by` must be a duration (like '3d') or a date/time (like '2026-12-31')."
+                    .to_string()
+            })?),
+            None => None,
+        };
+        // A loop bound to a job closes when that job ends, so the job must be
+        // one of this teammate's that can still end.
+        let job_id = word(arguments, "job_id");
+        if let Some(job_id) = job_id
+            && !crate::room::schedules(&self.log)
+                .iter()
+                .any(|job| job.id == job_id && job.persona_id == persona_id)
+        {
+            return Err(format!(
+                "outcome's `job_id` '{job_id}' is no live job of yours: `list_schedules` names them."
+            ));
+        }
+        let explicit_key = key.is_some();
         let open = key.and_then(|key| self.open_outcome(persona_id, thread, key));
         if ended && open.is_none() {
             return Err(format!(
@@ -128,7 +152,6 @@ impl Room {
                 key.unwrap_or_default()
             ));
         }
-        let now = now_ms();
         let (id, ts, closed_at, written_to) = match &open {
             Some((line, on)) => (
                 line["id"].as_str().unwrap_or_default().to_string(),
@@ -155,6 +178,19 @@ impl Room {
             closed_at,
         };
         self.threads().write(&written_to, persona_id, &event);
+        if kind == "open" || open.is_some() || ended || explicit_key {
+            self.sync_open_outcome(
+                persona_id,
+                &written_to,
+                &key,
+                message,
+                &kind,
+                ended,
+                review_by,
+                job_id.map(str::to_string),
+                now,
+            );
+        }
         let mut said = match (&open, ended, kind.as_str()) {
             (Some(_), true, _) => "Ended. It has left the line.".to_string(),
             (Some(_), false, "open") => "Updated.".to_string(),

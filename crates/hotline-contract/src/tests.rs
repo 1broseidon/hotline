@@ -280,3 +280,36 @@ fn a_models_speeds_are_an_additive_optional_field_beside_fast() {
     assert!(decl.contains("fast?: boolean"), "{decl}");
     assert!(decl.contains("speeds?: Array<ConfigChoice>"), "{decl}");
 }
+
+#[test]
+fn open_loops_commands_target_and_shape_round_trip() {
+    let config = ts_rs::Config::from_env();
+    let decl = OpenLoop::decl(&config);
+    assert!(decl.contains("reviewBy?: number"), "{decl}");
+    assert!(decl.contains("jobId?: string"), "{decl}");
+    let list = Command::LoopsList {
+        persona_id: "ada".into(),
+    };
+    let list_json = json!({"cmd": "loops.list", "params": {"personaId": "ada"}});
+    assert_eq!(serde_json::to_value(&list).unwrap(), list_json);
+    assert_eq!(serde_json::from_value::<Command>(list_json).unwrap(), list);
+
+    let dismiss = Command::LoopsDismiss {
+        persona_id: "ada".into(),
+        id: "l1".into(),
+    };
+    let dismiss_json = json!({"cmd": "loops.dismiss", "params": {"personaId": "ada", "id": "l1"}});
+    assert_eq!(serde_json::to_value(&dismiss).unwrap(), dismiss_json);
+    assert_eq!(
+        serde_json::from_value::<Command>(dismiss_json).unwrap(),
+        dismiss
+    );
+
+    let target = Target::Loops("ada".into());
+    let target_json = json!({"loops": "ada"});
+    assert_eq!(serde_json::to_value(&target).unwrap(), target_json);
+    assert_eq!(
+        serde_json::from_value::<Target>(target_json).unwrap(),
+        target
+    );
+}

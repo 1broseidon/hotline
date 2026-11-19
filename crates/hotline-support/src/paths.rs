@@ -436,6 +436,16 @@ pub fn inbox_path(root: &Path, persona_id: &str) -> Option<PathBuf> {
     valid_persona_id(persona_id).then(|| inbox_dir(root).join(format!("{persona_id}.jsonl")))
 }
 
+/// Where each teammate's living open loops are kept, one file per teammate.
+pub fn loops_dir(root: &Path) -> PathBuf {
+    root.join("loops")
+}
+
+/// The file a teammate's open loops are written to, named by the teammate's id.
+pub fn loops_path(root: &Path, persona_id: &str) -> Option<PathBuf> {
+    valid_persona_id(persona_id).then(|| loops_dir(root).join(format!("{persona_id}.jsonl")))
+}
+
 /// Where jobs keep their threads, one file per job.
 pub fn jobs_dir(root: &Path) -> PathBuf {
     root.join("jobs")

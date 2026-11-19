@@ -18,6 +18,7 @@ pub mod chapters;
 pub mod inbox;
 pub mod link;
 pub mod log;
+pub mod loops;
 pub mod previews;
 pub mod search;
 pub mod sent;

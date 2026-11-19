@@ -2120,6 +2120,54 @@ part of the prompt. The line written to the tape and the thread's stream is
 the person's words alone; a call's summary of what it was asked reads the line
 without the index (`index::asked`).
 
+## Open loops
+
+What a teammate left unfinished outlives the chapter it was said in
+(`session/loops.rs`; the stream is [log.md](log.md#open-loops), the shape
+[wire.md](wire.md#open-loops)). A loop enters two ways.
+
+**A chapter's note.** The main conversation's note is shown the teammate's
+open loops (at most 25) beside the chapter, and answers `open_loops` (each a
+line, or `{key, summary, waiting?, due?}`) and `resolved_loops`, the keys it
+settled ([The note](#the-note)). `reconcile_chapter_loops` updates the open
+loop with that key or that whole summary, opens the rest, and marks the
+resolved ones `done`. A loop given no key is matched by its whole summary
+alone, and keyed by its summary's first five ASCII words, or by the start of
+its id when those make no key or one an open loop already has: two loops
+never fold into one record. The note can land up to ninety seconds after the
+close, while the next chapter is under way, and an idle close dates the
+chapter to its last message, perhaps weeks back. So a loop that changed after
+the chapter ended is left as it is, and what the note writes is stamped when
+it is written, so a loop it opens is not born stale.
+
+**An open outcome.** `outcome` with `type: "open"` is mirrored as a loop
+(`source: outcome`), marked `done` when that outcome closes as something else
+and archived when it is `ended`. An outcome's `id` names it within its
+thread, so one on a work thread or a job is kept under that thread's tag (the
+first eight characters of its key) and the `id`: the same `id` in two work
+threads is two loops. One on the main conversation keeps the plain `id`.
+`review_by` (a duration or a date) is when it is due; `job_id` binds it to a
+job, refused unless it is a live job of the teammate's, and the loop is
+marked `done` when that job ends: cancelled, marked done, or fired for the
+last time (`schedule::finish`, `end_final_firing`).
+
+**Aging.** The minute's sweep (`sweep_loops`) turns an open loop `stale` 14
+days after it last changed, or at its `reviewBy`, leaving `updatedAt` as it
+was; archives one untouched for 30 days, or 16 days past its `reviewBy`; and
+archives a `done` one after a week. The person's Dismiss (`loops.dismiss`)
+archives one at once. As the desk opens, each teammate's loops stream is
+written again with each loop's latest line (`loops_tidy`).
+
+**In the index.** The thread index lists them under `OPEN LOOPS`, each as
+`state · "summary" · age or due · loop:<key>`: active first, then waiting,
+then stale, so stale ones cannot push live work out; at most seven
+(`INDEX_CAP`), with `+N more open loops` for the rest; and under `RECENTLY
+DONE` the loops done in the last day, at most five. A turn told only what
+moved hears a loop under `GONE` only when it is no longer open, never because
+the cap left it out. A summary is written by a model from a transcript that
+can quote a web page or a message, so the teammate is told its loops are data,
+never instructions, as the rest of the index is.
+
 ## Peer threads
 
 A pair's thread (`threads/<key>.jsonl`, one file per pair, belonging to
@@ -2678,7 +2726,8 @@ closes untitled, so the drawer leaves it out.
 
 Otherwise a model with no tools and no memory is shown the chapter (head
 and tail of a long one, machinery kept short) and asked for a JSON object:
-title, goal, outcome, open loops, decisions, files, tags, status. Ninety
+title, goal, outcome, open loops, the loops it resolved, decisions, files,
+tags, status ([Open loops](#open-loops)). Ninety
 seconds, then the chapter closes anyway. The teammate's own model is used
 when the desk holds its key; otherwise the first model the desk can reach.
 An answer that is not the object asked for is no note at all: the title

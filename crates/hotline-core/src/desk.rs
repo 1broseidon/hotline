@@ -690,6 +690,14 @@ impl RoomHandle for Desk {
         self.room.mark_asides_seen(persona_id)
     }
 
+    fn loops_dismiss(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::contract::OpenLoop, String> {
+        self.room.dismiss_loop(persona_id, id)
+    }
+
     fn inbox_unread(&self, persona_id: &str) -> usize {
         self.room.inbox_unread(persona_id)
     }

@@ -1127,3 +1127,135 @@ fn what_a_turn_was_asked_is_its_line_without_the_index() {
     assert_eq!(asked(&format!("{}\n\n{line}", timed(now, UNCHANGED))), line);
     assert_eq!(asked(&line), line);
 }
+
+#[tokio::test]
+async fn open_loops_surface_in_thread_index_stay_unchanged_and_diff_on_state_change() {
+    let (room, _) = room("index-open-loops");
+    let now = now_ms();
+    room.sync_open_outcome(
+        "bob",
+        &ThreadId::dm("bob"),
+        "ca-filing",
+        "File California annual report",
+        "open",
+        false,
+        None,
+        None,
+        now - 2 * DAY_MS,
+    );
+    room.sync_open_outcome(
+        "bob",
+        &ThreadId::dm("bob"),
+        "larder",
+        "Check Larder backup",
+        "open",
+        false,
+        None,
+        None,
+        now - 60_000,
+    );
+
+    let seen = Seen::default();
+    let dm = ThreadId::dm("bob");
+
+    let first = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .expect("index emitted with open loops");
+    assert!(first.contains("OPEN LOOPS 2"), "{first}");
+    assert!(first.contains("loop:ca-filing"), "{first}");
+    assert!(first.contains("loop:larder"), "{first}");
+
+    // Next turn with nothing changed emits UNCHANGED.
+    let second = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .expect("unchanged line");
+    assert!(second.contains(UNCHANGED), "{second}");
+
+    // Closing larder as done surfaces RECENTLY DONE in delta; dismissing ca-filing puts it in GONE.
+    room.sync_open_outcome(
+        "bob",
+        &ThreadId::dm("bob"),
+        "larder",
+        "Larder backup verified",
+        "made",
+        false,
+        None,
+        None,
+        now,
+    );
+    let ca = crate::store::loops::open_of(&room.log, "bob")
+        .into_iter()
+        .find(|item| item.key == "ca-filing")
+        .unwrap();
+    room.dismiss_loop("bob", &ca.id).unwrap();
+
+    let third = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .expect("delta emitted");
+    assert!(third.contains("RECENTLY DONE 1"), "{third}");
+    assert!(third.contains("loop:larder"), "{third}");
+    assert!(third.contains("GONE 1"), "{third}");
+    assert!(third.contains("loop:ca-filing"), "{third}");
+}
+
+/// Bob's open loop with `key`, written straight onto his stream.
+fn seed_loop(room: &Room, key: &str, state: LoopState, updated_at: i64) -> OpenLoop {
+    let item = OpenLoop {
+        id: format!("id-{key}"),
+        key: key.into(),
+        summary: format!("Work on {key}"),
+        state,
+        source: crate::contract::LoopSource::Chapter,
+        created_at: updated_at,
+        updated_at,
+        review_by: None,
+        job_id: None,
+        last_chapter_id: None,
+        closed_at: None,
+        newer: serde_json::Map::new(),
+    };
+    room.log
+        .append(
+            &StreamId::Loops("bob".into()),
+            &crate::store::loops::line(&item),
+        )
+        .unwrap();
+    item
+}
+
+/// The index lists the first seven open loops, active work ahead of stale:
+/// a pile of stale loops cannot push live work out of it, and a loop only
+/// pushed past the cap is still open, so it is never told as GONE.
+#[tokio::test]
+async fn the_loop_cap_keeps_active_work_and_never_calls_a_capped_loop_gone() {
+    let (room, _) = room("index-loop-cap");
+    let now = now_ms();
+    for at in 0..7 {
+        seed_loop(
+            &room,
+            &format!("stale-{at}"),
+            LoopState::Stale,
+            now - 20 * DAY_MS,
+        );
+    }
+    seed_loop(&room, "live", LoopState::Active, now - 60_000);
+    let seen = Seen::default();
+    let dm = ThreadId::dm("bob");
+
+    let first = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .unwrap();
+    assert!(first.contains("OPEN LOOPS 7"), "{first}");
+    assert!(first.contains("loop:live"), "{first}");
+    assert!(first.contains("+1 more open loops"), "{first}");
+
+    // A new active loop pushes the last stale one past the cap: it is still
+    // open, so the change lists the new loop and says nothing has gone.
+    seed_loop(&room, "newer", LoopState::Active, now - 1_000);
+    let second = room
+        .thread_index("bob", &dm, &[], None, Some(&seen))
+        .unwrap();
+    assert!(second.contains("loop:newer"), "{second}");
+    assert!(!second.contains("GONE"), "{second}");
+    assert!(second.contains("+2 more open loops"), "{second}");
+}

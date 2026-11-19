@@ -128,6 +128,9 @@ pub enum Target {
     /// One teammate's inbox, by persona id, as an `InboxView`: the whole of
     /// it on opening and again whenever an item it holds or sent changes.
     Inbox(String),
+    /// One teammate's living open loops, by persona id, as `OpenLoop`s: the
+    /// whole list on opening and again whenever it changes.
+    Loops(String),
 }
 
 /// One of a teammate's jobs as the schedules view shows it: what a person

@@ -790,6 +790,28 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     assert!(Seat::Desk.permits_sub(&Target::Schedules("ada".to_string())));
 }
 
+/// Open loops are a teammate's live carry-overs: desk, owner and phone can
+/// read, watch and dismiss them; a read-only link cannot.
+#[test]
+fn open_loops_are_visible_and_dismissable_from_desk_owner_and_phone_but_not_link() {
+    let target = Target::Loops("ada".to_string());
+    let list = Command::LoopsList {
+        persona_id: "ada".to_string(),
+    };
+    let dismiss = Command::LoopsDismiss {
+        persona_id: "ada".to_string(),
+        id: "loop-1".to_string(),
+    };
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        assert!(seat.permits_sub(&target), "{seat:?}");
+        assert!(seat.permits(&list), "{seat:?}");
+        assert!(seat.permits(&dismiss), "{seat:?}");
+    }
+    assert!(!Seat::Link.permits_sub(&target));
+    assert!(!Seat::Link.permits(&list));
+    assert!(!Seat::Link.permits(&dismiss));
+}
+
 /// The seat lets `session.set_config` through, so the narrowing happens where
 /// the categories are known: effort is the one a phone may set, whatever a
 /// harness happens to call it, and anything else a harness serves is not.

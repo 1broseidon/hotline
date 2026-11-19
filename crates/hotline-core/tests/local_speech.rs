@@ -82,15 +82,21 @@ fn archive(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
 }
 
 fn offered(id: &str, url: String, bytes: &[u8]) -> Model {
+    offered_with_prefix(id, url, "", bytes)
+}
+
+fn offered_with_prefix(id: &str, url: String, prefix: &str, bytes: &[u8]) -> Model {
     Model {
         id: id.into(),
         name: format!("Model {id}"),
         tag: None,
         detail: "For the harness".into(),
         engine: local::Engine::Transducer,
-        url,
-        archive_prefix: String::new(),
-        sha256: hex::encode(Sha256::digest(bytes)),
+        source: local::Source::Archive {
+            url,
+            prefix: prefix.into(),
+            sha256: hex::encode(Sha256::digest(bytes)),
+        },
         download_bytes: bytes.len() as u64,
         disk_bytes: 1,
         credit: "Nobody, CC BY 4.0".into(),
@@ -341,9 +347,13 @@ async fn a_whisper_archive_gives_its_prefixed_files_under_the_desks_own_names() 
         ("sherpa-onnx-whisper-turbo/test_wavs/0.wav", Some(b"RIFF")),
     ]);
     let url = serve(vec![("/whisper.tar.bz2", Some(packed.clone()))]).await;
-    let mut whisper = offered("whisper", format!("{url}/whisper.tar.bz2"), &packed);
+    let mut whisper = offered_with_prefix(
+        "whisper",
+        format!("{url}/whisper.tar.bz2"),
+        "turbo-",
+        &packed,
+    );
     whisper.engine = local::Engine::Whisper;
-    whisper.archive_prefix = "turbo-".into();
     whisper.tag = Some("99 languages".into());
     let mut english = offered("english", format!("{url}/missing.tar.bz2"), b"");
     english.more_languages = Some("whisper".into());

@@ -131,6 +131,25 @@ opt-level = 3
 [profile.dev.package.symphonia-codec-aac]
 opt-level = 3
 
+# The desk's voice runs Phonon in this process. Unoptimised, a 30-word
+# sentence took 26 seconds to say 9 seconds of audio, so a dev build could
+# not speak in time; with these optimised, a dev build says it in under a
+# second (a release build in a quarter of one).
+[profile.dev.package.ptts]
+opt-level = 3
+[profile.dev.package.xn]
+opt-level = 3
+[profile.dev.package.xn-gemm]
+opt-level = 3
+[profile.dev.package.xn-gemm-common]
+opt-level = 3
+[profile.dev.package.xn-gemm-f32]
+opt-level = 3
+[profile.dev.package.xn-gemm-f16]
+opt-level = 3
+[profile.dev.package.pulp]
+opt-level = 3
+
 # sherpa-onnx-sys 1.13.8 as released builds with ZIP 2, which three extraction
 # advisories (RUSTSEC-2026-0367, 0368, 0369) cover and only ZIP 9 fixes. This
 # upstream commit is that release with ZIP 9 and no other change to the crate,

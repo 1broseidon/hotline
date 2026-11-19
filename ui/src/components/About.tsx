@@ -22,6 +22,13 @@ const CREDITS = [
 	{ what: "Speech engine", who: "sherpa-onnx, by k2-fsa", name: "Apache 2.0", licence: "https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE" },
 	{ what: "Model runtime", who: "ONNX Runtime, by Microsoft", name: "MIT", licence: "https://github.com/microsoft/onnxruntime/blob/main/LICENSE" },
 	{ what: "AAC decoding", who: "Symphonia", name: "MPL 2.0", licence: "https://github.com/pdeljanov/Symphonia/blob/master/LICENSE" },
+	{
+		what: "Voice model",
+		who: "Gradium Phonon 31M English and its voices, built on Kyutai's Pocket TTS and Mimi",
+		name: "Apache 2.0",
+		licence: "https://huggingface.co/gradium/phonon-31m-en/blob/main/LICENSE",
+	},
+	{ what: "Voice engine", who: "ptts, by Gradium", name: "MIT or Apache 2.0", licence: "https://github.com/gradium-ai/xn-ptts" },
 ];
 
 /**

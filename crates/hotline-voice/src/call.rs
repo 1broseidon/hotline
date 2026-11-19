@@ -225,12 +225,17 @@ impl Calls {
                     .iter()
                     .find(|call| call.id == id)
                     .map(|call| call.speech_services.clone());
-                // The desk's own model is let go when idle and takes seconds
-                // to load, so it loads now rather than inside the first
-                // utterance, and stays loaded through a long work turn.
+                // The desk's own models are let go when idle and take seconds
+                // to load, so they load now rather than inside the first
+                // utterance or reply, and stay loaded through a long work
+                // turn. Every other provider's ears and voice return at once.
                 if let Some(stt) = speech_services.as_ref().and_then(|s| s.stt.clone()) {
                     let cancel = cancel.clone();
                     tokio::spawn(async move { stt.stay_ready(cancel).await });
+                }
+                if let Some(tts) = speech_services.as_ref().map(|s| s.tts.clone()) {
+                    let cancel = cancel.clone();
+                    tokio::spawn(async move { tts.stay_ready(cancel).await });
                 }
                 if let Some(tts) = speech_services
                     .map(|services| services.tts)

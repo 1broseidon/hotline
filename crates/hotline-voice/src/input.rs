@@ -298,8 +298,12 @@ impl Calls {
         if self.injected.is_some() {
             return true;
         }
+        // The desk's own model, hearing or speaking, is there while it is installed.
         if speech.id().provider_id == local::PROVIDER_ID {
-            return local::chosen(self.room.speech_root(), Some(&speech.id().model_id)).is_some();
+            let model_id = speech.id().model_id;
+            return local::installed(self.room.speech_root())
+                .iter()
+                .any(|model| model.id == model_id);
         }
         self.login_connected(&speech.id().provider_id, speech.is_subscription())
     }

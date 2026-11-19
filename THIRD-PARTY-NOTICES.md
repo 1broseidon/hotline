@@ -135,3 +135,35 @@ The models are downloaded from the sherpa-onnx releases when their owner
 installs one, and the window credits each with its license
 (`crates/hotline-voice/src/speech/local/install.rs`): Parakeet under
 CC BY 4.0, Whisper and Moonshine under MIT.
+
+## The desk's voice
+
+The desk's own text to speech is Gradium's Phonon, run in the process by
+crates linked like any other (none on aarch64 Linux, where they do not
+build; see `crates/hotline-voice/Cargo.toml`):
+
+| Crate | License | From |
+|---|---|---|
+| ptts 0.7.1 | MIT OR Apache-2.0 | Gradium (`gradium-ai/xn-ptts`) |
+| xn 0.2.14 | MIT OR Apache-2.0 | Laurent Mazare (`LaurentMazare/xn`) |
+| xn-gemm 0.20 and its kernels, pulp 0.22 | MIT | Gradium's fork of Sarah Quiñones's gemm, and her pulp |
+| tokenizers 0.23 | Apache-2.0 | Hugging Face |
+| ebur128 0.1 | MIT | Sebastian Dröge |
+
+The model is not in a release. When its owner downloads it, the desk takes
+these files, each pinned by size and SHA-256 at one commit
+(`crates/hotline-voice/src/speech/local/voice.rs`), and the window credits
+them with their license:
+
+| What | License | From |
+|---|---|---|
+| Phonon 31M English: `config.json`, `tokenizer.json`, `model.q8.gguf` | Apache-2.0 | `huggingface.co/gradium/phonon-31m-en` at `8f7a37c9` |
+| Six voices: Hadley, Delia, Pippa, Preston, Trevor, Edwin | Apache-2.0 | `huggingface.co/gradium/phonon-voices` at `0ee17205` |
+
+Phonon is made by Gradium and, as its model card says, builds on Kyutai's
+Pocket TTS and Kyutai's Mimi audio codec. Apache-2.0 asks that the license
+and any NOTICE go with a copy; the repositories carry no NOTICE, and the
+desk keeps the files unmodified. Only the 31M English model is offered:
+Phonon's 40M models, in English and other languages, are CC BY-NC 4.0,
+which does not allow commercial use, and the desk neither downloads nor
+names them.

@@ -111,6 +111,19 @@ describe("the Speech row", () => {
 		expect(voiceLabel("default")).toBe("Default");
 		expect(voiceLabel("eve", "grok")).toBe("Eve");
 	});
+
+	test("reads the desk's own voice by its model alone, free on this machine", () => {
+		const desk: CapabilityJob = {
+			selected: { providerId: "local", providerName: "On the desk", modelId: "phonon-31m-en", voice: "Edwin" },
+			options: [{ providerId: "local", providerName: "On the desk", onDevice: true, cost: "free", models: [{ id: "phonon-31m-en", label: "Phonon", voices: ["Hadley", "Edwin"] }] }],
+		};
+		const choices = speechChoices(desk);
+		expect(choices.map((one) => one.name)).toEqual(["Automatic", "Phonon · Hadley", "Phonon · Edwin"]);
+		expect(choices[1]?.group).toBe("On the desk");
+		expect(choices.find((one) => one.id === currentVoiceId(desk))?.name).toBe("Phonon · Edwin");
+		expect(speechLine(desk)).toBe("Phonon · free");
+		expect(whereTag(desk, "this Mac")).toBe("on this Mac");
+	});
 });
 
 describe("the Transcription row", () => {

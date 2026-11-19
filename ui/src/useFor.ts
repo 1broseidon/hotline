@@ -176,11 +176,20 @@ export function transcriptionLine(job: CapabilityJob): string {
 	return [who, now.provider?.cost].filter((part) => part !== undefined && part !== "").join(" · ");
 }
 
-/** The Speech row's second line: the model through its provider, and what it costs ("Phonon through Ollama · free"). */
+/**
+ * The Speech row's second line: the model through its provider, and what it
+ * costs ("Phonon through Ollama · free"). The desk's own voice is named by
+ * its model alone ("Phonon · free"), as a model on the desk is under Transcription.
+ */
 export function speechLine(job: CapabilityJob): string {
 	const now = runsOn(job);
 	if (now === undefined) return "";
-	const who = now.model === undefined ? now.pick.providerName : `${speechModelName(now.model)} through ${now.pick.providerName}`;
+	const who =
+		now.model === undefined
+			? now.pick.providerName
+			: now.pick.providerId === ON_THE_DESK
+				? speechModelName(now.model)
+				: `${speechModelName(now.model)} through ${now.pick.providerName}`;
 	return [who, now.provider?.cost].filter((part) => part !== undefined && part !== "").join(" · ");
 }
 

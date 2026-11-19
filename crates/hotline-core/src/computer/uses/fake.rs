@@ -42,6 +42,21 @@ impl Door {
         self.hold_as(secret, site, false)
     }
 
+    /// The same use, as a computer from before split mode holds it: no
+    /// operation, no attestation.
+    #[cfg(unix)]
+    pub(crate) fn hold_old(&self, secret: &str, site: &str) -> Option<String> {
+        let id = self.hold_as(secret, site, false)?;
+        let mut state = self.0.lock().unwrap();
+        if let Some(held) = state.uses.iter_mut().find(|held| held["id"] == id.as_str()) {
+            let held = held.as_object_mut().unwrap();
+            held.remove("operation");
+            held.remove("attested");
+            held.remove("flow");
+        }
+        Some(id)
+    }
+
     #[cfg(unix)]
     fn hold_as(&self, secret: &str, site: &str, attested: bool) -> Option<String> {
         let mut state = self.0.lock().unwrap();

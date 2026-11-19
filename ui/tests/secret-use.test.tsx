@@ -70,7 +70,7 @@ test("Secret use card sends Approve, Allow 10 min and Deny once and settles or e
 	} finally { await act(async () => root.unmount()); command.mockRestore(); await teardown(); }
 });
 
-test("the card asks about one sign-in, and offers ten minutes only when Hotline's own browser asked", async () => {
+test("a split computer's card asks about one sign-in, and offers ten minutes only when its own browser asked", async () => {
 	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
@@ -88,6 +88,11 @@ test("the card asks about one sign-in, and offers ten minutes only when Hotline'
 		await act(async () => { root.render(<SecretUseAsk event={{ ...login, attested: true }} teammate="Ada" />); });
 		expect(labels()).toEqual(["Approve", "Allow 10 min", "Deny"]);
 		expect(container.textContent).toContain("covers this sign-in only");
+		// A computer from before split mode says no operation: its card is as it was.
+		const { operation: _none, ...older } = login;
+		await act(async () => { root.render(<SecretUseAsk event={older} teammate="Ada" />); });
+		expect(container.textContent).toContain("Use GITHUB on github.com?");
+		expect(labels()).toEqual(["Approve", "Allow 10 min", "Deny"]);
 	} finally { await act(async () => root.unmount()); await teardown(); }
 });
 

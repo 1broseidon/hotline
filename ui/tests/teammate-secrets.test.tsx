@@ -131,23 +131,47 @@ test("a plain variable is granted only as readable", async () => {
 	expect(row.textContent).toContain("Readable by this teammate's programs");
 });
 
-test("with a computer and a desk shell a grant says which it reaches, and without a computer it does not ask", async () => {
+test("no surfaces choice is drawn while the desk shell takes no secrets", async () => {
 	await mount({ ...persona, secretGrants: [{ name: "GITHUB_TOKEN" }] });
 	const secrets = section("Secrets")!;
 	await act(async () => secrets.querySelector<HTMLButtonElement>("[aria-expanded]")!.click());
-	const places = secrets.querySelector('fieldset[aria-label="Where GITHUB_TOKEN goes"]');
+	expect(secrets.textContent).toContain("GITHUB_TOKEN");
+	expect(secrets.querySelector('fieldset[aria-label^="Where"]')).toBeNull();
+	expect(secrets.textContent).not.toContain("Its desk shell");
+});
+
+test("where both places take secrets a variable's grant says which it reaches", async () => {
+	const { TeammateSecrets } = await import("../src/components/Secrets");
+	let saved: unknown = null;
+	await act(async () => {
+		root.render(<TeammateSecrets grants={[{ name: "GITHUB_TOKEN" }]} bothPlaces asPerson={false} disabled={false} onChange={(grants) => { saved = grants; }} />);
+	});
+	const places = container.querySelector('fieldset[aria-label="Where GITHUB_TOKEN goes"]');
 	if (!places) throw new Error("No surfaces choice");
 	const chip = (label: string) => [...places.querySelectorAll("button")].find((node) => node.textContent === label)!;
 	expect(chip("Its computer").getAttribute("aria-pressed")).toBe("true");
 	expect(chip("Its desk shell").getAttribute("aria-pressed")).toBe("true");
 	await act(async () => chip("Its desk shell").click());
-	expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "GITHUB_TOKEN", on: ["computer"] }] } });
+	expect(saved).toEqual([{ name: "GITHUB_TOKEN", on: ["computer"] }]);
+});
 
+test("a whole-machine teammate is given every key readable, and every grant says so", async () => {
+	await mount({ ...persona, reach: "machine", secrets: ["GITHUB_TOKEN"], secretGrants: [{ name: "GITHUB_TOKEN", readable: true }] });
+	const secrets = section("Secrets")!;
+	await act(async () => secrets.querySelector<HTMLButtonElement>("[aria-expanded]")!.click());
+	const row = (name: string) => [...secrets.querySelectorAll("label")].find((node) => node.textContent?.includes(name))!;
+	expect(row("GITHUB_TOKEN").textContent).toContain("Readable by this teammate's programs");
 	await act(async () => root.render(null));
-	await mount({ ...persona, computer: { enabled: false }, secretGrants: [{ name: "GITHUB_TOKEN" }] });
-	const alone = section("Secrets")!;
-	await act(async () => alone.querySelector<HTMLButtonElement>("[aria-expanded]")!.click());
-	expect(alone.querySelector('fieldset[aria-label^="Where"]')).toBeNull();
+	await mount({ ...persona, backendId: "claude-code", secrets: [], secretGrants: [] });
+	const harness = section("Secrets")!;
+	await act(async () => harness.querySelector<HTMLButtonElement>("[aria-expanded]")!.click());
+	const before = calls.length;
+	const tick = [...harness.querySelectorAll("label")].find((node) => node.textContent?.includes("GITHUB_TOKEN"))!.querySelector("input")!;
+	await act(async () => tick.click());
+	expect(calls.length, "even a key Used with a service asks first").toBe(before);
+	const give = [...harness.querySelectorAll("button")].find((node) => node.textContent === "Give")!;
+	await act(async () => give.click());
+	expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "GITHUB_TOKEN", readable: true }] } });
 });
 
 test("one notice says secrets wait for an update, with Update when there is one", async () => {

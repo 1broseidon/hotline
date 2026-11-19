@@ -18,10 +18,12 @@
 //! holds values — answers an `attest` only the holder of this computer's
 //! bearer can make, and takes every grant through the v2 form: readable
 //! variables, keys with their "Used with", logins and passkeys. One that
-//! has no such door, or runs as one user (legacy), is handed only the
-//! readable variables, in the v1 form every release takes; everything else
-//! waits on the desk until it is updated. One whose `attest` is wrong is
-//! handed nothing at all: what answers the port is not this computer.
+//! has no such door, or runs as one user (legacy), is handed what 0.49
+//! handed it — readable variables, logins and passkeys, in the v1 form
+//! every release takes — and a key granted protected waits on the desk
+//! until it is updated, since its programs could read it there. One whose
+//! `attest` is wrong is handed nothing at all: what answers the port is not
+//! this computer.
 
 use super::Ready;
 use crate::vault::StoredSecret;
@@ -127,9 +129,9 @@ pub struct Granted {
 }
 
 /// What a handing over came to: whether the computer was protected, and
-/// the names it was not handed. On an unprotected computer those wait for
-/// its update; on a protected one they are keys granted protected that
-/// have no "Used with" to protect them by.
+/// the names it was not handed: keys granted protected, which wait on an
+/// unprotected computer for its update, and on a protected one for a "Used
+/// with" to protect them by.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Handed {
     pub protected: bool,
@@ -138,8 +140,7 @@ pub struct Handed {
 
 /// The v1 set: a variable as its bare value, which every computer release
 /// with a `/secrets` route takes; a login or a passkey as the record, kind
-/// and all, which a release from 0.8 on takes. Only readable variables are
-/// ever sent this way now.
+/// and all, which a release from 0.8 on takes.
 pub fn wire_form(secrets: &BTreeMap<String, StoredSecret>) -> BTreeMap<String, Value> {
     secrets
         .iter()
@@ -217,18 +218,18 @@ pub async fn deliver(ready: &Ready, set: &BTreeMap<String, Granted>) -> Result<H
             .header(reqwest::header::CONTENT_TYPE, V2)
             .body(body.to_string())
     } else {
-        let mut readable = BTreeMap::new();
+        let mut today = BTreeMap::new();
         for (name, granted) in set {
             match &granted.secret {
-                StoredSecret::Variable { .. } if granted.readable => {
-                    readable.insert(name.clone(), granted.secret.clone());
+                StoredSecret::Variable { .. } if !granted.readable => waiting.push(name.clone()),
+                secret => {
+                    today.insert(name.clone(), secret.clone());
                 }
-                _ => waiting.push(name.clone()),
             }
         }
         client
             .put(format!("{base}/secrets"))
-            .json(&wire_form(&readable))
+            .json(&wire_form(&today))
     };
     let response = request
         .bearer_auth(&ready.token)
@@ -404,7 +405,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_old_or_legacy_computer_is_handed_only_its_readable_variables() {
+    async fn an_old_or_legacy_computer_is_handed_what_it_was_and_no_protected_key() {
         for is in [Is::Old, Is::Legacy] {
             let (ready, fake, serving) = computer(true, is).await;
             let handed = deliver(&ready, &the_set()).await.expect("taken");
@@ -412,15 +413,17 @@ mod tests {
                 handed,
                 Handed {
                     protected: false,
-                    waiting: vec!["GITHUB".into(), "GITHUB_TOKEN".into()],
+                    waiting: vec!["GITHUB_TOKEN".into()],
                 }
             );
             let taken = fake.taken.lock().unwrap().clone();
-            // The v1 form, which every release takes: the variable alone,
-            // as its bare value.
+            // The v1 form, which every release takes: the variable as its
+            // bare value, the login as its record, as 0.49 sent them.
             assert_eq!(taken.len(), 1);
             assert_ne!(taken[0].0.as_deref(), Some(V2));
-            assert_eq!(taken[0].1, json!({"NPM_TOKEN": "npm_notarealtoken01"}));
+            assert_eq!(taken[0].1["NPM_TOKEN"], "npm_notarealtoken01");
+            assert_eq!(taken[0].1["GITHUB"]["kind"], "login");
+            assert!(taken[0].1.get("GITHUB_TOKEN").is_none());
             serving.abort();
         }
     }

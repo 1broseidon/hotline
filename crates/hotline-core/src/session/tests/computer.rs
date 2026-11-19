@@ -1899,8 +1899,12 @@ async fn a_swap_in_a_closing_room_leaves_the_old_computer_and_waits() {
 }
 
 /// A key Used with GitHub, granted protected; a plain variable, granted
-/// readable as every one was at upgrade; and a login.
+/// readable as every one was at upgrade; and a login; to a Hotline Agent
+/// teammate confined to its workspace, the one a key can be protected for.
 fn grant_a_key_a_variable_and_a_login(room: &Room) {
+    let mut ada = room.persona("ada").unwrap();
+    ada.reach = Some(crate::contract::Reach::Workspace);
+    enrol(&room.log, &ada);
     let vault = room.vault.as_ref().unwrap();
     vault
         .set_shared(
@@ -1939,9 +1943,9 @@ async fn protection(room: &Room) -> Option<crate::contract::ComputerProtection> 
     room.computer_status("ada").await.unwrap().protection
 }
 
-/// Today's pinned computer is handed what it was always handed of a
-/// readable variable, in the form it takes; the protected key and the
-/// login wait on the desk, and the pane is told so once.
+/// Today's pinned computer is handed what it was always handed, in the
+/// form it takes: the readable variable and the login; the protected key
+/// waits on the desk, and the pane is told so once.
 #[tokio::test]
 async fn a_protected_key_never_reaches_an_old_computer() {
     let ComputerRoom { room, taken, .. } = computer_room(
@@ -1953,13 +1957,11 @@ async fn a_protected_key_never_reaches_an_old_computer() {
     .await;
     grant_a_key_a_variable_and_a_login(&room);
     room.start("ada").await.unwrap();
-    assert_eq!(
-        taken.sets(),
-        [std::collections::BTreeMap::from([(
-            "NPM_TOKEN".to_owned(),
-            json!("npm_notarealtoken0002")
-        )])]
-    );
+    let sets = taken.sets();
+    assert_eq!(sets.len(), 1);
+    assert_eq!(sets[0]["NPM_TOKEN"], json!("npm_notarealtoken0002"));
+    assert_eq!(sets[0]["GITHUB_LOGIN"]["kind"], "login");
+    assert!(!sets[0].contains_key("GITHUB_TOKEN"));
     assert_eq!(taken.forms(), [1]);
     assert_eq!(
         protection(&room).await,
@@ -1967,23 +1969,10 @@ async fn a_protected_key_never_reaches_an_old_computer() {
     );
     let everywhere = serde_json::to_string(&taken.sets()).unwrap();
     assert!(!everywhere.contains("ghp_notarealtoken"), "{everywhere}");
-    assert!(
-        !everywhere.contains("correct-horse-battery"),
-        "{everywhere}"
-    );
-
-    // Only readable variables granted: today's computer is as it was, and
-    // there is nothing to update for.
-    grant_secrets(&room, &["NPM_TOKEN"]);
-    room.secrets_changed().await;
-    assert_eq!(
-        protection(&room).await,
-        Some(crate::contract::ComputerProtection::Legacy)
-    );
 }
 
 #[tokio::test]
-async fn a_login_never_reaches_a_legacy_computer() {
+async fn a_login_reaches_a_legacy_computer_as_before_and_is_marked_unprotected() {
     let ComputerRoom { room, taken, .. } =
         computer_room("protected-legacy", Some("0.13.0"), TWO_RELEASES, true).await;
     taken
@@ -1994,13 +1983,41 @@ async fn a_login_never_reaches_a_legacy_computer() {
     assert_eq!(taken.forms(), [1]);
     assert_eq!(
         taken.sets()[0].keys().collect::<Vec<_>>(),
-        ["NPM_TOKEN"],
-        "only the readable variable"
+        ["GITHUB_LOGIN", "NPM_TOKEN"],
+        "the login and the variable as 0.49 handed them; the protected key waits"
+    );
+    assert_eq!(
+        taken.sets()[0]["GITHUB_LOGIN"]["password"],
+        "correct-horse-battery"
     );
     assert_eq!(
         protection(&room).await,
         Some(crate::contract::ComputerProtection::NeedsUpdate)
     );
+    grant_secrets(&room, &["GITHUB_LOGIN"]);
+    room.secrets_changed().await;
+    assert_eq!(taken.sets()[1].keys().collect::<Vec<_>>(), ["GITHUB_LOGIN"]);
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Legacy),
+        "not protected, though nothing waits"
+    );
+}
+
+/// A teammate that runs as the person is never handed a key it was given
+/// protected, even by a computer that proves itself.
+#[tokio::test]
+async fn a_whole_machine_teammates_protected_key_is_held_back() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-machine", Some("0.13.0"), TWO_RELEASES, true).await;
+    grant_a_key_a_variable_and_a_login(&room);
+    let mut ada = room.persona("ada").unwrap();
+    ada.reach = Some(crate::contract::Reach::Machine);
+    enrol(&room.log, &ada);
+    room.start("ada").await.unwrap();
+    let set = &taken.sets()[0];
+    assert!(!set.contains_key("GITHUB_TOKEN"), "{set:?}");
+    assert_eq!(set["GITHUB_LOGIN"]["kind"], "login");
 }
 
 #[tokio::test]

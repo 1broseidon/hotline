@@ -13,7 +13,21 @@ impl Room {
     /// are written nowhere on the way.
     pub(super) async fn hand_secrets(&self, persona: &Persona, ready: &crate::computer::Ready) {
         let watch = self.use_watch(&persona.id);
-        let _watch = watch.lock().await;
+        let watch = watch.lock().await;
+        let automatic = watch.old && watch.ready.as_ref() == Some(ready);
+        self.put_secrets(persona, ready, automatic).await;
+    }
+
+    /// The handing over itself, under the caller's hold on the teammate's
+    /// use watch. `automatic` is for a computer from before Ask me, which
+    /// is handed every login and passkey as Automatic without the vault's
+    /// choice changing.
+    pub(super) async fn put_secrets(
+        &self,
+        persona: &Persona,
+        ready: &crate::computer::Ready,
+        automatic: bool,
+    ) {
         let notice = |text: String| eprintln!("{}: {text}", persona.name);
         let grants: Vec<crate::contract::SecretGrant> = persona
             .grants()
@@ -40,6 +54,32 @@ impl Room {
                 "{} was granted secrets that are not stored any more: {}. Store them again under Settings → Secrets, or untick them.",
                 persona.name,
                 missing.join(", ")
+            ));
+        }
+        let mut values = values;
+        if automatic {
+            super::secret_uses::make_automatic(&mut values);
+        }
+        // A teammate that runs as the person could read a key out of its own
+        // computer, so a key granted to it protected is never handed over.
+        let as_person = super::grants::runs_as_the_person(persona);
+        let held: Vec<String> = values
+            .iter()
+            .filter(|(name, secret)| {
+                as_person
+                    && matches!(secret, crate::vault::StoredSecret::Variable { .. })
+                    && !grants
+                        .iter()
+                        .any(|grant| grant.name == **name && grant.readable)
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !held.is_empty() {
+            values.retain(|name, _| !held.contains(name));
+            notice(format!(
+                "{} runs as you, so {} is given only as readable by its programs. Tick it again in the teammate's pane to give it that way.",
+                persona.name,
+                held.join(", ")
             ));
         }
         let set: std::collections::BTreeMap<String, crate::computer::secrets::Granted> = values

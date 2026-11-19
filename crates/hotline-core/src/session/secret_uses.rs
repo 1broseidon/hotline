@@ -89,13 +89,18 @@ impl Room {
         }
         let held = match uses::held(&ready).await {
             Ok(held) => held,
-            // A computer without the door is one that cannot keep a login
-            // or a passkey from its programs, so it was handed none, and
-            // there is nothing on it to ask about.
             Err(Refusal::TooOld) => {
                 watch.old = true;
+                eprintln!(
+                    "{persona}'s computer predates secret-use approvals; every key is automatic on it. Update the computer to use Ask me."
+                );
                 for card in watch.cards.values_mut() {
                     self.settle_secret_use(persona, card, SecretUseStatus::Expired);
+                }
+                // Explicitly deliver the compatibility policy without changing
+                // the person's stored choice for newer computers.
+                if let Ok(teammate) = self.persona(persona) {
+                    self.put_secrets(&teammate, &ready, true).await;
                 }
                 return;
             }
@@ -195,9 +200,11 @@ impl Room {
             self.settle_secret_use(persona, card, SecretUseStatus::Expired);
             return Err("That use has lapsed.".into());
         }
-        // Ten minutes may cover only a sign-in the broker itself is doing:
-        // from anything else on the computer, one answer is one use.
-        if answer == SecretUseAnswer::Allow && !card.held.attested {
+        // On a split computer, which says what each use is, ten minutes may
+        // cover only a sign-in its broker itself is doing: from anything else
+        // there, one answer is one use. An older computer's Allow is as it was.
+        if answer == SecretUseAnswer::Allow && card.held.operation.is_some() && !card.held.attested
+        {
             return Err("Allow 10 min is only for a sign-in Hotline's own browser is doing. Approve this one use, or deny it.".into());
         }
         match uses::answer(&ready, id, answer).await {
@@ -319,6 +326,19 @@ pub(super) fn watch(room: Weak<Room>) {
             }
         }
     });
+}
+
+/// Compatibility is per running computer, never a rewrite of the vault.
+pub(super) fn make_automatic(
+    values: &mut std::collections::BTreeMap<String, crate::vault::StoredSecret>,
+) {
+    for value in values.values_mut() {
+        match value {
+            crate::vault::StoredSecret::Login { r#use, .. }
+            | crate::vault::StoredSecret::Passkey { r#use, .. } => *r#use = SecretUse::Auto,
+            crate::vault::StoredSecret::Variable { .. } => {}
+        }
+    }
 }
 
 /// What an Ask-me card asks, bound to its one operation: a sign-in as an

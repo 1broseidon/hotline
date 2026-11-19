@@ -681,18 +681,23 @@ function LoginForm({
  * it is unticked, so a stale grant is seen rather than silently dropped.
  * Unticking a passkey is one of the three ways to take it back. A plain
  * variable can only be given readable, so its tick asks first, and a
- * readable grant says so. Where the teammate has both a computer and a
- * desk shell, a variable's grant says which of them it reaches; a login or
- * a passkey goes to whichever browser the teammate has.
+ * readable grant says so. A teammate that runs as the person (the whole
+ * machine, or an ACP harness) can read whatever it is given, its own
+ * computer's included, so every key it gets is readable and every grant
+ * says so. Where the teammate has both a computer and a desk shell that
+ * takes secrets, a variable's grant says which of them it reaches; a login
+ * or a passkey goes to whichever browser the teammate has.
  */
 export function TeammateSecrets({
 	grants,
 	bothPlaces,
+	asPerson,
 	disabled,
 	onChange,
 }: {
 	grants: SecretGrant[];
 	bothPlaces: boolean;
+	asPerson: boolean;
 	disabled: boolean;
 	onChange(grants: SecretGrant[]): void;
 }) {
@@ -730,7 +735,7 @@ export function TeammateSecrets({
 			onChange(grants.filter((grant) => grant.name !== name));
 			return;
 		}
-		if (record?.kind === "variable" && record.usedWith === undefined) {
+		if (record?.kind === "variable" && (record.usedWith === undefined || asPerson)) {
 			setAsking((was) => (was === name ? null : name));
 			return;
 		}
@@ -761,7 +766,7 @@ export function TeammateSecrets({
 							<span className="min-w-0 flex-1">
 								<span className="block truncate text-sm">{record !== undefined ? describeShort(record, services, true) : name}</span>
 								{record !== undefined && <span className="group-row-detail font-mono">{name}</span>}
-								{grant?.readable === true && <span className="group-row-detail block">{READABLE}</span>}
+								{grant !== undefined && (grant.readable === true || asPerson) && <span className="group-row-detail block">{READABLE}</span>}
 							</span>
 							{missing && (
 								<span

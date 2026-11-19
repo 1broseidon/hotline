@@ -7,6 +7,13 @@ import { Cookies } from "./Cookies";
 import { FoldRow } from "./rows";
 
 /**
+ * Whether the desk hands a teammate's desk shell its secrets. Not yet: the
+ * desk shell's key proxy is W2.3 of the protected-secrets plan, and until
+ * it lands nothing would be behind a choice of "Its desk shell".
+ */
+const DESK_SHELL_TAKES_SECRETS: boolean = false;
+
+/**
  * The stored secrets this teammate is granted, as its own section: the
  * grant is the teammate's, and whichever shell and browser it has uses it.
  * One fold, closed until asked, because opening it reads the keychain's
@@ -24,6 +31,7 @@ export function SecretRows({
 	teammate,
 	grants,
 	computer,
+	asPerson,
 	disabled,
 	onChange,
 }: {
@@ -31,6 +39,8 @@ export function SecretRows({
 	teammate: string;
 	grants: SecretGrant[];
 	computer: boolean;
+	/** Its programs run as the person: the whole machine, or a harness. */
+	asPerson: boolean;
 	disabled: boolean;
 	onChange(grants: SecretGrant[]): void;
 }) {
@@ -45,7 +55,7 @@ export function SecretRows({
 			<h3 className="label">Secrets</h3>
 			<div className="grouped">
 				<FoldRow title="Logins and passkeys" value={granted === 0 ? "none given" : `${granted} given`} open={open} onToggle={() => setOpen((was) => !was)} />
-				{open && <TeammateSecrets grants={grants} bothPlaces={computer} disabled={disabled} onChange={onChange} />}
+				{open && <TeammateSecrets grants={grants} bothPlaces={computer && DESK_SHELL_TAKES_SECRETS} asPerson={asPerson} disabled={disabled} onChange={onChange} />}
 				{deskBrowser && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
 				{computer && <PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />}
 			</div>

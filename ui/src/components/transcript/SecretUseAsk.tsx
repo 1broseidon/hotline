@@ -22,16 +22,20 @@ export function SecretUseAsk({ event, teammate }: { event: Extract<TranscriptEve
 		send(() => wire.command("secrets.use.answer", { personaId: event.teammate, useId: event.useId, answer }));
 	};
 	const question = asked(event);
+	// A split computer says what each use is; ten minutes there cover only a
+	// sign-in its own browser is doing. An older computer's card is as it was.
+	const oneUse = event.operation !== undefined && event.attested !== true;
+	const covers = event.operation === undefined ? "Allow 10 min covers this key, this site and this teammate." : "Allow 10 min covers this sign-in only.";
 	// Settled, it folds to one line, as every ask does.
 	if (status !== "pending") return <SettledAsk state={outcomes[status]} what={question.line} who={teammate} />;
 	return <div className="card card-live mt-3">
 		<p className="eyebrow mb-1">{outcomes[status]} · {event.secretKind === "passkey" ? "Passkey" : "Login"}</p>
 		<p className="selectable">{question.before}<span className="font-mono">{event.secret}</span>{question.after}</p>
 		<p className="mt-1 text-sm text-ink-3">For {teammate} · {event.site}{event.path}</p>
-		<p className="mt-1.5 text-sm text-ink-3">{event.attested === true ? "Allow 10 min covers this sign-in only." : "Not asked by Hotline's own browser, so this is for one use."} Voice cannot answer this card.</p>
+		<p className="mt-1.5 text-sm text-ink-3">{oneUse ? "Not asked by Hotline's own browser, so this is for one use." : covers} Voice cannot answer this card.</p>
 		<div className="mt-2.5 flex flex-wrap gap-1.5">
 			<button type="button" className="control btn-primary" disabled={answering} onClick={() => answer("approve")}>Approve</button>
-			{event.attested === true && <button type="button" className="control btn" disabled={answering} onClick={() => answer("allow")}>Allow 10 min</button>}
+			{!oneUse && <button type="button" className="control btn" disabled={answering} onClick={() => answer("allow")}>Allow 10 min</button>}
 			<button type="button" className="control btn" disabled={answering} onClick={() => answer("deny")}>Deny</button>
 		</div>
 		{refusal !== null && <p className="mt-2 text-sm text-danger">{refusal}</p>}

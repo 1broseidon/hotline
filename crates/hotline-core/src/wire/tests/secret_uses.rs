@@ -278,15 +278,21 @@ async fn use_answers_refuse_unknown_wrong_teammate_revoked_and_page_expired_requ
 }
 
 #[tokio::test]
-async fn an_older_computer_holds_no_login_or_passkey_so_nothing_waits_for_an_answer() {
+async fn an_older_computer_gets_automatic_keys_without_changing_the_vault_choice() {
     let fixture = secret_use_room("use-old-computer", "0.10.3", SecretUse::Ask).await;
     let room = &fixture.room;
     let desk = desk(room);
     room.poll_secret_uses("ada").await;
-    // Every grant here is a login or a passkey: they wait on the desk.
     assert_eq!(
-        fixture.taken.sets().last().unwrap(),
-        &std::collections::BTreeMap::new()
+        fixture.taken.sets().last().unwrap()["GH_PASSKEY"]["use"],
+        "auto"
+    );
+    assert!(
+        fixture
+            .taken
+            .uses
+            .hold("GH_PASSKEY", "github.com")
+            .is_none()
     );
     let delivered = fixture.taken.sets().len();
     room.poll_secret_uses("ada").await;
@@ -294,10 +300,17 @@ async fn an_older_computer_holds_no_login_or_passkey_so_nothing_waits_for_an_ans
     assert_eq!(
         fixture.taken.sets().len(),
         delivered,
-        "nothing is handed again"
+        "the 404 fallback runs once per running computer"
     );
     assert_eq!(cards(room.log()), [] as [Value; 0]);
     assert_eq!(desk.secrets_list().unwrap()[0].r#use, SecretUse::Ask);
+    desk.secrets_use_set("HN_LOGIN", SecretUse::Ask)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.taken.sets().last().unwrap()["HN_LOGIN"]["use"],
+        "auto"
+    );
 }
 
 /// The card says what the use is, and ten minutes are offered only when
@@ -336,4 +349,27 @@ async fn an_unattested_use_is_one_approval_never_ten_minutes() {
         .unwrap();
     assert_eq!(card["attested"], true);
     assert_eq!(card["operation"]["rpId"], "github.com");
+}
+
+/// A computer from before split mode says nothing of the operation: its
+/// card is as it was, and its Allow still covers ten minutes, so an older
+/// phone's answer works.
+#[tokio::test]
+async fn an_older_computers_allow_is_as_it_was() {
+    let fixture = secret_use_room("use-old-allow", "0.11.2", SecretUse::Ask).await;
+    let room = &fixture.room;
+    let desk = desk(room);
+    let id = fixture
+        .taken
+        .uses
+        .hold_old("GH_PASSKEY", "github.com")
+        .unwrap();
+    room.poll_secret_uses("ada").await;
+    let card = cards(room.log())[0].clone();
+    assert!(card.get("operation").is_none(), "{card}");
+    assert_eq!(
+        answer(&desk, room.log(), Seat::Phone, &id, "allow").await["ok"],
+        true
+    );
+    assert_eq!(cards(room.log())[0]["status"], "allowed");
 }

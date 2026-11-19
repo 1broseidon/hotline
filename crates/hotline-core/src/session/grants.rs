@@ -7,6 +7,11 @@
 //! readable. A client that knows them writes `secretGrants`, and `secrets`
 //! follows. At upgrade every granted variable becomes `readable: true`, so
 //! it keeps working where it did and the pane says what it was all along.
+//!
+//! A teammate that runs as the person — whole-machine reach, or an ACP
+//! harness — can read the desk's data and reach the container runtime, its
+//! own computer included, so nothing is protected from it: every key it is
+//! granted is readable, and says so.
 
 use super::*;
 use crate::contract::{GrantPlace, SecretGrant, SharedSecretKind};
@@ -21,12 +26,27 @@ fn plain_variable(name: &str, stored: &[SharedSecret]) -> bool {
     })
 }
 
+/// Whether the teammate's programs run as the person: Hotline Agent with
+/// the whole machine, or any ACP harness.
+pub(crate) fn runs_as_the_person(persona: &Persona) -> bool {
+    persona.backend_id != crate::driver::HOTLINE_BACKEND_ID
+        || persona.reach == Some(crate::contract::Reach::Machine)
+}
+
+fn variable(name: &str, stored: &[SharedSecret]) -> bool {
+    stored
+        .iter()
+        .any(|secret| secret.name == name && secret.kind == SharedSecretKind::Variable)
+}
+
 /// The grant a name gets when nobody said how: readable for a plain
-/// variable, protected and wherever the teammate works for anything else.
-fn default_grant(name: &str, stored: &[SharedSecret]) -> SecretGrant {
+/// variable, and for any variable to a teammate that runs as the person;
+/// protected and wherever the teammate works for anything else.
+fn default_grant(persona: &Persona, name: &str, stored: &[SharedSecret]) -> SecretGrant {
     SecretGrant {
         name: name.to_owned(),
-        readable: plain_variable(name, stored),
+        readable: plain_variable(name, stored)
+            || (runs_as_the_person(persona) && variable(name, stored)),
         on: None,
     }
 }
@@ -43,7 +63,7 @@ pub(crate) fn settled(persona: &Persona, stored: &[SharedSecret]) -> Option<Vec<
             kept.iter()
                 .find(|grant| grant.name == *name)
                 .cloned()
-                .unwrap_or_else(|| default_grant(name, stored))
+                .unwrap_or_else(|| default_grant(persona, name, stored))
         })
         .collect();
     grants.sort_by(|left, right| left.name.cmp(&right.name));
@@ -52,8 +72,9 @@ pub(crate) fn settled(persona: &Persona, stored: &[SharedSecret]) -> Option<Vec<
 }
 
 /// Grants as a client sent them, checked, with `secrets` written to match.
-/// A plain variable is given only as readable, and only a variable can be:
-/// a login or a passkey is used, never read, wherever it can be protected.
+/// A plain variable is given only as readable, and so is every variable to
+/// a teammate that runs as the person; only a variable can be: a login or a
+/// passkey is used, never read, wherever it can be protected.
 pub(crate) fn apply(
     persona: &mut Persona,
     grants: Vec<SecretGrant>,
@@ -85,6 +106,12 @@ pub(crate) fn apply(
             return Err(format!(
                 "{} has no Used with, so it can only be given as readable by this teammate's programs.",
                 grant.name
+            ));
+        }
+        if !grant.readable && runs_as_the_person(persona) && variable(&grant.name, stored) {
+            return Err(format!(
+                "{} runs as you, so {} can only be given as readable by its programs.",
+                persona.name, grant.name
             ));
         }
         if grant.readable && kind.is_some_and(|kind| kind != SharedSecretKind::Variable) {
@@ -222,9 +249,16 @@ mod tests {
         assert_eq!(ada.secrets, Some(vec!["GITHUB".into(), "NPM_TOKEN".into()]));
     }
 
+    /// A Hotline Agent teammate confined to its workspace.
+    fn confined() -> Persona {
+        let mut ada = crate::session::tests::persona("ada");
+        ada.reach = Some(crate::contract::Reach::Workspace);
+        ada
+    }
+
     #[test]
     fn a_name_ticked_by_an_older_client_gets_todays_grant_and_keeps_the_rest() {
-        let mut ada = crate::session::tests::persona("ada");
+        let mut ada = confined();
         ada.secrets = Some(vec!["GITHUB_TOKEN".into(), "NPM_TOKEN".into()]);
         ada.secret_grants = Some(vec![SecretGrant {
             name: "GITHUB_TOKEN".into(),
@@ -246,8 +280,39 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_variable_is_granted_only_as_readable_and_a_login_never_is() {
+    fn a_whole_machine_teammate_never_gets_a_protected_key() {
         let mut ada = crate::session::tests::persona("ada");
+        ada.reach = Some(crate::contract::Reach::Machine);
+        let refused =
+            apply(&mut ada, vec![grant("GITHUB_TOKEN", false)], &vault_list()).unwrap_err();
+        assert!(refused.contains("readable"), "{refused}");
+        apply(&mut ada, vec![grant("GITHUB_TOKEN", true)], &vault_list()).unwrap();
+        assert_eq!(ada.secret_grants, Some(vec![grant("GITHUB_TOKEN", true)]));
+        // An older client's tick of a key Used with a service is readable too.
+        ada.secrets = Some(vec!["GITHUB_TOKEN".into(), "GITHUB".into()]);
+        ada.secret_grants = None;
+        assert_eq!(
+            settled(&ada, &vault_list()).unwrap(),
+            [grant("GITHUB", false), grant("GITHUB_TOKEN", true)],
+            "a login is still used for it, as before"
+        );
+        // A harness runs as the person whatever its reach.
+        let mut harness = crate::session::tests::persona("bob");
+        harness.backend_id = "claude-code".into();
+        assert!(
+            apply(
+                &mut harness,
+                vec![grant("GITHUB_TOKEN", false)],
+                &vault_list()
+            )
+            .is_err()
+        );
+        assert!(!runs_as_the_person(&confined()));
+    }
+
+    #[test]
+    fn a_plain_variable_is_granted_only_as_readable_and_a_login_never_is() {
+        let mut ada = confined();
         let refused = apply(&mut ada, vec![grant("NPM_TOKEN", false)], &vault_list()).unwrap_err();
         assert!(refused.contains("readable"), "{refused}");
         assert!(apply(&mut ada, vec![grant("GITHUB", true)], &vault_list()).is_err());

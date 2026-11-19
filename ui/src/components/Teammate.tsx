@@ -381,6 +381,7 @@ export function Teammate({
 						teammate={persona.name}
 						grants={persona.secretGrants ?? (persona.secrets ?? []).map((name) => ({ name }))}
 						computer={persona.computer?.enabled === true}
+						asPerson={!hotline || persona.reach === "machine"}
 						disabled={busy}
 						onChange={(secretGrants) => save({ secretGrants })}
 					/>

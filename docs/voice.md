@@ -860,26 +860,47 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   opener or stock phrase, and nothing at all for small talk, a yes or no, a
   correction, or anything a quick answer serves better. A reply of more than
   one line or twelve words is not said.
-- The hand-off to the teammate waits at most 500 ms for it. A line that
-  arrives in time goes into the turn's prompt, after the contract, as
-  already said aloud, with the instruction not to acknowledge again and to
-  go straight to the work or the answer (`spoken::already_said`). A late
-  line is dropped, so the desk never says a line the teammate was not told
-  of, and neither is one whose prompt did not take it.
-- It is synthesized at once in the call's own voice, never the fallback
-  voice, and said only if the teammate has no piece of its own ready to say
-  when its sound is; otherwise it is dropped. It is one clip under a line of
-  its own, kept on the call's thread as the teammate's line, stopped by a
-  cut-in, a hold or a hang-up like any clip, and it is speech on the turn:
-  the 8 second presence sound does not follow it and the overrun note counts
-  its 90 seconds from it.
+- It is asked for beside the hand-off, never before it: the person's turn
+  goes to the teammate at once, as with the setting off, because a hosted
+  fast model does not answer in the half second a hand-off could wait. The
+  line's words cannot be in the teammate's prompt, so the turn's prompt
+  carries a contract that says the desk will say a brief acknowledgement of
+  the request aloud for it, not to open with one of its own (no "let me
+  check", no restating the request) and never to refer to it, and to go
+  straight to the work or the answer, speaking next with progress or the
+  answer itself (`spoken::ACKNOWLEDGED_CONTRACT`). That contract replaces the
+  usual one's opening line before a tool; the rest is the same. If the desk
+  then says nothing, the teammate's first words are its work or its answer,
+  and the 8 second presence sound still covers the silence.
+- It is synthesized in the call's own voice, never the fallback voice, and
+  said only if the teammate has no piece of its own ready or being
+  synthesized, checked before its speech is asked for and again once its
+  sound is ready, and only if that sound is ready within 4 seconds of the
+  end of the person's speech (`ACK_CAP`, `silence` included): a late
+  acknowledgement is worse than none. It is one clip under a line of its
+  own, stopped by a cut-in, a hold or a hang-up like any clip, and it is
+  speech on the turn: the 8 second presence sound does not follow it and
+  the overrun note counts its 90 seconds from it.
+- Said, it is kept on the call's thread as the teammate's line and among
+  the recent speech every later turn's prompt carries, so the teammate's
+  later context shows it was said. The turn it opened is not interrupted to
+  be told.
 - It is not asked for on a live call, a call to the desk, a turn that
   arrives while the teammate is still on an earlier one, or when the
   teammate's first words came in under 3 seconds (`llm_spoken`) on the
-  call's last timed turn; nor without a call assistant.
+  call's last timed turn; nor without a call assistant, or when the Chat
+  budget has no room. The teammate's turn is told of a line only when one
+  is asked for.
 - The call assistant's request reserves on Chat and the line's speech on
   Voice, as a rewrite does; either refused, nothing is said for the turn and
   the call goes on.
+- On a direct Turn by turn call with the setting on, every turn with no
+  line leaves `[voice] call <id>: no acknowledgement: <why>` in the log: the
+  teammate was on an earlier turn or quick last time, there was no call
+  assistant or Chat budget, the call assistant wrote no line (small talk, a
+  yes or no) or failed, its voice refused or failed, it was not ready in
+  time, the teammate spoke first, or the person spoke again, over it, or
+  held the call.
 
 Off, the call assistant is never asked and a turn is what it was without
 the setting.
@@ -940,12 +961,13 @@ goes out, with the call and sequence and never the words or audio:
   desk hears anything, so it is outside `desk_total`; `-` from a client that
   does not report it.
 - `stt`: the desk taking the utterance to its words (`0` for device text).
-- `dispatch`: the words to the teammate's session being handed them,
-  including up to 500 ms waiting for an acknowledgement when that is on.
+- `dispatch`: the words to the teammate's session being handed them; an
+  acknowledgement never adds to it.
 - `llm_think`, `llm_spoken`, `first_unit`: from that hand-off to the model's
   first stream event, its first words, and the first piece ready to say.
 - `ack`: from the end of the person's speech (`silence` included when known)
-  to the desk's own acknowledgement being sent; `-` when none was said
+  to the sound of the desk's own acknowledgement being ready and sent; `-`
+  when none was said, and the log says why
   ([Acknowledging while the teammate thinks](#acknowledging-while-the-teammate-thinks)).
 - `tts_done`: the first piece's synthesis to its clip.
 - `desk_total`: the desk taking the utterance to the teammate's first clip.

@@ -1,6 +1,8 @@
 //! The desk's acknowledgement while a teammate thinks (`voice.acknowledge`):
-//! said in the teammate's voice only when the teammate was told of it and
-//! has nothing of its own ready yet, and never when the setting is off.
+//! asked for beside the hand-off, never before it, and said in the
+//! teammate's voice only when the teammate was told one is coming, has
+//! nothing of its own to say yet, and the line's sound is ready within the
+//! cap; never when the setting is off.
 use super::*;
 
 const LINE: &str = "Looking at the build now.";
@@ -52,6 +54,20 @@ async fn handed_over(calls: &Calls, id: &str) {
     .await;
 }
 
+/// An utterance whose speech ended `silence_ms` before the desk took it.
+fn utterance_after(calls: &Calls, id: &str, silence_ms: u32) {
+    calls
+        .utterance(
+            id,
+            1,
+            "audio/wav",
+            &STANDARD.encode(wav()),
+            1000,
+            Some(silence_ms),
+        )
+        .unwrap();
+}
+
 fn thread_lines(desk: &crate::desk::Desk, persona: &str) -> Vec<Value> {
     desk.log.load(&StreamId::Call(
         call_link(desk, persona).unwrap()["thread"]
@@ -63,8 +79,9 @@ fn thread_lines(desk: &crate::desk::Desk, persona: &str) -> Vec<Value> {
 
 /// A slow teammate: the line is asked for with what the person said, said
 /// in the call's voice as one whole clip under a line of its own, kept on
-/// the call's thread as the teammate's, and it counts as speech on the turn
-/// without being taken for the teammate's first clip.
+/// the call's thread as the teammate's and in what its next turn is told was
+/// said, and it counts as speech on the turn without being taken for the
+/// teammate's first clip.
 #[tokio::test]
 async fn a_slow_teammate_is_covered_by_one_line_in_its_voice() {
     let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
@@ -112,6 +129,10 @@ async fn a_slow_teammate_is_covered_by_one_line_in_its_voice() {
             .any(|event| event["kind"] == "agent" && event["text"] == LINE)
     })
     .await;
+    assert!(
+        calls.turn_instruction(&id).contains(LINE),
+        "the teammate's next turn is told it was said"
+    );
 
     // The teammate's own reply follows, and is its first clip.
     let origin = Origin {
@@ -138,8 +159,64 @@ async fn a_slow_teammate_is_covered_by_one_line_in_its_voice() {
     calls.end(&id).unwrap();
 }
 
-/// The teammate's first piece is ready before the line's sound: the line is
-/// dropped, and only the teammate is heard.
+/// The turn goes to the teammate at once, while the call assistant is still
+/// writing the line, and the line is said when it comes, the teammate still
+/// thinking.
+#[tokio::test]
+async fn the_turn_is_handed_over_before_the_line_is_written() {
+    let (_root, desk, calls, id, _persona, mut rx, fake) = direct_call().await;
+    acknowledging(&desk, true);
+    *lock(&fake.ack) = Ok(LINE.into());
+    *lock(&fake.ack_delay) = Duration::from_millis(1_500);
+    utterance(&calls, &id, 1).unwrap();
+    tokio::time::timeout(Duration::from_millis(1_000), handed_over(&calls, &id))
+        .await
+        .expect("the hand-off does not wait for the line");
+    assert_eq!(lock(&fake.acks).len(), 1, "the line is asked for beside it");
+    assert!(lock(&fake.spoken).is_empty(), "and not written yet");
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == LINE),
+    )
+    .await;
+    calls.end(&id).unwrap();
+}
+
+/// The teammate's first piece comes before the line does: the line is never
+/// synthesized, and only the teammate is heard.
+#[tokio::test]
+async fn the_line_is_discarded_when_the_teammate_speaks_before_it_is_written() {
+    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    acknowledging(&desk, true);
+    *lock(&fake.ack) = Ok(LINE.into());
+    *lock(&fake.ack_delay) = Duration::from_millis(400);
+    utterance(&calls, &id, 1).unwrap();
+    handed_over(&calls, &id).await;
+    let origin = Origin {
+        call_id: id.clone(),
+        seq: 1,
+        direct: true,
+        front: false,
+    };
+    calls.reply_delta(
+        &persona,
+        "reply-1",
+        "<spoken>The build is green.</spoken>",
+        &origin,
+    );
+    let sent = sent_within(&mut rx, Duration::from_millis(1_200)).await;
+    assert!(says(&sent, "The build is green."), "{sent:?}");
+    assert!(!says(&sent, LINE), "{sent:?}");
+    assert_eq!(lock(&fake.acks).len(), 1);
+    assert!(
+        !lock(&fake.spoken).iter().any(|spoken| spoken == LINE),
+        "never synthesized"
+    );
+    calls.end(&id).unwrap();
+}
+
+/// The teammate's first piece is ready while the line's sound is being made:
+/// the line is dropped, and only the teammate is heard.
 #[tokio::test]
 async fn the_line_is_dropped_when_the_teammate_is_ready_first() {
     let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
@@ -148,6 +225,10 @@ async fn the_line_is_dropped_when_the_teammate_is_ready_first() {
     *lock(&fake.delay) = Duration::from_millis(400);
     utterance(&calls, &id, 1).unwrap();
     handed_over(&calls, &id).await;
+    until("the line is being synthesized", || {
+        lock(&fake.spoken).iter().any(|spoken| spoken == LINE)
+    })
+    .await;
     let origin = Origin {
         call_id: id.clone(),
         seq: 1,
@@ -163,17 +244,14 @@ async fn the_line_is_dropped_when_the_teammate_is_ready_first() {
     let sent = sent_within(&mut rx, Duration::from_millis(1_500)).await;
     assert!(says(&sent, "The build is green."), "{sent:?}");
     assert!(!says(&sent, LINE), "{sent:?}");
-    assert!(
-        lock(&fake.spoken).iter().any(|spoken| spoken == LINE),
-        "it was synthesized"
-    );
     calls.end(&id).unwrap();
 }
 
-/// An empty line, one too late, the Chat budget refusing it, the Voice
-/// budget refusing its sound, a teammate that answered quickly last time,
-/// no call assistant, and the setting off: nothing is said for the turn
-/// but the teammate's own reply, and no turn ends the call.
+/// An empty line, one whose sound would be ready past the cap counted from
+/// the end of the person's speech, the Chat budget refusing it, a teammate
+/// that answered quickly last time, and the setting off: nothing is said for
+/// the turn but the teammate's own reply, no turn ends the call, and no news
+/// of a line is left for the next prompt.
 #[tokio::test]
 async fn nothing_is_said_when_there_is_no_line_to_say_in_time() {
     for case in ["empty", "late", "refused", "quick", "off"] {
@@ -184,9 +262,6 @@ async fn nothing_is_said_when_there_is_no_line_to_say_in_time() {
             "refused" => Err(BUDGET_ERROR.into()),
             _ => Ok(LINE.into()),
         };
-        if case == "late" {
-            *lock(&fake.ack_delay) = Duration::from_millis(700);
-        }
         if case == "quick" {
             calls
                 .test_change(&id, |call| {
@@ -195,7 +270,14 @@ async fn nothing_is_said_when_there_is_no_line_to_say_in_time() {
                 })
                 .unwrap();
         }
-        utterance(&calls, &id, 1).unwrap();
+        if case == "late" {
+            // The person stopped speaking 3.7 s before the desk took the
+            // turn, so the line has 300 ms left, and takes 600.
+            *lock(&fake.ack_delay) = Duration::from_millis(600);
+            utterance_after(&calls, &id, 3_700);
+        } else {
+            utterance(&calls, &id, 1).unwrap();
+        }
         handed_over(&calls, &id).await;
         let sent = sent_within(&mut rx, Duration::from_millis(900)).await;
         assert!(sent.is_empty(), "{case}: {sent:?}");
@@ -208,10 +290,11 @@ async fn nothing_is_said_when_there_is_no_line_to_say_in_time() {
         );
         assert!(
             calls
-                .test_change(&id, |call| Ok(call.acknowledged.is_none()))
+                .test_change(&id, |call| Ok(!call.acknowledging))
                 .unwrap(),
             "{case}: nothing waits for the next prompt"
         );
+        assert!(calls.is_up(&id), "{case}: the call goes on");
         calls.end(&id).unwrap();
     }
 }

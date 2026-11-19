@@ -137,11 +137,13 @@ relaxes length for that answer only, in numbered parts with a check-in.
 On Turn by turn, with Settings' Acknowledge while the teammate thinks on
 (`voice.acknowledge`, off by default), the desk may say one short line
 naming the request in the teammate's own voice while the teammate's model
-starts. The line comes from the call assistant within 500 ms of the
-person's words or not at all; the teammate's turn is told it was already
-said and not to acknowledge again; it is dropped if the teammate's own
-first piece is ready first, and it obeys cut-in, hold and hang-up as any
-clip. It is never said on a live call or a call to the desk
+starts. The person's turn goes to the teammate at once and the line is
+asked of the call assistant beside it, so the setting adds no delay; the
+teammate's turn is told the desk will acknowledge the request and is asked
+for no opening of its own. The line is said only if its sound is ready
+within 4 seconds of the person's last word and the teammate has nothing of
+its own to say yet, and it obeys cut-in, hold and hang-up as any clip. It
+is never said on a live call or a call to the desk
 ([voice.md](voice.md#acknowledging-while-the-teammate-thinks)).
 
 `session.update` refreshes running work, the call so far, recent already-said

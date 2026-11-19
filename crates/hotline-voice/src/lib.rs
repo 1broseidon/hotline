@@ -361,6 +361,12 @@ impl TurnTiming {
         self.ack.get_or_insert_with(Instant::now);
     }
 
+    /// How long ago the person stopped speaking: the pause the client waited
+    /// (none when it did not say) and the desk's time since it took the turn.
+    pub(crate) fn since_speech_end(&self) -> Duration {
+        Duration::from_millis(u64::from(self.silence.unwrap_or(0))) + self.started.elapsed()
+    }
+
     /// Whether the teammate has its first piece ready to say on this turn.
     pub(crate) fn first_unit_ready(&self) -> bool {
         self.first_unit.is_some()
@@ -385,8 +391,8 @@ impl TurnTiming {
     /// The turn's one log line, as of `now`, the moment its first clip of
     /// the teammate's own went out. `desk_total` runs from the desk taking
     /// the utterance to then; `ack` runs from the end of the person's speech
-    /// (the client's `silence` included when it reported one) to the desk's
-    /// acknowledgement being sent.
+    /// (the client's `silence` included when it reported one) to the sound of
+    /// the desk's acknowledgement being ready and sent.
     pub(crate) fn format_line(
         &self,
         now: Instant,
@@ -493,9 +499,10 @@ pub struct Call {
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
     pub words: String,
-    /// The acknowledgement the turn being handed to the teammate now carries
-    /// as already said, until its prompt takes it ([`Calls::turn_instruction`]).
-    pub acknowledged: Option<String>,
+    /// Whether the turn being handed to the teammate now is to be told the
+    /// desk will acknowledge it, until its prompt takes the news
+    /// ([`Calls::turn_instruction`]).
+    pub acknowledging: bool,
     /// The line the desk said as this turn's acknowledgement: its clip is
     /// not the teammate's first, which the turn's timing waits for.
     pub(crate) ack_line: Option<String>,

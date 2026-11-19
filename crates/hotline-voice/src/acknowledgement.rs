@@ -4,16 +4,20 @@
 //! person asked, and the desk says it in the teammate's own voice while the
 //! teammate starts, as the teammate's line.
 //!
-//! The line is said only if the teammate was told of it: its turn's prompt
-//! carries the line as already said, so it goes straight to the work instead
-//! of acknowledging again. The hand-off waits at most [`ACK_WAIT`] for it,
-//! and a line later than that is dropped. A line whose sound is ready after
-//! the teammate's own first piece is ready to say is dropped too: the
-//! teammate's words come first. Nothing here changes a call with the setting
-//! off.
+//! The person's turn goes to the teammate at once, as with the setting off:
+//! a hosted fast model does not answer in the half second a hand-off could
+//! wait, so the line is asked for beside the hand-off, never before it. Its
+//! words cannot be in the teammate's prompt, so the prompt says instead that
+//! the desk will acknowledge the request ([`spoken::ACKNOWLEDGED_CONTRACT`])
+//! and asks for no opening line of its own. The line is said only if the
+//! teammate has no piece of its own to say yet and its sound is ready within
+//! [`ACK_CAP`] of the person's last word: a late acknowledgement is worse
+//! than none. Nothing here changes a call with the setting off.
 
+use super::dispatcher::Dispatcher;
 use super::ledger::{self, Kind};
 use super::record::Speaker;
+use super::speech::Clip;
 use super::synthesis::playable;
 use super::{Calls, spoken};
 use hotline_contract::{VoiceEvent, VoiceState};
@@ -22,9 +26,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-/// How long a turn's hand-off to the teammate waits for the line. One that
-/// comes later is never said: the teammate was not told of it.
-pub(crate) const ACK_WAIT: Duration = Duration::from_millis(500);
+/// How long after the person's last word the line's sound may be ready.
+/// One later than that is never said.
+pub(crate) const ACK_CAP: Duration = Duration::from_secs(4);
 
 /// A teammate whose first words came this quickly on its last turn needs no
 /// line to cover its silence.
@@ -34,159 +38,157 @@ pub(crate) const QUICK_TEAMMATE: Duration = Duration::from_secs(3);
 /// answering the question rather than naming it.
 const MOST_WORDS: usize = 12;
 
-impl Calls {
-    /// The line to say for the teammate while it starts on `words`, or None:
-    /// the setting is off, the call is a live one or the desk's own, the
-    /// teammate is still on an earlier turn or answered quickly last time,
-    /// there is no call assistant, it wrote nothing, failed, was refused by
-    /// the Chat budget, or took longer than [`ACK_WAIT`].
-    pub(super) async fn acknowledgement(
-        &self,
-        id: &str,
-        target: &str,
-        words: &str,
-        interrupted: &CancellationToken,
-    ) -> Option<String> {
-        if !self.settings().acknowledge {
-            return None;
-        }
-        let wanted = self
-            .change(id, |call| {
-                Ok(!call.desk
-                    && call.front.is_none()
-                    && call.answering.is_none()
-                    && call
-                        .last_llm_spoken
-                        .is_none_or(|spoken| spoken >= QUICK_TEAMMATE))
-            })
-            .unwrap_or(false);
-        if !wanted {
-            return None;
-        }
-        let assistant = self.dispatcher().ok()?;
-        let name = hotline_room::room::roster(&self.log)
-            .into_iter()
-            .find(|persona| persona.id == target)
-            .map(|persona| persona.name)?;
-        let skipped = |why: &str| {
-            eprintln!("[voice] call {id}: no acknowledgement: {why}");
-        };
-        let line = match tokio::time::timeout(
-            ACK_WAIT,
-            assistant.acknowledge(&name, words, self.ledger.clone()),
-        )
-        .await
-        {
-            Ok(Ok(line)) => line,
-            Ok(Err(error)) => {
-                skipped(&error);
-                return None;
-            }
-            Err(_) => {
-                skipped(&format!("it took longer than {ACK_WAIT:?}"));
-                return None;
-            }
-        };
-        if interrupted.is_cancelled() {
-            return None;
-        }
-        sayable(&line)
-    }
+/// Why no acknowledgement was said for a turn, in the log.
+fn skipped(id: &str, why: &str) {
+    eprintln!("[voice] call {id}: no acknowledgement: {why}");
+}
 
-    /// Has the next prompt of the call carry `line` as already said, and
-    /// starts saying it. The sender answers whether the teammate was told:
-    /// until it says so, nothing is played.
+impl Calls {
+    /// Starts on a line to say for the teammate while it starts on `words`,
+    /// and has the turn's prompt told one is coming
+    /// ([`Self::turn_instruction`]). None, and nothing changed, when the
+    /// setting is off, the call is a live one or the desk's own, the teammate
+    /// is still on an earlier turn or answered quickly last time, or there is
+    /// no call assistant or Chat budget for it. The sender answers whether the
+    /// teammate was told: until it says so, nothing is played.
     pub(super) fn acknowledge(
         self: &Arc<Self>,
         id: &str,
         seq: u32,
-        line: String,
+        target: &str,
+        words: &str,
         interrupted: &CancellationToken,
         ended: &CancellationToken,
-    ) -> oneshot::Sender<bool> {
-        let _ = self.change(id, |call| {
-            call.acknowledged = Some(line.clone());
-            Ok(())
-        });
+    ) -> Option<oneshot::Sender<bool>> {
+        if !self.settings().acknowledge {
+            return None;
+        }
+        let (direct, busy, quick) = self
+            .change(id, |call| {
+                Ok((
+                    !call.desk && call.front.is_none(),
+                    call.answering.is_some(),
+                    call.last_llm_spoken
+                        .is_some_and(|spoken| spoken < QUICK_TEAMMATE),
+                ))
+            })
+            .ok()?;
+        if !direct {
+            return None;
+        }
+        if busy {
+            skipped(id, "the teammate is still on an earlier turn");
+            return None;
+        }
+        if quick {
+            skipped(id, "the teammate answered quickly last time");
+            return None;
+        }
+        let Ok(assistant) = self.dispatcher() else {
+            skipped(id, "there is no call assistant");
+            return None;
+        };
+        if !assistant.free() && self.ledger.ready(&[Kind::Dispatcher]).is_err() {
+            skipped(id, "the Chat budget has no room for it");
+            return None;
+        }
+        let name = hotline_room::room::roster(&self.log)
+            .into_iter()
+            .find(|persona| persona.id == target)
+            .map(|persona| persona.name)?;
+        let cap = self
+            .change(id, |call| {
+                call.acknowledging = true;
+                Ok(call.turn_timing.as_ref().map_or(ACK_CAP, |timing| {
+                    ACK_CAP.saturating_sub(timing.since_speech_end())
+                }))
+            })
+            .ok()?;
         let (tell, told) = oneshot::channel();
         tokio::spawn(self.clone().say_acknowledgement(
-            id.to_string(),
-            seq,
-            line,
+            Turn {
+                id: id.to_string(),
+                seq,
+                name,
+                words: words.to_string(),
+            },
+            assistant,
+            cap,
             told,
             interrupted.clone(),
             ended.clone(),
         ));
-        tell
+        Some(tell)
     }
 
-    /// The hand-off is over: the teammate was told of the line if its prompt
-    /// went and took it. A line no prompt took is not kept for the next one.
+    /// The hand-off is over: the teammate was told a line is coming if its
+    /// prompt went and took the news. News no prompt took is not kept for the
+    /// next one.
     pub(super) fn told(&self, id: &str, tell: oneshot::Sender<bool>, prompted: bool) {
         let carried = self
-            .change(id, |call| Ok(call.acknowledged.take().is_none()))
+            .change(id, |call| Ok(!std::mem::take(&mut call.acknowledging)))
             .unwrap_or(false);
         let _ = tell.send(prompted && carried);
     }
 
-    /// Synthesizes the line in the call's own voice at once (never its
-    /// fallback voice, which would be someone else's), and says it as
-    /// the teammate's line once the teammate has been told of it, unless the
-    /// person has spoken over the call, held it or hung up, a newer turn has
-    /// begun, or the teammate's first piece was ready first. Its clip counts
-    /// as speech on the turn, so the waiting tone and the overrun note count
-    /// from it. A refused or failed voice says nothing for it.
+    /// Asks the call assistant for the line and synthesizes it in the call's
+    /// own voice (never its fallback voice, which would be someone else's),
+    /// then says it as the teammate's line once the teammate has been told of
+    /// it, unless the person has spoken over the call, held it or hung up, a
+    /// newer turn has begun, the teammate has a piece of its own to say, or
+    /// the sound was not ready within `cap`. Its clip counts as speech on the
+    /// turn, so the waiting tone and the overrun note count from it, and it is
+    /// kept on the call's thread and in what the teammate's later turns are
+    /// told was said. Nothing it fails at ends the call.
     async fn say_acknowledgement(
         self: Arc<Self>,
-        id: String,
-        seq: u32,
-        line: String,
+        turn: Turn,
+        assistant: Arc<dyn Dispatcher>,
+        cap: Duration,
         told: oneshot::Receiver<bool>,
         interrupted: CancellationToken,
         ended: CancellationToken,
     ) {
-        let Ok(speech) = self.speech_for(&id) else {
-            return;
-        };
-        let voice = speech.tts;
-        let synthesized = async {
-            // Its own voice or nothing: a fallback voice would be someone else.
-            self.pay(
-                Kind::Tts,
-                ledger::tts_usd(&voice.id().provider_id, line.chars().count()),
-            )?;
-            match voice.speak(&line).await {
-                Ok(clip) if playable(&clip, clip.bytes.len()) => Ok(clip),
-                Ok(_) => Err("its voice sent no sound a client can play".to_string()),
-                Err(error) => Err(error.to_string()),
+        let id = turn.id.as_str();
+        let ready = async {
+            let line = assistant
+                .acknowledge(&turn.name, &turn.words, self.ledger.clone())
+                .await?;
+            let line = sayable(&line).ok_or("the call assistant wrote no line to say")?;
+            if self.change(id, |call| Ok(own_words(call))).unwrap_or(true) {
+                return Err("the teammate spoke first".to_string());
             }
+            let clip = self.acknowledgement_sound(id, &line).await?;
+            Ok((line, clip))
         };
-        let (clip, told) = tokio::select! {
-            () = interrupted.cancelled() => return,
+        let outcome = tokio::select! {
+            () = interrupted.cancelled() => Err("the person spoke over the call".to_string()),
             () = ended.cancelled() => return,
-            both = async { tokio::join!(synthesized, told) } => both,
+            both = tokio::time::timeout(cap, async { tokio::join!(ready, told) }) => match both {
+                Ok((Ok(said), Ok(true))) => Ok(said),
+                Ok((Err(why), _)) => Err(why),
+                Ok((Ok(_), _)) => Err("the teammate's turn was not told of it".to_string()),
+                Err(_) => Err(format!("it was not ready within {ACK_CAP:?} of the person's last word")),
+            },
         };
-        if !matches!(told, Ok(true)) {
-            return;
-        }
-        let clip = match clip {
-            Ok(clip) => clip,
-            Err(error) => {
-                eprintln!("[voice] call {id}: the acknowledgement was not said: {error}");
-                return;
-            }
+        let (line, clip) = match outcome {
+            Ok(said) => said,
+            Err(why) => return skipped(id, &why),
         };
-        let said = self.change(&id, |call| {
-            let teammate_first = call
-                .turn_timing
-                .as_ref()
-                .is_none_or(super::TurnTiming::first_unit_ready);
-            if call.seq != Some(seq)
-                || call.state == VoiceState::Held
-                || interrupted.is_cancelled()
-                || teammate_first
-            {
-                return Ok(None);
+        let said = self.change(id, |call| {
+            let why = if call.seq != Some(turn.seq) {
+                Some("the person has spoken again")
+            } else if call.state == VoiceState::Held {
+                Some("the call is on hold")
+            } else if interrupted.is_cancelled() {
+                Some("the person spoke over the call")
+            } else if own_words(call) {
+                Some("the teammate spoke first")
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                return Ok(Err(why));
             }
             let said = uuid::Uuid::new_v4().to_string();
             call.ack_line = Some(said.clone());
@@ -194,21 +196,57 @@ impl Calls {
                 timing.mark_ack();
             }
             call.conversation.remember(&line);
-            Ok(Some(said))
+            Ok(Ok(said))
         });
-        let Ok(Some(said)) = said else {
-            return;
+        let said = match said {
+            Ok(Ok(said)) => said,
+            Ok(Err(why)) => return skipped(id, why),
+            Err(_) => return,
         };
-        self.keep_as(&id, Speaker::Voice, &said, &line);
+        self.keep_as(id, Speaker::Voice, &said, &line);
         self.emit(
-            &id,
+            id,
             VoiceEvent::Said {
                 id: said.clone(),
                 text: line,
             },
         );
-        self.clip(&id, &said, 0, true, &clip, Some(&interrupted));
+        self.clip(id, &said, 0, true, &clip, Some(&interrupted));
     }
+
+    /// The line's sound in the call's own voice, its speech asked of the
+    /// Voice budget first. Its own voice or nothing: a fallback voice would
+    /// be someone else.
+    async fn acknowledgement_sound(&self, id: &str, line: &str) -> Result<Clip, String> {
+        let voice = self.speech_for(id)?.tts;
+        self.pay(
+            Kind::Tts,
+            ledger::tts_usd(&voice.id().provider_id, line.chars().count()),
+        )?;
+        match voice.speak(line).await {
+            Ok(clip) if playable(&clip, clip.bytes.len()) => Ok(clip),
+            Ok(_) => Err("its voice sent no sound a client can play".to_string()),
+            Err(error) => Err(format!("its voice failed: {error}")),
+        }
+    }
+}
+
+/// Whether the teammate has a piece of its own to say on the call's turn, or
+/// is saying it: its first piece is marked before it is synthesized, and the
+/// turn's timing is gone once its first clip went out.
+fn own_words(call: &super::Call) -> bool {
+    call.turn_timing
+        .as_ref()
+        .is_none_or(super::TurnTiming::first_unit_ready)
+}
+
+/// The turn a line is for: the call, the person's turn on it, the teammate's
+/// name and what the person said.
+struct Turn {
+    id: String,
+    seq: u32,
+    name: String,
+    words: String,
 }
 
 /// The model's line as it can be said: one line, without quotes or markup,

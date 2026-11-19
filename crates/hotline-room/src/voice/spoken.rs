@@ -9,26 +9,39 @@
 use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
-/// What a voice turn asks of the agent, after the person's words.
-pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Keep it short, as on the phone: a sentence or three, one word when that answers it. For a recap or a long result, say the main points and offer more instead of going through every item; go long only when asked. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
+/// The part of what a voice turn asks of the agent that is the same whether
+/// or not the desk acknowledges the turn for it.
+macro_rules! contract_head {
+    () => {
+        "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Keep it short, as on the phone: a sentence or three, one word when that answers it. For a recap or a long result, say the main points and offer more instead of going through every item; go long only when asked. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
 Only when there is something to keep that speech cannot carry, add <written>...</written>: code, a table, a file or link, a substantial list or a long write-up. Make that result stand alone. For conversation, omit written: the spoken words are the written record, with no second answer to invent.
-Before a tool, begin with one short spoken sentence naming what you are about to do. If it will take more than a quick lookup, set expectations with a coarse size — a moment, a couple of minutes, or a while — never an exact number of minutes or seconds. Once you have said that, work in silence until you finish. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
+"
+    };
+}
+
+/// What a voice turn asks of the agent, after the person's words.
+pub const CONTRACT: &str = concat!(
+    contract_head!(),
+    "Before a tool, begin with one short spoken sentence naming what you are about to do. If it will take more than a quick lookup, set expectations with a coarse size — a moment, a couple of minutes, or a while — never an exact number of minutes or seconds. Once you have said that, work in silence until you finish. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]"
+);
+
+/// What a voice turn asks of the agent when the desk says a brief
+/// acknowledgement of the request aloud for it while it starts
+/// (`voice.acknowledge`). The desk's line is not in the prompt, since the
+/// turn is handed over before the line is written, so the agent is told one
+/// is coming and is not asked for an opening line of its own: the person
+/// would hear the request named twice. The desk may still say nothing (its
+/// fast model wrote no line, or not in time, or the agent spoke first), so
+/// the agent never refers to it.
+pub const ACKNOWLEDGED_CONTRACT: &str = concat!(
+    contract_head!(),
+    "The desk will say a brief acknowledgement of this request aloud for you as you start, so do not open with one of your own (no 'let me check', no restating the request) and never refer to it. Go straight to the work or the answer, and speak next when you have progress to report or the answer itself. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]"
+);
 
 /// Hotline's note to a call's teammate, left once per turn when its work has
 /// been silent long past its last spoken line. It is read with the next tool
 /// results, never steered in as the person's words.
 pub const OVERRUN_NUDGE: &str = "[Voice call: this work has been quiet for a while. Before your next tool call, speak one brief sentence with real progress — what's done and what's left — with no revised time estimate.]";
-
-/// What a turn's teammate is told when the desk has already said a line for
-/// it in its voice while it started (`voice.acknowledge`): the line is its
-/// own opening, so it neither says another nor repeats it. The line is the
-/// desk's fast model's words, so it travels quoted, as data.
-pub fn already_said(line: &str) -> String {
-    format!(
-        "[Voice call: you have already said this aloud, in your own voice, to open this turn: {}. Do not acknowledge the request again or repeat that line; go straight to the work or the answer.]",
-        serde_json::to_string(line).expect("a string always serializes")
-    )
-}
 
 mod context;
 pub use context::{CallContext, carries_more};
@@ -1367,14 +1380,22 @@ mod tests {
         assert!(OVERRUN_NUDGE.contains("what's done and what's left"));
     }
 
+    /// With the desk acknowledging, the turn is asked for no opening line of
+    /// its own and told why; everything else it is asked is the same.
     #[test]
-    fn an_already_said_line_is_quoted_and_forbids_a_second_acknowledgement() {
-        let note = already_said("Looking into the \"flaky\" test.");
-        assert!(
-            note.contains(r#""Looking into the \"flaky\" test.""#),
-            "{note}"
-        );
-        assert!(note.contains("Do not acknowledge the request again"));
-        assert!(note.contains("go straight to the work or the answer"));
+    fn an_acknowledged_turn_is_told_the_desk_opens_it_and_asked_for_no_opening() {
+        let head = CONTRACT.split("Before a tool,").next().unwrap();
+        assert!(ACKNOWLEDGED_CONTRACT.starts_with(head));
+        assert!(!ACKNOWLEDGED_CONTRACT.contains("Before a tool"));
+        assert!(!ACKNOWLEDGED_CONTRACT.contains("set expectations"));
+        for rule in [
+            "The desk will say a brief acknowledgement of this request aloud for you",
+            "do not open with one of your own",
+            "never refer to it",
+            "Go straight to the work or the answer",
+            "speak next when you have progress to report or the answer itself",
+        ] {
+            assert!(ACKNOWLEDGED_CONTRACT.contains(rule), "{rule}");
+        }
     }
 }

@@ -1073,7 +1073,12 @@ clip wire, to desk and phone alike. Only an audio clip suppresses that cue,
 not text awaiting TTS. There is no repeating client chime, stock opening
 acknowledgement or repeating canned progress line. Before multi-step tool
 work, the teammate states its action and a coarse size (*a moment*, *a couple
-of minutes*, or *a while*) and works in silence. Once per turn, 90 seconds
+of minutes*, or *a while*) and works in silence. With `voice.acknowledge`
+on, the desk's fast model names the request in the teammate's voice instead,
+asked for beside the hand-off so the turn never waits for it, and the
+teammate's prompt says so and asks for no opening of its own; the line is
+dropped if the teammate speaks first or it is not ready 4 seconds after the
+person's last word. Once per turn, 90 seconds
 after it last spoke (or after the cue, when it went straight to its tools),
 the core leaves it one overrun note asking for a sentence of real progress.
 The note is `Driver::note`, not a steer: it bumps no steering revision, so a

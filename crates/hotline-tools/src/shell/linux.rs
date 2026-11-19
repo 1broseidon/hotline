@@ -20,18 +20,14 @@ pub(super) fn command(
         .canonicalize()
         .map_err(|error| format!("Cannot open the shell workspace: {error}"))?;
     let mut process = launcher(Some(&workspace), folders)?;
-    // The teammate's grants for its shell. The fixed names were set by the
-    // launcher, and the vault refuses them as secret names.
-    for (name, value) in &run.vars {
-        process.arg("--setenv").arg(name).arg(value);
-    }
-    let mut ca = String::new();
-    if let Some(pem) = &run.ca_pem {
-        process.arg("--setenv").arg("HOTLINE_PROXY_CA").arg(pem);
-        ca = super::ca_setup(
+    hand(&mut process, run)?;
+    let ca = if run.ca_pem.is_some() {
+        super::ca_setup(
             "cat /etc/ssl/certs/ca-certificates.crt 2>/dev/null || cat /etc/pki/tls/certs/ca-bundle.crt",
-        );
-    }
+        )
+    } else {
+        String::new()
+    };
     // Create the home *inside* the sandbox: a project-controlled symlink here
     // must never cause Hotline to create directories elsewhere on the host.
     let setup = format!(
@@ -41,6 +37,54 @@ pub(super) fn command(
     );
     process.args(["/bin/sh", "-c", &setup, "hotline-shell", command]);
     Ok(process)
+}
+
+/// The teammate's grants for its shell, and the proxy's CA, as `--setenv`
+/// options bubblewrap reads from a private file it is handed open
+/// (`--args`), never from its command line, which every account on the
+/// machine can list for as long as the command runs. The file is unlinked
+/// and only this user's; the command holds every value in its environment
+/// anyway. The fixed names were set by the launcher, and the vault refuses
+/// them as secret names.
+fn hand(process: &mut Command, run: &super::RunEnv) -> Result<(), String> {
+    use std::io::{Seek, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    let ca = run
+        .ca_pem
+        .as_ref()
+        .map(|pem| ("HOTLINE_PROXY_CA".to_owned(), pem.clone()));
+    let pairs: Vec<(String, String)> = run.vars.iter().cloned().chain(ca).collect();
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    let mut options = Vec::new();
+    for (name, value) in &pairs {
+        for part in [OsStr::new("--setenv"), OsStr::new(name), OsStr::new(value)] {
+            options.extend_from_slice(part.as_bytes());
+            options.push(0);
+        }
+    }
+    let unreadable = |error: std::io::Error| format!("Cannot hand the shell its secrets: {error}");
+    let mut file = tempfile::tempfile().map_err(unreadable)?;
+    file.write_all(&options).map_err(unreadable)?;
+    file.rewind().map_err(unreadable)?;
+    let fd = file.as_raw_fd();
+    process.arg("--args").arg(fd.to_string());
+    // The file is close-on-exec here, so no other child of this process
+    // inherits it; bubblewrap, alone, gets it open. The closure owns it, so
+    // it is open until the command is spawned.
+    // SAFETY: fcntl is async-signal-safe and touches only this descriptor,
+    // which the closure keeps open.
+    unsafe {
+        process.pre_exec(move || {
+            if libc::fcntl(file.as_raw_fd(), libc::F_SETFD, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    Ok(())
 }
 
 pub(super) fn available() -> Result<(), String> {
@@ -316,6 +360,85 @@ fn sandbox_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a command is handed is on no command line: bubblewrap reads it
+    /// from the file it is given open.
+    #[test]
+    fn no_value_is_on_bubblewraps_command_line() {
+        let run = crate::shell::RunEnv {
+            vars: vec![
+                ("PLAIN".into(), "readable-value-0001".into()),
+                (
+                    "HTTPS_PROXY".into(),
+                    "http://hl-run:proxy-password-0002@127.0.0.1:1".into(),
+                ),
+                ("API_KEY".into(), "ghp_standin0003".into()),
+            ],
+            ca_pem: Some("-----BEGIN CERTIFICATE-----ca-0004".into()),
+            held: None,
+        };
+        let mut process = Command::new("/usr/bin/bwrap");
+        hand(&mut process, &run).unwrap();
+        let line: Vec<String> = process
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        for value in [
+            "readable-value-0001",
+            "proxy-password-0002",
+            "ghp_standin0003",
+            "ca-0004",
+            "PLAIN",
+        ] {
+            assert!(!line.iter().any(|arg| arg.contains(value)), "{line:?}");
+        }
+        assert_eq!(line.len(), 2, "{line:?}");
+        assert_eq!(line[0], "--args");
+        // The descriptor holds the options, NUL-separated, from the start.
+        let fd: i32 = line[1].parse().unwrap();
+        let mut held = String::new();
+        std::io::Read::read_to_string(
+            &mut std::fs::File::open(format!("/proc/self/fd/{fd}")).unwrap(),
+            &mut held,
+        )
+        .unwrap();
+        assert!(
+            held.starts_with("--setenv\0PLAIN\0readable-value-0001\0--setenv\0HTTPS_PROXY\0"),
+            "{held:?}"
+        );
+        assert!(
+            held.ends_with("--setenv\0HOTLINE_PROXY_CA\0-----BEGIN CERTIFICATE-----ca-0004\0"),
+            "{held:?}"
+        );
+        // Nothing handed, nothing added.
+        let mut bare = Command::new("/usr/bin/bwrap");
+        hand(&mut bare, &crate::shell::RunEnv::default()).unwrap();
+        assert_eq!(bare.as_std().get_args().count(), 0);
+    }
+
+    /// With bubblewrap here, the command really has what it was handed.
+    #[tokio::test]
+    async fn the_command_has_what_it_was_handed() {
+        if available().is_err() {
+            eprintln!("skipped: no usable bubblewrap");
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let run = crate::shell::RunEnv {
+            vars: vec![("PLAIN".into(), "readable value with spaces".into())],
+            ..crate::shell::RunEnv::default()
+        };
+        let output = command("printf %s \"$PLAIN\"", root.path(), &[], &[], &run)
+            .unwrap()
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "readable value with spaces"
+        );
+    }
 
     #[test]
     fn arbitrary_path_directories_do_not_grant_read_access() {

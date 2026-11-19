@@ -1152,8 +1152,9 @@ impl Room {
         }
     }
 
-    /// Moves the passkey armings' clock on by `ms`.
-    #[cfg(test)]
+    /// Moves the passkey armings' clock on by `ms`. Its tests drive a
+    /// computer, which only a Unix desk runs.
+    #[cfg(all(test, unix))]
     pub(crate) fn advance_passkey_clock(&self, ms: i64) {
         self.passkey_clock_ahead
             .fetch_add(ms, std::sync::atomic::Ordering::SeqCst);

@@ -7,6 +7,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+#[cfg(unix)]
 use std::time::Duration;
 
 use base64::Engine;
@@ -212,10 +213,8 @@ struct Rig {
     proxy: KeyProxy,
     addr: SocketAddr,
     up: Upstream,
+    /// Holds the bundle (`bundle`); a program a test runs starts in it.
     dir: tempfile::TempDir,
-    /// The proxy's CA and the fake upstream's, the way a job's bundle is the
-    /// system roots and the proxy's.
-    bundle: PathBuf,
     /// The run's proxy user and password, and its stand-in.
     user: String,
     password: String,
@@ -244,10 +243,17 @@ async fn rig_with(roots: Option<RootCertStore>, binding: Binding) -> Rig {
         addr,
         up,
         dir,
-        bundle,
         user: access.user,
         password: access.password,
         stand_in,
+    }
+}
+
+impl Rig {
+    /// The proxy's CA and the fake upstream's, the way a run's bundle is the
+    /// system roots and the proxy's.
+    fn bundle(&self) -> PathBuf {
+        self.dir.path().join("ca-bundle.pem")
     }
 }
 
@@ -256,9 +262,11 @@ async fn rig() -> Rig {
 }
 
 /// A program run the way a job runs it, or `None` if it is not installed.
+#[cfg(unix)]
 async fn run(rig: &Rig, program: &str, args: &[&str]) -> Option<String> {
     let proxy = format!("http://{}:{}@{}", rig.user, rig.password, rig.addr);
-    let bundle = rig.bundle.to_str().unwrap();
+    let bundle = rig.bundle();
+    let bundle = bundle.to_str().unwrap();
     let mut command = tokio::process::Command::new(program);
     command
         .args(args)
@@ -310,6 +318,7 @@ fn only(seen: Vec<Seen>) -> Seen {
     seen.into_iter().next().unwrap()
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j1_curl_bearer_reaches_the_service_with_the_value() {
     let rig = rig().await;
@@ -329,6 +338,7 @@ async fn j1_curl_bearer_reaches_the_service_with_the_value() {
     assert_eq!(seen.host, API);
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j2_python_token_scheme_under_strict_verification() {
     let rig = rig().await;
@@ -346,6 +356,7 @@ async fn j2_python_token_scheme_under_strict_verification() {
     assert_eq!(only(rig.up.seen()).auth, format!("token {REAL}"));
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j3_git_basic_through_a_credential_helper() {
     let rig = rig().await;
@@ -369,6 +380,7 @@ async fn j3_git_basic_through_a_credential_helper() {
     assert!(seen.iter().all(|s| s.host == GIT), "{seen:?}");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j4_a_reflecting_endpoint_gives_back_the_stand_in() {
     let rig = rig().await;
@@ -386,6 +398,7 @@ async fn j4_a_reflecting_endpoint_gives_back_the_stand_in() {
     assert_eq!(only(rig.up.seen()).auth, format!("Bearer {REAL}"));
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j5_a_stand_in_in_a_body_stays_a_stand_in() {
     let rig = rig().await;
@@ -400,6 +413,7 @@ async fn j5_a_stand_in_in_a_body_stays_a_stand_in() {
     assert_eq!(seen.auth, format!("Bearer {REAL}"));
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j6_an_unbound_host_sees_only_the_stand_in() {
     let rig = rig().await;
@@ -414,6 +428,7 @@ async fn j6_an_unbound_host_sees_only_the_stand_in() {
     assert_eq!(seen.host, EVIL);
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn j7_node_fetch_through_the_env_proxy() {
     let rig = rig().await;
@@ -428,6 +443,7 @@ async fn j7_node_fetch_through_the_env_proxy() {
     assert_eq!(only(rig.up.seen()).auth, format!("Bearer {REAL}"));
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn revoking_stops_a_running_curl_loop() {
     let rig = rig().await;
@@ -467,6 +483,7 @@ async fn revoking_stops_a_running_curl_loop() {
     }
 }
 
+#[cfg(unix)]
 async fn wait_for(mut done: impl FnMut() -> bool) -> bool {
     for _ in 0..200 {
         if done() {
@@ -477,6 +494,7 @@ async fn wait_for(mut done: impl FnMut() -> bool) -> bool {
     false
 }
 
+#[cfg(unix)]
 fn which(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|path| {
         std::env::split_paths(&path)
@@ -520,7 +538,7 @@ async fn connect_as(
     let (tcp, head) = open_tunnel(rig, host, user, password).await;
     assert!(head.starts_with("HTTP/1.1 200"), "{head}");
     let mut roots = RootCertStore::empty();
-    for cert in rustls_pemfile(&std::fs::read_to_string(&rig.bundle).unwrap()) {
+    for cert in rustls_pemfile(&std::fs::read_to_string(rig.bundle()).unwrap()) {
         roots.add(cert).unwrap();
     }
     let config = rustls::ClientConfig::builder_with_provider(Arc::new(
@@ -849,6 +867,7 @@ async fn the_value_goes_only_in_its_header_and_schemes() {
     send(&mut c, API, "GET", "/suffix", &[bearer(&format!("{s}x"))]).await;
     send(&mut c, API, "GET", "/bare", &[("authorization", s.clone())]).await;
     for seen in rig.up.seen() {
+        assert!(seen.body.is_empty(), "{seen:?}");
         assert!(!seen.auth.contains(REAL), "{seen:?}");
         assert!(!seen.other.contains(REAL), "{seen:?}");
         assert!(!seen.path.contains(REAL), "{seen:?}");
@@ -864,7 +883,12 @@ async fn a_redirect_is_handed_back_not_followed() {
         send(&mut c, API, "GET", "/redirect", &[bearer(&rig.stand_in)]).await;
     assert_eq!(status, StatusCode::FOUND);
     assert_eq!(headers["location"], format!("https://{EVIL}/landed"));
-    assert_eq!(only(rig.up.seen()).path, "/redirect");
+    let seen = only(rig.up.seen());
+    assert_eq!(seen.path, "/redirect");
+    assert_eq!(
+        seen.host, API,
+        "the service is asked as the CONNECT named it"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

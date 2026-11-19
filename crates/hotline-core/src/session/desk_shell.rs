@@ -269,7 +269,7 @@ impl Room {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 impl DeskShell {
     /// A test's proxy, already serving on `port`, in place of the one this
     /// would start.

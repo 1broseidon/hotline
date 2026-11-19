@@ -5,10 +5,11 @@
 
 use super::*;
 use crate::contract::{UsedWith, VariableUse};
-use crate::keyproxy::tests::{API, REAL, upstream};
+use crate::keyproxy::tests::{API, REAL};
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
-use base64::Engine;
+#[cfg(unix)]
 use hotline_tools::{OutputTail, RunCommand, RunCommandArgs, Workspace};
+#[cfg(unix)]
 use tokio_util::sync::CancellationToken;
 
 const PLAIN: &str = "plain-readable-value-0001";
@@ -147,8 +148,11 @@ async fn a_readable_desk_grant_reaches_every_kind_of_teammate() {
         vec![("PLAIN".to_owned(), PLAIN.to_owned())]
     );
     // A whole-machine command really has it, as the shell tool runs one.
-    let out = run(&room, "max", Reach::Machine, "printf %s \"$PLAIN\"").await;
-    assert_eq!(out, PLAIN);
+    #[cfg(unix)]
+    assert_eq!(
+        run(&room, "max", Reach::Machine, "printf %s \"$PLAIN\"").await,
+        PLAIN
+    );
     // Taken back, it is gone from the next command.
     give(&room, "max", Vec::new());
     assert_eq!(
@@ -204,11 +208,13 @@ async fn a_protected_desk_key_is_a_stand_in_for_a_confined_teammate_only() {
 }
 
 /// Runs `command` as `id`'s shell tool would, in a workspace of its own.
+#[cfg(unix)]
 async fn run(room: &Arc<Room>, id: &str, reach: Reach, command: &str) -> String {
     let workspace = tempfile::tempdir().unwrap();
     run_in(room, id, reach, command, workspace.path()).await
 }
 
+#[cfg(unix)]
 async fn run_in(
     room: &Arc<Room>,
     id: &str,
@@ -229,8 +235,9 @@ async fn run_in(
 }
 
 /// A room whose desk shell's proxy sends every host to a fake service.
+#[cfg(target_os = "macos")]
 async fn proxied_room(name: &str) -> (Arc<Room>, crate::keyproxy::tests::Upstream) {
-    let up = upstream().await;
+    let up = crate::keyproxy::tests::upstream().await;
     let mut roots = tokio_rustls::rustls::RootCertStore::empty();
     roots.add(up.ca_der.clone()).unwrap();
     let keys = KeyProxy::for_test(roots, up.addr);
@@ -267,6 +274,7 @@ async fn the_audit_probes_see_only_the_stand_in_in_a_real_confined_shell() {
     .await;
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines.len() >= 5, "{out}");
+    use base64::Engine;
     let stand_in = String::from_utf8(
         base64::engine::general_purpose::STANDARD
             .decode(lines[0].trim())

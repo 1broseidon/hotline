@@ -145,7 +145,11 @@ async fn a_spent_live_budget_says_one_local_notice_and_never_selects_turn_by_tur
         ["The Voice budget is spent. Raise it in Settings or choose Turn by turn."]
     );
     assert_eq!(clips, 1);
-    assert!(calls.text(&id, 1, "Must not become Turn by turn.").is_err());
+    assert!(
+        calls
+            .text(&id, 1, "Must not become Turn by turn.", None)
+            .is_err()
+    );
     assert!(matches!(
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {

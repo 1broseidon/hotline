@@ -138,9 +138,9 @@ async fn direct_call_uses_its_thread(
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
     frame_where(&mut socket, |f| f["snapshot"].is_array()).await;
     let input = if device_text {
-        json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR"}})
+        json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR","silenceMs":550}})
     } else {
-        json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":1,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390}})
+        json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":1,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390,"silenceMs":1200}})
     };
     send(&mut socket, input.clone()).await;
     let heard = frame_where(&mut socket, |f| f["event"]["type"] == "heard").await;

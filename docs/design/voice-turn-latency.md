@@ -63,6 +63,8 @@ Definitions (all durations in ms, anchored to utterance arrival on desk, plus op
 - `tts_hdr` / `tts_done`: TTS request start to response headers and full clip ready (tied to `seq`, reusing `speech::Timing`).
 - `desk_total`: utterance arrival to first `VoiceEvent::Clip` emitted.
 
+**As shipped:** the line is `[voice] turn call= seq= silence= stt= dispatch= llm_think= llm_spoken= first_unit= ack= tts_done= desk_total= model= tts=` ([voice.md](../voice.md#timing)). `silence` is the desktop window's turn detector pause, sent as `silenceMs` with `voice.text`, `voice.utterance` and the final `voice.audio` chunk; the phone does not send it yet, so its turns say `silence=-`. `upload` and `tts_hdr` are not in it.
+
 Client side (`ui/src/voice/call.ts` and `hotline-mobile/src/voice/call.ts`): keep logging `endpoint → first audible sample` (`onLatency`), and split `clip_received → audio_started` so decode/buffering overhead is visible too.
 
 ---

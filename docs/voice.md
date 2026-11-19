@@ -829,14 +829,30 @@ late, and one that does not lands all three together.
 [voice] speak openai/gpt-4o-mini-tts: headers 180ms, first byte 412ms, done 655ms
 ```
 
-The desk times each accepted utterance to its first published clip, including
-the durable STT reservation. The line includes
-the call and sequence, not the words or audio; it measures desk publication,
-not transport or client playback latency:
+Each Turn by turn turn writes one line when the teammate's first clip of it
+goes out, with the call and sequence and never the words or audio:
 
 ```text
-[voice] utterance to first clip call=<call-id> seq=0: 1412ms
+[voice] turn call=<id> seq=3 silence=1200ms stt=2900ms dispatch=50ms llm_think=1000ms llm_spoken=10500ms first_unit=11000ms ack=- tts_done=2900ms desk_total=16900ms model=hotline/<provider>/<model> tts=ollama/phonon
 ```
+
+- `silence`: the pause the client waited for after the person stopped
+  speaking before it ended the turn (`silenceMs` on `voice.text`,
+  `voice.utterance` or the final `voice.audio` chunk). It happens before the
+  desk hears anything, so it is outside `desk_total`; `-` from a client that
+  does not report it.
+- `stt`: the desk taking the utterance to its words (`0` for device text).
+- `dispatch`: the words to the teammate's session being handed them.
+- `llm_think`, `llm_spoken`, `first_unit`: from that hand-off to the model's
+  first stream event, its first words, and the first piece ready to say.
+- `ack`: from the end of the person's speech (`silence` included when known)
+  to the desk's own acknowledgement being sent; `-` when none was said.
+- `tts_done`: the first piece's synthesis to its clip.
+- `desk_total`: the desk taking the utterance to the teammate's first clip.
+  What the person waited for the teammate's first word is `silence` plus
+  `desk_total`, plus transport.
+
+It measures desk publication, not transport or client playback latency.
 
 A shared speech adapter set also logs `transcription to synthesized clip` when
 its first TTS result follows transcription. That provider-only measurement

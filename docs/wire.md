@@ -1862,9 +1862,9 @@ No extra speech credential is created.
 | --- | --- | --- |
 | `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent; optional `replies`, how teammates' replies on calls were said, by model |
 | `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text",mode?:"pipeline"\|"front",inputRate?}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, optional echoed `personaId`, and `front: {inputRate, outputRate}` when `mode: "front"` was asked for and the call has one. `inputRate` is the front call's microphone rate, 16000 or 24000 |
-| `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
-| `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
-| `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
+| `voice.text` | `{callId,seq,text,silenceMs?}` | void; one finalized device transcript on a negotiated text call |
+| `voice.audio` | `{callId,seq,index,data,final,silenceMs?}` | void; negotiated mono PCM16 at 16 kHz |
+| `voice.utterance` | `{callId,seq,mimeType,data,durationMs,silenceMs?}` | void |
 | `voice.interrupt` | `{callId}` | void |
 | `voice.input_state` | `{callId, speaking}`; Turn by turn capture onset/drop, before a finalized utterance | void |
 | `voice.front_audio` | `{callId,seq,data}` | void; front calls only, PCM16 mono at the negotiated `inputRate`; see [voice-calls.md](voice-calls.md) |
@@ -1952,6 +1952,12 @@ most 32 KiB decoded per chunk and 20 seconds per turn. Sequence and chunk
 indices increase within the call; an empty final chunk commits the turn.
 Partial recognition never dispatches work. Hold, interrupt, disconnect and
 revocation cancel unfinished microphone input. See [the call contract ledger](voice-calls.md).
+
+`silenceMs`, on `voice.text`, `voice.utterance` or the final `voice.audio`
+chunk, is the pause the client waited for after the person stopped speaking
+before it ended the turn. The desk only logs it, in the turn's timing line
+([voice.md](voice.md#timing)); an older client omits it and the line says
+`silence=-`.
 
 Utterances carry standard base64, at most 2 MiB decoded audio and 20 seconds.
 WAV must be 16 kHz mono PCM16. MP4 must carry a duration in its media header.

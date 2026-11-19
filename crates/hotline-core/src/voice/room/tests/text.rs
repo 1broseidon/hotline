@@ -19,16 +19,18 @@ async fn finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn()
             .unwrap()
     );
     let (_, mut rx) = calls.subscribe(&id).unwrap();
-    calls.text(&id, 1, "  Check the failing test.  ").unwrap();
+    calls
+        .text(&id, 1, "  Check the failing test.  ", None)
+        .unwrap();
     assert!(
         calls
-            .text(&id, 1, "Duplicate.")
+            .text(&id, 1, "Duplicate.", None)
             .unwrap_err()
             .contains("must rise")
     );
     assert!(
         calls
-            .text(&id, 2, "Too early.")
+            .text(&id, 2, "Too early.", None)
             .unwrap_err()
             .contains("still being handled")
     );
@@ -55,7 +57,11 @@ async fn finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn()
     assert_eq!(ledger["daySpend"]["stt"], 0.0);
     assert_eq!(ledger["monthSpend"]["stt"], 0.0);
     assert!(ledger["daySpend"]["tts"].as_f64().unwrap() > 0.0);
-    assert!(calls.text(&id, 1, "Replay after completion.").is_err());
+    assert!(
+        calls
+            .text(&id, 1, "Replay after completion.", None)
+            .is_err()
+    );
     calls.end(&id).unwrap();
 }
 
@@ -103,7 +109,7 @@ async fn text_mode_needs_only_output_configuration_and_pipeline_audio_stays_unav
     assert!(calls.start_target(&id, None, true, desk).is_err());
     assert!(
         calls
-            .audio(&id, 1, 0, &STANDARD.encode([0u8; 2]), true)
+            .audio(&id, 1, 0, &STANDARD.encode([0u8; 2]), true, None)
             .unwrap_err()
             .contains("does not accept live PCM")
     );
@@ -117,17 +123,17 @@ async fn text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds(
     let old_call = calls.start(&old, desk.clone()).unwrap();
     assert_eq!(old_call.input_mode, VoiceInputMode::Audio);
     assert!(old_call.input.iter().any(|v| v == "audio/wav"));
-    assert!(calls.text(&old, 1, "Text on an audio call.").is_err());
+    assert!(calls.text(&old, 1, "Text on an audio call.", None).is_err());
     let id = Uuid::new_v4().to_string();
     calls
         .start_with_input(&id, None, true, VoiceInputMode::Text, desk)
         .unwrap();
     assert!(utterance(&calls, &id, 1).is_err());
     for text in [" ".to_string(), "a".repeat(8_001), "🙂".repeat(8_001)] {
-        assert!(calls.text(&id, 1, &text).is_err());
+        assert!(calls.text(&id, 1, &text, None).is_err());
     }
     calls.hold(&id, true).unwrap();
-    assert!(calls.text(&id, 1, "Held input.").is_err());
+    assert!(calls.text(&id, 1, "Held input.", None).is_err());
     assert!(calls.test_change(&id, |c| Ok(c.seq.is_none())).unwrap());
     calls.end(&id).unwrap();
 }
@@ -144,7 +150,9 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
         let (_, mut rx) = calls.subscribe(&id).unwrap();
         // No yield between submission and cancellation: the instruction has not
         // yet been accepted by a dispatcher or agent.
-        calls.text(&id, 1, "Canceled before acceptance.").unwrap();
+        calls
+            .text(&id, 1, "Canceled before acceptance.", None)
+            .unwrap();
         if hold {
             calls.hold(&id, true).unwrap();
         } else {
@@ -170,7 +178,7 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
         }
         assert!(
             calls
-                .text(&id, 1, "A canceled sequence still cannot replay.")
+                .text(&id, 1, "A canceled sequence still cannot replay.", None)
                 .is_err()
         );
         let revoked = CancellationToken::new();
@@ -188,7 +196,7 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
             )
         })
         .await;
-        assert!(calls.text(&id, 2, "After disconnect.").is_err());
+        assert!(calls.text(&id, 2, "After disconnect.", None).is_err());
     }
 }
 
@@ -211,7 +219,7 @@ async fn device_goodbye_needs_no_fabricated_audio_or_dispatcher() {
                 .unwrap();
         }
         let (_, mut rx) = calls.subscribe(&id).unwrap();
-        calls.text(&id, 1, "Okay, bye.").unwrap();
+        calls.text(&id, 1, "Okay, bye.", None).unwrap();
         event(&mut rx, |e| {
             matches!(
                 e,
@@ -326,7 +334,7 @@ async fn transport_drop_resumes_but_twenty_seconds_detaches(desk_call: bool) {
     })
     .await;
     assert!(!calls.lead_call(&persona, &call_thread));
-    assert!(calls.text(&id, 1, "Too late").is_err());
+    assert!(calls.text(&id, 1, "Too late", None).is_err());
 }
 
 #[tokio::test(start_paused = true)]

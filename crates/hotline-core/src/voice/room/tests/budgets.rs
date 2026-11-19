@@ -136,7 +136,7 @@ async fn text_input_keeps_budget_gating_before_dispatch() {
             ),
         )
         .unwrap();
-    calls.text(&id, 1, "Check the PR.").unwrap();
+    calls.text(&id, 1, "Check the PR.", None).unwrap();
     event(&mut rx, |e| {
         matches!(
             e,
@@ -169,7 +169,7 @@ async fn a_failed_subscription_never_uses_a_paid_speech_fallback() {
             .start_with_input(&id, None, streaming, VoiceInputMode::Text, desk)
             .unwrap();
         let (_, mut rx) = calls.subscribe(&id).unwrap();
-        calls.text(&id, 1, "Check the PR.").unwrap();
+        calls.text(&id, 1, "Check the PR.", None).unwrap();
         event(&mut rx, |e| {
             matches!(
                 e,

@@ -6,7 +6,8 @@ export const MAX_PCM_SAMPLES = WAV_RATE * 20;
 /** Four seconds of unsent audio. A stalled connection must not grow a promise queue forever. */
 const MAX_PENDING_BYTES = WAV_RATE * 2 * 4;
 
-export type AudioChunk = { index: number; data: string; final: boolean };
+/** `silenceMs`, on the final chunk only, is the pause the turn detector waited for before it ended the turn. */
+export type AudioChunk = { index: number; data: string; final: boolean; silenceMs?: number };
 
 /** A continuous box filter; its fractional position carries across microphone blocks. */
 export class PcmResampler {
@@ -47,6 +48,7 @@ export class PcmTurn {
 	private running = false;
 	private cancelled = false;
 	private finished = false;
+	private silenceMs: number | undefined;
 	private resolve: (() => void) | undefined;
 	private reject: ((error: unknown) => void) | undefined;
 
@@ -71,10 +73,12 @@ export class PcmTurn {
 		return this.total === MAX_PCM_SAMPLES;
 	}
 
-	finish(): Promise<void> {
+	/** Commits the turn; `silenceMs` is the pause that ended it, for the desk's timing line. */
+	finish(silenceMs?: number): Promise<void> {
 		if (this.cancelled) return Promise.reject(new Error("The audio turn was cancelled."));
 		if (this.finished) return Promise.reject(new Error("The audio turn is already committed."));
 		this.finished = true;
+		this.silenceMs = silenceMs;
 		return new Promise((resolve, reject) => {
 			this.resolve = resolve;
 			this.reject = reject;
@@ -127,7 +131,8 @@ export class PcmTurn {
 					let at = 0;
 					for (const part of parts) { bytes.set(part, at); at += part.length; }
 				}
-				await this.send({ index: this.index++, data: toBase64(bytes), final });
+				const silenceMs = final ? this.silenceMs : undefined;
+				await this.send({ index: this.index++, data: toBase64(bytes), final, ...(silenceMs !== undefined ? { silenceMs } : {}) });
 				if (this.cancelled) return;
 				this.pendingBytes -= bytes.length;
 				if (final) {

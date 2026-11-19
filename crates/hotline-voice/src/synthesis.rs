@@ -530,7 +530,7 @@ impl Calls {
                     let timing = call
                         .turn_timing
                         .take()
-                        .unwrap_or_else(|| super::TurnTiming::start(started));
+                        .unwrap_or_else(|| super::TurnTiming::start(started, None));
                     return Ok(Some((
                         call.id.clone(),
                         call.seq.unwrap_or_default(),
@@ -546,7 +546,13 @@ impl Calls {
             let model = target.as_deref().map(|persona| self.writer(persona));
             eprintln!(
                 "{}",
-                timing.format_line(&call_id, seq, model.as_deref(), &tts_id)
+                timing.format_line(
+                    std::time::Instant::now(),
+                    &call_id,
+                    seq,
+                    model.as_deref(),
+                    &tts_id
+                )
             );
         }
     }

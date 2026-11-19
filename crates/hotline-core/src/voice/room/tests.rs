@@ -260,7 +260,7 @@ async fn event(
     .unwrap_or_else(|error| panic!("{error}; preceding voice events: {seen:?}"))
 }
 fn utterance(calls: &Calls, id: &str, seq: u32) -> Result<(), String> {
-    calls.utterance(id, seq, "audio/wav", &STANDARD.encode(wav()), 1000)
+    calls.utterance(id, seq, "audio/wav", &STANDARD.encode(wav()), 1000, None)
 }
 
 fn spending(desk: &crate::desk::Desk, value: Value) {

@@ -10,7 +10,7 @@ async fn live_audio_cannot_dispatch_before_commit_or_after_cancel() {
     assert!(call.input.contains(&"audio/mp4".into()));
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     let data = STANDARD.encode(vec![0; 6_400]);
-    calls.audio(&id, 1, 0, &data, false).unwrap();
+    calls.audio(&id, 1, 0, &data, false, None).unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
         while fake.live_chunks.load(Ordering::SeqCst) == 0 {
             tokio::task::yield_now().await;
@@ -23,15 +23,15 @@ async fn live_audio_cannot_dispatch_before_commit_or_after_cancel() {
         rx.try_recv().is_err(),
         "partial audio is not a committed transcript"
     );
-    assert!(calls.audio(&id, 1, 2, &data, false).is_err());
+    assert!(calls.audio(&id, 1, 2, &data, false, None).is_err());
     assert!(
         calls
-            .audio(&id, 1, 1, &STANDARD.encode([0]), false)
+            .audio(&id, 1, 1, &STANDARD.encode([0]), false, None)
             .is_err()
     );
     assert!(
         calls
-            .audio(&id, 1, 1, &STANDARD.encode(vec![0; 32_770]), false)
+            .audio(&id, 1, 1, &STANDARD.encode(vec![0; 32_770]), false, None)
             .is_err()
     );
     calls.interrupt(&id).unwrap();
@@ -45,11 +45,11 @@ async fn live_audio_cannot_dispatch_before_commit_or_after_cancel() {
         )
     })
     .await;
-    assert!(calls.audio(&id, 1, 1, "", true).is_err());
+    assert!(calls.audio(&id, 1, 1, "", true, None).is_err());
     assert_eq!(fake.answers.load(Ordering::SeqCst), 0);
-    assert!(calls.audio(&id, 2, 0, "", true).is_err());
-    calls.audio(&id, 2, 0, &data, false).unwrap();
-    calls.audio(&id, 2, 1, "", true).unwrap();
+    assert!(calls.audio(&id, 2, 0, "", true, None).is_err());
+    calls.audio(&id, 2, 0, &data, false, None).unwrap();
+    calls.audio(&id, 2, 1, "", true, None).unwrap();
     event(&mut rx, |e| matches!(e, VoiceEvent::Heard { seq: 2, .. })).await;
     event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
     assert_eq!(fake.answers.load(Ordering::SeqCst), 1);

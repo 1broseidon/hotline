@@ -202,10 +202,8 @@ async fn direct_call_uses_its_thread(
     assert!(asked.contains(&words), "{asked}");
     assert!(asked.contains("Make that result stand alone."), "{asked}");
 
-    assert!(
-        asked.contains("1 turns in; last pointer turn: None"),
-        "{asked}"
-    );
+    assert!(!asked.contains("turns in"), "{asked}");
+    assert!(asked.contains("Do not point at the chat"), "{asked}");
     if hotline_core::voice::spoken::carries_more(written) {
         common::until("the core posts the written result", || {
             log.load(&hotline_core::log::StreamId::Tape(persona.clone()))

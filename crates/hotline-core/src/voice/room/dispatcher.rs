@@ -558,7 +558,7 @@ mod tests {
                 assert!(requests[0]["tools"].as_array().is_none_or(Vec::is_empty));
                 let messages = requests[0]["messages"].to_string();
                 assert!(messages.contains("Say this written answer naturally on a phone call"));
-                assert!(messages.contains("1 turns in; last pointer turn: Some(1)"));
+                assert!(!messages.contains("turns in"));
                 assert!(messages.contains("Mention the actual result"));
                 assert!(messages.contains("I am checking the build."));
                 assert!(!messages.contains("under 40 words"));

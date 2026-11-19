@@ -24,7 +24,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_installer_has_its_own_architecture_and_package(self):
         data = manifest(self.root, "0.6.0", "1Broseidon/hotline", "Release notes")
-        self.assertEqual(len(data["platforms"]), 9)
+        self.assertEqual(len(data["platforms"]), 8)
         windows = data["platforms"]["windows-x86_64-nsis"]
         self.assertTrue(windows["url"].endswith("windows_x86_64-setup.exe"))
         deb = data["platforms"]["linux-x86_64-deb"]
@@ -67,7 +67,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(self.manifests(), ["latest.json", "updater-0.6.0.json", "updater-0.7.0-beta.1.json"])
         self.assertEqual((self.root / "latest.json").read_bytes(), latest)
         self.assertEqual(data["version"], "0.7.0-beta.1")
-        self.assertEqual(len(data["platforms"]), 9)
+        self.assertEqual(len(data["platforms"]), 8)
         for target, suffix in PACKAGES.items():
             self.assertEqual(
                 data["platforms"][target],

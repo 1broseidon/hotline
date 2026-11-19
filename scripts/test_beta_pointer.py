@@ -152,14 +152,14 @@ class BetaPointerTests(unittest.TestCase):
         deb = "linux-x86_64-deb"
         for change, reason in [
             (lambda data: data.update(version="0.49.0"), "is for '0.49.0'"),
-            (lambda data: data["platforms"].pop(deb), "exactly the nine"),
-            (lambda data: data["platforms"].update({"linux-x86_64": data["platforms"][deb]}), "exactly the nine"),
+            (lambda data: data["platforms"].pop(deb), "exactly the eight"),
+            (lambda data: data["platforms"].update({"linux-x86_64": data["platforms"][deb]}), "exactly the eight"),
             (lambda data: data["platforms"][deb].update(url="https://example.com/hotline_0.49.0-beta.1_linux_x86_64.deb"), "not this release's"),
             (lambda data: data["platforms"][deb].update(url=data["platforms"][deb]["url"].replace("-beta.1/", "/")), "not this release's"),
             (lambda data: data["platforms"][deb].update(url=data["platforms"]["linux-x86_64-rpm"]["url"]), "not this release's"),
             (lambda data: data["platforms"][deb].update(signature=" "), "has no signature"),
             (lambda data: data["platforms"][deb].pop("signature"), "has no signature"),
-            (lambda data: data.pop("platforms"), "exactly the nine"),
+            (lambda data: data.pop("platforms"), "exactly the eight"),
         ]:
             with self.assertRaisesRegex(ValueError, reason):
                 checked(broken(change), release, REPOSITORY)

@@ -29,12 +29,14 @@ Pick the file for your machine:
 | Platform | File |
 | --- | --- |
 | macOS, Apple silicon | `…_macos_aarch64.dmg` |
-| macOS, Intel | `…_macos_x86_64.dmg` |
 | Windows, x86_64 | `…_windows_x86_64-setup.exe` |
 | Linux, x86_64 | `…_linux_x86_64.AppImage`, `.deb` or `.rpm` |
 | Linux, ARM (aarch64) | `…_linux_aarch64.AppImage`, `.deb` or `.rpm` |
 
 ## macOS
+
+Hotline for the Mac is built for Apple silicon only. Version 0.49 was the last
+for Intel Macs.
 
 Open the disk image and drag Hotline to Applications. Published releases are
 signed with an Apple Developer ID and notarized. The menu bar has **Hotline →

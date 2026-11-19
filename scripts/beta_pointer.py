@@ -8,7 +8,7 @@ final, so a beta desk is offered both.
 
 What is written is never built here. It is the `updater-<version>.json` the
 release itself serves, fetched back from the published release, checked to
-name that version's nine packages under that release and nowhere else, and
+name that version's eight packages under that release and nowhere else, and
 moved only once every one of those packages answers. So the pointer can name
 only packages that are public and whose signatures were present when the
 release was put together.
@@ -39,13 +39,13 @@ def downloads(repository: str, release: Release) -> str:
 
 
 def checked(content: bytes, release: Release, repository: str) -> dict:
-    """The manifest, if it is this release's own: its version, its nine packages, each signed."""
+    """The manifest, if it is this release's own: its version, its eight packages, each signed."""
     manifest = json.loads(content)
     if manifest.get("version") != release.version:
         raise ValueError(f"the manifest is for {manifest.get('version')!r}, not {release.version}")
     platforms = manifest.get("platforms")
     if not isinstance(platforms, dict) or set(platforms) != set(PACKAGES):
-        raise ValueError("the manifest does not name exactly the nine installer targets")
+        raise ValueError("the manifest does not name exactly the eight installer targets")
     for target, suffix in PACKAGES.items():
         entry = platforms[target]
         expected = downloads(repository, release) + f"hotline_{release.version}_{suffix}"

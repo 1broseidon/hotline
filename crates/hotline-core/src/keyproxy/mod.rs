@@ -62,9 +62,9 @@ pub struct Use {
     /// The stand-in's shape, so a CLI that checks a token's prefix still runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stand_in: Option<StandIn>,
-    /// Key-minting routes on these origins the value never goes to, from
-    /// the desk's `services.json`. Absent means the built-in list for the
-    /// services Hotline names; empty means none.
+    /// Key-minting routes on these origins the value is not sent to, from
+    /// the desk's `services.json`, refused on top of the built-in list for
+    /// the services Hotline names (`policy`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refuse: Option<Vec<String>>,
 }

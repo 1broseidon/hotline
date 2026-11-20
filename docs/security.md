@@ -700,6 +700,9 @@ definition by its id each time the key is handed on, never from what the
 vault kept when it was stored, so a list made longer reaches every key
 stored before it; it covers the computer's own shorter built-in list
 (`vault/services.rs` `the_desks_lists_cover_the_computers_built_in_one`).
+The desk shell's proxy refuses its built-in list whatever the desk sends,
+and the desk's list only adds to it (`keyproxy/tests.rs`
+`the_desks_refuse_list_adds_to_the_built_in_one`).
 A command's stand-ins and proxy user end with it. The grants are read from
 the vault when the teammate's session starts and again whenever a grant or
 a stored value changes, so a revoked key's stand-ins stop working at once,

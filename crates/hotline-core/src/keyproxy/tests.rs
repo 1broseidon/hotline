@@ -742,45 +742,44 @@ async fn a_key_minting_request_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_desks_refuse_list_replaces_the_built_in_one() {
+async fn the_desks_refuse_list_adds_to_the_built_in_one() {
     let mut binding = github_token(&[GITHUB]);
     binding.use_.refuse = Some(vec!["/custom/*/mint".to_owned()]);
     let rig = rig_with(None, binding).await;
     let mut c = connect(&rig, GITHUB).await;
-    let (status, _, _) = send(
-        &mut c,
-        GITHUB,
-        "POST",
-        "/custom/7/mint",
-        &[bearer(&rig.stand_in)],
-    )
-    .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    for path in ["/custom/7/mint", "/authorizations"] {
+        let (status, _, _) = send(&mut c, GITHUB, "POST", path, &[bearer(&rig.stand_in)]).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+    }
     assert!(rig.up.seen().is_empty());
-    let (status, _, _) = send(
-        &mut c,
-        GITHUB,
-        "POST",
-        "/authorizations",
-        &[bearer(&rig.stand_in)],
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "the desk's list is the whole list");
-    // An empty list refuses nothing, for an "Other" host.
-    let mut binding = github_token(&[GITHUB]);
-    binding.use_.refuse = Some(Vec::new());
-    rig.proxy.deliver("ada", vec![binding]).unwrap();
-    let fresh = rig.proxy.begin("ada");
-    let mut c = connect_as(&rig, GITHUB, &fresh.user, &fresh.password).await;
-    let (status, _, _) = send(
-        &mut c,
-        GITHUB,
-        "POST",
-        "/authorizations",
-        &[bearer(&fresh.stand_ins[0].1)],
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
+    // An empty list, or none, still refuses the built-in minimum, and
+    // passes an ordinary request.
+    for refuse in [Some(Vec::new()), None] {
+        let mut binding = github_token(&[GITHUB]);
+        binding.use_.refuse = refuse;
+        rig.proxy.deliver("ada", vec![binding]).unwrap();
+        let fresh = rig.proxy.begin("ada");
+        let mut c = connect_as(&rig, GITHUB, &fresh.user, &fresh.password).await;
+        let (status, _, _) = send(
+            &mut c,
+            GITHUB,
+            "POST",
+            "/authorizations",
+            &[bearer(&fresh.stand_ins[0].1)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let mut c = connect_as(&rig, GITHUB, &fresh.user, &fresh.password).await;
+        let (status, _, _) = send(
+            &mut c,
+            GITHUB,
+            "GET",
+            "/user",
+            &[bearer(&fresh.stand_ins[0].1)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
     assert_eq!(rig.up.seen().len(), 2);
 }
 

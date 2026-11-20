@@ -63,7 +63,7 @@ struct Bound {
     schemes: Vec<String>,
     prefix: String,
     random_chars: usize,
-    /// The desk's refused routes, or `None` for the built-in list.
+    /// The desk's refused routes, on top of the built-in list.
     refuse: Option<Vec<Vec<String>>>,
 }
 
@@ -240,16 +240,19 @@ impl Table {
         })
     }
 
-    /// Whether any of `names`' values may not go to `path` on `origin`.
+    /// Whether any of `names`' values may not go to `path` on `origin`: a
+    /// route the desk listed for that key, or one on the built-in list,
+    /// which a list from the desk adds to and never replaces.
     pub fn refused(&self, run: &str, names: &[String], origin: &str, path: &str) -> bool {
         let keys: BTreeMap<&String, &Bound> = self.keys(run).collect();
-        names.iter().any(|name| match keys.get(name) {
-            Some(Bound {
-                refuse: Some(routes),
-                ..
-            }) => policy::listed(routes, path),
-            _ => policy::refused(origin, path),
-        })
+        policy::refused(origin, path)
+            || names.iter().any(|name| match keys.get(name) {
+                Some(Bound {
+                    refuse: Some(routes),
+                    ..
+                }) => policy::listed(routes, path),
+                _ => false,
+            })
     }
 }
 

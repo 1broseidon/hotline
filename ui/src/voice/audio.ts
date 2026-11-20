@@ -1,4 +1,4 @@
-import { ClipPlayer } from "./player";
+import { ClipPlayer, type ClipId, type ClipPlayed } from "./player";
 import { rms } from "./wav";
 
 /**
@@ -13,12 +13,14 @@ export interface CallAudio {
 	closeMic(): void;
 	/** Asks for the microphone and starts reading it, first or again after `closeMic`; rejects when it cannot. */
 	openMic(): Promise<void>;
-	/** Queues one playable clip; `onIdle` fires once the queue has drained. */
-	play(mimeType: string, data: string): void;
+	/** Queues one playable clip, of a `said` line when `clip` says which; `onIdle` fires once the queue has drained. */
+	play(mimeType: string, data: string, clip?: ClipId): void;
 	/** Queues raw PCM16 mono at `rate`, a voice front's speech, straight after what is playing. */
 	playPcm(data: string, rate: number): void;
 	/** How much of the speech playing now has been heard, in ms. */
 	playedMs(): number;
+	/** The last clip of a `said` line that began to play since playback last stopped, and how far into it playback is. */
+	position(): ClipPlayed | null;
 	/** Stops and forgets what plays; a paused reply is let go too. */
 	stopPlayback(): void;
 	/** Holds what plays where it is, to go on from the same sample with `resumePlayback`. */
@@ -125,14 +127,17 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		},
 		closeMic: dropMic,
 		openMic: takeMic,
-		play(mimeType, data) {
-			player?.push(mimeType, data);
+		play(mimeType, data, clip) {
+			player?.push(mimeType, data, clip);
 		},
 		playPcm(data, rate) {
 			player?.pushPcm(data, rate);
 		},
 		playedMs() {
 			return player?.playedMs() ?? 0;
+		},
+		position() {
+			return player?.position() ?? null;
 		},
 		stopPlayback() {
 			player?.stop();

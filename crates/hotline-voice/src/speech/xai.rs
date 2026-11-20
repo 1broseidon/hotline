@@ -774,6 +774,7 @@ impl Xai {
                                 bytes: wav::pcm16_wav(&bytes, OUTPUT_RATE),
                             },
                             final_chunk: false,
+                            marks: Vec::new(),
                         })
                         .await
                         .map_err(|_| SpeechError::Cancelled)?;
@@ -791,6 +792,7 @@ impl Xai {
                     bytes: wav::pcm16_wav(&pcm, OUTPUT_RATE),
                 },
                 final_chunk: true,
+                marks: Vec::new(),
             })
             .await
             .map_err(|_| SpeechError::Cancelled)?;

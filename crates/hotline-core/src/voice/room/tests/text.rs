@@ -132,7 +132,7 @@ async fn text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds(
     for text in [" ".to_string(), "a".repeat(8_001), "🙂".repeat(8_001)] {
         assert!(calls.text(&id, 1, &text, None).is_err());
     }
-    calls.hold(&id, true).unwrap();
+    calls.hold(&id, true, None).unwrap();
     assert!(calls.text(&id, 1, "Held input.", None).is_err());
     assert!(calls.test_change(&id, |c| Ok(c.seq.is_none())).unwrap());
     calls.end(&id).unwrap();
@@ -154,9 +154,9 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
             .text(&id, 1, "Canceled before acceptance.", None)
             .unwrap();
         if hold {
-            calls.hold(&id, true).unwrap();
+            calls.hold(&id, true, None).unwrap();
         } else {
-            calls.interrupt(&id).unwrap();
+            calls.interrupt(&id, None).unwrap();
         }
         tokio::time::timeout(Duration::from_secs(1), async {
             while calls.test_change(&id, |c| Ok(c.utterance_pending)).unwrap() {
@@ -174,7 +174,7 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
             ));
         }
         if hold {
-            calls.hold(&id, false).unwrap();
+            calls.hold(&id, false, None).unwrap();
         }
         assert!(
             calls

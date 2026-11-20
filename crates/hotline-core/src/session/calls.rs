@@ -373,9 +373,13 @@ fn short_call_post(text: &str) -> bool {
             <= 3
 }
 
-/// Finished work belongs in the closing account even when no voice read it aloud.
+/// Finished work belongs in the closing account even when no voice read it
+/// aloud, and so does what a cut says was never heard: a spoken line kept
+/// whole on the thread is not proof it was said to its end.
 fn call_content(event: &Value) -> bool {
-    crate::store::chapters::is_message(event) || event["toolKind"] == "work_result"
+    crate::store::chapters::is_message(event)
+        || event["toolKind"] == "work_result"
+        || event["interrupted"] == true
 }
 
 fn claims_missing_result(note: &str) -> bool {

@@ -154,16 +154,20 @@ pub(crate) async fn run(
             voice(parts)?.input_state(&call_id, speaking)?;
             Ok(Value::Null)
         }
-        Command::VoiceInterrupt { call_id } => {
-            voice(parts)?.interrupt(&call_id)?;
+        Command::VoiceInterrupt { call_id, played } => {
+            voice(parts)?.interrupt(&call_id, played)?;
             Ok(Value::Null)
         }
-        Command::VoiceHold { call_id, hold } => {
-            voice(parts)?.hold(&call_id, hold)?;
+        Command::VoiceHold {
+            call_id,
+            hold,
+            played,
+        } => {
+            voice(parts)?.hold(&call_id, hold, played)?;
             Ok(Value::Null)
         }
-        Command::VoiceCallEnd { call_id } => {
-            voice(parts)?.end(&call_id)?;
+        Command::VoiceCallEnd { call_id, played } => {
+            voice(parts)?.hang_up(&call_id, played)?;
             Ok(Value::Null)
         }
         Command::VoiceModels {} => Ok(json!(voice(parts)?.speech_models())),

@@ -104,12 +104,29 @@ pub enum Command {
     /// clip or text arrives.
     #[serde(rename = "voice.input_state")]
     VoiceInputState { call_id: String, speaking: bool },
+    /// The person cut the call's speech off. `played` says where playback
+    /// stood, so the next turn is told what was heard; older clients omit it.
     #[serde(rename = "voice.interrupt")]
-    VoiceInterrupt { call_id: String },
+    VoiceInterrupt {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        played: Option<VoicePlayed>,
+    },
+    /// `played`, on a hold, as on `voice.interrupt`.
     #[serde(rename = "voice.hold")]
-    VoiceHold { call_id: String, hold: bool },
+    VoiceHold {
+        call_id: String,
+        hold: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        played: Option<VoicePlayed>,
+    },
+    /// `played`, on a hang-up, as on `voice.interrupt`.
     #[serde(rename = "voice.call_end")]
-    VoiceCallEnd { call_id: String },
+    VoiceCallEnd {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        played: Option<VoicePlayed>,
+    },
     /// The desk's own speech models and where each stands. Owner only, like
     /// the rest of `voice.*`; a download in progress is polled here.
     #[serde(rename = "voice.models")]

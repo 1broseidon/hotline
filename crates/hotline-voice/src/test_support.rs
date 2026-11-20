@@ -78,7 +78,15 @@ impl Calls {
         clip: &Clip,
         interrupted: Option<&CancellationToken>,
     ) {
-        self.clip(id, line, index, last, clip, interrupted);
+        self.clip(
+            id,
+            line,
+            index,
+            last,
+            clip,
+            interrupted,
+            crate::heard::Words::None,
+        );
     }
 }
 pub use crate::dispatcher::{speed_family, untrusted};

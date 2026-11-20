@@ -1152,11 +1152,14 @@ again without letting energy cut it: a voice only pauses it, and only words
 the reply did not say interrupt it, through the same `voice.interrupt` as a
 tap ([design/voice-interrupt.md](design/voice-interrupt.md)).
 
-An interruption writes a notice on the call thread with the generated line,
-its speech id and the played milliseconds when the live client supplies them.
-It explicitly says that the line was not heard to its end and that the last
-heard word is unknown: generation and elapsed audio do not establish a word
-boundary. The notice metadata is additive; older readers keep its text, and the tape
+An interruption writes a notice on the call thread with its speech id. When
+the client reports where playback stood (the last clip begun and how far
+into it), it says which sentences were heard in full, which never began, and
+the one cut, with a cut point that is exact only from a voice's word timings
+and otherwise labelled an estimate from playback time: elapsed audio does
+not establish a word boundary, so it is never offered as one. Without a
+report it carries the whole generated line and says where it stopped is
+unknown; a live front's played milliseconds are given as such. The notice metadata is additive; older readers keep its text, and the tape
 segment layout and importer are unchanged. The written reply remains intact.
 The next Turn by turn thread turn gets
 the interruption as playback context, separately from the saved caller text,

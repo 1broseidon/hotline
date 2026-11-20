@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { activeDeskId, allDesks, watchDesks, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
-import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../generated/contract";
+import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront, VoicePlayed } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
 import { AUDIO_SILENCE_MS, SILENCE_MS, TurnDetector, levelFromDb, silenceAfter } from "./turn";
@@ -237,7 +237,7 @@ export class Call {
 	 * they finish, and goes if they said something (they cut in, and the desk
 	 * stops it too) or plays if it was only noise.
 	 */
-	private deferred: { id: string; mimeType: string; data: string }[] = [];
+	private deferred: { id: string; index: number; mimeType: string; data: string }[] = [];
 	/** An utterance is on its way and the desk has not answered with a state yet. */
 	private awaiting = false;
 	private get held(): boolean {
@@ -483,14 +483,14 @@ export class Call {
 
 	hangUp(): void {
 		if (this.ended) return;
-		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
+		if (this.started) void this.transport.command("voice.call_end", { callId: this.id, ...this.played() }).catch(() => {});
 		this.end("client");
 	}
 
 	async hold(on: boolean): Promise<void> {
 		if (this.ended || this.snapshot.phase === "connecting" || on === this.held) return;
 		if (this.closing !== null) return this.end(this.closing);
-		void this.transport.command("voice.hold", { callId: this.id, hold: on }).catch(() => {});
+		void this.transport.command("voice.hold", { callId: this.id, hold: on, ...(on ? this.played() : {}) }).catch(() => {});
 		if (on) {
 			this.holdGeneration++;
 			this.go({ type: "hold" });
@@ -537,9 +537,20 @@ export class Call {
 		this.settle();
 	}
 
+	/**
+	 * Where playback stands, for the desk to tell the teammate what was
+	 * heard when it is stopped: read before playback stops, and, after
+	 * talking over the reply paused it, where it paused. A live front's
+	 * sound is one stream with no clips, and says nothing here.
+	 */
+	private played(): { played?: VoicePlayed } {
+		if (this.front !== null) return {};
+		return { played: this.audio.position() ?? { index: 0, ms: 0, clipMs: 0 } };
+	}
+
 	/** Stops the desk's reply: what plays, and what is still to come of it. */
 	private silence(): void {
-		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
+		void this.transport.command("voice.interrupt", { callId: this.id, ...this.played() }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
 		this.deferred = [];
 		this.outputLines.clear();
@@ -625,13 +636,13 @@ export class Call {
 				else this.outputLines.add(event.id);
 				// The person is talking and keeps the floor; nothing plays over them, so the mic never hears it.
 				if (this.snapshot.phase === "hearing") {
-					if (event.data !== "") this.deferred.push({ id: event.id, mimeType: event.mimeType, data: event.data });
+					if (event.data !== "") this.deferred.push({ id: event.id, index: event.index, mimeType: event.mimeType, data: event.data });
 					return;
 				}
 				try {
 					if (event.data !== "") {
 						if (this.endpoint !== null && this.endpoint.clipAt === undefined) this.endpoint.clipAt = this.now();
-						this.audio.play(event.mimeType, event.data);
+						this.audio.play(event.mimeType, event.data, this.clipOf(event.id, event.index));
 						this.playedLines.add(event.id);
 					}
 				}
@@ -667,6 +678,11 @@ export class Call {
 		this.audio.stopPlayback();
 		void this.transport.command("voice.front_barge", { callId: this.id, playedMs }).catch(() => {});
 		this.settle();
+	}
+
+	/** A clip of a line the desk said, which a cut is placed in; the waiting sound is none. */
+	private clipOf(line: string, index: number): { line: string; index: number } | undefined {
+		return this.snapshot.lines.some((one) => one.kind === "desk" && one.id === line) ? { line, index } : undefined;
 	}
 
 	private remember(id: string): void {
@@ -1180,7 +1196,7 @@ export class Call {
 		if (deferred.length === 0) return false;
 		try {
 			for (const clip of deferred) {
-				this.audio.play(clip.mimeType, clip.data);
+				this.audio.play(clip.mimeType, clip.data, this.clipOf(clip.id, clip.index));
 				this.playedLines.add(clip.id);
 			}
 		} catch (error) {

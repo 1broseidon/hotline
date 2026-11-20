@@ -1,6 +1,7 @@
 //! What a call says: sentences synthesised into clips, in order, and stopped
 //! when the person interrupts.
 
+use super::heard::Words;
 use super::ledger::{self, Kind};
 use super::metering::BUDGET_ERROR;
 use super::record::Speaker;
@@ -158,7 +159,7 @@ impl Calls {
         ended: &CancellationToken,
     ) -> Result<(), String> {
         type SynthFuture<'a> =
-            Pin<Box<dyn Future<Output = (String, Result<Clip, String>)> + Send + 'a>>;
+            Pin<Box<dyn Future<Output = (String, String, Result<Clip, String>)> + Send + 'a>>;
         let mut failure: Option<String> = None;
         let mut speech: Option<(CallSpeech, bool)> = None;
         let mut index = 0u32;
@@ -213,7 +214,7 @@ impl Calls {
                     flush_pending_said(&mut pending_said);
                     in_flight.clear();
                 }
-                Some((line, result)) = in_flight.next(), if can_poll_tts => {
+                Some((line, written, result)) = in_flight.next(), if can_poll_tts => {
                     self.voiced(id, &result);
                     if let Some(Some((said_id, said_text))) = pending_said.pop_front() {
                         self.emit(
@@ -227,7 +228,7 @@ impl Calls {
                     match result {
                         Ok(clip) => {
                             if !interrupted.is_cancelled() && !ended.is_cancelled() {
-                                self.clip(id, &line, index, false, &clip, Some(interrupted));
+                                self.clip(id, &line, index, false, &clip, Some(interrupted), Words::sentence(&written));
                                 index += 1;
                             }
                         }
@@ -327,10 +328,11 @@ impl Calls {
                             pending_said.push_back(Some((line.clone(), text)));
                         }
                         let services = services.clone();
+                        let written = sentence.to_string();
                         let clean = spoken::speech_text(sentence);
                         in_flight.push_back(Box::pin(async move {
                             let result = self.synthesize(&services, &clean).await;
-                            (line, result)
+                            (line, written, result)
                         }));
                     }
                 }
@@ -348,6 +350,7 @@ impl Calls {
                     bytes: Vec::new(),
                 },
                 Some(interrupted),
+                Words::None,
             );
         }
         failure.map_or(Ok(()), Err)
@@ -394,12 +397,13 @@ impl Calls {
         index: &mut u32,
         last: bool,
     ) -> Result<(), String> {
+        let written = sentence;
         let sentence = &spoken::speech_text(sentence);
         if streaming {
             return tokio::select! {
                 () = line.interrupted.cancelled() => Ok(()),
                 () = line.ended.cancelled() => Ok(()),
-                result = self.synthesize_stream(line, speech, sentence, index, last) => {
+                result = self.synthesize_stream(line, speech, written, index, last) => {
                     self.voiced(line.call, &result);
                     result
                 }
@@ -424,19 +428,23 @@ impl Calls {
             last,
             &clip,
             Some(line.interrupted),
+            Words::sentence(written),
         );
         *index += 1;
         Ok(())
     }
 
+    /// One sentence, `written` as the reply has it, said as the voice
+    /// streams it.
     async fn synthesize_stream(
         &self,
         line: &Line<'_>,
         services: &CallSpeech,
-        text: &str,
+        written: &str,
         index: &mut u32,
         final_sentence: bool,
     ) -> Result<(), String> {
+        let text = &spoken::speech_text(written);
         let Line {
             call: id,
             id: line,
@@ -465,6 +473,18 @@ impl Calls {
                 if finished || !playable(&clip, bytes) {
                     return Err(unusable());
                 }
+                let words = if published {
+                    Words::More {
+                        ends: chunk.final_chunk,
+                        marks: &chunk.marks,
+                    }
+                } else {
+                    Words::Sentence {
+                        written,
+                        whole: chunk.final_chunk,
+                        marks: &chunk.marks,
+                    }
+                };
                 self.clip(
                     id,
                     line,
@@ -472,6 +492,7 @@ impl Calls {
                     final_sentence && chunk.final_chunk,
                     &clip,
                     Some(interrupted),
+                    words,
                 );
                 *index += 1;
                 published = true;
@@ -521,7 +542,15 @@ impl Calls {
         }
         match tokio::time::timeout(Duration::from_secs(30), fallback.speak(text)).await {
             Ok(Ok(clip)) if playable(&clip, clip.bytes.len()) => {
-                self.clip(id, line, *index, final_sentence, &clip, Some(interrupted));
+                self.clip(
+                    id,
+                    line,
+                    *index,
+                    final_sentence,
+                    &clip,
+                    Some(interrupted),
+                    Words::sentence(written),
+                );
                 *index += 1;
                 Ok(())
             }
@@ -529,6 +558,13 @@ impl Calls {
         }
     }
 
+    /// Sends clip `index` of `line`, carrying `words`, unless the call is
+    /// held or the line was cut; the call keeps what it sent, to place a
+    /// cut in it later ([`super::heard`]).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a clip is sent from five places, each knowing a different part of it"
+    )]
     pub(super) fn clip(
         &self,
         id: &str,
@@ -537,7 +573,11 @@ impl Calls {
         last: bool,
         clip: &Clip,
         interrupted: Option<&CancellationToken>,
+        words: Words<'_>,
     ) {
+        let length = clip
+            .wav_length()
+            .and_then(|length| u32::try_from(length.as_millis()).ok());
         let telemetry = self.change(id, |call| {
             if call.state != VoiceState::Held
                 && !interrupted.is_some_and(CancellationToken::is_cancelled)
@@ -555,6 +595,7 @@ impl Calls {
                     mime_type: clip.mime.clone(),
                     data: STANDARD.encode(&clip.bytes),
                 });
+                call.speech_line.sent(line, index, last, words, length);
                 // The desk's acknowledgement and its line on what the
                 // teammate is doing are not the teammate's first word, which
                 // the turn's timing line waits for.

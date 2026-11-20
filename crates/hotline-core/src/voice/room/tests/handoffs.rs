@@ -210,7 +210,7 @@ async fn holding_while_narration_finishes_does_not_publish_a_delivery() {
     })
     .await
     .unwrap();
-    calls.hold(&id, true).unwrap();
+    calls.hold(&id, true, None).unwrap();
     gate.add_permits(1);
     task.await.unwrap().unwrap();
     while let Ok(event) = rx.try_recv() {
@@ -279,7 +279,7 @@ async fn a_queued_startup_failure_reaches_the_phone_after_hold_or_hangup() {
         // The worker cannot run until the first await, after this state change.
         calls.handoff_failed("mack", "Mack");
         if held {
-            calls.hold(&id, true).unwrap();
+            calls.hold(&id, true, None).unwrap();
         } else {
             calls.end(&id).unwrap();
         }

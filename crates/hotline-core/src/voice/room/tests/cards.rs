@@ -120,9 +120,9 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
     let mut wrong = card.clone();
     wrong.persona = "someone-else".into();
     assert!(room.answer_call_card(&wrong, &call, true).await.is_err());
-    calls.hold(&call, true).unwrap();
+    calls.hold(&call, true, None).unwrap();
     assert!(room.answer_call_card(&card, &call, true).await.is_err());
-    calls.hold(&call, false).unwrap();
+    calls.hold(&call, false, None).unwrap();
     epoch.stop();
     assert!(
         room.answer_call_card(&card, &call, true)
@@ -140,7 +140,7 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
 async fn duplicate_cards_are_said_once_and_withdrawn_cards_are_not_said() {
     let (_root, desk, calls, call, persona, mut events, fake) = direct_call().await;
     let room = desk.test_room();
-    calls.hold(&call, true).unwrap();
+    calls.hold(&call, true, None).unwrap();
     room.ask_human(
         &persona,
         "Check the screen",
@@ -161,7 +161,7 @@ async fn duplicate_cards_are_said_once_and_withdrawn_cards_are_not_said() {
     let card = pending(&desk, &persona);
     calls.card(&persona, &card);
     calls.card(&persona, &card);
-    calls.hold(&call, false).unwrap();
+    calls.hold(&call, false, None).unwrap();
     event(&mut events, |e| {
         matches!(e, VoiceEvent::Clip { r#final: true, .. })
     })
@@ -208,9 +208,9 @@ async fn a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_i
     assert_eq!(event["from"]["thread"], call);
     let card = reference(&persona, &event);
     assert!(crate::room::settings(&desk.log).get("personName").is_none());
-    calls.hold(&call, true).unwrap();
+    calls.hold(&call, true, None).unwrap();
     assert!(room.answer_call_card(&card, &call, true).await.is_err());
-    calls.hold(&call, false).unwrap();
+    calls.hold(&call, false, None).unwrap();
     room.answer_call_card(&card, &call, true).await.unwrap();
     assert_eq!(crate::room::settings(&desk.log)["personName"], "George");
     assert!(room.answer_call_card(&card, &call, true).await.is_err());
@@ -259,7 +259,7 @@ async fn a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_i
 async fn credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_answers() {
     let (_root, desk, calls, call, persona, mut events, fake) = direct_call().await;
     let room = desk.test_room();
-    calls.hold(&call, true).unwrap();
+    calls.hold(&call, true, None).unwrap();
     let thread = crate::contract::ThreadId::new(crate::contract::ThreadKind::Call, call.clone());
     let credential = crate::contract::TranscriptEvent::CredentialAsk {
         from: None,
@@ -281,7 +281,7 @@ async fn credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_a
     let event_value = serde_json::to_value(&credential).unwrap();
     calls.card(&persona, &event_value);
     calls.card(&persona, &event_value);
-    calls.hold(&call, false).unwrap();
+    calls.hold(&call, false, None).unwrap();
     event(&mut events, |e| {
         matches!(e, VoiceEvent::Clip { r#final: true, .. })
     })
@@ -314,14 +314,14 @@ async fn credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_a
         assert_eq!(pending["status"], "pending");
         assert_eq!(pending["from"]["thread"], call);
     }
-    calls.hold(&call, true).unwrap();
+    calls.hold(&call, true, None).unwrap();
     let mut stored = event_value;
     stored["status"] = json!("stored");
     stored["storedAs"] = json!("GITHUB_LOGIN");
     room.call_said(&thread, &persona, &stored);
     calls.card(&persona, &stored);
     calls.card(&persona, &stored);
-    calls.hold(&call, false).unwrap();
+    calls.hold(&call, false, None).unwrap();
     event(&mut events, |e| {
         matches!(e, VoiceEvent::Clip { r#final: true, .. })
     })

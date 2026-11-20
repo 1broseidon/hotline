@@ -221,7 +221,7 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "I looked at the logs."),
     )
     .await;
-    calls.interrupt(&id).unwrap();
+    calls.interrupt(&id, None).unwrap();
     event(&mut rx, |e| {
         matches!(
             e,
@@ -277,7 +277,12 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
                         .unwrap()
                         .contains("I looked at the logs.")
                 );
-                assert!(cut["text"].as_str().unwrap().contains("do not resume"));
+                assert!(
+                    cut["text"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Where playback stopped is unknown")
+                );
                 break;
             }
             tokio::task::yield_now().await;
@@ -530,7 +535,7 @@ async fn a_hold_cuts_off_a_reply_and_leaves_it_to_the_phone() {
         &origin,
     );
     event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
-    calls.hold(&id, true).unwrap();
+    calls.hold(&id, true, None).unwrap();
     calls.reply_delta(&persona, "reply-1", "Nothing broke.</spoken>", &origin);
     assert!(!calls.delivery(
         &persona,
@@ -881,8 +886,8 @@ async fn hold_interrupt_and_a_finished_turn_leave_no_overrun_note() {
             .unwrap();
         quietly(&mut rx, 30).await;
         match how {
-            "hold" => calls.hold(&id, true).unwrap(),
-            "interrupt" => calls.interrupt(&id).unwrap(),
+            "hold" => calls.hold(&id, true, None).unwrap(),
+            "interrupt" => calls.interrupt(&id, None).unwrap(),
             _ => calls.turn_ended(&persona, &origin),
         }
         quietly(&mut rx, 300).await;
@@ -917,7 +922,7 @@ async fn cutting_in_or_hanging_up_mid_synthesis_plays_nothing_more() {
         if hang_up {
             calls.end(&id).unwrap();
         } else {
-            calls.interrupt(&id).unwrap();
+            calls.interrupt(&id, None).unwrap();
         }
         for _ in 0..50 {
             tokio::time::advance(Duration::from_millis(100)).await;

@@ -123,7 +123,7 @@ impl Room {
                 if handed.waiting.is_empty() {
                 } else if handed.protected {
                     notice(format!(
-                        "{} on this desk: a key granted protected needs its Used with under Settings → Secrets.",
+                        "{} on this desk: a key not granted readable needs its Used with under Settings → Secrets.",
                         listed(&handed.waiting)
                     ));
                 } else {

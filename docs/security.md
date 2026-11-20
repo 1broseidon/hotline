@@ -646,7 +646,21 @@ protected, and may name where it goes (`on`: its computer, its desk shell);
 grant is today's grant said plainly: the pane labels it "Readable by this
 teammate's programs", and the teammate's programs can read the value. A
 variable with no "Used with" can only be granted readable, and the pane asks
-before it is; a login or a passkey is never granted readable. At upgrade
+before it is; a login or a passkey is never granted readable. The pane says
+"Readable by this teammate's programs", and asks before the tick, wherever
+the value reaches the teammate's programs whatever the grant says: a key used
+with Other, whose replies no reviewed rule checks; a login or passkey for a
+site on this machine (`localhost`, `*.localhost`, 127.0.0.0/8, `::1`) and a
+cookie share for one, since a program of the teammate's own can serve that
+site; and a login or passkey given to a computer that has not shown, at its
+last handing over, that it runs its programs apart from what it is handed
+(legacy, needing an update, or not yet asked). For that last, the list first
+says: "Granting a secret to this computer trusts the teammate and its
+programs: they can read and send out granted variables, passwords, sign-in
+codes and sessions, and can use a granted passkey to sign in." The pane makes
+no other promise about a secret: it says where a key is used, and that a
+login is typed only on its sites (`ui/tests/teammate-secrets.test.tsx`,
+`secret-use.test.tsx`, `cookie-lends.test.tsx`). At upgrade
 every granted variable became readable, so it is handed over where it was
 before. A teammate that runs as the person — whole-machine reach, or any ACP
 harness — can read the desk's data and reach the container runtime, its own

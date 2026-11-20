@@ -162,3 +162,46 @@ test("a sign-in to finish is one quiet card that opens the site, with nothing to
 		expect(container.textContent).toContain("Finish signing in to github.com");
 	} finally { await act(async () => root.unmount()); await teardown(); }
 });
+
+test("the list and the forms describe what happens, and say readable for Other and for sites on this machine", async () => {
+	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { SecretsSection } = await import("../src/components/Secrets");
+	const { wire } = await import("../src/wire");
+	const github = { service: "github", origins: ["https://api.github.com"], header: "Authorization", schemes: ["Bearer"] };
+	const services = [
+		{ id: "github", name: "GitHub", prefixes: ["ghp_"], ...github, refuse: [] },
+		{ id: "other", name: "Other", prefixes: [], origins: [], header: "Authorization", schemes: ["Bearer"], refuse: [] },
+	];
+	const stored: SharedSecret[] = [
+		{ name: "DEV_LOGIN", kind: "login", updatedAt: 1, use: "auto", sites: ["http://localhost:3000"], username: "ada" },
+		{ name: "GITHUB_LOGIN", kind: "login", updatedAt: 1, use: "auto", sites: ["https://github.com"], username: "ada" },
+		{ name: "GITHUB_TOKEN", kind: "variable", updatedAt: 1, use: "auto", usedWith: github },
+		{ name: "OTHER_KEY", kind: "variable", updatedAt: 1, use: "auto", usedWith: { service: "other", origins: ["https://api.example.com"], header: "Authorization", schemes: ["Bearer"] } },
+	];
+	const command = spyOn(wire, "command").mockImplementation((async (cmd: string) => {
+		if (cmd === "secrets.list") return stored;
+		if (cmd === "secrets.services") return services;
+		if (cmd === "computer.cookies.sources") return { sources: [], blocked: [] };
+		if (cmd === "computer.cookies.holders") return [];
+		throw new Error(cmd);
+	}) as typeof wire.command);
+	const container = document.createElement("div"); document.body.append(container);
+	const root = createRoot(container);
+	const row = (name: string) => Array.from(container.querySelectorAll(".group-row")).find((node) => node.querySelector(".group-row-title")?.textContent === name)!;
+	const button = (within: Element, label: string) => Array.from(within.querySelectorAll("button")).find((b) => b.textContent === label)!;
+	try {
+		await act(async () => { root.render(<SecretsSection />); });
+		expect(row("DEV_LOGIN").textContent).toContain("Readable by this teammate's programs");
+		expect(row("OTHER_KEY").textContent).toContain("Readable by this teammate's programs");
+		expect(row("GITHUB_LOGIN").textContent).not.toContain("Readable");
+		expect(row("GITHUB_TOKEN").textContent).not.toContain("Readable");
+		await act(async () => button(row("GITHUB_TOKEN"), "Used with").click());
+		expect(container.textContent).toContain("Programs get a stand-in; the key is added on the way to GitHub.");
+		await act(async () => button(container, "Cancel").click());
+		await act(async () => button(row("GITHUB_LOGIN"), "Replace").click());
+		expect(container.textContent).toContain("Typed only on these sites.");
+		expect(container.textContent).not.toContain("never");
+	} finally { await act(async () => root.unmount()); command.mockRestore(); await teardown(); }
+});

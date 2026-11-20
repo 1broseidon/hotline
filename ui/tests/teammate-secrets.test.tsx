@@ -20,7 +20,7 @@ const session: SessionInfo = {
 	personaId: "ada", state: "idle", contextRestored: false, models: [], modes: [], configs: [], slashCommands: [],
 	capabilities: { activeInput: false, loadSession: false, resume: false, fork: false, mcpHttp: false, image: false, additionalDirectories: false },
 };
-const github = { origins: ["https://api.github.com", "https://github.com", "https://uploads.github.com"], header: "Authorization", schemes: ["Bearer", "token", "Basic"] };
+const github = { service: "github", origins: ["https://api.github.com", "https://github.com", "https://uploads.github.com"], header: "Authorization", schemes: ["Bearer", "token", "Basic"] };
 const stored: SharedSecret[] = [
 	{ name: "GITHUB_TOKEN", kind: "variable", use: "auto", updatedAt: 1, usedWith: github },
 	{ name: "NPM_TOKEN", kind: "variable", use: "auto", updatedAt: 1 },
@@ -179,17 +179,17 @@ test("a whole-machine teammate is given every key readable, and every grant says
 	expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "GITHUB_TOKEN", readable: true }] } });
 });
 
-test("one notice says secrets wait for an update, with Update when there is one", async () => {
+test("one notice says keys wait for an update, with Update when there is one", async () => {
 	status = { state: "running", release: "0.11.0", available: "0.13.0", protection: "needsUpdate" };
 	await mount(persona);
 	const computer = section("Computer")!;
-	expect(computer.textContent).toContain("Secrets waiting · until 0.13.0");
-	expect(computer.textContent?.match(/Secrets waiting/g)?.length).toBe(1);
+	expect(computer.textContent).toContain("Keys waiting · until 0.13.0");
+	expect(computer.textContent?.match(/Keys waiting/g)?.length).toBe(1);
 	expect([...computer.querySelectorAll("button")].some((node) => node.textContent === "Update")).toBe(true);
 	await act(async () => root.render(null));
 	status = { state: "running", release: "0.13.0", protection: "protected" };
 	await mount(persona);
-	expect(section("Computer")?.textContent).not.toContain("Secrets waiting");
+	expect(section("Computer")?.textContent).not.toContain("Keys waiting");
 });
 
 test("a teammate with no computer gives a variable to its shell, and is told so", async () => {
@@ -250,7 +250,7 @@ test("after the update the one notice asks what becomes of the old snapshots, an
 	await mount(persona);
 	const computer = section("Computer")!;
 	expect(computer.textContent).toContain("Old snapshots · 2 on hold");
-	expect(computer.textContent).toContain("change them at their sites");
+	expect(computer.textContent).toContain("Passwords and keys this computer had before may have been read: change them.");
 	const labels = [...computer.querySelectorAll("button")].map((node) => node.textContent);
 	expect(labels).toEqual(expect.arrayContaining(["Clean", "Delete", "Keep for now"]));
 	status = { state: "running", release: "0.13.0", protection: "protected" };
@@ -258,4 +258,71 @@ test("after the update the one notice asks what becomes of the old snapshots, an
 	await act(async () => keep.click());
 	expect(calls.find((call) => call.cmd === "computer.migration.answer")?.params).toEqual({ personaId: "ada", snapshots: "keep" });
 	expect(section("Computer")?.textContent).not.toContain("Old snapshots");
+});
+
+const TRUSTS =
+	"Granting a secret to this computer trusts the teammate and its programs: they can read and send out granted variables, passwords, sign-in codes and sessions, and can use a granted passkey to sign in.";
+const login: SharedSecret = { name: "GITHUB_LOGIN", kind: "login", use: "auto", updatedAt: 1, sites: ["https://github.com"], username: "ada" };
+const passkey: SharedSecret = { name: "GITHUB_PASSKEY", kind: "passkey", use: "auto", updatedAt: 1, rpId: "github.com" };
+
+async function openSecrets(who: Persona) {
+	await mount(who);
+	const secrets = section("Secrets")!;
+	await act(async () => secrets.querySelector<HTMLButtonElement>("[aria-expanded]")!.click());
+	return secrets;
+}
+
+const rowOf = (within: Element, name: string) => [...within.querySelectorAll("label")].find((node) => node.textContent?.includes(name))!;
+
+test("on a computer that has not shown it keeps them from its programs, logins and passkeys are readable, said before the tick and on the row", async () => {
+	stored.push(login, passkey);
+	restores.push(() => stored.splice(2));
+	for (const protection of [undefined, "legacy", "needsUpdate"]) {
+		status = { state: "running", ...(protection !== undefined ? { protection } : {}) };
+		const secrets = await openSecrets({ ...persona, secrets: [], secretGrants: [] });
+		expect(secrets.textContent, String(protection)).toContain(TRUSTS);
+		const before = calls.length;
+		await act(async () => rowOf(secrets, "GITHUB_LOGIN").querySelector("input")!.click());
+		expect(calls.length, "the tick asks first").toBe(before);
+		expect(secrets.textContent).toContain("Readable by this teammate's programs");
+		const give = [...secrets.querySelectorAll("button")].find((node) => node.textContent === "Give")!;
+		await act(async () => give.click());
+		expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "GITHUB_LOGIN" }] } });
+		await act(async () => root.render(null));
+		const granted = await openSecrets({ ...persona, secrets: ["GITHUB_LOGIN", "GITHUB_PASSKEY"], secretGrants: [{ name: "GITHUB_LOGIN" }, { name: "GITHUB_PASSKEY" }] });
+		expect(rowOf(granted, "GITHUB_LOGIN").textContent).toContain("Readable by this teammate's programs");
+		expect(rowOf(granted, "GITHUB_PASSKEY").textContent).toContain("Readable by this teammate's programs");
+		await act(async () => root.render(null));
+	}
+	status = { state: "stopped", protection: "protected" };
+	const shown = await openSecrets({ ...persona, secrets: ["GITHUB_LOGIN"], secretGrants: [{ name: "GITHUB_LOGIN" }] });
+	expect(shown.textContent).not.toContain(TRUSTS);
+	expect(rowOf(shown, "GITHUB_LOGIN").textContent).not.toContain("Readable by this teammate's programs");
+});
+
+test("a login or passkey for this machine, and a key used with Other, are readable wherever they go", async () => {
+	const local: SharedSecret = { name: "DEV_LOGIN", kind: "login", use: "auto", updatedAt: 1, sites: ["http://127.0.0.1:3000"], username: "ada" };
+	const devPasskey: SharedSecret = { name: "DEV_PASSKEY", kind: "passkey", use: "auto", updatedAt: 1, rpId: "app.localhost" };
+	const other: SharedSecret = { name: "API_KEY", kind: "variable", use: "auto", updatedAt: 1, usedWith: { service: "other", origins: ["https://api.example.com"], header: "Authorization", schemes: ["Bearer"] } };
+	stored.push(local, devPasskey, other);
+	restores.push(() => stored.splice(2));
+	status = { state: "running", protection: "protected" };
+	const secrets = await openSecrets({ ...persona, secrets: ["DEV_LOGIN", "DEV_PASSKEY", "API_KEY", "GITHUB_TOKEN"], secretGrants: [{ name: "DEV_LOGIN" }, { name: "DEV_PASSKEY" }, { name: "API_KEY" }, { name: "GITHUB_TOKEN" }] });
+	for (const name of ["DEV_LOGIN", "DEV_PASSKEY", "API_KEY"]) expect(rowOf(secrets, name).textContent, name).toContain("Readable by this teammate's programs");
+	expect(rowOf(secrets, "GITHUB_TOKEN").textContent).not.toContain("Readable by this teammate's programs");
+	await act(async () => root.render(null));
+
+	// Ticked, a key used with Other asks first, and stays a key.
+	const ticking = await openSecrets({ ...persona, secrets: [], secretGrants: [] });
+	const before = calls.length;
+	await act(async () => rowOf(ticking, "API_KEY").querySelector("input")!.click());
+	expect(calls.length).toBe(before);
+	await act(async () => [...ticking.querySelectorAll("button")].find((node) => node.textContent === "Give")!.click());
+	expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "API_KEY" }] } });
+});
+
+test("a site on this machine is one whatever its spelling, and a public one is not", async () => {
+	const { loopbackSite } = await import("../src/components/Secrets");
+	for (const site of ["http://localhost:8080", "localhost", "https://app.localhost", "http://127.0.0.1:3000", "http://127.9.9.9", "http://[::1]:8080", "http://[::ffff:127.0.0.1]"]) expect(loopbackSite(site), site).toBe(true);
+	for (const site of ["https://github.com", "https://localhost.example.com", "http://128.0.0.1", "http://10.0.0.1", "not a site"]) expect(loopbackSite(site), site).toBe(false);
 });

@@ -5,6 +5,7 @@ import { useCookiesRevision } from "../../room";
 import { Chips } from "../../ui/Chips";
 import { wire } from "../../wire";
 import { Favicon } from "../Favicon";
+import { loopbackSite, READABLE } from "../Secrets";
 import { NESTED, RowText } from "./rows";
 
 function reason(error: unknown): string {
@@ -264,6 +265,8 @@ function SharedRow({
 					</span>
 					<span className={`group-row-detail${error !== null ? " text-danger" : ""}`}>
 						{error ?? (lend.waiting === true ? `From ${lend.browserName} · Not copied yet` : `From ${lend.browserName}`)}
+						{/* A program of the teammate's own can serve a site on this machine, and read what is sent to it. */}
+						{error === null && loopbackSite(lend.site) && ` · ${READABLE}`}
 					</span>
 				</span>
 				{chevron}

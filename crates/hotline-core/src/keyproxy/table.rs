@@ -330,12 +330,12 @@ fn check(binding: Binding) -> Result<Bound, String> {
     }
     if value.len() < MIN_VALUE_CHARS || value.len() > MAX_VALUE_BYTES {
         return Err(format!(
-            "{name}: a protected value is {MIN_VALUE_CHARS} to {MAX_VALUE_BYTES} bytes"
+            "{name}: a key for the proxy is {MIN_VALUE_CHARS} to {MAX_VALUE_BYTES} bytes"
         ));
     }
     if !value.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(format!(
-            "{name}: a protected value is printable ASCII with no spaces"
+            "{name}: a key for the proxy is printable ASCII with no spaces"
         ));
     }
     if use_.origins.is_empty() || use_.origins.len() > MAX_ORIGINS {

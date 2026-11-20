@@ -641,11 +641,12 @@ path: string,
 readonly: boolean, };
 
 /**
- * Whether a running computer keeps protected secrets from its jobs:
- * `protected`, it proved it does and takes every grant; `legacy`, it does
- * not, and holds only readable variables, which is all it is granted;
- * `needsUpdate`, it does not, and some of the teammate's grants wait on
- * the desk until it is updated.
+ * What a computer proved about running its jobs apart from the values it
+ * holds: `protected`, it runs them as another user than its broker, and
+ * takes every grant, keys as stand-ins; `legacy`, it does not, and holds
+ * readable variables, logins and passkeys where its programs can read
+ * them; `needsUpdate`, the same, and keys granted to it wait on the desk
+ * until it is updated.
  */
 export type ComputerProtection = "protected" | "needsUpdate" | "legacy";
 
@@ -715,8 +716,9 @@ updateFailed?: string,
  */
 limitsChanged?: boolean, 
 /**
- * What the running computer said of keeping secrets from its jobs, at
- * the last handing over. Absent until it has been handed its set.
+ * What the computer, running or stopped, proved at its last handing
+ * over about running jobs apart from the values it holds. Absent until
+ * it has been handed its set since this desk started or it was made.
  */
 protection?: ComputerProtection, 
 /**

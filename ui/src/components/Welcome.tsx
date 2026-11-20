@@ -274,7 +274,7 @@ export function Welcome({
 					<>
 						<Lead
 							title="Connect an AI service"
-							text="This is where your teammates' thinking comes from. Sign in with an account you already have, or paste a key. It's kept safe in your computer's keychain."
+							text="This is where your teammates' thinking comes from. Sign in with an account you already have, or paste a key. It's kept in your computer's keychain."
 						/>
 						{connected.length > 0 && (
 							<div className="welcome-connected">

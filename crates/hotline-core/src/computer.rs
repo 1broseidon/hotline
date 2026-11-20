@@ -792,8 +792,12 @@ impl Computer {
             let limits_changed = limits_changed(&inspection, persona, live.runtime);
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
             status.release = live.release.or(status.release);
-            if status.state == ComputerState::Running {
+            // A stopped computer starts again as what it proved, so the pane
+            // can say before a grant whether logins go to it readable.
+            if status.state != ComputerState::Absent {
                 status.protection = live.protection;
+            }
+            if status.state == ComputerState::Running {
                 status.migration = live.migration;
             }
             status.limits_changed = limits_changed;

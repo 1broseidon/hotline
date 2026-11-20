@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { SecretGrant } from "../../generated/contract";
 import { isDesktop, platform } from "../../native";
+import { wire } from "../../wire";
 import { PasskeyArm } from "../PasskeyArm";
 import { TeammateSecrets } from "../Secrets";
 import { Cookies } from "./Cookies";
@@ -18,7 +19,9 @@ import { FoldRow } from "./rows";
  * Under it, the person's cookies shared with that browser: one list for
  * either, in sight without opening anything. With a computer, a variable's
  * grant may reach its computer, its desk shell or both; without one, a
- * variable goes to its desk shell.
+ * variable goes to its desk shell. Opening the list asks the computer's
+ * status, so a login or passkey is said to be readable there until the
+ * computer has shown it runs its programs apart from what it is handed.
  */
 export function SecretRows({
 	personaId,
@@ -46,13 +49,25 @@ export function SecretRows({
 	const deskSigner = deskBrowser && platform() === "macos";
 	// The room ticks a passkey it stores, and the roster brings the tick.
 	const stored = useCallback(() => {}, []);
+	const [computerShown, setComputerShown] = useState(false);
+	useEffect(() => {
+		if (!open || !computer) return;
+		let gone = false;
+		wire
+			.command("computer.status", { personaId })
+			.then((status) => !gone && setComputerShown(status.protection === "protected"))
+			.catch(() => !gone && setComputerShown(false));
+		return () => {
+			gone = true;
+		};
+	}, [open, computer, personaId]);
 
 	return (
 		<section>
 			<h3 className="label">Secrets</h3>
 			<div className="grouped">
 				<FoldRow title="Logins and passkeys" value={granted === 0 ? "none given" : `${granted} given`} open={open} onToggle={() => setOpen((was) => !was)} />
-				{open && <TeammateSecrets grants={grants} places={computer ? ["computer", "desk"] : ["desk"]} asPerson={asPerson} disabled={disabled} onChange={onChange} />}
+				{open && <TeammateSecrets grants={grants} places={computer ? ["computer", "desk"] : ["desk"]} asPerson={asPerson} computerShown={computerShown} disabled={disabled} onChange={onChange} />}
 				{deskSigner && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
 				{computer && <PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />}
 			</div>

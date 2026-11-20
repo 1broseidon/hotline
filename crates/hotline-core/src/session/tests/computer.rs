@@ -71,7 +71,7 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
         heard.contains("by name: GITHUB_TOKEN (a variable), GONE_TOKEN (not stored right now)."),
         "{heard}"
     );
-    assert!(heard.contains("You never see a value"), "{heard}");
+    assert!(heard.contains("The computer redacts values"), "{heard}");
     assert!(!heard.contains("ghp_notarealtoken0001"), "{heard}");
     let on_tape = serde_json::to_string(&tape(&room, "ada")).unwrap();
     assert!(!on_tape.contains("ghp_notarealtoken0001"), "{on_tape}");

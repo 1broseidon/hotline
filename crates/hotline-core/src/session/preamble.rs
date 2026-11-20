@@ -112,12 +112,12 @@ pub(crate) fn preamble_for(
                 )
                 .collect();
             let keys_sentence = if keys {
-                " A key used with a service reaches your computer only when the computer can keep it from your programs; there $NAME holds a stand-in, and the real key is added only to requests to that service, so use it as you would the key. When the computer cannot yet, the key is not there, and a tool that needs it fails: tell the person."
+                " A key used with a service reaches your computer only once the computer runs its key proxy; there $NAME holds a stand-in, and the key is added on the way to that service, so use it as you would the key. When the computer does not yet, the key is not there, and a tool that needs it fails: tell the person."
             } else {
                 ""
             };
             format!(
-                "\n\nThe person has put these secrets in your computer, by name: {}. A variable is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable.{keys_sentence} A login is typed for you: on a sign-in form of one of its sites, use `browser fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; the computer types it only on that login's own sites and refuses any other page, and that refusal is right. A passkey signs in by itself when the site asks the browser for one; nothing types it. You never see a value: the computer redacts every one from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                "\n\nThe person has put these secrets in your computer, by name: {}. A variable is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable.{keys_sentence} A login is typed for you: on a sign-in form of one of its sites, use `browser fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; the computer types it only on that login's own sites and refuses any other page, and that refusal is right. A passkey signs in by itself when the site asks the browser for one; nothing types it. The computer redacts values from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
                 described.join(", ")
             )
         }
@@ -128,7 +128,7 @@ pub(crate) fn preamble_for(
             .filter(|names| !has_computer && !names.is_empty())
         {
             Some(names) => format!(
-                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`, on the ref of the field for that part: a username into the username or email field, a password into the password field, a code into the one-time-code field. It is typed only on that login's own sites and only into such a field, and that refusal is right. You never see a value, and none is ever read back to you: once a password or code is typed, the page is not read or pictured until another page loads, so submit the form, or reload, before you look again. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`, on the ref of the field for that part: a username into the username or email field, a password into the password field, a code into the one-time-code field. It is typed only on that login's own sites and only into such a field, and that refusal is right. Values are not read back to you: once a password or code is typed, the page is not read or pictured until another page loads, so submit the form, or reload, before you look again. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
                 names.join(", ")
             ),
             None => String::new(),

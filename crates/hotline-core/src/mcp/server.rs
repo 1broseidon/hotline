@@ -416,6 +416,39 @@ fn lead_descriptor() -> Tool {
     )
 }
 
+/// `send` as the lead's voice front on a desk call is shown it. The call's
+/// grant lets the front hand a named teammate a job and nothing else (see
+/// [`FRONT_SENDS_ONLY_WORK`]), so it is not told of quick lines, answers,
+/// `reply_to` or the other wants, which would only be refused.
+fn front_send_descriptor() -> Tool {
+    Tool::new(
+        SEND,
+        "Hand a named teammate a job from this call: it lands in their inbox as work for them to do. Give a short title and the person's words unchanged as the message. Nothing else is sent from a call: a question, a note or a check for a colleague goes through work_on_it instead.",
+        schema(json!({
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "minItems": 1,
+                    "description": "The teammate the person named, by name or personaId from list_teammates.",
+                },
+                "title": { "type": "string", "minLength": 1, "maxLength": crate::session::inbox::TITLE_CHARS, "description": "A short line saying what the job is." },
+                "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX, "description": "The person's words for the job, unchanged." },
+                "wants": { "type": "string", "enum": ["work"], "description": "Always work: a call hands on only jobs." },
+            },
+            "required": ["to", "title", "message", "wants"],
+            "additionalProperties": false,
+        })),
+    )
+}
+
+/// What the lead's voice front is told when it sends anything but a titled
+/// job, so it takes the one route there is instead of trying variations:
+/// `work_on_it` puts the words to the lead's own session on the call thread,
+/// whose `send` asks or tells a colleague by the same call's grant.
+const FRONT_SENDS_ONLY_WORK: &str = "Nothing was sent: from a call only a job goes to a teammate, with a title and wants work. For a question, a note or a check for a colleague, use work_on_it so your own session asks them or passes it on, and never turn a question into a work item to get it through.";
+
 /// The desk's own browser, offered to a teammate with no computer while
 /// the desktop app is running (`crate::browser`). Its actions are named as
 /// the computer's `browser` tool names them, so a teammate moving between
@@ -1045,14 +1078,13 @@ impl TeammateTools {
         self
     }
 
-    /// The front's tools as a client is shown them.
+    /// The front's tools as a client is shown them: [`FRONT_TOOLS`], and on
+    /// the lead's desk call its own narrower `send`.
     pub(crate) fn front_descriptors(lead_call: bool) -> Vec<(String, String, Value)> {
         descriptors()
             .into_iter()
-            .filter(|tool| {
-                FRONT_TOOLS.contains(&tool.name.as_ref())
-                    || (lead_call && tool.name.as_ref() == SEND)
-            })
+            .filter(|tool| FRONT_TOOLS.contains(&tool.name.as_ref()))
+            .chain(lead_call.then(front_send_descriptor))
             .map(|tool| {
                 (
                     tool.name.to_string(),
@@ -1279,8 +1311,11 @@ impl TeammateTools {
             }
             SEND => {
                 let sending = crate::session::inbox::Sending::from_arguments(arguments)?;
-                if self.front && sending.wants != Some(crate::contract::InboxWants::Work) {
-                    return Err("A lead's voice front can only hand named work on.".into());
+                if self.front
+                    && (sending.wants != Some(crate::contract::InboxWants::Work)
+                        || sending.title.is_none())
+                {
+                    return Err(FRONT_SENDS_ONLY_WORK.into());
                 }
                 room.send_items(
                     &self.persona_id,

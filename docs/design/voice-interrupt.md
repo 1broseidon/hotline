@@ -92,14 +92,56 @@ everyday word for echo once a call had a few replies behind it (the owner's
 ## How the teammate learns it was cut off
 
 This uses the existing mechanism (decision-9). `voice.interrupt` makes
-`SpeechLine::interrupt` write the notice: "Speech interrupted. The caller did
-not hear this line to the end … The exact last word heard is unknown … do not
-resume the unfinished speech." The next turn gets it through
+`SpeechLine::interrupt` (`crates/hotline-voice/src/heard.rs`) write the
+cut notice on the call's thread, and the next turn gets it through
 `take_interruption`, apart from the person's saved words.
 
-Not built: `voice.interrupt` has no `playedMs`; an additive field (the window
-knows `playedMs()`) would let the notice say where playback stopped, as
-`voice.front_barge` does. A contract change, left for a follow-up.
+The window says where playback stood (`played` on `voice.interrupt`,
+`voice.hold` and `voice.call_end`): the last clip of a `said` line that
+began to play, by line and index, how far into it the audio clock is, and
+the clip's length (`ClipPlayer.position`). It is read before playback
+stops. Talking over a reply suspends the call's AudioContext first, and
+the clock stands still while it is suspended, so the position is where the
+reply paused, not where the words decided it seconds later.
+
+The desk keeps, for the last few lines it said, each sentence's words and
+the clips that carried it, with each clip's length read from its WAV. From
+the report alone:
+
+- every sentence whose sound played to its end was heard, and every one
+  whose sound never began was not, which is certain;
+- at most one sentence was cut. Where in it is exact only from a voice's
+  own word timings (`SpeechChunk.marks`, which no voice Hotline speaks with
+  supplies yet). Otherwise it is played time over the sentence's length,
+  snapped to the nearest word end, and labelled an estimate; a streamed
+  sentence whose length was not known yet uses the call's speaking rate so
+  far (14 characters a second until it has one).
+
+The notice says it in three labelled parts, in the words as spoken
+(`speech_text`):
+
+```text
+Speech interrupted: the caller cut in.
+Heard in full: "I looked at the logs."
+Cut off during: "The cache went stale [cut about here] after the deploy." (0.5 s of its 1.0 s played)
+Not heard: "I can clear it now."
+Where it stopped in that sentence is estimated from how long it played. Do not claim a more precise stopping point than this. Answer what the caller said, and carry on from what was not heard only if it still matters after that.
+```
+
+"about" goes only with an estimate, and an estimate never says "exact".
+A cut between sentences says the split is certain. A part over 40 words
+keeps the words nearest the cut and counts the rest ("… [36 words] …").
+A cut that leaves nothing unheard writes no notice. The desk's
+acknowledgement and its line on the work are lines like any other: a cut
+in one leaves the reply said after it under Not heard. A hold with a
+position notes the cut the same way; a hang-up does too, with no
+instruction, and the call's closing note reads it as `[speech cut off]`,
+so what never played is not summarised as said.
+
+A client that reports nothing (the phone today) gets the whole generated
+line and "Where playback stopped is unknown: the caller's app did not
+report it." A live front reports `playedMs` on `voice.front_barge`, which
+has no clips to place in words, and says so.
 
 ## How it fits with the rest of the call
 

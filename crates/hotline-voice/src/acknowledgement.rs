@@ -15,6 +15,7 @@
 //! than none. Nothing here changes a call with the setting off.
 
 use super::dispatcher::Dispatcher;
+use super::heard::Words;
 use super::ledger::{self, Kind};
 use super::record::Speaker;
 use super::speech::Clip;
@@ -247,7 +248,15 @@ impl Calls {
                 text: line.to_string(),
             },
         );
-        self.clip(id, &said, 0, true, clip, Some(interrupted));
+        self.clip(
+            id,
+            &said,
+            0,
+            true,
+            clip,
+            Some(interrupted),
+            Words::sentence(line),
+        );
         Ok(())
     }
 

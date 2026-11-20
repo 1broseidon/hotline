@@ -59,6 +59,23 @@ impl Clip {
 pub struct SpeechChunk {
     pub clip: Clip,
     pub final_chunk: bool,
+    /// The words of the sentence whose sound ends in this chunk, from a
+    /// voice that times its words. None of the voices Hotline speaks with
+    /// does today (Phonon, OpenAI-shaped and Gemini voices return sound
+    /// alone, and xAI's timings come only with `with_timestamps`, which its
+    /// adapter does not ask for), so this is empty and a cut inside a
+    /// sentence is estimated from playback time.
+    pub marks: Vec<WordMark>,
+}
+
+/// When a word of a sentence has finished sounding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WordMark {
+    /// Where the word ends in the sentence as spoken
+    /// (`spoken::speech_text`), in bytes.
+    pub end: usize,
+    /// When its sound ends, in ms from the start of the sentence's sound.
+    pub ms: u32,
 }
 
 /// Which provider, model and voice an adapter speaks with. A listening
@@ -229,7 +246,7 @@ pub trait Speech: Send + Sync {
         tokio::select! {
             () = output.closed() => Err(SpeechError::Cancelled),
             clip = self.speak(text) => {
-                output.send(SpeechChunk { clip: clip?, final_chunk: true }).await.map_err(|_| SpeechError::Cancelled)
+                output.send(SpeechChunk { clip: clip?, final_chunk: true, marks: Vec::new() }).await.map_err(|_| SpeechError::Cancelled)
             }
         }
     }

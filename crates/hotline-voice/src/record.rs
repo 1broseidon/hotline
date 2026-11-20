@@ -10,6 +10,7 @@
 //! summary generation must not hold up disconnecting the microphone.
 
 use crate::call_room::CallRoom;
+use crate::heard::{Playback, Stop};
 use hotline_contract::End;
 use hotline_contract::VoiceEndReason;
 fn now_ms() -> i64 {
@@ -118,92 +119,39 @@ impl Record {
     }
 }
 
-/// Generated words are not proof of playback. Keep the interrupted line,
-/// without guessing a word boundary from elapsed audio time.
-#[derive(Default)]
-pub(super) struct SpeechLine {
-    id: String,
-    text: String,
-    cut: bool,
-    recorded: bool,
-    pub(super) pending: Option<String>,
-}
-
-impl SpeechLine {
-    pub(super) fn update(&mut self, id: &str, text: &str) {
-        if self.id != id {
-            self.id = id.into();
-            self.cut = false;
-            self.recorded = false;
-        }
-        if self.text != text {
-            self.recorded = false;
-        }
-        self.text = text.into();
-    }
-
-    pub(super) fn interrupt(&mut self, played_ms: Option<u32>) -> Option<Value> {
-        if self.cut || self.text.is_empty() {
-            return None;
-        }
-        self.cut = true;
-        let timing =
-            played_ms.map_or_else(String::new, |ms| format!(" Playback stopped at {ms} ms."));
-        let text = format!(
-            "Speech interrupted.{timing} The caller did not hear this line to the end: {}\nThe exact last word heard is unknown. Answer the caller's interruption; do not resume the unfinished speech.",
-            self.text
-        );
-        self.pending = Some(text.clone());
-        Some(
-            json!({"kind": "notice", "id": uuid::Uuid::new_v4().to_string(),
-            "ts": now_ms(), "level": "info", "text": text, "interrupted": true,
-            "speechId": self.id, "playedMs": played_ms}),
-        )
-    }
-}
-
 impl super::Call {
     /// Finalize live text before a boundary; unchanged text is never appended twice.
     pub(super) fn keep_front_speech(&mut self) {
-        if self.front.is_some()
-            && !self.speech_line.recorded
-            && !self.speech_line.text.is_empty()
+        if self.front.is_none() {
+            return;
+        }
+        let Some(line) = self.speech_line.current_mut() else {
+            return;
+        };
+        if !line.recorded
+            && !line.text.is_empty()
             && let Some(record) = &self.record
         {
-            record.said(Speaker::Voice, &self.speech_line.id, &self.speech_line.text);
-            self.conversation.remember(&self.speech_line.text);
-            self.speech_line.recorded = true;
+            record.said(Speaker::Voice, &line.id, &line.text);
+            self.conversation.remember(&line.text);
+            line.recorded = true;
         }
     }
 
-    pub(super) fn cut_speech(&mut self, played_ms: Option<u32>) {
+    /// The call's speech was stopped: the cut notice, kept on its thread,
+    /// says what the caller heard of it ([`super::heard`]).
+    pub(super) fn cut_speech(&mut self, stop: Stop, playback: Playback) {
+        // A front's speech is one stream with no clips: a clip position
+        // names nothing in it.
+        let playback = match playback {
+            Playback::Clip(_) if self.front.is_some() => Playback::Unreported,
+            playback => playback,
+        };
         self.keep_front_speech();
-        if let Some(line) = self.speech_line.interrupt(played_ms)
+        if let Some(line) = self.speech_line.interrupt(stop, playback)
             && let Some(record) = &self.record
         {
             record.line(&line);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_cut_keeps_the_generated_line_without_claiming_it_was_heard() {
-        let mut line = SpeechLine::default();
-        line.update("reply", "First sentence. Unheard ending.");
-        let cut = line.interrupt(Some(420)).unwrap();
-        let _: hotline_contract::TranscriptEvent = serde_json::from_value(cut.clone()).unwrap();
-        assert_eq!(cut["speechId"], "reply");
-        assert_eq!(cut["playedMs"], 420);
-        assert_eq!(cut["interrupted"], true);
-        assert!(cut["text"].as_str().unwrap().contains("Unheard ending."));
-        assert!(line.pending.as_ref().unwrap().contains("do not resume"));
-        line.update("reply", "A late tail.");
-        assert!(line.interrupt(Some(0)).is_none());
-        line.update("next", "The new answer.");
-        assert!(line.interrupt(None).is_some());
     }
 }

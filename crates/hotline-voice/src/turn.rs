@@ -4,6 +4,7 @@
 use super::acknowledgement::own_words;
 use super::call_room::Handed;
 use super::dispatcher::Context;
+use super::heard::Words;
 use super::ledger::{self, Kind};
 use super::metering::BUDGET_ERROR;
 use super::record::Speaker;
@@ -117,6 +118,7 @@ impl Calls {
                 bytes: audio.to_vec(),
             },
             interrupted,
+            Words::sentence(text),
         );
     }
 

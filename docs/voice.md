@@ -914,7 +914,12 @@ say that again." on the call.
 Speaking over the teammate (`voice.interrupt`) stops what it is saying at once
 and gives the person the floor: the call listens even though the turn is still
 open, the rest of that reply is not said, and what the person says next waits
-behind the open turn as the next one. The turn itself is never stopped by the
+behind the open turn as the next one. That turn is told what the person
+heard: the window reports the clip that was playing and how far into it, so
+the notice says what was heard in full, the sentence cut off with where
+(exact from a voice's word timings, which none gives yet, else an estimate
+from playback time at a word, said to be one), and what was not heard
+([design/voice-interrupt.md](design/voice-interrupt.md#how-the-teammate-learns-it-was-cut-off)). The turn itself is never stopped by the
 call, and what the teammate says after it, such as its report, is said. A hold stops
 a reply too, and a reply cut off by a hold, or that lands while the call is
 held, reaches the phone as a notification instead.

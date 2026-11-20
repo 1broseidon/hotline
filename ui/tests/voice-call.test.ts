@@ -49,8 +49,13 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	let queue = 0;
 	let idle: () => void = () => {};
 	/** The reply's loudness as the player meters it, and whether the call paused it. */
-	const output = { level: 0, paused: false, pauses: 0, resumes: 0, ducked: false };
+	const output = { level: 0, paused: false, pauses: 0, resumes: 0, ducked: false, pausedAt: 0 };
 	const mic = { open: true, closed: 0, opened: 0 };
+	/**
+	 * The playback clock: the last clip of a said line begun, a ten-second clip
+	 * begun when it was queued, and the time it has stood still, paused.
+	 */
+	const clock = { clip: null as { line: string; index: number } | null, at: 0, pausedAt: null as number | null, pausedFor: 0 };
 	const audio: CallAudio = {
 		open: async () => {},
 		closeMic: () => {
@@ -62,29 +67,35 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 			mic.open = true;
 			mic.opened++;
 		},
-		play: (_mime, data) => {
+		play: (_mime, data, clip) => {
 			played.push(data);
 			queue++;
+			if (clip !== undefined) Object.assign(clock, { clip, at: now, pausedFor: 0 });
 		},
 		playPcm: (data, rate) => {
 			pcm.push({ data, rate });
 			queue++;
 		},
 		playedMs: () => playedMs,
+		position: () => clock.clip === null ? null : { ...clock.clip, ms: (clock.pausedAt ?? now) - clock.at - clock.pausedFor, clipMs: 10_000 },
 		stopPlayback: () => {
 			queue = 0;
 			output.paused = false;
 			output.ducked = false;
+			Object.assign(clock, { clip: null, pausedAt: null, pausedFor: 0 });
 		},
 		duckPlayback: (down) => {
 			output.ducked = down;
 		},
 		pausePlayback: () => {
+			if (!output.paused) clock.pausedAt = output.pausedAt = now;
 			output.paused = true;
 			output.pauses++;
 		},
 		resumePlayback: () => {
 			if (output.paused) output.resumes++;
+			if (clock.pausedAt !== null) clock.pausedFor += now - clock.pausedAt;
+			clock.pausedAt = null;
 			output.paused = false;
 		},
 		get playing() {
@@ -227,6 +238,28 @@ describe("a call with the desk", () => {
 		expect(r.call.current.phase).toBe("listening");
 		r.speak(0.3, 3_100, 3_700);
 		expect(r.call.current.phase).toBe("hearing");
+	});
+
+	test("a tap, a hold and a hang-up tell the desk where playback stood, so it can say what was heard", async () => {
+		const r = rig();
+		await r.call.start();
+		r.desk({ type: "said", id: "s1", text: "A long answer. With a second sentence." });
+		r.at(2_000);
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		r.at(2_700);
+		r.call.interrupt();
+		expect(r.sent.find((one) => one.cmd === "voice.interrupt")?.params).toEqual({ callId: r.call.id, played: { line: "s1", index: 0, ms: 700, clipMs: 10_000 } });
+		// The waiting sound is no line said: nothing of a said line has begun since the cut.
+		r.desk({ type: "clip", id: "waiting-2", index: 0, final: true, mimeType: "audio/wav", data: "tone" });
+		await r.call.hold(true);
+		expect(r.sent.find((one) => one.cmd === "voice.hold")?.params).toEqual({ callId: r.call.id, hold: true, played: { index: 0, ms: 0, clipMs: 0 } });
+		await r.call.hold(false);
+		expect(r.sent.filter((one) => one.cmd === "voice.hold").at(-1)?.params).toEqual({ callId: r.call.id, hold: false });
+		r.desk({ type: "said", id: "s2", text: "Another answer." });
+		r.desk({ type: "clip", id: "s2", index: 0, final: true, mimeType: "audio/wav", data: "two" });
+		r.at(3_200);
+		r.call.hangUp();
+		expect(r.sent.find((one) => one.cmd === "voice.call_end")?.params).toEqual({ callId: r.call.id, played: { line: "s2", index: 0, ms: 500, clipMs: 10_000 } });
 	});
 
 	test("cutting in on unfinished work waits for the desk to say it can listen", async () => {
@@ -1373,6 +1406,11 @@ describe("interrupting by talking over the teammate, heard by this Mac", () => {
 		expect(r.sentText().map((one) => one["text"])).toEqual(["wait. Use the other machine."]);
 		const commands = r.commands();
 		expect(commands.indexOf("voice.interrupt")).toBeLessThan(commands.indexOf("voice.text"));
+		// The cut is where the voice paused the reply, not where the words decided it.
+		const played = r.sent.find((one) => one.cmd === "voice.interrupt")?.params["played"] as { line: string; ms: number };
+		expect(played.line).toBe("s1");
+		expect(played.ms).toBe(r.output.pausedAt - 1_400);
+		expect(played.ms).toBeLessThan(2_300 - 1_400);
 		expect(r.notes.some((line) => line.includes("paused the reply"))).toBe(true);
 		expect(r.notes.some((line) => line.includes("interrupted the reply"))).toBe(true);
 		// The log says why, never what was said.

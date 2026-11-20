@@ -17,6 +17,7 @@ mod front;
 mod front_context;
 mod front_prompt;
 pub mod front_tools;
+mod heard;
 mod input;
 mod progress;
 pub mod realtime;
@@ -523,7 +524,7 @@ pub struct Call {
     /// A direct call's thread, which keeps all of what was said. A desk call
     /// is kept on the desk tape.
     record: Option<Record>,
-    speech_line: record::SpeechLine,
+    speech_line: heard::SpeechLine,
     interrupted_through: Option<u32>,
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.

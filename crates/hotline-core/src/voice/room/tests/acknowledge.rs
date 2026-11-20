@@ -395,8 +395,8 @@ async fn interrupt_hold_and_hang_up_stop_the_line() {
         })
         .await;
         match how {
-            "interrupt" => calls.interrupt(&id).unwrap(),
-            "hold" => calls.hold(&id, true).unwrap(),
+            "interrupt" => calls.interrupt(&id, None).unwrap(),
+            "hold" => calls.hold(&id, true, None).unwrap(),
             _ => calls.end(&id).unwrap(),
         }
         let sent = sent_within(&mut rx, Duration::from_millis(700)).await;

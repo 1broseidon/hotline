@@ -8,6 +8,7 @@
 use super::front::{self, FRONT_LINE_PREFIX};
 use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
 use super::front_tools::FrontTools;
+use super::heard::{Playback, Stop};
 use super::realtime::{
     Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
 };
@@ -280,7 +281,7 @@ impl Calls {
                 return Ok(None);
             }
             front.interrupted = front.responding;
-            call.cut_speech(Some(played_ms));
+            call.cut_speech(Stop::CutIn, Playback::Front(played_ms));
             call.activity = Instant::now();
             if call.state == VoiceState::Speaking {
                 call.state(call.resting(), None);
@@ -698,7 +699,7 @@ impl Calls {
                 RealtimeEvent::SpeechStarted => self.change(id, |call| {
                     call.caller_speaking = true;
                     if call.front.as_ref().is_some_and(|front| front.responding) {
-                        call.cut_speech(None);
+                        call.cut_speech(Stop::CutIn, Playback::Unreported);
                     }
                     if let Some(front) = &mut call.front {
                         front.interrupted = front.responding;

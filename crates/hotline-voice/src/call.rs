@@ -2,10 +2,11 @@
 
 use super::dispatcher::Context;
 use super::duplex::Front;
+use super::heard::{Playback, Stop};
 use super::record::Record;
 use super::{CALLS_OFF, Call, CallSpeech, Calls, Hold, THINKING_AGAIN, Voiced, lock, paid_kinds};
 use hotline_contract::{
-    VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceState,
+    VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent, VoiceInputMode, VoicePlayed, VoiceState,
 };
 use hotline_room::room_handle::RoomHandle;
 use std::collections::{HashMap, VecDeque};
@@ -208,7 +209,7 @@ impl Calls {
                 answering: None,
                 streams: HashMap::new(),
                 cut: VecDeque::new(),
-                speech_line: super::record::SpeechLine::default(),
+                speech_line: super::heard::SpeechLine::default(),
                 interrupted_through: None,
                 record: Some(Record::open(
                     self.room.clone(),
@@ -466,7 +467,7 @@ impl Calls {
                     call.speech.cancel();
                     call.deliveries.cancel();
                     call.deliveries = CancellationToken::new();
-                    call.cut_speech(None);
+                    call.cut_speech(Stop::CutIn, Playback::Unreported);
 
                     call.stop_streams(true);
                     call.drop_transport(
@@ -542,7 +543,10 @@ impl Calls {
         })
     }
 
-    pub fn hold(&self, id: &str, hold: bool) -> Result<(), String> {
+    /// The call is held or let go. A hold stops what the call is saying,
+    /// and when the client says where its playback stood, the next turn is
+    /// told what was heard as after a cut-in.
+    pub fn hold(&self, id: &str, hold: bool, played: Option<VoicePlayed>) -> Result<(), String> {
         self.change(id, |call| {
             call.activity = Instant::now();
             if hold {
@@ -551,6 +555,9 @@ impl Calls {
                 call.speech.cancel();
                 call.deliveries.cancel();
                 call.deliveries = CancellationToken::new();
+                if let Some(played) = played.filter(|_| call.front.is_none()) {
+                    call.cut_speech(Stop::Hold, Playback::Clip(played));
+                }
                 call.stop_streams(true);
             }
             call.hold_by_person(hold);
@@ -558,17 +565,37 @@ impl Calls {
         })
     }
 
+    /// The person hung up. When the client says where its playback stood,
+    /// what it never played is noted on the call's thread before the call
+    /// ends, so its closing note does not take it for said.
+    pub fn hang_up(&self, id: &str, played: Option<VoicePlayed>) -> Result<(), String> {
+        if let Some(played) = played {
+            let _ = self.change(id, |call| {
+                if call.front.is_none() {
+                    call.cut_speech(Stop::HungUp, Playback::Clip(played));
+                }
+                Ok(())
+            });
+        }
+        self.end(id)
+    }
+
     /// Stops what the call is saying and gives the person the floor. A
     /// teammate's work goes on, but further speech from its old turn is
     /// muted. The person's next turn receives the playback context.
-    pub fn interrupt(&self, id: &str) -> Result<(), String> {
+    /// `played` is where the client's playback stood; without it, where
+    /// the line stopped is unknown.
+    pub fn interrupt(&self, id: &str, played: Option<VoicePlayed>) -> Result<(), String> {
         self.change(id, |call| {
             call.activity = Instant::now();
             call.input = None;
             call.speech.cancel();
             call.deliveries.cancel();
             call.deliveries = CancellationToken::new();
-            call.cut_speech(None);
+            call.cut_speech(
+                Stop::CutIn,
+                played.map_or(Playback::Unreported, Playback::Clip),
+            );
 
             call.interrupted_through = call.seq;
             call.stop_streams(true);

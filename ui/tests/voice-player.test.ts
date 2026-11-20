@@ -78,6 +78,27 @@ describe("progressive voice playback", () => {
 		r.player.stop();
 	});
 
+	test("where playback stands is the last clip of a said line that began, and how far into it the clock is", async () => {
+		const r = rig();
+		r.player.push("audio/wav", "AA==", { line: "s1", index: 0 });
+		r.player.push("audio/wav", "AQ==", { line: "s1", index: 1 });
+		r.player.push("audio/wav", "Ag==");
+		r.decodes[0]!({ duration: 0.3 } as AudioBuffer);
+		r.decodes[1]!({ duration: 0.2 } as AudioBuffer);
+		r.decodes[2]!({ duration: 1 } as AudioBuffer);
+		await tick();
+		expect(r.player.position()).toEqual({ line: "s1", index: 0, ms: 0, clipMs: 300 });
+		r.ctx.currentTime = 10.1;
+		expect(r.player.position()).toEqual({ line: "s1", index: 0, ms: 100, clipMs: 300 });
+		r.ctx.currentTime = 10.35;
+		expect(r.player.position()).toEqual({ line: "s1", index: 1, ms: 50, clipMs: 200 });
+		// A clip of no said line, the waiting sound, is not where a line stopped.
+		r.ctx.currentTime = 11;
+		expect(r.player.position()).toEqual({ line: "s1", index: 1, ms: 200, clipMs: 200 });
+		r.player.stop();
+		expect(r.player.position()).toBeNull();
+	});
+
 	test("cutting in stops every scheduled chunk and drops late decodes", async () => {
 		const r = rig();
 		r.player.push("audio/wav", "AA==");

@@ -10,12 +10,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
-- Interrupt by speaking, in Settings › Voice › Calls, off by default: on a
+- Interrupt by speaking, in Settings › Voice › Calls, on by default: on a
   Turn by turn call this Mac hears, talking over the teammate pauses its
   reply at once, and words it did not say interrupt it, as a tap would, and
   become your next turn; a cough or a "mm-hmm" lets it carry on from where it
   paused. Best with headphones. It turns itself off for the call if the
   reply's own words come back through the microphone.
+- Acknowledge while the teammate thinks, in Settings › Voice, is on by
+  default. Switching it off is kept as off; a desk with no call assistant,
+  or a turn it skips, keeps the teammate's own opening line.
 - A teammate makes its own face. Ask it for a face, or for a change to the
   one it has ("give yourself glasses"), and it draws one on this computer
   from one of three DiceBear creature styles, Pixelbot, Moods and Sprouts,

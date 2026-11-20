@@ -309,8 +309,8 @@ function useSpeechOnThisMac(): string | null {
 /**
  * Talking over the teammate interrupts a Turn by turn call (voice/bargeIn.ts).
  * Offered only where it works: this Mac hears the call with its analyzer,
- * whose echo-cancelled channel it listens to. This computer's choice, off
- * until the person turns it on.
+ * whose echo-cancelled channel it listens to. This computer's choice, on
+ * until the person switches it off.
  */
 function InterruptBySpeaking() {
 	const engine = useSpeechOnThisMac();

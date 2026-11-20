@@ -59,16 +59,18 @@ test("ChatGPT images require a picker selection, Automatic clears it, calls with
 		await pick("Automatic");
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { images: null } } });
 		expect(changes).toBe(2);
-		// Turn by turn offers the acknowledgement, off until it is turned on, and the switch writes it beside the rest.
+		// Turn by turn offers the acknowledgement, on while it was never set; the switch writes off as false, so it stays off, and on as true.
 		const acknowledge = () => container.querySelector<HTMLInputElement>('[aria-label="Acknowledge while the teammate thinks"]')!;
-		expect(acknowledge().checked).toBe(false);
+		expect(acknowledge().checked).toBe(true);
 		expect(acknowledge().closest("label")!.title).toBe("Covers the wait");
+		await act(async () => { acknowledge().click(); });
+		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: { acknowledge: false } } } });
+		await act(async () => { root.render(<Blocks options={options} voice={{ acknowledge: false }} onChanged={() => {}} />); });
+		expect(acknowledge().checked).toBe(false);
 		await act(async () => { acknowledge().click(); });
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: { acknowledge: true } } } });
 		await act(async () => { root.render(<Blocks options={options} voice={{ acknowledge: true }} onChanged={() => {}} />); });
 		expect(acknowledge().checked).toBe(true);
-		await act(async () => { acknowledge().click(); });
-		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: null } } });
 		await render();
 		// Nothing chosen and no live voice provider connected: calls run Turn
 		// by turn, as the desk runs them, with no Grok Voice that cannot answer.

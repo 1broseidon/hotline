@@ -3,6 +3,7 @@ Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame
 const { Call, supportsDirectCalls } = await import("../src/voice/call");
 import { UNHEARD } from "../src/voice/transcription";
 import { NO_MICROPHONE } from "../src/voice/microphone";
+import { interruptBySpeaking, setInterruptBySpeaking } from "../src/voice/hearing";
 import { AUDIO_SILENCE_MS, FAST_SILENCE_MS } from "../src/voice/turn";
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
@@ -942,8 +943,8 @@ describe("a call heard by this Mac", () => {
 		expect(r.speech.counts.starts).toBe(2);
 	});
 
-	test("this Mac stops listening while a reply plays and listens again once it ends", async () => {
-		const r = textRig();
+	test("with Interrupt by speaking off, this Mac stops listening while a reply plays and listens again once it ends", async () => {
+		const r = textRig(undefined, undefined, undefined, { interruptBySpeaking: () => false });
 		await r.call.start();
 		const starts = r.speech.counts.starts;
 		const cancels = r.speech.counts.cancels;
@@ -1464,8 +1465,57 @@ describe("interrupting by talking over the teammate, heard by this Mac", () => {
 		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
 	});
 
+	/** This window's storage holding `stored` for the setting, or nothing, for the length of `run`. */
+	async function withStored(stored: string | null, run: () => Promise<void>) {
+		const values = new Map<string, string>(stored === null ? [] : [["hotline.interruptBySpeaking", stored]]);
+		const before = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+		Object.defineProperty(globalThis, "localStorage", {
+			value: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) },
+			configurable: true,
+		});
+		try {
+			await run();
+		} finally {
+			if (before) Object.defineProperty(globalThis, "localStorage", before);
+			else Reflect.deleteProperty(globalThis, "localStorage");
+		}
+	}
+
+	test("never set, the setting is on: this Mac listens over the reply and words over it interrupt", async () => {
+		await withStored(null, async () => {
+			const r = await overReply({});
+			expect(r.notes.some((line) => line.endsWith(": interrupt by speaking: on"))).toBe(true);
+			expect(r.speech.counts.starts).toBe(2);
+			r.reply(1_450, 2_000, ROOM);
+			r.reply(2_050, 2_300, VOICE);
+			expect(r.output.paused).toBe(true);
+			r.speech.emit({ type: "partial", text: "wait use the other machine" });
+			expect(r.commands()).toContain("voice.interrupt");
+			expect(r.call.current.phase).toBe("hearing");
+		});
+	});
+
+	test("the switch keeps off as off and on as on; never set reads as on", async () => {
+		await withStored(null, async () => {
+			expect(interruptBySpeaking()).toBe(true);
+			setInterruptBySpeaking(false);
+			expect(localStorage.getItem("hotline.interruptBySpeaking")).toBe("off");
+			expect(interruptBySpeaking()).toBe(false);
+			setInterruptBySpeaking(true);
+			expect(interruptBySpeaking()).toBe(true);
+		});
+	});
+
+	test("switched off in this window's storage, it stays off: nothing listens over the reply", async () => {
+		await withStored("off", async () => {
+			const r = await overReply({});
+			expect(r.speech.counts.starts).toBe(1);
+			expect(r.notes).toEqual([]);
+		});
+	});
+
 	test("with the setting off, a reply plays as today: nothing listens over it and only a tap interrupts", async () => {
-		const r = await overReply({});
+		const r = await overReply({ interruptBySpeaking: () => false });
 		expect(r.speech.counts.starts).toBe(1);
 		r.reply(1_450, 2_000, ROOM);
 		r.reply(2_050, 2_600, VOICE);

@@ -1,7 +1,7 @@
 # Interrupting a Turn by turn reply by speaking
 
 Status: a prototype behind **Settings › Voice › Calls › Interrupt by speaking**,
-off by default, on the Apple speech path only. A tap (Cut in) still interrupts
+on by default, on the Apple speech path only. A tap (Cut in) still interrupts
 on every path. Code: `ui/src/voice/bargeIn.ts` (the decisions), `call.ts`
 (`overhear`, `overheard`, `interruptedBySpeech`). Tests:
 `ui/tests/voice-barge-in.test.ts`, the last block of `ui/tests/voice-call.test.ts`,
@@ -115,7 +115,8 @@ knows `playedMs()`) would let the notice say where playback stopped, as
 
 ## When it stays off
 
-- The setting is off, the default: today's behaviour exactly (tested).
+- The person switched the setting off: the behaviour before this feature
+  exactly (tested). Never set is on (tested).
 - A call not heard by this Mac's analyzer: desk model, older recognizer, or a
   live call (which has its own barge-in).
 - Level events say voice processing is off (`processed: false`): off for the call.
@@ -128,7 +129,8 @@ knows `playedMs()`) would let the notice say where playback stopped, as
 
 **Interrupt by speaking** under Turn by turn in Settings › Voice › Calls,
 tooltip "Best with headphones"; this computer's choice (`localStorage`
-`hotline.interruptBySpeaking`), shown only where this Mac's analyzer hears.
+`hotline.interruptBySpeaking`: `off` is off, and never set or `on` is on, so
+an explicit off stays off), shown only where this Mac's analyzer hears.
 
 ## Reading a call from the log
 

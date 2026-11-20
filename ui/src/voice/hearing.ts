@@ -39,18 +39,20 @@ export function useHearOnThisMac(): boolean {
 
 /**
  * Whether a Turn by turn call heard by this Mac can be interrupted by
- * talking over the teammate (bargeIn.ts), rather than only by a tap. Off
- * unless the person turned it on: it relies on this Mac's echo cancellation,
- * which a headset makes easy and open speakers may defeat, and only the
- * person knows which they have. Kept here for the same reason as hearing.
+ * talking over the teammate (bargeIn.ts), rather than only by a tap. On
+ * unless the person switched it off, which is kept as "off" so it stays
+ * off; never set is on. It relies on this Mac's echo cancellation, which a
+ * headset makes easy and open speakers may defeat, so the call turns it off
+ * for itself when the reply's own words leak back. Kept here for the same
+ * reason as hearing.
  */
 const INTERRUPT_KEY = "hotline.interruptBySpeaking";
 
 export function interruptBySpeaking(): boolean {
 	try {
-		return localStorage.getItem(INTERRUPT_KEY) === "on";
+		return localStorage.getItem(INTERRUPT_KEY) !== "off";
 	} catch {
-		return false;
+		return true;
 	}
 }
 
@@ -64,5 +66,5 @@ export function setInterruptBySpeaking(on: boolean): void {
 }
 
 export function useInterruptBySpeaking(): boolean {
-	return useSyncExternalStore(subscribeHearing, interruptBySpeaking, () => false);
+	return useSyncExternalStore(subscribeHearing, interruptBySpeaking, () => true);
 }

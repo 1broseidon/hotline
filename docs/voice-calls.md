@@ -138,12 +138,14 @@ repeated stock phrase. Replies are short by default; an explicit overview
 relaxes length for that answer only, in numbered parts with a check-in.
 
 On Turn by turn, with Settings' Acknowledge while the teammate thinks on
-(`voice.acknowledge`, off by default), the desk may say one short line
+(`voice.acknowledge`, on unless switched off), the desk may say one short line
 naming the request in the teammate's own voice while the teammate's model
 starts. The person's turn goes to the teammate at once and the line is
 asked of the call assistant beside it, so the setting adds no delay; the
 teammate's turn is told the desk will acknowledge the request and is asked
-for no opening of its own. The line is said only if its sound is ready
+for no opening of its own, but only on a turn the line is asked for: with
+no call assistant, or on a turn the skip rules exclude, the turn keeps its
+usual prompt and the teammate its own opening. The line is said only if its sound is ready
 within 4 seconds of the person's last word and the teammate has nothing of
 its own to say yet, and it obeys cut-in, hold and hang-up as any clip.
 Words said while the teammate is still on an earlier turn, which wait

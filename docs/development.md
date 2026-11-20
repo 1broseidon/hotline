@@ -568,12 +568,12 @@ first run must show:
 - [ ] Mac signing and notarization pass with the version `0.49.0-beta.1`.
 - [ ] Each `desktop-*` artifact holds its packages named
       `hotline_0.49.0-beta.1_<platform>…`, each updater package with a
-      `.sig` beside it: nine packages and nine signatures in all, and two
+      `.sig` beside it: eight packages and eight signatures in all, and one
       `.dmg`.
 - [ ] Both `server-*` artifacts hold `hotline-server_0.49.0-beta.1_….tar.gz`.
 - [ ] The `manifest` job is green. Its `release-manifest` artifact holds
       `updater-0.49.0-beta.1.json`, with `"version": "0.49.0-beta.1"` and
-      nine platforms whose URLs are under
+      eight platforms whose URLs are under
       `releases/download/desktop-v0.49.0-beta.1/`, and it holds **no**
       `latest.json`.
 - [ ] `publish` and `beta-track` are skipped. No release, draft or tag was

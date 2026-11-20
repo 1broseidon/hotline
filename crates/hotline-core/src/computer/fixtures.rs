@@ -98,7 +98,10 @@ running=false
 [ "$state" = running ] && running=true
 entries=''
 add() { entries="${entries:+$entries,}\"$1\""; }
-if [ -f "${STATE}.token" ]; then add HOTLINE_COMPUTER_TOKEN=fixture-persisted-token; fi
+# A container a test says was there before has the persisted bearer; one
+# this runtime made has the bearer its create was handed.
+if [ -f "${STATE}.token" ]; then add HOTLINE_COMPUTER_TOKEN=fixture-persisted-token
+elif [ -s "${STATE}.envtoken" ]; then add "HOTLINE_COMPUTER_TOKEN=$(cat "${STATE}.envtoken")"; fi
 if [ -f "${STATE}.folders" ]; then add "$(cat "${STATE}.folders")"; fi
 if [ -f "${STATE}.limits" ]; then add "$(cat "${STATE}.limits")"; fi
 environment="[$entries]"
@@ -136,7 +139,13 @@ if [ -f "${STATE}.startfail" ]; then
 fi
 echo running > "$STATE"; exit 0 ;;
   stop) echo stopped > "$STATE"; exit 0 ;;
-  rm) echo absent > "$STATE"; exit 0 ;;
+  rm)
+if [ -f "${STATE}.rmfail" ]; then
+  echo "Error: the runtime would not remove the container" >&2
+  exit 1
+fi
+rm -f "${STATE}.token" "${STATE}.envtoken"
+echo absent > "$STATE"; exit 0 ;;
   *) echo "unknown: $cmd" >&2; exit 1 ;;
 esac
 "#;

@@ -259,7 +259,8 @@ impl StoredSecret {
 
 /// The sidecar beside a login's or a passkey's reference: the part of the
 /// record the listing shows. A variable has one only once it is "Used
-/// with" a service.
+/// with" a service, and only its service and host are read back from it
+/// (`services::current`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum About {
@@ -532,7 +533,7 @@ impl Vault {
         };
         match about {
             None => {}
-            Some(About::Variable { r#use }) => secret.used_with = Some(r#use),
+            Some(About::Variable { r#use }) => secret.used_with = super::services::current(&r#use),
             Some(About::Login {
                 r#use,
                 sites,
@@ -732,11 +733,13 @@ impl Vault {
                         ) => {
                             *r#use = SecretUse::Auto;
                         }
+                        // A key's "Used with" as its service is defined now,
+                        // never the copy its sidecar kept.
                         (
                             StoredSecret::Variable { r#use, .. },
                             Some(About::Variable { r#use: usage }),
                         ) => {
-                            *r#use = Some(usage);
+                            *r#use = super::services::current(&usage);
                         }
                         (StoredSecret::Variable { r#use, .. }, _) => *r#use = None,
                     }

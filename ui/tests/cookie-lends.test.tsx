@@ -187,3 +187,11 @@ test("an end reads as today, tomorrow or its date", async () => {
 	expect(endsWords(noon + DAY, noon)).toBe("Ends tomorrow");
 	expect(endsWords(noon + 3 * DAY, noon)).toMatch(/^Ends Nov 8$/);
 });
+
+test("cookies shared for a site on this machine are readable by the teammate's programs, and said so", async () => {
+	lends = [github, { id: "dev", teammate: "kit", site: "localhost:3000", browserName: "Brave", profileName: "George", lentAt: 3 }];
+	await mountPane(true);
+	const rows = [...document.querySelectorAll("button[aria-expanded]")].map((row) => row.textContent ?? "");
+	expect(rows.find((row) => row.startsWith("localhost:3000"))).toContain("Readable by this teammate's programs");
+	expect(rows.find((row) => row.startsWith("github.com"))).not.toContain("Readable");
+});

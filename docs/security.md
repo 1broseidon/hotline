@@ -665,7 +665,21 @@ protected, and may name where it goes (`on`: its computer, its desk shell);
 grant is today's grant said plainly: the pane labels it "Readable by this
 teammate's programs", and the teammate's programs can read the value. A
 variable with no "Used with" can only be granted readable, and the pane asks
-before it is; a login or a passkey is never granted readable. At upgrade
+before it is; a login or a passkey is never granted readable. The pane says
+"Readable by this teammate's programs", and asks before the tick, wherever
+the value reaches the teammate's programs whatever the grant says: a key used
+with Other, whose replies no reviewed rule checks; a login or passkey for a
+site on this machine (`localhost`, `*.localhost`, 127.0.0.0/8, `::1`) and a
+cookie share for one, since a program of the teammate's own can serve that
+site; and a login or passkey given to a computer that has not shown, at its
+last handing over, that it runs its programs apart from what it is handed
+(legacy, needing an update, or not yet asked). For that last, the list first
+says: "Granting a secret to this computer trusts the teammate and its
+programs: they can read and send out granted variables, passwords, sign-in
+codes and sessions, and can use a granted passkey to sign in." The pane makes
+no other promise about a secret: it says where a key is used, and that a
+login is typed only on its sites (`ui/tests/teammate-secrets.test.tsx`,
+`secret-use.test.tsx`, `cookie-lends.test.tsx`). At upgrade
 every granted variable became readable, so it is handed over where it was
 before. A teammate that runs as the person — whole-machine reach, or any ACP
 harness — can read the desk's data and reach the container runtime, its own
@@ -697,7 +711,17 @@ into the binary before anything is added. The value goes only in the key's
 header, under one of its schemes, in place of that run's own stand-in;
 another run's stand-in, another teammate's included, stays a string. It
 follows no redirect, writes the stand-in back over the value in replies,
-and refuses a request carrying the key to the service's key-minting paths.
+and refuses a request carrying the key to the service's key-minting paths:
+the routes that make or list keys, add an SSH, GPG or deploy key, mint an
+installation, runner or ephemeral token, or read and write a store of
+secrets (`vault/services.json`). That list is read from the service's
+definition by its id each time the key is handed on, never from what the
+vault kept when it was stored, so a list made longer reaches every key
+stored before it; it covers the computer's own shorter built-in list
+(`vault/services.rs` `the_desks_lists_cover_the_computers_built_in_one`).
+The desk shell's proxy refuses its built-in list whatever the desk sends,
+and the desk's list only adds to it (`keyproxy/tests.rs`
+`the_desks_refuse_list_adds_to_the_built_in_one`).
 A command's stand-ins and proxy user end with it. The grants are read from
 the vault when the teammate's session starts and again whenever a grant or
 a stored value changes, so a revoked key's stand-ins stop working at once,
@@ -3581,6 +3605,18 @@ environment, which Docker, Podman and Apple `container` each read a bare
 `/proc/*/cmdline`, never sees it in the `create` arguments. Test:
 `computer/tests.rs`
 `no_create_argument_contains_the_token_and_the_runtime_has_it_in_its_environment`.
+
+Each container gets its own bearer. One made again, for other folders or
+limits (`a_computer_made_again_for_its_limits_or_folders_gets_a_new_bearer`)
+or after an update (`a_computer_made_after_an_update_gets_a_new_bearer`),
+is made with a new one: the computer it replaces may have been an older,
+unprotected one whose programs read its bearer, and that bearer would
+otherwise answer the new computer's attest, approve its own key-use asks
+and drive its signed-in browser. A container the runtime will not remove
+is stopped, never adopted or started again with its bearer, and removed
+before the next is made (`a_computer_that_would_not_go_is_never_used_again_with_its_bearer`).
+The desk keeps a bearer only in memory and in the container's own
+environment; no snapshot, volume or log of the desk's carries one.
 
 
 ## Call-thread agents (S5 and S6)

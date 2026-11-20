@@ -3,7 +3,12 @@
 //! and a protected computer is handed inside a key's `use`.
 //!
 //! A prefix only suggests a service; the person confirms it. Other is the
-//! person's own host, with the `Authorization` header and no refuse list.
+//! person's own host, with the `Authorization` header, refused only what a
+//! named service on that host is refused.
+//!
+//! The vault keeps the choice, and [`current`] reads what it means from this
+//! list each time a key is listed or handed on: a refuse list made longer
+//! here reaches every key stored before it.
 
 use crate::contract::{SecretService, UsedWith, VariableUse};
 use std::io;
@@ -55,12 +60,55 @@ pub fn resolve(choice: &UsedWith) -> io::Result<VariableUse> {
     } else {
         service.origins.clone()
     };
+    // A named service's host chosen as Other is still that service: what it
+    // mints a key with is refused the same.
+    let refuse = if service.id == OTHER {
+        services()
+            .iter()
+            .filter(|named| named.origins.iter().any(|origin| origins.contains(origin)))
+            .flat_map(|named| named.refuse.iter().cloned())
+            .collect()
+    } else {
+        service.refuse.clone()
+    };
     Ok(VariableUse {
+        service: Some(service.id.clone()),
         origins,
         header: service.header.clone(),
         schemes: service.schemes.clone(),
-        refuse: service.refuse.clone(),
+        refuse,
     })
+}
+
+/// What a key stored "Used with" a service means now: that service's entry
+/// in this list, found by its id, with the person's host for Other. Nothing
+/// else the record kept is read, so a refuse list is never the one copied
+/// when the key was stored. A record from before ids were kept is named by
+/// its origins, as the window reads it: the named service with exactly
+/// those, else Other on its first. None for a service this list no longer
+/// has, which leaves the key with no "Used with": it waits on the desk
+/// rather than go anywhere unprotected.
+pub fn current(stored: &VariableUse) -> Option<VariableUse> {
+    let service = match &stored.service {
+        Some(id) => id.clone(),
+        None => services()
+            .iter()
+            .find(|named| {
+                named.id != OTHER
+                    && named.origins.len() == stored.origins.len()
+                    && named
+                        .origins
+                        .iter()
+                        .all(|origin| stored.origins.contains(origin))
+            })
+            .map_or_else(|| OTHER.to_owned(), |named| named.id.clone()),
+    };
+    let host = if service == OTHER {
+        Some(stored.origins.first()?.clone())
+    } else {
+        None
+    };
+    resolve(&UsedWith { service, host }).ok()
 }
 
 /// The start a key's stand-in keeps, so a program that checks the shape of
@@ -109,6 +157,128 @@ mod tests {
         let anthropic = resolve(&choice("anthropic", None)).unwrap();
         assert_eq!(anthropic.header, "x-api-key");
         assert_eq!(anthropic.schemes, [] as [String; 0]);
+    }
+
+    /// Every route the computer refuses on its own is in the list the desk
+    /// sends in its place, for each named service on that origin.
+    #[test]
+    fn the_desks_lists_cover_the_computers_built_in_one() {
+        let built_in = include_str!("computer_refused.txt");
+        let mut checked = 0;
+        for line in built_in.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (origin, route) = line.split_once(' ').expect("origin, then route");
+            let on_origin: Vec<&SecretService> = services()
+                .iter()
+                .filter(|service| service.origins.iter().any(|named| named == origin))
+                .collect();
+            assert!(!on_origin.is_empty(), "no service is on {origin}");
+            for service in on_origin {
+                assert!(
+                    service.refuse.iter().any(|listed| listed == route),
+                    "{}'s list misses the computer's {route}",
+                    service.id
+                );
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 6);
+    }
+
+    /// The routes a job could add a credential of its own through, which
+    /// the computer's own list misses.
+    #[test]
+    fn the_lists_refuse_adding_a_credential_and_reading_secrets() {
+        let refuses = |id: &str, route: &str| {
+            resolve(&choice(id, None))
+                .unwrap()
+                .refuse
+                .contains(&route.to_owned())
+        };
+        for route in [
+            "/user/keys",
+            "/user/gpg_keys",
+            "/user/ssh_signing_keys",
+            "/repos/*/*/keys",
+            "/applications/*/token",
+            "/repos/*/*/actions/secrets",
+            "/repos/*/*/actions/runners/registration-token",
+            "/orgs/*/actions/runners/generate-jitconfig",
+        ] {
+            assert!(refuses("github", route), "{route}");
+        }
+        for route in [
+            "/v1/organization/projects/*/api_keys",
+            "/v1/organization/projects/*/service_accounts",
+            "/v1/realtime/client_secrets",
+        ] {
+            assert!(refuses("openai", route), "{route}");
+        }
+        assert!(refuses("anthropic", "/v1/organizations/invites"));
+    }
+
+    /// A computer reads at most 64 routes a key, each a path of plain
+    /// characters (hotline-computer `keyproxy::policy::parse`); one it
+    /// cannot read refuses the whole set.
+    #[test]
+    fn every_list_is_one_a_computer_takes() {
+        for service in services() {
+            assert!(service.refuse.len() <= 64, "{}", service.id);
+            for route in &service.refuse {
+                assert!(route.starts_with('/') && route.len() <= 256, "{route}");
+                assert!(
+                    route
+                        .bytes()
+                        .all(|b| b.is_ascii_graphic() && !b"?#%\\".contains(&b)),
+                    "{route}"
+                );
+            }
+        }
+    }
+
+    /// A key stored before ids were kept, with the short list of its day,
+    /// is handed today's list; one stored with an id, whatever it kept.
+    #[test]
+    fn a_stored_use_is_read_as_its_service_is_now() {
+        let github = resolve(&choice("github", None)).unwrap();
+        let mut stale = VariableUse {
+            service: None,
+            refuse: vec!["/authorizations".to_owned()],
+            ..github.clone()
+        };
+        assert_eq!(current(&stale), Some(github.clone()));
+        stale.service = Some("github".to_owned());
+        stale.origins = vec!["https://api.github.com".to_owned()];
+        assert_eq!(current(&stale), Some(github));
+
+        let other = VariableUse {
+            service: None,
+            origins: vec!["https://api.example.com".to_owned()],
+            header: "Authorization".to_owned(),
+            schemes: vec!["Bearer".to_owned()],
+            refuse: Vec::new(),
+        };
+        let read = current(&other).unwrap();
+        assert_eq!(read.service.as_deref(), Some("other"));
+        assert_eq!(read.origins, ["https://api.example.com"]);
+
+        let gone = VariableUse {
+            service: Some("stripe".to_owned()),
+            ..other
+        };
+        assert_eq!(current(&gone), None, "a service this build lacks");
+    }
+
+    #[test]
+    fn other_on_a_named_services_host_is_refused_what_that_service_is() {
+        let other = resolve(&choice("other", Some("api.openai.com"))).unwrap();
+        assert_eq!(
+            other.refuse,
+            resolve(&choice("openai", None)).unwrap().refuse
+        );
     }
 
     #[test]

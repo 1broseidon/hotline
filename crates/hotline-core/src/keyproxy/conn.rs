@@ -272,7 +272,7 @@ impl Session {
         {
             return plain(
                 StatusCode::FORBIDDEN,
-                "Hotline does not send a protected key to a route that makes new keys\n",
+                "Hotline does not send this key to a route that makes new keys\n",
             );
         }
         let target = parts

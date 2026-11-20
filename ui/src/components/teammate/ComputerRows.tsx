@@ -252,10 +252,10 @@ export function ComputerRows({
 			{(current.enabled || state !== "absent") && (
 				<>
 					<FoldRow title="Desktop" value={shown} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} action={desktopKey} />
-					{/* The one notice a teammate gets when some of its secrets wait for a computer that can keep them from its programs. */}
+					{/* The one notice a teammate gets when keys granted to it wait for a computer that runs its key proxy. */}
 					{state === "running" && status?.protection === "needsUpdate" && (
 						<div className={NESTED}>
-							<RowText title="Secrets waiting" value={status.available !== undefined ? `until ${status.available}` : "until a newer computer"} />
+							<RowText title="Keys waiting" value={status.available !== undefined ? `until ${status.available}` : "until a newer computer"} />
 							{status.available !== undefined && (
 								<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.update")}>
 									Update
@@ -268,7 +268,7 @@ export function ComputerRows({
 						<div className={`${NESTED} flex-col items-stretch gap-1.5`}>
 							<RowText title="Old snapshots" value={`${status.migration.snapshots.length} on hold`} />
 							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-								Snapshots from before the update may hold old sign-ins, so none is restored until you choose. Passwords this computer had before may have been read: change them at their sites.
+								Snapshots from before the update may hold old sign-ins, so none is restored until you choose. Passwords and keys this computer had before may have been read: change them.
 							</span>
 							<span className="flex flex-wrap gap-1.5">
 								{(["clean", "delete", "keep"] as const).map((choice) => (

@@ -71,7 +71,7 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
         heard.contains("by name: GITHUB_TOKEN (a variable), GONE_TOKEN (not stored right now)."),
         "{heard}"
     );
-    assert!(heard.contains("You never see a value"), "{heard}");
+    assert!(heard.contains("The computer redacts values"), "{heard}");
     assert!(!heard.contains("ghp_notarealtoken0001"), "{heard}");
     let on_tape = serde_json::to_string(&tape(&room, "ada")).unwrap();
     assert!(!on_tape.contains("ghp_notarealtoken0001"), "{on_tape}");
@@ -2073,6 +2073,47 @@ async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_
         .store(true, std::sync::atomic::Ordering::SeqCst);
     room.secrets_changed().await;
     assert_eq!(taken.sets().len(), 1, "a forged attest is handed nothing");
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate),
+        "and is no longer said to be protected"
+    );
+}
+
+/// A protected key goes with its service's refuse list as this desk
+/// defines it now, never the shorter one its record kept when it was
+/// stored, and never left for the computer's own shorter list.
+#[tokio::test]
+async fn a_protected_key_is_handed_its_services_refuse_list_as_it_is_now() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-refuse", Some("0.13.0"), TWO_RELEASES, true).await;
+    grant_a_key_a_variable_and_a_login(&room);
+    let github = crate::vault::resolve_used_with(&crate::contract::UsedWith {
+        service: "github".into(),
+        host: None,
+    })
+    .unwrap();
+    room.vault
+        .as_ref()
+        .unwrap()
+        .set_secret_used_with(
+            "GITHUB_TOKEN",
+            Some(crate::contract::VariableUse {
+                service: None,
+                refuse: vec!["/authorizations".into()],
+                ..github.clone()
+            }),
+        )
+        .unwrap();
+    room.start("ada").await.unwrap();
+    let refuse = &taken.sets()[0]["GITHUB_TOKEN"]["use"]["refuse"];
+    assert_eq!(*refuse, json!(github.refuse));
+    for route in ["/user/keys", "/repos/*/*/keys", "/authorizations"] {
+        assert!(
+            refuse.as_array().unwrap().contains(&json!(route)),
+            "{route}"
+        );
+    }
 }
 
 /// Use Cookies goes into a protected computer's signed-in browser, never

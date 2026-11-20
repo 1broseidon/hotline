@@ -17,8 +17,8 @@ use crate::contract::{
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 pub(crate) use container::folder_mounts;
 use container::{
-    create, create_args, folder_mount_args, image_present, inspect, inspect_within, limits_of,
-    pick_runtime, pull, run, wait_healthy,
+    create, create_args, folder_mount_args, image_present, inspect, inspect_within, is_not_found,
+    limits_of, pick_runtime, pull, run, wait_healthy,
 };
 pub(crate) use hotline_room::computer::HOME_MOUNT;
 use runtime::{BinSearch, Runtime};
@@ -237,7 +237,10 @@ type Remembered<T> = tokio::sync::Mutex<Option<(Instant, T)>>;
 
 /// Every teammate computer this process has woken, keyed by persona id.
 ///
-/// The token is generated once per container and kept here. A container that
+/// The token is generated for each container when it is made, and kept here
+/// for its life: a container made again, for new folders, limits or an
+/// update, gets a new one, because an older computer's programs could read
+/// the old one and a newer computer must not open to it. A container that
 /// already exists from a previous run of Hotline has a token we no longer know
 /// — it was process state, never a setting — so it is removed and recreated
 /// rather than started with a bearer nobody can present.
@@ -270,6 +273,10 @@ struct Inner {
     known: releases::Known,
     /// The runtime `status` last picked, for [`PICK_FOR_STATUS`].
     picked: Option<Picked>,
+    /// Teammates whose container was to go but the runtime would not
+    /// remove: it is never adopted or started again with the bearer it
+    /// has, only removed before the next one is made.
+    retired: HashSet<String>,
 }
 
 struct Picked {
@@ -317,6 +324,7 @@ impl Computer {
                 looked: HashSet::new(),
                 known: releases::Known::default(),
                 picked: None,
+                retired: HashSet::new(),
             })),
             capacity: Arc::new(capacity::Cache::default()),
             statuses: Arc::default(),
@@ -338,6 +346,7 @@ impl Computer {
                 looked: HashSet::new(),
                 known: releases::Known::default(),
                 picked: None,
+                retired: HashSet::new(),
             })),
             capacity: Arc::new(capacity::Cache::default()),
             statuses: Arc::default(),
@@ -525,7 +534,8 @@ impl Computer {
 
         let mut inspection = inspect(&cmd, runtime, &name).await?;
         let known_token = inspection.token.clone().or(known_token);
-        if inspection.exists && known_token.is_none() {
+        let retired = self.lock().retired.contains(&persona.id);
+        if inspection.exists && (known_token.is_none() || retired) {
             // Older or foreign containers may not expose the expected bearer.
             // A desktop with no recoverable token cannot be authenticated.
             run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await?;
@@ -552,7 +562,12 @@ impl Computer {
             inspection.exists = false;
             inspection.running = false;
         }
-        let token = known_token.clone().unwrap_or_else(new_token);
+        // A container kept keeps its bearer; one made now gets its own, never
+        // the one the container it replaces had.
+        let token = match known_token {
+            Some(token) if inspection.exists => token,
+            _ => new_token(),
+        };
         let mut made_on = inspection.release.clone();
         if !inspection.exists {
             // A computer made now is made on the newest release, so a desk
@@ -568,6 +583,7 @@ impl Computer {
             let args = create_args(runtime, &name, &image, &cwd, persona)?;
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
             create(&cmd, &arg_refs, &token).await?;
+            self.lock().retired.remove(&persona.id);
             run(&cmd, &["start", &name], COMMAND_TIMEOUT).await?;
         } else if !inspection.running {
             run(&cmd, &["start", &name], COMMAND_TIMEOUT).await?;
@@ -690,6 +706,9 @@ impl Computer {
         Ok(())
     }
 
+    /// Removes the teammate's computer and forgets its bearer. One the
+    /// runtime will not remove is stopped if it can be, retired so that
+    /// nothing adopts or starts it again with that bearer, and said.
     pub async fn remove(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
         let _turn = self.turn_of(persona_id).lock_owned().await;
         let name = container_name(persona_id);
@@ -698,13 +717,21 @@ impl Computer {
             .containers
             .remove(persona_id)
             .map(|live| live.cmd);
-        if let Some(cmd) = cmd {
-            let _ = run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await;
-            return Ok(());
+        let cmd = match cmd {
+            Some(cmd) => cmd,
+            None => match pick_runtime(prefer, &self.bins).await {
+                Ok((_, cmd)) => cmd,
+                Err(_) => return Ok(()),
+            },
+        };
+        if let Err(error) = run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await
+            && !is_not_found(&error)
+        {
+            self.lock().retired.insert(persona_id.to_string());
+            let _ = run(&cmd, &["stop", &name], STOP_TIMEOUT).await;
+            return Err(format!("The computer could not be removed: {error}"));
         }
-        if let Ok((_, cmd)) = pick_runtime(prefer, &self.bins).await {
-            let _ = run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await;
-        }
+        self.lock().retired.remove(persona_id);
         Ok(())
     }
 
@@ -765,8 +792,12 @@ impl Computer {
             let limits_changed = limits_changed(&inspection, persona, live.runtime);
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
             status.release = live.release.or(status.release);
-            if status.state == ComputerState::Running {
+            // A stopped computer starts again as what it proved, so the pane
+            // can say before a grant whether logins go to it readable.
+            if status.state != ComputerState::Absent {
                 status.protection = live.protection;
+            }
+            if status.state == ComputerState::Running {
                 status.migration = live.migration;
             }
             status.limits_changed = limits_changed;
@@ -814,7 +845,11 @@ impl Computer {
         let todo: Vec<String> = {
             let inner = self.lock();
             ids.iter()
-                .filter(|id| !inner.containers.contains_key(*id) && !inner.looked.contains(*id))
+                .filter(|id| {
+                    !inner.containers.contains_key(*id)
+                        && !inner.looked.contains(*id)
+                        && !inner.retired.contains(*id)
+                })
                 .cloned()
                 .collect()
         };

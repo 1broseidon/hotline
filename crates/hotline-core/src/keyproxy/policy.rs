@@ -3,9 +3,9 @@
 //! A key that may mint keys would hand a job a fresh, reusable one in the
 //! reply, which no stand-in covers. The desk sends each service's routes in
 //! `use.refuse` (from `services.json`); a request carrying a value to one is
-//! answered here and never sent. Where `refuse` is absent, the built-in list
-//! below stands in for the services Hotline names; an "Other" origin is on
-//! none of it, so it has no list.
+//! answered here and never sent. The built-in list below is the minimum for
+//! the services Hotline names, refused whatever the desk sent: its list adds
+//! to this one and never replaces it. An "Other" origin is on none of it.
 
 /// Origin, then path segments; `*` is any one segment, and the path may go
 /// on below the last.
@@ -75,8 +75,8 @@ pub(super) fn listed(patterns: &[Vec<String>], path: &str) -> bool {
     patterns.iter().any(|pattern| hit(pattern, &segments))
 }
 
-/// The built-in list: whether `path` on `origin` is refused when the desk
-/// sent no `refuse` for the key.
+/// The built-in list: whether `path` on `origin` is refused for every key,
+/// whatever the desk sent.
 pub(super) fn refused(origin: &str, path: &str) -> bool {
     let segments = segments(path);
     REFUSED

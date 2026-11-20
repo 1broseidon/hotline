@@ -87,7 +87,7 @@ impl Parts {
                     ""
                 };
                 format!(
-                    "The person gave you a login for {site}, stored as {name}. Sign in with it: use browser fill with secret {name}.username and secret {name}.password (or {name}.code for a one-time code) on {} only. You never see the values.{kept}",
+                    "The person gave you a login for {site}, stored as {name}. Sign in with it: use browser fill with secret {name}.username and secret {name}.password (or {name}.code for a one-time code) on {} only. The values are not shown to you.{kept}",
                     capture.site
                 )
             }

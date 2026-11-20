@@ -800,6 +800,142 @@ async fn an_unknown_token_existing_container_is_removed_and_recreated() {
     );
 }
 
+/// A computer from before, whose programs may have read its bearer, kept
+/// running: what the runtime says its bearer is, and the log cleared.
+async fn an_older_computer(name: &str) -> (PathBuf, Computer, Persona) {
+    let root = scratch(name);
+    let cwd = root.join("work");
+    fs::create_dir_all(&cwd).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "running").unwrap();
+    fs::write(root.join("state.token"), "present").unwrap();
+    let computers = Computer::with_path(root.as_os_str());
+    let ada = persona("ada", cwd.to_str().unwrap());
+    let ready = computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect("kept");
+    assert_eq!(ready.token, "fixture-persisted-token");
+    fs::write(root.join("argv.log"), "").unwrap();
+    (root, computers, ada)
+}
+
+/// The bearer the runtime handed the last create, and the one the desk
+/// now presents; they are the same.
+async fn made_with(computers: &Computer, root: &Path) -> String {
+    let made = fs::read_to_string(root.join("state.envtoken")).unwrap();
+    assert_eq!(computers.running("ada").await.unwrap().token, made);
+    made
+}
+
+/// A computer made again because its memory or its folders changed is
+/// made with a bearer of its own, never the one the computer before it
+/// had, which that computer's programs may have read; the status the pane
+/// opens the screen with carries the new one.
+#[tokio::test]
+async fn a_computer_made_again_for_its_limits_or_folders_gets_a_new_bearer() {
+    let (root, computers, mut ada) = an_older_computer("remade-bearer").await;
+    ada.computer.as_mut().unwrap().memory = Some("2g".into());
+    let remade = restart(&computers, &ada, &root).await;
+    assert!(
+        remade.contains("rm -f ") && remade.contains("create "),
+        "{remade}"
+    );
+    let after_limits = made_with(&computers, &root).await;
+    assert_ne!(after_limits, "fixture-persisted-token");
+    assert_ne!(after_limits, "");
+
+    let folder = root.join("granted");
+    fs::create_dir_all(&folder).unwrap();
+    ada.folders = Some(vec![FolderGrant {
+        identity: None,
+        path: folder
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        writable: false,
+    }]);
+    let remade = restart(&computers, &ada, &root).await;
+    assert!(remade.contains("create "), "{remade}");
+    let after_folders = made_with(&computers, &root).await;
+    assert_ne!(after_folders, after_limits);
+    let viewer = computers.status("ada", None, None).await.unwrap().viewer;
+    assert!(
+        viewer.is_some_and(|url| url.ends_with(&format!("/#{after_folders}"))),
+        "the screen opens with the new bearer"
+    );
+}
+
+/// An update removes the computer and the next start makes it on the new
+/// release: with a new bearer.
+#[tokio::test]
+async fn a_computer_made_after_an_update_gets_a_new_bearer() {
+    let (root, computers, ada) = an_older_computer("update-bearer").await;
+    computers.remove("ada", None).await.expect("remove");
+    computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect("made again");
+    assert_ne!(
+        made_with(&computers, &root).await,
+        "fixture-persisted-token"
+    );
+}
+
+/// A computer the runtime will not remove is not used again with the
+/// bearer it has: removing says so and stops it, a desk looking for
+/// computers left behind does not take it back, a start removes it before
+/// anything else and fails while it cannot, and the computer made once it
+/// can has a new bearer.
+#[tokio::test]
+async fn a_computer_that_would_not_go_is_never_used_again_with_its_bearer() {
+    let (root, computers, ada) = an_older_computer("rm-fails").await;
+    let log = root.join("argv.log");
+    fs::write(root.join("state.rmfail"), "").unwrap();
+    let refused = computers.remove("ada", None).await.unwrap_err();
+    assert!(refused.contains("could not be removed"), "{refused}");
+    assert!(
+        log_text(&log)
+            .lines()
+            .any(|line| line == "stop hotline-computer-ada"),
+        "{}",
+        log_text(&log)
+    );
+    assert!(
+        computers.running("ada").await.is_none(),
+        "its bearer is gone"
+    );
+
+    computers.adopt(&["ada".to_owned()], None, 1).await;
+    assert!(computers.running("ada").await.is_none(), "not taken back");
+
+    fs::write(&log, "").unwrap();
+    assert!(
+        computers
+            .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+            .await
+            .is_err()
+    );
+    let tried = log_text(&log);
+    assert!(
+        !tried.lines().any(|line| line.starts_with("start ")),
+        "{tried}"
+    );
+    assert!(computers.running("ada").await.is_none());
+
+    fs::remove_file(root.join("state.rmfail")).unwrap();
+    computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect("made again");
+    assert_ne!(
+        made_with(&computers, &root).await,
+        "fixture-persisted-token"
+    );
+}
+
 #[tokio::test]
 async fn stop_and_remove_send_the_right_subcommands() {
     let root = scratch("stop-rm");

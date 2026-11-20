@@ -207,6 +207,43 @@ async fn a_protected_desk_key_is_a_stand_in_for_a_confined_teammate_only() {
     );
 }
 
+/// The desk shell's proxy is handed a key's refuse list as its service is
+/// defined now, though the key was stored with the shorter list of its day.
+#[tokio::test]
+async fn a_desk_key_is_refused_its_services_routes_as_they_are_now() {
+    let room = room_of(
+        "desk-shell-refuse",
+        &[teammate("ada", "hotline", Reach::Workspace)],
+    );
+    let github = crate::vault::resolve_used_with(&UsedWith {
+        service: "github".into(),
+        host: None,
+    })
+    .unwrap();
+    let vault = room.vault.as_ref().unwrap();
+    vault.set_shared_secret("GITHUB_TOKEN", REAL).unwrap();
+    vault
+        .set_secret_used_with(
+            "GITHUB_TOKEN",
+            Some(VariableUse {
+                service: None,
+                refuse: vec!["/authorizations".into()],
+                ..github.clone()
+            }),
+        )
+        .unwrap();
+    let ada = room.persona("ada").unwrap();
+    let (_, bound) = room
+        .desk_shell_set(
+            &ada,
+            &[grant("GITHUB_TOKEN", false, Some(vec![GrantPlace::Desk]))],
+        )
+        .unwrap();
+    assert_eq!(bound.len(), 1);
+    assert_eq!(bound[0].use_.refuse.as_ref(), Some(&github.refuse));
+    assert!(github.refuse.contains(&"/user/keys".to_owned()));
+}
+
 /// Runs `command` as `id`'s shell tool would, in a workspace of its own.
 #[cfg(unix)]
 async fn run(room: &Arc<Room>, id: &str, reach: Reach, command: &str) -> String {

@@ -511,9 +511,9 @@ impl Room {
                 if capture.home.kind == ThreadKind::Call {
                     format!("Stored as {name}")
                 } else if capture.kind == CaptureKind::Passkey {
-                    format!("Stored as {name}: a passkey for {}. The browser signs in there with it; you never see its private key.", capture.site)
+                    format!("Stored as {name}: a passkey for {}. The browser signs in there with it; its private key is not shown to you.", capture.site)
                 } else {
-                    format!("Stored as {name}: a login for {}. Use browser fill secret {name}.username and browser fill secret {name}.password (or {name}.code for a one-time code) on that origin only. You never see the values.", capture.site)
+                    format!("Stored as {name}: a login for {}. Use browser fill secret {name}.username and browser fill secret {name}.password (or {name}.code for a one-time code) on that origin only. The values are not shown to you.", capture.site)
                 }
             }
             CredentialStatus::Declined => "The person declined the credential request. Nothing was stored or granted. Stop this sign-in; do not ask again for this site in this turn.".into(),

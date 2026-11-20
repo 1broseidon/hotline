@@ -964,7 +964,7 @@ impl Room {
             )
             .await?;
         Ok(BrowserAnswer::Text(format!(
-            "Typed {secret} into the field; its value is never shown to you.\n{}",
+            "Typed {secret} into the field; its value is not shown to you.\n{}",
             page_line(&acted.page)
         )))
     }
@@ -1112,7 +1112,7 @@ impl Room {
             return Ok(());
         }
         let title = format!(
-            "{}\n\nFor {persona_name}. You never see the value, and neither does {persona_name}.",
+            "{}\n\nFor {persona_name}. The value is typed for {persona_name}, not shown.",
             super::secret_uses::use_question(name, operation)
         );
         let decision = self

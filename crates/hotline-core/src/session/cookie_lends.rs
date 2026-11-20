@@ -876,7 +876,7 @@ impl Room {
                 .to_string()
         } else {
             format!(
-                "(Cookies: the person shared their cookies for {} with your browser, so it is signed in to those sites as them. You never see the cookies themselves.)",
+                "(Cookies: the person shared their cookies for {} with your browser, so it is signed in to those sites as them. The cookies themselves are not shown to you.)",
                 now.join(", ")
             )
         };

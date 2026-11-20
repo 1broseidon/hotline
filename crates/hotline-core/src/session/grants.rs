@@ -116,7 +116,7 @@ pub(crate) fn apply(
         }
         if grant.readable && kind.is_some_and(|kind| kind != SharedSecretKind::Variable) {
             return Err(format!(
-                "{} is a login or passkey: it is used for the teammate, never readable by it.",
+                "{} is a login or passkey: it is used for the teammate and is not granted as readable.",
                 grant.name
             ));
         }
@@ -178,6 +178,7 @@ mod tests {
             rp_id: None,
             user_name: None,
             used_with: bound.then(|| VariableUse {
+                service: Some("github".into()),
                 origins: vec!["https://api.github.com".into()],
                 header: "Authorization".into(),
                 schemes: vec!["Bearer".into()],

@@ -197,7 +197,7 @@ impl Room {
         };
         if let Err(error) = self.desk_shell.hand(&persona.id, readable, protected) {
             notice(format!(
-                "{}'s desk shell has none of its protected keys: {error}",
+                "{}'s desk shell has none of its keys used with a service: {error}",
                 persona.name
             ));
         }

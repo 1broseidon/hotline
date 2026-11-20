@@ -17,7 +17,60 @@ const UNREAD = "Couldn't read the keychain";
 const UNSAVED = "Couldn't store secret";
 
 /** The label a readable grant carries, and the line that confirms one. */
-const READABLE = "Readable by this teammate's programs";
+export const READABLE = "Readable by this teammate's programs";
+
+/**
+ * Said before a login or passkey is given to a computer that has not shown
+ * it runs its programs apart from what it is handed: such a computer hands
+ * them over where those programs can read them.
+ */
+const TRUSTS =
+	"Granting a secret to this computer trusts the teammate and its programs: they can read and send out granted variables, passwords, sign-in codes and sessions, and can use a granted passkey to sign in.";
+
+/**
+ * Whether a site is this machine (`localhost`, `*.localhost`, 127.0.0.0/8,
+ * `::1`): a teammate's own program can serve a page there, so what is typed
+ * or signed for it reaches that program.
+ */
+export function loopbackSite(site: string): boolean {
+	let host: string;
+	try {
+		host = new URL(site.includes("://") ? site : `https://${site}`).hostname.toLowerCase();
+	} catch {
+		return false;
+	}
+	return host === "localhost" || host.endsWith(".localhost") || /^127\.\d+\.\d+\.\d+$/.test(host) || host === "[::1]" || host === "[::ffff:7f00:1]" || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
+}
+
+/**
+ * Whether a secret reaches this teammate's programs readable whatever the
+ * grant says: everything for a teammate that runs as the person; a plain
+ * variable, or a key used with Other, whose replies nothing reviewed
+ * checks; a login or passkey for a site on this machine, or going to a
+ * computer that has not shown it keeps them from its programs.
+ */
+function readableAnyway(record: SharedSecret | undefined, asPerson: boolean, computerShown: boolean): boolean {
+	if (asPerson) return true;
+	switch (record?.kind) {
+		case "variable":
+			return record.usedWith === undefined || record.usedWith.service === "other";
+		case "login":
+			return !computerShown || (record.sites ?? []).some(loopbackSite);
+		case "passkey":
+			return !computerShown || loopbackSite(record.rpId ?? "");
+		default:
+			return false;
+	}
+}
+
+/**
+ * What the list says of a secret on its own, wherever it goes: a key used
+ * with Other, or a login or passkey for a site on this machine. A plain
+ * variable says it where it is granted.
+ */
+function readableWherever(record: SharedSecret): boolean {
+	return record.kind !== "variable" || record.usedWith !== undefined ? readableAnyway(record, false, true) : false;
+}
 
 /** The services a key can be used with, from the desk's `services.json`. */
 function useServices(): SecretService[] {
@@ -323,6 +376,7 @@ export function SecretsSection({
 												<span className="group-row-detail">
 													{describe(secret, services)} · stored {new Date(secret.updatedAt).toLocaleDateString()}
 												</span>
+												{readableWherever(secret) && <span className="group-row-detail block">{READABLE}</span>}
 											</span>
 											{secret.kind !== "variable" && <Chips
 												label={`Use ${secret.name}`} value={secret.use ?? "auto"} disabled={busy}
@@ -519,7 +573,7 @@ function VariableForm({
 					onHost={setHost}
 				/>
 			)}
-			<FormFoot note="Never shown again." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
+			<FormFoot note="Not shown again." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
 		</>
 	);
 }
@@ -547,7 +601,7 @@ function UsedWithForm({
 		<>
 			<UsedWithRow services={services} choice={choice} host={host} suggested={false} busy={busy} onChoice={setChoice} onHost={setHost} />
 			<FormFoot
-				note={choice === "none" ? READABLE : "Added only to requests there."}
+				note={choice === "none" || choice === "other" ? READABLE : `Programs get a stand-in; the key is added on the way to ${services.find((service) => service.id === choice)?.name ?? "the service"}.`}
 				busy={busy}
 				ready={ready}
 				label="Save"
@@ -669,7 +723,7 @@ function LoginForm({
 				<span className="w-24 shrink-0 text-sm text-ink-2">Use</span>
 				<Chips label="Login use" value={use} choices={[{ id: "auto", name: "Automatic" }, { id: "ask", name: "Ask me" }]} disabled={busy} onChange={(value) => setUse(value as SecretUse)} />
 			</div>
-			<FormFoot note="Typed only on these sites, never shown." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
+			<FormFoot note="Typed only on these sites." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
 		</>
 	);
 }
@@ -684,7 +738,13 @@ function LoginForm({
  * readable grant says so. A teammate that runs as the person (the whole
  * machine, or an ACP harness) can read whatever it is given, its own
  * computer's included, so every key it gets is readable and every grant
- * says so. `places` is where this teammate's variables can go: with both a
+ * says so. So does a key used with Other, whose replies no reviewed rule
+ * checks, and a login or passkey for a site on this machine, which the
+ * teammate's own program can serve. `computerShown` is whether its
+ * computer showed, at its last handing over, that it runs its programs
+ * apart from what it is handed; until it has, a login or passkey given to
+ * it is readable, and the list says so before the tick and on the row.
+ * `places` is where this teammate's variables can go: with both a
  * computer and a desk shell, a variable's grant says which of them it
  * reaches, its computer alone until the person adds the shell; with only a
  * desk shell, a variable ticked here goes there. A login or a passkey goes
@@ -694,12 +754,14 @@ export function TeammateSecrets({
 	grants,
 	places,
 	asPerson,
+	computerShown = false,
 	disabled,
 	onChange,
 }: {
 	grants: SecretGrant[];
 	places: GrantPlace[];
 	asPerson: boolean;
+	computerShown?: boolean;
 	disabled: boolean;
 	onChange(grants: SecretGrant[]): void;
 }) {
@@ -728,6 +790,13 @@ export function TeammateSecrets({
 	const storedNames = stored === null ? null : stored.map((one) => one.name);
 	const names = storedNames === null ? granted : [...storedNames, ...granted.filter((name) => !storedNames.includes(name))];
 	const sorted = (next: SecretGrant[]) => [...next].sort((left, right) => left.name.localeCompare(right.name));
+	// Where a login or passkey goes: its computer when it has one.
+	const toComputer = places.includes("computer");
+	const readable = (record: SharedSecret | undefined) => readableAnyway(record, asPerson, computerShown || !toComputer);
+	// Only a variable's grant carries `readable`; a key used with Other stays
+	// a key its programs get a stand-in for, and says it is readable anyway.
+	const readableGrant = (record: SharedSecret | undefined) => record?.kind === "variable" && (record.usedWith === undefined || asPerson);
+	const unshown = toComputer && !computerShown && !asPerson && (stored ?? []).some((one) => one.kind !== "variable");
 	const give = (grant: SecretGrant, record: SharedSecret | undefined) => {
 		setAsking(null);
 		// A grant without `on` is its computer's; a teammate whose only shell
@@ -740,7 +809,7 @@ export function TeammateSecrets({
 			onChange(grants.filter((grant) => grant.name !== name));
 			return;
 		}
-		if (record?.kind === "variable" && (record.usedWith === undefined || asPerson)) {
+		if (readable(record)) {
 			setAsking((was) => (was === name ? null : name));
 			return;
 		}
@@ -762,6 +831,11 @@ export function TeammateSecrets({
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && <Refusal {...note} />}
 			{stored !== null && names.length === 0 && <span className="group-row-detail">None stored yet.</span>}
+			{unshown && (
+				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+					{TRUSTS}
+				</span>
+			)}
 			{names.map((name) => {
 				const record = stored?.find((one) => one.name === name);
 				const missing = stored !== null && record === undefined;
@@ -773,7 +847,7 @@ export function TeammateSecrets({
 							<span className="min-w-0 flex-1">
 								<span className="block truncate text-sm">{record !== undefined ? describeShort(record, services, true) : name}</span>
 								{record !== undefined && <span className="group-row-detail font-mono">{name}</span>}
-								{grant !== undefined && (grant.readable === true || asPerson) && <span className="group-row-detail block">{READABLE}</span>}
+								{grant !== undefined && (grant.readable === true || readable(record)) && <span className="group-row-detail block">{READABLE}</span>}
 							</span>
 							{missing && (
 								<span
@@ -791,7 +865,7 @@ export function TeammateSecrets({
 								<button type="button" className="control btn-quiet btn-sm" disabled={disabled} onClick={() => setAsking(null)}>
 									Cancel
 								</button>
-								<button type="button" className="control btn btn-sm" disabled={disabled} onClick={() => give({ name, readable: true }, record)}>
+								<button type="button" className="control btn btn-sm" disabled={disabled} onClick={() => give(readableGrant(record) ? { name, readable: true } : { name }, record)}>
 									Give
 								</button>
 							</div>

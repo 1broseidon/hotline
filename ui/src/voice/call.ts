@@ -198,7 +198,11 @@ export class Call {
 	private pcm = false;
 	private input: PcmTurn | null = null;
 	private endpoint: { at: number; seq: number; clipAt?: number } | null = null;
-	/** A progressive output line can temporarily drain before its final chunk arrives. */
+	/**
+	 * A progressive output line can temporarily drain before its final chunk
+	 * arrives; a direct call's teammate says when it has nothing more in
+	 * flight (a thinking that listens), which closes its lines early.
+	 */
 	private readonly outputLines = new Set<string>();
 	private holdGeneration = 0;
 	private unsubscribe: (() => void) | null = null;
@@ -212,8 +216,10 @@ export class Call {
 	private desk: "listening" | "thinking" | "speaking" | "held" = "listening";
 	/**
 	 * The desk thinks only because the teammate's turn is still working, and
-	 * takes what the person says, which steers into that turn: the call
-	 * listens while it thinks, unless speech is playing.
+	 * takes what the person says, as that turn's next one: the call listens
+	 * while it thinks, unless speech is playing. A `speaking` that follows
+	 * keeps it, so the call listens until the teammate's sound arrives, and
+	 * what arrives while the person talks waits for them (`deferred`).
 	 */
 	private deskListens = false;
 	/**
@@ -532,11 +538,16 @@ export class Call {
 					return;
 				}
 				const listens = event.state === "thinking" && event.listening === true;
+				// More of the teammate's turn after a thinking that listens leaves the floor with the person.
+				const floorOpen = listens || (event.state === "speaking" && this.deskListens);
 				// The desk answers an utterance with a state that has the floor. A thinking that listens,
-				// said again while the teammate works, may be from before the utterance reached it.
-				if (!listens) this.awaiting = false;
+				// said again while the teammate works, or more of its turn, may be from before the utterance reached it.
+				if (!floorOpen) this.awaiting = false;
 				// The producer is finished at these authoritative states, including a failed partial TTS stream.
-				if (event.state === "listening" || event.state === "ended") this.outputLines.clear();
+				// A thinking that listens is a teammate whose reply has nothing more in flight for now,
+				// though it is still open (a written half, a last tool call): once what came has played,
+				// the call listens. More of it opens its line again, and does not play over the person.
+				if (event.state === "listening" || event.state === "ended" || listens) this.outputLines.clear();
 				if (event.state === "ended") {
 					// Words the person was saying have nowhere to go; what the desk said while they did is still said.
 					if (this.snapshot.phase === "hearing") {
@@ -550,7 +561,7 @@ export class Call {
 					return;
 				}
 				this.desk = event.state;
-				this.deskListens = listens;
+				this.deskListens = floorOpen;
 				this.settle();
 				return;
 			}
@@ -666,8 +677,9 @@ export class Call {
 		const phase = this.snapshot.phase;
 		// The person is talking: nothing the desk does takes the floor from them.
 		if (phase === "hearing" && !this.awaiting) return;
-		// A teammate still working on a call that listens while it thinks leaves the mic open.
-		const deskBusy = this.desk === "speaking" || (this.desk === "thinking" && !this.deskListens);
+		// A teammate still working on a call that listens while it thinks leaves the mic open,
+		// and so does one about to say more of its turn: nothing it says plays over the person.
+		const deskBusy = (this.desk === "speaking" || this.desk === "thinking") && !this.deskListens;
 		if (this.awaiting || this.outputLines.size > 0 || deskBusy) return this.set({ phase: "thinking" });
 		// Keep listening while the teammate works.
 		if (phase === "listening") return this.set({});

@@ -165,6 +165,9 @@ impl Calls {
         let mut in_flight: FuturesOrdered<SynthFuture<'_>> = FuturesOrdered::new();
         let mut pending_said: VecDeque<Option<(String, String)>> = VecDeque::new();
         let mut answers_closed = false;
+        // Whether this reply holds the call in `speaking`: from its first
+        // sentence said aloud until it has nothing more in flight ([`Self::paused`]).
+        let mut aloud = false;
 
         let flush_pending_said = |pending: &mut VecDeque<Option<(String, String)>>| {
             while let Some(entry) = pending.pop_front() {
@@ -187,6 +190,11 @@ impl Calls {
             }
             if answers_closed && in_flight.is_empty() {
                 break;
+            }
+            // Every sentence the reply had so far is synthesised and sent,
+            // and no more has come: what is left of it may be long in coming.
+            if aloud && in_flight.is_empty() && answers.is_empty() && self.paused(id) {
+                aloud = false;
             }
             let can_poll_tts = !in_flight.is_empty();
             let can_recv = !answers_closed
@@ -254,8 +262,11 @@ impl Calls {
                         );
                         continue;
                     }
-                    if speech.is_none() {
+                    if !aloud {
                         self.speaking(id, interrupted);
+                        aloud = true;
+                    }
+                    if speech.is_none() {
                         let services = self.speech_for(id).and_then(|services| {
                             Ok((services, self.change(id, |call| Ok(call.stream_audio))?))
                         });
@@ -350,6 +361,27 @@ impl Calls {
             }
             Ok(())
         });
+    }
+
+    /// A teammate's reply on a Turn by turn call has said all it has for
+    /// now: every sentence it had is synthesised and sent, though the reply
+    /// or its turn is still open (a written half, a last tool call, the
+    /// pointer to the chat written once the reply is whole). The call stops
+    /// speaking and rests, `thinking` with `listening: true` while the turn
+    /// is open, so the window listens as soon as what was sent has played;
+    /// more of the reply makes it speak again. Answers whether it did. A
+    /// desk call's reply, which answers the person's own turn, and a live
+    /// call, whose front speaks, are left as they are.
+    fn paused(&self, id: &str) -> bool {
+        self.change(id, |call| {
+            let pause =
+                call.state == VoiceState::Speaking && call.target.is_some() && call.front.is_none();
+            if pause {
+                call.state(call.resting(), None);
+            }
+            Ok(pause)
+        })
+        .unwrap_or(false)
     }
 
     /// One sentence of `line`, sent as its next clip or clips from `index`.

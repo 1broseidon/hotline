@@ -137,7 +137,15 @@ it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it
 interrupts, with its own echo handling. A `thinking` that says `listening`
 is listened through: the call's phase is `listening` while the teammate
-works. A turn ends after a pause of 1.2 seconds (`SILENCE_MS`, every pause
+works. It is also what the desk says once a teammate's reply has nothing
+more in flight though the reply or its turn is still open, so the call
+listens as soon as the reply's sound has played, not when the reply closes;
+it closes the reply's line in the window, which otherwise waits for its
+final clip. A `speaking` that follows such a `thinking` keeps the
+microphone open until sound arrives, and what arrives while the person
+talks waits for them, as below. The microphone is taken up again the same
+way at the end of any reply: the turn detector starts afresh with no audio
+from the playback, behind the webview's echo cancellation. A turn ends after a pause of 1.2 seconds (`SILENCE_MS`, every pause
 kept in `ui/src/voice/turn.ts`). On a text call whose recognizer listens in
 English, a draft that is plainly finished ends it after 0.55 seconds
 (`FAST_SILENCE_MS`, `silenceAfter`): it ends in `.`, `?` or `!`, or it is at
@@ -805,7 +813,17 @@ said is one reply id, growing piece by piece, with clips under that id.
 
 The call is `thinking` from an utterance until the teammate's session has
 finished that turn, or left it open only for subagents (`Calls::turn_ended`),
-apart from while it speaks; then it listens. Once the desk has handed the
+apart from while it speaks; then it listens. It speaks only while the
+teammate's words are being synthesised and sent: once every sentence a reply
+has so far is sent and no more has come, the call rests again
+(`Calls::paused`), though the reply is still being written (its written
+half) or the turn is still open (a last tool call, its own bookkeeping), so
+the window listens as soon as the answer has played. More of the answer
+that comes later (the rest of a reply with no spoken version, the pointer
+to the chat said once the reply is whole) makes the call speak again: it
+plays while the person is silent, and while they talk it waits for them and
+goes if they said something, since their words stop the reply. A desk call's
+reply keeps the call speaking to its end. Once the desk has handed the
 person's words to the session, that `thinking` says `listening: true`
 (`Call::listening_while_thinking`): the turn is still working, and the call
 takes what the person says, so a client keeps its microphone open while the

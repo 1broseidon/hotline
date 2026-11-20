@@ -8,6 +8,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, SearcherBuilder, sinks::UTF8};
 use hotline_contract::{FolderGrant, Reach};
+use hotline_support::plain_path::plain;
 use ignore::WalkBuilder;
 use serde::Deserialize;
 use std::{
@@ -133,7 +134,10 @@ impl Workspace {
         } else {
             std::env::current_dir().map_or_else(|_| cwd.clone(), |directory| directory.join(&cwd))
         };
-        let cwd = cwd.canonicalize().map_err(|error| {
+        // dunce: `std` answers `\\?\C:\…` on Windows, while grants, the
+        // received folder and the paths the desk records are spelled plain,
+        // and a path in one form never starts with a root in the other.
+        let cwd = dunce::canonicalize(&cwd).map_err(|error| {
             ToolError::new(format!(
                 "The Hotline workspace {} is unavailable: {error}",
                 cwd.display()
@@ -406,7 +410,7 @@ impl Workspace {
                     .map(|folder| {
                         format!(
                             "{} ({})",
-                            folder.path.display(),
+                            plain(&folder.path).display(),
                             if folder.writable {
                                 "read and change"
                             } else {
@@ -486,19 +490,23 @@ impl Workspace {
     }
 
     /// The granted folder an absolute path is lexically inside, and the
-    /// path within it. Folders never nest, so at most one matches.
-    fn folder_of<'a>(&self, path: &'a Path) -> Option<(usize, &'a Path)> {
+    /// path within it. Folders never nest, so at most one matches. Both are
+    /// compared plain ([`plain`]), so a folder the canonical form left
+    /// verbatim on Windows is found by the path a teammate was shown; what
+    /// is opened is the rest, inside the folder's own handle.
+    fn folder_of(&self, path: &Path) -> Option<(usize, PathBuf)> {
         if !path.is_absolute() {
             return None;
         }
+        let path = plain(path);
         self.inner
             .folders
             .iter()
             .enumerate()
             .find_map(|(index, folder)| {
-                path.strip_prefix(&folder.path)
+                path.strip_prefix(plain(&folder.path))
                     .ok()
-                    .map(|rest| (index, rest))
+                    .map(|rest| (index, rest.to_path_buf()))
             })
     }
 
@@ -523,7 +531,7 @@ impl Workspace {
             Place::Folder(index) if !self.inner.folders[index].writable => {
                 Err(ToolError::permission_denied(format!(
                     "{requested} is in {}, a folder this teammate may read but not change.",
-                    self.inner.folders[index].path.display()
+                    plain(&self.inner.folders[index].path).display()
                 )))
             }
             _ => Ok(()),
@@ -537,7 +545,9 @@ impl Workspace {
         if root == self.inner.root {
             display_relative(relative)
         } else {
-            display_relative(&root.join(relative.strip_prefix(".").unwrap_or(relative)))
+            display_relative(&plain(
+                &root.join(relative.strip_prefix(".").unwrap_or(relative)),
+            ))
         }
     }
 

@@ -163,7 +163,7 @@ impl Room {
         )
         .await?;
         let mut result = json!({
-            "path": path,
+            "path": hotline_support::plain_path::plain(&path),
             "model": model,
             "costUsd": spent_usd,
             "seconds": started.elapsed().as_secs_f64(),

@@ -125,9 +125,9 @@ fn png() -> Vec<u8> {
 }
 
 /// The temp dir as the desk reports it: resolved, as a saved file's path is
-/// (macOS's `/var` is `/private/var`, Windows adds `\\?\`).
+/// (macOS's `/var` is `/private/var`), and on Windows plain, never `\\?\C:\…`.
 fn real(dir: &tempfile::TempDir) -> std::path::PathBuf {
-    std::fs::canonicalize(dir.path()).unwrap()
+    dunce::canonicalize(dir.path()).unwrap()
 }
 
 fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {

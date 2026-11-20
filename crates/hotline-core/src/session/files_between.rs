@@ -26,6 +26,7 @@ use super::Room;
 use crate::contract::{FolderGrant, Persona, Reach, ThreadId};
 use crate::driver::CapabilityLease;
 use crate::tools::Workspace;
+use hotline_support::plain_path::plain;
 use std::path::{Path, PathBuf};
 
 /// The most a message's or an aside's files come to together on one desk:
@@ -83,12 +84,13 @@ fn plain_name(name: &str) -> bool {
 }
 
 /// What the message or the aside says of the files: where each now is, by
-/// its whole path, and that the recipient reads them there and copies one
-/// into its working directory to work on it.
+/// its whole path as people write it (never Windows' `\\?\` form), and that
+/// the recipient reads them there and copies one into its working directory
+/// to work on it.
 pub(super) fn files_line(sender: &str, paths: &[PathBuf]) -> String {
     let paths: Vec<String> = paths
         .iter()
-        .map(|path| path.display().to_string())
+        .map(|path| plain(path).display().to_string())
         .collect();
     format!(
         "Files from {sender}, kept outside your working directory for you to read, not change; copy one into your working directory to work on it: {}",

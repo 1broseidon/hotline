@@ -1098,10 +1098,14 @@ async fn restart_does_not_replay_an_interrupted_human_answer_turn() {
             .unwrap()
             .contains("inspect before retrying")
     );
+    let told = agents.told();
     assert!(
-        agents.told()[0].contains("\"Re: work handoff\" · from"),
-        "only the caller hears of it; the recipient's answer turn is not replayed: {:?}",
-        agents.told()
+        told[0].lines().any(|line| {
+            line.contains("\"Re: work handoff\"")
+                && line.contains("inspect before retrying")
+                && line.contains("· from Ada · wants nothing")
+        }),
+        "only the caller hears of it; the recipient's answer turn is not replayed: {told:?}"
     );
 }
 

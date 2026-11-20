@@ -245,8 +245,16 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
 - **Idle.** An item that lands while that thread is idle wakes it once, after
   the gather delay, 4 seconds (a unit test's room gathers in 150 ms). Items that land within the delay are heard in one
   turn. A teammate that is not running is started for it, as one was for a
-  colleague's question. The wake line carries titles, senders and waiting
-  marks, never bodies.
+  colleague's question. The index usually carries titles, senders and
+  waiting marks. If the wake offers exactly one new quick item, it shows the
+  whole message as quoted sender words and marks it `seen`. This is either a
+  compact title-only message or a body of at most 280 characters that asks
+  for an answer or is a reply. Work handoffs, Loop in items and desk notices
+  stay title-only. One `send` to the sender with `reply_to` answers a question:
+  neither `read_inbox` nor `update_inbox` is needed. An answer or result that
+  wants nothing back does not need a reply. This applies in the main
+  conversation, work threads, calls and jobs; it does not change busy
+  notices, multiple new items or anything already offered.
 - **The quiet turn.** The turn of the main conversation that the inbox wakes
   is quiet, as a quiet job's firing is ("I think like scheduled tasks it can
   run quiet and escalate to the user when needed"). Its line begins `quiet

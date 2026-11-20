@@ -117,7 +117,7 @@ impl Room {
     /// finished, where what came back is, and how to tell them.
     pub(super) fn finished_line(&self, asks: &[Vec<InboxItem>]) -> String {
         format!(
-            "inbox · Finished: what you sent colleagues for something the person asked of you, {}. What came back is above, under INBOX; read it with `read_inbox`. The person reads this turn. {TELL_THEM}",
+            "inbox · Finished: what you sent colleagues for something the person asked of you, {}. What came back is above, under INBOX; use `read_inbox` for replies not shown in full. The person reads this turn. {TELL_THEM}",
             self.finished_names(asks)
         )
     }

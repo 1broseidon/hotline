@@ -1712,7 +1712,10 @@ the main conversation, a work thread or a call opens with an `INBOX` section
 in its [thread index](#the-thread-index): the counts, each new item not yet
 offered to a turn (title, sender, `waiting on you`, what it wants, age, short
 id), and what moved among the items the teammate sent (`SENT · what moved`).
-An item is offered once and marked `noticed`; the count stays. Items left
+An item is offered once and marked `noticed`. An inbox wake with exactly
+one new quick item offers its whole message as fenced, quoted sender words
+and marks it `seen` instead. Only a question needs a `send` with `reply_to`;
+neither a read nor a sort is needed. Items left
 unread that no turn's start was offered wake the thread when its turn ends,
 by the same rule, so an item wakes its receiver once as new.
 
@@ -1791,7 +1794,8 @@ before.
 **Sorting.** `read_inbox` lists the newest 50 open items without their words, or, with
 `list`, the newest 20 closed ones (with their outcome, `expired` among them) or the newest 20 the
 teammate sent (with whom each went to and where it stands now, and since
-when), or reads the ones named whole and marks them `seen`. `update_inbox` sorts several in one
+when), or reads the ones named whole and marks them `seen`. For a title-only
+item, the title is also the message. `update_inbox` sorts several in one
 call, in the order the receiver means to work them: `taken`, `later` with a
 reason, `closed` with an outcome (`done`, `noted`, `dropped`), `combined`
 into another item, or an `answer`, which replies and closes the item as done.

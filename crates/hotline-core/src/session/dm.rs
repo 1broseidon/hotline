@@ -216,6 +216,10 @@ impl Occupant for Session {
                 &session.persona_id,
                 &session.thread(),
                 wired.quiet || returning,
+                // The loud wake is a finished ask; an aside's wake is also a return.
+                wired.wake
+                    && !wired.steer
+                    && (!wired.back || text.ends_with(super::inbox::QUIET_WAKE_LINE)),
             );
             if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;

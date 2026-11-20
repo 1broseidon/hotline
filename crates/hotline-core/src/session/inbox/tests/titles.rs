@@ -54,7 +54,13 @@ async fn a_forged_title_is_kept_as_one_plain_line_and_heard_only_as_fenced_quote
     );
     assert!(kept.title.chars().count() <= TITLE_CHARS);
     until("bob woke", || !agents.told().is_empty()).await;
-    only_fenced(&agents.told()[0], "hotline_inbox");
+    let told = &agents.told()[0];
+    only_fenced(told, "hotline_inbox");
+    assert!(
+        !told.contains("message: "),
+        "a handoff stays title-only: {told}"
+    );
+    assert_eq!(item(&room, "bob", &id).state, InboxState::Noticed);
 
     // Taken into work, the title is the first line inside the colleague's
     // fence, and nowhere in Hotline's own words before it.

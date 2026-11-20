@@ -87,6 +87,11 @@ async fn an_answer_that_finishes_the_persons_ask_wakes_a_turn_they_read_told_to_
         told.contains("finishes what the person asked of you"),
         "the index marks it too: {told}"
     );
+    assert!(
+        told.contains("message: \"Devils 7, Capitals 4, Saturday.\""),
+        "{told}"
+    );
+    assert!(!told.contains("`reply_to`"), "{told}");
     assert!(!told.contains(QUIET_WAKE_LINE), "not quiet: {told}");
     until("Ada's turn ended", || {
         idle(&room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")

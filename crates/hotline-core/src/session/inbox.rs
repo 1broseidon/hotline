@@ -9,7 +9,7 @@
 //! the window can read without anyone writing a reply.
 //!
 //! The sender decides nothing about when the colleague is interrupted. The
-//! colleague is told titles, never bodies, and decides itself what to read,
+//! colleague is usually told titles and decides itself what to read,
 //! what to take, what to combine and what to leave: an idle one is woken a
 //! gather delay after an item lands, once for everything that landed
 //! together; a busy one is given a one-line notice (`inbox/heard.rs`). What it
@@ -50,7 +50,7 @@ mod tidy;
 mod topics;
 
 pub(in crate::session) use clock::{arrived_at, expire_after};
-pub(in crate::session) use heard::QUIET_WAKE_LINE;
+pub(in crate::session) use heard::{QUIET_WAKE_LINE, WAKE_LINE};
 use held::{Landed, held_key};
 pub(in crate::session) use limit::QuietTurns;
 pub(in crate::session) use pick_up::PickUp;
@@ -59,6 +59,29 @@ pub(crate) use sending::Sending;
 /// The most a title says: a line someone reads before deciding whether to
 /// open the item.
 pub(crate) const TITLE_CHARS: usize = 80;
+
+/// The words a receiver reads: a compact one-line item is kept as its title alone.
+fn item_message(item: &InboxItem) -> &str {
+    if item.body.is_empty() {
+        &item.title
+    } else {
+        &item.body
+    }
+}
+
+/// A short message that can be read in a wake, not a work handoff or a desk notice.
+/// Shortcut: old items do not record whether a title-only message had an
+/// explicit title. Work is excluded either way. Freshness is checked separately.
+pub(in crate::session) fn quick_message(item: &InboxItem) -> Option<&str> {
+    if item.notice.is_some() || item.looped_in || item.wants == InboxWants::Work {
+        return None;
+    }
+    let message = item_message(item);
+    (!message.is_empty()
+        && message.chars().count() <= 280
+        && (item.body.is_empty() || item.wants == InboxWants::Answer || item.reply_to.is_some()))
+    .then_some(message)
+}
 
 /// The most a reason says (why an item is for later, or how it was closed):
 /// its sender reads it in a line of where its item stands.
@@ -689,7 +712,11 @@ impl Room {
                     // marked seen: this build does not move it.
                     let newer = self.newer_item_of(persona_id, named).ok_or(why)?;
                     let mut shown = self.newer_listed(&newer, now);
-                    shown["message"] = newer["body"].clone();
+                    shown["message"] = if newer["body"].as_str() == Some("") {
+                        newer["title"].clone()
+                    } else {
+                        newer["body"].clone()
+                    };
                     read.push(shown);
                     continue;
                 }
@@ -704,7 +731,7 @@ impl Room {
                 })
                 .unwrap_or(found);
             let mut shown = self.listed(&item, now);
-            shown["message"] = json!(item.body);
+            shown["message"] = json!(item_message(&item));
             read.push(shown);
         }
         Ok(json!({

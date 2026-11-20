@@ -1352,10 +1352,12 @@ Teammates reach each other one way, an item in the colleague's inbox
 replaced `message_teammate`'s ask and handoff and a colleague's `aside`, under
 which the sender decided when the receiver was interrupted and concurrent
 messages were each handled blind to the others. `send(to, title, message,
-wants, waiting)` returns at once; the receiver is told titles, never bodies,
-woken once a gather delay after an item lands when idle, given a one-line
-notice when busy, and decides itself what to read, take, combine or leave
-with `read_inbox` and `update_inbox`. What it left for later, or was shown
+wants, waiting)` returns at once; the receiver is woken once a gather delay
+after an item lands when idle and given a one-line title notice when busy.
+A lone new quick item that wakes it is shown whole and marked seen; a
+question can be answered with one `send` and `reply_to`. For other items,
+the receiver is told titles and decides what to read, take, combine or
+leave with `read_inbox` and `update_inbox`. What it left for later, or was shown
 and left unsorted, is offered to it once more, in a quiet turn, when its main
 conversation goes idle after a turn something other than that offer started. Work it takes runs in a work thread of
 its own, started by its sort and never by the sender, and answers and

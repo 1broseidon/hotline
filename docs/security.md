@@ -2060,10 +2060,12 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   reason as one plain line (`fence::one_line`: no control character, line
   break, direction override, zero-width or tag character; 80 and 200
   characters) and refuse an answer longer than a message.
-  `inbox/heard.rs` tells a turn titles, senders and whether the sender waits,
-  never bodies, fenced as data (`hotline_inbox`), each title and reason
-  quoted with its quotes escaped (`fence::quoted`), as the pick-up's line,
-  the expired notice and the thread index quote them; a taken item's work
+  `inbox/heard.rs` usually tells a turn titles, senders and waiting marks.
+  An inbox wake that offers one new quick item includes its whole message
+  as a JSON string inside the same `hotline_inbox` fence and labels it as
+  untrusted sender data. The fence escapes `<` so a message cannot close it.
+  Titles and reasons use `fence::quoted`, as in the pick-up's line, the
+  expired notice and the thread index; a taken item's work
   thread hears its title only inside the colleague's fence
   (`peers::delivery_wire` names no colleague's words outside it). `inbox/pick_up.rs`
   offers an idle main conversation what it set aside the same way, with its

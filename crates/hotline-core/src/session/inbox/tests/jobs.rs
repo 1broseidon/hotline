@@ -320,11 +320,16 @@ async fn a_waiting_scheduled_job_hears_a_send_reply_and_then_ends() {
     until("the job's last run hears the reply and ends", || {
         once_closed(&room)
             && agents.told().iter().any(|line| {
-                line.contains("This is the job's last run") && line.contains(short(&reply.id))
+                line.contains("This is the job's last run")
+                    && line.contains(&reply.id)
+                    && line.contains("message: \"linux-2 and mac-1 are red.\"")
+                    && line.contains("no reply, read or sorting call")
             })
     })
     .await;
-    assert!(item(&room, "ada", &reply.id).offered.is_some());
+    let received = item(&room, "ada", &reply.id);
+    assert!(received.offered.is_some());
+    assert_eq!(received.state, InboxState::Seen);
     assert_eq!(once_record(&room).awaiting, None);
     assert_eq!(turns_of(&room, ONCE), 2);
     assert!(

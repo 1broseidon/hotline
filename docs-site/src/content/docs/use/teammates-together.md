@@ -14,9 +14,9 @@ your chat.
   it needs to say, and what it wants back: an answer, some work done, or
   nothing (it only wants the colleague to know). It also says whether it has
   stopped to wait for the answer.
-- **Receiving.** The colleague is told the titles of new items, who sent them
-  and whether the sender is waiting, never their words, and reads them when
-  it suits the work it is on. An idle colleague is woken a few seconds after
+- **Receiving.** The colleague usually sees the titles of new items, who sent
+  them and whether the sender is waiting. If one quick message wakes it, the
+  whole message is shown and marked read, so it can answer a question directly. An idle colleague is woken a few seconds after
   an item lands, together with anything else that landed meanwhile; a busy
   one gets a one-line notice and decides itself whether to look now or later.
 - **Sorting.** With several unread, the colleague reads them and sorts them in

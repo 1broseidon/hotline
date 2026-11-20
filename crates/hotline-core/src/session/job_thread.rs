@@ -85,7 +85,7 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 const STOPPED_SOON: i64 = 10_000;
 /// What a job woken only by its inbox is told after the index: the replies
 /// that came back to its run, and that its words stay in its thread.
-const INBOX_WAKE_LINE: &str = "Replies to what this run sent, or where what it sent stands now, are above, under INBOX. Read them and carry on the run's work. What you say stays in this job's thread: post what the person should know with `post_to_chat`, as the run would report it.";
+const INBOX_WAKE_LINE: &str = "Replies to what this run sent, or where what it sent stands now, are above, under INBOX. Read any replies not shown in full and carry on the run's work. What you say stays in this job's thread: post what the person should know with `post_to_chat`, as the run would report it.";
 /// What a job woken by its inbox in its last run is told after that.
 const LAST_RUN_WAKE_LINE: &str = "This is the job's last run: it ends after this turn, unless something this run sent still waits on a reply.";
 
@@ -609,7 +609,7 @@ impl Occupant for LiveJob {
         // this job, and the replies that came back to its run, open the line:
         // a job hears nothing of the rest.
         let asides = room.hear_asides(&self.persona_id, &thread);
-        let inbox = room.inbox_told(&self.persona_id, &thread, false);
+        let inbox = room.inbox_told(&self.persona_id, &thread, false, line.line.wake);
         if let Some(index) = room.thread_index(
             &self.persona_id,
             &thread,

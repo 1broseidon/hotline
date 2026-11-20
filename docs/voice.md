@@ -99,8 +99,20 @@ the only network use; recognition is not.
 
 Each start is a fresh utterance from the default input device through
 `AVAudioEngine`, with voice processing on where the device allows it and
-other audio ducked as little as it permits. Every text event is the whole
-utterance so far. Level events are the dBFS of each microphone buffer.
+other audio ducked as little as it permits. Voice processing gives the tap
+the processed voice in every channel, one per channel of the device, in a
+discrete layout no converter maps to mono by itself: a Bluetooth headset
+still playing stereo (the call window's audio) when processing begins gives
+three. The analyzer takes the first channel; without that it was fed
+silence while the meter moved, and the call ended "no words".
+`crates/hotline-app/macos/speech/check/run` feeds a `say` sentence through
+the sink at one, two and three channels and fails unless each is heard.
+Each utterance logs `[hotline-speech] listening` with the microphone's and
+the analyzer's formats, and one line when it ends with the buffers sent,
+how many were silent and how many results came back (`log stream
+--predicate 'eventMessage CONTAINS "[hotline-speech]"'`). Every text event
+is the whole utterance so far. Level events are the dBFS of each microphone
+buffer.
 `speech_stop` closes the microphone and waits up to five seconds for the
 final text, failing rather than returning a partial. A changed input device
 ends the utterance with an error. Cancelling with an empty id cancels

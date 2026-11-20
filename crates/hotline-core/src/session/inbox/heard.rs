@@ -44,6 +44,7 @@ use std::time::Duration;
 /// together, short enough that a lone one behaves as a message. A test's own
 /// room gathers faster.
 const GATHER_MS: u64 = if cfg!(test) { 150 } else { 4_000 };
+const QUICK_GATHER_MS: u64 = if cfg!(test) { 35 } else { 1_000 };
 
 /// Who reads a quiet turn of the main conversation, and when it posts: the
 /// end of the line of every turn the inbox starts there.
@@ -116,16 +117,40 @@ impl Room {
     pub(super) fn arrived(self: &Arc<Self>, item: &InboxItem) {
         if super::on_call::is_call_result(item) {
             self.call_inbox_arrived(item);
-        } else {
-            let thread = self.inbox_heard_in(item);
-            self.gather(&item.to, thread);
+            return;
         }
+        let thread = self.inbox_heard_in(item);
+        let quick = item.state == InboxState::New
+            && quick_message(item).is_some()
+            && self.lone_quick_at_rest(&item.to, &thread);
+        self.gather_after(&item.to, thread, quick);
+    }
+
+    fn lone_quick_at_rest(&self, persona_id: &str, thread: &ThreadId) -> bool {
+        let at_rest = match thread.kind {
+            ThreadKind::Dm => self.session(persona_id).ok().is_none_or(|session| {
+                let turns = lock(&session.turns);
+                !turns.running && turns.waiting.is_empty()
+            }),
+            ThreadKind::Side | ThreadKind::Call => self
+                .sides
+                .get(&thread.key)
+                .is_some_and(|side| !side.working()),
+            ThreadKind::Job => self.job_at_rest(&thread.key),
+            _ => false,
+        };
+        at_rest
+            && matches!(self.unoffered(persona_id, thread).as_slice(), [item] if item.state == InboxState::New && quick_message(item).is_some())
     }
 
     /// Waits out the gather delay for `thread` of `persona_id`'s, once
     /// however many items land in it meanwhile, and then wakes it, or tells
     /// its turn in flight.
     pub(super) fn gather(self: &Arc<Self>, persona_id: &str, thread: ThreadId) {
+        self.gather_after(persona_id, thread, false);
+    }
+
+    fn gather_after(self: &Arc<Self>, persona_id: &str, thread: ThreadId, quick: bool) {
         let key = format!("{persona_id} {thread}");
         if !lock(&self.inbox_gathers).insert(key.clone()) {
             return;
@@ -133,7 +158,19 @@ impl Room {
         let room = Arc::downgrade(self);
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
-            tokio::time::sleep(gather_delay()).await;
+            let short = Duration::from_millis(QUICK_GATHER_MS);
+            if quick {
+                tokio::time::sleep(short).await;
+                let still_quick = room
+                    .upgrade()
+                    .is_some_and(|room| room.lone_quick_at_rest(&persona_id, &thread));
+                if !still_quick {
+                    // More items arrived (or work began): keep the original gather deadline.
+                    tokio::time::sleep(gather_delay().saturating_sub(short)).await;
+                }
+            } else {
+                tokio::time::sleep(gather_delay()).await;
+            }
             let Some(room) = room.upgrade() else {
                 return;
             };

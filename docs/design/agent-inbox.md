@@ -243,7 +243,9 @@ restarts keeps it waiting: the record says it is in its last run, the items
 are on disk, and what came back meanwhile wakes it as the desk opens.
 
 - **Idle.** An item that lands while that thread is idle wakes it once, after
-  the gather delay, 4 seconds (a unit test's room gathers in 150 ms). Items that land within the delay are heard in one
+  the gather delay, normally 4 seconds. A lone new quick message to an idle
+  receiver waits 1 second; if another item lands or work begins within that
+  second, the normal deadline still holds. Items that land within the delay are heard in one
   turn. A teammate that is not running is started for it, as one was for a
   colleague's question. The index usually carries titles, senders and
   waiting marks. If the wake offers exactly one new quick item, it shows the
@@ -405,7 +407,7 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
 - **The clock** looks when the desk opens (after the room has handed on what
   it resumes: what expired while it was closed closes first, then the pick-up
   at start) and then every 30 seconds.
-- **The times** are fixed: the gather delay 4 seconds, an offer again an
+- **The times** are fixed: the gather delay normally 4 seconds (1 for a lone quick message to an idle receiver), an offer again an
   hour after the first pick-up and a day after each later one, expiry three
   days after an item arrived. Nothing on a desk changes them; a unit test's
   room uses 150 ms, a minute, two minutes and five minutes (`cfg!(test)`),

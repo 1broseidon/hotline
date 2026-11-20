@@ -5,7 +5,6 @@
 use super::*;
 use crate::browser::pipe::{Link, Outbox, answer};
 use crate::log::Log;
-use std::os::unix::fs::PermissionsExt;
 
 /// One teammate's browser, as the helper's side of the pipe calls it.
 struct Fake {
@@ -248,16 +247,17 @@ async fn every_load_the_helper_asks_about_is_judged_by_the_desks_own_gate() {
 
 /// A helper program: a shell script that adds a line to `starts` each time
 /// it runs, then does `body`.
+/// A child writes the script (`fixtures::write_script`): written from this
+/// process, a fork another test made meanwhile could hold it open for
+/// writing, and running it then failed "Text file busy" on Linux.
 fn script(root: &Path, body: &str) -> (PathBuf, PathBuf) {
     let starts = root.join("starts");
-    let program = root.join("hotline-browser");
-    std::fs::write(
-        &program,
-        format!("#!/bin/sh\necho \"$*\" >> '{}'\n{body}\n", starts.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    (program, starts)
+    crate::computer::fixtures::write_script(
+        root,
+        "hotline-browser",
+        &format!("#!/bin/sh\necho \"$*\" >> '{}'\n{body}\n", starts.display()),
+    );
+    (root.join("hotline-browser"), starts)
 }
 
 fn starts(file: &Path) -> Vec<String> {

@@ -113,7 +113,7 @@ impl Calls {
                 Ok(())
             });
         }
-        result
+        result.map(drop)
     }
 
     pub(crate) fn stop_work(&self, id: &str) -> Result<String, String> {

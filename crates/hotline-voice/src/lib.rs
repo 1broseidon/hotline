@@ -56,6 +56,10 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const RETRY_LINE: &str = "Sorry, say that again.";
+/// Said on a Turn by turn call when the teammate's turn for the person's
+/// latest words ends having said nothing aloud, as a failed or silent turn
+/// does: the call never just goes back to listening.
+pub const NOTHING_SAID: &str = "No answer came back. Check the chat.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
 const MAX_AUDIO: usize = 2 * 1024 * 1024;
@@ -505,9 +509,10 @@ pub struct Call {
     pub overrun_nudged: bool,
     /// Last audible clip or queued feedback; independent of first-clip telemetry.
     pub feedback_at: Option<tokio::time::Instant>,
-    /// On a direct call, the latest turn handed to the teammate whose session
-    /// has not finished it: the call thinks until it has, unless the person
-    /// takes the floor.
+    /// On a direct call, the turn handed to the teammate whose session has
+    /// not finished it: on Turn by turn the latest ([`Call::wait_for_turn`]),
+    /// on a live call the one its work steers ([`Call::begin_answer`]). The
+    /// call thinks until it is finished, unless the person takes the floor.
     pub answering: Option<u32>,
     /// On a direct call, the teammate's replies being said as they stream,
     /// by event id, until each is whole.
@@ -604,10 +609,21 @@ impl Call {
             && self.input.is_none()
     }
 
-    /// The teammate has been handed turn `seq`. A turn still in flight keeps
-    /// its older number, so its own end clears the wait.
+    /// A live call's work has been handed turn `seq`. It may steer the turn
+    /// in flight, which then keeps its older number, so its own end clears
+    /// the wait.
     pub fn begin_answer(&mut self, seq: u32) {
         self.answering.get_or_insert(seq);
+    }
+
+    /// A Turn by turn call has handed the teammate turn `seq`. Its words are
+    /// a turn of their own in the session, waiting behind any turn in flight
+    /// and never steered into it (`sides.rs`), so the call waits for that
+    /// turn: the end of an earlier one, which may come later still, does not
+    /// end the wait, and the presence sound, the line on the work and the
+    /// overrun note go on covering it.
+    pub fn wait_for_turn(&mut self, seq: u32) {
+        self.answering = Some(seq);
     }
 
     /// Whether the phone's transport is down and the call waits for it.
@@ -770,7 +786,7 @@ impl Work {
     fn speaks(&self) -> bool {
         matches!(
             self,
-            Work::Delivery(..) | Work::Notice(..) | Work::Answer { .. }
+            Work::Delivery(..) | Work::Notice(..) | Work::Answer { .. } | Work::TurnOver(_)
         )
     }
 
@@ -1272,9 +1288,9 @@ impl Calls {
         })
     }
 
-    /// The teammate's session finished a turn said on a call to it, or left
-    /// it open only for its subagents: once what it said is said, the call
-    /// listens.
+    /// The teammate's session finished a turn said on a call to it, left it
+    /// open only for its subagents, or dropped it unrun: once what it said is
+    /// said, the call listens.
     pub fn turn_ended(&self, persona: &str, origin: &Origin) {
         if !origin.direct {
             return;

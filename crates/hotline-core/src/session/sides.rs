@@ -252,6 +252,16 @@ impl LiveSide {
         &self.persona_id
     }
 
+    /// Whether the line said as `text` waits behind the turn in flight. A
+    /// thread whose agent is still starting has no turn in flight: a line
+    /// waiting for the start is its first turn.
+    pub(super) fn waits_behind_turn(&self, text: &str) -> bool {
+        self.driver().is_some() && {
+            let turns = lock(&self.turns);
+            turns.running && turns.waiting.iter().any(|line| line.text == text)
+        }
+    }
+
     /// Whether the queue is claimed: a turn is in flight, or the agent is
     /// still starting. Nothing parks the thread meanwhile.
     pub(super) fn working(&self) -> bool {
@@ -1551,13 +1561,14 @@ impl Room {
     }
 
     /// The person's line, written to the thread and handed to its agent.
+    /// Answers whether it waits behind the turn in flight.
     fn say_in_side(
         self: &Arc<Self>,
         side: &Arc<LiveSide>,
         text: &str,
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
-    ) {
+    ) -> bool {
         let ts = now_ms();
         let client = crate::wire::commands::prompt_client();
         *lock(&side.last_used) = ts;
@@ -1621,11 +1632,7 @@ impl Room {
         );
         // Said while a turn runs: it joins that turn now, or says it waits.
         self.steer_into_work(side);
-        // A thread whose agent is still starting has no turn to join yet.
-        let waits = side.driver().is_some() && {
-            let turns = lock(&side.turns);
-            turns.running && turns.waiting.iter().any(|line| line.text == text)
-        };
+        let waits = side.waits_behind_turn(&text);
         if waits && !spoken {
             side.say(
                 self,
@@ -1641,6 +1648,7 @@ impl Room {
                 },
             );
         }
+        waits
     }
 
     /// Hands a line to the thread's agent now, or behind the turn in flight.

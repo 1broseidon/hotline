@@ -811,22 +811,57 @@ person's words to the session, that `thinking` says `listening: true`
 takes what the person says, so a client keeps its microphone open while the
 teammate works and nothing is playing, and the person never has to tap to cut
 in. What they say is an utterance like any other: it stops what the call is
-saying and steers into the open turn. While the desk is still taking their
-last words (transcribing them, starting the session), `thinking` has the
-floor and says no such thing, and a desk call never does. A desk that does
-this says `voiceListenWhileThinking` among its capabilities. When the person
-speaks again before a turn ends, the call waits for the turn that has their
-latest words.
+saying, and its words are a turn of their own in the teammate's session,
+queued behind the open turn and never steered into it (`say_in_side`), as
+speech waits its turn in the main conversation. While the desk is still
+taking their last words (transcribing them, starting the session),
+`thinking` has the floor and says no such thing, and a desk call never does.
+A desk that does this says `voiceListenWhileThinking` among its
+capabilities.
+
+When the person speaks again before a turn ends, whether the teammate is
+still working or has spoken its answer and only not closed its turn yet (a
+written half, a last tool call, its own bookkeeping), the call waits for the
+turn that has their latest words (`Call::wait_for_turn`): the earlier turn's
+end, even one that reaches the call only after the new words do, does not
+end that wait, so the 8 second presence sound, the line on the work and the
+overrun note go on covering the new turn, and with Acknowledge while the
+teammate thinks on the new words are acknowledged
+([below](#acknowledging-while-the-teammate-thinks)). If the turn with the
+person's latest words ends with nothing of the teammate's said for them, as
+a failed or silent turn does, or the person's Stop in the thread drops them
+unrun, the call says "No answer came back. Check the chat."
+(`NOTHING_SAID`) rather than only going back to listening, and logs
+`[voice] call <id>: turn <seq> ended with nothing said for it`.
 A reply the turn never finished is said as far as it got. While it thinks it
 sends `thinking`
 again every 15 seconds, so a phone, which gives up on a desk it has not heard
 from in 45, does not take a long piece of work for a desk that went quiet.
 
+Every utterance heard leaves one line in the log saying where it went:
+
+```
+[voice] call <id>: utterance <seq>: a new turn for the teammate
+[voice] call <id>: utterance <seq>: waits behind the teammate's turn in flight, as its next turn
+[voice] call <id>: utterance <seq>: joined the teammate's running turn
+[voice] call <id>: utterance <seq>: for the call assistant to answer
+[voice] call <id>: utterance <seq>: the answer to the card the call said
+[voice] call <id>: utterance <seq>: goodbye: the call ends
+[voice] call <id>: utterance <seq>: dropped: <why>
+[voice] call <id>: utterance <seq>: not handed to the teammate: <error>
+```
+
+A drop says why: the person spoke over the call, held it or spoke again
+first (their newer words are answered instead), no words were heard in it,
+its audio stopped before its last piece came, or the call ended. Words that
+could not be handed over or heard are also a failed step, which says "Sorry,
+say that again." on the call.
+
 Speaking over the teammate (`voice.interrupt`) stops what it is saying at once
 and gives the person the floor: the call listens even though the turn is still
-open, the rest of that reply is not said, and what the person says next goes
-into the open turn as a steer. The turn itself is never stopped by the call,
-and what the teammate says after it, such as its report, is said. A hold stops
+open, the rest of that reply is not said, and what the person says next waits
+behind the open turn as the next one. The turn itself is never stopped by the
+call, and what the teammate says after it, such as its report, is said. A hold stops
 a reply too, and a reply cut off by a hold, or that lands while the call is
 held, reaches the phone as a notification instead.
 
@@ -907,18 +942,20 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   the recent speech every later turn's prompt carries, so the teammate's
   later context shows it was said. The turn it opened is not interrupted to
   be told.
-- It is not asked for on a live call, a call to the desk, a turn that
-  arrives while the teammate is still on an earlier one, or when the
+- It is not asked for on a live call, a call to the desk, or when the
   teammate's first words came in under 3 seconds (`llm_spoken`) on the
   call's last timed turn; nor without a call assistant, or when the Chat
-  budget has no room. The teammate's turn is told of a line only when one
-  is asked for.
+  budget has no room. Words that arrive while the teammate is still on an
+  earlier turn, even one that has spoken its answer, are always asked a line
+  however quick the teammate was: they wait behind that turn, and the line is
+  how the person hears they were taken. The teammate's turn is told of a
+  line only when one is asked for.
 - The call assistant's request reserves on Chat and the line's speech on
   Voice, as a rewrite does; either refused, nothing is said for the turn and
   the call goes on.
 - On a direct Turn by turn call with the setting on, every turn with no
   line leaves `[voice] call <id>: no acknowledgement: <why>` in the log: the
-  teammate was on an earlier turn or quick last time, there was no call
+  teammate was quick last time, there was no call
   assistant or Chat budget, the call assistant wrote no line (small talk, a
   yes or no) or failed, its voice refused or failed, it was not ready in
   time, the teammate spoke first, or the person spoke again, over it, or

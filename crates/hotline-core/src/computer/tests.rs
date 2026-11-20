@@ -844,7 +844,7 @@ async fn a_computer_made_again_for_its_limits_or_folders_gets_a_new_bearer() {
     );
     let after_limits = made_with(&computers, &root).await;
     assert_ne!(after_limits, "fixture-persisted-token");
-    assert!(!after_limits.is_empty());
+    assert_ne!(after_limits, "");
 
     let folder = root.join("granted");
     fs::create_dir_all(&folder).unwrap();

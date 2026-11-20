@@ -57,12 +57,16 @@ decision is logged.
 
 **Words, the confirmation.** The check harness measured partials about once a
 second, the person's first words 2.6 s after they began over a reply leaking
-30 dB down, and the leak alone transcribed word for word. So words count only within 3 s of an onset. To interrupt they need either two
-words that are neither the reply's nor listening sounds ("yeah", "mm-hmm",
-"okay"), or one cut-in word (stop, wait, no, hold, hang, sorry, actually, hey).
-The person's words are what follow the engine's text at the onset (matched
-loosely, since the engine re-spells "looked" as "look") and any run of three or
-more of the reply's words in order.
+30 dB down, and the leak alone transcribed word for word. So words count only
+within 3 s of an onset. To interrupt they need two words that are not listening
+sounds ("yeah", "mm-hmm", "okay"), or one cut-in word (stop, wait, no, hold,
+hang, sorry, actually, hey). The person's words are those new since the
+onset (the session's text is cumulative and revised, so only still-unchanged
+words count as old) less runs of three or more of the reply's words in order.
+The reply is only the lines played since the call last listened. Filtering
+any word found in the last four replies, as at first, took nearly every
+everyday word for echo once a call had a few replies behind it (the owner's
+2026-11-20 call; reproduced in `voice-call.test.ts`).
 
 ## The two stages
 
@@ -79,10 +83,11 @@ more of the reply's words in order.
      The turn detector begins at the onset (`TurnDetector.begin`), the turn
      ends on the usual pause, and it is sent with `voice.text` after the
      interrupt.
-   - **No words: the reply resumes.** That happens after 500 ms of quiet
-     (pauses last at least 500 ms), or after 4 s whatever the voice is doing.
-     A voice the reply already resumed over pauses nothing more until it
-     stops. Words that arrive late, within the 3 s, still interrupt.
+   - **No words yet: it resumes turned down** (-14 dB) after 500 ms of quiet,
+     until 1.5 s after the voice ended, the engine's lag for a short phrase;
+     words then still cut it. A cough: paused about 0.8 s, quieter about 1 s.
+     After 4 s of wordless voice it resumes at full volume, and that voice
+     pauses nothing more until it stops.
 
 ## How the teammate learns it was cut off
 
@@ -92,10 +97,9 @@ not hear this line to the end … The exact last word heard is unknown … do no
 resume the unfinished speech." The next turn gets it through
 `take_interruption`, apart from the person's saved words.
 
-Not built: `voice.interrupt` has no `playedMs`. The window knows it
-(`playedMs()`), and an additive field would let the notice say where playback
-stopped, as `voice.front_barge` does. That is a contract change, left for a
-follow-up.
+Not built: `voice.interrupt` has no `playedMs`; an additive field (the window
+knows `playedMs()`) would let the notice say where playback stopped, as
+`voice.front_barge` does. A contract change, left for a follow-up.
 
 ## How it fits with the rest of the call
 
@@ -103,14 +107,11 @@ follow-up.
   and interrupt the same way. Cutting one sends `voice.interrupt`, which mutes
   the earlier turn's speech as a tap does; the person's words go as their own
   queued turn (the queued-turn fix), so they are not lost (tested).
-- **Listen after speech (64e75718)** is unchanged. The session opened when
-  playback starts is separate; when the reply's sound ends, the call listens
-  afresh.
-- **The hold rule** is unchanged: a clip that arrives while the person talks
-  waits, and is dropped if they said words. After an interruption the call is
-  `hearing`, so the cut line's further clips are muted, and other clips wait
-  as before. The mute for clips that arrive while the words are on their way
-  is unchanged.
+- **Listen after speech (64e75718)** is unchanged: when the reply's sound
+  ends, the call listens afresh in a new session.
+- **The hold rule** and the mute for clips arriving while words are on their
+  way are unchanged; after an interruption the call is `hearing`, so the cut
+  line's clips are muted and others wait as before.
 
 ## When it stays off
 
@@ -125,19 +126,19 @@ follow-up.
 
 ## The setting
 
-The **Interrupt by speaking** row sits under Turn by turn in Settings › Voice
-› Calls, with the tooltip "Best with headphones". It belongs to this computer
-(`localStorage` `hotline.interruptBySpeaking`), like On this Mac, and is shown
-only where this Mac's analyzer hears calls.
+**Interrupt by speaking** under Turn by turn in Settings › Voice › Calls,
+tooltip "Best with headphones"; this computer's choice (`localStorage`
+`hotline.interruptBySpeaking`), shown only where this Mac's analyzer hears.
 
 ## Reading a call from the log
 
 The window writes `[voice] call <id>: interrupt by speaking: …` lines to the
 app's `logs/hotline.log` through `voice_note`: `on` or `off` with the reason;
-`paused the reply, voice X over Y`; `resumed the reply, quiet, no words` (or
-`no words in 4000 ms`, or `its only words were the reply's own`); `interrupted
-the reply, 2 words the reply did not say, N ms after the voice began`; `off
-for this call, <why>`. They hold counts and timings, never words.
+`paused the reply, voice X over Y`; `resumed the reply, quiet, turned down …,
+N words, the first M ms after the voice began` (or `no words yet`); `the reply
+is at full volume again, no words 1500 ms after the voice ended`; `interrupted
+the reply, 2 words the reply did not say, N words, the first M ms after …`;
+`off for this call, <why>`. They hold counts and timings, never words.
 
 ## What is proven and what is not
 

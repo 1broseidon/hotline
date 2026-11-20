@@ -24,6 +24,8 @@ export interface CallAudio {
 	/** Holds what plays where it is, to go on from the same sample with `resumePlayback`. */
 	pausePlayback(): void;
 	resumePlayback(): void;
+	/** Turns what plays down, or back up; stopping lets it go too. */
+	duckPlayback(down: boolean): void;
 	readonly playing: boolean;
 	/** The loudness of what is playing now, as RMS. */
 	outputLevel(): number;
@@ -31,6 +33,9 @@ export interface CallAudio {
 	chime(kind: "connect" | "end"): number;
 	close(): void;
 }
+
+/** What a reply turned down plays at: about 14 dB down, heard but out of the way. */
+const DUCKED = 0.2;
 
 /** A block of the mic is this many frames: ~43ms at 48 kHz. */
 const BLOCK = 2048;
@@ -52,6 +57,8 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 	 * plays on from where it was once it resumes.
 	 */
 	let paused = false;
+	/** Everything the call plays goes through this, so it can be turned down. */
+	let volume: GainNode | null = null;
 
 	const takeMic = async () => {
 		const context = ctx;
@@ -99,6 +106,7 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 			};
 			await context.resume();
 			const out = context.createGain();
+			volume = out;
 			analyser = context.createAnalyser();
 			analyser.fftSize = 1024;
 			out.connect(analyser);
@@ -129,6 +137,12 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		stopPlayback() {
 			player?.stop();
 			this.resumePlayback();
+			this.duckPlayback(false);
+		},
+		duckPlayback(down) {
+			if (volume === null || ctx === null) return;
+			// A short ramp, so turning down is never a click.
+			volume.gain.setTargetAtTime(down ? DUCKED : 1, ctx.currentTime, 0.02);
 		},
 		pausePlayback() {
 			if (paused || ctx === null) return;

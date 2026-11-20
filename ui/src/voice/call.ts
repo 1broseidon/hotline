@@ -301,6 +301,8 @@ export class Call {
 	private barge: BargeIn | null = null;
 	/** The person cut the reply off by talking: their words follow these, which were the reply's. */
 	private cutFrom: { before: string; script: string[] } | null = null;
+	/** The lines played since the call last listened: only their echo can be in the microphone now. */
+	private readonly playedLines = new Set<string>();
 
 	/**
 	 * A front call: a realtime model on the desk hears and speaks, so the
@@ -630,6 +632,7 @@ export class Call {
 					if (event.data !== "") {
 						if (this.endpoint !== null && this.endpoint.clipAt === undefined) this.endpoint.clipAt = this.now();
 						this.audio.play(event.mimeType, event.data);
+						this.playedLines.add(event.id);
 					}
 				}
 				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
@@ -717,6 +720,7 @@ export class Call {
 		if (phase === "listening") return this.set({});
 		this.cancelInput();
 		this.detector.reset(this.now());
+		this.playedLines.clear();
 		this.set({ phase: "listening" });
 		if (this.textInput) this.listen();
 	}
@@ -916,8 +920,8 @@ export class Call {
 
 	/** Lets the session go, unsent: the call holds, the desk has the floor, or nobody spoke. */
 	private stopListening(): void {
-		// A reply paused for the person goes on as it was, unless what let the session go stops it too.
-		if (this.barge?.paused === true) this.audio.resumePlayback();
+		// A reply paused or turned down for the person goes on as it was, unless what let the session go stops it too.
+		if (this.barge !== null) this.letGo(this.barge);
 		this.barge = null;
 		this.cutFrom = null;
 		this.textSession++;
@@ -1080,8 +1084,8 @@ export class Call {
 			case "ended":
 				if (event.reason === "error") return this.fail("Speech recognition on this Mac stopped. Call again.");
 				if (event.reason === "cancelled") return;
-				// The engine ended the session on its own: listen over the reply afresh.
-				if (barge.paused) this.audio.resumePlayback();
+				// The engine ended the session on its own: listen over the reply afresh, as it was.
+				this.letGo(barge);
 				this.overhear();
 				return;
 		}
@@ -1095,18 +1099,30 @@ export class Call {
 				this.note(`interrupt by speaking: paused the reply, ${decision.why}`);
 				return;
 			case "resume":
+				this.audio.duckPlayback(barge.turnedDown);
 				this.audio.resumePlayback();
 				this.note(`interrupt by speaking: resumed the reply, ${decision.why}`);
+				return;
+			case "full":
+				this.audio.duckPlayback(false);
+				this.note(`interrupt by speaking: the reply is at full volume again, ${decision.why}`);
 				return;
 			case "echo":
 				this.note(`interrupt by speaking: not an interruption, ${decision.why}`);
 				return;
 			case "off":
+				this.audio.duckPlayback(false);
 				this.audio.resumePlayback();
 				return this.stopOverhearing(decision.why);
 			case "interrupt":
 				return this.interruptedBySpeech(decision.why, barge);
 		}
+	}
+
+	/** The reply plays on as it was before `barge` paused it or turned it down. */
+	private letGo(barge: BargeIn): void {
+		if (barge.turnedDown) this.audio.duckPlayback(false);
+		if (barge.paused) this.audio.resumePlayback();
 	}
 
 	/** Talking over the reply stops for this call: a tap still interrupts. */
@@ -1136,9 +1152,9 @@ export class Call {
 		this.settle();
 	}
 
-	/** What the teammate said lately, whose echo is not the person. */
+	/** What the teammate said since the call last listened: only that can be echo now. */
 	private replyScript(): string[] {
-		return scriptOf(this.snapshot.lines.filter((line) => line.kind === "desk").slice(-4).map((line) => line.text));
+		return scriptOf(this.snapshot.lines.filter((line) => line.kind === "desk" && this.playedLines.has(line.id)).map((line) => line.text));
 	}
 
 	private note(line: string): void {
@@ -1163,7 +1179,10 @@ export class Call {
 		this.deferred = [];
 		if (deferred.length === 0) return false;
 		try {
-			for (const clip of deferred) this.audio.play(clip.mimeType, clip.data);
+			for (const clip of deferred) {
+				this.audio.play(clip.mimeType, clip.data);
+				this.playedLines.add(clip.id);
+			}
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return true;

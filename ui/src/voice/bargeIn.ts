@@ -39,8 +39,15 @@ const ONSET_MS = 200;
 const ONSET_WINDOW_MS = 400;
 /** A pause lasts at least this long, so a word's first syllable is not resumed over. */
 const MIN_PAUSE_MS = 500;
-/** Quiet this long after the voice resumes the reply. */
+/** Quiet this long after the voice resumes the reply, turned down (`ducked`). */
 const QUIET_MS = 500;
+/**
+ * The engine's words for a phrase come this long after its voice ends: a
+ * short "what about the other branch" is over before its first word is
+ * given. The reply plays on turned down until then, so words still on their
+ * way can cut it without a false start, a cough, being loud.
+ */
+const WORDS_LAG_MS = 1_500;
 /** However long the person goes on without words, the reply resumes after this. */
 export const MAX_PAUSE_MS = 4_000;
 /**
@@ -63,6 +70,8 @@ const CUT_WORDS = new Set(["actually", "hang", "hold", "hey", "no", "nope", "sor
 export type BargeDecision =
 	| { kind: "pause"; why: string }
 	| { kind: "resume"; why: string }
+	/** The engine's lag has passed with no words: the reply, resumed turned down, is at full volume again. */
+	| { kind: "full"; why: string }
 	| { kind: "interrupt"; why: string }
 	| { kind: "echo"; why: string }
 	| { kind: "off"; why: string };
@@ -90,30 +99,58 @@ export function scriptOf(lines: readonly string[]): string[] {
 /** Echo is the reply heard back in order: this many of its words in a row, and fewer may be the person's own. */
 const ECHO_RUN = 3;
 
-/** How many of `words`, from the first, are a run of the reply's words in order. */
-function echoRun(words: readonly string[], script: readonly string[]): number {
+/** The longest run of the reply's words in order that `words` holds from `at`. */
+function runAt(words: readonly string[], at: number, script: readonly string[]): number {
 	let longest = 0;
 	for (let start = 0; start < script.length; start++) {
 		let length = 0;
-		while (length < words.length && start + length < script.length && sameWord(words[length]!, script[start + length]!)) length++;
+		while (at + length < words.length && start + length < script.length && sameWord(words[at + length]!, script[start + length]!)) length++;
 		longest = Math.max(longest, length);
 	}
-	return longest >= ECHO_RUN || (longest > 0 && longest === words.length) ? longest : 0;
+	return longest;
+}
+
+/**
+ * `words` less the reply heard back: every run of three or more of its words
+ * in order, and the whole of `words` when it is nothing but one run of them.
+ * A word the person shares with the reply is theirs: comparing word by word
+ * against everything said took nearly every word of a real phrase for echo
+ * once a call had a few replies behind it, and no words cut in.
+ */
+function withoutEcho<T>(words: readonly T[], normalized: readonly string[], script: readonly string[]): T[] {
+	if (words.length >= 2 && runAt(normalized, 0, script) === words.length) return [];
+	const kept: T[] = [];
+	for (let at = 0; at < words.length; ) {
+		const run = runAt(normalized, at, script);
+		if (run >= ECHO_RUN) at += run;
+		else kept.push(words[at++]!);
+	}
+	return kept;
+}
+
+/**
+ * How many of `text`'s first words are `before`'s, the engine's words when
+ * the onset came. The engine's text is the whole session so far and it
+ * revises its last words as more audio comes, so only the words still the
+ * same count as before; a revised word is new. A word it re-spelt ("look"
+ * for "looked") is still the same.
+ */
+function sharedStart(text: readonly string[], before: readonly string[]): number {
+	let shared = 0;
+	while (shared < before.length && shared < text.length && sameWord(normal(text[shared]!), before[shared]!)) shared++;
+	return shared;
 }
 
 /**
  * The person's words in `text`, the engine's whole utterance so far: what
- * follows `before` (the engine's words when the onset came, which were the
- * reply's echo or the room) and then any run of the reply's own words in
- * order, which the engine heard from before the reply paused. A word the
- * engine re-spelt since ("look" for "looked") still counts as `before`.
+ * follows `before` (the room, the reply's echo, earlier pauses), less the
+ * reply's own words heard back (`script`: the reply playing now).
  */
 export function personWords(text: string, before: string, script: readonly string[]): string {
 	const words = text.trim().split(/\s+/).filter((word) => word !== "");
-	const earlier = wordsOf(before);
-	let first = earlier.length > 0 && earlier.every((word, index) => sameWord(normal(words[index] ?? ""), word)) ? earlier.length : 0;
-	first += echoRun(words.slice(first).map(normal), script);
-	return words.slice(first).join(" ");
+	const fresh = words.slice(sharedStart(words, wordsOf(before)));
+	// The engine's own spelling and punctuation are kept for the person's words.
+	return withoutEcho(fresh, fresh.map(normal), script).join(" ");
 }
 
 export class BargeIn {
@@ -136,6 +173,11 @@ export class BargeIn {
 	/** A voice the reply already resumed over, for want of words, pauses nothing until it stops. */
 	private waitForQuiet = false;
 	private stopped = false;
+	/** The reply resumed turned down, for words still on their way. */
+	private ducked = false;
+	/** For the log: when this onset's first words came, after it began, and how many there are. */
+	private firstWords: number | null = null;
+	private heardWords = 0;
 
 	constructor(now: number, noiseFloor: number) {
 		this.floor = noiseFloor;
@@ -199,8 +241,14 @@ export class BargeIn {
 				this.onset = Math.max(from, this.voiced[0]!.from);
 				this.before = text;
 				this.echoed = false;
+				this.firstWords = null;
+				this.heardWords = 0;
 				this.voiced = [];
 				return { kind: "pause", why: `voice ${level.toFixed(3)} over ${this.threshold(loudest).toFixed(3)}` };
+			}
+			if (this.ducked && this.onset !== null && (now - this.lastVoice >= WORDS_LAG_MS || now - this.onset > CONFIRM_MS)) {
+				this.ducked = false;
+				return { kind: "full", why: `no words ${Math.round(now - this.lastVoice)} ms after the voice ended, ${this.heard()}` };
 			}
 			// Past the window for words, the onset is forgotten.
 			if (this.onset !== null && now - this.onset > CONFIRM_MS) {
@@ -212,19 +260,40 @@ export class BargeIn {
 		this.previousVoiced = voiced;
 		if (now - this.pausedAt >= MAX_PAUSE_MS) {
 			this.waitForQuiet = true;
-			return this.resume(`no words in ${MAX_PAUSE_MS} ms`);
+			return this.resume(`voice went on ${MAX_PAUSE_MS} ms`, false);
 		}
-		if (now - this.pausedAt >= MIN_PAUSE_MS && now - this.lastVoice >= QUIET_MS) return this.resume("quiet, no words");
+		if (now - this.pausedAt >= MIN_PAUSE_MS && now - this.lastVoice >= QUIET_MS) return this.resume("quiet", true);
 		return null;
 	}
 
-	/** Resumes the reply; an onset whose words were only the reply's echo may also stop listening over it. */
-	private resume(why: string): BargeDecision {
+	/** What the engine gave since the onset, for the log: a count and a time, never the words. */
+	private heard(): string {
+		return this.firstWords === null
+			? "no words yet"
+			: `${this.heardWords} words, the first ${Math.round(this.firstWords)} ms after the voice began`;
+	}
+
+	/**
+	 * Resumes the reply, turned down while words may still come (`ducked`),
+	 * or at full volume after the longest pause; an onset whose words were
+	 * only the reply's echo may also stop listening over it.
+	 */
+	private resume(why: string, ducked: boolean): BargeDecision {
 		this.pausedAt = null;
 		this.voiced = [];
+		this.ducked = ducked;
 		const echo = this.countEcho();
-		if (echo?.kind === "off") return echo;
-		return { kind: "resume", why: echo === null ? why : `${why}, ${echo.why}` };
+		if (echo?.kind === "off") {
+			this.ducked = false;
+			return echo;
+		}
+		const how = ducked ? "turned down for words still on their way" : "at full volume";
+		return { kind: "resume", why: `${why}, ${how}, ${this.heard()}${echo === null ? "" : `, ${echo.why}`}` };
+	}
+
+	/** Whether the reply plays on turned down, waiting for words. */
+	get turnedDown(): boolean {
+		return this.ducked;
 	}
 
 	/** An onset over whose only words were the reply's own: its echo came through the canceller. */
@@ -246,17 +315,19 @@ export class BargeIn {
 	 */
 	words(text: string, now: number, script: readonly string[]): BargeDecision | null {
 		if (this.stopped || this.onset === null || now - this.onset > CONFIRM_MS) return null;
+		const since = wordsOf(personWords(text, this.before, []));
 		const said = wordsOf(personWords(text, this.before, script));
-		// Words the reply also said may be its echo: they never count towards a cut on their own.
-		const asking = said.filter((word) => !BACKCHANNEL.has(word) && !script.some((one) => sameWord(word, one)));
+		const asking = said.filter((word) => !BACKCHANNEL.has(word));
+		if (since.length > 0) this.firstWords ??= now - this.onset;
+		this.heardWords = since.length;
 		const cutWord = said.some((word) => CUT_WORDS.has(word));
 		if (asking.length >= 2 || cutWord) {
 			this.stopped = true;
 			this.pausedAt = null;
-			return { kind: "interrupt", why: cutWord ? "a word that cuts in" : `${asking.length} words the reply did not say` };
+			this.ducked = false;
+			return { kind: "interrupt", why: `${cutWord ? "a word that cuts in" : `${asking.length} words the reply did not say`}, ${this.heard()}` };
 		}
 		// Words, and every one of them the reply's own, may be its echo; it counts if no more come.
-		const since = wordsOf(personWords(text, this.before, []));
 		this.echoed = said.length === 0 && since.length > 0;
 		return null;
 	}

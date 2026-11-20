@@ -44,6 +44,25 @@ describe("interrupting by talking over the reply", () => {
 		expect(decisions[1]?.why).toContain("quiet");
 	});
 
+	test("a cough holds the reply paused 0.8 s, then turned down until the engine's words could have come, then at full volume", () => {
+		const barge = new BargeIn(0, FLOOR);
+		feed(barge, 0, 1_000, steady(ROOM), syllables);
+		// A 300 ms cough from 1050 ms.
+		const decisions = [...feed(barge, 1_050, 1_350, steady(0.2), syllables), ...feed(barge, 1_400, 3_500, steady(ROOM), syllables)];
+		expect(decisions.map((one) => [one.kind, one.at])).toEqual([["pause", 1_250], ["resume", 1_850], ["full", 2_850]]);
+		expect(decisions[1]?.why).toBe("quiet, turned down for words still on their way, no words yet");
+		expect(decisions[2]?.why).toBe("no words 1500 ms after the voice ended, no words yet");
+	});
+
+	test("the log says how many words came and when, never what they were", () => {
+		const barge = new BargeIn(0, FLOOR);
+		feed(barge, 0, 1_000, steady(ROOM), syllables);
+		feed(barge, 1_050, 1_350, steady(0.2), syllables, "Hm");
+		expect(barge.words("Hm mm-hmm", 2_100, REPLY)).toBeNull();
+		const cut = barge.words("Hm mm-hmm what about the other branch", 2_400, REPLY);
+		expect(cut).toEqual({ kind: "interrupt", why: "5 words the reply did not say, 6 words, the first 1075 ms after the voice began" });
+	});
+
 	test("a voice that goes on without words resumes the reply after the longest pause", () => {
 		const barge = new BargeIn(0, FLOOR);
 		feed(barge, 0, 1_000, steady(ROOM), syllables);
@@ -90,7 +109,7 @@ describe("interrupting by talking over the reply", () => {
 		feed(barge, 1_050, 1_300, steady(0.2), syllables, "");
 		expect(barge.words("the failing step is the linker", 1_800, REPLY)).toBeNull();
 		const first = feed(barge, 1_850, 2_800, steady(ROOM), () => 0);
-		expect(first.map((one) => one.kind)).toEqual(["resume"]);
+		expect(first.map((one) => one.kind)).toEqual(["resume", "full"]);
 		expect(first[0]?.why).toContain("the reply's own");
 		feed(barge, 2_850, 4_400, steady(ROOM), syllables);
 		feed(barge, 4_450, 4_800, steady(0.2), syllables, "the failing step is the linker");

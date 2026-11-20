@@ -79,3 +79,43 @@ async fn a_cancelled_send_lets_go_of_its_wait_and_leaves_the_card() {
     assert!(held[0].held);
     connected.cancel().await.ok();
 }
+
+/// The lead's voice front is shown its own `send`: a titled job with the
+/// person's words, `wants` fixed to work, and none of the quick lines,
+/// answers or follow-ups its call's grant would refuse. A front with no
+/// lead call is shown no `send`, and every other teammate's is the general
+/// one.
+#[test]
+fn the_leads_front_is_shown_send_as_a_titled_job_and_nothing_else() {
+    let front = TeammateTools::front_descriptors(true);
+    let (_, said, schema) = front.iter().find(|(name, _, _)| name == SEND).unwrap();
+    assert!(
+        said.starts_with("Hand a named teammate a job from this call"),
+        "{said}"
+    );
+    assert!(said.contains("the person's words unchanged as the message"));
+    assert!(said.contains("a question, a note or a check for a colleague goes through work_on_it"));
+    for general in ["reply_to", "quick", "`answer`", "nothing`"] {
+        assert!(!said.contains(general), "{general}: {said}");
+    }
+    assert_eq!(schema["properties"]["wants"]["enum"], json!(["work"]));
+    assert_eq!(
+        schema["required"],
+        json!(["to", "title", "message", "wants"])
+    );
+    for general in ["reply_to", "waiting", "about", "files"] {
+        assert!(schema["properties"].get(general).is_none(), "{general}");
+    }
+    assert!(
+        !TeammateTools::front_descriptors(false)
+            .iter()
+            .any(|(name, _, _)| name == SEND)
+    );
+    let tools = listing(descriptors()).tools;
+    let general = tools.iter().find(|tool| tool.name == SEND).unwrap();
+    assert_ne!(general.description.as_deref(), Some(said.as_str()));
+    assert_eq!(
+        general.input_schema["properties"]["wants"]["enum"],
+        json!(["answer", "work", "nothing"])
+    );
+}

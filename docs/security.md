@@ -3683,7 +3683,8 @@ environment; no snapshot, volume or log of the desk's carries one.
   exchange records carry none.
 - **Enforcement:** `Calls::lead_call` checks target, live call and current lead.
   `TeammateTools::call` checks the capability lease and limits the front to
-  lookups plus `send` of named work (`wants: work`) on that desk call. The exchange
+  lookups plus `send` of named work (`wants: work` and a title) on that desk
+  call, and shows it a `send` described and shaped for that alone. The exchange
   records the source call only for a local recipient and rechecks both leases
   and the lead/call before starting or resuming the handoff. A queued request
   whose call or lead ended fails explicitly, including after restart. Stop,
@@ -3692,8 +3693,9 @@ environment; no snapshot, volume or log of the desk's carries one.
 - **Proof:** `tests/voice/lead.rs`
   `the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on` proves
   roster lookup without a working-model request, unchanged named handoff
-  without a first-contact card or dispatcher call, and denied ask, stop and
-  former-lead use through the real handlers;
+  without a first-contact card or dispatcher call, the front's narrowed `send`,
+  and denied ask, note, untitled work, stop and former-lead use through the
+  real handlers, with nothing delivered;
   `a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant` proves the
   direct-call refusal; `a_no_lead_front_knows_the_person_and_roster` proves
   fallback context; `session/exchanges/tests.rs`

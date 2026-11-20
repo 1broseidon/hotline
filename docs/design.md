@@ -1466,7 +1466,9 @@ back, and `settings.update` cannot name a lead around these rules. Being lead
 changes nothing else about a teammate: its own model, memory and tools stay
 its own. A desk call opens the lead's own call thread and voice front. The
 front answers roster questions with `list_teammates` and puts named work in
-the teammate's inbox with `send`, `wants: work`, saying whose inbox it is in.
+the teammate's inbox with `send`, `wants: work`, saying whose inbox it is in;
+a question for a colleague goes through `work_on_it` to the lead's own
+session, which asks it.
 The live desk call and current lead together let that item in without a
 first-contact card; a direct call, DM, stopped call or former lead does not
 carry that grant. The queue checks it again before starting work. Stopping or

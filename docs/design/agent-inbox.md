@@ -129,7 +129,10 @@ These are George's, and what the inbox holds to.
 `list_teammates` and the rest are unchanged; `post_to_chat` also takes the
 one post of a quiet turn of the main conversation (below). The lead's voice
 front on a desk call has `send` in place of `message_teammate`, for named
-work only, by the call's grant.
+work only, by the call's grant: it is shown a `send` of its own (a title, the
+person's words, `wants` fixed to `work`), and anything else it sends is
+refused with the route there is, `work_on_it`, whose session on the call
+thread holds the general `send`.
 
 ## An item and its states
 

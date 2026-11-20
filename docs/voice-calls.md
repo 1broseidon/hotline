@@ -3,7 +3,10 @@
 Calling the desk opens a call thread on its team lead, with that teammate's
 own voice front, model and grants. The lead looks up the roster itself, answers
 briefly with names and current work (or idle), and puts the person's words for a named teammate in its inbox with `send`,
-`wants: work`, then says whose inbox it is in. No dispatcher runs for that routing. A direct
+`wants: work`, then says whose inbox it is in. That is all the front sends: its
+`send` is described to it as a titled job alone, and a question, a note or a
+check for a colleague goes through `work_on_it` to the lead's own session,
+which asks or tells them from its inbox. No dispatcher runs for that routing. A direct
 call to the lead remains an ordinary teammate call, without the desk's routing
 grant. Hanging up, holding or interrupting speech does not cancel work already
 started.

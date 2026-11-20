@@ -75,6 +75,32 @@ async fn send(room: &Arc<Room>, from: &str, to: &str, title: &str, extra: Value)
     sent["sent"][0]["id"].as_str().unwrap().to_string()
 }
 
+/// Answer with a quick line, without an explicit route or `wants`.
+async fn answer_with_send(room: &Arc<Room>, question: &InboxItem, words: &str) -> InboxItem {
+    let sent = tool(
+        room,
+        &question.to,
+        "send",
+        json!({"to": [question.from], "message": words, "reply_to": short(&question.id)}),
+    )
+    .await
+    .expect("the answer was sent");
+    assert_eq!(sent["sent"][0]["delivery"], "in inbox", "{sent}");
+    let reply = item(
+        room,
+        &question.from,
+        sent["sent"][0]["id"].as_str().unwrap(),
+    );
+    assert_eq!(reply.reply_to.as_deref(), Some(question.id.as_str()));
+    assert_eq!(reply.topic, question.topic);
+    assert_eq!(reply.wants, InboxWants::Nothing);
+    assert_eq!(
+        item(room, &question.to, &question.id).outcome,
+        Some(InboxOutcome::Answered)
+    );
+    reply
+}
+
 fn items(room: &Room, persona_id: &str) -> Vec<InboxItem> {
     kept::of(&room.log, persona_id)
 }
@@ -719,57 +745,95 @@ fn a_teammate_cannot_close_an_item_as_answered_without_answering_it() {
     assert_eq!(done[0].sort, Some(Sort::Closed(InboxOutcome::Done)));
 }
 
-#[tokio::test]
-async fn an_answer_is_heard_in_the_live_work_thread_it_was_asked_from() {
-    let (room, agents) = room("inbox-reply-thread");
-    let side = room.start_side("ada", "the crane").await.unwrap().side_id;
-    until("ada's thread is at rest", || {
+/// Both ways of answering must wake the original thread and offer the item
+/// there, not just retain the same topic in the sender's inbox.
+async fn thread_hears_both_answers(room: &Arc<Room>, agents: &Fake, thread: &ThreadId) {
+    until("Ada's thread is at rest", || {
         room.sides
-            .get(&side)
+            .get(&thread.key)
             .is_some_and(|side| !side.turn_running())
             && agents.told().len() == 1
     })
     .await;
-    let sent = TeammateTools::new(&room, "ada")
-        .for_work(side.clone())
-        .call(
-            "send",
-            &json!({"to": ["Bob"], "title": "Crane spec", "message": "Where is it?", "waiting": true}),
-        )
-        .await
-        .unwrap();
-    let id = serde_json::from_str::<Value>(&sent).unwrap()["sent"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert_eq!(item(&room, "bob", &id).from_thread, ThreadId::side(&side));
-    tool(
-        &room,
-        "bob",
-        "update_inbox",
-        json!({"items": [{"id": id, "answer": "In /shared/crane.pdf"}]}),
-    )
-    .await
-    .unwrap();
-    let reply = items(&room, "ada")
+    let tools = agents
+        .tools()
         .into_iter()
-        .find(|reply| reply.reply_to.as_deref() == Some(id.as_str()))
-        .unwrap();
-    assert_eq!(reply.about, Some(ThreadId::side(&side)));
-    assert_eq!(room.inbox_heard_in(&reply), ThreadId::side(&side));
-    until("the thread hears its answer", || {
-        agents
-            .told()
+        .next()
+        .expect("Ada's thread started");
+    let mut reply_ids = Vec::new();
+    for (message, answer, quick) in [
+        ("Where is the crane spec?", "In /shared/crane.pdf", false),
+        ("Who signed the spec?", "Kim signed it.", true),
+    ] {
+        let sent = tools
+            .call("send", &json!({"to": ["bob"], "message": message}))
+            .await
+            .unwrap();
+        let sent: Value = serde_json::from_str(&sent).unwrap();
+        let question = item(room, "bob", sent["sent"][0]["id"].as_str().unwrap());
+        assert_eq!(&question.from_thread, thread);
+        let reply = if quick {
+            answer_with_send(room, &question, answer).await
+        } else {
+            tool(
+                room,
+                "bob",
+                "update_inbox",
+                json!({"items": [{"id": question.id, "answer": answer}]}),
+            )
+            .await
+            .unwrap();
+            items(room, "ada")
+                .into_iter()
+                .find(|reply| reply.reply_to.as_deref() == Some(question.id.as_str()))
+                .expect("the answer is in Ada's inbox")
+        };
+        assert_eq!(reply.about.as_ref(), Some(thread));
+        assert_eq!(&room.inbox_heard_in(&reply), thread);
+        reply_ids.push(reply.id);
+    }
+    let stream = StreamId::of_thread(thread).expect("the thread has a transcript");
+    until("the origin thread wakes and hears both replies", || {
+        let told = agents.told();
+        reply_ids.iter().all(|id| {
+            told.iter()
+                .any(|line| line.contains(heard::WAKE_LINE) && line.contains(short(id)))
+        }) && room
+            .log
+            .load(&stream)
             .iter()
-            .any(|told| told.contains("\"Re: Crane spec\" · from Bob"))
+            .filter(|event| event["kind"] == "turn")
+            .count()
+            >= 2
     })
     .await;
+    assert!(agents.told().iter().all(|line| {
+        !line.contains("quiet inbox") || reply_ids.iter().all(|id| !line.contains(short(id)))
+    }));
     assert!(
         room.tape("ada")
             .iter()
             .all(|event| !event.to_string().contains("crane.pdf")),
-        "nothing in the person's chat"
+        "the answer's body did not go to the person's chat"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_answer_is_heard_in_the_live_work_thread_it_was_asked_from() {
+    let (room, agents) = room("inbox-reply-thread");
+    let side = room.start_side("ada", "the crane").await.unwrap().side_id;
+    thread_hears_both_answers(&room, &agents, &ThreadId::side(&side)).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn both_answer_styles_are_heard_in_the_live_call_that_asked() {
+    let (room, agents) = room("inbox-reply-call");
+    let call = ThreadId::call("crane-call");
+    room.call_began(&call, "ada", now_ms());
+    room.prompt_call_work("ada", &call, "Look up the crane spec")
+        .await
+        .unwrap();
+    thread_hears_both_answers(&room, &agents, &call).await;
 }
 
 #[tokio::test]

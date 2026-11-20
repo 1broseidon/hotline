@@ -61,8 +61,12 @@ These are George's, and what the inbox holds to.
   `message` or a `title`. An answer (`reply_to` naming an open question in
   the sender's own inbox, sent back to whoever asked it) closes that
   question as Answered, as `update_inbox`'s `answer` does, and wants
-  nothing back unless it says so; a reply to an item that wants work is a
-  question about it and leaves it open. It returns with each item's id and
+  nothing back unless it says so. A text-only answer to the asker alone
+  needs no new first-contact card, and goes back to the thread or job run
+  that asked while it is live, as an `update_inbox` answer does. Extra
+  recipients, files, and requests for an answer or work use the ordinary
+  send grant. A reply to an item that wants work is a question about it
+  and leaves it open. It returns with each item's id and
   where each landed, per recipient and in the desk's words, first in its
   note: "Huck: in inbox · Quill: not sent yet, waiting on the person's
   card"; a held item is never said to have arrived (`delivery` on the

@@ -2040,9 +2040,12 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   `Room::brake`, which
   `Room::update_inbox` also checks for an answer and, after Stop, for work
   taken into a thread; `Room::heard_from_person` leaves a paused pair
-  alone), and `collaboration_granted`; an item
-  that is not granted yet is kept `held`, outside everything its receiver can
-  read (`store::inbox::received`), its files held on the desk, while
+  alone), and `collaboration_granted`. The existing answer grant also covers
+  `send` with `reply_to` only for a text-only answer to the sole asker of an
+  open question in the caller's inbox, with `wants: nothing`. Its destination
+  is the same as for `update_inbox`'s `answer`; the brake and lease still
+  apply. An item that is not granted yet is kept `held`, outside everything
+  its receiver can read (`store::inbox::received`), its files held on the desk, while
   `Room::await_consent` waits on `authorize_collaboration` with the two
   lasting leases: a yes lets it in, a no, an expiry or the person's Stop
   exchange (`Room::settle_pair_collaboration`) closes it `dropped`, unseen.

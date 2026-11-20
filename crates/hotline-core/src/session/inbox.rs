@@ -355,12 +355,20 @@ impl Room {
         } else {
             InboxWants::Answer
         });
+        // Only the answer rides on the original grant, not extra recipients,
+        // a file transfer, or a request for something back.
+        let answer = replied.as_ref().filter(|_| {
+            answering
+                && wants == InboxWants::Nothing
+                && targets.len() == 1
+                && sending.files.is_empty()
+        });
         // One send is one topic: the one it follows up on, else its own.
         let send_id = new_id();
         let topic = replied
             .as_ref()
             .map_or_else(|| send_id.clone(), |asked| self.topic_for(asked));
-        let about = match &sending.about {
+        let explicit_about = match &sending.about {
             None => None,
             Some(_) if targets.len() > 1 => {
                 return Err(
@@ -373,6 +381,10 @@ impl Room {
                     targets[0].name
                 )
             })?),
+        };
+        let about = match answer {
+            Some(asked) => self.reply_about(asked),
+            None => explicit_about,
         };
         // Nothing is sent to anyone while any of them is at the brake with
         // the sender: paused, or stopped by the person.
@@ -421,8 +433,9 @@ impl Room {
                 .collect();
             new.reply_to = replied.as_ref().map(|asked| asked.id.clone());
             new.about.clone_from(&about);
-            let granted =
-                lead || self.collaboration_granted(&caller, target, wants == InboxWants::Work);
+            let granted = answer.is_some()
+                || lead
+                || self.collaboration_granted(&caller, target, wants == InboxWants::Work);
             if granted {
                 self.with_files(&mut new, &files)?;
                 moved(&mut new, InboxState::New, None, None, None);

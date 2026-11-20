@@ -178,6 +178,7 @@ mod tests {
             rp_id: None,
             user_name: None,
             used_with: bound.then(|| VariableUse {
+                service: Some("github".into()),
                 origins: vec!["https://api.github.com".into()],
                 header: "Authorization".into(),
                 schemes: vec!["Bearer".into()],

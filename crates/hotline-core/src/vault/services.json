@@ -6,7 +6,37 @@
     "origins": ["https://api.github.com", "https://github.com", "https://uploads.github.com"],
     "header": "Authorization",
     "schemes": ["Bearer", "token", "Basic"],
-    "refuse": ["/authorizations", "/app/installations/*/access_tokens"]
+    "refuse": [
+      "/authorizations",
+      "/applications/*/token",
+      "/app/installations/*/access_tokens",
+      "/app-manifests/*/conversions",
+      "/user/keys",
+      "/user/gpg_keys",
+      "/user/ssh_signing_keys",
+      "/user/codespaces/secrets",
+      "/repos/*/*/keys",
+      "/repos/*/*/actions/secrets",
+      "/repos/*/*/actions/organization-secrets",
+      "/repos/*/*/actions/runners/registration-token",
+      "/repos/*/*/actions/runners/remove-token",
+      "/repos/*/*/actions/runners/generate-jitconfig",
+      "/repos/*/*/environments/*/secrets",
+      "/repos/*/*/dependabot/secrets",
+      "/repos/*/*/codespaces/secrets",
+      "/repos/*/*/agents/secrets",
+      "/repos/*/*/agents/organization-secrets",
+      "/orgs/*/actions/secrets",
+      "/orgs/*/actions/runners/registration-token",
+      "/orgs/*/actions/runners/remove-token",
+      "/orgs/*/actions/runners/generate-jitconfig",
+      "/orgs/*/dependabot/secrets",
+      "/orgs/*/codespaces/secrets",
+      "/orgs/*/agents/secrets",
+      "/orgs/*/personal-access-token-requests",
+      "/orgs/*/personal-access-tokens",
+      "/orgs/*/private-registries"
+    ]
   },
   {
     "id": "openai",
@@ -15,7 +45,18 @@
     "origins": ["https://api.openai.com"],
     "header": "Authorization",
     "schemes": ["Bearer"],
-    "refuse": ["/v1/organization/admin_api_keys"]
+    "refuse": [
+      "/v1/organization/admin_api_keys",
+      "/v1/organization/projects/*/api_keys",
+      "/v1/organization/projects/*/service_accounts",
+      "/v1/organization/invites",
+      "/v1/organization/workload_identity_providers",
+      "/v1/realtime/client_secrets",
+      "/v1/realtime/sessions",
+      "/v1/realtime/transcription_sessions",
+      "/v1/realtime/translations/client_secrets",
+      "/v1/chatkit/sessions"
+    ]
   },
   {
     "id": "anthropic",
@@ -24,7 +65,10 @@
     "origins": ["https://api.anthropic.com"],
     "header": "x-api-key",
     "schemes": [],
-    "refuse": ["/v1/organizations/api_keys"]
+    "refuse": [
+      "/v1/organizations/api_keys",
+      "/v1/organizations/invites"
+    ]
   },
   {
     "id": "other",

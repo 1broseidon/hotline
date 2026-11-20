@@ -166,10 +166,17 @@ fn entry_v2(granted: &Granted) -> Option<Value> {
             value,
             r#use: Some(usage),
         } => {
-            let mut usage = serde_json::to_value(usage).ok()?;
-            usage["standIn"] = json!({
-                "prefix": crate::vault::stand_in_prefix(value),
-                "length": value.chars().count(),
+            // The refuse list is always sent, empty too: a computer applies
+            // its own shorter built-in list only where it is absent.
+            let usage = json!({
+                "origins": usage.origins,
+                "header": usage.header,
+                "schemes": usage.schemes,
+                "refuse": usage.refuse,
+                "standIn": {
+                    "prefix": crate::vault::stand_in_prefix(value),
+                    "length": value.chars().count(),
+                },
             });
             Some(json!({"kind": "variable", "value": value, "use": usage}))
         }

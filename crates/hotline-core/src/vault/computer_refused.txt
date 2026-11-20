@@ -1,0 +1,15 @@
+# The computer's built-in refuse list, vendored for a test: hotline-computer
+# src/keyproxy/policy.rs, `REFUSED` (lines 12-38 at release/0.13.0, commit
+# 883bcb8 "Add the key proxy"). A computer applies it only to a key the desk
+# sends no `refuse` for, and the desk always sends one, so every route here
+# must be in the desk's list for each named service on that origin
+# (`services::tests::the_desks_lists_cover_the_computers_built_in_one`).
+# When the computer's list grows, add the route here and to services.json.
+#
+# origin route
+https://api.github.com /authorizations
+https://api.github.com /app/installations/*/access_tokens
+https://api.openai.com /v1/organization/admin_api_keys
+https://api.openai.com /v1/organization/projects/*/api_keys
+https://api.openai.com /v1/organization/projects/*/service_accounts
+https://api.anthropic.com /v1/organizations/api_keys

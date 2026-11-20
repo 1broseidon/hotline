@@ -3667,7 +3667,13 @@ export type UsedWith = { service: string, host?: string, };
  * paths at those origins it is never added for. This is the `use` a
  * protected computer is handed beside the value.
  */
-export type VariableUse = { origins: Array<string>, header: string, 
+export type VariableUse = { 
+/**
+ * The `services.json` entry chosen, by id. The rest is read from that
+ * entry each time the key is listed or handed on, never from what was
+ * kept when it was stored. None on a record from before ids were kept.
+ */
+service?: string, origins: Array<string>, header: string, 
 /**
  * Empty: the header's whole value is the key, as Anthropic's `x-api-key`.
  */

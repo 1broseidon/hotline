@@ -574,3 +574,49 @@ fn a_keys_used_with_is_metadata_beside_it_and_reaches_its_delivery() {
             .is_err()
     );
 }
+
+/// A key stored "Used with" GitHub before the vault kept the service's id,
+/// its sidecar holding the two routes of its day, is listed and handed on
+/// with GitHub's list as it is now.
+#[test]
+fn a_key_stored_with_an_older_refuse_list_is_handed_todays() {
+    let root = tempfile::tempdir().unwrap();
+    let vault = vault(root.path());
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
+        .unwrap();
+    let then = serde_json::json!({
+        "kind": "variable",
+        "use": {
+            "origins": ["https://api.github.com", "https://github.com", "https://uploads.github.com"],
+            "header": "Authorization",
+            "schemes": ["Bearer", "token", "Basic"],
+            "refuse": ["/authorizations", "/app/installations/*/access_tokens"],
+        },
+    });
+    crate::credentials::atomic_write(
+        &vault.about_path("GITHUB_TOKEN"),
+        &serde_json::to_vec(&then).unwrap(),
+    )
+    .unwrap();
+    let github = crate::vault::resolve_used_with(&crate::contract::UsedWith {
+        service: "github".into(),
+        host: None,
+    })
+    .unwrap();
+    assert!(github.refuse.contains(&"/user/keys".to_owned()));
+    assert_eq!(
+        vault.shared_secrets().unwrap()[0].used_with.as_ref(),
+        Some(&github)
+    );
+    let (values, _) = vault
+        .shared_secret_values(&["GITHUB_TOKEN".to_owned()])
+        .unwrap();
+    assert_eq!(
+        values["GITHUB_TOKEN"],
+        StoredSecret::Variable {
+            value: "ghp_notarealtoken0001".to_owned(),
+            r#use: Some(github),
+        }
+    );
+}

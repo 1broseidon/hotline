@@ -393,6 +393,11 @@ pub struct SharedSecret {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct VariableUse {
+    /// The `services.json` entry chosen, by id. The rest is read from that
+    /// entry each time the key is listed or handed on, never from what was
+    /// kept when it was stored. None on a record from before ids were kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
     pub origins: Vec<String>,
     pub header: String,
     /// Empty: the header's whole value is the key, as Anthropic's `x-api-key`.

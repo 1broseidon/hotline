@@ -678,7 +678,14 @@ into the binary before anything is added. The value goes only in the key's
 header, under one of its schemes, in place of that run's own stand-in;
 another run's stand-in, another teammate's included, stays a string. It
 follows no redirect, writes the stand-in back over the value in replies,
-and refuses a request carrying the key to the service's key-minting paths.
+and refuses a request carrying the key to the service's key-minting paths:
+the routes that make or list keys, add an SSH, GPG or deploy key, mint an
+installation, runner or ephemeral token, or read and write a store of
+secrets (`vault/services.json`). That list is read from the service's
+definition by its id each time the key is handed on, never from what the
+vault kept when it was stored, so a list made longer reaches every key
+stored before it; it covers the computer's own shorter built-in list
+(`vault/services.rs` `the_desks_lists_cover_the_computers_built_in_one`).
 A command's stand-ins and proxy user end with it. The grants are read from
 the vault when the teammate's session starts and again whenever a grant or
 a stored value changes, so a revoked key's stand-ins stop working at once,

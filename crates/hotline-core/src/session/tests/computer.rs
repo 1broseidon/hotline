@@ -2075,6 +2075,42 @@ async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_
     assert_eq!(taken.sets().len(), 1, "a forged attest is handed nothing");
 }
 
+/// A protected key goes with its service's refuse list as this desk
+/// defines it now, never the shorter one its record kept when it was
+/// stored, and never left for the computer's own shorter list.
+#[tokio::test]
+async fn a_protected_key_is_handed_its_services_refuse_list_as_it_is_now() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-refuse", Some("0.13.0"), TWO_RELEASES, true).await;
+    grant_a_key_a_variable_and_a_login(&room);
+    let github = crate::vault::resolve_used_with(&crate::contract::UsedWith {
+        service: "github".into(),
+        host: None,
+    })
+    .unwrap();
+    room.vault
+        .as_ref()
+        .unwrap()
+        .set_secret_used_with(
+            "GITHUB_TOKEN",
+            Some(crate::contract::VariableUse {
+                service: None,
+                refuse: vec!["/authorizations".into()],
+                ..github.clone()
+            }),
+        )
+        .unwrap();
+    room.start("ada").await.unwrap();
+    let refuse = &taken.sets()[0]["GITHUB_TOKEN"]["use"]["refuse"];
+    assert_eq!(*refuse, json!(github.refuse));
+    for route in ["/user/keys", "/repos/*/*/keys", "/authorizations"] {
+        assert!(
+            refuse.as_array().unwrap().contains(&json!(route)),
+            "{route}"
+        );
+    }
+}
+
 /// Use Cookies goes into a protected computer's signed-in browser, never
 /// as a file in the agent's home; today's computer still takes the file.
 #[tokio::test]

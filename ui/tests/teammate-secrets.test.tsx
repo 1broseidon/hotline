@@ -274,19 +274,17 @@ async function openSecrets(who: Persona) {
 
 const rowOf = (within: Element, name: string) => [...within.querySelectorAll("label")].find((node) => node.textContent?.includes(name))!;
 
-test("on a computer that has not shown it keeps them from its programs, logins and passkeys are readable, said before the tick and on the row", async () => {
+test("on a computer that has not shown it keeps them from its programs, logins and passkeys are readable, said above the list and on the row, and given on the tick", async () => {
 	stored.push(login, passkey);
 	restores.push(() => stored.splice(2));
 	for (const protection of [undefined, "legacy", "needsUpdate"]) {
 		status = { state: "running", ...(protection !== undefined ? { protection } : {}) };
 		const secrets = await openSecrets({ ...persona, secrets: [], secretGrants: [] });
 		expect(secrets.textContent, String(protection)).toContain(TRUSTS);
-		const before = calls.length;
+		// Told, not asked: the line above the list says it, and the tick gives
+		// it as it did before, with no second press on an older computer.
 		await act(async () => rowOf(secrets, "GITHUB_LOGIN").querySelector("input")!.click());
-		expect(calls.length, "the tick asks first").toBe(before);
-		expect(secrets.textContent).toContain("Readable by this teammate's programs");
-		const give = [...secrets.querySelectorAll("button")].find((node) => node.textContent === "Give")!;
-		await act(async () => give.click());
+		expect([...secrets.querySelectorAll("button")].some((node) => node.textContent === "Give")).toBe(false);
 		expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "GITHUB_LOGIN" }] } });
 		await act(async () => root.render(null));
 		const granted = await openSecrets({ ...persona, secrets: ["GITHUB_LOGIN", "GITHUB_PASSKEY"], secretGrants: [{ name: "GITHUB_LOGIN" }, { name: "GITHUB_PASSKEY" }] });

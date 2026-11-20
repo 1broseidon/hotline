@@ -809,7 +809,10 @@ export function TeammateSecrets({
 			onChange(grants.filter((grant) => grant.name !== name));
 			return;
 		}
-		if (readable(record)) {
+		// Asked once for a secret that is readable wherever it goes. One that is
+		// readable only because this computer is an older one is given on the
+		// tick, as it always was: the line above the list and its label say so.
+		if (readableAnyway(record, asPerson, true)) {
 			setAsking((was) => (was === name ? null : name));
 			return;
 		}

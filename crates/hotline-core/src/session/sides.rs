@@ -338,6 +338,9 @@ impl Occupant for LiveSide {
     /// A request's turn is the exchange's: it begins only while the request
     /// is still running, and what came of it is saved when it ends.
     async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: Line) -> Begin<WorkTurn> {
+        if !room.can_offer_call_inbox(self, &line) {
+            return Begin::Skip;
+        }
         // A call's agent that a line has reached is no longer unused.
         lock(&self.warm).take();
         // A result that came back from a colleague is heard once: it is
@@ -469,6 +472,9 @@ impl Occupant for LiveSide {
             return Then::Stop;
         }
         let cut = lock(&side.cut).take().filter(|_| cut_short(&driven));
+        // Take back unconsumed input under the same queue lock as the
+        // one-shot call offer, so it cannot be mistaken for a person's line.
+        let mut turns = lock(&side.turns);
         let mut steered = std::mem::take(&mut *lock(&side.steered));
         if let Some(driver) = side.driver() {
             let unconsumed = driver.take_unconsumed();
@@ -494,8 +500,13 @@ impl Occupant for LiveSide {
                     .iter()
                     .rposition(|line| line.text == text && line.attachments == attachments)
                 {
+                    Some(index) if steered[index].call_inbox => {
+                        steered.remove(index);
+                        continue;
+                    }
                     Some(index) => steered.remove(index),
                     None => Line {
+                        call_inbox: false,
                         said: None,
                         voice: room.attached_voice(&side.thread),
                         text,
@@ -509,7 +520,6 @@ impl Occupant for LiveSide {
                 };
                 handed_back.push(line);
             }
-            let mut turns = lock(&side.turns);
             if room.closing() {
                 drop(turns);
                 // Last first, as the driver handed them back.
@@ -519,7 +529,10 @@ impl Occupant for LiveSide {
                 for line in handed_back {
                     turns.waiting.push_front(line);
                 }
+                drop(turns);
             }
+        } else {
+            drop(turns);
         }
         room.remember_session(side, &driven);
         // A card the turn left open is a button nobody is behind.
@@ -1619,6 +1632,7 @@ impl Room {
         self.queue_in_side(
             side,
             Line {
+                call_inbox: false,
                 said: Some(said_id),
                 voice,
                 text: text.clone(),
@@ -1786,6 +1800,7 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    call_inbox: false,
                     said: None,
                     voice: None,
                     text: super::timed(ts, &wire),

@@ -6,6 +6,8 @@ use crate::contract::{VoiceCallMode, VoiceInputMode};
 use crate::thread::ThreadState;
 use hotline_voice::CallRequest;
 
+mod inbox;
+
 /// A room on `driver` with Ada's main conversation running and calls wired
 /// to it, and the call fakes' speech.
 async fn calling(name: &str, driver: Scripted) -> (Arc<Room>, Arc<Fake>, Arc<crate::voice::Calls>) {

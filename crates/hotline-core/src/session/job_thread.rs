@@ -1076,6 +1076,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    call_inbox: false,
                     said: None,
                     voice: None,
                     text: timed(now, &firing_text(job, &run, last, standing)),
@@ -1221,6 +1222,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    call_inbox: false,
                     said: None,
                     voice: None,
                     text: timed_from(ts, client, &heard),
@@ -1275,6 +1277,7 @@ impl Room {
         };
         let line = JobLine {
             line: Line {
+                call_inbox: false,
                 said: None,
                 voice: None,
                 text: timed(now_ms(), &text),
@@ -1359,6 +1362,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    call_inbox: false,
                     said: None,
                     voice: None,
                     text: timed(ts, &wire),

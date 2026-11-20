@@ -3759,6 +3759,13 @@ Residual risk: classification is syntactic; a model can mislabel or omit useful
 content, and its spoken wording can ignore an instruction. A missing or failed
 narrator leaves the written result available without a new spoken pointer.
 
+An inbox result goes to the local asker after their originating call ends.
+The origin is captured from the desk's live call, not supplied by `send`.
+Only results admitted through the normal inbox gates take this route: it
+adds no send grant, file access, destination, brake exemption or quiet DM
+turn. The optional live offer fences the colleague's words as data;
+recovering the chat copy never starts a session or speaks it again.
+
 ## Cards answered on a call
 
 - **Default and grant source:** a card is desk-only. A live core-owned

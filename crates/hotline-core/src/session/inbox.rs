@@ -43,6 +43,7 @@ mod clock;
 mod heard;
 mod held;
 mod limit;
+mod on_call;
 mod pick_up;
 mod sending;
 mod tidy;
@@ -306,6 +307,7 @@ fn item(
         sender_told: 0,
         looped_in: false,
         for_person: false,
+        asked_on_call: None,
         notice: None,
         offer_again: None,
         newer: serde_json::Map::new(),
@@ -328,6 +330,7 @@ impl Room {
     ) -> Result<String, String> {
         let _working = self.working()?;
         let caller = self.participant(from)?;
+        let call = self.attached_voice(sent_from);
         let (title, body) = match &sending.title {
             Some(title) => (title_of(title)?, sending.message.trim().to_string()),
             None => topics::untitled(&sending.message)?,
@@ -425,6 +428,14 @@ impl Room {
             new.send_id = Some(send_id.clone());
             new.waiting = sending.waiting;
             new.for_person = for_person;
+            if wants != InboxWants::Nothing {
+                new.asked_on_call = call.as_ref().map(|origin| origin.call_id.clone());
+            } else if let Some(asked) = replied
+                .as_ref()
+                .filter(|asked| answering && asked.from == target.id)
+            {
+                new.asked_on_call.clone_from(&asked.asked_on_call);
+            }
             // Each receiver is told who else this send reached.
             new.also_to = targets
                 .iter()
@@ -432,7 +443,11 @@ impl Room {
                 .map(|other| other.id.clone())
                 .collect();
             new.reply_to = replied.as_ref().map(|asked| asked.id.clone());
-            new.about.clone_from(&about);
+            new.about = if wants == InboxWants::Nothing && new.asked_on_call.is_some() {
+                replied.as_ref().map(|asked| asked.from_thread.clone())
+            } else {
+                about.clone()
+            };
             let granted = answer.is_some()
                 || lead
                 || self.collaboration_granted(&caller, target, wants == InboxWants::Work);
@@ -474,7 +489,8 @@ impl Room {
         }
         self.wait_for_cards(waits, &targets, &sent, &mut landed)
             .await;
-        let on_call = self.sent_from(&caller.id, sent_from).kind == ThreadKind::Call;
+        let on_call =
+            call.is_some() || self.sent_from(&caller.id, sent_from).kind == ThreadKind::Call;
         let (delivery, note) =
             held::result_words(&targets, &mut sent, &landed, for_person, on_call);
         Ok(json!({ "sent": sent, "delivery": delivery, "note": note }).to_string())
@@ -1255,6 +1271,9 @@ impl Room {
         reply.reply_to = Some(original.id.clone());
         reply.topic = Some(self.topic_for(original));
         reply.about = self.reply_about(original);
+        if original.wants != InboxWants::Nothing {
+            reply.asked_on_call.clone_from(&original.asked_on_call);
+        }
         moved(&mut reply, InboxState::New, None, None, None);
         reply.sender_told = 1;
         self.keep_item(&reply)?;
@@ -1283,6 +1302,7 @@ impl Room {
     pub(super) fn reply_about(&self, original: &InboxItem) -> Option<ThreadId> {
         let thread = &original.from_thread;
         match thread.kind {
+            _ if original.asked_on_call.is_some() => Some(thread.clone()),
             ThreadKind::Side | ThreadKind::Call => Some(thread.clone()),
             ThreadKind::Job if self.job_run_open(&thread.key, original.ts) => Some(thread.clone()),
             _ => None,
@@ -1381,6 +1401,8 @@ impl Room {
                 if item.held && item.state != InboxState::Closed {
                     // What prompted it was the sending turn's, which is over.
                     self.await_consent(item, None);
+                } else if on_call::is_call_result(&item) {
+                    self.post_call_inbox_result(&item);
                 } else if !item.held && item.state.unread() && item.offered.is_none() {
                     self.arrived(&item);
                 }

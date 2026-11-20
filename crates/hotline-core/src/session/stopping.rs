@@ -343,6 +343,7 @@ impl Room {
         self.resume_in_work(
             thread,
             Line {
+                call_inbox: false,
                 voice: None,
                 text: line.text.clone(),
                 attachments: line.attachments.clone(),

@@ -402,6 +402,7 @@ impl Room {
                     steer: None,
                 },
                 Line {
+                    call_inbox: false,
                     said: None,
                     voice: None,
                     text: task,

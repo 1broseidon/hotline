@@ -14,9 +14,10 @@
 //! read: its lines are kept byte for byte ([`crate::log::Log::tidy`]) and
 //! never removed, however old, and its requests stay on the pair's record.
 
-use super::{Room, kept, lock};
+use super::{Room, kept, lock, on_call};
 use crate::contract::{InboxItem, InboxState};
 use crate::log::StreamId;
+use std::collections::HashSet;
 
 const DAY_MS: i64 = 24 * 3_600_000;
 
@@ -58,18 +59,23 @@ impl Room {
         {
             let _changing = lock(&self.inbox_lock);
             for persona in crate::room::roster(&self.log) {
-                let due = kept::of(&self.log, &persona.id)
-                    .iter()
-                    .any(|item| spent(item, now, keep_ms));
-                if !due && !at_start {
+                let due: HashSet<_> = kept::of(&self.log, &persona.id)
+                    .into_iter()
+                    .filter(|item| {
+                        spent(item, now, keep_ms)
+                            && (!on_call::is_call_result(item) || self.call_inbox_posted(item))
+                    })
+                    .map(|item| item.id)
+                    .collect();
+                if due.is_empty() && !at_start {
                     continue;
                 }
                 let stream = StreamId::Inbox(persona.id.clone());
                 // A line this build cannot read is no item here, and stays.
                 match self.log.tidy(&stream, |line| {
-                    kept::read(line).is_none_or(|item| !spent(&item, now, keep_ms))
+                    kept::read(line).is_none_or(|item| !due.contains(&item.id))
                 }) {
-                    Ok(_) => removed |= due,
+                    Ok(_) => removed |= !due.is_empty(),
                     Err(error) => {
                         eprintln!("{}'s inbox could not be tidied: {error}", persona.id);
                     }

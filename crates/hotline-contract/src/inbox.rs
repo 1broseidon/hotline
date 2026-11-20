@@ -258,6 +258,10 @@ pub struct InboxItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub for_person: bool,
+    /// The particular call a request (or its returning result) belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub asked_on_call: Option<String>,
     /// Hotline's own notice, not a teammate's words: what it is about. Its
     /// `from` is the teammate it is about; only the desk sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

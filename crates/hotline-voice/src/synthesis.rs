@@ -654,7 +654,8 @@ pub(super) fn playable(clip: &Clip, bytes: usize) -> bool {
 }
 
 /// The call to `persona` a line of its session belongs to: one still going
-/// on which the line's turn, or a later one, was said.
+/// on which the line's turn, or a later one, was said. A live front can
+/// receive work back without ever having started a numbered pipeline turn.
 pub(super) fn calling<'a>(
     calls: &'a mut VecDeque<Call>,
     persona: &str,
@@ -665,7 +666,10 @@ pub(super) fn calling<'a>(
             && call.id == origin.call_id
             && call.state != VoiceState::Ended
             && call.target.as_deref() == Some(persona)
-            && call.seq.is_some_and(|seq| origin.seq <= seq)
+            && call.seq.map_or_else(
+                || origin.front && call.front.is_some() && origin.seq == 0,
+                |seq| origin.seq <= seq,
+            )
     })
 }
 

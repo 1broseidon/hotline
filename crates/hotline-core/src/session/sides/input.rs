@@ -4,6 +4,73 @@ use crate::session::exchanges::steered_text;
 use hotline_voice::call_room::Handed;
 
 impl Room {
+    pub(in crate::session) async fn wake_call_inbox(
+        self: &Arc<Self>,
+        persona: &str,
+        thread: &ThreadId,
+        origin: crate::voice::Origin,
+        text: &str,
+    ) {
+        let Ok(_working) = self.working() else { return };
+        let _admission = self.sides.waking.lock().await;
+        if self
+            .attached_voice(thread)
+            .is_none_or(|current| current.call_id != origin.call_id)
+        {
+            return;
+        }
+        let (side, launch) = match self.live_side(&thread.key) {
+            Ok(side) => (side, None),
+            Err(_) => match self.wake_work(&thread.key, false, None).await {
+                Ok(placed) => placed,
+                Err(_) => return,
+            },
+        };
+        if side.persona_id != persona || side.capability.check().is_err() {
+            return;
+        }
+        let line = Line {
+            call_inbox: true,
+            said: None,
+            voice: Some(origin),
+            text: crate::session::timed(now_ms(), text),
+            attachments: Vec::new(),
+            request: None,
+            from: None,
+            delivery: None,
+            wake: false,
+            steer: false,
+        };
+        if !self.can_offer_call_inbox(&side, &line) {
+            return;
+        }
+        {
+            let turns = lock(&side.turns);
+            if turns.running
+                && let Some(driver) = side.driver()
+            {
+                // Once attempted, even a refusal or unconsumed input is done.
+                // A colleague's question keeps its turn to itself.
+                if self.person_steers(&side) && driver.steer(line.text.clone(), Vec::new()) {
+                    lock(&side.steered).push(line);
+                }
+                return;
+            }
+        }
+        self.queue_in_side(&side, line);
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
+    }
+
+    pub(super) fn can_offer_call_inbox(&self, side: &LiveSide, line: &Line) -> bool {
+        !line.call_inbox
+            || line.voice.as_ref().is_some_and(|original| {
+                self.attached_voice(&side.thread)
+                    .is_some_and(|current| current.call_id == original.call_id)
+            })
+    }
+
     /// Says something in a side thread. Returns at once: the turn runs on its
     /// own task, and a line said during one waits behind it. A parked thread
     /// is brought back first, which is the only thing the person does to wake
@@ -83,6 +150,7 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    call_inbox: false,
                     said: None,
                     voice: self.attached_voice(thread),
                     text: brief.clone(),

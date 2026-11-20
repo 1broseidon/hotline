@@ -111,6 +111,8 @@ impl<T> Turns<T> {
 /// One line for a thread's agent: the words as the driver is to hear them,
 /// already stamped, with what came attached.
 pub(super) struct Line {
+    /// A best-effort offer to this call only; its inbox item owns the chat copy.
+    pub call_inbox: bool,
     /// Captured when accepted, so reattaching voice cannot speak an older turn.
     pub voice: Option<crate::voice::Origin>,
     pub text: String,
@@ -419,6 +421,7 @@ impl Threads<'_> {
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
+        let call_inbox = line.call_inbox;
         let subject = super::index::asked(&line.text).to_string();
         let mut told = Told {
             replies: Vec::new(),
@@ -516,7 +519,8 @@ impl Threads<'_> {
         {
             voice.turn_ended(told.seat.persona_id, &origin);
         }
-        if (told.open)() {
+        // The inbox result itself is already the source of the chat post.
+        if !call_inbox && (told.open)() {
             self.room
                 .post_detached_reply(told.seat.persona_id, &thread, &subject, &told.replies)
                 .await;

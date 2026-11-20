@@ -42,6 +42,7 @@ impl Room {
                     room.queue_in_side(
                         &side,
                         Line {
+                            call_inbox: false,
                             said: None,
                             voice: room.attached_voice(&side.thread),
                             text,

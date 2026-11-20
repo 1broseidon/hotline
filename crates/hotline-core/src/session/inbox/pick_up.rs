@@ -139,7 +139,7 @@ impl Room {
                     }
                     InboxState::Taken | InboxState::Closed => false,
                 };
-                open && self.inbox_heard_in(item) == main
+                open && !super::on_call::is_call_result(item) && self.inbox_heard_in(item) == main
             })
             .collect()
     }

@@ -112,8 +112,12 @@ impl Room {
     /// An item has landed: the thread it is heard in is woken once the
     /// gather delay is up, with whatever else landed meanwhile.
     pub(super) fn arrived(self: &Arc<Self>, item: &InboxItem) {
-        let thread = self.inbox_heard_in(item);
-        self.gather(&item.to, thread);
+        if super::on_call::is_call_result(item) {
+            self.call_inbox_arrived(item);
+        } else {
+            let thread = self.inbox_heard_in(item);
+            self.gather(&item.to, thread);
+        }
     }
 
     /// Waits out the gather delay for `thread` of `persona_id`'s, once
@@ -147,6 +151,7 @@ impl Room {
             .into_iter()
             .filter(|item| {
                 item.state.unread()
+                    && !super::on_call::is_call_result(item)
                     && item.offered.is_none()
                     && self.inbox_heard_in(item) == *thread
             })
@@ -285,6 +290,7 @@ impl Room {
                     return;
                 };
                 let line = Line {
+                    call_inbox: false,
                     said: None,
                     voice: None,
                     text: timed(now_ms(), WAKE_LINE),
@@ -384,7 +390,7 @@ impl Room {
                 continue;
             }
             unread += 1;
-            if item.offered.is_none() {
+            if item.offered.is_none() && !super::on_call::is_call_result(&item) {
                 fresh.push(item);
             }
         }

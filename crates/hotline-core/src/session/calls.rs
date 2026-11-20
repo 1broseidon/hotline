@@ -151,6 +151,7 @@ impl Room {
     ) {
         let Some(room) = self.this() else { return };
         self.let_go_of_unused_call(thread);
+        self.post_ended_call_inbox(persona);
         let ticket = new_id();
         {
             let mut closings = lock(&self.call_closings);

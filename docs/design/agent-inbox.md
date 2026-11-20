@@ -287,6 +287,17 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   them the result, in your own words`. A send that wants nothing back
   finishes nothing the person waits on, and a send not for the person stays
   quiet to the end.
+- **Results for a call** (`inbox/on_call.rs`). A request for an answer or work
+  sent on a call remembers that particular call. An admitted answer or work
+  result gets one best-effort offer to the call's work agent, as steering
+  if it is busy or a new turn if it is idle. The desk does not inspect the
+  agent's speech to decide whether it worked and does not retry refused or
+  unused steering. On hang-up (or on arrival if the call is already over),
+  Hotline writes the attributed result to the asker's main chat, without
+  waking that agent. The chat event is keyed by the result item, so hang-up,
+  delivery and recovery cannot post it twice. Startup recovers written
+  copies from the inbox; it does not recreate voice offers. Ordinary
+  progress, receipts, and consent cards keep their existing routes.
 - **Busy.** An item that lands mid-turn starts no turn and no work thread.
   When the gather delay is up, the turn in flight in the main conversation is
   handed the one-line notice, steered into it as the person's mid-turn line

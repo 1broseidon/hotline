@@ -20,7 +20,7 @@ const DEFAULT_RATE: u32 = 24_000;
 /// This is a request to transcribe, not a style for a voice to perform, so it
 /// is the one instruction voice ever sends a Gemini model.
 const TRANSCRIBE: &str = "Transcribe the speech in this audio exactly as spoken. \
-    Reply with only the words, and with nothing at all if nobody is speaking.";
+    Reply with only the words; if nobody is speaking, return no text at all.";
 
 enum Job {
     Listen { model: String },

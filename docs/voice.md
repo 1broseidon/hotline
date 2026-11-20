@@ -968,8 +968,12 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   (`dispatcher::ACKNOWLEDGE`): at most eight words, the topic only, never a
   claim that something is done, a promised result or an answer, no filler
   opener or stock phrase, and nothing at all for small talk, a yes or no, a
-  correction, or anything a quick answer serves better. A reply of more than
-  one line or twelve words is not said.
+  correction, or anything a quick answer serves better; the prompt asks for
+  no text at all then and names no phrase for it, since a fast model said
+  "Empty reply" back when it did. A reply of more than one line or twelve
+  words is not said, and neither is a placeholder for no line, whatever its
+  brackets, quotes, case or punctuation ("(empty reply)", "Nothing.", "N/A",
+  "[silence]", "...": `acknowledgement::placeholder`).
 - It is asked for beside the hand-off, never before it: the person's turn
   goes to the teammate at once, as with the setting off, because a hosted
   fast model does not answer in the half second a hand-off could wait. The
@@ -1043,7 +1047,8 @@ can reach the line.
   result or a time; no filler opener; never "still"; and, when nothing was
   said before it, nothing that leans on an earlier line ("also", "again",
   "as I said", "continuing", "keep"); after an acknowledgement, never the
-  acknowledgement again. A line that fails is not said.
+  acknowledgement again; never a placeholder for no line, as above. A line
+  that fails is not said.
 - Without a call assistant the desk says its own line for four kinds: "I'm
   searching the web for that now.", "I'm reading that now." (files or a web
   page), "I'm running that now." and "I'm working on that in the browser

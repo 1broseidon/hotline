@@ -758,7 +758,7 @@ pub(super) fn parse_apple(object: &Value) -> Result<Inspection, String> {
     })
 }
 
-fn is_not_found(error: &str) -> bool {
+pub(super) fn is_not_found(error: &str) -> bool {
     let message = error.to_ascii_lowercase();
     message.contains("no such object")
         || message.contains("no such container")

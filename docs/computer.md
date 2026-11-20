@@ -164,7 +164,11 @@ in room settings. It reaches the runtime at create in the CLI's own
 environment, named bare as `-e HOTLINE_COMPUTER_TOKEN`, never on the
 command line. Hotline recovers it from runtime inspection after an app restart,
 so an existing computer keeps its jobs and viewer. A container without a
-recoverable token is recreated. Idle uses the room's sweep:
+recoverable token is recreated. A container made again, for other folders
+or limits or an update, gets a new token, never the one it replaces: an
+older computer's programs could read that one. One the runtime will not
+remove is stopped and never adopted or started again with its token; the
+next start removes it first, and fails while it cannot. Idle uses the room's sweep:
 thirty minutes after a session stops the container is stopped and its rw layer
 kept; seven days and it is removed.
 

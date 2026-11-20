@@ -3569,6 +3569,18 @@ environment, which Docker, Podman and Apple `container` each read a bare
 `computer/tests.rs`
 `no_create_argument_contains_the_token_and_the_runtime_has_it_in_its_environment`.
 
+Each container gets its own bearer. One made again, for other folders or
+limits (`a_computer_made_again_for_its_limits_or_folders_gets_a_new_bearer`)
+or after an update (`a_computer_made_after_an_update_gets_a_new_bearer`),
+is made with a new one: the computer it replaces may have been an older,
+unprotected one whose programs read its bearer, and that bearer would
+otherwise answer the new computer's attest, approve its own key-use asks
+and drive its signed-in browser. A container the runtime will not remove
+is stopped, never adopted or started again with its bearer, and removed
+before the next is made (`a_computer_that_would_not_go_is_never_used_again_with_its_bearer`).
+The desk keeps a bearer only in memory and in the container's own
+environment; no snapshot, volume or log of the desk's carries one.
+
 
 ## Call-thread agents (S5 and S6)
 

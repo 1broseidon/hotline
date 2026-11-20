@@ -203,12 +203,12 @@ final class AnalyzerAudioSink: @unchecked Sendable {
       throw LocalSpeechError(message: "This microphone cannot supply on-device speech audio.")
     }
     converter.primeMethod = .none
-    // Voice processing hands the tap its processed voice in every channel,
-    // one per channel of its device: a Bluetooth headset whose output was
-    // stereo when processing began (the call window was already playing to
-    // it) gives three. A converter has no layout for three channels and
-    // writes silence, so the analyzer heard nothing while the meter moved.
-    // Every analyzer channel takes the first, which is the voice.
+    // Voice processing hands the tap its processed voice first and then one
+    // reference channel per output channel, carrying what the Mac plays: a
+    // Bluetooth headset playing stereo (the call window's audio) gives
+    // three. A converter has no layout for three channels and writes
+    // silence, so the analyzer heard nothing while the meter moved. Every
+    // analyzer channel takes the first, which is the voice.
     if source.channelCount != target.channelCount {
       converter.channelMap = Array(repeating: 0, count: Int(target.channelCount))
     }

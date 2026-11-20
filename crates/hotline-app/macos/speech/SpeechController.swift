@@ -271,7 +271,7 @@ final class SpeechMicrophone {
     let tap: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
       consume(buffer)
       // Copy only the scalar into the actor; AVAudioEngine reuses the tap's buffer.
-      if let db = Self.level(buffer) {
+      if let db = Self.voiceLevel(buffer) {
         Task { @MainActor in level(db) }
       }
     }
@@ -329,16 +329,29 @@ final class SpeechMicrophone {
     return status == noErr ? id : nil
   }
 
-  nonisolated private static func level(_ buffer: AVAudioPCMBuffer) -> Double? {
-    guard buffer.frameLength > 0, buffer.format.channelCount > 0 else { return nil }
-    let channels = Int(buffer.format.channelCount)
+  /**
+   * The dBFS of the person's voice in one tap buffer: its first channel.
+   * Voice processing puts the processed microphone first and then one
+   * reference channel per output channel, carrying what the Mac plays (three
+   * with a headset playing stereo): measured across all of them, the meter
+   * moved with the teammate's reply. A raw microphone's first channel is
+   * its voice too.
+   */
+  nonisolated static func voiceLevel(_ buffer: AVAudioPCMBuffer) -> Double? {
+    channelLevel(buffer, channels: 0..<1)
+  }
+
+  /** The mean power of `channels` of `buffer`, in dBFS, or nil when it cannot be read. */
+  nonisolated static func channelLevel(_ buffer: AVAudioPCMBuffer, channels: Range<Int>) -> Double? {
+    let count = Int(buffer.format.channelCount)
+    guard buffer.frameLength > 0, !channels.isEmpty, channels.upperBound <= count else { return nil }
     let frames = Int(buffer.frameLength)
     let interleaved = buffer.format.isInterleaved
     var power: Double = 0
-    for channel in 0..<channels {
+    for channel in channels {
       for frame in 0..<frames {
         let pointer = interleaved ? 0 : channel
-        let index = interleaved ? frame * channels + channel : frame
+        let index = interleaved ? frame * count + channel : frame
         let value: Double
         switch buffer.format.commonFormat {
         case .pcmFormatFloat32:
@@ -357,7 +370,7 @@ final class SpeechMicrophone {
       }
     }
     guard power.isFinite else { return nil }
-    let mean = power / Double(frames * channels)
+    let mean = power / Double(frames * channels.count)
     return max(-160, min(0, 10 * log10(max(mean, 1e-16))))
   }
 }

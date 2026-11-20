@@ -1,9 +1,9 @@
 // Feeds recorded speech through the analyzer session's audio sink the way
 // the microphone tap does (`check/run` says how to run it). Voice processing
-// gives the tap its voice in every channel, one channel per channel of the
-// device: one or two for most, three for a Bluetooth headset that was
-// playing stereo when processing began. Every count must reach the
-// analyzer as the same words.
+// gives the tap the processed voice first, then one reference channel per
+// output channel carrying what the Mac plays: one or two channels for most,
+// three for a Bluetooth headset playing stereo. Every count must reach the
+// analyzer as the same words, and the meter must read the voice alone.
 import AVFoundation
 import Foundation
 import Speech
@@ -22,7 +22,7 @@ struct Check {
     }
     let clip = URL(fileURLWithPath: arguments[1])
     let words = arguments.dropFirst(2).map { $0.lowercased() }
-    var failed = false
+    var failed = !meterHearsTheVoiceAlone()
     for channels in 1...3 {
       do {
         let heard = try await hear(clip, channels: channels)
@@ -39,6 +39,42 @@ struct Check {
       }
     }
     exit(failed ? 1 : 0)
+  }
+
+  /** Prints one line for a check and answers whether it passed. */
+  static func report(_ ok: Bool, _ what: String) -> Bool {
+    print("\(ok ? "ok  " : "FAIL") \(what)")
+    return ok
+  }
+
+  /**
+   * A three-channel tap buffer as voice processing gives it: the processed
+   * microphone, then the reference channels carrying the reply that plays.
+   */
+  static func tapBuffer(voice: Float, reference: Float, channels: Int = 3) -> AVAudioPCMBuffer {
+    let layout = AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels))!
+    let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24_000, interleaved: false, channelLayout: layout)
+    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024)!
+    buffer.frameLength = 1_024
+    for frame in 0..<1_024 {
+      let tone = sin(Float(frame) * 2 * .pi * 220 / 24_000)
+      // A quiet room is never exactly zero.
+      buffer.floatChannelData![0][frame] = voice * tone + Float.random(in: -0.0002...0.0002)
+      for channel in 1..<channels { buffer.floatChannelData![channel][frame] = reference * tone }
+    }
+    return buffer
+  }
+
+  /** The meter reads the first channel: a reply in the reference channels is not the person speaking. */
+  static func meterHearsTheVoiceAlone() -> Bool {
+    let replyPlaying = SpeechMicrophone.voiceLevel(tapBuffer(voice: 0, reference: 0.3)) ?? 0
+    let personSpeaking = SpeechMicrophone.voiceLevel(tapBuffer(voice: 0.3, reference: 0)) ?? -160
+    let one = SpeechMicrophone.voiceLevel(tapBuffer(voice: 0.3, reference: 0, channels: 1)) ?? -160
+    return [
+      report(replyPlaying < -60, String(format: "meter, reply in the reference channels only: %.0f dBFS", replyPlaying)),
+      report(personSpeaking > -20, String(format: "meter, voice in the first channel: %.0f dBFS", personSpeaking)),
+      report(abs(one - personSpeaking) < 1, String(format: "meter, one channel reads as three: %.0f dBFS", one)),
+    ].allSatisfy { $0 }
   }
 
   /** The clip as the tap would give it at 24 kHz with `channels` channels, through the sink, to the analyzer. */

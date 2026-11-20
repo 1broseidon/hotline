@@ -3,8 +3,9 @@
 # session's audio sink whatever the microphone's channel count: `say` records
 # a sentence, and check/main.swift feeds it to the sink at 1, 2 and 3
 # channels, as voice processing hands them to the tap, and fails unless
-# every count is heard. No microphone, no app; macOS 26 or later with the
-# English speech model installed (a call on this Mac installs it).
+# every count is heard, and that the meter reads only the first channel,
+# the voice. No microphone, no app; macOS 26 or later with the English
+# speech model installed (a call on this Mac installs it).
 #
 #   crates/hotline-app/macos/speech/check/run
 set -eu

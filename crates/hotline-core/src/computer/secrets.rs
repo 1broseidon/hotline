@@ -43,6 +43,24 @@ const V2: &str = "application/vnd.hotline.secrets.v2+json";
 /// joined on: the broker's own words, so it is never another door's MAC.
 const ATTEST_CONTEXT: &str = "hotline-broker-v1";
 
+/// The exact bytes a computer's `attest` is the MAC of.
+///
+/// SEAM (computer 0.13 change in flight): today the key is the bearer and
+/// the input is `hotline-broker-v1|<boot>|<nonce>`, which does not cover
+/// the claimed mode. The computer is moving to a key only its broker holds,
+/// made at protected boot, with the mode and an instance id in the input.
+/// When its wire format lands, this function (and the key `verify_attest`
+/// is handed) is the one place that changes; see `verify_attest` for the
+/// checks around it.
+fn attest_input(boot: &str, nonce: &str) -> String {
+    format!("{ATTEST_CONTEXT}|{boot}|{nonce}")
+}
+
+/// What is said of a computer that claimed to run split and did not prove
+/// it, after its name.
+pub const UNPROVEN: &str =
+    "did not prove it is this teammate's, so it was handed nothing. Update or restart it.";
+
 /// Why a computer did not take the set.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -54,7 +72,7 @@ pub enum Refusal {
 }
 
 /// What a computer proved about keeping secrets from its jobs.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Door {
     /// Split, and its broker holds this computer's bearer: it answered for
     /// the boot it is on.
@@ -62,18 +80,32 @@ pub enum Door {
     /// No `/capabilities`, a release before 0.13, or one that says it runs
     /// legacy: today's one user, which a job shares with every value.
     Unprotected,
+    /// It said it runs split but did not prove it: no attest, one for
+    /// another nonce or boot, or one another key made. What answered may
+    /// not be this computer, so it is handed nothing, and it is a computer
+    /// that needs an update until it proves itself.
+    Unproven,
 }
 
 /// Asks the computer what it is, with a nonce of this asking's own. An
 /// answer that says protected but whose `attest` this bearer did not make
 /// is refused, so nothing is sent to whatever made it.
 pub async fn door(ready: &Ready) -> Result<Door, Refusal> {
-    let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
-    let nonce = uuid::Uuid::new_v4().simple().to_string();
-    let client = super::door_client()
+    door_on(&client()?, ready).await
+}
+
+fn client() -> Result<reqwest::Client, Refusal> {
+    super::door_client()
         .timeout(TIMEOUT)
         .build()
-        .map_err(|error| Refusal::Failed(error.to_string()))?;
+        .map_err(|error| Refusal::Failed(error.to_string()))
+}
+
+/// [`door`] on `client`: the request carries the bearer and a nonce, and
+/// nothing else, so no value leaves before the answer is verified.
+async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<Door, Refusal> {
+    let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
     let response = client
         .get(format!("{base}/capabilities?nonce={nonce}"))
         .bearer_auth(&ready.token)
@@ -93,9 +125,28 @@ pub async fn door(ready: &Ready) -> Result<Door, Refusal> {
         .json()
         .await
         .map_err(|_| Refusal::Failed("The computer's capabilities could not be read.".into()))?;
+    Ok(verify_attest(ready.token.as_bytes(), &nonce, &answer))
+}
+
+/// What a `/capabilities` answer to `nonce` proves, checked with `key`.
+/// Today it checks, in order:
+///
+/// 1. the claim: `protected.v` is the number 1 and `protected.mode` is the
+///    string `"split"`; anything else (absent, `legacy`, another version)
+///    is an unprotected computer, handed what 0.49 handed it;
+/// 2. `boot` is a non-empty string;
+/// 3. `attest` is standard base64;
+/// 4. it is HMAC-SHA256 under `key` (the bearer) of [`attest_input`] for
+///    that boot and this asking's own nonce, compared in constant time.
+///
+/// A claim of split that fails 2 to 4 is [`Door::Unproven`]: a replayed
+/// attest (another nonce), an altered boot, or one another key made. It
+/// does not check `version`, and the MAC does not cover the mode (see the
+/// seam on [`attest_input`]).
+fn verify_attest(key: &[u8], nonce: &str, answer: &Value) -> Door {
     let split = answer["protected"]["v"] == 1 && answer["protected"]["mode"] == "split";
     if !split {
-        return Ok(Door::Unprotected);
+        return Door::Unprotected;
     }
     let boot = answer["boot"].as_str().unwrap_or_default();
     let attested = answer["attest"]
@@ -106,18 +157,16 @@ pub async fn door(ready: &Ready) -> Result<Door, Refusal> {
                 .ok()
         })
         .is_some_and(|attest: Vec<u8>| {
-            let Ok(mut mac) = Hmac::<sha2::Sha256>::new_from_slice(ready.token.as_bytes()) else {
+            let Ok(mut mac) = Hmac::<sha2::Sha256>::new_from_slice(key) else {
                 return false;
             };
-            mac.update(format!("{ATTEST_CONTEXT}|{boot}|{nonce}").as_bytes());
+            mac.update(attest_input(boot, nonce).as_bytes());
             mac.verify_slice(&attest).is_ok()
         });
     if boot.is_empty() || !attested {
-        return Err(Refusal::Failed(
-            "The computer did not prove it is this teammate's, so it was handed nothing.".into(),
-        ));
+        return Door::Unproven;
     }
-    Ok(Door::Protected)
+    Door::Protected
 }
 
 /// One granted secret as the desk hands it: the record, and whether the
@@ -128,13 +177,13 @@ pub struct Granted {
     pub readable: bool,
 }
 
-/// What a handing over came to: whether the computer was protected, and
-/// the names it was not handed: keys granted protected, which wait on an
-/// unprotected computer for its update, and on a protected one for a "Used
-/// with" to protect them by.
+/// What a handing over came to: what the computer proved, and the names it
+/// was not handed: keys granted protected, which wait on an unprotected
+/// computer for its update, and on a protected one for a "Used with" to
+/// protect them by; every name, on one that did not prove what it said.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Handed {
-    pub protected: bool,
+    pub door: Door,
     pub waiting: Vec<String>,
 }
 
@@ -202,13 +251,22 @@ fn next_generation() -> i64 {
 /// through `PUT /secrets`. An empty set clears it, which is how a
 /// revocation lands.
 pub async fn deliver(ready: &Ready, set: &BTreeMap<String, Granted>) -> Result<Handed, Refusal> {
-    let protected = door(ready).await? == Door::Protected;
+    // The set goes only after the proof verified, on the client (and so the
+    // kept-alive connection) that asked for it. SEAM: the request does not
+    // yet name the boot or instance it was proved for, since today's
+    // computer takes no such field; when it does, it is added here and the
+    // computer refuses a set for another.
+    let client = client()?;
+    let door = door_on(&client, ready).await?;
+    if door == Door::Unproven {
+        return Ok(Handed {
+            door,
+            waiting: set.keys().cloned().collect(),
+        });
+    }
+    let protected = door == Door::Protected;
     let mut waiting = Vec::new();
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
-    let client = super::door_client()
-        .timeout(TIMEOUT)
-        .build()
-        .map_err(|error| Refusal::Failed(error.to_string()))?;
     let request = if protected {
         let mut secrets = serde_json::Map::new();
         for (name, granted) in set {
@@ -245,7 +303,7 @@ pub async fn deliver(ready: &Ready, set: &BTreeMap<String, Granted>) -> Result<H
         .map_err(|error| Refusal::Failed(format!("Could not reach the computer: {error}")))?;
     let status = response.status();
     if status.is_success() {
-        return Ok(Handed { protected, waiting });
+        return Ok(Handed { door, waiting });
     }
     if status == reqwest::StatusCode::NOT_FOUND {
         return Err(Refusal::TooOld);
@@ -276,6 +334,60 @@ mod tests {
         Split,
         /// Says split, attests with another key.
         Forged,
+    }
+
+    /// A `/capabilities` answer for `nonce`, attested under `key`.
+    fn answer(key: &str, boot: &str, nonce: &str, mode: &str) -> Value {
+        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key.as_bytes()).unwrap();
+        mac.update(format!("hotline-broker-v1|{boot}|{nonce}").as_bytes());
+        let attest = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        json!({"version": "0.13.0", "boot": boot, "protected": {"v": 1, "mode": mode}, "attest": attest})
+    }
+
+    #[test]
+    fn an_attest_is_the_bearers_mac_of_the_broker_context_the_boot_and_this_nonce() {
+        assert_eq!(attest_input("boot-1", "n1"), "hotline-broker-v1|boot-1|n1");
+        let key = b"the-token";
+        let good = answer("the-token", "boot-1", "n1", "split");
+        assert_eq!(verify_attest(key, "n1", &good), Door::Protected);
+    }
+
+    #[test]
+    fn a_split_claim_without_its_proof_is_unproven() {
+        let key = b"the-token";
+        let replayed = answer("the-token", "boot-1", "an-older-nonce", "split");
+        let forged = answer("not-the-token", "boot-1", "n1", "split");
+        let mut altered = answer("the-token", "boot-1", "n1", "split");
+        altered["boot"] = json!("boot-2");
+        let mut missing = answer("the-token", "boot-1", "n1", "split");
+        missing.as_object_mut().unwrap().remove("attest");
+        let mut garbled = answer("the-token", "boot-1", "n1", "split");
+        garbled["attest"] = json!("not base64!");
+        let mut no_boot = answer("the-token", "", "n1", "split");
+        no_boot["boot"] = json!("");
+        for (what, answer) in [
+            ("replayed", replayed),
+            ("forged", forged),
+            ("altered boot", altered),
+            ("missing", missing),
+            ("garbled", garbled),
+            ("no boot", no_boot),
+        ] {
+            assert_eq!(verify_attest(key, "n1", &answer), Door::Unproven, "{what}");
+        }
+    }
+
+    #[test]
+    fn a_computer_that_does_not_claim_split_is_unprotected_whatever_it_attests() {
+        let key = b"the-token";
+        let legacy = answer("the-token", "boot-1", "n1", "legacy");
+        let mut later = answer("the-token", "boot-1", "n1", "split");
+        later["protected"]["v"] = json!(2);
+        let mut none = answer("the-token", "boot-1", "n1", "split");
+        none.as_object_mut().unwrap().remove("protected");
+        for answer in [legacy, later, none] {
+            assert_eq!(verify_attest(key, "n1", &answer), Door::Unprotected);
+        }
     }
 
     /// A body as it arrived, with its content type.
@@ -419,7 +531,7 @@ mod tests {
             assert_eq!(
                 handed,
                 Handed {
-                    protected: false,
+                    door: Door::Unprotected,
                     waiting: vec!["GITHUB_TOKEN".into()],
                 }
             );
@@ -442,7 +554,7 @@ mod tests {
         assert_eq!(
             handed,
             Handed {
-                protected: true,
+                door: Door::Protected,
                 waiting: Vec::new()
             }
         );
@@ -477,11 +589,9 @@ mod tests {
     #[tokio::test]
     async fn a_forged_attest_gets_nothing() {
         let (ready, fake, serving) = computer(true, Is::Forged).await;
-        let refused = deliver(&ready, &the_set()).await.unwrap_err();
-        assert!(
-            matches!(&refused, Refusal::Failed(reason) if reason.contains("did not prove")),
-            "{refused:?}"
-        );
+        let handed = deliver(&ready, &the_set()).await.unwrap();
+        assert_eq!(handed.door, Door::Unproven);
+        assert_eq!(handed.waiting, ["GITHUB", "GITHUB_TOKEN", "NPM_TOKEN"]);
         assert!(fake.taken.lock().unwrap().is_empty(), "not even a variable");
         serving.abort();
     }

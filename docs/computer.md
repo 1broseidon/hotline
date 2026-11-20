@@ -46,8 +46,14 @@ the chosen image, the teammate's pane offers the update.
   `hotline-broker-v1|<boot>|<N>`. The desk asks with a fresh nonce before
   every handing over and before Use Cookies. `mode: "split"` with an
   `attest` this bearer made is a protected computer; a 404 (a release before
-  0.13) or `mode: "legacy"` is not; `split` with any other `attest` is
-  handed nothing at all.
+  0.13) or `mode: "legacy"` is not; `split` with any other `attest` (none,
+  one for another nonce or boot, one another key made) is handed nothing
+  at all, and the pane treats it as needing an update. The checks are one
+  function, `computer/secrets.rs` `verify_attest`, and the MAC's input one
+  more, `attest_input`; the set goes only after the proof verified, on the
+  same client. The MAC covers neither the mode nor an instance yet, and is
+  keyed on the bearer: the computer is moving to a key only its broker
+  holds, and those two functions are where the desk follows it.
 - The workspace is mounted at `/home/agent/workspace`.
 - `PUT /secrets` takes the whole set of secrets the teammate is granted for
   its computer, bearer in the `Authorization` header. A protected computer

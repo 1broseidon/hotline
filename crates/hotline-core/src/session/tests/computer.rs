@@ -2073,6 +2073,11 @@ async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_
         .store(true, std::sync::atomic::Ordering::SeqCst);
     room.secrets_changed().await;
     assert_eq!(taken.sets().len(), 1, "a forged attest is handed nothing");
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate),
+        "and is no longer said to be protected"
+    );
 }
 
 /// A protected key goes with its service's refuse list as this desk

@@ -58,6 +58,9 @@ pub async fn deliver(
 /// claims to and cannot prove it is handed no cookies at all.
 async fn protected(ready: &Ready) -> Result<bool, String> {
     match super::secrets::door(ready).await {
+        Ok(super::secrets::Door::Unproven) => {
+            Err(format!("The computer {}", super::secrets::UNPROVEN))
+        }
         Ok(door) => Ok(door == super::secrets::Door::Protected),
         Err(super::secrets::Refusal::Failed(reason)) => Err(reason),
         Err(super::secrets::Refusal::TooOld) => Ok(false),

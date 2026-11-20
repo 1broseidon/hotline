@@ -100,8 +100,23 @@ impl Room {
             }
         };
         match crate::computer::secrets::deliver(ready, &set).await {
+            // Nothing went to what answered; until it proves itself it is a
+            // computer that needs an update, never a protected one.
+            Ok(handed) if handed.door == crate::computer::secrets::Door::Unproven => {
+                self.computers.learned_protection(
+                    &persona.id,
+                    crate::contract::ComputerProtection::NeedsUpdate,
+                );
+                self.computers.learned_migration(&persona.id, None);
+                notice(format!(
+                    "{}'s computer {}",
+                    persona.name,
+                    crate::computer::secrets::UNPROVEN
+                ));
+            }
             Ok(handed) => {
-                let protection = if handed.protected {
+                let protected = handed.door == crate::computer::secrets::Door::Protected;
+                let protection = if protected {
                     crate::contract::ComputerProtection::Protected
                 } else if handed.waiting.is_empty() {
                     crate::contract::ComputerProtection::Legacy
@@ -111,7 +126,7 @@ impl Room {
                 self.computers.learned_protection(&persona.id, protection);
                 // A computer's first split boot may have snapshots from
                 // before it waiting for the person's answer.
-                let migration = if handed.protected {
+                let migration = if protected {
                     crate::computer::migration::pending(ready)
                         .await
                         .ok()
@@ -121,7 +136,7 @@ impl Room {
                 };
                 self.computers.learned_migration(&persona.id, migration);
                 if handed.waiting.is_empty() {
-                } else if handed.protected {
+                } else if protected {
                     notice(format!(
                         "{} on this desk: a key not granted readable needs its Used with under Settings → Secrets.",
                         listed(&handed.waiting)

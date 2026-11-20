@@ -97,6 +97,13 @@ describe("speech recognition on this Mac", () => {
 		expect(await speech.stop()).toBe("");
 	});
 
+	test("a start the engine refuses with a sentence rejects with that sentence, and lets the session go", async () => {
+		const fake = fakeNative({ start: () => Promise.reject("No microphone found. Connect one or pick it in your computer's sound settings, then try again.") });
+		const speech = deviceTranscription(fake.native)!;
+		await expect(speech.start(() => {})).rejects.toThrow("No microphone found.");
+		expect(fake.listeners.size).toBe(0);
+	});
+
 	test("an engine that never finishes is given up on, never answered with a partial", async () => {
 		const fake = fakeNative();
 		fake.finals(() => new Promise(() => {}));

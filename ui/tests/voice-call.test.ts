@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 const { Call, supportsDirectCalls } = await import("../src/voice/call");
 import { UNHEARD } from "../src/voice/transcription";
+import { NO_MICROPHONE } from "../src/voice/microphone";
 import { AUDIO_SILENCE_MS, FAST_SILENCE_MS } from "../src/voice/turn";
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
@@ -756,6 +757,7 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 	let onEvent: (event: TranscriptionEvent) => void = () => {};
 	let final = "";
 	let stopping: (() => Promise<string>) | null = null;
+	let starting: (() => Promise<boolean>) | null = null;
 	const counts = { permits: 0, starts: 0, stops: 0, cancels: 0 };
 	const transcription: DeviceTranscription = {
 		capability: async () => ({ available: true, onDevice: true, locale: "en-US", engine: "apple-analyzer", ...capability }),
@@ -767,7 +769,7 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 			onEvent = callback;
 			final = "";
 			counts.starts++;
-			return true;
+			return starting !== null ? starting() : true;
 		},
 		stop: async () => {
 			counts.stops++;
@@ -786,6 +788,7 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 		},
 		finalize: (text: string) => (final = text),
 		stopWith: (next: () => Promise<string>) => (stopping = next),
+		startWith: (next: () => Promise<boolean>) => (starting = next),
 	};
 }
 
@@ -808,6 +811,35 @@ function textRig(speech = fakeSpeech(), response: unknown = { callId: "c", input
 }
 
 describe("a call heard by this Mac", () => {
+	test("with no microphone the engine's refusal is what the call says, and it ends rather than crashing", async () => {
+		const speech = fakeSpeech();
+		speech.startWith(() => Promise.reject(new Error(NO_MICROPHONE)));
+		const r = textRig(speech);
+		await r.call.start();
+		await tick();
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe(NO_MICROPHONE);
+		expect(r.sent.some((one) => one.cmd === "voice.call_end")).toBe(true);
+	});
+
+	test("a start refused with no reason still says to check speech access", async () => {
+		const speech = fakeSpeech();
+		speech.startWith(async () => false);
+		const r = textRig(speech);
+		await r.call.start();
+		await tick();
+		expect(r.call.current.trouble).toContain("Speech recognition on this Mac could not start");
+	});
+
+	test("a microphone lost mid-call ends it with the engine's words", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-74, 1_000, 1_400);
+		r.speech.emit({ type: "error", message: "Hotline can't hear the microphone any more. Call again when it's back." });
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe("Hotline can't hear the microphone any more. Call again when it's back.");
+	});
+
 	test("runs as text when the desk, this Mac and the person all allow it, and leaves the webview mic shut", async () => {
 		const r = textRig();
 		await r.call.start();

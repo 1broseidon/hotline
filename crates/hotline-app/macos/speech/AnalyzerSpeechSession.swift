@@ -97,9 +97,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
         guard let self, !self.cancelled, self.finishing == nil else { return }
         self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000])
       },
-      interrupted: { [weak self] in
-        self?.fail(LocalSpeechError(message: "The microphone changed. Call again."))
-      })
+      interrupted: { [weak self] why in self?.fail(why) })
     NSLog("[hotline-speech] listening: microphone %@, analyzer %@", microphone.format.description, format.description)
   }
 

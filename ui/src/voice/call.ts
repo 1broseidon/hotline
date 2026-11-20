@@ -869,8 +869,10 @@ export class Call {
 		this.textPart = "";
 		this.textIgnored = "";
 		this.textSnapshots = [];
-		const failed = () => {
-			if (session === this.textSession && !this.ended) this.fail(NO_TRANSCRIPTION);
+		// The engine's own reason (no microphone, say) is said as it is; a bare refusal is speech access.
+		const failed = (error?: unknown) => {
+			const why = error instanceof Error && error.message !== "" ? error.message : NO_TRANSCRIPTION;
+			if (session === this.textSession && !this.ended) this.fail(why);
 		};
 		this.transcription!.start((event) => {
 			if (session === this.textSession && this.recognizing && !this.ended) this.transcribed(event);

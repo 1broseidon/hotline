@@ -115,11 +115,22 @@ the microphone's and the analyzer's formats, and one line when it ends with
 the buffers sent, how many were silent and how many results came back (`log
 stream --predicate 'eventMessage CONTAINS "[hotline-speech]"'`). Every text
 event is the whole utterance so far.
+With no microphone connected (a Mac Studio whose headset is away) the input
+node still reports two channels at 44.1 kHz, and a tap on it raised an
+exception that ended the app ("format mismatch"). A start now asks Core
+Audio first whether the default input device records anything and, when it
+does not, fails with the window's own "No microphone found" sentence, which
+the call and dictation say as it is; voice processing is not set up and the
+engine is not warmed until a microphone is there, so the headset connected
+later still gets echo cancellation. The check starts a session when no
+microphone is connected, and fails unless it refuses with those words.
 `speech_stop` closes the microphone and waits up to five seconds for the
 final text, failing rather than returning a partial. A changed input device
-ends the utterance with an error. Cancelling with an empty id cancels
-whatever is current, a model download included, and a reload of the window
-does that too.
+ends the utterance with an error, "The microphone changed", and a device
+gone with none in its place says "Hotline can't hear the microphone any
+more", as the window does for its own capture; neither restarts the engine.
+Cancelling with an empty id cancels whatever is current, a model download
+included, and a reload of the window does that too.
 
 A Speech Recognition grant that no longer matches the app's signature (a
 self-signed build with the same bundle id was run) leaves the engine

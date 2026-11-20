@@ -57,9 +57,7 @@ final class LegacySpeechSession: LocalSpeechSession {
       owner: ObjectIdentifier(self),
       consume: { buffer in audio.append(buffer) },
       level: { [weak self] db in self?.level(db) },
-      interrupted: { [weak self] in
-        self?.complete(.failure(LocalSpeechError(message: "The microphone changed. Call again.")))
-      })
+      interrupted: { [weak self] why in self?.complete(.failure(why)) })
   }
 
   private func level(_ db: Double) {

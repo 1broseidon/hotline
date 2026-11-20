@@ -4,7 +4,10 @@
 // output channel carrying what the Mac plays: one or two channels for most,
 // three for a Bluetooth headset playing stereo. Every count must reach the
 // analyzer as the same words, and the meter must read the voice alone.
+// With no microphone connected it also starts a session, which must refuse
+// with the window's words rather than abort.
 import AVFoundation
+import CoreAudio
 import Foundation
 import Speech
 
@@ -23,6 +26,8 @@ struct Check {
     let clip = URL(fileURLWithPath: arguments[1])
     let words = arguments.dropFirst(2).map { $0.lowercased() }
     var failed = !meterHearsTheVoiceAlone()
+    failed = !inputChangesAreNamed() || failed
+    failed = !(await noMicrophoneRefuses()) || failed
     for channels in 1...3 {
       do {
         let heard = try await hear(clip, channels: channels)
@@ -75,6 +80,60 @@ struct Check {
       report(personSpeaking > -20, String(format: "meter, voice in the first channel: %.0f dBFS", personSpeaking)),
       report(abs(one - personSpeaking) < 1, String(format: "meter, one channel reads as three: %.0f dBFS", one)),
     ].allSatisfy { $0 }
+  }
+
+  /** A device gone is told from a device changed, and voice processing settling is neither. */
+  static func inputChangesAreNamed() -> Bool {
+    let cases: [(AudioDeviceID?, AudioDeviceID?, Int, Bool, SpeechMicrophone.InputChange)] = [
+      (7, 7, 1, true, .same),
+      (7, 7, 1, false, .changed),
+      (7, 9, 1, true, .changed),
+      (7, nil, 0, true, .gone),
+      (7, 7, 0, true, .gone),
+    ]
+    return cases.map { start, now, channels, sameFormat, expected in
+      let change = SpeechMicrophone.inputChange(from: start, to: now, channels: channels, sameFormat: sameFormat)
+      return report(change == expected, "configuration change \(start.map(String.init) ?? "none") -> \(now.map(String.init) ?? "none"), \(channels) ch: \(change)")
+    }.allSatisfy { $0 }
+  }
+
+  /**
+   * With no microphone connected (a Mac Studio with its headset away), a
+   * session refuses with the window's words. Before the guard the tap
+   * aborted the process: "Failed to create tap due to format mismatch".
+   * Skipped while a microphone is connected, so the check never opens one.
+   */
+  @MainActor
+  static func noMicrophoneRefuses() async -> Bool {
+    guard SpeechMicrophone.inputChannels() == 0 else {
+      print("skip no-microphone start: a microphone is connected")
+      return true
+    }
+    let microphone = SpeechMicrophone()
+    await microphone.warmUp()
+    var results = [report(true, "no microphone: warming up returns")]
+    do {
+      try microphone.start(owner: ObjectIdentifier(microphone), consume: { _ in }, level: { _ in }, interrupted: { _ in })
+      results.append(report(false, "no microphone: the microphone started"))
+    } catch {
+      let said = error.localizedDescription
+      results.append(report(said == LocalSpeechError.noMicrophone.message, "no microphone: refused, \"\(said)\""))
+    }
+    if #available(macOS 26.0, *),
+      let locale = await AnalyzerSpeechSession.installedLocale(equivalentTo: Locale(identifier: "en_US"))
+    {
+      microphone.prepare()
+      let session = AnalyzerSpeechSession(locale: locale, emit: { _ in }, microphone: microphone)
+      do {
+        try await session.start()
+        results.append(report(false, "no microphone: the analyzer session started"))
+      } catch {
+        let said = error.localizedDescription
+        results.append(report(said == LocalSpeechError.noMicrophone.message, "no microphone: session refused, \"\(said)\""))
+      }
+      session.cancel()
+    }
+    return results.allSatisfy { $0 }
   }
 
   /** The clip as the tap would give it at 24 kHz with `channels` channels, through the sink, to the analyzer. */

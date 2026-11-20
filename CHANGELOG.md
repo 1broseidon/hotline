@@ -47,6 +47,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - On a Mac, the microphone meter no longer moves with the teammate's reply:
   it reads only the echo-cancelled voice, not the channels that carry what
   the Mac plays.
+- A Mac with no microphone connected no longer quits when a call or
+  dictation starts: it says "No microphone found", and a microphone that goes
+  away mid-call ends it saying so.
 - The words beside a teammate's mark in the message box are never blank
   while it works. Its own words still come first; when it has said none,
   the bar says "Getting started" until its model answers, "Working on it"

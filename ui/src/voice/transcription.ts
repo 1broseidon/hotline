@@ -32,7 +32,7 @@ export interface DeviceTranscription {
 	capability(): Promise<TranscriptionCapability>;
 	/** Asks for speech and microphone access, and may download the language. Never rejects. */
 	permit(): Promise<boolean>;
-	/** Each start is a fresh utterance. False means recognition did not start. */
+	/** Each start is a fresh utterance. False means recognition did not start; a rejection's message says why, for a person. */
 	start(onEvent: (event: TranscriptionEvent) => void): Promise<boolean>;
 	/** Closes the microphone and waits for the complete final text. Never answers a partial on timeout. */
 	stop(): Promise<string>;
@@ -130,7 +130,8 @@ export function deviceTranscription(
 			} catch (error) {
 				if (generation !== token) return false;
 				await cancel().catch(() => {});
-				throw error;
+				// The shell rejects with the engine's own sentence (no microphone, say), a bare string.
+				throw error instanceof Error ? error : new Error(String(error));
 			}
 		},
 		async stop() {

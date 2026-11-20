@@ -3,8 +3,8 @@
 //! keeps a second desk off it, the desk's own log file, images and their
 //! thumbnails, the fence a quoted body is wrapped in, the lines an edit
 //! added and removed, the ports this process listens on, the words a provider's
-//! model listing says a model is for, and the Windows job a command's
-//! processes are held in.
+//! model listing says a model is for, a Windows path as people write it, and
+//! the Windows job a command's processes are held in.
 //!
 //! A crate of its own so that the crates above it can stand on these without
 //! the core: it must never depend on another Hotline crate, not even
@@ -21,6 +21,7 @@ pub mod listening;
 pub mod log_file;
 pub mod model_kind;
 pub mod paths;
+pub mod plain_path;
 #[cfg(windows)]
 pub mod process_windows;
 pub mod room_lock;

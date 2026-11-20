@@ -362,7 +362,9 @@ pub(super) async fn from_workspace(
         }
         let origin = match path.strip_prefix(workspace.display_root()) {
             Ok(inside) => format!("{} in the workspace", inside.display()),
-            Err(_) => path.display().to_string(),
+            Err(_) => hotline_support::plain_path::plain(&path)
+                .display()
+                .to_string(),
         };
         Ok(Taken {
             name,

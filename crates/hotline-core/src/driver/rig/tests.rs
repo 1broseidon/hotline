@@ -412,7 +412,7 @@ async fn a_shell_command_whose_output_exceeds_the_elision_lands_on_disk() {
     let handed = hand_to_model(&output_dir, "call-1", &output, Budget::BUILT_IN);
     let saved = output_dir.join("call-1.txt");
     assert_eq!(std::fs::read_to_string(&saved).unwrap(), body);
-    let named = saved.canonicalize().unwrap();
+    let named = dunce::canonicalize(&saved).unwrap();
     assert!(handed.contains(&named.display().to_string()), "{handed}");
     assert!(handed.contains("elided"), "{handed}");
     assert!(handed.starts_with('x') && handed.contains("Full output:"));

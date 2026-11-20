@@ -36,13 +36,14 @@ pub(super) fn hand_to_model(
 }
 
 /// Writes a whole result to `{output_dir}/{name}.txt`, where the workspace
-/// tools can read it even when the teammate is confined to its folder.
+/// tools can read it even when the teammate is confined to its folder, and
+/// answers its path resolved, spelled plain on Windows, never `\\?\C:\…`.
 pub(super) fn keep(output_dir: &Path, name: &str, text: &str) -> Option<PathBuf> {
     let path = output_dir.join(format!("{name}.txt"));
     std::fs::create_dir_all(output_dir)
         .and_then(|()| std::fs::write(&path, text))
         .ok()?;
-    Some(path.canonicalize().unwrap_or(path))
+    Some(dunce::canonicalize(&path).unwrap_or(path))
 }
 
 /// The head and the tail of the output, with one line where the middle was.

@@ -1159,6 +1159,9 @@ mod tests {
         }
     }
 
+    /// A Chromium browser with a profile is listed with it where its pipe is
+    /// wired; on Windows it is listed as one Hotline can't read, offering no
+    /// profile. A Firefox one is listed with its profile everywhere.
     #[test]
     fn a_browser_is_listed_with_its_profiles_and_left_out_without_any() {
         let dir = tempfile::tempdir().unwrap();
@@ -1168,6 +1171,25 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("Default")).unwrap();
         std::fs::write(dir.path().join("Default").join("Cookies"), b"x").unwrap();
         let listed = candidate.listed().unwrap();
+        if CHROMIUM_READABLE {
+            assert_eq!(listed.profiles.len(), 1);
+            assert!(!listed.blocked);
+        } else {
+            assert_eq!(listed.profiles, [] as [BrowserProfile; 0]);
+            assert!(listed.blocked);
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let firefox = installed(Family::Firefox, dir.path());
+        assert_eq!(firefox.listed(), None);
+        std::fs::write(
+            dir.path().join("profiles.ini"),
+            "[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/abc\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("Profiles/abc")).unwrap();
+        std::fs::write(dir.path().join("Profiles/abc/cookies.sqlite"), b"x").unwrap();
+        let listed = firefox.listed().unwrap();
         assert_eq!(listed.profiles.len(), 1);
         assert!(!listed.blocked);
     }

@@ -227,7 +227,8 @@ async fn a_narrowed_job_sends_no_file_from_beyond_its_narrowing() {
         let (room, _agents, ada, _bob) = apart(&format!("files-narrowed-{reach:?}"));
         room.allow_sender("bob", "ada").unwrap();
         let granted = TempDir::new().unwrap();
-        let folder = granted.path().canonicalize().unwrap();
+        // Spelled as the desk stores a grant: resolved, and plain on Windows.
+        let folder = dunce::canonicalize(granted.path()).unwrap();
         std::fs::write(folder.join("plan.md"), "the plan").unwrap();
         std::fs::write(ada.path().join("notes.md"), "the notes").unwrap();
         let mut persona = room.persona("ada").unwrap();

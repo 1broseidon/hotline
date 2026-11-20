@@ -87,6 +87,96 @@ fn hand(process: &mut Command, run: &super::RunEnv) -> Result<(), String> {
     Ok(())
 }
 
+/// What the confined shell can reach, as the teammate is told it. The second
+/// sentence depends on the kernel, because only Landlock's scoping closes
+/// abstract sockets while the host network stays shared.
+pub(super) fn wall() -> &'static str {
+    if abstract_sockets_closed() {
+        "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .hotline-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available. Unix sockets outside the sandbox, including the desktop's abstract ones, are not."
+    } else {
+        "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .hotline-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available. This kernel is older than Linux 6.12, so abstract Unix sockets outside the sandbox stay reachable too."
+    }
+}
+
+/// The shell shares the host's network namespace so that it has the network,
+/// and with it the host's abstract Unix sockets, which have no file to hide:
+/// an X11 display (`@/tmp/.X11-unix/X0`), a D-Bus bus started by
+/// `dbus-launch`, and anything else bound there. Landlock's scope (ABI 6,
+/// Linux 6.12) refuses a connection to one bound outside the sandbox, and
+/// leaves the network and the sockets the command binds itself alone.
+const LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET: u64 = 1;
+const LANDLOCK_CREATE_RULESET_VERSION: libc::c_uint = 1;
+const LANDLOCK_ABI_WITH_SCOPES: libc::c_long = 6;
+
+/// `struct landlock_ruleset_attr` as of ABI 6. Handling no file or network
+/// access keeps Landlock out of bubblewrap's mounts, which it would refuse
+/// to a process whose domain handles file access.
+#[repr(C)]
+struct LandlockRuleset {
+    handled_access_fs: u64,
+    handled_access_net: u64,
+    scoped: u64,
+}
+
+/// Whether this kernel can close the host's abstract sockets to the shell.
+/// Landlock may be missing, off at boot, or older than ABI 6; each reads as
+/// no.
+pub(super) fn abstract_sockets_closed() -> bool {
+    // SAFETY: a null attribute with the version flag only asks the kernel
+    // for its Landlock ABI; nothing is read or written.
+    let abi = unsafe {
+        libc::syscall(
+            libc::SYS_landlock_create_ruleset,
+            std::ptr::null::<LandlockRuleset>(),
+            0usize,
+            LANDLOCK_CREATE_RULESET_VERSION,
+        )
+    };
+    abi >= LANDLOCK_ABI_WITH_SCOPES
+}
+
+/// Puts bubblewrap, and so everything it starts, in a Landlock domain that
+/// connects to no abstract socket bound outside it. A step that fails stops
+/// the spawn, so the shell never runs believing it is closed when it is not.
+fn close_abstract_sockets(process: &mut Command) {
+    // SAFETY: prctl, the two Landlock calls and close are async-signal-safe,
+    // and the closure allocates nothing.
+    unsafe {
+        process.pre_exec(|| {
+            // Landlock asks for this before it confines an unprivileged
+            // process; bubblewrap sets it for the command anyway.
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let no_flags: libc::c_uint = 0;
+            let ruleset = LandlockRuleset {
+                handled_access_fs: 0,
+                handled_access_net: 0,
+                scoped: LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET,
+            };
+            let fd = libc::syscall(
+                libc::SYS_landlock_create_ruleset,
+                &raw const ruleset,
+                std::mem::size_of::<LandlockRuleset>(),
+                no_flags,
+            );
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let Ok(fd) = libc::c_int::try_from(fd) else {
+                return Err(std::io::Error::from_raw_os_error(libc::EBADF));
+            };
+            let restricted = libc::syscall(libc::SYS_landlock_restrict_self, fd, no_flags);
+            let error = std::io::Error::last_os_error();
+            libc::close(fd);
+            if restricted != 0 {
+                return Err(error);
+            }
+            Ok(())
+        });
+    }
+}
+
 pub(super) fn available() -> Result<(), String> {
     let mut process = launcher(None, &[])?;
     process.arg("/bin/true");
@@ -127,8 +217,13 @@ fn launcher_with(
         |root| root.join(".hotline-home"),
     );
     let mut process = Command::new(bwrap);
+    if abstract_sockets_closed() {
+        close_abstract_sockets(&mut process);
+    }
     // Clear the launcher's environment too: loader variables must not affect
-    // bwrap before it has established the sandbox.
+    // bwrap before it has established the sandbox. That also keeps the
+    // desktop session's addresses (DISPLAY, WAYLAND_DISPLAY, XAUTHORITY,
+    // DBUS_SESSION_BUS_ADDRESS, XDG_RUNTIME_DIR) out of the shell.
     process.env_clear().args([
         "--unshare-user",
         "--unshare-pid",
@@ -580,6 +675,168 @@ mod tests {
         assert_eq!(output.stdout, b"granted");
         assert!(writable.join("made.txt").exists());
         assert!(!read_only.join("made.txt").exists());
+    }
+
+    /// A probe the confined shell runs: for each `name=kind:address` it
+    /// connects and prints `name:ok` and what the listener said, or `name:`
+    /// and the errno that refused it. `abstract` addresses have no file.
+    const SOCKET_PROBE: &str = r#"
+import errno, socket, sys
+for target in sys.argv[1:]:
+    name, rest = target.split("=", 1)
+    kind, address = rest.split(":", 1)
+    if kind == "tcp":
+        s = socket.socket(socket.AF_INET)
+        address = ("127.0.0.1", int(address))
+    else:
+        s = socket.socket(socket.AF_UNIX)
+        address = "\0" + address if kind == "abstract" else address
+    s.settimeout(5)
+    try:
+        s.connect(address)
+        print(name + ":ok:" + s.recv(16).decode())
+    except OSError as e:
+        print(name + ":" + errno.errorcode.get(e.errno, str(e.errno)))
+"#;
+
+    /// Runs the probe in the real confined shell, with the desktop session's
+    /// variables set on bubblewrap itself, as a desk started from a desktop
+    /// would have them.
+    async fn probe(workspace: &Path, targets: &[String]) -> String {
+        std::fs::write(workspace.join("probe.py"), SOCKET_PROBE).unwrap();
+        let line = format!(
+            "python3 probe.py {} && echo \"session:${{DISPLAY:-}}${{WAYLAND_DISPLAY:-}}${{XAUTHORITY:-}}${{DBUS_SESSION_BUS_ADDRESS:-}}${{XDG_RUNTIME_DIR:-}}\" && {{ ls -a /tmp /run 2>&1 || true; }}",
+            targets.join(" ")
+        );
+        let mut process =
+            command(&line, workspace, &[], &[], &crate::shell::RunEnv::default()).unwrap();
+        for (name, value) in [
+            ("DISPLAY", ":0"),
+            ("WAYLAND_DISPLAY", "wayland-0"),
+            ("XAUTHORITY", "/home/me/.Xauthority"),
+            (
+                "DBUS_SESSION_BUS_ADDRESS",
+                "unix:abstract=/tmp/dbus-standin",
+            ),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+        ] {
+            process.env(name, value);
+        }
+        let output = process.output().await.unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// A listener that answers each connection with `reply`, on a thread.
+    fn answer(listener: std::os::unix::net::UnixListener, reply: &'static str) {
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let _ = std::io::Write::write_all(&mut stream, reply.as_bytes());
+            }
+        });
+    }
+
+    /// The shell shares the host's network namespace, and with it the
+    /// abstract sockets a desktop's X server and a `dbus-launch` bus listen
+    /// on. From Linux 6.12 Landlock refuses them; a path socket outside the
+    /// workspace is not mounted, nor are `/run` and the host's `/tmp` with
+    /// `.X11-unix`, and the session's addresses do not reach the shell.
+    #[tokio::test]
+    #[ignore = "needs bubblewrap"]
+    async fn host_unix_sockets_and_the_desktop_session_are_out_of_reach() {
+        use std::os::linux::net::SocketAddrExt;
+        super::super::tests::require_sandbox();
+        let root = super::super::tests::TestDirectory::new();
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let name = format!("hotline-test-display-{}", std::process::id());
+        let display = std::os::unix::net::UnixListener::bind_addr(
+            &std::os::unix::net::SocketAddr::from_abstract_name(&name).unwrap(),
+        )
+        .unwrap();
+        answer(display, "display");
+        let bus = root.path().join("bus");
+        answer(std::os::unix::net::UnixListener::bind(&bus).unwrap(), "bus");
+        let output = probe(
+            &workspace,
+            &[
+                format!("abstract=abstract:{name}"),
+                format!("path=path:{}", bus.display()),
+            ],
+        )
+        .await;
+        assert!(output.contains("path:ENOENT"), "{output}");
+        assert!(output.contains("session:\n"), "{output}");
+        assert!(output.contains("ls: cannot access '/run'"), "{output}");
+        assert!(!output.contains(".X11-unix"), "{output}");
+        if abstract_sockets_closed() {
+            assert!(output.contains("abstract:EPERM"), "{output}");
+            assert!(wall().contains("including the desktop's abstract ones, are not"));
+        } else {
+            eprintln!(
+                "abstract sockets not checked: this kernel has no Landlock ABI 6 (Linux 6.12), so nothing can close them; the shell says so"
+            );
+            assert!(output.contains("abstract:ok:display"), "{output}");
+            assert!(wall().contains("stay reachable"));
+        }
+    }
+
+    /// Closing the host's sockets leaves the network and the sockets the
+    /// command makes itself: an abstract one, one in the workspace, one in
+    /// its private /tmp, and TCP to a listener on the host.
+    #[tokio::test]
+    #[ignore = "needs bubblewrap"]
+    async fn the_shell_keeps_tcp_and_the_sockets_it_makes_itself() {
+        super::super::tests::require_sandbox();
+        let root = super::super::tests::TestDirectory::new();
+        let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = tcp.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut stream in tcp.incoming().flatten() {
+                let _ = std::io::Write::write_all(&mut stream, b"tcp");
+            }
+        });
+        let serve = r#"
+import socket, threading
+def answer(listener):
+    while True:
+        connection, _ = listener.accept()
+        connection.sendall(b"own")
+        connection.close()
+for address in ["\0hotline-own", "own.sock", "/tmp/own.sock"]:
+    listener = socket.socket(socket.AF_UNIX)
+    listener.bind(address)
+    listener.listen()
+    threading.Thread(target=answer, args=(listener,), daemon=True).start()
+import probe  # connects to what sys.argv names
+"#;
+        std::fs::write(root.path().join("serve.py"), serve).unwrap();
+        std::fs::write(root.path().join("probe.py"), SOCKET_PROBE).unwrap();
+        let line = format!(
+            "python3 serve.py tcp=tcp:{port} abstract=abstract:hotline-own workspace=path:own.sock tmp=path:/tmp/own.sock"
+        );
+        let output = command(
+            &line,
+            root.path(),
+            &[],
+            &[],
+            &crate::shell::RunEnv::default(),
+        )
+        .unwrap()
+        .output()
+        .await
+        .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "tcp:ok:tcp\nabstract:ok:own\nworkspace:ok:own\ntmp:ok:own\n",
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]

@@ -13,6 +13,8 @@
 //! Linux workspace reach exposes only the workspace and selected read-only
 //! toolchain installations. The shell has a private home inside the workspace
 //! and a private `/tmp`; host credentials and other projects are not mounted.
+//! It keeps the host network, and from Linux 6.12 Landlock closes the host's
+//! abstract Unix sockets to it, which that shared network would otherwise open.
 //! Machine reach is the command as typed, with no wall.
 
 #[cfg(target_os = "linux")]
@@ -271,9 +273,9 @@ impl RunCommand {
 
     fn wall(&self) -> &'static str {
         match self.workspace.reach() {
-            Reach::Workspace if cfg!(target_os = "linux") => {
-                "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .hotline-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available."
-            }
+            #[cfg(target_os = "linux")]
+            Reach::Workspace => linux::wall(),
+            #[cfg(not(target_os = "linux"))]
             Reach::Workspace => {
                 "The shell is isolated from unrelated host files and other workspaces, with read-only access to supported installed runtimes. HOME is .hotline-home inside the workspace. Use TMPDIR for private scratch; hardcoded /tmp is not writable. Host credentials and environment variables are not inherited. Network access remains available. macOS helper services and host control sockets are unavailable."
             }

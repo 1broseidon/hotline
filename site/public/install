@@ -277,6 +277,7 @@ desktop_macos() {
     machine=$(arch)
     # A shell under Rosetta reports x86_64 on Apple silicon.
     [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ] && machine=aarch64
+    [ "$machine" = aarch64 ] || fail "Hotline for the Mac is Apple silicon only. Version 0.49 was the last for Intel Macs."
     file="hotline_${version}_macos_${machine}.app.tar.gz"
     asset "$file"
     tar -xzf "$work/$file" -C "$work"

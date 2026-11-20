@@ -55,12 +55,6 @@ jobs:
           - runner: macos-26
             target: aarch64-apple-darwin
             suffix: macos_aarch64
-          # Intel Macs are built on Apple silicon: GitHub's Intel runner is its
-          # slowest, and Rust cross-compiles to x86_64 natively.
-          - runner: macos-26
-            target: x86_64-apple-darwin
-            suffix: macos_x86_64
-            cross: true
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             suffix: linux_x86_64

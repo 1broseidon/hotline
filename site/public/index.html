@@ -203,7 +203,7 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
 // assets are known; then each key links straight to its file, with its size.
 (async () => {
   // Every pattern names its architecture, so an ARM file can never answer for an x86 one.
-  const want = { mac: /macos_aarch64\.dmg$/, macIntel: /macos_x86_64\.dmg$/, win: /windows_x86_64-setup\.exe$/, linux: /linux_x86_64\.AppImage$/, deb: /linux_x86_64\.deb$/, rpm: /linux_x86_64\.rpm$/, debArm: /linux_aarch64\.deb$/, rpmArm: /linux_aarch64\.rpm$/, linuxArm: /linux_aarch64\.AppImage$/, server: /^hotline-server.*linux_x86_64\.tar\.gz$/, serverArm: /^hotline-server.*linux_aarch64\.tar\.gz$/ };
+  const want = { mac: /macos_aarch64\.dmg$/, win: /windows_x86_64-setup\.exe$/, linux: /linux_x86_64\.AppImage$/, deb: /linux_x86_64\.deb$/, rpm: /linux_x86_64\.rpm$/, debArm: /linux_aarch64\.deb$/, rpmArm: /linux_aarch64\.rpm$/, linuxArm: /linux_aarch64\.AppImage$/, server: /^hotline-server.*linux_x86_64\.tar\.gz$/, serverArm: /^hotline-server.*linux_aarch64\.tar\.gz$/ };
   try {
     const r = await fetch("https://api.github.com/repos/1broseidon/hotline/releases/latest", { headers: { accept: "application/vnd.github+json" } });
     if (!r.ok) return;

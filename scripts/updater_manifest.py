@@ -18,7 +18,6 @@ from release_version import parse
 # These are deliberately installer-specific, matching updater::target_for.
 PACKAGES = {
     "darwin-aarch64-app": "macos_aarch64.app.tar.gz",
-    "darwin-x86_64-app": "macos_x86_64.app.tar.gz",
     "linux-x86_64-appimage": "linux_x86_64.AppImage",
     "linux-x86_64-deb": "linux_x86_64.deb",
     "linux-x86_64-rpm": "linux_x86_64.rpm",

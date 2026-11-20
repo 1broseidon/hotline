@@ -63,7 +63,7 @@ Headless desk on a server:
 curl -fsSL https://hotline.dev/install | sh -s -- --server
 ```
 
-On Windows, or for `.deb`, `.rpm` and Intel Mac builds, grab the
+On Windows, or for `.deb` and `.rpm` builds, grab the
 [latest release](https://github.com/1broseidon/hotline/releases/latest). Then
 [pair the phone app](https://hotline.dev/docs/phone/).
 

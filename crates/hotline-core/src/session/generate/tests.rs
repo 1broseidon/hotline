@@ -405,7 +405,10 @@ async fn generation_through_rig_keeps_the_image_in_the_workspace_and_chat_and_ch
     }).to_string(), &mut ToolContext::new()).await;
     assert!(result.is_success(), "{result:?}");
     let result: Value = serde_json::from_str(result.output().as_text().unwrap()).unwrap();
-    assert_eq!(result["path"], json!(real(&dir).join("workspace/hero.png")));
+    assert_eq!(
+        result["path"],
+        json!(real(&dir).join("workspace").join("hero.png"))
+    );
     assert_eq!(result["model"], "fake-image");
     assert_eq!(result["costUsd"], 0.006);
     assert_eq!(result["transparent"], true);
@@ -585,7 +588,7 @@ async fn generated_svg_keeps_the_same_bounded_vector_file_in_workspace_and_chat(
     .unwrap();
     assert_eq!(
         result["path"],
-        json!(real(&dir).join("workspace/diagram.svg"))
+        json!(real(&dir).join("workspace").join("diagram.svg"))
     );
     let attachment = &attachments(&room)[0];
     assert_eq!(attachment["mimeType"], "image/svg+xml");
@@ -855,7 +858,7 @@ async fn a_connected_custom_provider_generates_through_the_real_resolver_and_htt
     })).await.unwrap()).unwrap();
     assert_eq!(
         result["path"],
-        json!(real(&dir).join("workspace/resolved.png"))
+        json!(real(&dir).join("workspace").join("resolved.png"))
     );
     assert_eq!(result["model"], "fake-image-model");
     assert_eq!(result["transparent"], false);

@@ -36,3 +36,33 @@ export function subscribeHearing(listener: () => void): () => void {
 export function useHearOnThisMac(): boolean {
 	return useSyncExternalStore(subscribeHearing, hearOnThisMac, () => true);
 }
+
+/**
+ * Whether a Turn by turn call heard by this Mac can be interrupted by
+ * talking over the teammate (bargeIn.ts), rather than only by a tap. Off
+ * unless the person turned it on: it relies on this Mac's echo cancellation,
+ * which a headset makes easy and open speakers may defeat, and only the
+ * person knows which they have. Kept here for the same reason as hearing.
+ */
+const INTERRUPT_KEY = "hotline.interruptBySpeaking";
+
+export function interruptBySpeaking(): boolean {
+	try {
+		return localStorage.getItem(INTERRUPT_KEY) === "on";
+	} catch {
+		return false;
+	}
+}
+
+export function setInterruptBySpeaking(on: boolean): void {
+	try {
+		localStorage.setItem(INTERRUPT_KEY, on ? "on" : "off");
+	} catch {
+		// Private storage refused: the choice lasts as long as the window.
+	}
+	for (const listener of listeners) listener();
+}
+
+export function useInterruptBySpeaking(): boolean {
+	return useSyncExternalStore(subscribeHearing, interruptBySpeaking, () => false);
+}

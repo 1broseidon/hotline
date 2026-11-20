@@ -4,7 +4,7 @@ import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { deviceTranscription } from "../voice/transcription";
-import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
+import { setHearOnThisMac, setInterruptBySpeaking, useHearOnThisMac, useInterruptBySpeaking } from "../voice/hearing";
 import { Fold } from "../ui/Fold";
 import {
 	acknowledgeOf,
@@ -236,6 +236,7 @@ export function CallSettings({
 						/>
 					</label>
 				)}
+				{rows.includes("Interrupt") && <InterruptBySpeaking />}
 				{rows.includes("Transcription") && onDesk && <ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />}
 			</div>
 			{words.hint !== undefined && <p className="group-hint">{words.hint}</p>}
@@ -260,7 +261,7 @@ function Transcription({
 	voice: unknown;
 	write(patch: Record<string, unknown>): void;
 }) {
-	const hearsHere = useSpeechOnThisMac();
+	const hearsHere = useSpeechOnThisMac() !== null;
 	const hearHere = useHearOnThisMac() && hearsHere;
 	const job = options.stt;
 	const choices: PickerChoice[] = [...(hearsHere ? [{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }] : []), ...shortChoices(job)];
@@ -287,19 +288,50 @@ function Transcription({
 	);
 }
 
-/** Whether a call placed from this window is heard by this Mac itself (see voice/call.ts), asked without a prompt. */
-function useSpeechOnThisMac(): boolean {
-	const [available, setAvailable] = useState(false);
+/**
+ * Which of this Mac's engines would hear a call placed from this window
+ * (see voice/call.ts), or null where none can; asked without a prompt.
+ */
+function useSpeechOnThisMac(): string | null {
+	const [engine, setEngine] = useState<string | null>(null);
 	useEffect(() => {
 		let current = true;
 		void deviceTranscription()?.capability().then((capability) => {
-			if (current) setAvailable(capability.available);
+			if (current) setEngine(capability.available ? (capability.engine ?? "") : null);
 		});
 		return () => {
 			current = false;
 		};
 	}, []);
-	return available;
+	return engine;
+}
+
+/**
+ * Talking over the teammate interrupts a Turn by turn call (voice/bargeIn.ts).
+ * Offered only where it works: this Mac hears the call with its analyzer,
+ * whose echo-cancelled channel it listens to. This computer's choice, off
+ * until the person turns it on.
+ */
+function InterruptBySpeaking() {
+	const engine = useSpeechOnThisMac();
+	const on = useInterruptBySpeaking();
+	if (!useHearOnThisMac() || engine !== "apple-analyzer") return null;
+	return (
+		<label className="group-row group-row-choice" title="Best with headphones">
+			<span className="group-row-text">
+				<span className="group-row-title">Interrupt by speaking</span>
+			</span>
+			<input
+				type="checkbox"
+				role="switch"
+				className="switch"
+				aria-label="Interrupt by speaking"
+				aria-checked={on}
+				checked={on}
+				onChange={(event) => setInterruptBySpeaking(event.target.checked)}
+			/>
+		</label>
+	);
 }
 
 /** What a job runs on now, as its row's second line. */

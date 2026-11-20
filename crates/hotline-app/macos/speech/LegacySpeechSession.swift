@@ -62,7 +62,8 @@ final class LegacySpeechSession: LocalSpeechSession {
 
   private func level(_ db: Double) {
     guard !cancelled, result == nil else { return }
-    emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000])
+    emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000,
+      "processed": microphone.processed])
   }
 
   func stop() async throws -> String {

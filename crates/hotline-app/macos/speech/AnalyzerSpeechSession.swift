@@ -95,10 +95,12 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
       consume: { buffer in audio.append(buffer) },
       level: { [weak self] db in
         guard let self, !self.cancelled, self.finishing == nil else { return }
-        self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000])
+        self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000,
+          "processed": self.microphone.processed])
       },
       interrupted: { [weak self] why in self?.fail(why) })
-    NSLog("[hotline-speech] listening: microphone %@, analyzer %@", microphone.format.description, format.description)
+    NSLog("[hotline-speech] listening: microphone %@, analyzer %@, voice processing %@",
+      microphone.format.description, format.description, microphone.processed ? "on" : "off")
   }
 
   /**

@@ -100,7 +100,7 @@ Headless wire/session tests cover desk compatibility, target validation,
 owner/companion boundaries, stream bounds, commit/cancellation and reply
 isolation, plus output-only text configuration, sequence/mode/bounds and no STT
 spend. Provider protocol tests use local fixtures. Desktop UI tests
-cover refused live starts, context-preserving recovery, explicit Turn by turn choice, Turn by turn not listening during playback and listening once a reply still open has played, target pinning and ordered playback.
+cover refused live starts, context-preserving recovery, explicit Turn by turn choice, Turn by turn not listening during playback and listening once a reply still open has played, target pinning and ordered playback, and, with Interrupt by speaking on, a reply paused by a voice, interrupted only by words it did not say, and never by its own echo ([design/voice-interrupt.md](design/voice-interrupt.md)).
 
 Release the core/server and desktop first. Mobile uses capabilities and native
 speech-recognition/AudioStream feature checks; older desks and installed runtimes retain

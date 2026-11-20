@@ -106,7 +106,8 @@ converter maps to mono by itself: a Bluetooth headset playing stereo (the
 call window's audio) gives three. The analyzer takes the first channel;
 without that it was fed silence while the meter moved, and the call ended
 "no words". Level events are the dBFS of that first channel alone, so the
-meter never moves with the teammate's reply in the reference channels.
+meter never moves with the teammate's reply in the reference channels, and
+say whether voice processing is on (`processed`).
 `crates/hotline-app/macos/speech/check/run` feeds a `say` sentence through
 the sink at one, two and three channels and fails unless each is heard, and
 fails if a buffer with silence first and sound in the others meters as
@@ -158,7 +159,15 @@ is hung up with a message to update it. A Turn by turn call does not listen
 while a reply plays: recognition (or, on an audio call, the turn detector) is
 let go when playback starts and taken up again when it ends, so the desk's
 own reply, loud in the microphone, can never be taken for the person and cut
-it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
+it off. A tap on the call (Cut in) interrupts it. With Settings › Voice ›
+Calls › Interrupt by speaking on (this computer's choice, off by default, and
+offered only where this Mac's analyzer hears calls), a session listens over
+the reply on the echo-cancelled channel: a voice pauses the reply, words the
+reply did not say within three seconds interrupt it as a tap would, and the
+same words become the person's next turn; otherwise it resumes where it
+paused ([design/voice-interrupt.md](design/voice-interrupt.md)). Its decisions
+are `[voice] … interrupt by speaking` lines in the app's log, written by the
+window through the shell's `voice_note`, never with the words. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it
 interrupts, with its own echo handling. A `thinking` that says `listening`
 is listened through: the call's phase is `listening` while the teammate

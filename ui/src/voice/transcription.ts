@@ -23,7 +23,8 @@ export type TranscriptionCapability = {
 export type TranscriptionEvent =
 	| { type: "partial"; text: string }
 	| { type: "final"; text: string }
-	| { type: "level"; levelDb: number; at: number; unit: "dbfs" }
+	/** `processed` is whether voice processing (echo cancellation) is on for the microphone; older shells omit it. */
+	| { type: "level"; levelDb: number; at: number; unit: "dbfs"; processed?: boolean }
 	| { type: "error"; message: string; code?: string }
 	| { type: "ended"; reason: "final" | "no-speech" | "cancelled" | "error" };
 

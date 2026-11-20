@@ -221,6 +221,12 @@ final class SpeechMicrophone {
   private var device: AudioDeviceID?
   /** The utterance listening now; a stop from any other is late and changes nothing. */
   private var owner: ObjectIdentifier?
+  /**
+   * Whether voice processing, and so echo cancellation, is on for the
+   * microphone listening now. Without it the teammate's reply reaches the
+   * first channel at full strength, so the window does not listen over it.
+   */
+  private(set) var processed = false
   private var warmed = false
 
   /**
@@ -284,6 +290,7 @@ final class SpeechMicrophone {
       self.owner = nil
       throw LocalSpeechError.noMicrophone
     }
+    processed = input.isVoiceProcessingEnabled
     let tap: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
       consume(buffer)
       // Copy only the scalar into the actor; AVAudioEngine reuses the tap's buffer.

@@ -432,7 +432,7 @@ export function callRows(kind: CallKind): string[] {
 		case "live":
 			return ["Model", "Voice", "Call assistant"];
 		case "turn-by-turn":
-			return ["Model", "Transcription", "Speech", "Call assistant", "Acknowledge"];
+			return ["Model", "Transcription", "Speech", "Call assistant", "Acknowledge", "Interrupt"];
 		case "off":
 			return ["Model"];
 	}

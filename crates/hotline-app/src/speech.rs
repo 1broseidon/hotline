@@ -114,6 +114,23 @@ pub async fn speech_cancel(session_id: String) {
     let _ = session_id;
 }
 
+/// One `[voice]` line from the window in this app's log (logs/hotline.log),
+/// beside the desk's own: a call's decisions taken in the window, such as
+/// pausing a reply for the person talking over it (ui/src/voice/note.ts).
+/// Kept to one bounded line.
+#[tauri::command]
+pub fn voice_note(line: String) {
+    eprintln!("[voice] {}", note_line(&line));
+}
+
+/// At most 300 characters, with no line breaks or other control characters.
+fn note_line(line: &str) -> String {
+    line.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(300)
+        .collect()
+}
+
 #[cfg(target_os = "macos")]
 mod apple {
     use super::Capability;
@@ -143,13 +160,16 @@ mod apple {
             session_id: String,
             text: String,
         },
-        /// `level_db` is dBFS of one microphone buffer; `at` is epoch
-        /// milliseconds.
+        /// `level_db` is dBFS of one microphone buffer's first channel, the
+        /// voice; `at` is epoch milliseconds. `processed` is whether voice
+        /// processing, and so echo cancellation, is on for the microphone.
         Level {
             session_id: String,
             level_db: f64,
             at: f64,
             unit: String,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            processed: Option<bool>,
         },
         Error {
             session_id: String,
@@ -317,6 +337,7 @@ mod tests {
             json!({ "sessionId": "s1", "type": "partial", "text": "hello" }),
             json!({ "sessionId": "s1", "type": "final", "text": "hello there" }),
             json!({ "sessionId": "s1", "type": "level", "levelDb": -42.5, "at": 1_760_000_000_000.0, "unit": "dbfs" }),
+            json!({ "sessionId": "s1", "type": "level", "levelDb": -42.5, "at": 1_760_000_000_000.0, "unit": "dbfs", "processed": true }),
             json!({ "sessionId": "s1", "type": "error", "message": "The microphone changed. Call again." }),
             json!({ "sessionId": "s1", "type": "error", "message": "No speech.", "code": "1110" }),
             json!({ "sessionId": "s1", "type": "ended", "reason": "no-speech" }),
@@ -330,6 +351,12 @@ mod tests {
         assert!(
             serde_json::from_value::<Event>(json!({ "sessionId": "s1", "type": "loud" })).is_err()
         );
+    }
+
+    #[test]
+    fn a_note_from_the_window_is_one_bounded_line() {
+        assert_eq!(note_line("paused\nthe reply\r"), "paused the reply ");
+        assert_eq!(note_line(&"x".repeat(400)).chars().count(), 300);
     }
 
     /// Prints what this Mac reports without asking for anything:

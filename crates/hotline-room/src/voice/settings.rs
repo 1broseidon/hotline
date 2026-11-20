@@ -24,9 +24,11 @@
 //! `{"provider": "off"}` offers no calls at all, to the desk or to a
 //! teammate.
 //!
-//! `acknowledge`, off unless it is `true`, has the desk say a short line in
-//! a teammate's voice while the teammate starts on a Turn by turn turn
-//! (the voice crate's `acknowledgement`).
+//! `acknowledge` has the desk say a short line in a teammate's voice while
+//! the teammate starts on a Turn by turn turn (the voice crate's
+//! `acknowledgement`). It is on unless it is `false`: a room that never set
+//! it gets it, and an owner who switched it off keeps it off, so Settings
+//! writes `false` for off rather than taking the key away.
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -148,7 +150,7 @@ pub struct VoiceSettings {
     pub teammates: Vec<String>,
     /// Whether the desk acknowledges, in the teammate's voice, what the
     /// person asked while the teammate thinks on a Turn by turn call
-    /// (`acknowledge`). Off unless the owner turned it on.
+    /// (`acknowledge`). On unless the owner switched it off.
     pub acknowledge: bool,
 }
 
@@ -208,7 +210,7 @@ impl VoiceSettings {
             dispatcher: choice(voice, "dispatcher"),
             listen_for: words(voice, "listenFor"),
             teammates: Vec::new(),
-            acknowledge: voice.get("acknowledge").and_then(Value::as_bool) == Some(true),
+            acknowledge: voice.get("acknowledge").and_then(Value::as_bool) != Some(false),
         }
     }
 }
@@ -309,8 +311,9 @@ mod tests {
         settings
     }
 
-    /// What a room that never set voice reads as: no limits or picks, and
-    /// Grok Voice fronting calls on whatever xAI login is connected.
+    /// What a room that never set voice reads as: no limits or picks, Grok
+    /// Voice fronting calls on whatever xAI login is connected, and the
+    /// desk acknowledging while a teammate thinks.
     fn untouched() -> VoiceSettings {
         VoiceSettings {
             front: Some(FrontChoice {
@@ -318,6 +321,7 @@ mod tests {
                 credential: None,
                 voice: None,
             }),
+            acknowledge: true,
             ..VoiceSettings::default()
         }
     }
@@ -366,16 +370,19 @@ mod tests {
         );
     }
 
+    /// Never set is on; only the owner's `false` is off, and it stays off.
+    /// A value that cannot be read costs only itself: it reads as never set.
     #[test]
-    fn acknowledging_is_on_only_when_the_owner_says_true() {
-        assert!(VoiceSettings::from_room(&room(json!({"acknowledge": true}))).acknowledge);
-        for value in [json!(false), json!("true"), json!(1), Value::Null] {
+    fn acknowledging_is_on_unless_the_owner_switched_it_off() {
+        assert!(VoiceSettings::from_room(&Map::new()).acknowledge);
+        assert!(VoiceSettings::from_room(&room(json!({}))).acknowledge);
+        assert!(!VoiceSettings::from_room(&room(json!({"acknowledge": false}))).acknowledge);
+        for value in [json!(true), json!("false"), json!(0), Value::Null] {
             assert!(
-                !VoiceSettings::from_room(&room(json!({"acknowledge": value}))).acknowledge,
+                VoiceSettings::from_room(&room(json!({"acknowledge": value}))).acknowledge,
                 "{value}"
             );
         }
-        assert!(!VoiceSettings::from_room(&Map::new()).acknowledge);
     }
 
     #[test]

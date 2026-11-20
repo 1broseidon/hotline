@@ -160,8 +160,9 @@ while a reply plays: recognition (or, on an audio call, the turn detector) is
 let go when playback starts and taken up again when it ends, so the desk's
 own reply, loud in the microphone, can never be taken for the person and cut
 it off. A tap on the call (Cut in) interrupts it. With Settings › Voice ›
-Calls › Interrupt by speaking on (this computer's choice, off by default, and
-offered only where this Mac's analyzer hears calls), a session listens over
+Calls › Interrupt by speaking on (this computer's choice, on unless the
+person switched it off, which is kept as off, and offered only where this
+Mac's analyzer hears calls), a session listens over
 the reply on the echo-cancelled channel: a voice pauses the reply, words the
 reply did not say within three seconds interrupt it as a tap would, and the
 same words become the person's next turn; otherwise it resumes where it
@@ -959,8 +960,10 @@ voice. Desk calls always use the desk's voice.
 
 A teammate's model can take ten seconds to write its first words, and Turn
 by turn is quiet meanwhile. With `acknowledge` on (Settings › Voice ›
-Calls, Acknowledge while the teammate thinks, shown for Turn by turn; off
-by default), the desk covers that wait with one short line in the
+Calls, Acknowledge while the teammate thinks, shown for Turn by turn; on
+unless it is `false`, which the switch writes for off so a room that never
+set it gets it and an owner who switched it off keeps it off), the desk
+covers that wait with one short line in the
 teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
 
 - Once the person's words are in, the call assistant is asked for one line
@@ -1006,7 +1009,9 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   earlier turn, even one that has spoken its answer, are always asked a line
   however quick the teammate was: they wait behind that turn, and the line is
   how the person hears they were taken. The teammate's turn is told of a
-  line only when one is asked for.
+  line only when one is asked for: a turn these rules skip, a desk with no
+  call assistant among them, keeps the usual contract and the teammate's
+  own opening line.
 - The call assistant's request reserves on Chat and the line's speech on
   Voice, as a rewrite does; either refused, nothing is said for the turn and
   the call goes on.

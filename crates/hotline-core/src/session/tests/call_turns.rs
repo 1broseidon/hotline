@@ -96,7 +96,9 @@ impl Heard {
 
 /// Ada on `turns`, one update per permit of `gate`, a Turn by turn call to
 /// her that takes typed lines, what the call says and its voice, which has a
-/// line ready for any acknowledgement asked of it.
+/// line ready for any acknowledgement asked of it. Acknowledging is switched
+/// off until a test switches it on ([`acknowledging`]), so a test that does
+/// not hears only the teammate.
 async fn call_on(
     name: &str,
     turns: Vec<Vec<Update>>,
@@ -110,6 +112,7 @@ async fn call_on(
 ) {
     let fake = Fake::new(Scripted::turns(turns).gated(gate.clone()));
     let room = room(name, fake.clone());
+    acknowledging(&room, false);
     let vault = Arc::new(
         crate::vault::Vault::open_with_store(
             room.log.root(),
@@ -151,14 +154,14 @@ async fn call_on(
     (room, fake, calls, heard, id)
 }
 
-/// Acknowledge while the teammate thinks, from now on.
-fn acknowledging(room: &Room) {
+/// Acknowledge while the teammate thinks, or not, from now on.
+fn acknowledging(room: &Room, on: bool) {
     room.log
         .append(
             &StreamId::Room,
             &crate::room::room_event(
                 "setting",
-                json!({"id": "voice", "value": {"acknowledge": true}}),
+                json!({"id": "voice", "value": {"acknowledge": on}}),
             ),
         )
         .unwrap();
@@ -216,7 +219,7 @@ async fn words_said_while_the_answered_turn_is_still_open_wait_for_it_and_are_an
     until("the answer is said", || heard.said(FIRST) == 1).await;
     assert_eq!(waiting(&calls, &id).1, Some(1), "the turn is still open");
 
-    acknowledging(&room);
+    acknowledging(&room, true);
     calls
         .text(&id, 2, "Do the same comparison for Dougie Hamilton.", None)
         .unwrap();
@@ -272,7 +275,7 @@ async fn words_said_as_the_answered_turn_ends_start_a_turn_the_call_waits_for() 
 
     // The words reach the call while the earlier turn is open, and reach the
     // session only once it is over.
-    acknowledging(&room);
+    acknowledging(&room, true);
     let admission = room.sides.waking.lock().await;
     calls
         .text(&id, 2, "Do the same comparison for Dougie Hamilton.", None)
@@ -400,7 +403,7 @@ async fn the_call_listens_once_the_answer_is_said_though_its_reply_is_still_open
         "and so is the reply"
     );
 
-    acknowledging(&room);
+    acknowledging(&room, true);
     calls
         .text(&id, 2, "Do the same comparison for Dougie Hamilton.", None)
         .unwrap();

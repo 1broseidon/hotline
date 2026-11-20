@@ -1146,7 +1146,7 @@ ends, and a tap (Cut in) is the way to interrupt. Echo cancellation in the
 browser's capture and the Mac recognizer's voice processing did not keep a
 reply on a speaker from being heard as the person and cutting itself off;
 a realtime model handles its own echo, the pipeline cannot. Late clips from
-a cut Turn by turn line are discarded. Interrupt by speaking, off by default
+a cut Turn by turn line are discarded. Interrupt by speaking, on by default
 and only where this Mac's analyzer hears the call, listens over the reply
 again without letting energy cut it: a voice only pauses it, and only words
 the reply did not say interrupt it, through the same `voice.interrupt` as a

@@ -17,18 +17,25 @@ const SECOND: &str = "Hamilton has more assists.";
 /// A reply said on the call, as an agent streams it and then writes it.
 fn answer(id: &str, said: &str) -> Vec<Update> {
     let text = format!("<spoken>{said}</spoken>");
-    vec![
-        Update::Delta {
-            kind: MessageKind::Agent,
-            message_id: id.into(),
-            text: text.clone(),
-        },
-        Update::Message {
-            kind: MessageKind::Agent,
-            id: id.into(),
-            text,
-        },
-    ]
+    vec![piece(id, &text), whole(id, &text)]
+}
+
+/// A piece of a reply as an agent streams it.
+fn piece(id: &str, text: &str) -> Update {
+    Update::Delta {
+        kind: MessageKind::Agent,
+        message_id: id.into(),
+        text: text.into(),
+    }
+}
+
+/// A reply as the agent writes it once it is whole.
+fn whole(id: &str, text: &str) -> Update {
+    Update::Message {
+        kind: MessageKind::Agent,
+        id: id.into(),
+        text: text.into(),
+    }
 }
 
 fn end() -> Update {
@@ -38,21 +45,52 @@ fn end() -> Update {
     }
 }
 
-/// A call's lines as the person hears them, read off its events.
+/// A call's lines as the person hears them, read off its events, with the
+/// states it says and how many clips of sound it sent.
 struct Heard {
     events: tokio::sync::broadcast::Receiver<hotline_contract::VoiceEvent>,
     lines: Vec<String>,
+    /// Each state the call said, and whether it said it listens.
+    states: Vec<(VoiceState, bool)>,
+    sounds: usize,
 }
 
 impl Heard {
-    /// How many times `line` was said on the call, whole.
-    fn said(&mut self, line: &str) -> usize {
+    fn read(&mut self) {
+        use hotline_contract::VoiceEvent;
         while let Ok(event) = self.events.try_recv() {
-            if let hotline_contract::VoiceEvent::Said { text, .. } = event {
-                self.lines.push(text);
+            match event {
+                VoiceEvent::Said { text, .. } => self.lines.push(text),
+                VoiceEvent::State {
+                    state, listening, ..
+                } => self.states.push((state, listening)),
+                VoiceEvent::Clip { data, .. } if !data.is_empty() => self.sounds += 1,
+                _ => {}
             }
         }
+    }
+
+    /// How many times `line` was said on the call, whole.
+    fn said(&mut self, line: &str) -> usize {
+        self.read();
         self.lines.iter().filter(|said| *said == line).count()
+    }
+
+    /// Whether the call last said it takes what the person says: it
+    /// listens, or thinks while the teammate's turn works and says it
+    /// listens, which the window shows as Listening once nothing plays.
+    fn listens(&mut self) -> bool {
+        self.read();
+        matches!(
+            self.states.last(),
+            Some((VoiceState::Listening, _) | (VoiceState::Thinking, true))
+        )
+    }
+
+    /// How many clips of sound the call has sent.
+    fn sounds(&mut self) -> usize {
+        self.read();
+        self.sounds
     }
 }
 
@@ -107,6 +145,8 @@ async fn call_on(
     let heard = Heard {
         events,
         lines: Vec::new(),
+        states: Vec::new(),
+        sounds: 0,
     };
     (room, fake, calls, heard, id)
 }
@@ -315,6 +355,174 @@ async fn words_dropped_by_a_stop_in_the_thread_end_the_wait_for_them() {
     assert_eq!(lock(&fake.driver.prompts).len(), 1, "the words never ran");
     until("the person hears nothing came of them", || {
         heard.said(hotline_voice::NOTHING_SAID) == 1
+    })
+    .await;
+    calls.end(&id).unwrap();
+}
+
+/// The teammate has said its answer while its reply and turn are still open:
+/// it goes on writing the written half. The call stops speaking as soon as
+/// nothing more of the answer is in flight, and says it listens, so the
+/// window takes the person's words once the answer has played, not once the
+/// reply closes. Those words wait behind the open turn, are acknowledged and
+/// answered, and the rest of the reply is not said over them.
+#[tokio::test]
+async fn the_call_listens_once_the_answer_is_said_though_its_reply_is_still_open() {
+    let gate = Arc::new(Semaphore::new(0));
+    let spoken = format!("<spoken>{FIRST}</spoken>");
+    let written = "\n<written>Tavares has 41 goals to Marner's 27.</written>";
+    let first = vec![
+        piece("a1", &spoken),
+        piece("a1", written),
+        whole("a1", &format!("{spoken}{written}")),
+        end(),
+    ];
+    let mut second = answer("a2", SECOND);
+    second.push(end());
+    let (room, fake, calls, mut heard, id) =
+        call_on("call-listens-after-answer", vec![first, second], &gate).await;
+
+    calls
+        .text(&id, 1, "Compare Tavares and Marner.", None)
+        .unwrap();
+    gate.add_permits(1);
+    until("the answer is said", || heard.said(FIRST) == 1).await;
+    until("the call listens", || heard.listens()).await;
+    assert_eq!(
+        waiting(&calls, &id),
+        (VoiceState::Thinking, Some(1)),
+        "the turn is still open"
+    );
+    assert!(
+        calls
+            .test_change(&id, |call| Ok(call.streams.contains_key("a1")))
+            .unwrap(),
+        "and so is the reply"
+    );
+
+    acknowledging(&room);
+    calls
+        .text(&id, 2, "Do the same comparison for Dougie Hamilton.", None)
+        .unwrap();
+    handed(&calls, &id).await;
+    until("the person hears their words were taken", || {
+        heard.said(ACK) == 1
+    })
+    .await;
+    assert_eq!(
+        lock(&fake.driver.prompts).len(),
+        1,
+        "the words wait behind the open turn"
+    );
+
+    gate.add_permits(3);
+    next_turn_began(&room, &id, 2, &fake).await;
+    assert_eq!(waiting(&calls, &id), (VoiceState::Thinking, Some(2)));
+    gate.add_permits(3);
+    until("the new turn is answered", || heard.said(SECOND) == 1).await;
+    until("the call listens once it is over", || {
+        waiting(&calls, &id) == (VoiceState::Listening, None)
+    })
+    .await;
+    assert_eq!(
+        heard.said(FIRST),
+        1,
+        "nothing of the first reply came again"
+    );
+    calls.end(&id).unwrap();
+}
+
+/// More of the same answer that comes after the call went back to listening,
+/// with the person silent, is said as before: the call speaks again, sends
+/// its sound, and listens once that is sent too.
+#[tokio::test]
+async fn more_of_the_answer_after_the_call_listens_is_still_said() {
+    let gate = Arc::new(Semaphore::new(0));
+    let both = format!("{FIRST} {SECOND}");
+    let first = vec![
+        piece("a1", &format!("{FIRST} ")),
+        piece("a1", &format!("{SECOND} ")),
+        whole("a1", &both),
+        end(),
+    ];
+    let (_room, _fake, calls, mut heard, id) =
+        call_on("call-more-after-listening", vec![first], &gate).await;
+
+    calls
+        .text(&id, 1, "Compare Tavares and Hamilton.", None)
+        .unwrap();
+    gate.add_permits(1);
+    until("the answer's first sentence is said", || {
+        heard.said(FIRST) == 1
+    })
+    .await;
+    until("the call listens", || heard.listens()).await;
+    let sounds = heard.sounds();
+    let listened = heard.states.len();
+
+    gate.add_permits(1);
+    until("more of the answer is said", || heard.said(&both) == 1).await;
+    until("and sent to be heard", || heard.sounds() > sounds).await;
+    assert!(
+        heard.states[listened..].contains(&(VoiceState::Speaking, false)),
+        "the call speaks again: {:?}",
+        heard.states
+    );
+    until("the call listens again", || heard.listens()).await;
+
+    gate.add_permits(2);
+    until("the call listens once the turn is over", || {
+        waiting(&calls, &id) == (VoiceState::Listening, None)
+    })
+    .await;
+    calls.end(&id).unwrap();
+}
+
+/// More of the answer that comes once the person has spoken again is never
+/// said over them: their words stop the reply, as speaking over it does, and
+/// they are the turn the call waits for.
+#[tokio::test]
+async fn more_of_the_answer_after_the_person_spoke_is_not_said_over_them() {
+    let gate = Arc::new(Semaphore::new(0));
+    const LATE: &str = "Marner trails him by fourteen.";
+    let first = vec![
+        piece("a1", &format!("{FIRST} ")),
+        piece("a1", &format!("{LATE} ")),
+        whole("a1", &format!("{FIRST} {LATE}")),
+        end(),
+    ];
+    let mut second = answer("a2", SECOND);
+    second.push(end());
+    let (room, fake, calls, mut heard, id) =
+        call_on("call-more-after-person", vec![first, second], &gate).await;
+
+    calls
+        .text(&id, 1, "Compare Tavares and Marner.", None)
+        .unwrap();
+    gate.add_permits(1);
+    until("the answer's first sentence is said", || {
+        heard.said(FIRST) == 1
+    })
+    .await;
+    until("the call listens", || heard.listens()).await;
+    calls
+        .text(&id, 2, "Do the same comparison for Dougie Hamilton.", None)
+        .unwrap();
+    handed(&calls, &id).await;
+    let sounds = heard.sounds();
+
+    gate.add_permits(3);
+    next_turn_began(&room, &id, 2, &fake).await;
+    assert!(
+        !heard.lines.iter().any(|line| line.contains(LATE)),
+        "{:?}",
+        heard.lines
+    );
+    assert_eq!(heard.sounds(), sounds, "no sound of the rest of the reply");
+    assert_eq!(waiting(&calls, &id), (VoiceState::Thinking, Some(2)));
+    gate.add_permits(3);
+    until("the person's words are answered", || {
+        heard.said(SECOND) == 1
     })
     .await;
     calls.end(&id).unwrap();

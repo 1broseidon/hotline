@@ -573,7 +573,8 @@ describe("a call while the teammate works", () => {
 		await r.call.start();
 		r.desk(WORKING);
 		r.desk({ type: "state", state: "speaking" });
-		expect(r.call.current.phase).toBe("thinking");
+		// Until its sound arrives the call goes on listening: the person still has the floor.
+		expect(r.call.current.phase).toBe("listening");
 		r.desk({ type: "said", id: "s1", text: "Looking at the logs." });
 		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "logs" });
 		expect(r.call.current.phase).toBe("speaking");
@@ -586,6 +587,111 @@ describe("a call while the teammate works", () => {
 		r.speak(0.3, 3_100, 3_700);
 		r.speak(0, 3_750, 5_000);
 		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
+		r.call.hangUp();
+	});
+
+	/** A call on which the person asked something, and the teammate's spoken answer is playing, its reply still open. */
+	async function answerPlaying() {
+		const r = rig(MACK, { personaId: "mack" });
+		await r.call.start();
+		r.speak(0.3, 1_000, 1_600);
+		r.speak(0, 1_650, 3_000);
+		r.desk({ type: "state", state: "thinking" });
+		r.desk(WORKING);
+		r.desk({ type: "state", state: "speaking" });
+		r.desk({ type: "said", id: "a1", text: "Tavares leads on goals." });
+		r.desk({ type: "clip", id: "a1", index: 0, final: false, mimeType: "audio/wav", data: "goals" });
+		// Nothing more of the reply is in flight: its written half is still being written, and the turn is open.
+		r.desk(WORKING);
+		return r;
+	}
+	const utterances = (r: ReturnType<typeof rig>) => r.sent.filter((one) => one.cmd === "voice.utterance").map((one) => one.params["seq"]);
+
+	test("once the answer has played the call listens, though the reply and its turn are still open", async () => {
+		const r = await answerPlaying();
+		expect(r.call.current.phase).toBe("speaking");
+		// While it plays, the microphone is not listened to: its own sound is never taken for the person.
+		const before = r.sent.length;
+		r.speak(0.3, 3_100, 3_700);
+		r.speak(0, 3_750, 5_000);
+		expect(r.sent.slice(before).map((one) => one.cmd)).toEqual([]);
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		// What the person says now is heard and sent, to wait behind the open turn as its next one.
+		r.speak(0.3, 5_100, 5_700);
+		expect(r.call.current.phase).toBe("hearing");
+		r.speak(0, 5_750, 7_000);
+		expect(utterances(r)).toEqual([1, 2]);
+		expect(r.call.current.phase).toBe("thinking");
+		// The rest of the reply they spoke over is not played.
+		r.desk({ type: "clip", id: "a1", index: 1, final: true, mimeType: "audio/wav", data: "" });
+		r.desk({ type: "state", state: "thinking" });
+		r.desk(WORKING);
+		expect(r.played).toEqual(["goals"]);
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("more of the answer after it has played plays while the person is silent, and the call listens after it", async () => {
+		const r = await answerPlaying();
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		r.desk({ type: "state", state: "speaking" });
+		expect(r.call.current.phase).toBe("listening");
+		r.desk({ type: "said", id: "a1", text: "Tavares leads on goals. The table is in our chat." });
+		r.desk({ type: "clip", id: "a1", index: 1, final: false, mimeType: "audio/wav", data: "pointer" });
+		expect(r.played).toEqual(["goals", "pointer"]);
+		expect(r.call.current.phase).toBe("speaking");
+		r.desk({ type: "clip", id: "a1", index: 2, final: true, mimeType: "audio/wav", data: "" });
+		r.desk(WORKING);
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("more of the answer that comes while the person is talking does not play over them, and goes when they said something", async () => {
+		const r = await answerPlaying();
+		r.finishClip();
+		r.speak(0.3, 3_100, 3_700);
+		expect(r.call.current.phase).toBe("hearing");
+		r.desk({ type: "state", state: "speaking" });
+		r.desk({ type: "said", id: "a1", text: "Tavares leads on goals. The table is in our chat." });
+		r.desk({ type: "clip", id: "a1", index: 1, final: false, mimeType: "audio/wav", data: "pointer" });
+		expect(r.played).toEqual(["goals"]);
+		expect(r.call.current.phase).toBe("hearing");
+		r.speak(0, 3_750, 5_000);
+		expect(utterances(r)).toEqual([1, 2]);
+		r.desk({ type: "clip", id: "a1", index: 2, final: true, mimeType: "audio/wav", data: "" });
+		r.desk({ type: "state", state: "thinking" });
+		r.desk(WORKING);
+		expect(r.played).toEqual(["goals"]);
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("more of the answer said before the desk took the person's words does not play after them", async () => {
+		const r = await answerPlaying();
+		r.finishClip();
+		r.speak(0.3, 3_100, 3_700);
+		r.speak(0, 3_750, 5_000);
+		expect(utterances(r)).toEqual([1, 2]);
+		r.desk({ type: "state", state: "speaking" });
+		r.desk({ type: "clip", id: "a1", index: 1, final: false, mimeType: "audio/wav", data: "pointer" });
+		expect(r.played).toEqual(["goals"]);
+		expect(r.call.current.phase).toBe("thinking");
+		r.desk({ type: "state", state: "thinking" });
+		r.desk(WORKING);
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("a tap still cuts off the answer while it plays", async () => {
+		const r = await answerPlaying();
+		r.call.interrupt();
+		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
+		expect(r.call.current.phase).toBe("listening");
+		r.desk({ type: "clip", id: "a1", index: 1, final: true, mimeType: "audio/wav", data: "late" });
+		expect(r.played).toEqual(["goals"]);
 		r.call.hangUp();
 	});
 

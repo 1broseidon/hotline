@@ -744,7 +744,9 @@ function LoginForm({
  * computer showed, at its last handing over, that it runs its programs
  * apart from what it is handed; until it has, a login or passkey given to
  * it is readable, and the list says so before the tick and on the row.
- * `places` is where this teammate's variables can go: with both a
+ * `computerReadable` is what that computer said, at the same handing over,
+ * it holds but cannot keep from its programs; its row says readable too,
+ * so the list and the computer never disagree. `places` is where this teammate's variables can go: with both a
  * computer and a desk shell, a variable's grant says which of them it
  * reaches, its computer alone until the person adds the shell; with only a
  * desk shell, a variable ticked here goes there. A login or a passkey goes
@@ -755,6 +757,7 @@ export function TeammateSecrets({
 	places,
 	asPerson,
 	computerShown = false,
+	computerReadable = [],
 	disabled,
 	onChange,
 }: {
@@ -762,6 +765,7 @@ export function TeammateSecrets({
 	places: GrantPlace[];
 	asPerson: boolean;
 	computerShown?: boolean;
+	computerReadable?: string[];
 	disabled: boolean;
 	onChange(grants: SecretGrant[]): void;
 }) {
@@ -792,7 +796,8 @@ export function TeammateSecrets({
 	const sorted = (next: SecretGrant[]) => [...next].sort((left, right) => left.name.localeCompare(right.name));
 	// Where a login or passkey goes: its computer when it has one.
 	const toComputer = places.includes("computer");
-	const readable = (record: SharedSecret | undefined) => readableAnyway(record, asPerson, computerShown || !toComputer);
+	const readable = (record: SharedSecret | undefined) =>
+		readableAnyway(record, asPerson, computerShown || !toComputer) || (toComputer && record !== undefined && computerReadable.includes(record.name));
 	// Only a variable's grant carries `readable`; a key used with Other stays
 	// a key its programs get a stand-in for, and says it is readable anyway.
 	const readableGrant = (record: SharedSecret | undefined) => record?.kind === "variable" && (record.usedWith === undefined || asPerson);

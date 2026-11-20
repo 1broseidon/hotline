@@ -183,10 +183,10 @@ mod tests {
     use crate::computer::guide::fake;
 
     fn ready(port: u16) -> Ready {
-        Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "fake-token".to_string(),
-        }
+        Ready::new(
+            format!("http://127.0.0.1:{port}/mcp"),
+            "fake-token".to_string(),
+        )
     }
 
     fn over(size: Option<u64>) -> String {

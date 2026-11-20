@@ -38,7 +38,7 @@ check: hooks-nudge ui-check deps speech-engine
 # IMAGE is a probe build of the candidate: its key proxy also trusts the
 # test's CA. It is ignored by `cargo test` and needs a Mac.
 secrets-e2e: speech-engine
-	HOTLINE_E2E_IMAGE=$(or $(IMAGE),hotline-computer:0.13.0-rc.2-probe) \
+	HOTLINE_E2E_IMAGE=$(or $(IMAGE),hotline-computer:0.13.0-rc.3-probe) \
 	  cargo test -p hotline-core --lib real_computer -- --ignored --nocapture --test-threads=1
 
 # The desk's speech engine is linked from a prebuilt archive the build never

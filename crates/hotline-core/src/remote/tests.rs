@@ -570,6 +570,7 @@ impl RoomHandle for Computered {
             update_failed: None,
             limits_changed: false,
             protection: *self.protection.lock().unwrap(),
+            readable: Vec::new(),
             migration: None,
         })
     }

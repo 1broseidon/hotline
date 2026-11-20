@@ -108,6 +108,7 @@ impl Room {
                     crate::contract::ComputerProtection::NeedsUpdate,
                 );
                 self.computers.learned_migration(&persona.id, None);
+                self.computers.learned_readable(&persona.id, Vec::new());
                 notice(format!(
                     "{}'s computer {}",
                     persona.name,
@@ -124,6 +125,8 @@ impl Room {
                     crate::contract::ComputerProtection::NeedsUpdate
                 };
                 self.computers.learned_protection(&persona.id, protection);
+                self.computers
+                    .learned_readable(&persona.id, handed.readable.clone());
                 // A computer's first split boot may have snapshots from
                 // before it waiting for the person's answer.
                 let migration = if protected {

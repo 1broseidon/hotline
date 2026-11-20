@@ -200,10 +200,10 @@ mod tests {
     #[tokio::test]
     async fn an_arming_is_put_polled_answered_and_ended_over_the_bearer_door() {
         let (port, taken) = fake::serve_taking(Some("0.9.0")).await;
-        let ready = Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "the-token".to_owned(),
-        };
+        let ready = Ready::new(
+            format!("http://127.0.0.1:{port}/mcp"),
+            "the-token".to_owned(),
+        );
         assert_eq!(poll(&ready).await, Ok(Registration::Idle));
         let expires_at = arm(&ready, "github.com").await.expect("armed");
         assert!(expires_at > 0);
@@ -276,10 +276,10 @@ mod tests {
         // A release from before the answer door mints without asking, and
         // has no door for an answer.
         let (port, taken) = fake::serve_taking(Some("0.8.1")).await;
-        let earlier = Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "the-token".to_owned(),
-        };
+        let earlier = Ready::new(
+            format!("http://127.0.0.1:{port}/mcp"),
+            "the-token".to_owned(),
+        );
         arm(&earlier, "github.com").await.expect("armed");
         assert_eq!(answer(&earlier, "ask-1", true).await, Err(Refusal::TooOld));
         taken.mint();
@@ -289,10 +289,10 @@ mod tests {
         ));
         // A release from before passkeys has no such door.
         let (port, _) = fake::serve_taking(Some("0.7.0")).await;
-        let old = Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "the-token".to_owned(),
-        };
+        let old = Ready::new(
+            format!("http://127.0.0.1:{port}/mcp"),
+            "the-token".to_owned(),
+        );
         assert_eq!(arm(&old, "github.com").await, Err(Refusal::TooOld));
         // A refused bearer is a refusal, not an old release. (The fake
         // checks that a bearer is presented, not which.)

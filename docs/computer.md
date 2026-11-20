@@ -41,19 +41,31 @@ the chosen image, the teammate's pane offers the update.
   SETUID --cap-add SETGID` and nothing else; a tag that is not a release
   number gets the older flags.
 - `GET /capabilities?nonce=N` says whether the computer keeps secrets from
-  its jobs: `{version, boot, protected: {v: 1, mode}, attest}`, where
-  `attest` is base64 HMAC-SHA256 under the bearer of
-  `hotline-broker-v1|<boot>|<N>`. The desk asks with a fresh nonce before
-  every handing over and before Use Cookies. `mode: "split"` with an
-  `attest` this bearer made is a protected computer; a 404 (a release before
-  0.13) or `mode: "legacy"` is not; `split` with any other `attest` (none,
-  one for another nonce or boot, one another key made) is handed nothing
-  at all, and the pane treats it as needing an update. The checks are one
-  function, `computer/secrets.rs` `verify_attest`, and the MAC's input one
-  more, `attest_input`; the set goes only after the proof verified, on the
-  same client. The MAC covers neither the mode nor an instance yet, and is
-  keyed on the bearer: the computer is moving to a key only its broker
-  holds, and those two functions are where the desk follows it.
+  its jobs: `{version, boot, protected: {v, mode, …}, attest}`. The desk
+  asks with a fresh nonce before every handing over and before Use
+  Cookies, and reads the proof by `protected.v`. v1 (0.13.0-rc.2 and
+  before): `attest` is base64 HMAC-SHA256 under the bearer of
+  `hotline-broker-v1|<boot>|<N>`. v2 (0.13.0-rc.3 on): each boot makes a
+  32-byte key and hands it once, `POST /capabilities/key` →
+  `{v: 2, boot, key}`, then 409; the desk takes it as soon as a computer it
+  started answers, keeps it beside the bearer in its own memory, never
+  sends or logs it, and forgets it with the computer; `attest` is base64
+  HMAC-SHA256 under that key of
+  `hotline-broker-v2|<boot>|<mode>|<version>|<N>`. `mode: "split"` with an
+  `attest` that checks is a protected computer; a 404 (a release before
+  0.13), `mode: "legacy"`, a version the desk does not know, or a v2 boot
+  whose key the desk does not hold (taken first by something else, or by
+  the desk before it restarted) is not, and is handed what a legacy
+  computer is; `split` with any other `attest` (none, one for another
+  nonce, boot, mode or release, one another key made) is handed nothing at
+  all, and the pane treats it as needing an update. The checks are
+  `computer/secrets.rs` `verify_attest_v1` and `verify_attest_v2`, the
+  MAC's inputs `attest_input_v1` and `attest_input_v2`; the set goes only
+  after the proof verified, on the same client. A v2 computer's
+  `protected.readable` names what of the set it holds it cannot keep from
+  its jobs (a login or passkey for a loopback site, a key used with an
+  "Other" service); the desk asks again after handing the set over and
+  gives those names to the pane as `computer.status` `readable`.
 - The workspace is mounted at `/home/agent/workspace`.
 - `PUT /secrets` takes the whole set of secrets the teammate is granted for
   its computer, bearer in the `Authorization` header. A protected computer
@@ -63,7 +75,8 @@ the chosen image, the teammate's pane offers the update.
   granted protected is `{kind: "variable", value, use: {origins, header,
   schemes, refuse?, standIn: {prefix, length}}}` from its "Used with"
   (`crates/hotline-core/src/vault/services.json`), and a login or passkey is
-  the record below. What the computer does with a key's `use` is that
+  the record below, with `readable: true` when it is for a site on the
+  computer itself (a v2 computer types or signs with one there only then). What the computer does with a key's `use` is that
   release's to document. Any other computer is sent the v1 form, as 0.49
   sent it, a JSON object of name to secret, and is never sent a key granted
   protected: that waits on the desk, and `computer.status` says

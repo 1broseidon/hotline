@@ -113,11 +113,34 @@ pub enum PullOutcome {
 }
 
 /// What the grant and the in-process client need once the machine is up.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A computer is its address and its bearer; `attest` is the key its boot
+/// handed this desk, shared by every `Ready` of it (see
+/// [`secrets::AttestKey`]), and not part of which computer it is.
+#[derive(Clone, Debug)]
 pub struct Ready {
     pub url: String,
     pub token: String,
+    pub attest: secrets::AttestKey,
 }
+
+impl Ready {
+    /// A computer at `url` with `token`, holding no attest key yet.
+    pub fn new(url: impl Into<String>, token: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            token: token.into(),
+            attest: secrets::AttestKey::default(),
+        }
+    }
+}
+
+impl PartialEq for Ready {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url && self.token == other.token
+    }
+}
+
+impl Eq for Ready {}
 
 /// A client for the desk's own requests to a computer. It follows no
 /// redirect: every door is on the computer's loopback port and answers
@@ -303,6 +326,12 @@ struct Live {
     /// The snapshots its move to split mode left for the person, while
     /// they have not answered.
     migration: Option<crate::contract::ComputerMigration>,
+    /// What it said at the last handing over it holds but cannot keep from
+    /// its programs, while it proved itself protected.
+    readable: Vec<String>,
+    /// The key its boot handed this desk, kept beside the bearer and
+    /// forgotten with it.
+    attest: secrets::AttestKey,
 }
 
 impl Computer {
@@ -526,11 +555,8 @@ impl Computer {
         let (runtime, cmd) = pick_runtime(prefer, &self.bins).await?;
         let name = container_name(&persona.id);
         let cwd = abs_cwd(workspace_cwd);
-        let known_token = self
-            .lock()
-            .containers
-            .get(&persona.id)
-            .map(|live| live.token.clone());
+        let known = self.lock().containers.get(&persona.id).cloned();
+        let known_token = known.as_ref().map(|live| live.token.clone());
 
         let mut inspection = inspect(&cmd, runtime, &name).await?;
         let known_token = inspection.token.clone().or(known_token);
@@ -593,6 +619,16 @@ impl Computer {
         let mcp_port = inspection.mcp_port.ok_or_else(|| {
             format!("Could not read the computer's published port for {MCP_PORT}/tcp")
         })?;
+        // The attest key goes with the bearer: kept for the container kept,
+        // forgotten for one made again.
+        let attest = match known {
+            Some(live) if live.token == token => live.attest,
+            Some(live) => {
+                live.attest.forget().await;
+                secrets::AttestKey::default()
+            }
+            None => secrets::AttestKey::default(),
+        };
         self.lock().containers.insert(
             persona.id.clone(),
             Live {
@@ -605,13 +641,20 @@ impl Computer {
                 made_on,
                 protection: None,
                 migration: None,
+                readable: Vec::new(),
+                attest: attest.clone(),
             },
         );
         wait_healthy(mcp_port).await?;
-        Ok(Ready {
+        let ready = Ready {
             url: mcp_url(mcp_port),
             token,
-        })
+            attest,
+        };
+        // A boot hands its attest key once, to the first bearer holder who
+        // asks: the desk asks before any session is handed the computer.
+        secrets::take_attest_key(&ready).await;
+        Ok(ready)
     }
 
     /// The endpoint of a teammate's computer while it is running and this
@@ -626,6 +669,7 @@ impl Computer {
         inspection.running.then(|| Ready {
             url: mcp_url(live.mcp_port),
             token: live.token,
+            attest: live.attest,
         })
     }
 
@@ -655,6 +699,14 @@ impl Computer {
     ) {
         if let Some(live) = self.lock().containers.get_mut(persona_id) {
             live.protection = Some(protection);
+        }
+    }
+
+    /// What a protected computer said at its last handing over it holds but
+    /// cannot keep from its programs; empty for any other.
+    pub fn learned_readable(&self, persona_id: &str, readable: Vec<String>) {
+        if let Some(live) = self.lock().containers.get_mut(persona_id) {
+            live.readable = readable;
         }
     }
 
@@ -712,12 +764,11 @@ impl Computer {
     pub async fn remove(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
         let _turn = self.turn_of(persona_id).lock_owned().await;
         let name = container_name(persona_id);
-        let cmd = self
-            .lock()
-            .containers
-            .remove(persona_id)
-            .map(|live| live.cmd);
-        let cmd = match cmd {
+        let removed = self.lock().containers.remove(persona_id);
+        if let Some(live) = &removed {
+            live.attest.forget().await;
+        }
+        let cmd = match removed.map(|live| live.cmd) {
             Some(cmd) => cmd,
             None => match pick_runtime(prefer, &self.bins).await {
                 Ok((_, cmd)) => cmd,
@@ -786,6 +837,7 @@ impl Computer {
                     update_failed: None,
                     limits_changed: false,
                     protection: None,
+                    readable: Vec::new(),
                     migration: None,
                 });
             };
@@ -796,6 +848,7 @@ impl Computer {
             // can say before a grant whether logins go to it readable.
             if status.state != ComputerState::Absent {
                 status.protection = live.protection;
+                status.readable = live.readable;
             }
             if status.state == ComputerState::Running {
                 status.migration = live.migration;
@@ -813,6 +866,7 @@ impl Computer {
                 update_failed: None,
                 limits_changed: false,
                 protection: None,
+                readable: Vec::new(),
                 migration: None,
             });
         };
@@ -826,6 +880,7 @@ impl Computer {
                 update_failed: None,
                 limits_changed: false,
                 protection: None,
+                readable: Vec::new(),
                 migration: None,
             });
         };
@@ -889,6 +944,8 @@ impl Computer {
                                 release: seen.release,
                                 protection: None,
                                 migration: None,
+                                readable: Vec::new(),
+                                attest: secrets::AttestKey::default(),
                             },
                         );
                         false
@@ -942,7 +999,10 @@ impl Computer {
                     .await
                     .is_ok()
                 {
-                    self.lock().containers.remove(&id);
+                    let removed = self.lock().containers.remove(&id);
+                    if let Some(live) = removed {
+                        live.attest.forget().await;
+                    }
                 }
             } else if idle >= COMPUTER_IDLE_STOP_MS
                 && let Ok(seen) = inspect(&cmd, runtime, &name).await
@@ -1000,6 +1060,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             update_failed: None,
             limits_changed: false,
             protection: None,
+            readable: Vec::new(),
             migration: None,
         };
     }
@@ -1013,6 +1074,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             update_failed: None,
             limits_changed: false,
             protection: None,
+            readable: Vec::new(),
             migration: None,
         };
     }
@@ -1035,6 +1097,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             _ => None,
         },
         protection: None,
+        readable: Vec::new(),
         migration: None,
     }
 }

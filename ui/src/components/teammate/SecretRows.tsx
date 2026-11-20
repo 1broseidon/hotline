@@ -21,7 +21,8 @@ import { FoldRow } from "./rows";
  * grant may reach its computer, its desk shell or both; without one, a
  * variable goes to its desk shell. Opening the list asks the computer's
  * status, so a login or passkey is said to be readable there until the
- * computer has shown it runs its programs apart from what it is handed.
+ * computer has shown it runs its programs apart from what it is handed,
+ * and so is whatever that computer says it cannot keep from them.
  */
 export function SecretRows({
 	personaId,
@@ -50,12 +51,17 @@ export function SecretRows({
 	// The room ticks a passkey it stores, and the roster brings the tick.
 	const stored = useCallback(() => {}, []);
 	const [computerShown, setComputerShown] = useState(false);
+	const [computerReadable, setComputerReadable] = useState<string[]>([]);
 	useEffect(() => {
 		if (!open || !computer) return;
 		let gone = false;
 		wire
 			.command("computer.status", { personaId })
-			.then((status) => !gone && setComputerShown(status.protection === "protected"))
+			.then((status) => {
+				if (gone) return;
+				setComputerShown(status.protection === "protected");
+				setComputerReadable(status.readable ?? []);
+			})
 			.catch(() => !gone && setComputerShown(false));
 		return () => {
 			gone = true;
@@ -67,7 +73,7 @@ export function SecretRows({
 			<h3 className="label">Secrets</h3>
 			<div className="grouped">
 				<FoldRow title="Logins and passkeys" value={granted === 0 ? "none given" : `${granted} given`} open={open} onToggle={() => setOpen((was) => !was)} />
-				{open && <TeammateSecrets grants={grants} places={computer ? ["computer", "desk"] : ["desk"]} asPerson={asPerson} computerShown={computerShown} disabled={disabled} onChange={onChange} />}
+				{open && <TeammateSecrets grants={grants} places={computer ? ["computer", "desk"] : ["desk"]} asPerson={asPerson} computerShown={computerShown} computerReadable={computerReadable} disabled={disabled} onChange={onChange} />}
 				{deskSigner && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
 				{computer && <PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />}
 			</div>

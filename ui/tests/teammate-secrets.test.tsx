@@ -319,6 +319,16 @@ test("a login or passkey for this machine, and a key used with Other, are readab
 	expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "API_KEY" }] } });
 });
 
+test("what a protected computer says it cannot keep from its programs is labelled readable as well", async () => {
+	stored.push(login, passkey);
+	restores.push(() => stored.splice(2));
+	// A key used with GitHub on an enterprise host is Other to the computer.
+	status = { state: "running", protection: "protected", readable: ["GITHUB_TOKEN", "GITHUB_LOGIN"] };
+	const secrets = await openSecrets({ ...persona, secrets: ["GITHUB_TOKEN", "GITHUB_LOGIN", "GITHUB_PASSKEY"], secretGrants: [{ name: "GITHUB_TOKEN" }, { name: "GITHUB_LOGIN" }, { name: "GITHUB_PASSKEY" }] });
+	for (const name of ["GITHUB_TOKEN", "GITHUB_LOGIN"]) expect(rowOf(secrets, name).textContent, name).toContain("Readable by this teammate's programs");
+	expect(rowOf(secrets, "GITHUB_PASSKEY").textContent).not.toContain("Readable by this teammate's programs");
+});
+
 test("a site on this machine is one whatever its spelling, and a public one is not", async () => {
 	const { loopbackSite } = await import("../src/components/Secrets");
 	for (const site of ["http://localhost:8080", "localhost", "https://app.localhost", "http://127.0.0.1:3000", "http://127.9.9.9", "http://[::1]:8080", "http://[::ffff:127.0.0.1]"]) expect(loopbackSite(site), site).toBe(true);

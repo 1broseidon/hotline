@@ -2080,6 +2080,74 @@ async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_
     );
 }
 
+/// A computer from 0.13.0-rc.3 proves itself with the key its boot hands
+/// once: the desk takes it as it starts the computer, hands every grant, a
+/// login for the computer itself readable so it is still typed there, and
+/// the pane hears what the computer says it cannot keep from its programs.
+/// One whose key something else took first is not protected: the key Used
+/// with a service waits, and the pane says it needs an update.
+#[tokio::test]
+async fn a_v2_computer_proves_itself_with_its_boots_key_and_one_taken_first_does_not() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let local_login = |room: &Room| {
+        room.vault
+            .as_ref()
+            .unwrap()
+            .set_shared(
+                "LOCAL_LOGIN",
+                crate::vault::StoredSecret::Login {
+                    r#use: crate::contract::SecretUse::Auto,
+                    sites: vec!["http://localhost:8600".into()],
+                    username: "rc-user".into(),
+                    password: "not-a-real-password".into(),
+                    totp: None,
+                },
+            )
+            .unwrap();
+        grant_secrets(
+            room,
+            &["GITHUB_LOGIN", "GITHUB_TOKEN", "LOCAL_LOGIN", "NPM_TOKEN"],
+        );
+    };
+
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-v2", Some("0.13.0"), TWO_RELEASES, true).await;
+    taken.v2.store(true, SeqCst);
+    grant_a_key_a_variable_and_a_login(&room);
+    local_login(&room);
+    room.start("ada").await.unwrap();
+    assert!(taken.key_taken.load(SeqCst), "taken as the desk started it");
+    assert_eq!(taken.forms(), [2]);
+    let set = &taken.sets()[0];
+    assert_eq!(set["GITHUB_TOKEN"]["use"]["standIn"]["prefix"], "ghp_");
+    assert_eq!(set["LOCAL_LOGIN"]["readable"], true);
+    assert!(set["GITHUB_LOGIN"].get("readable").is_none());
+    let status = room.computer_status("ada").await.unwrap();
+    assert_eq!(
+        status.protection,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+    assert_eq!(status.readable, ["LOCAL_LOGIN"]);
+
+    let ComputerRoom { room, taken, .. } =
+        computer_room("protected-v2-taken", Some("0.13.0"), TWO_RELEASES, true).await;
+    taken.v2.store(true, SeqCst);
+    taken.key_taken.store(true, SeqCst);
+    grant_a_key_a_variable_and_a_login(&room);
+    local_login(&room);
+    room.start("ada").await.unwrap();
+    assert_eq!(taken.forms(), [1], "what a legacy computer is handed");
+    let set = &taken.sets()[0];
+    assert!(!set.contains_key("GITHUB_TOKEN"), "the key waits");
+    assert_eq!(set["NPM_TOKEN"], json!("npm_notarealtoken0002"));
+    let status = room.computer_status("ada").await.unwrap();
+    assert_eq!(
+        status.protection,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+    assert_eq!(status.readable, Vec::<String>::new());
+}
+
 /// A protected key goes with its service's refuse list as this desk
 /// defines it now, never the shorter one its record kept when it was
 /// stored, and never left for the computer's own shorter list.

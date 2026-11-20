@@ -361,10 +361,9 @@ impl Room {
         )
         .await
         .map_err(|error| format!("{}'s computer could not be shared: {error}", persona.name))?;
-        Ok(vec![crate::computer::mcp_server(&crate::computer::Ready {
-            url: gate.url,
-            token: gate.token,
-        })])
+        Ok(vec![crate::computer::mcp_server(
+            &crate::computer::Ready::new(gate.url, gate.token),
+        )])
     }
 
     pub async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {

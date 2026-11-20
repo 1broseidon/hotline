@@ -1058,6 +1058,7 @@ impl RoomHandle for Quiet {
             update_failed: None,
             limits_changed: false,
             protection: None,
+            readable: Vec::new(),
             migration: None,
         })
     }

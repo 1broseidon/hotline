@@ -48,7 +48,7 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	let queue = 0;
 	let idle: () => void = () => {};
 	/** The reply's loudness as the player meters it, and whether the call paused it. */
-	const output = { level: 0, paused: false, pauses: 0, resumes: 0 };
+	const output = { level: 0, paused: false, pauses: 0, resumes: 0, ducked: false };
 	const mic = { open: true, closed: 0, opened: 0 };
 	const audio: CallAudio = {
 		open: async () => {},
@@ -73,6 +73,10 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		stopPlayback: () => {
 			queue = 0;
 			output.paused = false;
+			output.ducked = false;
+		},
+		duckPlayback: (down) => {
+			output.ducked = down;
 		},
 		pausePlayback: () => {
 			output.paused = true;
@@ -1320,10 +1324,11 @@ test("a failed live call finishes its fixed notice once before the Turn by turn 
 describe("interrupting by talking over the teammate, heard by this Mac", () => {
 	const REPLY = "I looked through the build logs and the failing step is the linker, which ran out of memory.";
 	/** A Turn by turn call heard by this Mac's analyzer with Interrupt by speaking on, the reply playing. */
-	async function overReply(options: CallOptions = { interruptBySpeaking: () => true }) {
+	async function overReply(options: CallOptions = { interruptBySpeaking: () => true }, earlier: string[] = []) {
 		const r = textRig(fakeSpeech(), undefined, TEXT_DESK, options);
 		await r.call.start();
 		r.levels(-74, 1_000, 1_400);
+		for (const [index, text] of earlier.entries()) r.desk({ type: "said", id: `earlier-${index}`, text });
 		r.desk({ type: "said", id: "s1", text: REPLY });
 		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
 		return {
@@ -1503,4 +1508,56 @@ describe("interrupting by talking over the teammate, heard by this Mac", () => {
 		expect(speech.counts.starts).toBe(1);
 		expect(r.notes.some((line) => line.includes("older recognizer"))).toBe(true);
 	});
+
+	/** Earlier replies on the call, the everyday words a person's own words share. */
+	const EARLIER = [
+		"I checked the other branch and what I found is that the tests pass there, so the problem is only on main.",
+		"Sure, I can look at that. The build on the other machine is about ten minutes behind, so give it a moment.",
+		"Done. I pushed the fix to your branch and the checks are running now; I'll tell you what they say.",
+	];
+
+	test("after a cough resumed the reply, a short phrase whose words come 1.3 s after it began still interrupts, in a call with earlier replies", async () => {
+		const r = await overReply(undefined, EARLIER);
+		r.reply(1_450, 2_000, ROOM);
+		// A cough: paused, then quiet, and the reply goes on.
+		r.reply(2_050, 2_300, VOICE);
+		expect(r.output.paused).toBe(true);
+		r.reply(2_350, 3_400, ROOM);
+		// It plays on turned down while the engine's words may still come, then at full volume.
+		expect(r.output.paused).toBe(false);
+		expect(r.output.ducked).toBe(true);
+		r.speech.emit({ type: "partial", text: "Hm" });
+		r.reply(3_450, 4_500, ROOM);
+		expect(r.output.ducked).toBe(false);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		// "What about the other branch?", over in 0.6 s; its words arrive 1.3 s after it began.
+		r.reply(4_550, 5_150, VOICE);
+		r.reply(5_200, 5_800, ROOM);
+		expect(r.output.ducked).toBe(true);
+		r.speech.emit({ type: "partial", text: "Hm what about the other branch" });
+		expect(r.commands()).toContain("voice.interrupt");
+		expect(r.call.current.lines.at(-1)).toEqual({ kind: "you", id: "heard-1", text: "what about the other branch" });
+	});
+
+	test("words still interrupt after several pauses and resumes in one session, with the engine's text cumulative and revised", async () => {
+		const r = await overReply(undefined, EARLIER);
+		r.reply(1_450, 2_000, ROOM);
+		let at = 2_050;
+		for (const heard of ["Hm", "Hm mm-hmm", "Hmm mm-hmm okay"]) {
+			r.reply(at, at + 250, VOICE);
+			r.reply(at + 300, at + 1_300, ROOM);
+			r.speech.emit({ type: "partial", text: heard });
+			r.reply(at + 1_350, at + 3_400, ROOM);
+			at += 3_500;
+		}
+		expect(r.output.pauses).toBe(3);
+		expect(r.output.paused).toBe(false);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		r.reply(at, at + 600, VOICE);
+		r.reply(at + 650, at + 1_250, ROOM);
+		// The engine revises the last of what it had and adds the person's words.
+		r.speech.emit({ type: "partial", text: "Hmm mm-hmm. Okay, can you check the build on main" });
+		expect(r.commands()).toContain("voice.interrupt");
+	});
 });
+

@@ -165,7 +165,8 @@ offered only where this Mac's analyzer hears calls), a session listens over
 the reply on the echo-cancelled channel: a voice pauses the reply, words the
 reply did not say within three seconds interrupt it as a tap would, and the
 same words become the person's next turn; otherwise it resumes where it
-paused ([design/voice-interrupt.md](design/voice-interrupt.md)). Its decisions
+paused, turned down until the recognizer's words could have come (1.5 s
+after the voice ended), then at full volume ([design/voice-interrupt.md](design/voice-interrupt.md)). Its decisions
 are `[voice] … interrupt by speaking` lines in the app's log, written by the
 window through the shell's `voice_note`, never with the words. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it

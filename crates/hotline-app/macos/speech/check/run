@@ -1,0 +1,29 @@
+#!/bin/sh
+# Checks that this Mac's speech analyzer hears the words through the
+# session's audio sink whatever the microphone's channel count: `say` records
+# a sentence, and check/main.swift feeds it to the sink at 1, 2 and 3
+# channels, as voice processing hands them to the tap, and fails unless
+# every count is heard. No microphone, no app; macOS 26 or later with the
+# English speech model installed (a call on this Mac installs it).
+#
+#   crates/hotline-app/macos/speech/check/run
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/hotline-speech-check.XXXXXX")
+cleanup() {
+	rm -f "$work/clip.aiff" "$work/check"
+	rmdir "$work"
+}
+trap cleanup EXIT
+
+say -o "$work/clip.aiff" "Please send the weekly report to the team before noon."
+# The sources build.rs compiles, less the C entry points, with this main.
+xcrun --sdk macosx swiftc -parse-as-library -swift-version 5 -O \
+	-target "$(uname -m)-apple-macos13.0" \
+	-module-name HotlineSpeechCheck \
+	"$here/main.swift" \
+	"$here/../AnalyzerSpeechSession.swift" \
+	"$here/../LegacySpeechSession.swift" \
+	"$here/../SpeechController.swift" \
+	-o "$work/check"
+"$work/check" "$work/clip.aiff" weekly report team noon

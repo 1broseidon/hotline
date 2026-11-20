@@ -3,20 +3,29 @@
 # session's audio sink whatever the microphone's channel count: `say` records
 # a sentence, and check/main.swift feeds it to the sink at 1, 2 and 3
 # channels, as voice processing hands them to the tap, and fails unless
-# every count is heard. No microphone, no app; macOS 26 or later with the
-# English speech model installed (a call on this Mac installs it).
+# every count is heard. It also checks that the meter reads only the first
+# channel, the voice; when no microphone is connected, that a session
+# refuses with the window's words instead of aborting; and that a reply
+# leaking into the voice channel is heard only as the reply's own words while
+# a person talking over it is heard. It never opens a
+# microphone and needs no app; macOS 26 or later with the English speech
+# model installed (a call on this Mac installs it).
 #
 #   crates/hotline-app/macos/speech/check/run
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/hotline-speech-check.XXXXXX")
 cleanup() {
-	rm -f "$work/clip.aiff" "$work/check"
+	rm -f "$work/clip.aiff" "$work/reply.aiff" "$work/reply.txt" "$work/over.aiff" "$work/check"
 	rmdir "$work"
 }
 trap cleanup EXIT
 
 say -o "$work/clip.aiff" "Please send the weekly report to the team before noon."
+# A teammate's reply, and a person talking over it in another voice.
+printf '%s' "I looked through the build logs and the failing step is the linker, which ran out of memory on the second target." >"$work/reply.txt"
+say -v Samantha -o "$work/reply.aiff" -f "$work/reply.txt"
+say -v Daniel -o "$work/over.aiff" "Wait, stop. Use the other machine instead."
 # The sources build.rs compiles, less the C entry points, with this main.
 xcrun --sdk macosx swiftc -parse-as-library -swift-version 5 -O \
 	-target "$(uname -m)-apple-macos13.0" \
@@ -26,4 +35,4 @@ xcrun --sdk macosx swiftc -parse-as-library -swift-version 5 -O \
 	"$here/../LegacySpeechSession.swift" \
 	"$here/../SpeechController.swift" \
 	-o "$work/check"
-"$work/check" "$work/clip.aiff" weekly report team noon
+"$work/check" "$work/clip.aiff" "$work/reply.aiff" "$work/over.aiff" weekly report team noon

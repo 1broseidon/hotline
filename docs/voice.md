@@ -100,24 +100,38 @@ the only network use; recognition is not.
 Each start is a fresh utterance from the default input device through
 `AVAudioEngine`, with voice processing on where the device allows it and
 other audio ducked as little as it permits. Voice processing gives the tap
-the processed voice in every channel, one per channel of the device, in a
-discrete layout no converter maps to mono by itself: a Bluetooth headset
-still playing stereo (the call window's audio) when processing begins gives
-three. The analyzer takes the first channel; without that it was fed
-silence while the meter moved, and the call ended "no words".
+the processed voice in its first channel and then one reference channel per
+output channel, carrying what the Mac is playing, in a discrete layout no
+converter maps to mono by itself: a Bluetooth headset playing stereo (the
+call window's audio) gives three. The analyzer takes the first channel;
+without that it was fed silence while the meter moved, and the call ended
+"no words". Level events are the dBFS of that first channel alone, so the
+meter never moves with the teammate's reply in the reference channels, and
+say whether voice processing is on (`processed`).
 `crates/hotline-app/macos/speech/check/run` feeds a `say` sentence through
-the sink at one, two and three channels and fails unless each is heard.
-Each utterance logs `[hotline-speech] listening` with the microphone's and
-the analyzer's formats, and one line when it ends with the buffers sent,
-how many were silent and how many results came back (`log stream
---predicate 'eventMessage CONTAINS "[hotline-speech]"'`). Every text event
-is the whole utterance so far. Level events are the dBFS of each microphone
-buffer.
+the sink at one, two and three channels and fails unless each is heard, and
+fails if a buffer with silence first and sound in the others meters as
+anything but silence. Each utterance logs `[hotline-speech] listening` with
+the microphone's and the analyzer's formats, and one line when it ends with
+the buffers sent, how many were silent and how many results came back (`log
+stream --predicate 'eventMessage CONTAINS "[hotline-speech]"'`). Every text
+event is the whole utterance so far.
+With no microphone connected (a Mac Studio whose headset is away) the input
+node still reports two channels at 44.1 kHz, and a tap on it raised an
+exception that ended the app ("format mismatch"). A start now asks Core
+Audio first whether the default input device records anything and, when it
+does not, fails with the window's own "No microphone found" sentence, which
+the call and dictation say as it is; voice processing is not set up and the
+engine is not warmed until a microphone is there, so the headset connected
+later still gets echo cancellation. The check starts a session when no
+microphone is connected, and fails unless it refuses with those words.
 `speech_stop` closes the microphone and waits up to five seconds for the
 final text, failing rather than returning a partial. A changed input device
-ends the utterance with an error. Cancelling with an empty id cancels
-whatever is current, a model download included, and a reload of the window
-does that too.
+ends the utterance with an error, "The microphone changed", and a device
+gone with none in its place says "Hotline can't hear the microphone any
+more", as the window does for its own capture; neither restarts the engine.
+Cancelling with an empty id cancels whatever is current, a model download
+included, and a reload of the window does that too.
 
 A Speech Recognition grant that no longer matches the app's signature (a
 self-signed build with the same bundle id was run) leaves the engine
@@ -145,7 +159,15 @@ is hung up with a message to update it. A Turn by turn call does not listen
 while a reply plays: recognition (or, on an audio call, the turn detector) is
 let go when playback starts and taken up again when it ends, so the desk's
 own reply, loud in the microphone, can never be taken for the person and cut
-it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
+it off. A tap on the call (Cut in) interrupts it. With Settings › Voice ›
+Calls › Interrupt by speaking on (this computer's choice, off by default, and
+offered only where this Mac's analyzer hears calls), a session listens over
+the reply on the echo-cancelled channel: a voice pauses the reply, words the
+reply did not say within three seconds interrupt it as a tap would, and the
+same words become the person's next turn; otherwise it resumes where it
+paused ([design/voice-interrupt.md](design/voice-interrupt.md)). Its decisions
+are `[voice] … interrupt by speaking` lines in the app's log, written by the
+window through the shell's `voice_note`, never with the words. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it
 interrupts, with its own echo handling. A `thinking` that says `listening`
 is listened through: the call's phase is `listening` while the teammate

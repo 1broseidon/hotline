@@ -95,12 +95,12 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
       consume: { buffer in audio.append(buffer) },
       level: { [weak self] db in
         guard let self, !self.cancelled, self.finishing == nil else { return }
-        self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000])
+        self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000,
+          "processed": self.microphone.processed])
       },
-      interrupted: { [weak self] in
-        self?.fail(LocalSpeechError(message: "The microphone changed. Call again."))
-      })
-    NSLog("[hotline-speech] listening: microphone %@, analyzer %@", microphone.format.description, format.description)
+      interrupted: { [weak self] why in self?.fail(why) })
+    NSLog("[hotline-speech] listening: microphone %@, analyzer %@, voice processing %@",
+      microphone.format.description, format.description, microphone.processed ? "on" : "off")
   }
 
   /**
@@ -203,12 +203,12 @@ final class AnalyzerAudioSink: @unchecked Sendable {
       throw LocalSpeechError(message: "This microphone cannot supply on-device speech audio.")
     }
     converter.primeMethod = .none
-    // Voice processing hands the tap its processed voice in every channel,
-    // one per channel of its device: a Bluetooth headset whose output was
-    // stereo when processing began (the call window was already playing to
-    // it) gives three. A converter has no layout for three channels and
-    // writes silence, so the analyzer heard nothing while the meter moved.
-    // Every analyzer channel takes the first, which is the voice.
+    // Voice processing hands the tap its processed voice first and then one
+    // reference channel per output channel, carrying what the Mac plays: a
+    // Bluetooth headset playing stereo (the call window's audio) gives
+    // three. A converter has no layout for three channels and writes
+    // silence, so the analyzer heard nothing while the meter moved. Every
+    // analyzer channel takes the first, which is the voice.
     if source.channelCount != target.channelCount {
       converter.channelMap = Array(repeating: 0, count: Int(target.channelCount))
     }

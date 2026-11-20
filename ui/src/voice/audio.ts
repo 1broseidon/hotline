@@ -19,7 +19,11 @@ export interface CallAudio {
 	playPcm(data: string, rate: number): void;
 	/** How much of the speech playing now has been heard, in ms. */
 	playedMs(): number;
+	/** Stops and forgets what plays; a paused reply is let go too. */
 	stopPlayback(): void;
+	/** Holds what plays where it is, to go on from the same sample with `resumePlayback`. */
+	pausePlayback(): void;
+	resumePlayback(): void;
 	readonly playing: boolean;
 	/** The loudness of what is playing now, as RMS. */
 	outputLevel(): number;
@@ -42,6 +46,12 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 	let closing = false;
 	let micGeneration = 0;
 	let quietUntil = 0;
+	/**
+	 * Paused by the call, not by the system: the whole playback clock stops,
+	 * so every clip already scheduled, and every one that arrives meanwhile,
+	 * plays on from where it was once it resumes.
+	 */
+	let paused = false;
 
 	const takeMic = async () => {
 		const context = ctx;
@@ -85,7 +95,7 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 			ctx = context;
 			// A suspended context (the system took audio away) is asked back.
 			context.onstatechange = () => {
-				if (!closing && context.state === "suspended") void context.resume().catch(() => {});
+				if (!closing && !paused && context.state === "suspended") void context.resume().catch(() => {});
 			};
 			await context.resume();
 			const out = context.createGain();
@@ -118,6 +128,17 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		},
 		stopPlayback() {
 			player?.stop();
+			this.resumePlayback();
+		},
+		pausePlayback() {
+			if (paused || ctx === null) return;
+			paused = true;
+			void ctx.suspend().catch(() => {});
+		},
+		resumePlayback() {
+			if (!paused) return;
+			paused = false;
+			void ctx?.resume().catch(() => {});
 		},
 		get playing() {
 			return player?.busy ?? false;

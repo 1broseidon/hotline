@@ -86,23 +86,23 @@ function sameWords(a: string, b: string): boolean {
  */
 /**
  * Whether each event belongs to a turn whose inbox rows (`inbox_sent`,
- * `inbox_sorted`) fold into its Steps instead of standing as rows of their
- * own in the chat: a turn the person's line started, or a quiet turn that
- * posted a bubble.
+ * `inbox_sorted`, and stamped `outcome`) fold into its Steps instead of
+ * standing as rows of their own in the chat: a turn the person's line
+ * started, or any turn that put a non-empty bubble in the chat.
  */
 function inboxInSteps(events: TranscriptEvent[]): boolean[] {
 	const fold = new Array<boolean>(events.length).fill(false);
 	let start = 0;
 	let asked = false;
 	let said = false;
-	const finish = (end: number, ended?: "quiet" | "other") => {
-		if (asked || (said && ended !== "other")) {
+	const finish = (end: number) => {
+		if (asked || said) {
 			for (let at = start; at < end; at++) fold[at] = true;
 		}
 	};
 	events.forEach((event, at) => {
 		if (event.kind === "user" || event.kind === "turn") {
-			finish(at, event.kind === "turn" && event.quiet === true ? "quiet" : "other");
+			finish(at);
 			start = at + 1;
 			asked = event.kind === "user" && event.scheduled === undefined;
 			said = false;
@@ -136,7 +136,7 @@ export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inl
 			event.kind === "thought" ||
 			event.kind === "tool" ||
 			event.kind === "activity" ||
-			(event.kind === "outcome" && (!inbox || event.fromItem === undefined)) ||
+			(event.kind === "outcome" && (!inbox || event.fromItem === undefined || foldInbox?.[at] === true)) ||
 			((event.kind === "inbox_sent" || event.kind === "inbox_sorted") && foldInbox?.[at] === true)
 		) {
 			group ??= { id: event.id, ts: event.ts, items: [] };

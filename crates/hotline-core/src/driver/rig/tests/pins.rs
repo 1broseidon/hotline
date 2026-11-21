@@ -155,6 +155,7 @@ fn turn_on(
         processes: crate::session::jobs::Processes::new(scratch.join("processes")),
         asked: true,
         returns: None,
+        ownership: Arc::new(|returned| returned.unwrap_or_default()),
     }
 }
 

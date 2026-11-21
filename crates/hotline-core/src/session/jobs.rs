@@ -80,6 +80,8 @@ pub(crate) enum JobKind {
 pub(crate) struct JobSnapshot {
     pub job_id: String,
     pub kind: JobKind,
+    #[serde(skip)]
+    pub work_for: super::ownership::WorkFor,
     /// The command a shell job runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -125,6 +127,7 @@ pub(crate) struct SubagentArgs {
 /// agent that asked), and a label short enough for a line on the tape.
 #[derive(Clone, Debug)]
 pub(crate) struct SubagentTask {
+    pub work_for: super::ownership::WorkFor,
     pub brief: crate::session::Brief,
     pub title: String,
 }
@@ -182,6 +185,7 @@ impl Drop for Command {
 }
 
 pub(crate) struct Jobs {
+    pub work_for: super::ownership::WorkFor,
     shell: Option<RunCommand>,
     delegate: Option<Arc<dyn Delegate>>,
     processes: Arc<Processes>,
@@ -217,6 +221,7 @@ impl Jobs {
             shell,
             delegate,
             processes,
+            work_for: Default::default(),
             entries: BTreeMap::new(),
             tasks: JoinSet::new(),
             commands,
@@ -346,6 +351,7 @@ impl Jobs {
             title: None,
             state: JobState::Running,
             output: None,
+            work_for: self.work_for.clone(),
         };
         let runner = shell.clone();
         let route = Arc::new(Mutex::new(Route::Activity(self.commands.clone())));
@@ -417,12 +423,14 @@ impl Jobs {
             title: Some(title.clone()),
             state: JobState::Running,
             output: None,
+            work_for: self.work_for.clone(),
         };
         let job_id = id.clone();
         let run = delegate.run(
             id.clone(),
             SubagentTask {
                 brief: crate::session::Brief::subagent(task, args.without),
+                work_for: self.work_for.clone(),
                 title,
             },
             cancel.clone(),
@@ -656,9 +664,14 @@ pub struct Processes {
     /// The last few that ended, so a later turn that stopped one can read
     /// how it ended.
     ended: Mutex<std::collections::VecDeque<JobSnapshot>>,
-    wakes: Mutex<Option<mpsc::UnboundedSender<String>>>,
+    wakes: Mutex<Option<mpsc::UnboundedSender<ProcessReturn>>>,
     /// Ticks whenever a process is held, starts stopping or ends.
     changed: watch::Sender<()>,
+}
+
+pub struct ProcessReturn {
+    pub(crate) text: String,
+    pub(crate) work_for: super::ownership::WorkFor,
 }
 
 struct Held {
@@ -718,7 +731,7 @@ impl Processes {
 
     /// The lines that wake the teammate, one for each process that ended on
     /// its own. Subscribing is what makes this session take processes.
-    pub(crate) fn subscribe(&self) -> mpsc::UnboundedReceiver<String> {
+    pub(crate) fn subscribe(&self) -> mpsc::UnboundedReceiver<ProcessReturn> {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.wakes) = Some(sender);
         receiver
@@ -828,7 +841,10 @@ impl Processes {
             return;
         }
         if let Some(wakes) = lock(&self.wakes).as_ref() {
-            let _ = wakes.send(crate::driver::rig::process_ended(&self.output_dir, &job));
+            let _ = wakes.send(ProcessReturn {
+                text: crate::driver::rig::process_ended(&self.output_dir, &job),
+                work_for: job.work_for,
+            });
         }
     }
 }
@@ -1021,6 +1037,7 @@ mod tests {
                 snapshot: JobSnapshot {
                     job_id: "lost".into(),
                     kind: JobKind::Subagent,
+                    work_for: Default::default(),
                     command: None,
                     title: Some("external operation".into()),
                     state: JobState::Running,
@@ -1150,10 +1167,11 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(
-            woke.contains("a command you left running has ended"),
-            "{woke}"
+            woke.text.contains("a command you left running has ended"),
+            "{}",
+            woke.text
         );
-        assert!(woke.contains("done"), "{woke}");
+        assert!(woke.text.contains("done"), "{}", woke.text);
         assert!(wakes.try_recv().is_err());
         assert!(!jobs.active());
     }

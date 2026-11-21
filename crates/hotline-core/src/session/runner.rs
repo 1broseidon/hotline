@@ -294,6 +294,7 @@ pub(crate) struct RunSpec {
     /// What it is to do, now, reporting to whoever asked, with what the home
     /// agent left out of its abilities.
     pub brief: Brief,
+    pub work_for: super::ownership::WorkFor,
     /// The authority of the session that asked. The run's own is a child of
     /// it, never wider.
     pub capability: CapabilityLease,
@@ -440,6 +441,7 @@ impl Room {
             .threads()
             .turn(
                 Seat {
+                    work_for: spec.work_for.clone(),
                     capability: None,
                     thread: &thread,
                     persona_id: &spec.persona_id,
@@ -448,6 +450,7 @@ impl Room {
                 },
                 Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: task,
@@ -1056,6 +1059,7 @@ impl Delegate for Subagents {
                         run_id,
                         title: task.title,
                         brief: task.brief,
+                        work_for: task.work_for,
                         capability,
                     },
                     cancel,

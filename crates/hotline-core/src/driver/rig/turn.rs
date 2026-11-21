@@ -416,7 +416,24 @@ async fn run_inner(
                     () = turn.steering.changed(revision) => {}
                     // The turn had replied and stopped to wait: what comes
                     // back now, nobody is waiting on.
-                    job = activity.jobs.next() => activity.job_results.push(publish_job(turn, sender, job?, true).await),
+                    job = activity.jobs.next() => {
+                        let first = job?;
+                        let mut owner = first.work_for.clone();
+                        let ready = activity.jobs.ready()?;
+                        let mut mixed = false;
+                        for job in &ready {
+                            mixed |= owner.merge(&job.work_for);
+                        }
+                        if turn.returns.is_some() {
+                            (turn.ownership)(Some(owner));
+                        }
+                        if mixed {
+                            activity.job_results.push(Message::user("Hotline: work for different people came back together; this turn is for the person.".to_string()));
+                        }
+                        for (index, job) in std::iter::once(first).chain(ready).enumerate() {
+                            activity.job_results.push(publish_job(turn, sender, job, index == 0).await);
+                        }
+                    },
                 }
             } else if turn.steering.finish_if_empty() {
                 return Ok(("end_turn", activity.usage, activity.usage_complete));
@@ -862,6 +879,7 @@ impl Activity<'_> {
             )));
         }
         let jobs = &mut *self.jobs;
+        jobs.work_for = (self.turn.ownership)(None);
         let result = match call.function.name.as_str() {
             "shell" if jobs.shell_enabled() => job_result(jobs.launch(call_id.into(), arguments)),
             jobs::SUBAGENT if jobs.delegates() => {

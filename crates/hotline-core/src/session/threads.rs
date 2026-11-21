@@ -351,6 +351,7 @@ mod tests {
 
     fn spec(room: &Room, run_id: &str) -> RunSpec {
         RunSpec {
+            work_for: Default::default(),
             persona_id: "ada".to_string(),
             run_id: run_id.to_string(),
             title: "Check the crane".to_string(),

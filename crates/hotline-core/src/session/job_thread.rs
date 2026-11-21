@@ -654,6 +654,7 @@ impl Occupant for LiveJob {
         room.threads()
             .turn(
                 Seat {
+                    work_for: Default::default(),
                     capability: None,
                     thread: &thread,
                     persona_id: &self.persona_id,
@@ -1095,6 +1096,7 @@ impl Room {
             JobLine {
                 line: Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: timed(now, &firing_text(job, &run, last, standing)),
@@ -1241,6 +1243,7 @@ impl Room {
             JobLine {
                 line: Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: timed_from(ts, client, &heard),
@@ -1296,6 +1299,7 @@ impl Room {
         let line = JobLine {
             line: Line {
                 call_inbox: false,
+                return_for: None,
                 said: None,
                 voice: None,
                 text: timed(now_ms(), &text),
@@ -1381,6 +1385,7 @@ impl Room {
             JobLine {
                 line: Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: timed(ts, &wire),

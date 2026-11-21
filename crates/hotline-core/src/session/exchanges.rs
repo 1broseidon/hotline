@@ -1003,6 +1003,22 @@ impl Room {
             .get(id)
             .is_none_or(|(a, b)| a.is_current() && b.is_current())
     }
+    pub(super) fn inbox_request_owner(&self, id: &str) -> super::ownership::WorkFor {
+        self.exchange_pairs()
+            .into_iter()
+            .flat_map(|pair| pair.requests)
+            .find(|request| request.id == id)
+            .and_then(|request| {
+                Some(super::ownership::WorkFor::Colleague {
+                    name: self
+                        .participant(&request.from)
+                        .map_or(request.from, |p| super::links::shown(&p)),
+                    item: request.items.first()?.clone(),
+                })
+            })
+            .unwrap_or_default()
+    }
+
     /// Whether this id names a request of some pair: a delivery that merely
     /// carries a peer's name (a hand-written one, say) names none.
     pub(super) fn is_exchange_request(&self, id: &str) -> bool {

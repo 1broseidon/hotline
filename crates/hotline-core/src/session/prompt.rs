@@ -160,6 +160,7 @@ impl Room {
                     retry: false,
                     wake: false,
                     back: false,
+                    work_for: Default::default(),
                     quiet: false,
                     pick_up: false,
                     woke: Vec::new(),

@@ -40,12 +40,12 @@ impl Room {
     pub(super) fn watch_wakes(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        mut wakes: mpsc::UnboundedReceiver<String>,
+        mut wakes: mpsc::UnboundedReceiver<super::jobs::ProcessReturn>,
     ) {
         let room = Arc::downgrade(self);
         let session = Arc::downgrade(session);
         tokio::spawn(async move {
-            while let Some(text) = wakes.recv().await {
+            while let Some(ended) = wakes.recv().await {
                 let Some(room) = room.upgrade() else {
                     break;
                 };
@@ -60,7 +60,10 @@ impl Room {
                 let Ok(_working) = room.working() else {
                     continue;
                 };
-                let mut wire = Wired::back(text);
+                let mut wire = Wired {
+                    work_for: ended.work_for,
+                    ..Wired::back(ended.text)
+                };
                 wire.voice = lock(&room.voice)
                     .upgrade()
                     .and_then(|voice| voice.on_call(&session.persona_id));

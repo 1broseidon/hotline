@@ -458,9 +458,18 @@ impl Occupant for LiveSide {
         let line = held.line.take().expect("a turn is taken once");
         let driver = self.driver().expect("turns run only once the agent is up");
         let steer = || room.steer_into_work(self);
+        let work_for = line.return_for.clone().unwrap_or_else(|| {
+            if line.said.is_some() && line.from.is_none() && line.request.is_none() {
+                return super::ownership::WorkFor::Person;
+            }
+            lock(&self.request)
+                .as_deref()
+                .map_or_else(Default::default, |id| room.inbox_request_owner(id))
+        });
         room.threads()
             .turn(
                 Seat {
+                    work_for,
                     capability: Some(&self.capability),
                     thread: &thread,
                     persona_id: &self.persona_id,
@@ -530,6 +539,7 @@ impl Occupant for LiveSide {
                     Some(index) => steered.remove(index),
                     None => Line {
                         call_inbox: false,
+                        return_for: None,
                         said: None,
                         voice: room.attached_voice(&side.thread),
                         text,
@@ -1674,6 +1684,7 @@ impl Room {
             side,
             Line {
                 call_inbox: false,
+                return_for: None,
                 said: Some(said_id),
                 voice,
                 text: text.clone(),
@@ -1842,6 +1853,7 @@ impl Room {
                 &side,
                 Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: super::timed(ts, &wire),

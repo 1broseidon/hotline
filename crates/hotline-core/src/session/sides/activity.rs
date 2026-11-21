@@ -23,7 +23,7 @@ impl Room {
             let room = Arc::downgrade(self);
             let side = Arc::downgrade(side);
             tokio::spawn(async move {
-                while let Some(text) = wakes.recv().await {
+                while let Some(ended) = wakes.recv().await {
                     let (Some(room), Some(side)) = (room.upgrade(), side.upgrade()) else {
                         break;
                     };
@@ -36,16 +36,17 @@ impl Room {
                             id: new_id(),
                             ts: now_ms(),
                             level: NoticeLevel::Info,
-                            text: text.clone(),
+                            text: ended.text.clone(),
                         },
                     );
                     room.queue_in_side(
                         &side,
                         Line {
                             call_inbox: false,
+                            return_for: Some(ended.work_for),
                             said: None,
                             voice: room.attached_voice(&side.thread),
-                            text,
+                            text: ended.text,
                             attachments: Vec::new(),
                             request: None,
                             from: None,

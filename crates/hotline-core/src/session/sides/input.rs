@@ -32,6 +32,7 @@ impl Room {
         }
         let line = Line {
             call_inbox: true,
+            return_for: None,
             said: None,
             voice: Some(origin),
             text: crate::session::timed(now_ms(), text),
@@ -232,6 +233,7 @@ impl Room {
                 &side,
                 Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: Some(origin.clone()),
                     text: brief,
@@ -474,6 +476,9 @@ impl Room {
             |line| (line.text.clone(), line.attachments.clone()),
         );
         for line in &taken {
+            if line.said.is_some() && line.from.is_none() && line.request.is_none() {
+                self.set_work_for(&side.thread, super::super::ownership::WorkFor::Person);
+            }
             if let Some(id) = &line.delivery {
                 side.heard(self, id);
             }

@@ -124,6 +124,7 @@ fn fixture() -> (Turn, Template) {
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,
         returns: None,
+        ownership: Arc::new(|returned| returned.unwrap_or_default()),
     };
     let template = Template {
         tools: Vec::new(),

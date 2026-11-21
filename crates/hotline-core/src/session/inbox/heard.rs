@@ -466,6 +466,7 @@ impl Room {
                 };
                 let line = Line {
                     call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: timed(now_ms(), WAKE_LINE),

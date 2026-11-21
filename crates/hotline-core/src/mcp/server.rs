@@ -1143,6 +1143,20 @@ impl TeammateTools {
         })
     }
 
+    pub(crate) fn ownership(&self) -> crate::session::ownership::Track {
+        let room = self.room.clone();
+        let thread = self.thread.clone();
+        Arc::new(move |returned| {
+            let Some(room) = room.upgrade() else {
+                return Default::default();
+            };
+            if let Some(owner) = returned {
+                room.set_work_for(&thread, owner);
+            }
+            room.work_for(&thread)
+        })
+    }
+
     /// The line Hotline adds when work comes back to this session's thread
     /// and nobody waits on it ([`crate::session::returns`]), read off the
     /// thread when it is said. A subagent run's tools and a voice front's

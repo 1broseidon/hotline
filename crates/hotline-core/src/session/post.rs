@@ -46,6 +46,8 @@ pub(super) const AGAIN: &str =
 
 /// What a turn of a thread's agent may post, and whether it has.
 pub(super) struct Posting {
+    pub(super) answered_for: Option<super::ownership::WorkFor>,
+    pub(super) work_for: super::ownership::WorkFor,
     pub(super) credential_sites: std::collections::HashSet<String>,
     /// The job whose thread the turn is on: its posts carry the job's stamp.
     job: Option<ScheduledRun>,
@@ -122,6 +124,8 @@ impl Room {
         lock(&self.posting).insert(
             thread.clone(),
             Posting {
+                answered_for: None,
+                work_for: Default::default(),
                 credential_sites: std::collections::HashSet::new(),
                 job,
                 quiet: false,
@@ -300,7 +304,13 @@ impl Room {
         self.post(persona_id, thread, post)?;
         let posts = std::mem::take(&mut *lock(&session.pending_posts));
         let line = posted_since(&posts, &self.woken_by(thread));
-        self.dispatch(session, Wired::back(timed(now_ms(), &line)));
+        self.dispatch(
+            session,
+            Wired {
+                work_for: self.work_for(thread),
+                ..Wired::back(timed(now_ms(), &line))
+            },
+        );
         Ok("Posted to the chat, and your main conversation is acting on it.".to_string())
     }
 

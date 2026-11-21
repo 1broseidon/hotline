@@ -501,6 +501,7 @@ impl Room {
         // What it answers is answered, as `update_inbox`'s `answer` closes it.
         if let Some(asked) = replied.as_ref().filter(|_| answering) {
             self.close_item(&caller.id, &asked.id, InboxOutcome::Answered, None);
+            self.finish_work_for(sent_from, &asked.id);
         }
         self.wait_for_cards(waits, &targets, &sent, &mut landed)
             .await;
@@ -989,6 +990,7 @@ impl Room {
             if let Some(answer) = &sorting.answer {
                 self.reply_to_item(&me, said_in, item, answer.clone(), true)?;
                 self.close_item(persona_id, &item.id, InboxOutcome::Answered, None);
+                self.finish_work_for(said_in, &item.id);
                 entry.outcome = Some(InboxOutcome::Answered);
                 entries.push(entry);
                 continue;
@@ -1017,6 +1019,7 @@ impl Room {
                 }
                 Sort::Closed(outcome) => {
                     self.close_item(persona_id, &item.id, outcome, sorting.reason.clone());
+                    self.finish_work_for(said_in, &item.id);
                     entry.outcome = Some(outcome);
                 }
                 Sort::Later => {
@@ -1087,6 +1090,9 @@ impl Room {
                             moved(kept, InboxState::Taken, sorting.reason.clone(), None, None);
                             true
                         });
+                        if item.notice.is_none() && item.request.is_none() {
+                            self.set_work_for(said_in, self.colleague_work(item));
+                        }
                     }
                 }
             }

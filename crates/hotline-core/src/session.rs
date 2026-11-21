@@ -62,6 +62,7 @@ mod links;
 mod marks;
 mod narration;
 pub(crate) mod new_teammate;
+pub(crate) mod ownership;
 mod pacing;
 mod peers;
 mod person_name;
@@ -672,6 +673,7 @@ struct Wired {
     /// begins hears what came back with the facts of the moment
     /// ([`returns`]) and may end with nothing said.
     back: bool,
+    work_for: ownership::WorkFor,
     /// The turn this line begins is quiet: the inbox woke the main
     /// conversation, so nobody reads its words and only `post_to_chat`
     /// reaches the person ([`post`]).
@@ -714,6 +716,7 @@ impl Wired {
             retry: false,
             wake: false,
             back: false,
+            work_for: ownership::WorkFor::Person,
             quiet: false,
             pick_up: false,
             woke: Vec::new(),

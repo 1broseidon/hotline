@@ -113,6 +113,7 @@ impl<T> Turns<T> {
 pub(super) struct Line {
     /// A best-effort offer to this call only; its inbox item owns the chat copy.
     pub call_inbox: bool,
+    pub return_for: Option<super::ownership::WorkFor>,
     /// Captured when accepted, so reattaching voice cannot speak an older turn.
     pub voice: Option<crate::voice::Origin>,
     pub text: String,
@@ -152,6 +153,7 @@ pub(super) struct RequestLine {
 
 /// The agent a turn is for, and the thread and teammate it answers as.
 pub(super) struct Seat<'a> {
+    pub work_for: super::ownership::WorkFor,
     /// Work threads retain their own lease for call-file delivery.
     pub capability: Option<&'a crate::driver::CapabilityLease>,
     pub thread: &'a ThreadId,
@@ -417,6 +419,7 @@ impl Threads<'_> {
         let driver = seat.driver;
         let thread = seat.thread.clone();
         let _posting = self.room.open_posting(&thread, job);
+        self.room.set_work_for(&thread, seat.work_for.clone());
         let voice = line
             .voice
             .clone()

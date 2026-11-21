@@ -306,6 +306,7 @@ impl Room {
                 retry: false,
                 wake: false,
                 back: false,
+                work_for: Default::default(),
                 quiet: false,
                 pick_up: false,
                 woke: Vec::new(),
@@ -344,6 +345,7 @@ impl Room {
             thread,
             Line {
                 call_inbox: false,
+                return_for: None,
                 voice: None,
                 text: line.text.clone(),
                 attachments: line.attachments.clone(),

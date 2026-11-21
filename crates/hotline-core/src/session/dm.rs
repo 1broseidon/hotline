@@ -50,6 +50,7 @@
 //! the Dm row of [`Room::sweep`].
 
 use super::asides::result_of;
+use super::ownership::WorkFor;
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
@@ -65,6 +66,7 @@ use std::sync::{Arc, Mutex};
 /// What the DM keeps from the door of a turn to its end.
 pub(super) struct Hold {
     source: Option<Source>,
+    work_for: WorkFor,
     reach: Reach,
     /// Whether the line came from a voice, which decides how the reply is said.
     from_voice: bool,
@@ -169,6 +171,8 @@ impl Occupant for Session {
         // a turn nobody started: quiet as the inbox's is, though no inbox
         // limit counts it. One said on a call is heard there.
         let returning = (wired.back || wired.unprompted.is_some()) && wired.voice.is_none();
+        let mut work_for = wired.work_for.clone();
+        let mut mixed = false;
         let pick_up = wired.pick_up;
         let mut woke = wired.woke.clone();
         let mut offered = Vec::new();
@@ -206,6 +210,7 @@ impl Occupant for Session {
             };
             if is_result {
                 for behind in room.results_behind(session) {
+                    mixed |= work_for.merge(&behind.work_for);
                     if let Some(said) = behind.said {
                         lock(&session.unread).push(said);
                     }
@@ -229,6 +234,17 @@ impl Occupant for Session {
                 return Begin::Skip;
             }
             woke.extend(inbox.offered.iter().cloned());
+            if wired.quiet
+                && let [item] = woke.as_slice()
+                && let Ok(item) = room.item_of(&session.persona_id, item)
+            {
+                work_for = room.colleague_work(&item);
+            }
+            if mixed {
+                text = format!(
+                    "Hotline: work for different people came back together; this turn is for the person.\n\n{text}"
+                );
+            }
             offered = inbox.offered;
             inline = inbox.inline;
             // Which sites it holds the person's cookies for, when that changed.
@@ -272,6 +288,7 @@ impl Occupant for Session {
         lock(&session.pick_up).began();
         Begin::Go(Hold {
             source: Some(source),
+            work_for,
             reach,
             from_voice,
             steered: Vec::new(),
@@ -288,6 +305,7 @@ impl Occupant for Session {
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut Hold) -> Driven {
         let source = held.source.take().expect("a turn is taken once");
         let _posting = room.open_posting(&self.thread(), None);
+        room.set_work_for(&self.thread(), held.work_for.clone());
         if held.quiet {
             let thread = self.thread();
             room.quiet_turn(&thread, &held.woke);
@@ -713,6 +731,9 @@ impl Room {
         }
         // A line that is more than an inbox notice is the person's: a quiet
         // turn they have spoken into answers them out loud from here on.
+        if person {
+            self.set_work_for(&session.thread(), WorkFor::Person);
+        }
         if taken.iter().any(|wire| !wire.wake) {
             self.set_quiet(&session.thread(), false);
             self.show_inbox_activity(session);

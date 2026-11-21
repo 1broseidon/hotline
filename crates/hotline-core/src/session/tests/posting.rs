@@ -296,3 +296,28 @@ async fn kinds_are_checked_at_the_mcp_handler_before_a_post_is_taken() {
     );
     assert!(!room.has_posted(&dm));
 }
+
+#[tokio::test]
+async fn a_colleagues_file_is_refused_before_it_is_read() {
+    use crate::session::ownership::WorkFor;
+    let room = room("file-for-colleague", Fake::new(Scripted::new(Vec::new())));
+    let dm = ThreadId::dm("ada");
+    let _turn = room.open_posting(&dm, None);
+    let tools = TeammateTools::new(&room, "ada");
+    let args = json!({"source": "workspace", "path": "missing.txt"});
+    room.set_work_for(
+        &dm,
+        WorkFor::Colleague {
+            name: "Pork Chop".into(),
+            item: "item-123".into(),
+        },
+    );
+    let refused = tools.call("send_file", &args).await.unwrap_err();
+    assert_eq!(
+        refused,
+        "Attach the file to your answer with `send`, using `files` and `reply_to: item-123`."
+    );
+    room.set_work_for(&dm, WorkFor::Person);
+    assert_ne!(tools.call("send_file", &args).await.unwrap_err(), refused);
+    assert!(posts(&room).is_empty());
+}

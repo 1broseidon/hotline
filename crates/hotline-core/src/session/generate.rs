@@ -81,7 +81,10 @@ impl Room {
         let name = image_name(args.name.as_deref(), &args.prompt)?;
         let styled =
             imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect, persona_id)?;
-        self.may_send(thread)?;
+        let attach = self.attach_to_answer(thread);
+        if attach.is_none() {
+            self.may_send(thread)?;
+        }
         let persona = self.persona(persona_id)?;
         let settings = crate::room::try_settings(self.log())?;
         let spending: SpendingSettings = serde_json::from_value(
@@ -154,22 +157,27 @@ impl Room {
                 .await
                 .map_err(|_| "The generated image could not be written.".to_string())?
                 .map_err(|error| error.to_string())?;
-        self.send_file(
-            persona_id,
-            Source::GeneratedImage(file_name),
-            "",
-            capability,
-            thread,
-        )
-        .await?;
+        if attach.is_none() {
+            self.send_file(
+                persona_id,
+                Source::GeneratedImage(file_name),
+                "",
+                capability,
+                thread,
+            )
+            .await?;
+        }
         let mut result = json!({
             "path": hotline_support::plain_path::plain(&path),
             "model": model,
             "costUsd": spent_usd,
             "seconds": started.elapsed().as_secs_f64(),
             "transparent": transparent,
-            "inConversation": true,
+            "inConversation": attach.is_none(),
         });
+        if let Some(instruction) = attach {
+            result["instruction"] = json!(instruction);
+        }
         if subscription {
             result["costUsd"] = Value::Null;
             result["billing"] = json!("subscription");

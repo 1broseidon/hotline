@@ -71,6 +71,9 @@ impl Room {
         capability: Option<CapabilityLease>,
         thread: &ThreadId,
     ) -> Result<String, String> {
+        if let Some(instruction) = self.attach_to_answer(thread) {
+            return Err(instruction);
+        }
         let persona = self.reaching_from(persona_id, thread)?;
         let caption = caption.trim();
         if caption.chars().count() > MAX_CAPTION_CHARS {
@@ -189,6 +192,14 @@ impl Room {
             recent
                 .iter()
                 .any(|(drawn, at)| drawn == digest && now_ms() - at < REPEAT_MS)
+        })
+    }
+
+    pub(super) fn attach_to_answer(&self, thread: &ThreadId) -> Option<String> {
+        self.result_item(thread).map(|item| {
+            format!(
+                "Attach the file to your answer with `send`, using `files` and `reply_to: {item}`."
+            )
         })
     }
 

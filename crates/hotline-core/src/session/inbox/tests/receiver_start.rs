@@ -58,11 +58,18 @@ async fn a_failed_early_start_is_not_retried_at_the_deadline() {
     let (room, agents) = room_on("inbox-cold-failure", replies().failing_to_start("offline"));
     let deadline = Instant::now() + heard::gather_delay();
     let id = land(&room, "Wait here").await;
-    until("startup was attempted", || agents.views().len() == 1).await;
+    let starts = || {
+        agents
+            .views()
+            .iter()
+            .filter(|view| view.id == "bob")
+            .count()
+    };
+    until("startup was attempted", || starts() == 1).await;
     assert!(Instant::now() < deadline);
     advance(heard::gather_delay() * 2).await;
     until("the gather retired", || gathered(&room)).await;
-    assert_eq!(agents.views().len(), 1);
+    assert_eq!(starts(), 1);
     assert_eq!(agents.prompts(), [] as [String; 0]);
     let saved = item(&room, "bob", &id);
     assert_eq!(saved.state, InboxState::New);

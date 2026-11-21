@@ -1387,6 +1387,10 @@ forPerson?: boolean,
  */
 notice?: InboxNotice, 
 /**
+ * The failure recorded on a `wakeFailed` notice.
+ */
+wakeFailure?: InboxWakeFailure, 
+/**
  * When a pick-up offers it again while it is still set aside: an hour
  * after a pick-up first offered it, then a day after each offer.
  */
@@ -1418,9 +1422,10 @@ state: string, };
  * teammate's words, and never set by a teammate's tool. `expired`: an item
  * the teammate sent was closed as expired in its receiver's inbox.
  * `unanswered`: a question the teammate asked a colleague before the inbox
- * was ended unanswered when Hotline was updated.
+ * was ended unanswered when Hotline was updated. `wakeFailed`: the desk
+ * could not wake the receiver for an item that is still in its inbox.
  */
-export type InboxNotice = "expired" | "unanswered";
+export type InboxNotice = "expired" | "unanswered" | "wakeFailed";
 
 /**
  * How a closed item ended: `answered` (a reply went back with
@@ -1478,6 +1483,24 @@ export type InboxState = "new" | "noticed" | "seen" | "taken" | "later" | "close
  * build cannot read, held for it or sent by it, newest first.
  */
 export type InboxView = { personaId: string, open: Array<InboxItem>, closed: Array<InboxItem>, sent: Array<InboxItem>, unread: number, newer?: Array<InboxNewerItem>, };
+
+/**
+ * What Hotline knows about a failed inbox wake, saved on its notice only.
+ */
+export type InboxWakeFailure = { state: InboxWakeFailureState, 
+/**
+ * The provider's reset, if known, in epoch milliseconds.
+ */
+resetAt?: number, 
+/**
+ * Bounded, redacted diagnostic text. Present it as quoted data.
+ */
+detail?: string, };
+
+/**
+ * Why the desk could not wake an inbox item's receiver.
+ */
+export type InboxWakeFailureState = "outOfQuota" | "notSignedIn" | "stopped" | "couldNotStart" | "other";
 
 /**
  * What the sender of an item wants from it: facts about the sender, not an

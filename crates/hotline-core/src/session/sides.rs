@@ -310,6 +310,8 @@ impl LiveSide {
 /// it is handed to the driver.
 pub(super) struct WorkTurn {
     line: Option<Line>,
+    offered: Vec<String>,
+    inline: Option<String>,
 }
 
 impl Occupant for LiveSide {
@@ -444,7 +446,11 @@ impl Occupant for LiveSide {
         }
         // The person's Stop or Interrupt from here on is this turn's.
         lock(&self.cut).take();
-        Begin::Go(WorkTurn { line: Some(line) })
+        Begin::Go(WorkTurn {
+            line: Some(line),
+            offered: inbox.offered,
+            inline: inbox.inline,
+        })
     }
 
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut WorkTurn) -> Driven {
@@ -470,9 +476,16 @@ impl Occupant for LiveSide {
             .await
     }
 
-    fn end(self: &Arc<Self>, room: &Arc<Room>, _held: WorkTurn, driven: Driven) -> Then {
+    fn end(self: &Arc<Self>, room: &Arc<Room>, held: WorkTurn, driven: Driven) -> Then {
         let side = self;
         *lock(&side.last_used) = now_ms();
+        room.settle_inbox_offer(
+            &side.persona_id,
+            &held.offered,
+            held.inline.as_deref(),
+            &driven,
+            *lock(&side.cut),
+        );
         if side.closed.is_set() {
             // A thread ended under a turn still settles the request it
             // answered.

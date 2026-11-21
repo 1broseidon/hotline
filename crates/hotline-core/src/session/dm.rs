@@ -78,6 +78,8 @@ pub(super) struct Hold {
     /// The inbox items that woke a quiet turn: those its line offered, or
     /// those its index offered for the first time.
     woke: Vec<String>,
+    offered: Vec<String>,
+    inline: Option<String>,
     /// The turn is a pick-up of what the teammate set aside, which no other
     /// pick-up follows.
     pick_up: bool,
@@ -169,6 +171,8 @@ impl Occupant for Session {
         let returning = (wired.back || wired.unprompted.is_some()) && wired.voice.is_none();
         let pick_up = wired.pick_up;
         let mut woke = wired.woke.clone();
+        let mut offered = Vec::new();
+        let mut inline = None;
         // A pick-up whose items were all sorted meanwhile has nothing to offer.
         if pick_up && room.set_aside(&session.persona_id).is_empty() {
             return Begin::Skip;
@@ -224,7 +228,9 @@ impl Occupant for Session {
             if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;
             }
-            woke.extend(inbox.offered);
+            woke.extend(inbox.offered.iter().cloned());
+            offered = inbox.offered;
+            inline = inbox.inline;
             // Which sites it holds the person's cookies for, when that changed.
             text = room.with_cookie_news(&session.told_cookies, &session.persona_id, text);
             if let Some(index) = room.thread_index(
@@ -272,6 +278,8 @@ impl Occupant for Session {
             request,
             quiet: wired.quiet || returning,
             woke,
+            offered,
+            inline,
             pick_up,
             reaction,
         })
@@ -352,10 +360,18 @@ impl Occupant for Session {
             }
         }
         let cut = lock(&session.cut).take();
+        let failed_wake = room.settle_inbox_offer(
+            &session.persona_id,
+            &held.offered,
+            held.inline.as_deref(),
+            &driven,
+            cut,
+        );
         // Whether the conversation, once idle, may be offered what it set
         // aside: never after a pick-up's own turn, so pick-ups cannot chain,
         // and never after a turn the person stopped or that did not finish.
-        let may_pick_up = !held.pick_up
+        let may_pick_up = !failed_wake
+            && !held.pick_up
             && cut.is_none()
             && !super::exchanges::cut_short(&driven)
             && driven.failure.is_none();

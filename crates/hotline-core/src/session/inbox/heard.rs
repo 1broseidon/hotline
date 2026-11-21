@@ -32,6 +32,7 @@
 //!   the first time it goes idle after a turn something else started, then
 //!   on the item's own clock, and once when the desk opens (`pick_up.rs`).
 
+use super::wake_failure::fresh_at;
 use super::{
     CapabilityLease, PERSONS_WORD, Room, kept, lock, moved, now_ms, quick_message, short,
     thread_key,
@@ -96,6 +97,7 @@ pub(in crate::session) struct Told {
     pub news: bool,
     /// The items offered for the first time, by id.
     pub offered: Vec<String>,
+    pub inline: Option<String>,
 }
 
 impl Room {
@@ -277,7 +279,12 @@ impl Room {
         if !dm.is_current() || !capability.is_current() {
             return false;
         }
-        let _ = self.start_now(persona_id, capability).await;
+        if let Err(error) = self.start_now(persona_id, capability.clone()).await
+            && dm.is_current()
+            && capability.is_current()
+        {
+            self.defer_inbox_start(persona_id, &self.unoffered(persona_id, thread), &error);
+        }
         true
     }
 
@@ -288,12 +295,12 @@ impl Room {
         persona_id: &str,
         thread: &ThreadId,
     ) -> Vec<InboxItem> {
+        let now = now_ms();
         kept::received(&self.log, persona_id)
             .into_iter()
             .filter(|item| {
-                item.state.unread()
+                fresh_at(item, now)
                     && !super::on_call::is_call_result(item)
-                    && item.offered.is_none()
                     && self.inbox_heard_in(item) == *thread
             })
             .collect()
@@ -341,6 +348,10 @@ impl Room {
                     return;
                 };
                 if !dm.is_current() {
+                    return;
+                }
+                if let Some(error) = session.driver.startup_failure() {
+                    self.defer_inbox_start(persona_id, &waiting, &error);
                     return;
                 }
                 let Ok(working) = self.lease() else {
@@ -552,7 +563,7 @@ impl Room {
                 continue;
             }
             unread += 1;
-            if item.offered.is_none() && !super::on_call::is_call_result(&item) {
+            if fresh_at(&item, now) && !super::on_call::is_call_result(&item) {
                 fresh.push(item);
             }
         }
@@ -561,24 +572,19 @@ impl Room {
         let mut offered = Vec::new();
         for item in fresh {
             let changed = self.change_item(persona_id, &item.id, |kept| {
-                if kept.offered.is_some() || !kept.state.unread() {
+                if !fresh_at(kept, now) {
                     return false;
                 }
                 kept.offered = Some(now);
-                if kept.state == InboxState::New {
-                    let state = if inline {
-                        InboxState::Seen
-                    } else {
-                        InboxState::Noticed
-                    };
-                    moved(kept, state, None, None, None);
+                if kept.state == InboxState::New && !inline {
+                    moved(kept, InboxState::Noticed, None, None, None);
                 }
                 true
             });
             offered.extend(changed);
         }
         let whole = match offered.as_slice() {
-            [item] if inline && item.state == InboxState::Seen => quick_message(item),
+            [item] if inline && item.state == InboxState::New => quick_message(item),
             _ => None,
         };
         if whole.is_some() {
@@ -592,6 +598,7 @@ impl Room {
                 text: None,
                 news,
                 offered: offered_ids,
+                inline: None,
             };
         }
         let mut lines = Vec::new();
@@ -630,6 +637,7 @@ impl Room {
             text: Some(text),
             news,
             offered: offered_ids,
+            inline: whole.map(|_| offered[0].id.clone()),
         }
     }
 

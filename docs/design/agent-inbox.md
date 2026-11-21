@@ -262,7 +262,9 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   the old gather's authority, and a failed early start is not retried by the
   same gather. The index usually carries titles, senders and
   waiting marks. If the wake offers exactly one new quick item, it shows the
-  whole message as quoted sender words and marks it `seen`. This is either a
+  whole message as quoted sender words. The offer is not a read: the inbox
+  marks the item `seen` only after the driver reports a completed model turn
+  or observable model work, or the receiver explicitly reads it. This is either a
   compact title-only message or a body of at most 280 characters that asks
   for an answer or is a reply. Work handoffs, Loop in items and desk notices
   stay title-only. One `send` to the sender with `reply_to` answers a question:
@@ -270,6 +272,23 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   wants nothing back does not need a reply. This applies in the main
   conversation, work threads, calls and jobs; it does not change busy
   notices, multiple new items or anything already offered.
+- **A wake that could not run.** An unread item stays open. A failed wake
+  does not start the idle pick-up; the inbox clock offers it again after an
+  hour, then daily, or at a known provider reset. An explicit read or answer
+  can still pick it up sooner. Hotline sends the original sender one
+  `wakeFailed` notice per item and failure state, in the asking thread while
+  it is live; the notice neither answers the item nor counts on the brake.
+  For an item sent for the person, a separate short notice appears in chat.
+  The wire's `wakeFailure.state` is one of:
+  - `outOfQuota`: the driver reported a quota or rate limit, including a
+    refusal with the harness's known quota announcement. `resetAt` is an
+    estimated epoch millisecond time when the driver gives a retry interval.
+  - `notSignedIn`: the driver identified a provider or harness sign-in problem.
+  - `stopped`: the person explicitly stopped the turn before it did model work.
+  - `couldNotStart`: no session could open for the wake.
+  - `other`: no more specific diagnosis. A bounded, redacted diagnostic line
+    may be included as data; a thought or a silent stream alone is not proof
+    of model work, an account failure, or a Stop.
 - **The quiet turn.** The turn of the main conversation that the inbox wakes
   is quiet, as a quiet job's firing is ("I think like scheduled tasks it can
   run quiet and escalate to the user when needed"). Its line begins `quiet

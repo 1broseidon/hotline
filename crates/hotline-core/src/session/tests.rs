@@ -491,6 +491,10 @@ impl Fake {
         *lock(&self.driver.start_error) = Some(reason.to_string());
     }
 
+    pub(super) fn allow_starts(&self) {
+        *lock(&self.driver.start_error) = None;
+    }
+
     /// Makes the agents stand in for a child that issues this session id, and
     /// says whether it reopens a conversation it is asked to.
     pub(super) fn reporting(&self, session_id: &str, restored: bool) {

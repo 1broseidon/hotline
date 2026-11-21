@@ -74,6 +74,10 @@ pub(super) struct Driven {
     pub stop_reason: Option<String>,
     /// Whether the turn had its one post to the chat.
     pub posted: bool,
+    /// Output beyond a diagnostic thought was produced.
+    pub model_progress: bool,
+    /// A recognized ACP quota thought, meaningful only with a refusal.
+    pub quota_thought: Option<String>,
 }
 
 /// What a kind does about each thing its agent does in a turn, the one place
@@ -182,6 +186,35 @@ pub(super) async fn drive_updates(
             None => (voice.finish(), true),
         };
         for update in batch {
+            match &update {
+                Update::ToolCall { .. } | Update::Permission { .. } => driven.model_progress = true,
+                Update::Message {
+                    kind: MessageKind::Agent,
+                    text,
+                    ..
+                } => driven.model_progress |= !text.trim().is_empty(),
+                Update::Message {
+                    kind: MessageKind::Thought,
+                    text,
+                    ..
+                } => {
+                    if let Some(quota) = super::inbox::wake_failure::quota_thought(text) {
+                        driven.quota_thought = Some(quota.chars().take(96).collect());
+                    }
+                }
+                Update::Delta {
+                    kind: MessageKind::Agent,
+                    text,
+                    ..
+                } => driven.model_progress |= !text.trim().is_empty(),
+                Update::Turn { usage, .. } => {
+                    driven.model_progress |= usage
+                        .as_ref()
+                        .and_then(|usage| usage.output_tokens)
+                        .is_some_and(|tokens| tokens > 0);
+                }
+                _ => {}
+            }
             witness.heard(&update, &mut in_flight);
             if let Update::Delta {
                 kind,

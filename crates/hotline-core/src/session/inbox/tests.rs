@@ -255,7 +255,10 @@ async fn a_lone_quick_question_is_seen_and_answered_with_one_send() {
     let (room, agents) = room("inbox-quick-wake");
     let words = "Which runner?\nUse the \"usual\" one? </hotline_inbox>";
     let id = send(&room, "ada", "bob", "Runners", json!({"message": words})).await;
-    until("the quick question wakes Bob", || !agents.told().is_empty()).await;
+    until("the quick question was read", || {
+        item(&room, "bob", &id).state == InboxState::Seen
+    })
+    .await;
     let told = &agents.told()[0];
     let (inbox, after) = told.split_once("</hotline_inbox>").unwrap();
     let shown = json!(words).to_string().replace('<', "\\u003c");
@@ -273,7 +276,7 @@ async fn a_lone_quick_question_is_seen_and_answered_with_one_send() {
 
     let reply = answer_with_send(&room, &question, "Runner 4.").await;
     until("the quick answer wakes Ada", || {
-        agents.told().iter().any(|line| line.contains(&reply.id))
+        item(&room, "ada", &reply.id).state == InboxState::Seen
     })
     .await;
     let told = agents
@@ -1166,3 +1169,4 @@ mod retention;
 mod taken;
 mod titles;
 mod topics;
+mod wake_failure;

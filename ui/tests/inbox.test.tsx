@@ -767,7 +767,8 @@ describe("task-456 drawn", () => {
 		});
 		const question = item("b2", { from: "huck", to: "chop", topic: "b", ts: sentAt + 210_000, replyTo: "b1", title: "Did the Windows row come out too?", body: "", state: "taken", waiting: true, work: { kind: "side", key: "s2" } });
 		const reply = item("b3", { from: "chop", to: "huck", topic: "b", ts: sentAt + 220_000, replyTo: "b2", title: "Re: Did the Windows row come out too?", body: "Yes. The table lists Linux and macOS only now.", wants: "nothing", state: "seen" });
-		const shown = view({ personaId: "chop", open: [question], closed: [brief], sent: [reply] });
+		const notice = item("n", { from: "huck", to: "chop", topic: "b", ts: sentAt + 230_000, replyTo: "b3", title: "Expired: Re: Did the Windows row come out too?", wants: "nothing", notice: "expired", state: "closed", outcome: "noted" });
+		const shown = view({ personaId: "chop", open: [question], closed: [brief, notice], sent: [reply] });
 		const threads: string[] = [];
 		const follows: unknown[] = [];
 		const commands = spyOn(wire, "command");
@@ -793,11 +794,13 @@ describe("task-456 drawn", () => {
 			["b1", "left", "letter"],
 			["b2", "left", "bubble"],
 			["b3", "right", "bubble"],
+			["n", "left", "bubble"],
 		]);
+		expect(messages[3]?.querySelector(".inbox-who")?.textContent).toBe("Hotline");
 		// The question's title is the whole of it, said once; the letter's title is the topic's, so it is not said again.
 		expect(messages[1]?.querySelector(".inbox-bubble")?.textContent).toBe("Did the Windows row come out too?");
 		expect(messages[0]?.querySelector(".inbox-subject")).toBeNull();
-		expect([...container.querySelectorAll(".inbox-state")].map((one) => one.textContent)).toEqual(["Done", "Picked up", "Seen"]);
+		expect([...container.querySelectorAll(".inbox-state")].map((one) => one.textContent)).toEqual(["Done", "Picked up", "Seen", "Noted"]);
 		// History is a press away, in place.
 		expect(container.querySelector(".inbox-history")).toBeNull();
 		await press(container.querySelector(".inbox-state")!);
@@ -807,7 +810,7 @@ describe("task-456 drawn", () => {
 		expect([...container.querySelectorAll(".inbox-work")].map((one) => one.textContent)).toEqual(["≡Work thread · Done", "≡Work thread · Running"]);
 		await press(container.querySelectorAll(".inbox-work")[1]!);
 		expect(threads).toEqual(["chop side:s2"]);
-		// Ask a follow-up hands the message box the topic, about its newest message; nothing is sent from here.
+		// Ask a follow-up targets the newest teammate message, not the desk notice. Nothing is sent from here.
 		await press([...container.querySelectorAll("button")].find((one) => one.textContent === "Ask a follow-up")!);
 		expect(follows).toEqual([{ aboutItem: "b3", quote: "Check the release notes · Huck" }]);
 		expect(commands).not.toHaveBeenCalled();

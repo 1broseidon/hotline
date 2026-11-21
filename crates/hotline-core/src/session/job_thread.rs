@@ -294,6 +294,8 @@ pub(super) struct JobLine {
 /// What a job's turn keeps from its door to its end.
 pub(super) struct JobTurn {
     line: Option<Line>,
+    offered: Vec<String>,
+    inline: Option<String>,
     firing: Option<ScheduledRun>,
     last: bool,
     /// The job as its posts are stamped.
@@ -588,6 +590,13 @@ impl Occupant for LiveJob {
                         NoticeLevel::Error,
                         format!("This job could not start its agent: {error}"),
                     );
+                    if line.line.wake {
+                        room.defer_inbox_start(
+                            &self.persona_id,
+                            &room.unoffered(&self.persona_id, &thread),
+                            &error,
+                        );
+                    }
                     self.mark(room, ThreadState::Parked, None);
                     return Begin::Skip;
                 }
@@ -621,6 +630,8 @@ impl Occupant for LiveJob {
         }
         Begin::Go(JobTurn {
             line: Some(line.line),
+            offered: inbox.offered,
+            inline: inbox.inline,
             firing: line.firing,
             last: line.last,
             run: run_of(&job),
@@ -660,6 +671,13 @@ impl Occupant for LiveJob {
 
     fn end(self: &Arc<Self>, room: &Arc<Room>, held: JobTurn, driven: Driven) -> Then {
         *lock(&self.last_used) = now_ms();
+        room.settle_inbox_offer(
+            &self.persona_id,
+            &held.offered,
+            held.inline.as_deref(),
+            &driven,
+            lock(&self.life).halted().then_some(Cut::Stop),
+        );
         lock(&self.life).firing_over();
         if let Some(request) = &held.request {
             // The person's cancel of a job's turn is their Stop.

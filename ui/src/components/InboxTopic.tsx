@@ -145,6 +145,7 @@ function TopicPage({
 	}, [focus]);
 	const word = topicWord(one);
 	const group = one.sends.length > 0;
+	const follow = one.items.findLast((item) => item.notice === undefined);
 	const others = one.others.map(nameOf).join(", ");
 	const detail = group ? undefined : one.waiting !== undefined ? `${nameOf(one.waiting.from)} is waiting` : `with ${others}`;
 	const said = (item: InboxItem, before: string | undefined) => (
@@ -233,11 +234,13 @@ function TopicPage({
 					{...(group ? { aside: <span className="spine-rule-aside">to {one.sends.length} teammates</span> } : { count: one.items.length })}
 				/>
 				<div className="inbox-stream">{stream}</div>
-				<div className="inbox-foot">
-					<button type="button" className="control btn btn-sm" title={`Ask ${nameOf(one.owner)}`} onClick={() => onFollowUp({ aboutItem: one.items.at(-1)!.id, quote: `${one.title} · ${others}` })}>
-						Ask a follow-up
-					</button>
-				</div>
+				{follow !== undefined && (
+					<div className="inbox-foot">
+						<button type="button" className="control btn btn-sm" title={`Ask ${nameOf(one.owner)}`} onClick={() => onFollowUp({ aboutItem: follow.id, quote: `${one.title} · ${others}` })}>
+							Ask a follow-up
+						</button>
+					</div>
+				)}
 			</Scroll>
 		</section>
 	);

@@ -213,7 +213,7 @@ async fn a_loop_fires_on_its_own_thread_and_its_report_is_posted() {
     assert_eq!(events[0]["scheduled"]["kind"], "loop");
     let heard = heard(&prompts, 1).await;
     assert!(
-        heard[0].ends_with(
+        heard[0].contains(
             "loop · check the crane\n\nHotline runs this job again by itself until it ends (Every 15s): nothing needs scheduling or re-arming."
         ),
         "{heard:?}"

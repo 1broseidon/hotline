@@ -491,7 +491,7 @@ async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() 
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,
         returns: None,
-        ownership: Arc::new(|returned| returned.unwrap_or_default()),
+        ownership: Arc::new(Option::unwrap_or_default),
     };
     let (sender, _receiver) = mpsc::channel(8);
     let result = turn
@@ -1230,7 +1230,7 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         asked: true,
         returns: None,
-        ownership: Arc::new(|returned| returned.unwrap_or_default()),
+        ownership: Arc::new(Option::unwrap_or_default),
     };
     let (sender, mut receiver) = mpsc::channel(256);
     tokio::spawn(async move { while receiver.recv().await.is_some() {} });

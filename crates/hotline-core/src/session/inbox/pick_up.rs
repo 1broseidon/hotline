@@ -59,9 +59,7 @@ use std::time::Duration;
 /// is quiet, as the inbox's own wake is, and says so in the same words.
 pub(super) const PICK_UP_LINE: (&str, &str) = (
     "quiet inbox · You are idle now. These items in your inbox are still open: while you worked you set them aside for later, or were shown them and left them unsorted.",
-    concat!(
-        "Pick up what is ready now: read, take, answer or close it with `update_inbox`, and leave for later, with why, what still waits on something. What you leave open now is offered again an hour after its first offer like this, then daily, and three days after it arrived it closes as expired and its sender is told. ",
-    ),
+    "Pick up what is ready now: read, take, answer or close it with `update_inbox`, and leave for later, with why, what still waits on something. What you leave open now is offered again an hour after its first offer like this, then daily, and three days after it arrived it closes as expired and its sender is told.",
 );
 
 /// Which pick-up is due: the one a turn's end armed, or the one a desk that

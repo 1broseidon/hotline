@@ -51,9 +51,20 @@ impl Room {
     }
 
     pub(crate) fn set_work_for(&self, thread: &ThreadId, owner: WorkFor) {
-        if let Some(turn) = lock(&self.posting).get_mut(thread) {
+        let private_work = owner.item().is_some();
+        {
+            let mut posting = lock(&self.posting);
+            let Some(turn) = posting.get_mut(thread) else {
+                return;
+            };
             turn.work_for = owner;
             turn.answered_for = None;
+        }
+        if thread.kind == crate::contract::ThreadKind::Dm {
+            let session = lock(&self.sessions).get(&thread.key).cloned();
+            if let Some(session) = session {
+                self.inbox_activity(&session, private_work);
+            }
         }
     }
 

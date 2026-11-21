@@ -122,9 +122,6 @@ async fn a_send_to_several_finishes_when_every_item_is_closed_and_until_then_its
     let first = adas_wakes(&agents).remove(0);
     assert!(first.contains(QUIET_WAKE_LINE), "{first}");
     assert!(!first.contains("Finished:"), "{first}");
-    assert!(
-        QUIET_WAKE_LINE.contains("A result they asked you to get is not for a post: once everything you sent colleagues for it is finished, Hotline gives you a turn they read to tell them.")
-    );
     until("Ada's quiet turn ended", || {
         idle(&room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
     })
@@ -158,6 +155,7 @@ async fn a_send_to_several_finishes_when_every_item_is_closed_and_until_then_its
         finished.contains("\"Release on Thursday?\" (Bob: answered, Cy: dropped)"),
         "a decline finishes it too, with nothing landing in Ada's inbox: {finished}"
     );
+    assert!(finished.contains("They read this turn: tell them the result in your own words."));
 }
 
 /// An item held for the person's first-contact card is not finished, and an
@@ -256,7 +254,7 @@ async fn an_ask_that_finishes_mid_turn_is_said_into_the_turn_the_person_reads() 
     until("said into the turn", || {
         agents.steered().iter().any(|line| {
             line.contains("is finished, \"Score?\" (Bob: answered)")
-                && line.contains("Tell the person in this turn.")
+                && line.contains("Tell the person in your own words")
         })
     })
     .await;

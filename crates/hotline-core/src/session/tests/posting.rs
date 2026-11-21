@@ -280,7 +280,7 @@ async fn kinds_are_checked_at_the_mcp_handler_before_a_post_is_taken() {
         },
     );
     room.finish_work_for(&dm, item);
-    let post = rows.iter().find(|row| row["kind"] == "agent").unwrap()["text"].clone();
+    let post = rows.iter().rfind(|row| row["kind"] == "agent").unwrap()["text"].clone();
     let result = tools
         .call("post_to_chat", &json!({"text":post}))
         .await
@@ -319,5 +319,5 @@ async fn a_colleagues_file_is_refused_before_it_is_read() {
     );
     room.set_work_for(&dm, WorkFor::Person);
     assert_ne!(tools.call("send_file", &args).await.unwrap_err(), refused);
-    assert!(posts(&room).is_empty());
+    assert_eq!(posts(&room), [] as [Value; 0]);
 }

@@ -160,7 +160,7 @@ impl Room {
                     retry: false,
                     wake: false,
                     back: false,
-                    work_for: Default::default(),
+                    work_for: crate::session::ownership::WorkFor::Person,
                     starter: super::returns::Starter::Person,
                     quiet: false,
                     pick_up: false,

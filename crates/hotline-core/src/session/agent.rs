@@ -807,7 +807,7 @@ mod tests {
         let room = room_with(&persona("ada"), scratch("agent-run-fresh"), agents.clone());
         room.run(
             RunSpec {
-                work_for: Default::default(),
+                work_for: crate::session::ownership::WorkFor::Person,
                 persona_id: "ada".to_string(),
                 run_id: "r1".to_string(),
                 title: "Check".to_string(),

@@ -821,7 +821,7 @@ async fn a_run_hears_only_its_parent_thread() {
     let outcome = room
         .run(
             crate::session::runner::RunSpec {
-                work_for: Default::default(),
+                work_for: crate::session::ownership::WorkFor::Person,
                 persona_id: "bob".into(),
                 run_id: "r2".into(),
                 title: "Measure the quay".into(),

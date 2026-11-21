@@ -221,7 +221,7 @@ impl Jobs {
             shell,
             delegate,
             processes,
-            work_for: Default::default(),
+            work_for: crate::session::ownership::WorkFor::Person,
             entries: BTreeMap::new(),
             tasks: JoinSet::new(),
             commands,
@@ -1037,7 +1037,7 @@ mod tests {
                 snapshot: JobSnapshot {
                     job_id: "lost".into(),
                     kind: JobKind::Subagent,
-                    work_for: Default::default(),
+                    work_for: crate::session::ownership::WorkFor::Person,
                     command: None,
                     title: Some("external operation".into()),
                     state: JobState::Running,

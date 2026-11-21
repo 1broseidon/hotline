@@ -348,3 +348,37 @@ async fn work_the_agent_began_by_itself_is_a_quiet_turn_from_its_first_word() {
         "a note refusal must not start a prompt"
     );
 }
+
+#[tokio::test]
+async fn a_colleagues_return_hides_activity_until_the_person_writes() {
+    let gate = Arc::new(Semaphore::new(0));
+    let room = room(
+        "colleague-return-activity",
+        Fake::new(Scripted::turns(vec![vec![ends()], vec![ends()]]).gated(gate.clone())),
+    );
+    room.start("ada").await.unwrap();
+    {
+        let _working = room.working().unwrap();
+        room.dispatch(
+            room.session("ada").unwrap(),
+            Wired {
+                work_for: crate::session::ownership::WorkFor::Colleague {
+                    name: "Pork Chop".into(),
+                    item: "6d1b005a".into(),
+                },
+                ..Wired::back(timed(now_ms(), "A helper came back."))
+            },
+        );
+    }
+    until("a colleague's return reaches the driver", || {
+        room.is_quiet(&ThreadId::dm("ada"))
+    })
+    .await;
+    let info = room.info("ada");
+    assert_eq!(info.state, SessionState::Thinking);
+    assert!(info.quiet_inbox);
+    room.prompt("ada", "Hello", None, None).await.unwrap();
+    assert!(!room.info("ada").quiet_inbox);
+    gate.add_permits(4);
+    until_state(&room, "ada", SessionState::Ready).await;
+}

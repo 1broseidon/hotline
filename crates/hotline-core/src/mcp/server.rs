@@ -1149,7 +1149,7 @@ impl TeammateTools {
         let thread = self.thread.clone();
         Arc::new(move |returned| {
             let Some(room) = room.upgrade() else {
-                return Default::default();
+                return crate::session::ownership::WorkFor::Person;
             };
             if let Some(owner) = returned {
                 room.set_work_for(&thread, owner);

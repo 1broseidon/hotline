@@ -653,7 +653,7 @@ impl Occupant for LiveJob {
         room.threads()
             .turn(
                 Seat {
-                    work_for: Default::default(),
+                    work_for: crate::session::ownership::WorkFor::Person,
                     capability: None,
                     thread: &thread,
                     persona_id: &self.persona_id,
@@ -933,7 +933,7 @@ pub(super) fn firing_text(
             quiet: run.quiet == Some(true),
             final_run: last && run.kind == ScheduleKind::Loop,
         },
-        &Default::default(),
+        &crate::session::ownership::WorkFor::Person,
     );
     let _ = write!(text, "\n\n{opening}");
     if let Some(standing) = standing {

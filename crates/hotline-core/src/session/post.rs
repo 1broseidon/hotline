@@ -135,7 +135,7 @@ impl Room {
             thread.clone(),
             Posting {
                 answered_for: None,
-                work_for: Default::default(),
+                work_for: crate::session::ownership::WorkFor::Person,
                 credential_sites: std::collections::HashSet::new(),
                 job,
                 quiet: false,

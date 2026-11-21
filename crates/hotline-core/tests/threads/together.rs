@@ -763,8 +763,8 @@ async fn a_turn_the_inbox_woke_reaches_the_person_only_by_its_one_post() {
     let post = "Ada needs the crane permit: it is yours to sign.";
     desk.on_wake(&format!(
         "CALL update_inbox {answer}\nCALL post_to_chat {}\nCALL post_to_chat {}",
-        json!({"text": post}),
-        json!({"text": "Again."}),
+        json!({"text": post, "kind": "decision"}),
+        json!({"text": "Again.", "kind": "decision"}),
     ));
     let closing = desk.results(StreamId::Tape(bob.clone()), 0).await;
     assert!(closing.contains("Posted to the chat."), "{closing}");

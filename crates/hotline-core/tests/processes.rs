@@ -90,7 +90,7 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     assert!(
         !asked
             .to_string()
-            .contains("Hotline: this came back by itself"),
+            .contains("Hotline: your command came back"),
         "the person's own line is no return: {asked}"
     );
     desk.request().await;
@@ -109,7 +109,11 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     // turn is quiet, and the one message the teammate has sent since the
     // person wrote.
     assert!(
-        said.contains("Hotline: this came back by itself, so this turn is quiet: what you write in it does not reach the person's chat. You have sent 1 message since the person last wrote."),
+        said.contains("Hotline: your command came back. This work is for the person. Your reply does not reach their chat."),
+        "{said}"
+    );
+    assert!(
+        said.contains("You have sent 1 message(s) since the person last wrote."),
         "{said}"
     );
     // The turn is quiet: what the teammate wrote is the turn's path, kept
@@ -148,7 +152,7 @@ async fn running_process_whose_end_is_posted_reaches_the_chat_by_its_post_alone(
         text("The build is going."),
         tool_call(
             "post_to_chat",
-            json!({"text": "The build is done: the new window is ready."}),
+            json!({"text": "The build is done: the new window is ready.", "kind": "result"}),
             "call_post",
         ),
         text("Posted."),

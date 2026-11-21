@@ -152,7 +152,6 @@ impl Occupant for Session {
             eprintln!("question not taken up: {error}");
             return Begin::Skip;
         }
-        room.set_state(session, SessionState::Thinking, wired.quiet);
         let reach = room.reach_of(&session.persona_id);
         if !session.answering(room) {
             session.abandon();
@@ -296,6 +295,7 @@ impl Occupant for Session {
         // This turn hears the inbox in its index: a pick-up the last one
         // armed is spent.
         lock(&session.pick_up).began();
+        room.set_state(session, SessionState::Thinking, work_for.item().is_some());
         Begin::Go(Hold {
             source: Some(source),
             work_for,
@@ -698,16 +698,24 @@ impl Room {
         }
     }
 
-    /// Restore the desk's indicators when a person addresses a quiet inbox
-    /// turn, even when their line must wait for a driver that cannot steer.
+    /// The wire flag is just for the desk; the actual session state stays working.
     pub(super) fn show_inbox_activity(&self, session: &Arc<Session>) {
+        self.inbox_activity(session, false);
+    }
+
+    pub(super) fn inbox_activity(&self, session: &Arc<Session>, private_work: bool) {
         let _lifecycle = lock(&self.lifecycle);
         if !session.capability.is_current() || !self.current_session(session) {
             return;
         }
+        let hidden = private_work
+            && !lock(&session.turns)
+                .waiting
+                .iter()
+                .any(|line| line.person.is_some());
         let mut info = lock(&session.info);
-        if info.quiet_inbox {
-            info.quiet_inbox = false;
+        if info.quiet_inbox != hidden {
+            info.quiet_inbox = hidden;
             let _ = self.info_changes.send(info.clone());
         }
     }

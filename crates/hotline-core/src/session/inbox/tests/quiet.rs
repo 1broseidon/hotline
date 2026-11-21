@@ -35,7 +35,7 @@ async fn a_turn_the_inbox_woke_keeps_its_words_as_thinking_and_tells_no_phone() 
         agents.told()[0]
     );
     assert!(
-        agents.told()[0].ends_with(&crate::session::returns::note(0, false)),
+        agents.told()[0].contains("This work is for Ada (item "),
         "and nobody waits on it: {}",
         agents.told()[0]
     );

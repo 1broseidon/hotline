@@ -179,7 +179,7 @@ async fn nudges_wake_an_idle_teammate_once_and_a_busy_one_when_its_turn_ends() {
     }
     assert!(heard.contains(QUIET_WAKE_LINE), "{heard}");
     assert!(
-        heard.ends_with(&crate::session::returns::note(0, false)),
+        heard.contains("Hotline: an aside arrived. This work is for the person."),
         "nobody waits on a wake: {heard}"
     );
 

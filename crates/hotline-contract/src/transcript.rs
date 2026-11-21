@@ -633,6 +633,10 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         run_kind: Option<RunKind>,
+        /// The inbox item this thread was started for.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        from_item: Option<String>,
     },
     /// An aside this thread's teammate left a colleague: written on the
     /// thread it was said from, so the thread's record shows what it said.

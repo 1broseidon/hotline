@@ -1248,6 +1248,7 @@ async fn sessions_after(name: &str, seen: crate::driver::ToolsSeen) -> Vec<Vec<S
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         }
         .event(),
     )

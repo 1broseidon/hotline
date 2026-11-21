@@ -81,6 +81,7 @@ fn thread(log: &Log, thread: ThreadId, title: &str, state: ThreadState, ts: i64)
         asked_in: None,
         request: None,
         run_kind: None,
+        from_item: None,
     };
     write_link(log, &link);
     link

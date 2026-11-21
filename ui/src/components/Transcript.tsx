@@ -526,7 +526,7 @@ export function Transcript({
 							answered.has(block.event.id) ||
 							reacted.lines.has(block.event.id) ||
 							(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
-							isRunLink(block.event) ||
+							(isRunLink(block.event) && (thread !== undefined || block.event.fromItem === undefined)) ||
 							// Work taking an inbox item started is a work thread with a row of its own, not a handoff.
 							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId) && !inboxRows.work.has(block.event.thread)))
 					),

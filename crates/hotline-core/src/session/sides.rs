@@ -110,6 +110,7 @@ pub(super) struct LiveSide {
     /// The words a colleague's handoff or question opened this thread with,
     /// as its link keeps them ([`crate::thread::request_words`]).
     opened_with: Option<String>,
+    from_item: Option<String>,
     /// The request the turn in flight is answering, a handoff or a question,
     /// until what came of it is saved.
     request: Mutex<Option<String>>,
@@ -1062,6 +1063,16 @@ impl Room {
         let live = Arc::new(LiveSide {
             roster: Mutex::default(),
             id: start.thread.key.clone(),
+            from_item: self
+                .link_of(&start.thread)
+                .and_then(|link| link.from_item)
+                .or_else(|| {
+                    start.handoff.as_ref().and_then(|handoff| {
+                        self.inbox_request_owner(&handoff.request)
+                            .item()
+                            .map(str::to_owned)
+                    })
+                }),
             thread: start.thread,
             persona_id: persona_id.to_string(),
             title: Mutex::new(start.title),

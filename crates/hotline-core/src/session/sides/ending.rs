@@ -280,6 +280,7 @@ impl Room {
             asked_in: side.asked_in.clone(),
             request: side.opened_with.clone(),
             run_kind: None,
+            from_item: side.from_item.clone(),
         });
     }
 

@@ -16,6 +16,13 @@ pub(crate) enum WorkFor {
 }
 
 impl WorkFor {
+    pub(super) fn item(&self) -> Option<&str> {
+        match self {
+            Self::Colleague { item, .. } => Some(item),
+            Self::Person => None,
+        }
+    }
+
     /// Different owners have no single colleague to answer for the batch.
     pub(crate) fn merge(&mut self, other: &Self) -> bool {
         if self == other {
@@ -54,10 +61,11 @@ impl Room {
     pub(super) fn result_item(&self, thread: &ThreadId) -> Option<String> {
         let turns = lock(&self.posting);
         let turn = turns.get(thread)?;
-        match turn.answered_for.as_ref().unwrap_or(&turn.work_for) {
-            WorkFor::Colleague { item, .. } => Some(item.clone()),
-            WorkFor::Person => None,
-        }
+        turn.answered_for
+            .as_ref()
+            .unwrap_or(&turn.work_for)
+            .item()
+            .map(str::to_owned)
     }
 
     pub(super) fn finish_work_for(&self, thread: &ThreadId, ended: &str) {

@@ -3650,7 +3650,11 @@ request?: string,
  * What a run runs: `shell` for a command a harness left running.
  * Absent for a subagent and every other kind.
  */
-runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "inbox_sent", id: string, ts: number, item: string, 
+runKind?: RunKind, 
+/**
+ * The inbox item this thread was started for.
+ */
+fromItem?: string, } | { "kind": "aside" } & Aside | { "kind": "inbox_sent", id: string, ts: number, item: string, 
 /**
  * The teammate it went to.
  */

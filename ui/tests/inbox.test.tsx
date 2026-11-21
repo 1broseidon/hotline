@@ -570,6 +570,21 @@ describe("task-456 drawn", () => {
 		expect(container.querySelector(".inbox-run-rows .text-warn-ink")?.textContent).toBe(event.message);
 	});
 
+	test("a stamped link opens inside Inbox without a sort in view", async () => {
+		const { InboxRun } = await import("../src/components/transcript/InboxLines");
+		const event = {"kind": "link", "id": "link:run:c03aea99-7607-4872-8796-ad41361183b1", "ts": 1795210363568, "thread": "c03aea99-7607-4872-8796-ad41361183b1", "threadKind": "run", "title": "Add answer-route regression tests", "state": "closed", "end": "done", "personaId": "33d512f8-7308-4193-ab5c-0b28a4180e75", "elapsedMs": 123974, "fromItem": "98367872"} as const;
+		const run = await runOf([event]);
+		const opened: string[] = [];
+		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} onOpenThread={(one) => opened.push(one.thread)} />));
+		expect(container.textContent).toBe("Inbox");
+		await press(container.querySelector(".steps-caption")!);
+		const row = container.querySelector(".inbox-run-rows button")!;
+		expect(row.textContent).toContain(event.title);
+		await press(row);
+		expect(opened).toEqual([event.thread]);
+	});
+
+
 	test("a run is one quiet line that opens in place to its rows in the order they happened, each item's opening it", async () => {
 		const { InboxRows, InboxRun } = await import("../src/components/transcript/InboxLines");
 		const opened: string[] = [];

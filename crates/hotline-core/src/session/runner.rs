@@ -331,6 +331,7 @@ impl Room {
             room: Arc::downgrade(self),
             persona_id: spec.persona_id.clone(),
             run_id: spec.run_id.clone(),
+            from_item: spec.work_for.item().map(str::to_owned),
             kind: RunKind::Subagent,
             title: spec.title.clone(),
             command: None,
@@ -515,6 +516,10 @@ impl Room {
                     room: Arc::downgrade(self),
                     persona_id: persona_id.to_string(),
                     run_id: new_id(),
+                    from_item: self
+                        .work_for(&ThreadId::dm(persona_id))
+                        .item()
+                        .map(str::to_owned),
                     kind,
                     title,
                     command,
@@ -742,6 +747,7 @@ struct Running {
     room: Weak<Room>,
     persona_id: String,
     run_id: String,
+    from_item: Option<String>,
     /// A subagent, or a harness's background task.
     kind: RunKind,
     title: String,
@@ -784,6 +790,7 @@ impl Running {
             asked_in: None,
             request: None,
             run_kind: (self.kind == RunKind::Shell).then_some(RunKind::Shell),
+            from_item: self.from_item.clone(),
         });
         room.list_subagent(
             &self.persona_id,

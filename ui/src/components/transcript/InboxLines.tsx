@@ -189,7 +189,7 @@ export const InboxRun = memo(function InboxRun({
 						const event = member.event;
 						if (event.kind === "outcome") return <p key={event.id} className="link-row" data-kind="inbox-outcome"><span className={event.state === "failed" || event.state === "partial" ? "text-warn-ink" : "link-row-outcome"}>{event.message}</span></p>;
 						if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => <InboxSortedRow key={`${event.id}:${at}`} entry={entry} people={people} />);
-						if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork onOpen={() => onOpenThread?.(event)} />;
+						if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork={event.threadKind === "side"} onOpen={() => onOpenThread?.(event)} />;
 						return null;
 					})}
 				</div>

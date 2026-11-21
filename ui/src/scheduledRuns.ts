@@ -341,7 +341,7 @@ export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean
 		const beside = run.filter((one) => !one.member).map((one) => one.block);
 		const read = new Set(members.flatMap((block) => (block.kind === "event" && block.event.kind === "inbox_sorted" ? block.event.entries.map((entry) => entry.item) : []))).size;
 		const sent = members.filter((block) => block.kind === "inbox").length;
-		const stamped = members.some((block) => block.kind === "event" && block.event.kind === "outcome" && block.event.fromItem !== undefined);
+		const stamped = members.some((block) => block.kind === "event" && (block.event.kind === "outcome" || block.event.kind === "link") && block.event.fromItem !== undefined);
 		if (!stamped && read + sent === 0) out.push(...run.map((one) => one.block));
 		else {
 			const first = members[0]!;
@@ -381,7 +381,7 @@ export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean
 		}
 		if (block.kind !== "event") return "end";
 		const event = block.event;
-		if (event.kind === "outcome" && event.fromItem !== undefined) return "member";
+		if ((event.kind === "outcome" || event.kind === "link") && event.fromItem !== undefined) return "member";
 		if (event.kind === "inbox_sorted") return "member";
 		if (event.kind === "turn") return event.stopReason === "end_turn" ? "beside" : "end";
 		if (event.kind === "link" && event.threadKind === "side" && work.has(event.thread)) return event.state === "closed" ? "member" : "beside";

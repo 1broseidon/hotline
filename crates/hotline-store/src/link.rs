@@ -114,6 +114,7 @@ pub struct Link {
     /// than a subagent, so its line says Command after it has ended too.
     /// Absent for a subagent and every other kind.
     pub run_kind: Option<RunKind>,
+    pub from_item: Option<String>,
 }
 
 /// A teammate that opened a thread on another, and what it is called.
@@ -179,6 +180,7 @@ impl Link {
                 fields.insert(name.into(), value);
             }
         };
+        put("fromItem", self.from_item.clone().map(Value::from));
         put("personaId", self.persona_id.clone().map(Value::from));
         put("outcome", self.outcome.clone().map(Value::from));
         put("at", self.at.map(Value::from));
@@ -264,6 +266,7 @@ impl Link {
                 .zip(text("openerName"))
                 .map(|(persona_id, name)| Opener { persona_id, name }),
             handoff_ended: event.get("handoffEnded").and_then(Value::as_bool) == Some(true),
+            from_item: text("fromItem"),
             asked_in: text("askedIn"),
             request: text("request"),
             run_kind: event
@@ -316,6 +319,7 @@ impl Link {
                 asked_in: None,
                 request: None,
                 run_kind: None,
+                from_item: None,
             }),
             TranscriptEvent::Subagent {
                 id,
@@ -346,6 +350,7 @@ impl Link {
                 asked_in: None,
                 request: None,
                 run_kind: None,
+                from_item: None,
             }),
             _ => None,
         }
@@ -465,6 +470,7 @@ mod tests {
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         }
     }
 
@@ -489,6 +495,7 @@ mod tests {
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         };
         assert_eq!(Link::read(&run.event()), Some(run));
         let ended = Link {
@@ -506,6 +513,7 @@ mod tests {
             asked_in: Some("ada~mack".into()),
             request: Some("Is the badge cached?\nIt looks stale.".into()),
             run_kind: None,
+            from_item: None,
             ..closed_side()
         };
         assert_eq!(asked.event()["askedIn"], "ada~mack");

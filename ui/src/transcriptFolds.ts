@@ -109,7 +109,7 @@ export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inl
 		// started. One with no turn open here was started by another thread of
 		// the teammate's (its line is on this tape all the same) and stays a
 		// line of its own, which the conversation does not draw.
-		if (isRunLink(event) && group !== null) {
+		if (isRunLink(event) && (!inbox || event.fromItem === undefined) && group !== null) {
 			group.items.push(event);
 			continue;
 		}

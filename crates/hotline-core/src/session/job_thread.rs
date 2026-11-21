@@ -1677,6 +1677,7 @@ impl Room {
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         });
     }
 

@@ -585,11 +585,11 @@ describe("task-456 drawn", () => {
 				</InboxRows.Provider>,
 			),
 		);
-		// A path line, not a card: no fact, no rows until it is pressed.
-		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-step > .trail-head")!;
-		expect(line.querySelector(".trail-said")?.textContent).toBe("Inbox · read 2, sent 1");
+		// A caption, not a card: no leading dot, no rows until it is pressed.
+		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!;
+		expect(line.textContent).toBe("Inbox · read 2, sent 1");
 		expect(line.getAttribute("aria-expanded")).toBe("false");
-		expect(container.querySelector(".trail-fact")).toBeNull();
+		expect(container.querySelector(".trail-dot, .trail-fact")).toBeNull();
 		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
 		await press(line);
 		// No rule or box around them: the conversation's own quiet rows, in order, the quiet turn's time last.
@@ -611,6 +611,40 @@ describe("task-456 drawn", () => {
 		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
 	});
 
+	test("two quiet turns with one send share the Steps caption and unfold their rows under it", async () => {
+		const { InboxRun } = await import("../src/components/transcript/InboxLines");
+		const run = await runOf([
+			{ kind: "thought", id: "think-1", ts: NOW, text: "No action yet." },
+			{ kind: "thought", id: "said-1", ts: NOW + 1_200, text: "Nothing to post.", said: true },
+			{ kind: "turn", id: "end-1", ts: NOW + 1_300, stopReason: "end_turn", quiet: true },
+			{ kind: "thought", id: "think-2", ts: NOW + 9_000, text: "I'll acknowledge it." },
+			{ kind: "tool", id: "tool:call-1\nfc_1", ts: NOW + 11_100, toolCallId: "call-1\nfc_1", title: "hotline: send", status: "completed", endedTs: NOW + 11_300 },
+			sent("ack", "ivy", "got it", NOW + 11_250),
+			{ kind: "turn", id: "end-2", ts: NOW + 11_500, stopReason: "end_turn", quiet: true },
+		]);
+		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} />));
+		const caption = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!;
+		expect(caption.textContent).toBe("Inbox · sent 1");
+		expect(caption.querySelector(".trail-dot, .step-mark")).toBeNull();
+		expect(caption.getAttribute("aria-expanded")).toBe("false");
+		expect(caption.nextElementSibling).toBeNull();
+
+		const chevron = () => caption.querySelector(".steps-caption-end > .steps-caption-took > span + svg > path")?.getAttribute("d");
+		const closedChevron = chevron();
+		expect(closedChevron).toBeDefined();
+		await press(caption);
+		expect(caption.getAttribute("aria-expanded")).toBe("true");
+		expect(chevron()).not.toBe(closedChevron);
+		const rows = caption.nextElementSibling!;
+		expect(rows.className).toBe("inbox-run-rows");
+		expect([...rows.children].map((row) => row.querySelector(".steps-caption, .link-row-title")?.textContent)).toEqual(["1.2s", "got it", "2.3s"]);
+		expect(rows.querySelector(".link-row")?.textContent).toBe("got it· To Ivy");
+		await press(caption);
+		expect(caption.getAttribute("aria-expanded")).toBe("false");
+		expect(chevron()).toBe(closedChevron);
+		expect(caption.nextElementSibling).toBeNull();
+	});
+
 	test("Picked up in the chat's inbox rows: a sort's row and a sent row say it where the item was taken", async () => {
 		const { InboxRows, InboxRun, InboxSentRow } = await import("../src/components/transcript/InboxLines");
 		const run = await runOf([
@@ -627,7 +661,7 @@ describe("task-456 drawn", () => {
 			),
 		);
 		expect(container.querySelector("button.link-row[data-kind=inbox]")?.textContent).toContain("To Juno · Picked up");
-		await press(container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-step > .trail-head")!);
+		await press(container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!);
 		expect(container.querySelector(".inbox-run-rows .link-row")?.textContent).toContain("From Pork Chop · Picked up");
 		expect(container.textContent).not.toContain("Taken");
 	});
@@ -645,7 +679,7 @@ describe("task-456 drawn", () => {
 			},
 		]);
 		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} />));
-		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] .trail-head")!;
+		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!;
 		expect(line.textContent).toBe("Inbox · read 1");
 		await press(line);
 		const row = container.querySelector(".inbox-run-rows .link-row")!;

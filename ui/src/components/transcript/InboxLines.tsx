@@ -1,4 +1,4 @@
-import { createContext, memo, type ReactNode, useContext } from "react";
+import { createContext, memo, type ReactNode, useContext, useState } from "react";
 import type { InboxItem, InboxSortedEntry } from "../../generated/contract";
 import type { Person } from "../../avatars";
 import type { LinkEvent } from "../../dock";
@@ -6,8 +6,7 @@ import { InboxIcon } from "../../icons";
 import { type InboxSent, runWords, senderWords, sentState, sortedFacts, topicOf, toWords } from "../../inbox";
 import type { Block } from "../../scheduledRuns";
 import { LinkRow } from "./LinkRow";
-import { Steps } from "./Steps";
-import { FoldLine } from "./Trail";
+import { Steps, StepsCaption } from "./Steps";
 
 /**
  * What the inbox rows of a conversation read: every item the teammate's own
@@ -139,9 +138,9 @@ export function Prompted({ itemId, people, children }: { itemId: string | undefi
 
 /**
  * A run of the teammate's inbox activity, as one quiet line among the
- * conversation's ("Inbox · read 3, sent 1"), drawn as a path line is
- * (Trail.tsx's FoldLine). Pressed, it opens in place to its rows in the
- * order they happened, with no box around them: a row for each item it
+ * conversation's ("Inbox · read 3, sent 1"), drawn as the caption under a
+ * reply is. Pressed, it opens in place to its rows in the order they
+ * happened, with no box around them: a row for each item it
  * sorted (its title, whom it is from, what became of it, and a later's
  * reason), each send (InboxSentRow), the work an item started once it is
  * over, and each quiet turn's time, which opens that turn's path as the
@@ -164,31 +163,35 @@ export const InboxRun = memo(function InboxRun({
 	onOpenWork?: ((blockId: string) => void) | undefined;
 	workOpen?: string | null | undefined;
 }) {
+	const [open, setOpen] = useState(false);
 	return (
-		<ol className="trail my-2" data-kind="inbox-run">
-			<FoldLine id={run.id} said={runWords(run.read, run.sent)} detail="inbox-run-rows">
-				{run.members.map((member) => {
-					if (member.kind === "inbox") return <InboxSentRow key={member.id} title={member.title} sent={member.sent} people={people} quiet />;
-					if (member.kind === "steps")
-						return (
-							<Steps
-								key={member.id}
-								id={member.id}
-								items={member.items}
-								live={false}
-								shown={false}
-								rowSays={member.rowSays}
-								{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === member.id } : {})}
-							/>
-						);
-					if (member.kind !== "event") return null;
-					const event = member.event;
-					if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => <InboxSortedRow key={`${event.id}:${at}`} entry={entry} people={people} />);
-					if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork onOpen={() => onOpenThread?.(event)} />;
-					return null;
-				})}
-			</FoldLine>
-		</ol>
+		<div className="my-2" data-kind="inbox-run" data-step-id={run.id}>
+			<StepsCaption expanded={open} label={runWords(run.read, run.sent)} onClick={() => setOpen((was) => !was)} />
+			{open && (
+				<div className="inbox-run-rows">
+					{run.members.map((member) => {
+						if (member.kind === "inbox") return <InboxSentRow key={member.id} title={member.title} sent={member.sent} people={people} quiet />;
+						if (member.kind === "steps")
+							return (
+								<Steps
+									key={member.id}
+									id={member.id}
+									items={member.items}
+									live={false}
+									shown={false}
+									rowSays={member.rowSays}
+									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === member.id } : {})}
+								/>
+							);
+						if (member.kind !== "event") return null;
+						const event = member.event;
+						if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => <InboxSortedRow key={`${event.id}:${at}`} entry={entry} people={people} />);
+						if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork onOpen={() => onOpenThread?.(event)} />;
+						return null;
+					})}
+				</div>
+			)}
+		</div>
 	);
 });
 

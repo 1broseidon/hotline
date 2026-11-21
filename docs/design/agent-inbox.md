@@ -742,11 +742,10 @@ stored state and the teammates' tools keep `taken`.
   window's drawing: the tape, the wire and the phone's line are unchanged.
 - **A run of inbox activity.** In the teammate's main conversation, its
   inbox activity between two things the person should read is one quiet
-  line, "Inbox · read 3, sent 1", drawn as a line of a turn's path is (the
-  dot, the words, the chevron; `FoldLine` in
-  `components/transcript/Trail.tsx`, which the path's "Started 4 helpers"
-  line also is), with no card, header or numbering (`foldInboxRuns` in
-  `ui/src/scheduledRuns.ts`, `InboxRun`). It says only what the run has:
+  line, "Inbox · read 3, sent 1", drawn as the time under a reply is (the
+  words and the chevron, with no dot; `StepsCaption`), with no card, header
+  or numbering (`foldInboxRuns` in `ui/src/scheduledRuns.ts`, `InboxRun`).
+  It says only what the run has:
   how many items it sorted ("read 2") and how many sends it made ("sent
   1"). Pressed, it opens in place, with no rule or box around them, to the
   run's rows in the order they happened, each a quiet row (plain weight,

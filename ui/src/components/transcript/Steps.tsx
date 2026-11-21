@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
@@ -8,6 +8,40 @@ import type { RunLink } from "../../scheduledRuns";
 import { durationText, SITES_NAMED, sitesOf, sitesSaid, sourcesOf, turnTook } from "../../turnFacts";
 import { Favicons } from "../Favicon";
 import { Sources } from "./Sources";
+
+/** The same quiet disclosure on the tape, whether it opens a turn's path or a run of inbox activity. */
+export function StepsCaption({
+	expanded,
+	inPlaceOpen = expanded,
+	title,
+	onClick,
+	label,
+	sources,
+	children,
+}: {
+	expanded: boolean;
+	/** A path open in the pane still points to it, rather than down to rows in place. */
+	inPlaceOpen?: boolean;
+	title?: string;
+	onClick: () => void;
+	label: string | undefined;
+	sources?: ReactNode;
+	children?: ReactNode;
+}) {
+	return (
+		<button type="button" className="steps-caption" title={title} aria-expanded={expanded} onClick={onClick}>
+			{children}
+			{/* The stack and the label wrap together; a stack still asking for icons leaves an empty span that CSS skips, dot and all. */}
+			<span className="steps-caption-end">
+				{sources !== undefined && <span className="steps-caption-sources">{sources}</span>}
+				<span className="steps-caption-took">
+					{label !== undefined && <span>{label}</span>}
+					{inPlaceOpen ? <ChevronDownIcon /> : <ChevronRightIcon />}
+				</span>
+			</span>
+		</button>
+	);
+}
 
 /**
  * The line under a reply: what the turn left behind, in the teammate's own
@@ -62,12 +96,13 @@ export const Steps = memo(function Steps({
 	return (
 		<div className="my-2">
 			{!live && (
-				<button
-					type="button"
-					className="steps-caption"
+				<StepsCaption
 					title={expanded ? "Hide the path" : "Show the path"}
-					aria-expanded={expanded}
+					expanded={expanded}
+					inPlaceOpen={open}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
+					label={took !== null && took > 0 ? durationText(took) : undefined}
+					sources={sites.length > 0 ? <Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} /> : undefined}
 				>
 					{failed.map((words) => (
 						<span key={words} className="outcome" data-mark="failed">
@@ -79,20 +114,7 @@ export const Steps = memo(function Steps({
 							{outcome.message}
 						</span>
 					))}
-					{/* The stack and the time are one unbroken end of the line, so the time never stands on a row of its own. */}
-					<span className="steps-caption-end">
-						{/* A span of its own, so a stack still asking for its icons, which draws nothing, leaves an empty part the line skips, dot and all. */}
-						{sites.length > 0 && (
-							<span className="steps-caption-sources">
-								<Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} />
-							</span>
-						)}
-						<span className="steps-caption-took">
-							{took !== null && took > 0 && <span>{durationText(took)}</span>}
-							{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
-						</span>
-					</span>
-				</button>
+				</StepsCaption>
 			)}
 			{open && (
 				<div className="steps ml-[11px]">

@@ -281,7 +281,13 @@ impl Occupant for Session {
         let source = held.source.take().expect("a turn is taken once");
         let _posting = room.open_posting(&self.thread(), None);
         if held.quiet {
-            room.quiet_turn(&self.thread(), &held.woke);
+            let thread = self.thread();
+            room.quiet_turn(&thread, &held.woke);
+            if matches!(&source, Source::Updates(_)) {
+                self.driver
+                    .note_unprompted(room.return_note(&self.persona_id, &thread))
+                    .await;
+            }
         }
         let mut heard = Heard {
             room,

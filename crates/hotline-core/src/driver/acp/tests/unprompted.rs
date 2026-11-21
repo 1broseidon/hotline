@@ -4,16 +4,26 @@ use super::*;
 /// prompt out, reports on work it left running — ending that report with
 /// a usage update when `reports` says so, as Claude does. Later prompts
 /// are answered plainly.
-fn autonomous_agent(reports: bool) -> impl std::future::Future<Output = ()> + Send + 'static {
+fn autonomous_agent(
+    reports: bool,
+    steering: Option<Arc<Mutex<Vec<Value>>>>,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
     let transport = agent_pipes();
     async move {
         let prompts = Arc::new(AtomicUsize::new(0));
+        let advertised = steering.is_some();
         let running = agent_client_protocol::Agent
             .builder()
             .name("autonomous")
             .on_receive_request(
                 async move |request: InitializeRequest, responder, _cx| {
-                    responder.respond(InitializeResponse::new(request.protocol_version))
+                    let mut response = InitializeResponse::new(request.protocol_version);
+                    if advertised {
+                        let mut meta = acp::Meta::new();
+                        meta.insert("steering".into(), serde_json::json!({"supported": true}));
+                        response = response.meta(meta);
+                    }
+                    responder.respond(response)
                 },
                 agent_client_protocol::on_receive_request!(),
             )
@@ -78,6 +88,20 @@ fn autonomous_agent(reports: bool) -> impl std::future::Future<Output = ()> + Se
                 },
                 agent_client_protocol::on_receive_request!(),
             )
+            .on_receive_request(
+                move |request: agent_client_protocol::UntypedMessage,
+                      responder: Responder<Value>,
+                      _cx| {
+                    let steering = steering.clone();
+                    async move {
+                        assert_eq!(request.method, STEERING_METHOD);
+                        lock(steering.as_deref().expect("steering was not advertised"))
+                            .push(request.params);
+                        responder.respond(serde_json::json!({ "outcome": "promptRequired" }))
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
             .connect_to(transport)
             .await;
         if let Err(error) = running {
@@ -89,6 +113,7 @@ fn autonomous_agent(reports: bool) -> impl std::future::Future<Output = ()> + Se
 async fn autonomous_driver(
     name: &str,
     reports: bool,
+    steering: Option<Arc<Mutex<Vec<Value>>>>,
 ) -> (ChildAgent, mpsc::UnboundedReceiver<mpsc::Receiver<Update>>) {
     let held = room(name);
     let ada = persona(&scratch_cwd(), Vec::new());
@@ -98,7 +123,7 @@ async fn autonomous_driver(
         "briefing".to_string(),
         TeammateTools::new(&held, "ada"),
     );
-    tokio::spawn(autonomous_agent(reports));
+    tokio::spawn(autonomous_agent(reports, steering));
     let activities = driver.subscribe_unprompted().unwrap();
     driver.handshake(&ada, client_transport()).await.unwrap();
     let mut updates = driver
@@ -121,7 +146,7 @@ async fn next_activity(
 /// activity of its own, ended by the usage report that closes the cycle.
 #[tokio::test(flavor = "multi_thread")]
 async fn what_the_agent_says_between_turns_is_its_own_activity() {
-    let (driver, mut activities) = autonomous_driver("between-turns", true).await;
+    let (driver, mut activities) = autonomous_driver("between-turns", true, None).await;
     let mut report = next_activity(&mut activities).await;
     assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == "the build"));
     assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == " passed"));
@@ -153,7 +178,7 @@ async fn what_the_agent_says_between_turns_is_its_own_activity() {
 /// next message, before that message's turn begins; and Stop ends one.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_prompt_or_a_stop_ends_work_the_agent_started_itself() {
-    let (driver, mut activities) = autonomous_driver("unclosed-report", false).await;
+    let (driver, mut activities) = autonomous_driver("unclosed-report", false, None).await;
     let mut report = next_activity(&mut activities).await;
     assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == "the build"));
     assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == " passed"));
@@ -172,7 +197,7 @@ async fn a_prompt_or_a_stop_ends_work_the_agent_started_itself() {
     );
     assert_eq!(turn_end(&mut updates).await, "end_turn");
 
-    let (driver, mut activities) = autonomous_driver("stopped-report", false).await;
+    let (driver, mut activities) = autonomous_driver("stopped-report", false, None).await;
     let mut report = next_activity(&mut activities).await;
     // Both pieces are in before the stop, so nothing the agent already
     // said can land after it.
@@ -187,4 +212,30 @@ async fn a_prompt_or_a_stop_ends_work_the_agent_started_itself() {
         matches!(next(&mut report).await, Update::Turn { stop_reason, .. } if stop_reason == "aborted")
     );
     assert!(report.recv().await.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_autonomous_note_uses_non_starting_steering_and_drops_a_refusal() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let (driver, mut activities) =
+        autonomous_driver("quiet-note", false, Some(requests.clone())).await;
+    let mut report = next_activity(&mut activities).await;
+    assert!(matches!(next(&mut report).await, Update::Delta { .. }));
+    driver.note_unprompted("This turn is quiet.".into()).await;
+    let requests = lock(&requests);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0]["_meta"]["steering"]["idleBehavior"],
+        "promptRequired"
+    );
+    assert_eq!(requests[0]["prompt"][0]["text"], "This turn is quiet.");
+    assert_eq!(
+        driver.take_unconsumed(),
+        [] as [(String, Vec<Attachment>); 0]
+    );
+    assert!(
+        !lock(&driver.live.history)
+            .iter()
+            .any(|fact| fact.contains("This turn is quiet."))
+    );
 }

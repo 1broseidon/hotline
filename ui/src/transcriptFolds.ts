@@ -214,7 +214,7 @@ export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { i
  * of (the inbox woke it, and they never spoke into it). Read from the first
  * turn line after it.
  */
-export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" | "quiet" {
+export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" | "quiet" | "quiet-written" {
 	const last = items[items.length - 1];
 	if (last === undefined) return "done";
 	const at = events.findIndex((event) => event.id === last.id);
@@ -222,7 +222,8 @@ export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "s
 	for (const event of events.slice(at + 1)) {
 		if (event.kind !== "turn") continue;
 		if (event.stopReason !== "end_turn") return "stopped";
-		return event.quiet === true ? "quiet" : "done";
+		if (event.quiet !== true) return "done";
+		return items.some((item) => item.kind === "thought" && item.said === true && item.text.trim() !== "") ? "quiet-written" : "quiet";
 	}
 	return "done";
 }

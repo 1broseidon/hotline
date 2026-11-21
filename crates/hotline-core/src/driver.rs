@@ -410,6 +410,12 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// Offers a note to an activity the agent started itself. A refusal is
+    /// final: this is never a reason to send a new prompt.
+    async fn note_unprompted(&self, text: String) {
+        self.note(text);
+    }
+
     /// Input admitted just before a failed activity closed, but never used in a request.
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
         Vec::new()

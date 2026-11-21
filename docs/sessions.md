@@ -531,6 +531,13 @@ A turn said on a call, and one answering a colleague's question, is never
 made quiet: the person is on the line, or the reply is the colleague's. The
 inbox's hourly limit counts only the inbox's own quiet turns.
 
+When the harness starts work by itself, Hotline offers the quiet-return note
+once at the first available non-interrupting step. An ACP harness must
+advertise active-input support; an idle, unsupported, late or refused note is
+not retried as a prompt. This does not make the note a chat message. In the
+existing steps pane, a quiet turn with no written reply says “Worked quietly”
+when it has steps to open; one with words kept in its path says “Wrote quietly”.
+
 While the turn is quiet the main conversation's witness writes what the
 agent says as `thought` lines marked `said: true`, the turn's path, streams
 it as thinking, and tells no call and no phone; the turn's `turn` line is

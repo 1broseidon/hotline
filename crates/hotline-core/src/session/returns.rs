@@ -22,7 +22,9 @@
 //!   a line that only wakes an idle teammate for its asides or its inbox, a
 //!   pick-up of what it set aside, a thread's post that asks the main
 //!   conversation to look (`dm.rs`), and a work thread's wake (`sides.rs`);
-//!   and
+//! - the DM taking up updates from an activity the harness began by itself
+//!   (`dm.rs`): a non-interrupting note if the driver can admit it, never a
+//!   new prompt; and
 //! - a helper's or a command's result Hotline Agent hands a turn after the
 //!   teammate had replied and stopped to wait for its helpers, or hands a
 //!   turn none of those began (`driver/rig/turn.rs`).

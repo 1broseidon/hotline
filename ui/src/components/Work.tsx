@@ -139,7 +139,7 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const waiting = blockId === null && live && run === undefined;
 	const ending = run === undefined ? "done" : runEnding(events, run.items);
 	// A turn the person was not part of worked quietly: never "Done" beside "Working now".
-	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : ending === "stopped" ? "Stopped" : ending === "quiet" ? "Worked quietly" : "Done";
+	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : ending === "stopped" ? "Stopped" : ending === "quiet-written" ? "Wrote quietly" : ending === "quiet" ? "Worked quietly" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	// What it sorted and sent: a quiet turn that posted has these here and no line in the chat.

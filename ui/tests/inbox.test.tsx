@@ -412,6 +412,8 @@ describe("a teammate woken by its inbox", () => {
 		const items = [{ kind: "tool", id: "t1" }] as unknown as import("../src/scheduledRuns").Step[];
 		const end = (more: Partial<Extract<TranscriptEvent, { kind: "turn" }>>): TranscriptEvent => ({ kind: "turn", id: "e1", ts: NOW, stopReason: "end_turn", ...more });
 		expect(runEnding([step, end({ quiet: true })], items)).toBe("quiet");
+		const words = { kind: "thought", id: "words", ts: 2, text: "A private note", said: true } as const;
+		expect(runEnding([step, words, end({ quiet: true })], [...items, words])).toBe("quiet-written");
 		expect(runEnding([step, end({})], items)).toBe("done");
 		expect(runEnding([step, end({ quiet: true, stopReason: "cancelled" })], items)).toBe("stopped");
 	});

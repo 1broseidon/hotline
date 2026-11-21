@@ -96,6 +96,7 @@ pub(crate) struct Scripted {
     /// Each line said as one nobody waits on (`prompt_unasked`), by its
     /// words, apart from the prompts it also counts as.
     unasked: Arc<Mutex<Vec<String>>>,
+    notes: Arc<Mutex<Vec<String>>>,
     /// One permit lets one start finish, so a start can be caught while the
     /// harness is still coming up. `None` starts at once.
     start_gate: Option<Arc<Semaphore>>,
@@ -149,6 +150,7 @@ impl Scripted {
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
             unasked: Arc::default(),
+            notes: Arc::default(),
             start_gate: None,
             start_error: Mutex::new(None),
             plan: Arc::new(Mutex::new(None)),
@@ -355,6 +357,11 @@ impl Driver for Scripted {
             lock(unconsumed).push((text, attachments));
         }
         true
+    }
+
+    fn note(&self, text: String) -> bool {
+        lock(&self.notes).push(text);
+        false
     }
 
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {

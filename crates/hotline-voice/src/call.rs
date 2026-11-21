@@ -197,6 +197,8 @@ impl Calls {
                 events: broadcast::channel(128).0,
                 work: tx,
                 cancel: cancel.clone(),
+                admission: cancel.child_token(),
+                waiting_for_call: None,
                 speech: CancellationToken::new(),
                 deliveries: CancellationToken::new(),
                 utterance_pending: false,

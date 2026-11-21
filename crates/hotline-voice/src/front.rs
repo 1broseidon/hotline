@@ -138,7 +138,7 @@ impl Front {
                 false,
             ),
             WORK_ON_IT => match self.work(arguments).await {
-                Ok(Some(stopped)) => (stopped, true),
+                Ok(Some(output)) => (output, true),
                 Ok(None) => (accepted(self.speaks).into(), false),
                 Err(error) => (format!("Work could not start: {error}"), true),
             },
@@ -165,17 +165,16 @@ impl Front {
         };
         if stop {
             self.dictation_open = false;
-            let stopped = self.calls.stop_work(&self.call_id)?;
+            let stopped = self.calls.stop_work(&self.call_id).await?;
             return Ok(Some(stopped));
         }
-        if let Some(tools) = &self.desk_tools {
-            tools.check()?;
-        }
-        self.calls
-            .work_on_it(&self.call_id, self.seq + 1, words)
+        let capability = self.desk_tools.as_ref().map(|tools| tools.capability());
+        let waiting = self
+            .calls
+            .work_on_it(&self.call_id, self.seq + 1, words, capability)
             .await?;
         self.seq += 1;
-        Ok(None)
+        Ok(waiting.map(|holder| format!("Work is queued behind {holder}. Tell the caller it is waiting, not started. Do not resubmit it.")))
     }
 
     /// The next thing to tell the person, or `None` once the call has ended.

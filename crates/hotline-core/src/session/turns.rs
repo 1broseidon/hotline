@@ -17,7 +17,7 @@ use super::runner::{Driven, Witness, Words, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
 use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
-use crate::contract::{ScheduledRun, ThreadId};
+use crate::contract::{ScheduledRun, ThreadId, ThreadKind};
 use crate::driver::{Driver, MessageKind, Update};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -647,8 +647,14 @@ impl Room {
         occupant.rest(&self);
         // A nudge or an inbox item that landed while a turn ran waited; the
         // thread is idle now.
-        self.rewake(occupant.persona_id(), &occupant.thread());
-        self.inbox_rewake(occupant.persona_id(), &occupant.thread());
+        let thread = occupant.thread();
+        self.rewake(occupant.persona_id(), &thread);
+        // A stopped DM queue must not rearm its unread items under a new
+        // lease, even if Stop won just as the wake's claimed turn was spawned.
+        let _lifecycle = (thread.kind == ThreadKind::Dm).then(|| lock(&self.lifecycle));
+        if thread.kind != ThreadKind::Dm || occupant.answering(&self) {
+            self.inbox_rewake(occupant.persona_id(), &thread);
+        }
     }
 }
 

@@ -56,8 +56,8 @@ impl FrontTools {
         built_in.collect()
     }
 
-    pub fn check(&self) -> Result<(), String> {
-        self.capability.check()
+    pub fn capability(&self) -> &CapabilityLease {
+        &self.capability
     }
 
     /// Whether `name` is one of these.

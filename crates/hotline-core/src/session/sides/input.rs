@@ -1,7 +1,8 @@
 //! Typed input and live-call work enter the same thread occupant.
 use super::*;
 use crate::session::exchanges::steered_text;
-use hotline_voice::call_room::Handed;
+use hotline_voice::call_room::{Handed, WaitingForCall};
+use tokio_util::sync::CancellationToken;
 
 impl Room {
     pub(in crate::session) async fn wake_call_inbox(
@@ -85,12 +86,7 @@ impl Room {
             .await
     }
 
-    /// What the person said on a call, handed to its thread's one occupant,
-    /// and where it went. On Turn by turn it is a line like a typed one,
-    /// except that it waits behind a turn in flight rather than joining it
-    /// (`say_in_side`). Live work's brief includes everything said on the
-    /// call, including speech since an ACP session last ran a turn, and
-    /// steers the turn in flight when its driver takes it.
+    /// Turn by turn never steers a turn in flight.
     pub(crate) async fn prompt_call_work(
         self: &Arc<Self>,
         persona: &str,
@@ -98,26 +94,111 @@ impl Room {
         text: &str,
     ) -> Result<Handed, String> {
         self.validate_call_thread(persona, thread)?;
-        let live_voice = self
-            .attached_voice(thread)
-            .is_some_and(|origin| origin.front);
-        if !live_voice {
-            let waits = self
-                .prompt_side_placed(&thread.key, text, None, None)
-                .await?;
-            return Ok(if waits {
-                Handed::Waits
-            } else {
-                Handed::NewTurn
-            });
-        }
+        let waits = self
+            .prompt_side_placed(&thread.key, text, None, None)
+            .await?;
+        Ok(if waits {
+            Handed::Waits
+        } else {
+            Handed::NewTurn
+        })
+    }
+
+    /// Only a live front can wait for the separate call-occupant slot. The
+    /// front gets the queued result now and remains free to hear Stop.
+    pub(crate) async fn start_live_call_work(
+        self: &Arc<Self>,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+        origin: &crate::voice::Origin,
+        cancel: &CancellationToken,
+        lease: &CapabilityLease,
+    ) -> Result<Option<WaitingForCall>, String> {
+        let Some(holder) = self
+            .try_live_call_work(persona, thread, text, origin, cancel, lease)
+            .await?
+        else {
+            return Ok(None);
+        };
+        self.call_work_notice(
+            persona,
+            thread,
+            format!("Work queued behind {holder}: {text}"),
+        );
+        let (room, persona, thread, text, origin, cancel) = (
+            self.clone(),
+            persona.to_owned(),
+            thread.clone(),
+            text.to_owned(),
+            origin.clone(),
+            cancel.clone(),
+        );
+        let lease = lease.clone();
+        let done = CancellationToken::new();
+        let finished = done.clone().drop_guard();
+        tokio::spawn(async move {
+            let _finished = finished;
+            let result = loop {
+                // Closing notes and handoffs also inspect activity outside the
+                // admission gate; never hold it, a reservation, or a desk
+                // work guard while a different call runs its turn.
+                tokio::select! {
+                    biased;
+                    () = cancel.cancelled() => break Err("The waiting request was withdrawn.".into()),
+                    () = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+                }
+                match room
+                    .try_live_call_work(&persona, &thread, &text, &origin, &cancel, &lease)
+                    .await
+                {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => break Ok(()),
+                    Err(error) => break Err(error),
+                }
+            };
+            if let Err(error) = result {
+                room.call_work_notice(
+                    &persona,
+                    &thread,
+                    format!("Queued work did not start: {error}"),
+                );
+                if !cancel.is_cancelled()
+                    && let Some(voice) = lock(&room.voice).upgrade()
+                {
+                    voice.turn_ended(&persona, &origin);
+                }
+            }
+        });
+        Ok(Some(WaitingForCall { holder, done }))
+    }
+
+    async fn try_live_call_work(
+        self: &Arc<Self>,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+        origin: &crate::voice::Origin,
+        cancel: &CancellationToken,
+        lease: &CapabilityLease,
+    ) -> Result<Option<String>, String> {
         let _working = self.working()?;
         let _admission = self.sides.waking.lock().await;
-        let (side, launch) = match self.live_side(&thread.key) {
-            Ok(side) => (side, None),
-            Err(_) => self.wake_work(&thread.key, false, None).await?,
+        self.validate_call_thread(persona, thread)?;
+        lease.check()?;
+        if cancel.is_cancelled() {
+            return Err("The call is no longer waiting for this work.".into());
+        }
+        let (side, launch) = if let Ok(side) = self.live_side(&thread.key) {
+            (side, None)
+        } else {
+            if thread.kind == ThreadKind::Call
+                && let Some(holder) = self.sides.busy_call(persona, thread)
+            {
+                return Ok(Some(holder));
+            }
+            self.wake_work(&thread.key, false, None).await?
         };
-        self.heard_from_person(persona);
         let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
         let transcript = self.log.load(&stream);
         let work = format!(
@@ -128,15 +209,17 @@ impl Room {
             ),
             self.call_instruction(thread)
         );
-        let brief = side.with_name_news(self, &work);
-        self.threads().write(
-            thread,
-            persona,
-            &serde_json::json!({
-                "kind":"notice", "id":new_id(), "ts":now_ms(), "level":"info",
-                "text":format!("Work: {text}")
-            }),
-        );
+        let brief = crate::session::timed(now_ms(), &side.with_name_news(self, &work));
+        // wake_work can await an ending of this thread. Stop serializes with
+        // this gate; hang-up/hold withdraw only work not yet handed over.
+        if cancel.is_cancelled() || lease.check().is_err() || side.capability.check().is_err() {
+            if let Some(launch) = launch {
+                self.end_side(&side, launch.put_away());
+            }
+            return Err("The call is no longer waiting for this work.".into());
+        }
+        self.heard_from_person(persona);
+        self.call_work_notice(persona, thread, format!("Work: {text}"));
         let steered = {
             let turns = lock(&side.turns);
             turns.running
@@ -144,16 +227,14 @@ impl Room {
                     .driver()
                     .is_some_and(|driver| driver.steer(brief.clone(), Vec::new()))
         };
-        let handed = if steered {
-            Handed::Joined
-        } else {
+        if !steered {
             self.queue_in_side(
                 &side,
                 Line {
                     call_inbox: false,
                     said: None,
-                    voice: self.attached_voice(thread),
-                    text: brief.clone(),
+                    voice: Some(origin.clone()),
+                    text: brief,
                     attachments: Vec::new(),
                     request: None,
                     from: None,
@@ -162,16 +243,35 @@ impl Room {
                     steer: false,
                 },
             );
-            if side.waits_behind_turn(&brief) {
-                Handed::Waits
-            } else {
-                Handed::NewTurn
-            }
-        };
+        }
         if let Some(launch) = launch {
             self.launch(launch);
         }
-        Ok(handed)
+        Ok(None)
+    }
+
+    pub(crate) async fn stop_live_call_work(
+        self: &Arc<Self>,
+        persona: &str,
+        thread: &ThreadId,
+        waiting: bool,
+    ) -> Result<(), String> {
+        let _admission = self.sides.waking.lock().await;
+        self.validate_call_thread(persona, thread)?;
+        if waiting && self.live_side(&thread.key).is_err() {
+            return Ok(());
+        }
+        self.cancel_side(&thread.key)
+    }
+
+    fn call_work_notice(&self, persona: &str, thread: &ThreadId, text: String) {
+        self.threads().write(
+            thread,
+            persona,
+            &serde_json::json!({
+                "kind":"notice", "id":new_id(), "ts":now_ms(), "level":"info", "text":text
+            }),
+        );
     }
 
     /// Starts the agent of a call's thread the moment a Turn by turn call is

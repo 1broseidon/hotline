@@ -7,7 +7,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use hotline_voice::{
-    call_room::{CallRoom, Handed},
+    call_room::{CallRoom, Handed, WaitingForCall},
     front_tools::{DeskTools, FrontReach},
 };
 use serde_json::{Map, Value};
@@ -111,10 +111,28 @@ impl CallRoom for RoomSide {
         room.validate_call_thread(persona, thread)?;
         room.prompt_call_work(persona, thread, text).await
     }
-    fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String> {
-        let room = self.room()?;
-        room.validate_call_thread(persona, thread)?;
-        room.cancel_side(&thread.key)
+    async fn live_work(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+        origin: &crate::voice::Origin,
+        cancel: &tokio_util::sync::CancellationToken,
+        capability: &crate::driver::CapabilityLease,
+    ) -> Result<Option<WaitingForCall>, String> {
+        self.room()?
+            .start_live_call_work(persona, thread, text, origin, cancel, capability)
+            .await
+    }
+    async fn cancel_work(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        waiting: bool,
+    ) -> Result<(), String> {
+        self.room()?
+            .stop_live_call_work(persona, thread, waiting)
+            .await
     }
     fn nudge_overrun(&self, persona: &str, thread: &ThreadId) -> bool {
         self.room()

@@ -262,6 +262,11 @@ impl LiveSide {
         }
     }
 
+    fn call_slot_name(&self) -> String {
+        // Identify the holder without sharing another call's title with the front.
+        format!("call {}", &self.id[..self.id.floor_char_boundary(8)])
+    }
+
     /// Whether the queue is claimed: a turn is in flight, or the agent is
     /// still starting. Nothing parks the thread meanwhile.
     pub(super) fn working(&self) -> bool {
@@ -688,14 +693,32 @@ impl Sides {
                 .min_by_key(|side| (*lock(&side.last_used), side.started))
                 .cloned()
                 .ok_or_else(|| {
-                    format!(
-                        "That teammate already has {limit} threads working. Let one finish, then try again."
-                    )
+                    if kind == ThreadKind::Call {
+                        let holder = live.first().map_or_else(|| "a call thread starting up".into(), |side| side.call_slot_name());
+                        format!("The teammate's call slot is held by {holder}. Let it finish, then try again.")
+                    } else {
+                        format!("That teammate already has {limit} threads working. Let one finish, then try again.")
+                    }
                 })?;
             return Ok(Place::Evict(idlest));
         }
         *inner.starting.entry(reservation).or_default() += 1;
         Ok(Place::Granted)
+    }
+
+    /// Other call starts and input share `waking`. An idle holder can be
+    /// parked by `reserve`; a busy or ending one keeps its place until then.
+    fn busy_call(&self, persona: &str, requested: &ThreadId) -> Option<String> {
+        lock(&self.inner)
+            .live
+            .values()
+            .find(|side| {
+                side.persona_id == persona
+                    && side.thread.kind == ThreadKind::Call
+                    && side.thread != *requested
+                    && (side.closed.is_set() || side.working())
+            })
+            .map(|side| side.call_slot_name())
     }
 
     /// Whether a thread could be opened for this teammate now: a place is free,

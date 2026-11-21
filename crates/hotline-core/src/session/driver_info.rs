@@ -62,6 +62,7 @@ impl Room {
                 };
                 let mut wire = Wired {
                     work_for: ended.work_for,
+                    starter: super::returns::Starter::Command,
                     ..Wired::back(ended.text)
                 };
                 wire.voice = lock(&room.voice)

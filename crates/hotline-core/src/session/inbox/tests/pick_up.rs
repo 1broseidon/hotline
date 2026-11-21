@@ -3,7 +3,6 @@
 //! started (`inbox/pick_up.rs`).
 
 use super::*;
-use crate::session::inbox::heard::nobody_reads;
 use crate::session::inbox::pick_up::PICK_UP_LINE;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -128,7 +127,6 @@ async fn an_item_set_aside_while_busy_is_offered_once_quietly_when_idle_and_can_
         "nothing closed: {line}"
     );
     assert!(!line.contains(heard::QUIET_WAKE_LINE), "{line}");
-    assert!(line.contains(nobody_reads!()), "who reads it: {line}");
     assert!(room.is_quiet(&ThreadId::dm("bob")), "the pick-up is quiet");
 
     let taken = sort(&room, json!([{"id": keyboards, "state": "taken"}])).await;

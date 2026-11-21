@@ -50,27 +50,11 @@ use std::time::Duration;
 const GATHER_MS: u64 = if cfg!(test) { 150 } else { 4_000 };
 const QUICK_GATHER_MS: u64 = if cfg!(test) { 35 } else { 1_000 };
 
-/// Who reads a quiet turn of the main conversation, and when it posts: the
-/// end of the line of every turn the inbox starts there.
-macro_rules! nobody_reads {
-    () => {
-        "Nobody reads what you say in this turn, the person included: they hear only what you post with `post_to_chat`, once this turn. Post only for a decision that is theirs to make, or a problem. A result they asked you to get is not for a post: once everything you sent colleagues for it is finished, Hotline gives you a turn they read to tell them. Progress on it, a colleague's question you answered, or an item you sorted, is not for one either."
-    };
-}
-pub(super) use nobody_reads;
-
-/// What a main conversation woken only by its inbox is told after the
-/// index. The turn is quiet, as a quiet job's firing is, and its line says
-/// who reads it as that firing's does: nobody, so the person hears only its
-/// one post.
-pub(in crate::session) const QUIET_WAKE_LINE: &str = concat!(
-    "quiet inbox · New items came into your inbox while you were idle: they are above, under INBOX. If shown only titles, read and sort them as suits your work, or leave them for later. ",
-    nobody_reads!()
-);
+pub(in crate::session) const QUIET_WAKE_LINE: &str = "quiet inbox · New items came into your inbox while you were idle: they are above, under INBOX. If shown only titles, read and sort them as suits your work, or leave them for later.";
 
 /// What a work thread or a call woken only by its inbox is told after the
 /// index: the person reads it.
-pub(in crate::session) const WAKE_LINE: &str = "New items came into your inbox while you were idle: they are above, under INBOX. If shown only titles, read and sort them as suits your work, or leave them for later. What you say here reaches the person, so write only what is theirs to know or decide, in one message. If nothing is, write nothing and end the turn.";
+pub(in crate::session) const WAKE_LINE: &str = "New items came into your inbox while you were idle: they are above, under INBOX. If shown only titles, read and sort them as suits your work, or leave them for later.";
 
 /// How long an item waits for others before it wakes an idle receiver.
 pub(super) fn gather_delay() -> Duration {

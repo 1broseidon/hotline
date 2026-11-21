@@ -52,6 +52,7 @@
 use super::asides::result_of;
 use super::ownership::WorkFor;
 use super::prompt::PendingTool;
+use super::returns::Starter;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{Glance, Room, Session, Wired, call_origin, lock};
@@ -233,12 +234,22 @@ impl Occupant for Session {
             if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;
             }
+            let mut starter = if wired.quiet {
+                Starter::Inbox
+            } else {
+                wired.starter
+            };
             woke.extend(inbox.offered.iter().cloned());
             if wired.quiet
                 && let [item] = woke.as_slice()
                 && let Ok(item) = room.item_of(&session.persona_id, item)
             {
                 work_for = room.colleague_work(&item);
+                if item.notice.is_some() {
+                    starter = Starter::Desk;
+                } else if super::inbox::quick_message(&item).is_some() {
+                    starter = Starter::Quick;
+                }
             }
             if mixed {
                 text = format!(
@@ -261,11 +272,10 @@ impl Occupant for Session {
             // Work that came back, or a line that only wakes the teammate:
             // nobody waits on its reply, and Hotline says so with the facts
             // of the moment.
-            if wired.back {
-                text = format!(
-                    "{text}\n\n{}",
-                    room.return_note(&session.persona_id, &session.thread())
-                );
+            if wired.back || wired.quiet {
+                let opening =
+                    room.opening_note(&session.persona_id, &session.thread(), starter, &work_for);
+                text = format!("{text}\n\n{opening}");
             }
             // The person's emoji alone is a reaction, said so, and waits on
             // no reply ([`super::marks`]).

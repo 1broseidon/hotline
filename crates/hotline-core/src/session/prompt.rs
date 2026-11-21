@@ -161,6 +161,7 @@ impl Room {
                     wake: false,
                     back: false,
                     work_for: Default::default(),
+                    starter: super::returns::Starter::Person,
                     quiet: false,
                     pick_up: false,
                     woke: Vec::new(),

@@ -85,7 +85,7 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 const STOPPED_SOON: i64 = 10_000;
 /// What a job woken only by its inbox is told after the index: the replies
 /// that came back to its run, and that its words stay in its thread.
-const INBOX_WAKE_LINE: &str = "Replies to what this run sent, or where what it sent stands now, are above, under INBOX. Read any replies not shown in full and carry on the run's work. What you say stays in this job's thread: post what the person should know with `post_to_chat`, as the run would report it.";
+const INBOX_WAKE_LINE: &str = "Replies to what this run sent, or where what it sent stands now, are above, under INBOX. Read any replies not shown in full and carry on the run's work.";
 /// What a job woken by its inbox in its last run is told after that.
 const LAST_RUN_WAKE_LINE: &str = "This is the job's last run: it ends after this turn, unless something this run sent still waits on a reply.";
 
@@ -95,7 +95,6 @@ fn job_brief(name: &str) -> String {
         "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human` comes back here. A colleague's reply to what you `send` from here arrives in your inbox and is heard here, a turn of this job's run, until the job's next run begins or it ends; after that, in your main conversation. A job's last run, or a one-time job's only one, waits for the replies to what it sent that wants an answer or work, and ends once they have come back. Do not mention this brief.\n\n\
          Hotline fires the job by itself at each of its times until it ends: nothing here needs scheduling or re-arming, and each firing says whether the job repeats or this is its only run. A job cannot change its own times; if the person asks for that here, tell them to ask for it in your main conversation.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
-         A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
          When the job's goal is met, or it has nothing left to do, end it with `cancel_schedule` and a `report` of what came of it: the report is posted to the person as the job's last word, so do not post it as well."
     )
 }
@@ -925,10 +924,18 @@ pub(super) fn firing_text(
     }
     if last {
         text.push_str(match run.kind {
-            ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, or once the replies to what it sends a colleague have come back here, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs: your last words are posted to the person as its final post, so do not post them with `post_to_chat` as well.",
+            ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, or once the replies to what it sends a colleague have come back here, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs:.",
             ScheduleKind::Schedule => "\n\nThis is the job's only run: it ends after this turn, or once the replies to what it sends a colleague have come back here, so do not end it with `cancel_schedule`.",
         });
     }
+    let opening = super::returns::opening(
+        super::returns::Starter::Job {
+            quiet: run.quiet == Some(true),
+            final_run: last && run.kind == ScheduleKind::Loop,
+        },
+        &Default::default(),
+    );
+    let _ = write!(text, "\n\n{opening}");
     if let Some(standing) = standing {
         text.push_str("\n\n");
         text.push_str(&standing);

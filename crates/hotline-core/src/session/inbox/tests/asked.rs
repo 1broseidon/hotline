@@ -79,7 +79,7 @@ async fn an_answer_that_finishes_the_persons_ask_wakes_a_turn_they_read_told_to_
         "{told}"
     );
     assert!(
-        told.contains("The person reads this turn. Tell the person the result in your own words, addressed to them")
+        told.contains("They read this turn: tell them the result in your own words.")
             && told.contains("Do not paste or quote your colleague's reply"),
         "{told}"
     );

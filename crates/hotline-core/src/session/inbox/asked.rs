@@ -117,8 +117,12 @@ impl Room {
     /// finished, where what came back is, and how to tell them.
     pub(super) fn finished_line(&self, asks: &[Vec<InboxItem>]) -> String {
         format!(
-            "inbox · Finished: what you sent colleagues for something the person asked of you, {}. What came back is above, under INBOX; use `read_inbox` for replies not shown in full. The person reads this turn. {TELL_THEM}",
-            self.finished_names(asks)
+            "inbox · Finished: what you sent colleagues for something the person asked of you, {}. What came back is above, under INBOX; use `read_inbox` for replies not shown in full. {} {TELL_THEM}",
+            self.finished_names(asks),
+            super::super::returns::opening(
+                super::super::returns::Starter::Answers("Your team"),
+                &Default::default(),
+            )
         )
     }
 

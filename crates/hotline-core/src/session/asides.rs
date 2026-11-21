@@ -38,7 +38,8 @@ const WAKE_LINE: &str = "The asides above came in while you were idle. Act on wh
 
 /// What a main conversation's turn woken only by asides is told after them:
 /// nobody started it, so it is quiet (`session/dm.rs`).
-const QUIET_WAKE_LINE: &str = "The asides above came in while you were idle. Act on what needs you. This turn is quiet: what you write here does not reach the person. If something is theirs to know or decide, post it with post_to_chat, once. If nothing is, write nothing and end the turn.";
+const QUIET_WAKE_LINE: &str =
+    "The asides above came in while you were idle. Act on what needs you.";
 
 /// The asides a turn hears, as the thread index that opens its line says
 /// them ([`Room::thread_index`]): one line each,
@@ -328,6 +329,7 @@ impl Room {
                 };
                 let line = Wired {
                     wake: true,
+                    starter: super::returns::Starter::Aside,
                     ..Wired::back(timed(now_ms(), QUIET_WAKE_LINE))
                 };
                 let Some(line) = claim_idle(&session.turns, line) else {

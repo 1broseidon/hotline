@@ -674,6 +674,7 @@ struct Wired {
     /// ([`returns`]) and may end with nothing said.
     back: bool,
     work_for: ownership::WorkFor,
+    starter: returns::Starter<'static>,
     /// The turn this line begins is quiet: the inbox woke the main
     /// conversation, so nobody reads its words and only `post_to_chat`
     /// reaches the person ([`post`]).
@@ -717,6 +718,7 @@ impl Wired {
             wake: false,
             back: false,
             work_for: ownership::WorkFor::Person,
+            starter: returns::Starter::Person,
             quiet: false,
             pick_up: false,
             woke: Vec::new(),
@@ -729,6 +731,7 @@ impl Wired {
     fn back(text: impl Into<String>) -> Self {
         Self {
             back: true,
+            starter: returns::Starter::Helpers,
             ..Self::words(text)
         }
     }

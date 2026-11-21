@@ -634,6 +634,7 @@ export function Transcript({
 					<Steps
 						id={block.id}
 						items={block.items}
+						{...(block.elapsed !== undefined ? { elapsed: block.elapsed } : {})}
 						// A turn open only for its helpers is not over: no line under it until it is (the mark below is the line).
 						live={(live || waiting) && block.open === true}
 						shown={workShown}

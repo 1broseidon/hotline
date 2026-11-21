@@ -5,6 +5,7 @@ import { bubbleId, pacedLive } from "./pacing";
 import { wholeBubbles } from "./reveal";
 import { type Block, type Step, isRunLink } from "./scheduledRuns";
 import type { Streaming } from "./tape";
+import { turnTook } from "./turnFacts";
 
 /**
  * Whose bubble a block is. Anything else on screen — a card, a notice, a
@@ -86,12 +87,13 @@ function sameWords(a: string, b: string): boolean {
 export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 	const blocks: Block[] = [];
 	let group: { id: string; ts: number; items: Step[] } | null = null;
-	const close = () => {
+	let prompt: { ts: number; replied: boolean } | undefined;
+	const close = (elapsed?: number) => {
 		if (group === null) return;
 		const last = blocks[blocks.length - 1];
 		// Stamped as the bubble it follows, so it never draws a time line of its own.
 		const after = last === undefined ? group.ts : last.kind === "event" ? last.event.ts : last.ts;
-		blocks.push({ kind: "steps", id: group.id, ts: Math.max(group.ts, after), items: group.items });
+		blocks.push({ kind: "steps", id: group.id, ts: Math.max(group.ts, after), items: group.items, ...(elapsed !== undefined ? { elapsed } : {}) });
 		group = null;
 	};
 	for (const event of events) {
@@ -111,7 +113,23 @@ export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 			group.items.push(event);
 			continue;
 		}
-		if (inline || event.kind === "turn" || event.kind === "user") close();
+		if (inline) close();
+		else if (event.kind === "user") {
+			close();
+			prompt = event.scheduled === undefined && event.receipt !== "sent" ? { ts: event.ts, replied: false } : undefined;
+		} else if (event.kind === "turn") {
+			let elapsed: number | undefined;
+			if (group !== null && prompt?.replied && event.stopReason === "end_turn" && event.quiet !== true) {
+				const sincePrompt = event.ts - prompt.ts;
+				if (sincePrompt > 0 && turnTook(group.items) === 0) elapsed = sincePrompt;
+			}
+			close(elapsed);
+			prompt = undefined;
+		} else if (event.kind === "chapter" || (event.kind === "delivery" && event.receipt !== "sent")) {
+			prompt = undefined;
+		} else if (prompt !== undefined && event.kind === "agent" && event.from === undefined && event.fromItem === undefined && event.scheduled === undefined) {
+			prompt.replied = true;
+		}
 		blocks.push({ kind: "event", event });
 	}
 	if (group !== null) {
@@ -183,7 +201,7 @@ function sameBlock(was: Block, now: Block): boolean {
 			// A streamed bubble is a new line each time it is worked out: the same while it says the same.
 			return was.live === true && was.event.kind === "agent" && now.event.kind === "agent" && was.event.text === now.event.text && was.event.ts === now.event.ts;
 		case "steps":
-			return now.kind === "steps" && was.open === now.open && was.rowSays === now.rowSays && was.ts === now.ts && sameMembers(was.items, now.items);
+			return now.kind === "steps" && was.open === now.open && was.rowSays === now.rowSays && was.elapsed === now.elapsed && was.ts === now.ts && sameMembers(was.items, now.items);
 		case "scheduled":
 			return now.kind === "scheduled" && sameMembers(was.runs, now.runs);
 		case "calls":
@@ -202,10 +220,12 @@ function sameBlock(was: Block, now: Block): boolean {
  * it by, `open` while its turn has not ended. What is streaming joins the
  * running turn's, as it does on screen.
  */
-export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[]; open?: boolean }[] {
-	return withStreaming(toBlocks(events), streaming).flatMap((block) =>
-		block.kind === "steps" ? [{ id: block.id, items: block.items, ...(block.open === true ? { open: true } : {}) }] : [],
-	);
+export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[]; open?: boolean; elapsed?: number }[] {
+	return withStreaming(toBlocks(events), streaming).flatMap((block) => {
+		if (block.kind !== "steps") return [];
+		const { id, items, open, elapsed } = block;
+		return [{ id, items, ...(open === true ? { open } : {}), ...(elapsed !== undefined ? { elapsed } : {}) }];
+	});
 }
 
 /**

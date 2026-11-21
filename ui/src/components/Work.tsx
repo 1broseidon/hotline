@@ -211,7 +211,7 @@ export function WorkPage({
 	// Only the turn it opened at opens a line on arrival.
 	const openId = held === blockId ? stepId : undefined;
 	const hot = useHot();
-	const counts = run === undefined ? undefined : workLine(run.items);
+	const counts = run === undefined ? undefined : workLine(run.items, run.elapsed);
 	// The page's one status mark, on Steps: blocked on the person before all else.
 	const status: Status = blocked ? "blocked" : state === "Working" || state === "Waiting" ? "live" : counts !== undefined && counts.failed > 0 ? "failed" : "stopped";
 	const actions = (runs.length > 1 || (fresh && runs.length > 0)) && (

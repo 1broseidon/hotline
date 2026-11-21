@@ -39,7 +39,7 @@ type AgentEvent = Extract<TranscriptEvent, { kind: "agent" }>;
 export type Block =
 	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
 	/** `rowSays`: the turn's only work was the inbox, and its sent row says what came of it (`sentRowsSay`). */
-	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean; rowSays?: true }
+	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean; rowSays?: true; elapsed?: number }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] }
 	| { kind: "sent"; id: string; ts: number; messages: AgentEvent[]; files: { eventId: string; index: number; file: Attachment }[] }

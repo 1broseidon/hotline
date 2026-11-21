@@ -210,17 +210,18 @@ export function stepTook(step: ToolStep): string | null {
 	return step.endedTs === undefined ? null : durationText(step.endedTs - step.ts);
 }
 
-/** How long a turn's work took, from the first thing on its path to the last, a step's end included; null for a turn with no path. */
-export function turnTook(items: Step[]): number | null {
-	const ends = toolSteps(items).flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
+/** How long the path took, including step ends. A path with no span can use the time from prompt to turn end. */
+export function turnTook(items: Step[], elapsed?: number): number | null {
 	if (items[0] === undefined) return null;
-	return Math.max(...ends, ...items.map((item) => item.ts)) - items[0].ts;
+	const ends = toolSteps(items).flatMap((step) => (step.endedTs !== undefined ? [step.endedTs] : []));
+	const span = Math.max(...ends, ...items.map((item) => item.ts)) - items[0].ts;
+	return span === 0 && elapsed !== undefined && elapsed > 0 ? elapsed : span;
 }
 
 /** A path's state line: its steps ("12 steps"), how many failed ("1 failed"), and how long it took ("1m 04s"). */
-export function workLine(items: Step[]): { steps: string; failed: number; took: string | undefined } {
+export function workLine(items: Step[], elapsed?: number): { steps: string; failed: number; took: string | undefined } {
 	const summary = summaryOf(items);
-	const took = turnTook(items);
+	const took = turnTook(items, elapsed);
 	return { steps: counted(summary.steps, "step", "steps"), failed: summary.failed, took: took === null ? undefined : durationText(took) };
 }
 

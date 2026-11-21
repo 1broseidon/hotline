@@ -174,6 +174,35 @@ test("the line under a reply is what the turn left behind, failed first, then th
 	expect([...container.querySelectorAll(".steps-caption .outcome")].map((one) => [one.getAttribute("data-mark"), one.textContent])).toEqual([["done", "Three quotes in"]]);
 });
 
+test("a chapter's first reply times the whole turn when its only step is one thought", async () => {
+	const prompt: TranscriptEvent = { kind: "user", id: "prompt", ts: 1795222810651, text: "Hi", receipt: "read", client: "phone" };
+	const reply: TranscriptEvent = { kind: "agent", id: "reply", ts: 1795222815955, text: "What’s up?" };
+	const end: TranscriptEvent = { kind: "turn", id: "end", ts: 1795222815958, stopReason: "end_turn" };
+	await draw([
+		{ kind: "chapter", id: "chapter", ts: 1795222810621, backendId: "agent" },
+		prompt,
+		{ kind: "thought", id: "think", ts: 1795222814952, text: "Answer the greeting." },
+		reply,
+		end,
+	]);
+	const caption = container.querySelector<HTMLButtonElement>(".steps-caption")!;
+	expect(caption.textContent).toBe("5.3s");
+	await act(async () => caption.click());
+	expect(container.querySelector('[data-step-id="think"]')).not.toBeNull();
+});
+
+test("there is no caption without a path, but one untimed thought is still openable", async () => {
+	const { Steps } = await import("../src/components/transcript/Steps");
+	await act(async () => root.render(<Steps id="empty" items={[]} live={false} shown={false} />));
+	expect(container.querySelector(".steps-caption")).toBeNull();
+	await act(async () => root.render(<Steps id="untimed" items={[{ kind: "thought", id: "think", ts: 1, text: "One thought." }]} live={false} shown={false} />));
+	const caption = container.querySelector<HTMLButtonElement>(".steps-caption")!;
+	expect(caption.textContent).toBe("");
+	expect(caption.getAttribute("title")).toBe("Show the path");
+	await act(async () => caption.click());
+	expect(container.querySelector('[data-step-id="think"]')).not.toBeNull();
+});
+
 test("threads and calls are one quiet line: a state dot, the title, what came of it, and Open, with no glyph and no kind word", async () => {
 	const opened: string[] = [];
 	await draw(

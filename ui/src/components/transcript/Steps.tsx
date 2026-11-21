@@ -69,6 +69,7 @@ export function StepsCaption({
 export const Steps = memo(function Steps({
 	id,
 	items,
+	elapsed,
 	live,
 	shown,
 	onOpenWork,
@@ -77,6 +78,7 @@ export const Steps = memo(function Steps({
 }: {
 	id: string;
 	items: Step[];
+	elapsed?: number;
 	live: boolean;
 	shown: boolean;
 	/** The turn's sent row says what came of it (`sentRowsSay`): no outcomes on the line. */
@@ -90,8 +92,9 @@ export const Steps = memo(function Steps({
 	const outcomes = useMemo(() => (rowSays ? [] : outcomesOf(items)), [items, rowSays]);
 	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
 	const sites = useMemo(() => sitesOf(items), [items]);
-	const took = useMemo(() => turnTook(items), [items]);
+	const took = useMemo(() => turnTook(items, elapsed), [items, elapsed]);
 	const expanded = inPane ? paneOpen === true : open;
+	if (items.length === 0) return null;
 
 	return (
 		<div className="my-2">

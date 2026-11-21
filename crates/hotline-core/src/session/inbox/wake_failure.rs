@@ -9,18 +9,19 @@ use crate::session::{exchanges::Cut, runner::Driven};
 use serde_json::Value;
 use std::sync::Arc;
 
-/// A diagnostic thought is not evidence of inference. Only this known
-/// adapter message, paired with a terminal refusal, has quota semantics.
-pub(in crate::session) fn quota_thought(text: &str) -> Option<&str> {
+/// A quota announcement can arrive as speech or thought, but only has
+/// quota semantics when paired with a terminal refusal.
+pub(in crate::session) fn quota_announcement(text: &str) -> Option<&str> {
     let after_heading = text.trim_start().strip_prefix("Usage Limit Reached")?;
     let after_heading = after_heading.strip_prefix('.').unwrap_or(after_heading);
     if !after_heading.starts_with(char::is_whitespace) {
         return None;
     }
-    after_heading
+    let tail = after_heading
         .trim_start()
-        .strip_prefix("You have reached your current quota for this period.")
-        .map(str::trim)
+        .strip_prefix("You have reached your current quota for this period.")?
+        .trim();
+    (tail.is_empty() || tail.starts_with("Your limit will reset in ")).then_some(tail)
 }
 
 fn quota_reset(tail: &str, now: i64) -> Option<i64> {
@@ -158,12 +159,10 @@ impl Room {
         let cause = match cut.filter(|_| crate::session::exchanges::cut_short(driven)) {
             Some(Cut::Stop) => Some(failure(State::Stopped)),
             Some(Cut::Interrupt) => None,
-            None if driven.stop_reason.as_deref() == Some("refusal")
-                && driven.quota_thought.is_some() =>
-            {
+            None if driven.quota_refusal.is_some() => {
                 let mut cause = failure(State::OutOfQuota);
                 cause.reset_at = driven
-                    .quota_thought
+                    .quota_refusal
                     .as_deref()
                     .and_then(|tail| quota_reset(tail, now_ms()));
                 Some(cause)
@@ -222,13 +221,13 @@ mod tests {
             quota_reset("Your limit will reset in 999999999999999999 hours.", 0),
             None
         );
-        assert_eq!(quota_thought("I saw Usage Limit Reached."), None);
+        assert_eq!(quota_announcement("I saw Usage Limit Reached."), None);
         assert_eq!(
-            quota_thought("Usage Limit Reached\n\nAnother reason."),
+            quota_announcement("Usage Limit Reached\n\nAnother reason."),
             None
         );
         assert_eq!(
-            quota_thought(
+            quota_announcement(
                 "Usage Limit Reached. You have reached your current quota for this period. Your limit will reset in 1 minute."
             ),
             Some("Your limit will reset in 1 minute.")

@@ -281,10 +281,11 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   For an item sent for the person, a separate short notice appears in chat.
   The wire's `wakeFailure.state` is one of:
   - `outOfQuota`: the driver reported a quota or rate limit, including a
-    refusal with the harness's known quota announcement. `resetAt` is an
-    estimated epoch millisecond time when the driver gives a retry interval.
-    Chat shows the time on the desk's clock; the inbox notice includes its
-    date and offset.
+    refusal with the harness's known quota announcement, whether streamed
+    as speech or thought. The announcement alone is not model work.
+    `resetAt` is an estimated epoch millisecond time when the driver gives
+    a retry interval. Chat shows the time on the desk's clock; the inbox
+    notice includes its date and offset.
   - `notSignedIn`: the driver identified a provider or harness sign-in problem.
   - `stopped`: the person explicitly stopped the turn before it did model work.
   - `couldNotStart`: no session could open for the wake.

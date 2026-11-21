@@ -6,18 +6,34 @@ use crate::contract::{InboxNotice, InboxWakeFailureState};
 use chrono::{Local, TimeZone};
 use tokio::time::sleep;
 
-fn quota_refusal() -> Vec<Update> {
-    vec![
+const QUOTA_CHUNKS: [&str; 3] = [
+    "Usage Limit Reached\n\n",
+    "You have reached your current quota for this period. ",
+    "Your limit will reset in 5 minutes, 54 seconds.",
+];
+
+fn quota_refusal(kind: MessageKind) -> Vec<Update> {
+    let id = new_id();
+    let mut updates: Vec<_> = QUOTA_CHUNKS
+        .iter()
+        .map(|text| Update::Delta {
+            kind,
+            message_id: id.clone(),
+            text: (*text).into(),
+        })
+        .collect();
+    updates.extend([
         Update::Message {
-            kind: MessageKind::Thought,
-            id: new_id(),
-            text: "Usage Limit Reached\n\nYou have reached your current quota for this period. Your limit will reset in 1 hour, 19 minutes.".into(),
+            kind,
+            id,
+            text: QUOTA_CHUNKS.concat(),
         },
         Update::Turn {
             stop_reason: "refusal".into(),
             usage: None,
         },
-    ]
+    ]);
+    updates
 }
 
 fn deferred(room: &Room, id: &str) -> i64 {
@@ -124,8 +140,8 @@ async fn make_retry_due(room: &Arc<Room>, id: &str) {
 #[tokio::test(start_paused = true)]
 async fn a_quota_refusal_leaves_a_quick_question_unread_until_a_successful_retry() {
     let script = Scripted::turns(vec![
-        quota_refusal(),
-        quota_refusal(),
+        quota_refusal(MessageKind::Agent),
+        quota_refusal(MessageKind::Thought),
         vec![Update::Turn {
             stop_reason: "end_turn".into(),
             usage: None,
@@ -160,16 +176,21 @@ async fn a_quota_refusal_leaves_a_quick_question_unread_until_a_successful_retry
     let due = deferred(&room, id);
     let notice = wake_notice(&room, id, InboxWakeFailureState::OutOfQuota);
     let reset_at = notice.wake_failure.unwrap().reset_at.expect("quota reset");
-    let delay_ms = (60 + 19) * 60 * 1_000;
+    let delay_ms = (5 * 60 + 54) * 1_000;
     assert!((before + delay_ms..=now_ms() + delay_ms).contains(&reset_at));
     assert_eq!(due, reset_at);
     let local = Local.timestamp_millis_opt(reset_at).unwrap();
     let chat_line = format!("The quota resets at {}.", local.format("%H:%M"));
-    assert!(room.tape("ada").iter().any(|event| {
-        event["text"]
-            .as_str()
-            .is_some_and(|text| text.ends_with(&chat_line))
-    }));
+    let quota_posts = || {
+        room.tape("ada")
+            .into_iter()
+            .filter(|event| event["kind"] == "agent")
+            .collect::<Vec<_>>()
+    };
+    let posts = quota_posts();
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0]["silent"], true);
+    assert!(posts[0]["text"].as_str().unwrap().ends_with(&chat_line));
     let notice_line = format!(
         "The quota resets at {}.",
         local.format("%Y-%m-%d %H:%M %:z")
@@ -208,6 +229,48 @@ async fn a_quota_refusal_leaves_a_quick_question_unread_until_a_successful_retry
         wake_notice(&room, id, InboxWakeFailureState::OutOfQuota).id,
         notice.id
     );
+    assert_eq!(quota_posts(), posts, "one silent chat line across retries");
+}
+
+#[tokio::test(start_paused = true)]
+async fn ordinary_refusals_and_quota_words_in_a_normal_turn_still_count_as_work() {
+    for (fixture, stop, text) in [
+        (
+            "ordinary-refusal",
+            "refusal",
+            "Usage Limit Reached? I can't verify that.".into(),
+        ),
+        ("ordinary-end", "end_turn", QUOTA_CHUNKS.concat()),
+    ] {
+        let (room, _) = room_on(
+            fixture,
+            Scripted::new(vec![
+                Update::Message {
+                    kind: MessageKind::Agent,
+                    id: new_id(),
+                    text,
+                },
+                Update::Turn {
+                    stop_reason: stop.into(),
+                    usage: None,
+                },
+            ]),
+        );
+        let sent = tool(
+            &room,
+            "ada",
+            "send",
+            json!({"to": ["bob"], "message": "Which runner?"}),
+        )
+        .await
+        .unwrap();
+        let id = sent["sent"][0]["id"].as_str().unwrap();
+        until("the model's words mark the item seen", || {
+            item(&room, "bob", id).state == InboxState::Seen
+        })
+        .await;
+        assert_eq!(items(&room, "ada"), [] as [InboxItem; 0]);
+    }
 }
 
 #[tokio::test(start_paused = true)]

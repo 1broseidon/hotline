@@ -449,6 +449,102 @@ async fn a_turn_becomes_updates_in_the_order_the_agent_sent_them() {
     );
 }
 
+#[tokio::test]
+async fn an_acp_quota_refusal_streams_a_whole_agent_message_without_usage() {
+    const CHUNKS: [&str; 3] = [
+        "Usage Limit Reached",
+        "\n\n",
+        "You have reached your current quota for this period. Your limit will reset in 5 minutes, 54 seconds.",
+    ];
+    const REPLY: &str = "Usage Limit Reached\n\nYou have reached your current quota for this period. Your limit will reset in 5 minutes, 54 seconds.";
+
+    let root = tempfile::tempdir().expect("the fixture has a scratch directory");
+    let held = crate::session::Room::new(crate::log::Log::open(root.path()), Arc::new(NoKeys));
+    let ada = persona(&root.path().to_string_lossy(), Vec::new());
+    let driver = ChildAgent::new(
+        root.path().to_path_buf(),
+        ada.backend_id.clone(),
+        String::new(),
+        TeammateTools::new(&held, "ada"),
+    );
+    let transport = agent_pipes();
+    let agent = tokio::spawn(async move {
+        agent_client_protocol::Agent
+            .builder()
+            .name("quota-refusal")
+            .on_receive_request(
+                async |request: InitializeRequest, responder, _cx| {
+                    responder.respond(InitializeResponse::new(request.protocol_version))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async |_request: NewSessionRequest, responder, _cx| {
+                    responder.respond(NewSessionResponse::new(SessionId::new("quota-session")))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async |request: PromptRequest,
+                       responder: Responder<PromptResponse>,
+                       cx: ConnectionTo<Client>| {
+                    for text in CHUNKS {
+                        cx.send_notification(SessionNotification::new(
+                            request.session_id.clone(),
+                            SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                ContentBlock::Text(TextContent::new(text)),
+                            )),
+                        ))?;
+                    }
+                    responder.respond(PromptResponse::new(StopReason::Refusal))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await
+    });
+
+    let turn = tokio::time::timeout(Duration::from_secs(10), async {
+        driver
+            .handshake(&ada, client_transport())
+            .await
+            .expect("the canned ACP server opens a session");
+        let mut updates = driver
+            .prompt("hello".into(), vec![], Reach::Workspace)
+            .await;
+        let mut turn = Vec::new();
+        while let Some(update) = updates.recv().await {
+            turn.push(update);
+        }
+        turn
+    })
+    .await
+    .expect("the refusal turn stalled");
+    agent.abort();
+
+    let Some(Update::Delta { message_id, .. }) = turn.first() else {
+        panic!("expected the refusal to start with a delta, got {turn:?}");
+    };
+    let mut expected: Vec<_> = CHUNKS
+        .into_iter()
+        .map(|text| Update::Delta {
+            kind: MessageKind::Agent,
+            message_id: message_id.clone(),
+            text: text.into(),
+        })
+        .collect();
+    expected.push(Update::Message {
+        kind: MessageKind::Agent,
+        id: message_id.clone(),
+        text: REPLY.into(),
+    });
+    expected.push(Update::Turn {
+        stop_reason: "refusal".into(),
+        usage: None,
+    });
+    assert_eq!(turn, expected);
+}
+
 /// An agent that shows its subagents as sessions of their own: it is
 /// told Hotline takes them, and announces one mid-turn whose work never
 /// reaches the conversation's turn.

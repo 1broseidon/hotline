@@ -74,10 +74,10 @@ pub(super) struct Driven {
     pub stop_reason: Option<String>,
     /// Whether the turn had its one post to the chat.
     pub posted: bool,
-    /// Output beyond a diagnostic thought was produced.
+    /// The model produced words, called a tool or reported output tokens.
     pub model_progress: bool,
-    /// A recognized ACP quota thought, meaningful only with a refusal.
-    pub quota_thought: Option<String>,
+    /// The countdown text from a recognized quota announcement and terminal refusal.
+    pub quota_refusal: Option<String>,
 }
 
 /// What a kind does about each thing its agent does in a turn, the one place
@@ -152,6 +152,9 @@ pub(super) async fn drive_updates(
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
+    let mut unfinished_agent = HashSet::new();
+    let mut quota_announcement = None;
+    let mut quota_said = false;
     // Each message's words as the chat is shown them, by message id, until
     // the message is whole.
     let mut shown: HashMap<String, Shown> = HashMap::new();
@@ -181,6 +184,28 @@ pub(super) async fn drive_updates(
             } => continue,
             update = updates.recv() => update,
         };
+        // Classify what the driver said before narration can change its kind.
+        match &received {
+            Some(Update::Message { kind, id, text }) => {
+                unfinished_agent.remove(id);
+                if let Some(tail) = super::inbox::wake_failure::quota_announcement(text) {
+                    quota_announcement = Some(tail.chars().take(96).collect());
+                    quota_said |= *kind == MessageKind::Agent;
+                } else if *kind == MessageKind::Agent && !text.trim().is_empty() {
+                    driven.model_progress = true;
+                }
+            }
+            Some(Update::Delta {
+                kind: MessageKind::Agent,
+                message_id,
+                text,
+            }) if !text.trim().is_empty() => {
+                // A streamed prefix may be the banner. Count it on its own
+                // only if the driver never closes the message.
+                unfinished_agent.insert(message_id.clone());
+            }
+            _ => {}
+        }
         let (batch, done) = match received {
             Some(update) => (voice.step(update), false),
             None => (voice.finish(), true),
@@ -188,26 +213,6 @@ pub(super) async fn drive_updates(
         for update in batch {
             match &update {
                 Update::ToolCall { .. } | Update::Permission { .. } => driven.model_progress = true,
-                Update::Message {
-                    kind: MessageKind::Agent,
-                    text,
-                    ..
-                } => driven.model_progress |= !text.trim().is_empty(),
-                Update::Message {
-                    kind: MessageKind::Thought,
-                    text,
-                    ..
-                } => {
-                    // ACP closes the accumulated thought before emitting its stop reason.
-                    if let Some(quota) = super::inbox::wake_failure::quota_thought(text) {
-                        driven.quota_thought = Some(quota.chars().take(96).collect());
-                    }
-                }
-                Update::Delta {
-                    kind: MessageKind::Agent,
-                    text,
-                    ..
-                } => driven.model_progress |= !text.trim().is_empty(),
                 Update::Turn { usage, .. } => {
                     driven.model_progress |= usage
                         .as_ref()
@@ -264,6 +269,12 @@ pub(super) async fn drive_updates(
         if done {
             break;
         }
+    }
+    driven.model_progress |= !unfinished_agent.is_empty();
+    if driven.stop_reason.as_deref() == Some("refusal") {
+        driven.quota_refusal = quota_announcement;
+    } else {
+        driven.model_progress |= quota_said;
     }
     // A driver that stopped without a turn leaves a tool spinning in the
     // stream forever, exactly as it would on a tape.

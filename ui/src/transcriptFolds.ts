@@ -84,8 +84,39 @@ function sameWords(a: string, b: string): boolean {
  * that never wrote its end. A call's transcript keeps each run of steps where
  * it fell (`inline`), between the lines said aloud around it.
  */
+/**
+ * Whether each event belongs to a turn whose inbox rows (`inbox_sent`,
+ * `inbox_sorted`) fold into its Steps instead of standing as rows of their
+ * own in the chat: a turn the person's line started, or a quiet turn that
+ * posted a bubble.
+ */
+function inboxInSteps(events: TranscriptEvent[]): boolean[] {
+	const fold = new Array<boolean>(events.length).fill(false);
+	let start = 0;
+	let asked = false;
+	let said = false;
+	const finish = (end: number, ended?: "quiet" | "other") => {
+		if (asked || (said && ended !== "other")) {
+			for (let at = start; at < end; at++) fold[at] = true;
+		}
+	};
+	events.forEach((event, at) => {
+		if (event.kind === "user" || event.kind === "turn") {
+			finish(at, event.kind === "turn" && event.quiet === true ? "quiet" : "other");
+			start = at + 1;
+			asked = event.kind === "user" && event.scheduled === undefined;
+			said = false;
+			return;
+		}
+		if (event.kind === "agent" && event.text.trim() !== "") said = true;
+	});
+	finish(events.length);
+	return fold;
+}
+
 export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inline): Block[] {
 	const blocks: Block[] = [];
+	const foldInbox = inbox ? inboxInSteps(events) : undefined;
 	let group: { id: string; ts: number; items: Step[] } | null = null;
 	let prompt: { ts: number; replied: boolean } | undefined;
 	const close = (elapsed?: number) => {
@@ -96,11 +127,18 @@ export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inl
 		blocks.push({ kind: "steps", id: group.id, ts: Math.max(group.ts, after), items: group.items, ...(elapsed !== undefined ? { elapsed } : {}) });
 		group = null;
 	};
-	for (const event of events) {
+	for (let at = 0; at < events.length; at++) {
+		const event = events[at]!;
 		if (event.kind === "computer_pull") continue;
 		// The call that said what it was on, or what came of it, is the line it wrote.
 		if (event.kind === "tool" && declares(event)) continue;
-		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || (event.kind === "outcome" && (!inbox || event.fromItem === undefined))) {
+		if (
+			event.kind === "thought" ||
+			event.kind === "tool" ||
+			event.kind === "activity" ||
+			(event.kind === "outcome" && (!inbox || event.fromItem === undefined)) ||
+			((event.kind === "inbox_sent" || event.kind === "inbox_sorted") && foldInbox?.[at] === true)
+		) {
 			group ??= { id: event.id, ts: event.ts, items: [] };
 			group.items.push(event);
 			continue;
@@ -201,7 +239,7 @@ function sameBlock(was: Block, now: Block): boolean {
 			// A streamed bubble is a new line each time it is worked out: the same while it says the same.
 			return was.live === true && was.event.kind === "agent" && now.event.kind === "agent" && was.event.text === now.event.text && was.event.ts === now.event.ts;
 		case "steps":
-			return now.kind === "steps" && was.open === now.open && was.rowSays === now.rowSays && was.elapsed === now.elapsed && was.ts === now.ts && sameMembers(was.items, now.items);
+			return now.kind === "steps" && was.open === now.open && was.elapsed === now.elapsed && was.ts === now.ts && sameMembers(was.items, now.items);
 		case "scheduled":
 			return now.kind === "scheduled" && sameMembers(was.runs, now.runs);
 		case "calls":
@@ -209,7 +247,7 @@ function sameBlock(was: Block, now: Block): boolean {
 		case "sent":
 			return now.kind === "sent" && sameMembers(was.messages, now.messages);
 		case "inbox":
-			return now.kind === "inbox" && was.asked === now.asked && sameMembers(was.sent, now.sent);
+			return now.kind === "inbox" && sameMembers(was.sent, now.sent);
 		case "inboxRun":
 			return now.kind === "inboxRun" && was.ts === now.ts && sameMembers(was.members, now.members);
 	}

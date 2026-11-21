@@ -1,4 +1,5 @@
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { Person } from "../../avatars";
 import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
@@ -7,6 +8,7 @@ import { failedRuns, markOf, outcomesOf } from "../../outcomes";
 import type { RunLink } from "../../scheduledRuns";
 import { durationText, SITES_NAMED, sitesOf, sitesSaid, sourcesOf, turnTook } from "../../turnFacts";
 import { Favicons } from "../Favicon";
+import { InboxSentRow, InboxSortedRow } from "./InboxLines";
 import { Sources } from "./Sources";
 
 /** The same quiet disclosure on the tape, whether it opens a turn's path or a run of inbox activity. */
@@ -57,9 +59,7 @@ export function StepsCaption({
  * from the left as one short line of text, a dot between each, and the time
  * and the chevron come straight after the last of them, as on the phone: the
  * line is about the reply above it, so it sits where the reply does, and the
- * press hugs it as the conversation's other quiet lines do. A turn whose only
- * work was the inbox, under its sent row (`rowSays`), says no outcomes: the
- * row says what went and where it stands. It is always the
+ * press hugs it as the conversation's other quiet lines do. It is always the
  * way in: pressed, it opens the path the turn took, in the pane beside a
  * conversation (`onOpenWork`) or in place in a thread or a run, where the
  * live rows show only if you pressed the mark; either way the path lists
@@ -72,24 +72,23 @@ export const Steps = memo(function Steps({
 	elapsed,
 	live,
 	shown,
+	people,
 	onOpenWork,
 	open: paneOpen,
-	rowSays = false,
 }: {
 	id: string;
 	items: Step[];
 	elapsed?: number;
 	live: boolean;
 	shown: boolean;
-	/** The turn's sent row says what came of it (`sentRowsSay`): no outcomes on the line. */
-	rowSays?: boolean | undefined;
+	people?: ReadonlyMap<string, Person> | undefined;
 	onOpenWork?(blockId: string): void;
 	open?: boolean;
 }) {
 	const [toggled, setToggled] = useState(false);
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
-	const outcomes = useMemo(() => (rowSays ? [] : outcomesOf(items)), [items, rowSays]);
+	const outcomes = useMemo(() => outcomesOf(items), [items]);
 	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
 	const sites = useMemo(() => sitesOf(items), [items]);
 	const took = useMemo(() => turnTook(items, elapsed), [items, elapsed]);
@@ -122,7 +121,7 @@ export const Steps = memo(function Steps({
 			{open && (
 				<div className="steps ml-[11px]">
 					<InPlaceSources items={items} />
-					<StepRows items={items} />
+					<StepRows items={items} people={people} />
 				</div>
 			)}
 		</div>
@@ -161,12 +160,14 @@ export function StepRows({
 	items,
 	settled = false,
 	openId,
+	people,
 }: {
 	items: Step[];
 	/** The turn is over: nothing in it is still running. */
 	settled?: boolean;
 	/** The row to open on arrival, brought into view: the one pressed in the peek. */
 	openId?: string | undefined;
+	people?: ReadonlyMap<string, Person> | undefined;
 }) {
 	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | { kind: "said"; id: string; text: string } | Exclude<Step, { kind: "thought" }>)[] = [];
 	for (const item of items) {
@@ -198,6 +199,14 @@ export function StepRows({
 			<p key={row.id} className="step-outcome outcome" data-step-id={row.id} data-mark={markOf(row)}>
 				{row.message}
 			</p>
+		) : row.kind === "inbox_sent" ? (
+			<InboxSentRow key={row.id} title={row.title} sent={[row]} people={people} quiet />
+		) : row.kind === "inbox_sorted" ? (
+			<Fragment key={row.id}>
+				{row.entries.map((entry, entryAt) => (
+					<InboxSortedRow key={`${row.id}:${entryAt}`} entry={entry} people={people} />
+				))}
+			</Fragment>
 		) : (
 			<Tool
 				key={row.id}

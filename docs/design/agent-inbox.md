@@ -727,19 +727,15 @@ stored state and the teammates' tools keep `taken`.
   every teammate's lane, in the right-hand pane (`ui/src/inbox.ts`,
   `components/transcript/InboxLines.tsx`). In a work thread a sent row is
   its own row, the title in bold and the tray in the accent; in the
-  teammate's main conversation it is in a run (below), or, sent in a turn
-  the person asked for, a quiet row of its own: the title in plain weight,
-  the tray in grey, its state word kept, since it is what came of their ask.
-  So it is the turn's receipt (task-505): a turn whose only work was the
-  inbox (`send`, `read_inbox`, `update_inbox`; saying what came of it, a
-  reaction and a post are no work, nor is what reaching a colleague takes
-  on the way: a look at the team, Claude Code loading its tools, Hotline
-  Agent reading the room's skill) draws no outcome line under a reply
-  while one of its sent rows is drawn, only its time, and a turn the person
-  asked for that also put no bubble in the chat draws no time either: the
-  row stands for the turn (`sentRowsSay` in `ui/src/scheduledRuns.ts`). An
-  outcome that failed or only partly happened keeps the line. It is the
-  window's drawing: the tape, the wire and the phone's line are unchanged.
+  teammate's main conversation, quiet-turn sends sit in an inbox run
+  (below), while sends and sorts in a turn the person reads (one the person
+  started, or a quiet turn that posted a bubble) draw no row of their own in
+  the chat and fold into that turn's `Steps` at the place they happened
+  (`inboxInSteps` in `ui/src/transcriptFolds.ts`), drawn as quiet rows when
+  opened (the title in plain weight, the tray in grey, its live state word
+  kept). The teammate's bubble says what it asked and of whom, and the turn
+  keeps its normal activity line. It is the window's drawing: the tape, the
+  wire and the phone's line are unchanged.
 - **A run of inbox activity.** In the teammate's main conversation, its
   inbox activity between two things the person should read is one quiet
   line, "Inbox · read 3, sent 1", drawn as the time under a reply is (the
@@ -757,19 +753,19 @@ stored state and the teammates' tools keep `taken`.
   path in the pane as the line under a reply does. A press on an item's row
   opens the item.
   - **What ends a run:** the person's own line, a bubble the teammate
-    posts, a turn the person asked for (a sort in one is a run of its own
-    above the reply, its sends stay out as quiet rows), and any other row:
-    a card, a notice, a chapter, a call, a scheduled line.
+    posts, a turn the person asked for (its sends and sorts fold into its
+    `Steps`, not chat rows), and any other row: a card, a notice, a
+    chapter, a call, a scheduled line.
   - **What stands beside it:** a turn's end, which draws nothing; a quiet
     turn still running; and a work thread an item started while it is live
     or parked, which does not split the run but is drawn under its line,
     and joins the line once it is over.
   - **A quiet turn that posted** keeps its time under its bubble, as any
-    reply's is, and its own sorts and sends are no part of a run
-    (task-505): its bubble says what came of them, so they draw no line,
-    and its path lists them under Inbox, before its steps, each a row
-    that opens its item (`turnInbox` in `ui/src/inbox.ts`, `TurnInbox` in
-    `components/InboxPane.tsx`). A quiet turn that posts nothing keeps its
+    reply's is, and its own sorts and sends are no part of a run: its
+    bubble says what came of them, so they fold into its `Steps` (with no
+    chat row of their own) and its path lists them under Inbox, before its
+    steps, each a row that opens its item (`turnInbox` in `ui/src/inbox.ts`,
+    `TurnInbox` in `components/InboxPane.tsx`). A quiet turn that posts nothing keeps its
     line. Every turn's path has the section when it sorted or sent.
   - **Growing.** The line stands where the run's first row is and is named
     by it, so as the run grows it keeps its place and stays open or shut;
@@ -781,9 +777,8 @@ stored state and the teammates' tools keep `taken`.
 - **A quiet turn.** The turn the inbox woke draws as path, not as a reply:
   its sorts, its sends and its time are rows of the run it is in, its tool
   rows and its words, as thinking, in the turn's steps behind that time,
-  and no bubble unless it posted. A sort in the middle of a turn the person
-  started is a run of its own where it fell, above the reply; it does not
-  split the turn's steps, which stay one run under the reply. A turn that
+  and no bubble unless it posted. Sends and sorts in a turn the person started fold into that turn's steps
+  at the place they happened rather than drawing rows in the chat. A turn that
   ends without a new line in the chat posts no desktop toast
   (`ui/src/notify.ts`).
 - **Woken by its inbox.** A bubble the teammate posts from a quiet turn one
@@ -793,14 +788,7 @@ stored state and the teammates' tools keep `taken`.
   opens the item. The desk stamps the post with the item (`fromItem`) when
   exactly one item woke the turn: its line or its index offered that item
   alone; several together could each be what it posts about, so it names
-  none. A bubble straight under the sent row of the item it answers draws
-  no such line (task-505): the row above says what was asked and of whom.
-  Straight under means nothing is drawn between them but a time stamp and
-  the lines the window leaves out (an inbox-only turn's outcome and time, a
-  posting quiet turn's inbox line); the answer's own bubbles count as one.
-  An answer the window cannot link to a row in view (its item names none it
-  answers, or the row is not loaded) keeps the line, and so does every
-  file, card and job (`answersUnderTheirRow` in `ui/src/scheduledRuns.ts`).
+  none.
   The turn's end is marked `quiet` when the person never spoke into
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.

@@ -120,6 +120,8 @@ export function pathGroups(items: Step[], running: boolean): PathGroup[] {
 		} else if (item.kind === "thought" && item.said === true) {
 			flush(false);
 			groups[groups.length - 1]!.entries.push({ kind: "said", said: { ...item, said: true } });
+		} else if (item.kind === "inbox_sent" || item.kind === "inbox_sorted") {
+			continue;
 		} else if (!started(item)) run.push(item);
 	}
 	flush(true);

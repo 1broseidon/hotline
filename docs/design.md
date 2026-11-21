@@ -820,25 +820,16 @@ at the column's far edge, and under a turn with nothing else to say a lone
 as the conversation's other quiet lines do, and the time wraps with the
 words before it rather than alone on a row (`inline-lines.css`).
 
-Asking a colleague is one row (George, 2026-11-16, task-505). "Ask Timo
-what the score of the last game was" drew eight things before the answer:
-two bubbles saying it would ask and had asked, the sent row, the outcome
-"Asked Timo", the quiet turn's inbox line, the answer's "From Timo's
-message" and the answer with its time. The sent row already says what went
-and where it stands, so a turn whose only work was the inbox draws no
-outcome line under a reply while its row is drawn, and a turn the person
-asked for with no bubble draws no time either: the row stands for the turn.
-What reaching a colleague takes on the way is no work of its own: both
-agents look before nearly every send (George's own tape read the room's
-skill and the team first; Claude Code loads Hotline's tools), and counting it
-would leave the line under every such turn.
-A quiet turn that posts folds its inbox line into the bubble: what it read
-and sent is under Inbox in the path that bubble's time opens, and a quiet
-turn that posts nothing keeps its "Inbox · read 1". An answer straight
-under the sent row it answers draws no "From Timo's message" over it, since
-the row says what was asked and of whom; one that comes after other talk, or
-that the window cannot link to a row in view, keeps it, and files, cards and
-jobs always do.
+Sends in a turn the person reads are told in a bubble, and their inbox rows
+fold into the turn's activity line (superseding task-505's standalone sent
+row in the chat). When a teammate sends or sorts in a turn the person
+started or a quiet turn that posted a bubble, `inbox_sent` and
+`inbox_sorted` draw no chat-level rows of their own: they live inside that
+turn's `Steps` when opened (at the place they happened) and under Inbox in
+the turn's path pane. The teammate says in one short line what it asked and
+of whom, the turn keeps its normal activity line, a quiet turn that posts
+nothing keeps its "Inbox · read 1" run, and a bubble woken by a colleague's
+message keeps its "From Timo's message" line.
 It is the window's drawing; the tape, the wire and the phone are unchanged,
 since the phone has no inbox rows yet.
 

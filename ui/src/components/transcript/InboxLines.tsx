@@ -181,7 +181,7 @@ export const InboxRun = memo(function InboxRun({
 									items={member.items}
 									live={false}
 									shown={false}
-									rowSays={member.rowSays}
+									people={people}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === member.id } : {})}
 								/>
 							);
@@ -204,7 +204,7 @@ export const InboxRun = memo(function InboxRun({
  * became of it in the word the sent row and the panes use, and a later's
  * reason. A press opens the item.
  */
-function InboxSortedRow({ entry, people }: { entry: InboxSortedEntry; people: ReadonlyMap<string, Person> | undefined }) {
+export function InboxSortedRow({ entry, people }: { entry: InboxSortedEntry; people: ReadonlyMap<string, Person> | undefined }) {
 	const { onOpen } = useContext(InboxRows);
 	const facts = sortedFacts(entry, (id) => people?.get(id)?.name);
 	const words = (

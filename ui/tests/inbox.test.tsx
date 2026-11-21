@@ -179,7 +179,7 @@ describe("a turn the inbox woke is drawn as path", () => {
 		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["inbox_sorted", "agent", "steps", "turn"]);
 	});
 
-	test("a sort in the middle of a turn the person started is one line where it fell, and the turn's steps stay one run under the reply", async () => {
+	test("sends and sorts in a turn the person started fold into that turn's steps in order, not lines in the chat", async () => {
 		const { toBlocks } = await import("../src/transcriptFolds");
 		const drawn = groupInbox(
 			toBlocks([
@@ -194,10 +194,10 @@ describe("a turn the inbox woke is drawn as path", () => {
 				ended("e1"),
 			]),
 		);
-		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["user", "inbox", "inbox_sorted", "agent", "steps", "turn"]);
+		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["user", "agent", "steps", "turn"]);
 		const steps = drawn.filter((block) => block.kind === "steps");
 		expect(steps).toHaveLength(1);
-		expect(steps[0]?.kind === "steps" && steps[0].items.map((one) => one.id)).toEqual(["t1", "t2", "t3", "t4"]);
+		expect(steps[0]?.kind === "steps" && steps[0].items.map((one) => one.id)).toEqual(["t1", "t2", "inbox-sent:r1", "t3", "inbox-sorted:1", "t4"]);
 	});
 });
 
@@ -223,7 +223,7 @@ describe("task-494 a run of inbox activity is one line in the chat", () => {
 						? []
 						: [block.event.id]
 					: block.kind === "inbox"
-						? [`${block.id}${block.asked === true ? " asked" : ""}`]
+						? [block.id]
 						: [`${block.kind}:${block.id}`],
 		);
 	const fold = async (events: TranscriptEvent[], work: ReadonlySet<string> = new Set()) => {
@@ -284,11 +284,9 @@ describe("task-494 a run of inbox activity is one line in the chat", () => {
 			"steps:t1",
 			"run(1,0):s2,steps:t3",
 			"u1",
-			// What came of the person's ask stays out of the line, a quiet row of its own.
-			"inbox-sent:a1 asked",
-			"run(1,0):s3",
+			// Sends and sorts in a turn the person asked for fold into its Steps, not rows in the chat.
 			"a2",
-			"steps:t4",
+			"steps:inbox-sent:a1",
 			"run(1,0):s4,steps:t5",
 		]);
 	});
@@ -1081,5 +1079,128 @@ describe("task-456 the way in", () => {
 		expect(ids.indexOf("inbox")).toBe(ids.indexOf("side-list") + 1);
 		expect(actions(0).find((one) => one.kind === "item" && one.id === "inbox")).not.toHaveProperty("detail");
 		expect(actions(3).find((one) => one.kind === "item" && one.id === "inbox")).toMatchObject({ text: "Inbox", detail: "3 unread" });
+	});
+});
+
+
+describe("sends in a turn the person reads fold into that turn's Steps (goldie-silent-sends.jsonl)", () => {
+	const loadRealTape = async (): Promise<TranscriptEvent[]> => {
+		const { readFileSync } = await import("node:fs");
+		const raw = readFileSync(new URL("./fixtures/goldie-silent-sends.jsonl", import.meta.url), "utf8");
+		return raw
+			.trim()
+			.split("\n")
+			.map((line) => {
+				const row = JSON.parse(line) as TranscriptEvent & { output?: unknown };
+				// The trimmed tape fixture omits title/toolCallId on redacted tools and replaces output with "(trimmed)".
+				if (row.kind === "tool") {
+					const { output, ...rest } = row;
+					return {
+						...rest,
+						title: typeof row.title === "string" ? row.title : (row.toolKind ?? ""),
+						toolCallId: typeof row.toolCallId === "string" ? row.toolCallId : row.id,
+						...(Array.isArray(output) ? { output } : {}),
+					} as TranscriptEvent;
+				}
+				return row as TranscriptEvent;
+			});
+	};
+
+	const realPeople = new Map([
+		["goldie", { name: "Goldie" }],
+		["9f959998-3eba-4076-8038-0ecc5a86ca4c", { name: "Huck" }],
+		["1e615299-93bd-4441-ab14-76f05369e509", { name: "Quill" }],
+		["cb9e5e24-98df-44be-82a8-59bbd8c865c6", { name: "Timo" }],
+		["c3a97ea8-dde4-4367-8f55-6be38db28b0c", { name: "Mabel" }],
+	]);
+
+	beforeEach(async () => {
+		({ teardown } = installDom({ ResizeObserver: NoResize, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} }));
+		act = (await import("react")).act;
+		const { createRoot } = await import("react-dom/client");
+		container = document.createElement("div");
+		document.body.append(container);
+		root = createRoot(container);
+	});
+	afterEach(async () => {
+		await act(async () => root?.unmount());
+		root = null;
+		await teardown();
+	});
+	const press = async (target: Element) => act(async () => void target.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+
+	test("23:27 and 23:14 sends live inside their turns' Steps, while the 23:31:40-23:31:48 quiet stretch draws as before", async () => {
+		const events = await loadRealTape();
+		const { toBlocks } = await import("../src/transcriptFolds");
+		const { foldInboxRuns } = await import("../src/scheduledRuns");
+		const blocks = foldInboxRuns(groupInbox(toBlocks(events)), new Set());
+
+		// No chat-level inbox rows anywhere in the built blocks.
+		expect(blocks.some((block) => block.kind === "inbox")).toBe(false);
+
+		// 23:14 turn: four sends inside its Steps, none at chat level.
+		const turn2314 = blocks.find((block) => block.kind === "steps" && block.id === "tool:5e3e4b05-1676-43cf-bd86-987792c54e54");
+		expect(turn2314?.kind).toBe("steps");
+		if (turn2314?.kind !== "steps") throw new Error("missing 23:14 steps");
+		expect(turn2314.items.filter((one) => one.kind === "inbox_sent")).toHaveLength(4);
+
+		// 23:27 turn: one send inside its Steps (Huck's bean research), none at chat level.
+		const turn2327 = blocks.find((block) => block.kind === "steps" && block.id === "inbox-sent:78b2069d-8d87-44ab-82ef-04436503f882");
+		expect(turn2327?.kind).toBe("steps");
+		if (turn2327?.kind !== "steps") throw new Error("missing 23:27 steps");
+		expect(turn2327.items.filter((one) => one.kind === "inbox_sent")).toHaveLength(1);
+
+		// 23:31:40-23:31:48 quiet stretch before the 23:31:53 agent bubble draws as today:
+		// InboxRun(read: 1, sent: 0) -> agent bubble -> steps (read_inbox, update_inbox, outcome).
+		const agent2331At = blocks.findIndex((block) => block.kind === "event" && block.event.id === "02abc441-f28c-445c-a2e7-42b3e3785553");
+		expect(agent2331At).toBeGreaterThan(0);
+		const run2331 = blocks[agent2331At - 1];
+		expect(run2331?.kind).toBe("inboxRun");
+		if (run2331?.kind !== "inboxRun") throw new Error("missing 23:31 inboxRun");
+		expect([run2331.read, run2331.sent]).toEqual([1, 0]);
+		const steps2331 = blocks[agent2331At + 1];
+		expect(steps2331?.kind).toBe("steps");
+		if (steps2331?.kind !== "steps") throw new Error("missing 23:31 steps");
+		expect(steps2331.items.map((one) => (one.kind === "tool" ? `tool:${one.title}` : one.kind))).toEqual(["tool:read_inbox", "tool:update_inbox", "outcome"]);
+
+		// Render the real tape in Transcript (in-place Steps, no pane) and verify DOM.
+		const { Transcript } = await import("../src/components/Transcript");
+		const opened: string[] = [];
+		await act(async () =>
+			root!.render(<Transcript personaId="goldie" name="Goldie" people={realPeople} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={(id) => opened.push(id)} />),
+		);
+
+		// No [data-kind="inbox"] row at chat level before opening any Steps.
+		expect(container.querySelectorAll('[data-kind="inbox"]')).toHaveLength(0);
+
+		// 23:27 turn: Steps caption is drawn with its time; opened, holds one sent row for Huck.
+		const row2327 = container.querySelector<HTMLElement>('[data-event-id="inbox-sent:78b2069d-8d87-44ab-82ef-04436503f882"]')!;
+		const caption2327 = row2327.querySelector<HTMLButtonElement>(".steps-caption")!;
+		expect(caption2327).not.toBeNull();
+		expect(caption2327.querySelector(".steps-caption-took")?.textContent).toBe("14s");
+		await press(caption2327);
+		const sent2327 = [...row2327.querySelectorAll(".steps [data-kind=inbox]")];
+		expect(sent2327).toHaveLength(1);
+		expect(sent2327[0]?.getAttribute("data-quiet")).toBe("true");
+		expect(sent2327[0]?.textContent).toContain("Research bean recommendations for the Ninja AutoBarista Pro");
+		expect(sent2327[0]?.textContent).toContain("To Huck");
+		await press(sent2327[0]!);
+		expect(opened).toEqual(["78b2069d-8d87-44ab-82ef-04436503f882"]);
+
+		// 23:14 turn: opened, holds four sends inside its Steps, none at chat level.
+		const row2314 = container.querySelector<HTMLElement>('[data-event-id="tool:5e3e4b05-1676-43cf-bd86-987792c54e54"]')!;
+		await press(row2314.querySelector<HTMLButtonElement>(".steps-caption")!);
+		const sent2314 = [...row2314.querySelectorAll(".steps [data-kind=inbox]")];
+		expect(sent2314).toHaveLength(4);
+		expect(sent2314.map((row) => row.textContent)).toEqual([
+			expect.stringContaining("To Huck"),
+			expect.stringContaining("To Quill"),
+			expect.stringContaining("To Timo"),
+			expect.stringContaining("To Mabel"),
+		]);
+
+		// 23:31 quiet stretch renders as its InboxRun ("Inbox · read 1") before the 23:31:53 bubble.
+		const runRow2331 = container.querySelector<HTMLElement>('[data-event-id="inbox-run:inbox-sorted:5fa79ab5-9bca-4908-a036-b373ba46ed30"]')!;
+		expect(runRow2331.querySelector("[data-kind=inbox-run] > .steps-caption")?.textContent).toBe("Inbox · read 1");
 	});
 });

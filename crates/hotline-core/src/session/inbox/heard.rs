@@ -32,7 +32,10 @@
 //!   the first time it goes idle after a turn something else started, then
 //!   on the item's own clock, and once when the desk opens (`pick_up.rs`).
 
-use super::{PERSONS_WORD, Room, kept, lock, moved, now_ms, quick_message, short};
+use super::{
+    CapabilityLease, PERSONS_WORD, Room, kept, lock, moved, now_ms, quick_message, short,
+    thread_key,
+};
 use crate::contract::{InboxItem, InboxState, InboxWants, ThreadId, ThreadKind};
 use crate::session::turns::{Line, Occupant};
 use crate::session::{Wired, timed};
@@ -119,11 +122,22 @@ impl Room {
             self.call_inbox_arrived(item);
             return;
         }
+        self.gather_incoming(item, true);
+    }
+
+    pub(super) fn gather_incoming(self: &Arc<Self>, item: &InboxItem, landed_now: bool) {
         let thread = self.inbox_heard_in(item);
+        let early = (landed_now
+            && thread.kind == ThreadKind::Dm
+            && item.state == InboxState::New
+            && !item.held
+            && item.notice.is_none()
+            && !lock(&self.sessions).contains_key(&item.to))
+        .then_some(item.id.as_str());
         let quick = item.state == InboxState::New
             && quick_message(item).is_some()
             && self.lone_quick_at_rest(&item.to, &thread);
-        self.gather_after(&item.to, thread, quick);
+        self.gather_after(&item.to, thread, quick, early);
     }
 
     fn lone_quick_at_rest(&self, persona_id: &str, thread: &ThreadId) -> bool {
@@ -147,36 +161,124 @@ impl Room {
     /// however many items land in it meanwhile, and then wakes it, or tells
     /// its turn in flight.
     pub(super) fn gather(self: &Arc<Self>, persona_id: &str, thread: ThreadId) {
-        self.gather_after(persona_id, thread, false);
+        self.gather_after(persona_id, thread, false, None);
     }
 
-    fn gather_after(self: &Arc<Self>, persona_id: &str, thread: ThreadId, quick: bool) {
+    fn gather_after(
+        self: &Arc<Self>,
+        persona_id: &str,
+        thread: ThreadId,
+        quick: bool,
+        early: Option<&str>,
+    ) {
         let key = format!("{persona_id} {thread}");
-        if !lock(&self.inbox_gathers).insert(key.clone()) {
-            return;
+        // A chapter swap is not Stop: its replacement may still hear this batch.
+        let dm = (thread.kind == ThreadKind::Dm)
+            .then(|| Arc::new(self.capability_epoch(persona_id).lasting()));
+        {
+            let mut gathers = lock(&self.inbox_gathers);
+            if dm.as_ref().is_some_and(|lease| !lease.is_current())
+                || gathers
+                    .get(&key)
+                    .is_some_and(|lease| lease.as_ref().is_none_or(|lease| lease.is_current()))
+            {
+                return;
+            }
+            gathers.insert(key.clone(), dm.clone());
         }
         let room = Arc::downgrade(self);
         let persona_id = persona_id.to_string();
+        let early = early.map(str::to_owned);
         tokio::spawn(async move {
-            let short = Duration::from_millis(QUICK_GATHER_MS);
-            if quick {
-                tokio::time::sleep(short).await;
-                let still_quick = room
-                    .upgrade()
-                    .is_some_and(|room| room.lone_quick_at_rest(&persona_id, &thread));
-                if !still_quick {
-                    // More items arrived (or work began): keep the original gather deadline.
-                    tokio::time::sleep(gather_delay().saturating_sub(short)).await;
+            let start = async {
+                if let (Some(id), Some(dm), Some(room)) = (&early, &dm, room.upgrade()) {
+                    room.start_inbox_dm(&persona_id, &thread, dm, Some(id))
+                        .await
+                } else {
+                    false
                 }
-            } else {
-                tokio::time::sleep(gather_delay()).await;
-            }
+            };
+            let delay = async {
+                let short = Duration::from_millis(QUICK_GATHER_MS);
+                if quick {
+                    tokio::time::sleep(short).await;
+                    let still_quick = room
+                        .upgrade()
+                        .is_some_and(|room| room.lone_quick_at_rest(&persona_id, &thread));
+                    if !still_quick {
+                        // More items arrived (or work began): keep the original gather deadline.
+                        tokio::time::sleep(gather_delay().saturating_sub(short)).await;
+                    }
+                } else {
+                    tokio::time::sleep(gather_delay()).await;
+                }
+            };
+            let ((), attempted) = tokio::join!(delay, start);
             let Some(room) = room.upgrade() else {
                 return;
             };
-            lock(&room.inbox_gathers).remove(&key);
-            room.inbox_wake(&persona_id, &thread).await;
+            {
+                let mut gathers = lock(&room.inbox_gathers);
+                // Stop can let a later arrival replace this window while the
+                // old driver's handshake is still unwinding.
+                let ours = match (gathers.get(&key), &dm) {
+                    (Some(Some(current)), Some(ours)) => Arc::ptr_eq(current, ours),
+                    (Some(None), None) => true,
+                    _ => false,
+                };
+                if !ours {
+                    return;
+                }
+                gathers.remove(&key);
+            }
+            room.inbox_wake(&persona_id, &thread, dm.as_deref(), attempted)
+                .await;
         });
+    }
+
+    /// True once startup has been attempted, even if it failed. The delayed
+    /// wake must not make a second attempt or acquire a new admission lease.
+    async fn start_inbox_dm(
+        self: &Arc<Self>,
+        persona_id: &str,
+        thread: &ThreadId,
+        dm: &CapabilityLease,
+        early: Option<&str>,
+    ) -> bool {
+        let Ok(_working) = self.working() else {
+            return false;
+        };
+        let gate = self.start_gate(persona_id);
+        let _held = if early.is_some() {
+            // An explicit Start already at the gate gets priority.
+            let Ok(held) = gate.try_lock() else {
+                return false;
+            };
+            held
+        } else {
+            gate.lock().await
+        };
+        let capability = self.capability_lease(persona_id);
+        if !dm.is_current() || lock(&self.sessions).contains_key(persona_id) {
+            return false;
+        }
+        if let Some(id) = early
+            && (self.quiet_held(persona_id).is_some()
+                || !self.unoffered(persona_id, thread).into_iter().any(|item| {
+                    item.id == id
+                        && item.state == InboxState::New
+                        && !item.held
+                        && thread_key(&item.from, persona_id)
+                            .is_some_and(|key| self.brake(&key).is_none())
+                }))
+        {
+            return false;
+        }
+        if !dm.is_current() || !capability.is_current() {
+            return false;
+        }
+        let _ = self.start_now(persona_id, capability).await;
+        true
     }
 
     /// The unread items heard in `thread` that no turn's start has been
@@ -204,9 +306,18 @@ impl Room {
     /// idle, the next after a quiet one in flight, and the one in flight
     /// when they read it. Nothing is done when every item has been offered
     /// meanwhile and nothing finished.
-    async fn inbox_wake(self: &Arc<Self>, persona_id: &str, thread: &ThreadId) {
-        let waiting = self.unoffered(persona_id, thread);
-        let finished = if thread.kind == ThreadKind::Dm {
+    async fn inbox_wake(
+        self: &Arc<Self>,
+        persona_id: &str,
+        thread: &ThreadId,
+        dm: Option<&CapabilityLease>,
+        attempted: bool,
+    ) {
+        if dm.is_some_and(|lease| !lease.is_current()) {
+            return;
+        }
+        let mut waiting = self.unoffered(persona_id, thread);
+        let mut finished = if thread.kind == ThreadKind::Dm {
             self.finished_asks(persona_id)
         } else {
             Vec::new()
@@ -216,14 +327,22 @@ impl Room {
         }
         match thread.kind {
             ThreadKind::Dm => {
-                // A teammate that is not running is started for it, as one
-                // was for a colleague's question.
-                if self.session(persona_id).is_err() && self.start(persona_id).await.is_err() {
-                    return;
+                let Some(dm) = dm else { return };
+                if !attempted && self.session(persona_id).is_err() {
+                    self.start_inbox_dm(persona_id, thread, dm, None).await;
+                    // The person or a turn may have spent the news during startup.
+                    waiting = self.unoffered(persona_id, thread);
+                    finished = self.finished_asks(persona_id);
+                    if waiting.is_empty() && finished.is_empty() {
+                        return;
+                    }
                 }
                 let Ok(session) = self.session(persona_id) else {
                     return;
                 };
+                if !dm.is_current() {
+                    return;
+                }
                 let Ok(working) = self.lease() else {
                     return;
                 };
@@ -255,6 +374,9 @@ impl Room {
                 let read = self.is_read_turn(thread);
                 let claimed = {
                     let mut turns = lock(&session.turns);
+                    if !dm.is_current() || !session.capability.is_current() {
+                        return;
+                    }
                     if !turns.running {
                         if held { None } else { turns.claim(woken) }
                     } else if !finished.is_empty() && read {

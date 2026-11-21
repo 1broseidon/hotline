@@ -845,8 +845,9 @@ pub struct Room {
     /// Serializes reads and appends to a teammate's open-loop stream (`session/loops.rs`).
     loops_lock: Mutex<()>,
     /// The threads waiting out the inbox's gather delay, by teammate and
-    /// thread, so items that land together wake a thread once.
-    inbox_gathers: Mutex<HashSet<String>>,
+    /// thread, so items that land together wake a thread once. A DM gather
+    /// holds the receiver's authority until it wakes, not across a Stop.
+    inbox_gathers: Mutex<HashMap<String, Option<Arc<CapabilityLease>>>>,
     /// The quiet turns each teammate's main conversation began in the last
     /// hour, by teammate, for its hourly limit (`session/inbox/limit.rs`).
     quiet_turns: Mutex<HashMap<String, inbox::QuietTurns>>,

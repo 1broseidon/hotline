@@ -1431,7 +1431,7 @@ impl Room {
                 } else if on_call::is_call_result(&item) {
                     self.post_call_inbox_result(&item);
                 } else if !item.held && item.state.unread() && item.offered.is_none() {
-                    self.arrived(&item);
+                    self.gather_incoming(&item, false);
                 }
             }
         }

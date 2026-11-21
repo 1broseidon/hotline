@@ -245,9 +245,14 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
 - **Idle.** An item that lands while that thread is idle wakes it once, after
   the gather delay, normally 4 seconds. A lone new quick message to an idle
   receiver waits 1 second; if another item lands or work begins within that
-  second, the normal deadline still holds. Items that land within the delay are heard in one
-  turn. A teammate that is not running is started for it, as one was for a
-  colleague's question. The index usually carries titles, senders and
+  second, the normal deadline still holds. Items that land within the delay
+  are heard in one turn. A newly landed colleague item for the main
+  conversation can start a stopped receiver's driver and open its saved
+  session during the gather window, without a prompt or model turn. A held
+  first contact starts nothing until it lands; recovery, reminders and desk
+  notices still wait for the ordinary wake. Stop or a policy change withdraws
+  the old gather's authority, and a failed early start is not retried by the
+  same gather. The index usually carries titles, senders and
   waiting marks. If the wake offers exactly one new quick item, it shows the
   whole message as quoted sender words and marks it `seen`. This is either a
   compact title-only message or a body of at most 280 characters that asks

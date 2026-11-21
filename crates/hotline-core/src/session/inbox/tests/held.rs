@@ -103,7 +103,7 @@ async fn a_yes_inside_the_wait_says_in_inbox_as_a_send_without_a_card_does_and_l
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_no_says_declined_and_nothing_lands() {
     let room = up("held-no");
     let send = sending(
@@ -125,6 +125,12 @@ async fn a_no_says_declined_and_nothing_lands() {
     assert!(dropped.held, "Bob never had it");
     assert_eq!(dropped.outcome, Some(InboxOutcome::Dropped));
     assert_eq!(dropped.sender_told, 1);
+    tokio::time::sleep(heard::gather_delay() * 2).await;
+    assert!(
+        room.session("bob").is_err(),
+        "a denied item never started Bob"
+    );
+    assert_eq!(room.tape("bob"), [] as [Value; 0]);
 }
 
 #[tokio::test(start_paused = true)]

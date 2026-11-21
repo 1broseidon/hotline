@@ -44,6 +44,16 @@ const LOUD: &str = "Your reply here is already the chat: say it in your reply.";
 pub(super) const AGAIN: &str =
     "Already posted: one per turn. Put everything in that one next time.";
 
+#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PostKind {
+    Decision,
+    Problem,
+    Result,
+}
+
+pub(crate) const POST_KIND: &str = "Set `kind` to `decision`, `problem`, or `result`.";
+
 /// What a turn of a thread's agent may post, and whether it has.
 pub(super) struct Posting {
     pub(super) answered_for: Option<super::ownership::WorkFor>,
@@ -164,6 +174,7 @@ impl Room {
         thread: &ThreadId,
         text: &str,
         wake: bool,
+        kind: Option<PostKind>,
     ) -> Result<String, String> {
         let text = text.trim();
         if super::pacing::says_nothing(text) {
@@ -178,7 +189,21 @@ impl Room {
                     .to_string(),
             );
         }
-        let scheduled = match self.take_post(thread)? {
+        let scheduled = match self.take_post(thread, |turn| {
+            if thread.kind == ThreadKind::Dm && kind.is_none() {
+                return Err(POST_KIND.into());
+            }
+            let owner = turn.answered_for.as_ref().unwrap_or(&turn.work_for);
+            if matches!(kind, None | Some(PostKind::Result))
+                && let super::ownership::WorkFor::Colleague { name, item } = owner
+            {
+                return Err(format!(
+                    "The result goes to {name}: answer item {}.",
+                    super::inbox::short(item)
+                ));
+            }
+            Ok(())
+        })? {
             Turn::Closed => {
                 return Err(
                     "post_to_chat posts from a turn in progress, and this thread has none."
@@ -200,7 +225,11 @@ impl Room {
     /// Takes the one post of the turn in flight on `thread`, unless it is
     /// the DM's own turn the person reads, which posts nothing. A second is
     /// refused.
-    pub(super) fn take_post(&self, thread: &ThreadId) -> Result<Turn, String> {
+    pub(super) fn take_post(
+        &self,
+        thread: &ThreadId,
+        check: impl FnOnce(&Posting) -> Result<(), String>,
+    ) -> Result<Turn, String> {
         let mut posting = lock(&self.posting);
         let Some(turn) = posting.get_mut(thread) else {
             return Ok(Turn::Closed);
@@ -208,6 +237,7 @@ impl Room {
         if thread.kind == ThreadKind::Dm && !turn.quiet {
             return Ok(Turn::Loud);
         }
+        check(turn)?;
         if turn.posted {
             return Err(AGAIN.to_string());
         }

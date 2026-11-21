@@ -98,9 +98,15 @@ async fn a_line_that_work_came_back_begins_a_quiet_turn_that_posts_once() {
     let dm = ThreadId::dm("ada");
     assert!(room.is_quiet(&dm));
     assert_eq!(
-        room.post_to_chat("ada", &dm, "The build is done.", false)
-            .await
-            .as_deref(),
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "The build is done.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .as_deref(),
         Ok("Posted to the chat.")
     );
     gate.add_permits(2);
@@ -147,9 +153,15 @@ async fn the_rest_of_a_turn_after_it_parks_is_quiet() {
     .await;
     assert!(!room.is_quiet(&dm), "the person's turn is read");
     assert!(
-        room.post_to_chat("ada", &dm, "Early.", false)
-            .await
-            .is_err_and(|error| error.contains("already the chat"))
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "Early.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .is_err_and(|error| error.contains("already the chat"))
     );
 
     gate.add_permits(2);
@@ -164,9 +176,15 @@ async fn the_rest_of_a_turn_after_it_parks_is_quiet() {
     })
     .await;
     assert_eq!(
-        room.post_to_chat("ada", &dm, "Built: it is in the dev window.", false)
-            .await
-            .as_deref(),
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "Built: it is in the dev window.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .as_deref(),
         Ok("Posted to the chat.")
     );
     gate.add_permits(1);
@@ -296,9 +314,15 @@ async fn work_the_agent_began_by_itself_is_a_quiet_turn_from_its_first_word() {
     .await;
     assert!(room.is_quiet(&dm));
     assert_eq!(
-        room.post_to_chat("ada", &dm, "All green: it is merged.", false)
-            .await
-            .as_deref(),
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "All green: it is merged.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .as_deref(),
         Ok("Posted to the chat.")
     );
     sender.send(ends()).await.unwrap();

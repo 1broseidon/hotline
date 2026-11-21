@@ -66,10 +66,24 @@ async fn a_quiet_turn_posts_to_the_chat_once_and_a_turn_the_person_started_may_n
     until("bob woke", || agents.told().len() == 1).await;
 
     let posted = room
-        .post_to_chat("bob", &dm, "The crane permit needs your signature.", false)
+        .post_to_chat(
+            "bob",
+            &dm,
+            "The crane permit needs your signature.",
+            false,
+            Some(crate::session::post::PostKind::Decision),
+        )
         .await;
     assert_eq!(posted.as_deref(), Ok("Posted to the chat."));
-    let again = room.post_to_chat("bob", &dm, "And again.", false).await;
+    let again = room
+        .post_to_chat(
+            "bob",
+            &dm,
+            "And again.",
+            false,
+            Some(crate::session::post::PostKind::Decision),
+        )
+        .await;
     assert_eq!(again, Err(AGAIN.to_string()));
     assert_eq!(
         kinds_of(&room, "bob", "The crane permit needs your signature."),
@@ -93,7 +107,13 @@ async fn a_quiet_turn_posts_to_the_chat_once_and_a_turn_the_person_started_may_n
         .unwrap();
     until("the person's turn", || agents.prompts().len() == 2).await;
     let loud = room
-        .post_to_chat("bob", &dm, "Posting instead.", false)
+        .post_to_chat(
+            "bob",
+            &dm,
+            "Posting instead.",
+            false,
+            Some(crate::session::post::PostKind::Decision),
+        )
         .await;
     assert!(
         loud.as_ref()
@@ -233,9 +253,15 @@ async fn a_quiet_turns_post_names_the_item_that_woke_it_and_its_end_says_it_was_
     let dm = ThreadId::dm("bob");
     let id = send(&room, "ada", "bob", "Crane permit", json!({})).await;
     until("bob woke", || agents.told().len() == 1).await;
-    room.post_to_chat("bob", &dm, "The crane permit needs your signature.", false)
-        .await
-        .unwrap();
+    room.post_to_chat(
+        "bob",
+        &dm,
+        "The crane permit needs your signature.",
+        false,
+        Some(crate::session::post::PostKind::Decision),
+    )
+    .await
+    .unwrap();
     gate.add_permits(2);
     until("the quiet turn ended", || turn_ended(&room, "bob")).await;
     let tape = room.tape("bob");
@@ -276,9 +302,15 @@ async fn a_post_from_a_quiet_turn_several_items_woke_names_none() {
     send(&room, "ada", "bob", "Winch oil", json!({})).await;
     until("bob woke once for both", || agents.told().len() == 1).await;
     assert!(agents.told()[0].contains("NEW 2"), "{}", agents.told()[0]);
-    room.post_to_chat("bob", &dm, "Two things from Ada.", false)
-        .await
-        .unwrap();
+    room.post_to_chat(
+        "bob",
+        &dm,
+        "Two things from Ada.",
+        false,
+        Some(crate::session::post::PostKind::Decision),
+    )
+    .await
+    .unwrap();
     let post = room
         .tape("bob")
         .into_iter()

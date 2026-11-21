@@ -67,7 +67,7 @@ mod pacing;
 mod peers;
 mod person_name;
 mod plan;
-mod post;
+pub(crate) mod post;
 mod preamble;
 pub(crate) mod returns;
 pub(crate) use asides::ASIDE_CHARS;

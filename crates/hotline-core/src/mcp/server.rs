@@ -684,6 +684,7 @@ fn descriptors() -> Vec<Tool> {
                 "properties": {
                     "text": { "type": "string", "minLength": 1, "maxLength": crate::session::POST_CHARS },
                     "wake": { "type": "boolean", "default": false },
+                    "kind": { "type": "string", "enum": ["decision", "problem", "result"], "description": "Required on a quiet main-conversation turn. A colleague's result goes to the colleague." },
                 },
                 "required": ["text"],
                 "additionalProperties": false,
@@ -1491,10 +1492,11 @@ impl TeammateTools {
                 // Keep this check even though the schema has no such field: a
                 // direct MCP caller can send any JSON, and a post goes to this
                 // teammate's own chat, never another's.
-                if let Some(other) = arguments
-                    .as_object()
-                    .and_then(|fields| fields.keys().find(|key| *key != "text" && *key != "wake"))
-                {
+                if let Some(other) = arguments.as_object().and_then(|fields| {
+                    fields
+                        .keys()
+                        .find(|key| *key != "text" && *key != "wake" && *key != "kind")
+                }) {
                     return Err(format!(
                         "post_to_chat posts to your own chat only, and takes no `{other}`."
                     ));
@@ -1507,7 +1509,14 @@ impl TeammateTools {
                     .get("wake")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                room.post_to_chat(&self.persona_id, &self.thread, text, wake)
+                let kind = arguments
+                    .get("kind")
+                    .map(|kind| {
+                        serde_json::from_value(kind.clone())
+                            .map_err(|_| crate::session::post::POST_KIND.to_string())
+                    })
+                    .transpose()?;
+                room.post_to_chat(&self.persona_id, &self.thread, text, wake, kind)
                     .await
             }
             SEND_FILE => {

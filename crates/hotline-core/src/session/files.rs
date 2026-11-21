@@ -226,7 +226,7 @@ impl Room {
         };
         let taken = (from.kind == ThreadKind::Job
             || (from.kind == ThreadKind::Dm && self.is_quiet(&from)))
-            && match self.take_post(&from)? {
+            && match self.take_post(&from, |_| Ok(()))? {
                 Turn::Taken(scheduled) => {
                     post.scheduled = scheduled;
                     true

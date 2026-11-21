@@ -40,6 +40,7 @@ use std::sync::Arc;
 
 mod asked;
 mod clock;
+mod delivery;
 mod heard;
 mod held;
 mod limit;
@@ -50,11 +51,12 @@ mod tidy;
 mod topics;
 
 pub(in crate::session) use clock::{arrived_at, expire_after};
+use delivery::Delivery;
 pub(in crate::session) use heard::{QUIET_WAKE_LINE, WAKE_LINE};
 use held::{Landed, held_key};
 pub(in crate::session) use limit::QuietTurns;
 pub(in crate::session) use pick_up::PickUp;
-pub(crate) use sending::Sending;
+pub(crate) use sending::{Sending, whole_team};
 
 /// The most a title says: a line someone reads before deciding whether to
 /// open the item.
@@ -102,9 +104,6 @@ const HOTLINE: &str = "Hotline";
 /// build does not know, is listed as it is and never moved here.
 const NEWER_ITEM: &str =
     "This item was saved by a newer version of Hotline than this one, which cannot change it.";
-
-/// What `to` may say for every teammate on this desk but the sender.
-const TEAM: [&str; 3] = ["team", "everyone", "all"];
 
 /// The most items `read_inbox` lists of what is closed or what was sent:
 /// the newest, so the list stays a glance however long the inbox has run.
@@ -474,36 +473,20 @@ impl Room {
             let granted = answer.is_some()
                 || lead
                 || self.collaboration_granted(&caller, target, wants == InboxWants::Work);
-            if granted {
-                self.with_files(&mut new, &files)?;
-                moved(&mut new, InboxState::New, None, None, None);
-                // The sender's tool result says it was sent.
-                new.sender_told = 1;
-                self.keep_item(&new)?;
-                self.count_message(&caller.id, &target.id);
-                self.arrived(&new);
-                landed.push(Landed::In);
+            let delivery = if granted {
+                Delivery::Send(&files)
             } else {
-                new.held = true;
-                new.files = self.hold(&held_key(&new.id), &files)?;
-                self.keep_item(&new)?;
-                waits.push((
-                    landed.len(),
-                    self.await_consent(new.clone(), prompted.clone()),
-                ));
+                Delivery::Hold {
+                    files: &files,
+                    prompted: prompted.clone(),
+                }
+            };
+            if let Some(wait) = self.deliver(&mut new, delivery)? {
+                waits.push((landed.len(), wait));
                 landed.push(Landed::Held);
+            } else {
+                landed.push(Landed::In);
             }
-            self.threads().write(
-                sent_from,
-                &caller.id,
-                &TranscriptEvent::InboxSent {
-                    id: format!("inbox-sent:{}", new.id),
-                    ts: new.ts,
-                    item: new.id.clone(),
-                    to: target.id.clone(),
-                    title: new.title.clone(),
-                },
-            );
             sent.push(json!({ "id": new.id, "to": target.name }));
         }
         // What it answers is answered, as `update_inbox`'s `answer` closes it.
@@ -520,7 +503,7 @@ impl Room {
     }
 
     /// The teammates `to` names, each once: by name or id, or every teammate
-    /// on this desk but the sender for [`TEAM`]. Refused for the sender
+    /// on this desk but the sender for a whole-team alias. Refused for the sender
     /// itself and for a teammate on a linked desk.
     fn recipients(&self, caller: &Persona, to: &[String]) -> Result<Vec<Persona>, String> {
         let mut found: Vec<Persona> = Vec::new();
@@ -531,7 +514,7 @@ impl Room {
         };
         for named in to {
             let named = named.trim();
-            if TEAM.contains(&named.to_lowercase().as_str()) {
+            if whole_team(named) {
                 for persona in crate::room::roster(&self.log) {
                     if persona.id != caller.id && persona.node.is_none() {
                         add(persona, &mut found);
@@ -677,14 +660,6 @@ impl Room {
     /// How many open items the teammate has not read, for its roster row.
     pub fn inbox_unread(&self, persona_id: &str) -> usize {
         kept::unread(&self.log, persona_id)
-    }
-
-    /// Counts one item or reply on the two teammates' brake, and pauses them
-    /// at the cap until the person says to keep going.
-    fn count_message(&self, from: &str, to: &str) {
-        if let Some(key) = thread_key(from, to) {
-            self.count_wake(&key, from, to);
-        }
     }
 
     /// The `read_inbox` tool. Without ids, the items `listing` names: the
@@ -1301,24 +1276,7 @@ impl Room {
         if original.wants != InboxWants::Nothing {
             reply.asked_on_call.clone_from(&original.asked_on_call);
         }
-        moved(&mut reply, InboxState::New, None, None, None);
-        reply.sender_told = 1;
-        self.keep_item(&reply)?;
-        self.threads().write(
-            said_in,
-            &from.id,
-            &TranscriptEvent::InboxSent {
-                id: format!("inbox-sent:{}", reply.id),
-                ts: reply.ts,
-                item: reply.id.clone(),
-                to: reply.to.clone(),
-                title: reply.title.clone(),
-            },
-        );
-        if count {
-            self.count_message(&from.id, &reply.to);
-        }
-        self.arrived(&reply);
+        self.deliver(&mut reply, Delivery::Reply { count })?;
         Ok(reply)
     }
 
@@ -1399,11 +1357,7 @@ impl Room {
             InboxWants::Answer,
         );
         new.looped_in = true;
-        moved(&mut new, InboxState::New, None, None, None);
-        new.sender_told = 1;
-        self.keep_item(&new)?;
-        self.count_message(&owner.id, &colleague.id);
-        self.arrived(&new);
+        let _ = self.deliver(&mut new, Delivery::LoopIn)?;
         Ok(new)
     }
 

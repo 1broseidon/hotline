@@ -166,25 +166,30 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         .load(&hotline_core::log::StreamId::Call(call.clone()));
     assert!(transcript.iter().any(|e| e["title"] == "list_teammates"));
     assert_eq!(
+        transcript
+            .iter()
+            .filter(|event| event["kind"] == "inbox_sent" && event["item"] == item["id"])
+            .count(),
+        1,
+        "the accepted front send has one row on its call thread"
+    );
+    assert_eq!(
         desk.log.load(&hotline_core::log::StreamId::Tape(
             "voice-dispatcher".into()
         )),
-        Vec::<Value>::new()
+        [] as [Value; 0]
     );
-    // A check, a question or a note is refused with the one route there is,
-    // and nothing of it reaches Mack's inbox.
-    let refused_words = [
-        "quick check that the tools work",
-        "what was the score?",
-        "a question",
-        "fix the build",
-    ];
+    // Calls made directly to the handler are held to the front's schema too.
     for arguments in [
         json!({"to":["Mack"],"message":"quick check that the tools work","wants":"nothing"}),
         json!({"to":["Mack"],"title":"Tool check","message":"quick check that the tools work","wants":"nothing"}),
         json!({"to":["Mack"],"title":"A question","message":"what was the score?","wants":"answer"}),
         json!({"to":["Mack"],"title":"A question","message":"a question"}),
         json!({"to":["Mack"],"message":"fix the build","wants":"work"}),
+        json!({"to":["Mack"],"title":"Work","wants":"work"}),
+        json!({"to":["team"],"title":"Work","message":"broadcast work","wants":"work"}),
+        json!({"to":["Mack"],"title":"Work","message":"attach files","wants":"work","files":["report.txt"]}),
+        json!({"to":["Mack"],"title":"Work","message":"follow up","wants":"work","reply_to":item["id"]}),
     ] {
         let refused = tool(&mut desk, "send", arguments).await;
         assert!(
@@ -197,11 +202,10 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
     let inbox = desk
         .log
         .load(&hotline_core::log::StreamId::Inbox(team[1].clone()));
-    assert!(
-        !inbox.iter().any(|item| refused_words
-            .iter()
-            .any(|words| item["body"] == *words || item["title"] == *words)),
-        "a refused send delivers nothing: {inbox:?}"
+    assert_eq!(inbox.len(), 1, "a refused send delivers nothing: {inbox:?}");
+    assert_eq!(
+        inbox[0]["id"], item["id"],
+        "the accepted item is still kept"
     );
     let refused = tool(&mut desk, "session.stop", json!({"personaId":team[1]})).await;
     assert!(refused.contains("no tool"), "{refused}");

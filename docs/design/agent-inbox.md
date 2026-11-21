@@ -133,10 +133,18 @@ These are George's, and what the inbox holds to.
 `list_teammates` and the rest are unchanged; `post_to_chat` also takes the
 one post of a quiet turn of the main conversation (below). The lead's voice
 front on a desk call has `send` in place of `message_teammate`, for named
-work only, by the call's grant: it is shown a `send` of its own (a title, the
-person's words, `wants` fixed to `work`), and anything else it sends is
-refused with the route there is, `work_on_it`, whose session on the call
-thread holds the general `send`.
+work only, by the call's grant. `FrontWork` describes and checks that
+narrow `send`: named recipients, a title, the person's words, and `wants`
+fixed to `work`. It refuses broadcast aliases and fields the front is not
+shown. For a question, a note or a check the front uses `work_on_it`, whose
+working session on the call thread holds the general `send`.
+
+`Room::deliver` keeps each colleague item once, for `send`, `update_inbox`
+answers, work results and Loop in. A held send is kept unseen until its card
+settles that same item; it counts and wakes the recipient only upon landing.
+An exchange has already counted its work result. Loop in keeps its own quiet
+transcript line instead of a sent row. Hotline writes its own notices
+separately; they are not colleague deliveries.
 
 ## An item and its states
 

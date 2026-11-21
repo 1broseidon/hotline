@@ -4,9 +4,14 @@
 use crate::contract::InboxWants;
 use serde_json::Value;
 
+/// A `to` alias for every teammate on this desk but the sender.
+pub(crate) fn whole_team(named: &str) -> bool {
+    ["team", "everyone", "all"].contains(&named.trim().to_lowercase().as_str())
+}
+
 /// An item a teammate sends, as the `send` tool takes it.
 pub(crate) struct Sending {
-    /// Teammates by name or id, or one of [`TEAM`].
+    /// Teammates by name or id, or a whole-team alias.
     pub to: Vec<String>,
     /// Absent, the message's first plain line is the title.
     pub title: Option<String>,

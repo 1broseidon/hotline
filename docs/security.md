@@ -2055,7 +2055,10 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   starts work on the receiver. That request needs no card of its own
   (`authorize_exchange` passes a request that carries items, its leases still
   checked at admission and at each turn), and its result and any answer are
-  items in the sender's inbox, counted on the pair's brake.
+  items in the sender's inbox, counted on the pair's brake. `Room::deliver`
+  persists new colleague items after their callers' checks. It does not
+  grant access: consent updates a held item in place, and work results are
+  already counted by the exchange. Hotline's notices keep their own writer.
   `Sending::from_arguments` and `Sorting::from_arguments` keep a title and a
   reason as one plain line (`fence::one_line`: no control character, line
   break, direction override, zero-width or tag character; 80 and 200
@@ -3688,8 +3691,11 @@ environment; no snapshot, volume or log of the desk's carries one.
   exchange records carry none.
 - **Enforcement:** `Calls::lead_call` checks target, live call and current lead.
   `TeammateTools::call` checks the capability lease and limits the front to
-  lookups plus `send` of named work (`wants: work` and a title) on that desk
-  call, and shows it a `send` described and shaped for that alone. The exchange
+  lookups plus `send` of named work on that desk call. `FrontWork` supplies
+  the front's schema and checks the same fields in the handler: named recipients
+  (not broadcast aliases), a title, the person's words and `wants: work`.
+  Valid front sends still use `Room::send_items`, including its brake and
+  call-grant checks. The exchange
   records the source call only for a local recipient and rechecks both leases
   and the lead/call before starting or resuming the handoff. A queued request
   whose call or lead ended fails explicitly, including after restart. Stop,
@@ -3699,8 +3705,9 @@ environment; no snapshot, volume or log of the desk's carries one.
   `the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on` proves
   roster lookup without a working-model request, unchanged named handoff
   without a first-contact card or dispatcher call, the front's narrowed `send`,
-  and denied ask, note, untitled work, stop and former-lead use through the
-  real handlers, with nothing delivered;
+  one sent row on the call, and denied ask, note, untitled work, broadcast,
+  unadvertised send fields, stop and former-lead use through the real handlers,
+  with nothing delivered;
   `a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant` proves the
   direct-call refusal; `a_no_lead_front_knows_the_person_and_roster` proves
   fallback context; `session/exchanges/tests.rs`

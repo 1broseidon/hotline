@@ -28,12 +28,15 @@
 //! cycle nothing ever breaks. Not a trait, because a seam with one
 //! implementation and one caller is a layer that buys nothing.
 
-use crate::contract::{Ability, Capabilities, LinkedTeammate, Profile, ThreadId, WorkingOn};
+use crate::contract::{
+    Ability, Capabilities, InboxWants, LinkedTeammate, Profile, ThreadId, WorkingOn,
+};
 use crate::contract::{ChapterClose, ScheduledJob, SessionInfo, SessionState, ToolSourceKind};
 use crate::driver::CapabilityLease;
 use crate::mcp::{CallContent, CallImage};
 use crate::session::browser::BrowserAnswer;
 use crate::session::files::Source;
+use crate::session::inbox::{Sending, whole_team};
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;
 use crate::session::schedule::{self, background_work_allowed, calendar};
@@ -416,38 +419,62 @@ fn lead_descriptor() -> Tool {
     )
 }
 
-/// `send` as the lead's voice front on a desk call is shown it. The call's
-/// grant lets the front hand a named teammate a job and nothing else (see
-/// [`FRONT_SENDS_ONLY_WORK`]), so it is not told of quick lines, answers,
-/// `reply_to` or the other wants, which would only be refused.
-fn front_send_descriptor() -> Tool {
-    Tool::new(
-        SEND,
-        "Hand a named teammate a job from this call: it lands in their inbox as work for them to do. Give a short title and the person's words unchanged as the message. Nothing else is sent from a call: a question, a note or a check for a colleague goes through work_on_it instead.",
-        schema(json!({
-            "type": "object",
-            "properties": {
-                "to": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "minItems": 1,
-                    "description": "The teammate the person named, by name or personaId from list_teammates.",
-                },
-                "title": { "type": "string", "minLength": 1, "maxLength": crate::session::inbox::TITLE_CHARS, "description": "A short line saying what the job is." },
-                "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX, "description": "The person's words for the job, unchanged." },
-                "wants": { "type": "string", "enum": ["work"], "description": "Always work: a call hands on only jobs." },
-            },
-            "required": ["to", "title", "message", "wants"],
-            "additionalProperties": false,
-        })),
-    )
-}
+/// Only the lead's live desk-call front is offered this `send`. Its advertised
+/// fields and the handler's restriction are the same; the working session's
+/// ordinary `send` on that call is unaffected.
+struct FrontWork;
 
-/// What the lead's voice front is told when it sends anything but a titled
-/// job, so it takes the one route there is instead of trying variations:
-/// `work_on_it` puts the words to the lead's own session on the call thread,
-/// whose `send` asks or tells a colleague by the same call's grant.
-const FRONT_SENDS_ONLY_WORK: &str = "Nothing was sent: from a call only a job goes to a teammate, with a title and wants work. For a question, a note or a check for a colleague, use work_on_it so your own session asks them or passes it on, and never turn a question into a work item to get it through.";
+impl FrontWork {
+    const FIELDS: [&str; 4] = ["to", "title", "message", "wants"];
+    const WANTS: InboxWants = InboxWants::Work;
+    const REFUSAL: &str = "Nothing was sent: from a call only a job goes to a teammate, with a title and wants work. For a question, a note or a check for a colleague, use work_on_it so your own session asks them or passes it on, and never turn a question into a work item to get it through.";
+
+    fn descriptor() -> Tool {
+        Tool::new(
+            SEND,
+            "Hand a named teammate a job from this call: it lands in their inbox as work for them to do. Give a short title and the person's words unchanged as the message. Nothing else is sent from a call: a question, a note or a check for a colleague goes through work_on_it instead.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "minItems": 1,
+                        "description": "The teammate the person named, by name or personaId from list_teammates.",
+                    },
+                    "title": { "type": "string", "minLength": 1, "maxLength": crate::session::inbox::TITLE_CHARS, "description": "A short line saying what the job is." },
+                    "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX, "description": "The person's words for the job, unchanged." },
+                    "wants": { "type": "string", "enum": [Self::WANTS.name()], "description": "Always work: a call hands on only jobs." },
+                },
+                "required": Self::FIELDS,
+                "additionalProperties": false,
+            })),
+        )
+    }
+
+    fn parse(arguments: &Value) -> Result<Sending, String> {
+        let fields = arguments.as_object().ok_or(Self::REFUSAL)?;
+        if fields.len() != Self::FIELDS.len()
+            || !Self::FIELDS.iter().all(|key| fields.contains_key(*key))
+            || !arguments["to"].is_array()
+        {
+            return Err(Self::REFUSAL.into());
+        }
+        let sending = Sending::from_arguments(arguments).map_err(|_| Self::REFUSAL)?;
+        if sending.wants != Some(Self::WANTS)
+            || sending.title.is_none()
+            || sending.message.is_empty()
+            || sending.to.is_empty()
+            || sending
+                .to
+                .iter()
+                .any(|name| name.trim().is_empty() || whole_team(name))
+        {
+            return Err(Self::REFUSAL.into());
+        }
+        Ok(sending)
+    }
+}
 
 /// The desk's own browser, offered to a teammate with no computer while
 /// the desktop app is running (`crate::browser`). Its actions are named as
@@ -1084,7 +1111,7 @@ impl TeammateTools {
         descriptors()
             .into_iter()
             .filter(|tool| FRONT_TOOLS.contains(&tool.name.as_ref()))
-            .chain(lead_call.then(front_send_descriptor))
+            .chain(lead_call.then(FrontWork::descriptor))
             .map(|tool| {
                 (
                     tool.name.to_string(),
@@ -1310,13 +1337,11 @@ impl TeammateTools {
                 Ok(json!({ "teammates": teammates }).to_string())
             }
             SEND => {
-                let sending = crate::session::inbox::Sending::from_arguments(arguments)?;
-                if self.front
-                    && (sending.wants != Some(crate::contract::InboxWants::Work)
-                        || sending.title.is_none())
-                {
-                    return Err(FRONT_SENDS_ONLY_WORK.into());
-                }
+                let sending = if self.front {
+                    FrontWork::parse(arguments)?
+                } else {
+                    Sending::from_arguments(arguments)?
+                };
                 room.send_items(
                     &self.persona_id,
                     &self.thread,

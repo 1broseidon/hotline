@@ -233,8 +233,7 @@ impl Room {
         });
         match changed {
             Some(released) if !released.held => {
-                self.count_message(&released.from, &released.to);
-                self.arrived(&released);
+                self.finish_delivery(&released, true);
                 Landed::In
             }
             Some(_) if declined => Landed::Declined,

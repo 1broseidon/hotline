@@ -306,7 +306,10 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   ordinary message from the teammate. It runs in the main conversation's own
   session and context, never a thread or a clone of its own. The person's
   line steered into it ends the quiet, and the turn answers them; a work
-  thread or a call the inbox wakes is not quiet.
+  thread or a call the inbox wakes is not quiet. The desk hides the live work
+  indicators during an inbox-only start and turn, but still shows cards
+  waiting on the person. A line from the person restores the indicators as
+  soon as it is admitted, even if it must queue.
 - **What the person asked for** (`inbox/asked.rs`). A send made in a turn of
   the sender's main conversation that the person read, a turn started by
   their follow-up line (`aboutItem`) included, is theirs (`forPerson`). While

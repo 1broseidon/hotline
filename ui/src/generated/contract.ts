@@ -2723,6 +2723,11 @@ configs: Array<SessionConfig>, slashCommands: Array<SlashCommand>, capabilities:
  */
 awaitingSubagents?: boolean, 
 /**
+ * The desk can hide activity for a main conversation started only to
+ * hear the inbox. This does not change whether the session is busy.
+ */
+quietInbox?: boolean, 
+/**
  * Commands the teammate left running past the turns that started them:
  * a server, a watcher. They do not change `state`: a teammate with a
  * server up and nothing to do reads idle.

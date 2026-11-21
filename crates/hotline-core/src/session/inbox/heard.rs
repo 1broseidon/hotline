@@ -279,7 +279,10 @@ impl Room {
         if !dm.is_current() || !capability.is_current() {
             return false;
         }
-        if let Err(error) = self.start_now(persona_id, capability.clone()).await
+        let quiet_inbox = self.finished_asks(persona_id).is_empty();
+        if let Err(error) = self
+            .start_now(persona_id, capability.clone(), quiet_inbox)
+            .await
             && dm.is_current()
             && capability.is_current()
         {

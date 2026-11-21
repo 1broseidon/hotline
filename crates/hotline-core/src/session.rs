@@ -515,6 +515,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         },
         error: None,
         awaiting_subagents: false,
+        quiet_inbox: false,
         processes: Vec::new(),
         plan_usage: None,
         browser: None,
@@ -1234,10 +1235,17 @@ impl Room {
 
     /// Records and pushes what an absent teammate is doing. The caller holds
     /// `lifecycle` and has seen no session for it in `sessions`.
-    pub(super) fn rest_as(&self, persona_id: &str, state: SessionState, error: Option<String>) {
+    pub(super) fn rest_as(
+        &self,
+        persona_id: &str,
+        state: SessionState,
+        error: Option<String>,
+        quiet_inbox: bool,
+    ) {
         let mut info = idle_info(persona_id);
         info.state = state;
         info.error = error;
+        info.quiet_inbox = quiet_inbox;
         let mut resting = lock(&self.resting);
         if resting.get(persona_id) == Some(&info) {
             return;
@@ -1607,7 +1615,7 @@ impl Room {
         }
     }
 
-    fn set_state(&self, session: &Arc<Session>, state: SessionState) {
+    fn set_state(&self, session: &Arc<Session>, state: SessionState, quiet_inbox: bool) {
         let _lifecycle = lock(&self.lifecycle);
         if !session.capability.is_current()
             || !lock(&self.sessions)
@@ -1617,9 +1625,15 @@ impl Room {
         {
             return;
         }
+        let quiet_inbox = quiet_inbox
+            && !lock(&session.turns)
+                .waiting
+                .iter()
+                .any(|line| line.person.is_some());
         let info = {
             let mut info = lock(&session.info);
             info.state = state;
+            info.quiet_inbox = quiet_inbox;
             // A turn beginning or ending is the end of any wait on subagents.
             info.awaiting_subagents = false;
             info.clone()

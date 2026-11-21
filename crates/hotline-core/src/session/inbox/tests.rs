@@ -4,7 +4,7 @@
 //! guards that were the ask's.
 
 use super::*;
-use crate::contract::{InboxOutcome, InboxState, Reach};
+use crate::contract::{InboxOutcome, InboxState, Reach, SessionState};
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::{TOOL_NAMES, TeammateTools};
 use crate::session::Session;
@@ -51,6 +51,48 @@ fn room_on(name: &str, script: Scripted) -> (Arc<Room>, Arc<Fake>) {
     room.allow_sender("bob", "ada").unwrap();
     room.allow_sender("ada", "bob").unwrap();
     (room, agents)
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_inbox_wake_is_hidden_until_the_person_speaks_even_when_their_line_queues() {
+    let starting = Arc::new(tokio::sync::Semaphore::new(0));
+    let output = Arc::new(tokio::sync::Semaphore::new(0));
+    let (room, agents) = room_on(
+        "inbox-quiet-activity",
+        replies()
+            .slow_to_start(starting.clone())
+            .gated(output.clone()),
+    );
+    send(&room, "ada", "bob", "Check the crane", json!({})).await;
+    until("the inbox starts Bob", || {
+        room.info("bob").state == SessionState::Starting
+    })
+    .await;
+    assert!(room.info("bob").quiet_inbox);
+    starting.add_permits(1);
+    until("the quiet turn reaches the driver", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    assert_eq!(room.info("bob").state, SessionState::Thinking);
+    assert!(room.info("bob").quiet_inbox);
+
+    room.prompt("bob", "How's it going?", None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        agents.prompts().len(),
+        1,
+        "the driver's first turn is still running"
+    );
+    assert!(!room.info("bob").quiet_inbox);
+    output.add_permits(2);
+    until("the person's turn reaches the driver", || {
+        agents.prompts().len() == 2
+    })
+    .await;
+    assert_eq!(room.info("bob").state, SessionState::Thinking);
+    assert!(!room.info("bob").quiet_inbox);
 }
 
 fn room(name: &str) -> (Arc<Room>, Arc<Fake>) {

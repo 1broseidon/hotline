@@ -149,7 +149,7 @@ impl Occupant for Session {
             eprintln!("question not taken up: {error}");
             return Begin::Skip;
         }
-        room.set_state(session, SessionState::Thinking);
+        room.set_state(session, SessionState::Thinking, wired.quiet);
         let reach = room.reach_of(&session.persona_id);
         if !session.answering(room) {
             session.abandon();
@@ -387,7 +387,7 @@ impl Occupant for Session {
             lock(&self.turns).running = false;
             return;
         }
-        room.set_state(self, SessionState::Ready);
+        room.set_state(self, SessionState::Ready, false);
         room.attach_computer_when_idle(&self.persona_id);
         room.swap_computer_when_idle(&self.persona_id);
         room.rebuild_for_sign_in_when_idle(self);
@@ -670,6 +670,20 @@ impl Room {
         }
     }
 
+    /// Restore the desk's indicators when a person addresses a quiet inbox
+    /// turn, even when their line must wait for a driver that cannot steer.
+    pub(super) fn show_inbox_activity(&self, session: &Arc<Session>) {
+        let _lifecycle = lock(&self.lifecycle);
+        if !session.capability.is_current() || !self.current_session(session) {
+            return;
+        }
+        let mut info = lock(&session.info);
+        if info.quiet_inbox {
+            info.quiet_inbox = false;
+            let _ = self.info_changes.send(info.clone());
+        }
+    }
+
     /// Hands the driver the lines waiting that may join the turn in flight,
     /// the person's with the mark of the moment ([`super::marks`]), and says
     /// whether one of them was the person's.
@@ -701,6 +715,7 @@ impl Room {
         // turn they have spoken into answers them out loud from here on.
         if taken.iter().any(|wire| !wire.wake) {
             self.set_quiet(&session.thread(), false);
+            self.show_inbox_activity(session);
         }
         steered_inputs.extend(taken);
         // A turn that was only waiting on its subagents has a line to

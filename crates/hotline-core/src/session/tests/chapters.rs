@@ -100,7 +100,7 @@ async fn stop_revokes_a_replacement_before_its_startup_begins() {
     let replacement = room.stop_with_capability("ada");
     room.stop("ada").unwrap();
 
-    assert!(room.start_now("ada", replacement).await.is_err());
+    assert!(room.start_now("ada", replacement, false).await.is_err());
     assert_eq!(lock(&agents.preambles).len(), 1);
     room.start("ada").await.unwrap();
     assert_eq!(lock(&agents.preambles).len(), 2);

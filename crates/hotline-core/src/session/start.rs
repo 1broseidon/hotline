@@ -21,7 +21,7 @@ impl Room {
             self.session(persona_id)?;
             return Ok(self.info(persona_id));
         }
-        self.start_now(persona_id, capability).await
+        self.start_now(persona_id, capability, false).await
     }
 
     /// This teammate's start gate, made the first time anyone starts it.
@@ -86,11 +86,12 @@ impl Room {
         self: &Arc<Self>,
         persona_id: &str,
         capability: CapabilityLease,
+        quiet_inbox: bool,
     ) -> Result<SessionInfo, String> {
         {
             let _lifecycle = lock(&self.lifecycle);
             if !lock(&self.sessions).contains_key(persona_id) {
-                self.rest_as(persona_id, SessionState::Starting, None);
+                self.rest_as(persona_id, SessionState::Starting, None, quiet_inbox);
             }
         }
         // However this ends, `Starting` does not outlive it: a start dropped
@@ -116,7 +117,7 @@ impl Room {
             .get(persona_id)
             .is_some_and(|info| info.state == SessionState::Starting);
         if starting && !lock(&self.sessions).contains_key(persona_id) {
-            self.rest_as(persona_id, SessionState::Stopped, error);
+            self.rest_as(persona_id, SessionState::Stopped, error, false);
         }
     }
 
@@ -430,7 +431,7 @@ impl Room {
                 .get(persona_id)
                 .is_some_and(|info| info.state == SessionState::Starting);
             if starting && !lock(&self.sessions).contains_key(persona_id) {
-                self.rest_as(persona_id, SessionState::Stopped, None);
+                self.rest_as(persona_id, SessionState::Stopped, None, false);
             }
             return Some((capability, false));
         };
@@ -441,7 +442,7 @@ impl Room {
         self.computers.mark_idle(persona_id, now_ms());
         let _lifecycle = lock(&self.lifecycle);
         if !lock(&self.sessions).contains_key(persona_id) {
-            self.rest_as(persona_id, SessionState::Stopped, None);
+            self.rest_as(persona_id, SessionState::Stopped, None, false);
         }
         Some((capability, true))
     }
@@ -479,7 +480,7 @@ impl Room {
             let _lifecycle = lock(&self.lifecycle);
             let was_running = lock(&self.sessions).remove(persona_id).is_some();
             if was_running {
-                self.rest_as(persona_id, SessionState::Stopped, None);
+                self.rest_as(persona_id, SessionState::Stopped, None, false);
             }
             let epoch = self.capability_epoch(persona_id);
             epoch.activate();
@@ -550,7 +551,9 @@ impl Room {
         capability: CapabilityLease,
     ) -> Result<(), String> {
         // `start_now` leaves the teammate stopped with the reason on a failure.
-        self.start_now(persona_id, capability).await.map(|_| ())
+        self.start_now(persona_id, capability, false)
+            .await
+            .map(|_| ())
     }
 
     /// A sign-in to an MCP server has completed. It adds reach the policies

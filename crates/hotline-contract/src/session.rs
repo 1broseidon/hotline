@@ -51,6 +51,11 @@ pub struct SessionInfo {
     #[serde(default)]
     #[ts(as = "Option<bool>", optional)]
     pub awaiting_subagents: bool,
+    /// The desk can hide activity for a main conversation started only to
+    /// hear the inbox. This does not change whether the session is busy.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub quiet_inbox: bool,
     /// Commands the teammate left running past the turns that started them:
     /// a server, a watcher. They do not change `state`: a teammate with a
     /// server up and nothing to do reads idle.

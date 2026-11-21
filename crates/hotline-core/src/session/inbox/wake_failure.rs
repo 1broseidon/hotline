@@ -9,12 +9,18 @@ use crate::session::{exchanges::Cut, runner::Driven};
 use serde_json::Value;
 use std::sync::Arc;
 
-const ACP_QUOTA: &str = "Usage Limit Reached. You have reached your current quota for this period.";
-
 /// A diagnostic thought is not evidence of inference. Only this known
 /// adapter message, paired with a terminal refusal, has quota semantics.
 pub(in crate::session) fn quota_thought(text: &str) -> Option<&str> {
-    text.trim().strip_prefix(ACP_QUOTA).map(str::trim)
+    let after_heading = text.trim_start().strip_prefix("Usage Limit Reached")?;
+    let after_heading = after_heading.strip_prefix('.').unwrap_or(after_heading);
+    if !after_heading.starts_with(char::is_whitespace) {
+        return None;
+    }
+    after_heading
+        .trim_start()
+        .strip_prefix("You have reached your current quota for this period.")
+        .map(str::trim)
 }
 
 fn quota_reset(tail: &str, now: i64) -> Option<i64> {
@@ -217,5 +223,15 @@ mod tests {
             None
         );
         assert_eq!(quota_thought("I saw Usage Limit Reached."), None);
+        assert_eq!(
+            quota_thought("Usage Limit Reached\n\nAnother reason."),
+            None
+        );
+        assert_eq!(
+            quota_thought(
+                "Usage Limit Reached. You have reached your current quota for this period. Your limit will reset in 1 minute."
+            ),
+            Some("Your limit will reset in 1 minute.")
+        );
     }
 }

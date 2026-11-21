@@ -198,6 +198,7 @@ pub(super) async fn drive_updates(
                     text,
                     ..
                 } => {
+                    // ACP closes the accumulated thought before emitting its stop reason.
                     if let Some(quota) = super::inbox::wake_failure::quota_thought(text) {
                         driven.quota_thought = Some(quota.chars().take(96).collect());
                     }

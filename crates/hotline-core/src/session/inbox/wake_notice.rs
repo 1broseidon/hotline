@@ -7,6 +7,7 @@ use crate::contract::{
     InboxWants, ThreadId, ThreadKind, TranscriptEvent,
 };
 use crate::log::StreamId;
+use chrono::{Local, TimeZone};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -42,12 +43,9 @@ impl Room {
             InboxWakeFailureState::CouldNotStart => ("couldNotStart", "the agent could not start"),
             InboxWakeFailureState::Other => ("other", "the agent could not run the inbox turn"),
         };
-        let reset = failure
+        let reset_at = failure
             .reset_at
-            .and_then(chrono::DateTime::from_timestamp_millis)
-            .map_or_else(String::new, |at| {
-                format!(" The quota resets at {}.", at.format("%Y-%m-%d %H:%M UTC"))
-            });
+            .and_then(|ts| Local.timestamp_millis_opt(ts).single());
         let id = notice_id(&original.id, state);
         let inbox = StreamId::Inbox(original.from.clone());
         // The chat post has its own key and is made only once per item, even
@@ -61,6 +59,9 @@ impl Room {
                     .log
                     .contains(&StreamId::Tape(original.from.clone()), &id)
                 {
+                    let reset = reset_at.as_ref().map_or_else(String::new, |at| {
+                        format!(" The quota resets at {}.", at.format("%H:%M"))
+                    });
                     let text = format!(
                         "Hotline: I couldn't wake {name} for your request: {reason}. The inbox item is still waiting.{reset}"
                     );
@@ -92,6 +93,9 @@ impl Room {
                 return Ok(());
             }
             let title = title_of(&format!("Could not wake: {}", original.title))?;
+            let reset = reset_at.map_or_else(String::new, |at| {
+                format!(" The quota resets at {}.", at.format("%Y-%m-%d %H:%M %:z"))
+            });
             let body = format!(
                 "This is Hotline's notice. I couldn't wake {name} for your item {}: {reason}. The item is still in their inbox, unread.{reset} Nothing was closed or needs to be sent again.",
                 crate::fence::quoted(&original.title)

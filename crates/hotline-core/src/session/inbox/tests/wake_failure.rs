@@ -3,6 +3,7 @@
 use super::pick_up::idle;
 use super::*;
 use crate::contract::{InboxNotice, InboxWakeFailureState};
+use chrono::{Local, TimeZone};
 use tokio::time::sleep;
 
 fn quota_refusal() -> Vec<Update> {
@@ -10,7 +11,7 @@ fn quota_refusal() -> Vec<Update> {
         Update::Message {
             kind: MessageKind::Thought,
             id: new_id(),
-            text: "Usage Limit Reached. You have reached your current quota for this period. Your limit will reset in 1 hour, 16 minutes.".into(),
+            text: "Usage Limit Reached\n\nYou have reached your current quota for this period. Your limit will reset in 1 hour, 19 minutes.".into(),
         },
         Update::Turn {
             stop_reason: "refusal".into(),
@@ -140,14 +141,17 @@ async fn a_quota_refusal_leaves_a_quick_question_unread_until_a_successful_retry
         .unwrap();
     let bob = at_rest(&room, "bob").await;
     let before = now_ms();
-    let sent = tool(
-        &room,
-        "ada",
-        "send",
-        json!({"to": ["bob"], "message": "Which runner?"}),
-    )
-    .await
-    .unwrap();
+    let sent = {
+        let _turn = room.open_posting(&ThreadId::dm("ada"), None);
+        tool(
+            &room,
+            "ada",
+            "send",
+            json!({"to": ["bob"], "message": "Which runner?"}),
+        )
+        .await
+        .unwrap()
+    };
     let id = sent["sent"][0]["id"].as_str().unwrap();
 
     until("Bob got the quick question", || !agents.told().is_empty()).await;
@@ -156,9 +160,21 @@ async fn a_quota_refusal_leaves_a_quick_question_unread_until_a_successful_retry
     let due = deferred(&room, id);
     let notice = wake_notice(&room, id, InboxWakeFailureState::OutOfQuota);
     let reset_at = notice.wake_failure.unwrap().reset_at.expect("quota reset");
-    let delay_ms = (60 + 16) * 60 * 1_000;
+    let delay_ms = (60 + 19) * 60 * 1_000;
     assert!((before + delay_ms..=now_ms() + delay_ms).contains(&reset_at));
     assert_eq!(due, reset_at);
+    let local = Local.timestamp_millis_opt(reset_at).unwrap();
+    let chat_line = format!("The quota resets at {}.", local.format("%H:%M"));
+    assert!(room.tape("ada").iter().any(|event| {
+        event["text"]
+            .as_str()
+            .is_some_and(|text| text.ends_with(&chat_line))
+    }));
+    let notice_line = format!(
+        "The quota resets at {}.",
+        local.format("%Y-%m-%d %H:%M %:z")
+    );
+    assert!(notice.body.contains(&notice_line));
     assert_eq!(lock(&bob.pick_up).armed(), None, "no immediate pick-up");
     room.inbox_due(now_ms()).await;
     sleep(heard::gather_delay() * 3).await;

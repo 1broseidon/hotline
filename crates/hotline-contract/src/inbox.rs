@@ -184,6 +184,13 @@ pub struct InboxReceipt {
     pub newer: serde_json::Map<String, serde_json::Value>,
 }
 
+/// The colleague and item the sending turn was working for, if any.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxWorkOwner {
+    pub name: String,
+    pub item: String,
+}
+
 /// One item, as it is kept on its receiver's own stream (`inbox/<id>`),
 /// written again under the same id each time it changes: the fold is the
 /// latest line of each id.
@@ -286,6 +293,11 @@ pub struct InboxItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub for_person: bool,
+    /// Captured when this item was sent, so its reply can resume that work.
+    /// Separate from `for_person`, which decides whether to wake the main chat loudly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub work_owner: Option<InboxWorkOwner>,
     /// The particular call a request (or its returning result) belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(skip)]

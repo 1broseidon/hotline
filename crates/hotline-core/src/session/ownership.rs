@@ -35,8 +35,22 @@ impl WorkFor {
 
 impl Room {
     pub(super) fn colleague_work(&self, item: &InboxItem) -> WorkFor {
-        if item.notice.is_some() || item.reply_to.is_some() {
+        if item.notice.is_some() {
             return WorkFor::Person;
+        }
+        // A follow-up linked to the colleague's own hand-off is not an
+        // answer. The referenced item must have gone the other way.
+        if let Some(id) = &item.reply_to
+            && let Ok(asked) = self.item_of(&item.from, id)
+            && asked.from == item.to
+            && asked.notice.is_none()
+        {
+            return asked
+                .work_owner
+                .map_or(WorkFor::Person, |owner| WorkFor::Colleague {
+                    name: owner.name,
+                    item: owner.item,
+                });
         }
         WorkFor::Colleague {
             name: self.sender_of(item),
@@ -85,58 +99,5 @@ impl Room {
         {
             turn.answered_for = Some(std::mem::take(&mut turn.work_for));
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::session::tests::{DeskKeys, scratch};
-    use serde_json::Value;
-    use std::sync::Arc;
-
-    pub(super) fn slice() -> Vec<Value> {
-        include_str!("tests/receiver-slice.jsonl")
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect()
-    }
-
-    #[tokio::test]
-    async fn an_operator_line_does_not_change_the_owner_captured_by_a_helper() {
-        let room = Room::new(scratch("receiver-owner"), Arc::new(DeskKeys));
-        let dm = ThreadId::dm("ada");
-        let rows = slice();
-        let mut helpers = std::collections::HashMap::new();
-        let mut captured = WorkFor::Person;
-        let mut turn = room.open_posting(&dm, None);
-        for row in &rows {
-            match row["kind"].as_str().unwrap() {
-                "inbox_sorted" if row["entries"][0]["state"] == "taken" => {
-                    captured = WorkFor::Colleague {
-                        item: row["entries"][0]["item"].as_str().unwrap().into(),
-                        name: "Pork Chop".into(),
-                    };
-                    room.set_work_for(&dm, captured.clone());
-                }
-                "link" if row["state"] == "live" => {
-                    helpers.insert(row["thread"].as_str().unwrap(), room.work_for(&dm));
-                }
-                "link" if row["state"] == "closed" => {
-                    drop(turn);
-                    turn = room.open_posting(&dm, None);
-                    let launch = &helpers[row["thread"].as_str().unwrap()];
-                    room.set_work_for(&dm, launch.clone());
-                    assert_eq!(room.work_for(&dm), captured);
-                }
-                "user" => {
-                    room.set_work_for(&dm, WorkFor::Person);
-                    assert_eq!(room.work_for(&dm), WorkFor::Person);
-                    assert!(helpers.values().all(|owner| owner == &captured));
-                }
-                _ => {}
-            }
-        }
-        assert_eq!(helpers.len(), 3);
     }
 }

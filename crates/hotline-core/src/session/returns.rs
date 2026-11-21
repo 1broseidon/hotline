@@ -100,7 +100,8 @@ impl Room {
         if sent != 0 {
             let _ = write!(
                 line,
-                " You have sent {sent} message(s) since the person last wrote."
+                " You have sent {sent} message{} since the person last wrote.",
+                if sent == 1 { "" } else { "s" }
             );
         }
         if matches!(starter, Starter::Command) {

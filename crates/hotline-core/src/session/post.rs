@@ -325,6 +325,7 @@ impl Room {
             self.post(persona_id, thread, post)?;
             return Ok("Posted to the chat.".to_string());
         }
+        let work_for = self.work_for(thread);
         // The DM is brought up and into its chapter first, so the post lands
         // in the chapter that hears it and is handed to the session that
         // acts on it.
@@ -338,7 +339,7 @@ impl Room {
             session,
             Wired {
                 starter: super::returns::Starter::Thread,
-                work_for: self.work_for(thread),
+                work_for,
                 ..Wired::back(timed(now_ms(), &line))
             },
         );

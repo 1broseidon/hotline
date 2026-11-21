@@ -456,7 +456,7 @@ impl Occupant for LiveSide {
 
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut WorkTurn) -> Driven {
         let thread = self.thread();
-        let line = held.line.take().expect("a turn is taken once");
+        let mut line = held.line.take().expect("a turn is taken once");
         let driver = self.driver().expect("turns run only once the agent is up");
         let steer = || room.steer_into_work(self);
         let work_for = line.return_for.clone().unwrap_or_else(|| {
@@ -467,6 +467,16 @@ impl Occupant for LiveSide {
                 .as_deref()
                 .map_or_else(Default::default, |id| room.inbox_request_owner(id))
         });
+        if line.return_for.is_some() {
+            let opening = room.opening_note(
+                &self.persona_id,
+                &thread,
+                super::returns::Starter::Command,
+                &work_for,
+            );
+            line.text.push_str("\n\n");
+            line.text.push_str(&opening);
+        }
         room.threads()
             .turn(
                 Seat {

@@ -331,6 +331,7 @@ fn item(
         sender_told: 0,
         looped_in: false,
         for_person: false,
+        work_owner: None,
         asked_on_call: None,
         notice: None,
         wake_failure: None,
@@ -439,7 +440,15 @@ impl Room {
         let lead = self.lead_call(&caller.id, sent_from);
         // What the person asked for is sent in a main conversation's turn
         // they read; a quiet turn's, a thread's or a job's is not theirs.
-        let for_person = sent_from.kind == ThreadKind::Dm && self.is_read_turn(sent_from);
+        let work_owner = match self.work_for(sent_from) {
+            super::ownership::WorkFor::Person => None,
+            super::ownership::WorkFor::Colleague { name, item } => {
+                Some(crate::contract::InboxWorkOwner { name, item })
+            }
+        };
+        let for_person = work_owner.is_none()
+            && sent_from.kind == ThreadKind::Dm
+            && self.is_read_turn(sent_from);
         // A card this send raises names the colleague's item that woke the
         // quiet turn sending it, when one alone did.
         let prompted = self.prompted_by(sent_from);
@@ -459,6 +468,7 @@ impl Room {
             new.send_id = Some(send_id.clone());
             new.waiting = sending.waiting;
             new.for_person = for_person;
+            new.work_owner.clone_from(&work_owner);
             if wants != InboxWants::Nothing {
                 new.asked_on_call = call.as_ref().map(|origin| origin.call_id.clone());
             } else if let Some(asked) = replied

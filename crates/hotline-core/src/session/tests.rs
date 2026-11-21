@@ -83,6 +83,7 @@ pub(crate) struct Scripted {
     room_models: Option<Arc<Mutex<Vec<ConfigChoice>>>>,
     /// Work this agent starts by itself, for the room to take once.
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
+    wakes: Mutex<Option<mpsc::UnboundedReceiver<super::jobs::ProcessReturn>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
     /// Steering the agent uses in the turn it joined, so nothing comes back.
@@ -144,6 +145,7 @@ impl Scripted {
             info_changes: None,
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
+            wakes: Mutex::new(None),
             unconsumed: None,
             consumes: false,
             steered: Arc::new(Mutex::new(Vec::new())),
@@ -188,6 +190,12 @@ impl Scripted {
     pub(super) fn with_unprompted(self) -> (Self, mpsc::UnboundedSender<mpsc::Receiver<Update>>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.unprompted) = Some(receiver);
+        (self, sender)
+    }
+
+    pub(super) fn with_wakes(self) -> (Self, mpsc::UnboundedSender<super::jobs::ProcessReturn>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *lock(&self.wakes) = Some(receiver);
         (self, sender)
     }
 
@@ -389,6 +397,10 @@ impl Driver for Scripted {
         self.info_changes
             .as_ref()
             .map(tokio::sync::watch::Sender::subscribe)
+    }
+
+    fn subscribe_wakes(&self) -> Option<mpsc::UnboundedReceiver<super::jobs::ProcessReturn>> {
+        lock(&self.wakes).take()
     }
 
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {

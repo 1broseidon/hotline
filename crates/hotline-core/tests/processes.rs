@@ -12,11 +12,7 @@ use common::Client;
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::net::TcpStream;
 
 const TOKEN: &str = "disposable-processes-test";
@@ -113,7 +109,7 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
         "{said}"
     );
     assert!(
-        said.contains("You have sent 1 message(s) since the person last wrote."),
+        said.contains("You have sent 1 message since the person last wrote."),
         "{said}"
     );
     // The turn is quiet: what the teammate wrote is the turn's path, kept
@@ -138,6 +134,116 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
             .any(|event| event.to_string().contains("a command you left running")),
         "the wake is Hotline's line to the teammate, not the person's: {tape:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rig_helper_returns_keep_their_launch_owner_across_hello() {
+    let mut desk = Desk::open().await;
+    desk.client.subscribe(json!({"view": "roster"})).await;
+    let item = desk.take_a_colleagues_item().await;
+    desk.script([
+        tool_call(
+            "subagent",
+            json!({"task":"gated-helper-first"}),
+            "call_first",
+        ),
+        text("First helper is running."),
+    ]);
+    let launched = desk.request().await;
+    receipt(&launched);
+    desk.client
+        .next_where(common::ANSWER, |frame| {
+            frame["event"]["text"] == "First helper is running."
+        })
+        .await;
+
+    session_where(&mut desk, |session| session["awaitingSubagents"] == true).await;
+    desk.script([
+        tool_call(
+            "subagent",
+            json!({"task":"gated-helper-second"}),
+            "call_second",
+        ),
+        text("Hello!"),
+    ]);
+    desk.prompt("Hello").await;
+    assert!(desk.request().await.to_string().contains("Hello"));
+    let launched = desk.request().await;
+    receipt(&launched);
+    desk.client
+        .next_where(common::ANSWER, |frame| {
+            frame["event"]["kind"] == "agent" && frame["event"]["text"] == "Hello!"
+        })
+        .await;
+
+    session_where(&mut desk, |session| session["awaitingSubagents"] == true).await;
+    desk.script([text("First report read."), text("Second report read.")]);
+    desk.helpers[0].add_permits(1);
+    let first = desk.request().await.to_string();
+    assert!(
+        first.contains(&format!(
+            "your helpers came back. This work is for Pork Chop (item {item}), not the person"
+        )),
+        "{first}"
+    );
+    desk.client
+        .next_where(common::ANSWER, |frame| {
+            frame["event"]["text"] == "First report read."
+        })
+        .await;
+    session_where(&mut desk, |session| session["awaitingSubagents"] == true).await;
+    desk.helpers[1].add_permits(1);
+    let second = desk.request().await.to_string();
+    assert!(
+        second.contains("your helpers came back. This work is for the person."),
+        "{second}"
+    );
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rig_command_returns_keep_their_launch_owner_across_hello() {
+    let mut desk = Desk::open().await;
+    let item = desk.take_a_colleagues_item().await;
+    desk.script([
+        tool_call(
+            "shell",
+            json!({"command":"while [ ! -e first ]; do sleep 0.05; done; echo first"}),
+            "call_first",
+        ),
+        text("First command is running."),
+    ]);
+    receipt(&desk.request().await);
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    desk.script([
+        tool_call(
+            "shell",
+            json!({"command":"while [ ! -e second ]; do sleep 0.05; done; echo second"}),
+            "call_second",
+        ),
+        text("Hello!"),
+    ]);
+    desk.prompt("Hello").await;
+    assert!(desk.request().await.to_string().contains("Hello"));
+    receipt(&desk.request().await);
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    desk.script([text("First result read."), text("Second result read.")]);
+    std::fs::write(desk.workspace.join("first"), "").unwrap();
+    let first = desk.request().await.to_string();
+    assert!(
+        first.contains(&format!(
+            "your command came back. This work is for Pork Chop (item {item}), not the person"
+        )),
+        "{first}"
+    );
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+    std::fs::write(desk.workspace.join("second"), "").unwrap();
+    let second = desk.request().await.to_string();
+    assert!(
+        second.contains("your command came back. This work is for the person."),
+        "{second}"
+    );
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
 }
 
 /// A command's end the teammate tells the person of: the turn is quiet, so
@@ -647,31 +753,61 @@ struct Desk {
     log: hotline_core::log::Log,
     persona: String,
     workspace: PathBuf,
-    script: Arc<Mutex<VecDeque<Vec<Value>>>>,
+    script: tokio::sync::mpsc::UnboundedSender<Vec<Value>>,
+    helpers: Arc<[tokio::sync::Semaphore; 2]>,
     requests: tokio::sync::mpsc::UnboundedReceiver<Value>,
     _root: tempfile::TempDir,
 }
 
 impl Desk {
     async fn open() -> Desk {
-        let script: Arc<Mutex<VecDeque<Vec<Value>>>> = Arc::default();
+        let (script, answers) = tokio::sync::mpsc::unbounded_channel::<Vec<Value>>();
+        let answers = Arc::new(tokio::sync::Mutex::new(answers));
         let (seen, requests) = tokio::sync::mpsc::unbounded_channel();
-        let answers = script.clone();
+        let helpers: Arc<[tokio::sync::Semaphore; 2]> =
+            Arc::new(std::array::from_fn(|_| tokio::sync::Semaphore::new(0)));
+        let helper_replies = helpers.clone();
         let app = Router::new().route(
             "/v1/chat/completions",
             post(move |body: Bytes| {
                 let request: Value = serde_json::from_slice(&body).unwrap();
-                let events = answers
-                    .lock()
-                    .unwrap()
-                    .pop_front()
-                    .unwrap_or_else(|| panic!("an unscripted request: {request}"));
-                seen.send(request).unwrap();
-                let body: String = events
-                    .into_iter()
-                    .map(|event| format!("data: {event}\n\n"))
-                    .collect();
+                let (answers, seen, helpers) =
+                    (answers.clone(), seen.clone(), helper_replies.clone());
                 async move {
+                    let messages = request["messages"].as_array().unwrap();
+                    let helper = messages
+                        .iter()
+                        .any(|message| {
+                            message["role"] == "system"
+                                && message["content"]
+                                    .to_string()
+                                    .contains("This is a subagent run of")
+                        })
+                        .then(|| {
+                            let said = messages.last().unwrap().to_string();
+                            ["gated-helper-first", "gated-helper-second"]
+                                .iter()
+                                .position(|task| said.contains(task))
+                                .expect("the gated helper has a task")
+                        });
+                    let events = if let Some(index) = helper {
+                        helpers[index].acquire().await.unwrap().forget();
+                        text(if index == 0 {
+                            "First gated report."
+                        } else {
+                            "Second gated report."
+                        })
+                    } else {
+                        seen.send(request).unwrap();
+                        tokio::time::timeout(common::ANSWER, answers.lock().await.recv())
+                            .await
+                            .expect("an unscripted request")
+                            .unwrap()
+                    };
+                    let body: String = events
+                        .into_iter()
+                        .map(|event| format!("data: {event}\n\n"))
+                        .collect();
                     (
                         [("Content-Type", "text/event-stream")],
                         format!("{body}data: [DONE]\n\n"),
@@ -723,13 +859,68 @@ impl Desk {
             persona,
             workspace,
             script,
+            helpers,
             requests,
             _root: root,
         }
     }
 
     fn script<const N: usize>(&self, answers: [Vec<Value>; N]) {
-        self.script.lock().unwrap().extend(answers);
+        for answer in answers {
+            self.script.send(answer).unwrap();
+        }
+    }
+
+    /// Wake Goldie with a real colleague item and take it in the turn that woke.
+    async fn take_a_colleagues_item(&mut self) -> String {
+        let made = self
+            .call(
+                "persona.create",
+                json!({"draft": {
+                    "name": "Pork Chop", "goal": "Send the test hand-off", "cwd": self.workspace,
+                    "reach": "machine"
+                }}),
+            )
+            .await;
+        let colleague = made["result"]["id"].as_str().unwrap();
+        let started = self
+            .call("session.start", json!({"personaId": colleague}))
+            .await;
+        assert_eq!(started["ok"], true, "{started}");
+        self.script([
+            tool_call(
+                "send",
+                json!({"to": [self.persona], "title":"Check launch ownership", "wants":"work"}),
+                "call_send",
+            ),
+            text("Sent."),
+        ]);
+        let sent = self
+            .call(
+                "session.prompt",
+                json!({"personaId": colleague, "text":"Send Goldie the test hand-off."}),
+            )
+            .await;
+        assert_eq!(sent["ok"], true, "{sent}");
+        self.request().await;
+        self.request().await;
+        let wake = self.request().await.to_string();
+        let id = wake
+            .split_once("Pork Chop (item ")
+            .unwrap_or_else(|| panic!("not a colleague wake: {wake}"))
+            .1
+            .split(')')
+            .next()
+            .unwrap()
+            .to_owned();
+        self.script([tool_call(
+            "update_inbox",
+            json!({"items":[{"id":id,"state":"taken","in_thread":false}]}),
+            "call_take",
+        )]);
+        let taken = self.request().await.to_string();
+        assert!(taken.contains("taken") && taken.contains(&id), "{taken}");
+        id
     }
 
     async fn call(&mut self, cmd: &str, params: Value) -> Value {

@@ -558,6 +558,18 @@ describe("task-456 drawn", () => {
 		return run;
 	};
 
+	test("a stamped outcome opens inside Inbox without a sort in view", async () => {
+		const { InboxRun } = await import("../src/components/transcript/InboxLines");
+		const event = {"kind": "outcome", "id": "51a11891-ea6a-45e8-be51-b5234492ae97", "ts": 1795211618382, "type": "made", "message": "Saved the uncommitted call-delivery draft; busy-call delivery is unresolved", "state": "partial", "key": "51a11891", "fromItem": "98367872"} as const;
+		const run = await runOf([event]);
+		const opened: string[] = [];
+		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} onOpenThread={(one) => opened.push(one.thread)} />));
+		expect(container.textContent).toBe("Inbox");
+		expect(container.querySelector(".steps-caption .text-warn-ink")?.textContent).toBe("Inbox");
+		await press(container.querySelector(".steps-caption")!);
+		expect(container.querySelector(".inbox-run-rows .text-warn-ink")?.textContent).toBe(event.message);
+	});
+
 	test("a run is one quiet line that opens in place to its rows in the order they happened, each item's opening it", async () => {
 		const { InboxRows, InboxRun } = await import("../src/components/transcript/InboxLines");
 		const opened: string[] = [];

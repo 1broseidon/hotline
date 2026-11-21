@@ -164,9 +164,11 @@ export const InboxRun = memo(function InboxRun({
 	workOpen?: string | null | undefined;
 }) {
 	const [open, setOpen] = useState(false);
+	const attention = run.members.some((member) => member.kind === "event" && member.event.kind === "outcome" && (member.event.state === "failed" || member.event.state === "partial"));
+	const label = run.read + run.sent === 0 ? "Inbox" : runWords(run.read, run.sent);
 	return (
 		<div className="my-2" data-kind="inbox-run" data-step-id={run.id}>
-			<StepsCaption expanded={open} label={runWords(run.read, run.sent)} onClick={() => setOpen((was) => !was)} />
+			<StepsCaption expanded={open} label={attention ? <span className="text-warn-ink">{label}</span> : label} onClick={() => setOpen((was) => !was)} />
 			{open && (
 				<div className="inbox-run-rows">
 					{run.members.map((member) => {
@@ -185,6 +187,7 @@ export const InboxRun = memo(function InboxRun({
 							);
 						if (member.kind !== "event") return null;
 						const event = member.event;
+						if (event.kind === "outcome") return <p key={event.id} className="link-row" data-kind="inbox-outcome"><span className={event.state === "failed" || event.state === "partial" ? "text-warn-ink" : "link-row-outcome"}>{event.message}</span></p>;
 						if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => <InboxSortedRow key={`${event.id}:${at}`} entry={entry} people={people} />);
 						if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork onOpen={() => onOpenThread?.(event)} />;
 						return null;

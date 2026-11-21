@@ -37,7 +37,7 @@ type AgentEvent = Extract<TranscriptEvent, { kind: "agent" }>;
  * person asked for stays its own row, `asked`.
  */
 export type Block =
-	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
+	| { kind: "event"; event: Exclude<TranscriptEvent, Step> | Extract<TranscriptEvent, { kind: "outcome" }>; live?: boolean }
 	/** `rowSays`: the turn's only work was the inbox, and its sent row says what came of it (`sentRowsSay`). */
 	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean; rowSays?: true; elapsed?: number }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
@@ -341,7 +341,8 @@ export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean
 		const beside = run.filter((one) => !one.member).map((one) => one.block);
 		const read = new Set(members.flatMap((block) => (block.kind === "event" && block.event.kind === "inbox_sorted" ? block.event.entries.map((entry) => entry.item) : []))).size;
 		const sent = members.filter((block) => block.kind === "inbox").length;
-		if (read + sent === 0) out.push(...run.map((one) => one.block));
+		const stamped = members.some((block) => block.kind === "event" && block.event.kind === "outcome" && block.event.fromItem !== undefined);
+		if (!stamped && read + sent === 0) out.push(...run.map((one) => one.block));
 		else {
 			const first = members[0]!;
 			const [id, ts] = first.kind === "event" ? [first.event.id, first.event.ts] : [first.id, first.ts];
@@ -380,6 +381,7 @@ export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean
 		}
 		if (block.kind !== "event") return "end";
 		const event = block.event;
+		if (event.kind === "outcome" && event.fromItem !== undefined) return "member";
 		if (event.kind === "inbox_sorted") return "member";
 		if (event.kind === "turn") return event.stopReason === "end_turn" ? "beside" : "end";
 		if (event.kind === "link" && event.threadKind === "side" && work.has(event.thread)) return event.state === "closed" ? "member" : "beside";

@@ -245,7 +245,7 @@ export function Transcript({
 	/* Who the person looped in here: their answers are said whole, under their faces. */
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
+	const written = useMemo(() => toBlocks(heardOnce(events, false), false, thread === undefined), [events, thread]);
 	/* The items this teammate sent or sorted, live from its own inbox: watched only once the tape has one. */
 	const sendsMail = useMemo(
 		() =>
@@ -661,7 +661,7 @@ export function Transcript({
 						{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 						onJump={onJump}
 					/>
-				) : event === null ? null : (
+				) : event === null || event.kind === "outcome" ? null : (
 					<Row
 						personaId={personaId}
 						thread={rowThread}

@@ -176,6 +176,10 @@ impl Room {
             state: state.clone().filter(|state| state != "done"),
             key: key.clone(),
             closed_at,
+            from_item: match &open {
+                Some((line, _)) => line["fromItem"].as_str().map(str::to_string),
+                None => self.result_item(thread),
+            },
         };
         self.threads().write(&written_to, persona_id, &event);
         if kind == "open" || open.is_some() || ended || explicit_key {

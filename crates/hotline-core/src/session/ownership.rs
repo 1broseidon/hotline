@@ -50,6 +50,16 @@ impl Room {
         }
     }
 
+    /// Outcomes said just after an answer still belong to the work they describe.
+    pub(super) fn result_item(&self, thread: &ThreadId) -> Option<String> {
+        let turns = lock(&self.posting);
+        let turn = turns.get(thread)?;
+        match turn.answered_for.as_ref().unwrap_or(&turn.work_for) {
+            WorkFor::Colleague { item, .. } => Some(item.clone()),
+            WorkFor::Person => None,
+        }
+    }
+
     pub(super) fn finish_work_for(&self, thread: &ThreadId, ended: &str) {
         if let Some(turn) = lock(&self.posting).get_mut(thread)
             && matches!(&turn.work_for, WorkFor::Colleague { item, .. } if item == ended)

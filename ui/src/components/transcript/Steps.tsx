@@ -24,7 +24,7 @@ export function StepsCaption({
 	inPlaceOpen?: boolean;
 	title?: string;
 	onClick: () => void;
-	label: string | undefined;
+	label: ReactNode;
 	sources?: ReactNode;
 	children?: ReactNode;
 }) {

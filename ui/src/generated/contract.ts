@@ -3662,7 +3662,11 @@ key: string,
 /**
  * When an open one was closed.
  */
-closedAt?: number, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+closedAt?: number, 
+/**
+ * The inbox item this work was for.
+ */
+fromItem?: string, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

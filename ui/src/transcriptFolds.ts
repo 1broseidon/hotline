@@ -84,7 +84,7 @@ function sameWords(a: string, b: string): boolean {
  * that never wrote its end. A call's transcript keeps each run of steps where
  * it fell (`inline`), between the lines said aloud around it.
  */
-export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
+export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inline): Block[] {
 	const blocks: Block[] = [];
 	let group: { id: string; ts: number; items: Step[] } | null = null;
 	let prompt: { ts: number; replied: boolean } | undefined;
@@ -100,7 +100,7 @@ export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 		if (event.kind === "computer_pull") continue;
 		// The call that said what it was on, or what came of it, is the line it wrote.
 		if (event.kind === "tool" && declares(event)) continue;
-		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || event.kind === "outcome") {
+		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || (event.kind === "outcome" && (!inbox || event.fromItem === undefined))) {
 			group ??= { id: event.id, ts: event.ts, items: [] };
 			group.items.push(event);
 			continue;

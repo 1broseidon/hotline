@@ -1149,12 +1149,10 @@ async fn a_linked_teammate_is_refused_and_a_teammate_cannot_send_itself() {
     assert_eq!(team["sent"].as_array().unwrap().len(), 1, "{team}");
 }
 
-/// A send in a turn the person reads is drawn there as a row that says where
-/// the item stands, so its result tells the teammate the row is the receipt:
-/// no line saying it was sent, only what the row does not say, or nothing.
-/// A quiet turn's send, and one made outside any turn, are told no such thing.
+/// A send in a turn the person reads tells the teammate to say in one short
+/// line what it asked and of whom, and not that it will pass the answer on.
 #[tokio::test]
-async fn the_send_result_says_the_row_is_the_receipt_in_a_turn_the_person_reads() {
+async fn the_send_result_tells_the_teammate_to_say_what_it_asked_in_a_turn_the_person_reads() {
     let (room, _) = room("send-receipt");
     let main = ThreadId::dm("ada");
     let note = |sent: Value| sent["note"].as_str().unwrap().to_string();
@@ -1178,19 +1176,48 @@ async fn the_send_result_says_the_row_is_the_receipt_in_a_turn_the_person_reads(
     };
     assert!(
         asked.ends_with(
-            "do not send it again. The person sees this as a row in their chat with where it stands, so do not say you sent it or will pass on its answer. Say only what the row does not, or end your turn with nothing."
+            "do not send it again. Tell the person in one short line what you asked and of whom, in their terms. Do not say you will pass the answer on, since it comes back as a turn of its own that they read."
         ),
         "{asked}"
     );
-    assert!(ROW_IS_THE_RECEIPT.split_whitespace().count() <= 40);
+    assert!(SAY_WHAT_YOU_ASKED.split_whitespace().count() <= 40);
+}
+
+/// A send with `for_person` false carries neither the old row-is-the-receipt
+/// wording nor the new tell-the-person sentence.
+#[tokio::test]
+async fn send_with_for_person_false_carries_neither_old_nor_new_sentence() {
+    let (room, _) = room("send-not-for-person");
+    let main = ThreadId::dm("ada");
+    let note = |sent: Value| sent["note"].as_str().unwrap().to_string();
+    let send_now = |title: &str| {
+        let room = room.clone();
+        let title = title.to_string();
+        async move {
+            tool(
+                &room,
+                "ada",
+                "send",
+                json!({"to": ["bob"], "title": title, "message": "?"}),
+            )
+            .await
+            .unwrap()
+        }
+    };
     let quiet = {
         let _turn = room.open_posting(&main, None);
         room.set_quiet(&main, true);
         note(send_now("Thursday review").await)
     };
     let outside = note(send_now("Standup").await);
-    for unread in [&quiet, &outside] {
-        assert!(!unread.contains("row"), "{unread}");
+    let bob = room.persona("bob").unwrap();
+    let mut sent = vec![json!({"id": "i1", "to": "Bob"})];
+    let (_, direct) = super::held::result_words(&[bob], &mut sent, &[Landed::In], false, false);
+    for unread in [&quiet, &outside, &direct] {
+        assert!(!unread.contains("row in their chat"), "{unread}");
+        assert!(!unread.contains("do not say you sent it"), "{unread}");
+        assert!(!unread.contains("Tell the person"), "{unread}");
+        assert!(!unread.contains(SAY_WHAT_YOU_ASKED), "{unread}");
         assert!(unread.ends_with("do not send it again."), "{unread}");
     }
 }

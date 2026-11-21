@@ -101,12 +101,12 @@ These are George's, and what the inbox holds to.
   when its MCP cancellation arrives. Neither touches the card or the item,
   which go on as below. `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency. Sent in a turn the person reads, its
-  result adds that the person sees the message as a row with where it
-  stands, so the teammate does not say it sent it or will pass on its
-  answer, and says only what the row does not, or nothing (task-505); the
-  house style's opening line for something to pass to a colleague is the
-  send itself, with no words, for the same reason. A quiet turn's send is
-  told no such thing.
+  result tells the teammate to say in one short line what it asked and of
+  whom, in their terms, and not that it will pass the answer on (the answer
+  comes back as a turn of its own that they read); the house style's opening
+  line for something to pass to a colleague says the same: say in one line
+  what you are asking and of whom, then send it. A quiet turn's send is told
+  no such thing.
 - **`read_inbox`** without `ids` lists the open items, the newest 50 with
   how many older ones there are, newest first: id, title,
   sender, `wants`, `waiting`, who else the send reached (`alsoTo`), state and

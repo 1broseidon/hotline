@@ -254,11 +254,11 @@ fn short_line(text: &str, most: usize) -> String {
     super::sides::cut(&line, most)
 }
 
-/// Said with a send in a turn the person reads: the desk draws the item there
-/// as a row that says where it stands, so a line saying it was sent, or that
-/// its answer will follow, says nothing the person cannot see. A quiet
-/// turn's send needs no such word, as the turn is quiet already.
-const ROW_IS_THE_RECEIPT: &str = "The person sees this as a row in their chat with where it stands, so do not say you sent it or will pass on its answer. Say only what the row does not, or end your turn with nothing.";
+/// Said with a send in a turn the person reads: the teammate's own bubble
+/// announces what it asked and of whom, and does not promise to pass the
+/// answer on, since the answer comes back as a turn of its own that they read.
+/// A quiet turn's send needs no such word, as the turn is quiet already.
+const SAY_WHAT_YOU_ASKED: &str = "Tell the person in one short line what you asked and of whom, in their terms. Do not say you will pass the answer on, since it comes back as a turn of its own that they read.";
 
 /// What a send's result says of the items that are in their receivers'
 /// inboxes, after where each landed.

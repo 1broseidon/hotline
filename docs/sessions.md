@@ -1675,7 +1675,10 @@ where it landed, and writes an `inbox_sent` row on the thread it was said
 in: at once, unless it raised a first-contact card, which it waits on for up
 to 45 seconds so its result says the person's answer (yes: in inbox; no:
 not sent, dropped) or, still unanswered, that nothing was sent yet
-([agent-inbox.md](design/agent-inbox.md#the-tools)). One `send`
+([agent-inbox.md](design/agent-inbox.md#the-tools)). Sent in a turn the
+person reads, its result tells the teammate to say in one short line what
+it asked and of whom, in their terms, and not that it will pass the answer
+on. One `send`
 to several makes an item each, and each names the others in `alsoTo`, which
 `read_inbox` and the item's pane say. Each item is kept on the receiver's own
 stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),

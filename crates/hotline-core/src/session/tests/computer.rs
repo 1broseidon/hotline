@@ -2484,14 +2484,20 @@ async fn a_desk_restart_keeps_a_v2_computer_protected_and_its_key_is_used_withou
     assert_eq!(taken.key_asked.load(SeqCst), 1);
 
     // The key is in the store alone: no file of the desk's or the
-    // container's settings holds it, in any spelling.
+    // container's settings holds it, in any spelling. Only a desk served
+    // with `--store file` keeps its store's entries as files, under
+    // `<data>/secrets`, and only then are those passed over.
     let key = crate::computer::guide::fake::ATTEST_KEY;
     let spellings = [
         base64::engine::general_purpose::STANDARD.encode(key),
         hex::encode(key),
     ];
+    let file_store = std::fs::read_to_string(room.log.root().join("store.json"))
+        .is_ok_and(|marker| marker.contains(r#""file""#));
+    let store_files = room.log.root().join("secrets");
     for path in files_under(room.log.root())
         .into_iter()
+        .filter(|path| !(file_store && path.starts_with(&store_files)))
         .chain(files_under(&fixture.root))
     {
         let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_lowercase();

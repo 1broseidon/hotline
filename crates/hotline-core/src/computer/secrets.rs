@@ -70,8 +70,10 @@ fn attest_input_v2(boot: &str, mode: &str, version: &str, nonce: &str) -> String
 /// under the teammate's id, bound to a hash of the bearer it was taken
 /// with, so a desk restarted beside a running computer reads it back
 /// rather than asking a door that answers each boot once. Never in the
-/// container's settings, an argument, a file under the data root, a log,
-/// an error or `Debug`, and sent nowhere: the desk only computes with it.
+/// container's settings, an argument, a log, an error or `Debug`, and in
+/// no file except the desk's own secret store when it is served with
+/// `--store file`, where every secret is an owner-only file under
+/// `<data>/secrets`; sent nowhere: the desk only computes with it.
 /// Every [`Ready`] of one running computer shares one, and it is forgotten,
 /// entry and all, when the computer is removed, hibernated or made again;
 /// a key for another boot is never used. The lock is held across taking

@@ -56,16 +56,17 @@ the chosen image, the teammate's pane offers the update.
   an `attest` that checks is a protected computer. Handed what a legacy
   computer is: `legacy` with an `attest` that checks (a split computer
   whose key proxy did not start), a 404 from a release before 0.13,
-  `legacy` or a version the desk does not know from a computer whose key
-  it does not hold, and a v2 boot whose key the desk does not hold (taken
-  first by something else, or by a desk that did not keep it). Handed
+  `legacy` or no door from a container not made to split, and a v2 boot
+  whose key the desk does not hold (taken first by something else, or by a
+  desk that did not keep it). Handed
   nothing at all, and treated by the pane as needing an update: a v1 claim
   of split (0.13.0-rc.2 and before, `attest` under the bearer, which the
   desk's own asking carries to whatever answers), `split` with any other
   `attest` (none, one for another nonce, boot, mode or release, one
-  another key made), a 404 from a container made to split (every such
-  release serves `/capabilities`), anything but v2 from a computer whose
-  v2 key the desk holds, and `split`, v1 or v2, from a container the desk
+  another key made), anything but v2 (split or legacy) from a container
+  made to split, which always answers v2 — a 404, `legacy` under the older
+  proof, no `protected`, or a later version such as a v3, which this desk
+  treats as needing an update — and `split`, v1 or v2, from a container the desk
   did not make to split (its `hotline.release` label is before 0.13 or not
   a release number), before any key is asked for: there everything runs
   as one user, and a job could answer the port. The checks are

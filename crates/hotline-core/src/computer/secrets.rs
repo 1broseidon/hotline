@@ -434,6 +434,12 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
             Some(key) => verify_attest_v2(&key, &nonce, &answer),
             None => Door::Unprotected,
         }
+    } else if ready.made_to_split {
+        // A container made to split answers v2, split or legacy, every
+        // time: anything else from one (v1 legacy, no `protected`, a
+        // version this desk does not know, a v3 too) is not the honest
+        // computer, and is handed nothing, on the safe side.
+        Door::Unproven
     } else {
         stepped_down(ready).await
     };
@@ -441,13 +447,12 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
 }
 
 /// What an answer this desk cannot check — v1 legacy, a version it does not
-/// know, no `protected` at all — proves of a computer that handed this desk
-/// a v2 key: nothing. One container keeps the release and the flags it was
-/// made with, so the computer that handed the key answers v2, split or
-/// legacy, every time; whatever answers its port otherwise is not it. Every
-/// other computer is unprotected here. The guard holds only while the desk
-/// holds the key: a computer whose key it never took, or whose kept entry
-/// the OS store would not give back, is unprotected on such an answer.
+/// know, no `protected` at all, no door — proves of a container not made to
+/// split: that it is unprotected, unless it handed this desk a v2 key, when
+/// it proves nothing. A container made to split never reaches here: it
+/// answers v2 every time, and anything else from one is unproven in
+/// [`door_on`]. A key is only ever taken from one made to split, so the
+/// held-key check is a second wall behind that one.
 async fn stepped_down(ready: &Ready) -> Door {
     if ready.attest.holds().await {
         Door::Unproven

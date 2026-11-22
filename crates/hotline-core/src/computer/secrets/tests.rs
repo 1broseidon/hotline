@@ -155,6 +155,8 @@ struct Fake {
     /// Whether that boot's key was handed out.
     claimed: Arc<AtomicBool>,
     spoil: Arc<Mutex<Spoil>>,
+    /// A `protected.v` to answer in place of 2.
+    version: Arc<Mutex<Option<i64>>>,
     /// How many times its key was asked for.
     asked: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -267,6 +269,9 @@ async fn capabilities(
             .last()
             .map(|(_, set)| set.clone());
         body["protected"]["readable"] = json!(held.as_ref().map(readable_of).unwrap_or_default());
+        if let Some(version) = *fake.version.lock().unwrap() {
+            body["protected"]["v"] = json!(version);
+        }
         return (StatusCode::OK, body.to_string());
     }
     let key = if fake.is == Is::Forged {
@@ -312,6 +317,7 @@ async fn computer(with_route: bool, is: Is) -> (Ready, Fake, tokio::task::JoinHa
         boot: Arc::new(Mutex::new(("boot-1".to_owned(), BOOT_KEY))),
         claimed: Arc::default(),
         spoil: Arc::new(Mutex::new(Spoil::None)),
+        version: Arc::default(),
         asked: Arc::default(),
     };
     let mut app = axum::Router::new();
@@ -330,9 +336,10 @@ async fn computer(with_route: bool, is: Is) -> (Ready, Fake, tokio::task::JoinHa
     let serving = tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
-    // Only a release from 0.13 is made to split; one before has no door.
+    // Only a release from 0.13 is made to split, and booted so it does not
+    // run as one user; one before has no door.
     let ready = Ready {
-        made_to_split: is != Is::Old,
+        made_to_split: !matches!(is, Is::Old | Is::Legacy),
         ..Ready::new(format!("http://127.0.0.1:{port}/mcp"), "the-token")
     };
     (ready, fake, serving)
@@ -717,31 +724,38 @@ async fn a_split_computer_whose_key_proxy_did_not_start_is_handed_what_a_legacy_
     serving.abort();
 }
 
-/// What is left without a key held: a computer made to split that answers
-/// with no door is still not it, since every release made so serves one;
-/// but one that answers legacy under the older proof, before this desk
-/// took a key or after the OS store would not give the kept one back, is
-/// handed what a legacy computer is, never the protected key.
+/// A computer made to split answers v2, split or legacy, every time, so
+/// with no key held anything else from one is still not it, and is handed
+/// nothing: plain legacy under the older proof, v1 split, no door, or a
+/// proof version this desk does not know (a v3 too, on the safe side). What
+/// is left is a v2 claim whose boot's key the desk cannot get: unprotected,
+/// handed logins, passkeys and readable variables, never the protected key.
 #[tokio::test]
-async fn without_a_key_held_only_the_missing_door_is_told_from_the_container() {
-    for (spoil, want) in [
-        (Spoil::NoDoor, Door::Unproven),
-        (Spoil::Legacy, Door::Unprotected),
-        (Spoil::V1, Door::Unproven),
+async fn a_computer_made_to_split_with_no_key_held_is_believed_only_on_v2() {
+    for (spoil, version, want) in [
+        (Spoil::Legacy, None, Door::Unproven),
+        (Spoil::V1, None, Door::Unproven),
+        (Spoil::NoDoor, None, Door::Unproven),
+        (Spoil::None, Some(3), Door::Unproven),
+        (Spoil::None, None, Door::Unprotected),
     ] {
         let (ready, fake, serving) = computer(true, Is::SplitV2).await;
         fake.taken_by_another();
         *fake.spoil.lock().unwrap() = spoil;
+        *fake.version.lock().unwrap() = version;
         let handed = deliver(&ready, &the_set()).await.unwrap();
-        assert_eq!(handed.door, want);
+        assert_eq!(handed.door, want, "{version:?}");
         let taken = fake.taken.lock().unwrap().clone();
-        assert!(
-            taken
-                .iter()
-                .all(|(_, set)| set.get("GITHUB_TOKEN").is_none()
-                    && set["secrets"].get("GITHUB_TOKEN").is_none()),
-            "the protected key never goes: {taken:?}"
-        );
+        if want == Door::Unproven {
+            assert!(taken.is_empty(), "nothing handed: {taken:?}");
+        } else {
+            assert_eq!(handed.waiting, ["GITHUB_TOKEN"]);
+            assert!(
+                taken
+                    .iter()
+                    .all(|(_, set)| set.get("GITHUB_TOKEN").is_none())
+            );
+        }
         serving.abort();
     }
 }

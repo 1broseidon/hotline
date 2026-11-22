@@ -2133,6 +2133,26 @@ async fn a_computer_made_to_split_without_a_capabilities_door_is_handed_nothing(
     );
 }
 
+/// A container made to split answers v2, split or legacy, every time. One
+/// that says plain legacy under the older proof, with no key this desk
+/// could take, is not that computer: it is handed nothing, not even what a
+/// legacy computer is, and needs an update.
+#[tokio::test]
+async fn a_computer_made_to_split_that_says_plain_legacy_with_no_key_is_handed_nothing() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let ComputerRoom { room, taken, .. } =
+        computer_room("split-plain-legacy", Some("0.13.0"), TWO_RELEASES, true).await;
+    taken.v1.store(true, SeqCst);
+    taken.legacy.store(true, SeqCst);
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert!(taken.sets().is_empty(), "{:?}", taken.sets());
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+}
+
 /// A computer from 0.13.0-rc.3 proves itself with the key its boot hands
 /// once: the desk takes it as it starts the computer, hands every grant, a
 /// login for the computer itself readable so it is still typed there, and

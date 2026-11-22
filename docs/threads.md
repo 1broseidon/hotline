@@ -654,13 +654,19 @@ has one hook and one view.
   (sessions.md, "Stop and Interrupt"). A work thread a teammate handed over has
   the same: Stop there ends the handoff for good, Interrupt leaves it to the
   person's next line, and End thread there ends the handoff too:
-  the brief is said whole in the opener's voice, the person's own lines are
-  drawn as theirs on the right, the thread's teammate's on the left under its
-  name as any colleague's are (the person is the one talking there, in
-  whichever teammate's pane it is open), and a bar above the message box names who handed it over,
-  says when the handoff no longer stands (`handoffEnded` on its row or link),
-  and leads to the opener's conversation. While its teammate waits on the
-  person, the bar and the composer give way to the one field they answer in.
+  one press on it, from the Threads list, the composer's count, the rail or a
+  link in the chat, opens the thread itself: the brief at the top, said whole
+  in the opener's voice, then the teammate's steps, words and cards as they
+  happen (`HandoffPane`), never a row that leads to the thread (George,
+  2026-11-21). Work taken from an inbox item reads the same, the brief under
+  Message with Open › to the item. The person's own lines are drawn as theirs,
+  the thread's teammate's under its name. Who handed it over is said once, in
+  the pane's head (From, To, and where answers go, or that the handoff has
+  ended: `handoffEnded` on its row or link); no bar over the message box says
+  it again. The message box sends into the thread whatever is above it. While
+  its teammate waits on the person, the composer gives way to the one field
+  they answer in. In a conversation a handoff's line is in the person's
+  terms, "Huck handed this to Juno · title", never "handed you".
   Whether a thread runs a turn is the word of the roster row of the teammate
   whose agent it is (`turnRunning`), so a handoff open in its sender's pane goes
   idle when the receiver's turn ends; a pair, which no roster row follows, is

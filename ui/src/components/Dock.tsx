@@ -28,7 +28,6 @@ import { useAsides } from "../asides";
 import { sideTitle } from "../links";
 import { answerCard, sameThread, useThread } from "../tape";
 import { nameIn, useJobs, useThreadRows } from "../threadRows";
-import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { wire, type RosterEntry } from "../wire";
 import { awaitingSubagents, isWorking, workingState } from "../activity";
@@ -37,7 +36,7 @@ import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
 import { ThreadList } from "./ThreadList";
 import { LoopIn } from "./LoopIn";
-import { BandKind, PaneHead, TaskCard } from "./thread/Pane";
+import { BandKind, PaneHead } from "./thread/Pane";
 import { SectionRule, StateLine, type Status, waitsOnPerson } from "./thread/Spine";
 import { RunPane } from "./thread/RunPane";
 import { HandoffPane } from "./thread/HandoffPane";
@@ -46,7 +45,7 @@ import { CommandPane, runLink } from "./thread/CommandPane";
 import { CallPane } from "./thread/CallPane";
 import { JobPane } from "./thread/JobPane";
 import { clockWords, threadFamily } from "../threadKinds";
-import { messageWords, useInbox, useInboxWork } from "../inbox";
+import { useInbox, useInboxWork } from "../inbox";
 import { type InboxTab, InboxList } from "./InboxPane";
 import { type FollowUp, InboxTopicPane } from "./InboxTopic";
 
@@ -82,7 +81,6 @@ export function Dock({
 	width,
 	onWidth,
 	overlay,
-	onOpenTeammate,
 	onOpenTeammateThread,
 	onFollowUp,
 	onGoToCard,
@@ -90,8 +88,6 @@ export function Dock({
 	state: DockState;
 	onState(next: DockState): void;
 	onClose(): void;
-	/** Opens a teammate's conversation: where a handoff is steered, with whoever handed it over. */
-	onOpenTeammate(personaId: string): void;
 	/** Opens another teammate's conversation with one of its threads in the pane; without it, the thread opens here. */
 	onOpenTeammateThread?: ((personaId: string, open: ThreadRef) => void) | undefined;
 	/** Ask a follow-up: fills the message box of the conversation beside the pane with the topic quoted. */
@@ -231,7 +227,6 @@ export function Dock({
 							inboxItem={at.thread.kind === "side" ? inboxWork.get(at.thread.key) : undefined}
 							onBack={() => onState(back)}
 							onClose={onClose}
-							onOpenTeammate={onOpenTeammate}
 						/>
 					))
 				)}
@@ -296,7 +291,6 @@ function ThreadView({
 	inboxItem,
 	onBack,
 	onClose,
-	onOpenTeammate,
 }: {
 	open: ThreadRef;
 	/** The team, for Loop in…'s colleagues. */
@@ -317,7 +311,6 @@ function ThreadView({
 	inboxItem?: string | undefined;
 	onBack(): void;
 	onClose(): void;
-	onOpenTeammate(personaId: string): void;
 }) {
 	const id = open.thread;
 	const fromInbox = inboxItem !== undefined;
@@ -473,11 +466,20 @@ function ThreadView({
 				}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
-				{seeded !== undefined && sender !== undefined && (
-					<TaskCard eyebrow="Message" from={{ personaId: sender.personaId, name: sender.name, hash: people.get(sender.personaId)?.hash }} text={messageWords(seeded.text)} onOpen={inboxItem === undefined ? undefined : () => onOpenInboxItem(inboxItem)} />
-				)}
-				{opener !== undefined ? (
-					<HandoffPane thread={id} events={lines} streaming={streaming} live={turning} status={status} receiver={{ id: self.id, name: self.name, hash: self.avatarHash }} sender={opener} people={people} />
+				{/* A thread a teammate handed over opens on its brief and the work as it happens, in one press. */}
+				{sender !== undefined ? (
+					<HandoffPane
+						thread={id}
+						events={lines}
+						streaming={streaming}
+						live={turning}
+						status={status}
+						receiver={{ id: self.id, name: self.name, hash: self.avatarHash }}
+						sender={sender}
+						people={people}
+						brief={seeded}
+						onOpenBrief={inboxItem === undefined ? undefined : () => onOpenInboxItem(inboxItem)}
+					/>
 				) : (
 					<>
 						<SectionRule title="Conversation" status={status} />
@@ -501,9 +503,6 @@ function ThreadView({
 				)}
 			</div>
 			{(refused ?? threadSends.notice) !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused ?? threadSends.notice}</p>}
-			{opener !== undefined && asked === undefined && (
-				<HandoffBar opener={opener} teammate={self} ended={row?.handoffEnded === true} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
-			)}
 			{opener !== undefined && asked !== undefined ? (
 				<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
 			) : powers.say ? (
@@ -529,41 +528,6 @@ function ThreadView({
 				closed && row?.outcome !== undefined && row.outcome !== "" && <p className="dock-note selectable">{row.outcome}</p>
 			)}
 		</section>
-	);
-}
-
-/**
- * Above the composer in a thread a teammate handed over: who handed it over,
- * whether the handoff still stands, as the desk records it, and the way to
- * that one's conversation.
- */
-function HandoffBar({
-	opener,
-	teammate,
-	ended,
-	people,
-	onTalk,
-}: {
-	opener: { personaId: string; name: string };
-	teammate: { id: string; name: string; avatarHash?: string | undefined };
-	/** The handoff no longer stands: Stop exchange, a revocation or an unlink ended it. */
-	ended: boolean;
-	people: ReadonlyMap<string, Person>;
-	onTalk(): void;
-}) {
-	return (
-		<div className="handoff-bar">
-			<span className="handoff-faces" aria-hidden="true">
-				<Avatar id={opener.personaId} name={opener.name} size={24} hash={people.get(opener.personaId)?.hash} />
-				<Avatar id={teammate.id} name={teammate.name} size={24} hash={teammate.avatarHash} />
-			</span>
-			<p className="min-w-0 flex-1 text-sm text-ink-3">
-				{opener.name} handed this to {teammate.name}.{ended ? " The handoff has ended." : ""}{" "}
-				<button type="button" className="link-quiet" onClick={onTalk}>
-					Talk to {opener.name} about it ›
-				</button>
-			</p>
-		</div>
 	);
 }
 

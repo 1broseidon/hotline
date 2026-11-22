@@ -1018,7 +1018,7 @@ const Row = memo(function Row({
 		 * answer never gets here: it is on its card. */
 		case "delivery": {
 			const cause = event.cause;
-			const line = deliveryLine(event);
+			const line = deliveryLine(event, ownerName);
 			if (cause.kind === "answer" || line === null) return null;
 			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (

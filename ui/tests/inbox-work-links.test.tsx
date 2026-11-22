@@ -52,6 +52,14 @@ const seeded: TranscriptEvent = {
 	from: { kind: "dm", thread: goldie.id, request: "r-linux" },
 };
 
+/** The work thread's lines as the desk sends them: the seeded item, and whatever the test adds after it. */
+let threadEvents: TranscriptEvent[] = [seeded];
+/** Huck's inbox as the desk sends it: the taken item, unless a test says the view no longer holds it. */
+let huckView: InboxView = view;
+/** The work thread a test opens, and Huck's threads as `thread.list` sends them. */
+let workKey = WORK.key;
+let listed: ThreadSummary[] = [row];
+
 class NoResize {
 	observe() {}
 	unobserve() {}
@@ -68,6 +76,10 @@ let states: DockState[];
 beforeEach(async () => {
 	restores = [];
 	states = [];
+	threadEvents = [seeded];
+	huckView = view;
+	workKey = WORK.key;
+	listed = [row];
 	const installed = installDom({ ResizeObserver: NoResize, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 	teardown = installed.teardown;
 	Object.assign(globalThis, { HTMLElement: installed.dom.HTMLElement });
@@ -81,13 +93,13 @@ beforeEach(async () => {
 	restores.push(() => open.mockRestore());
 	type Handlers = { snapshot(items: unknown): void };
 	const subscription = spyOn(connection, "subscribe").mockImplementation(((target: { inbox?: string; threadId?: { kind: string; key: string } }, handlers: Handlers) => {
-		const first = target.inbox === huck.id ? view : target.inbox !== undefined ? { ...view, personaId: target.inbox, open: [] } : target.threadId?.key === WORK.key ? [seeded] : [];
+		const first = target.inbox === huck.id ? huckView : target.inbox !== undefined ? { ...view, personaId: target.inbox, open: [] } : target.threadId?.key === workKey ? threadEvents : [];
 		queueMicrotask(() => handlers.snapshot(first));
 		return () => {};
 	}) as Wire["subscribe"]);
 	restores.push(() => subscription.mockRestore());
 	const command = spyOn(connection, "command").mockImplementation((async (cmd: string) => {
-		if (cmd === "thread.list") return [row];
+		if (cmd === "thread.list") return listed;
 		if (cmd === "aside.list") return [];
 		if (cmd === "inbox.item") return { item: taken, replies: [] };
 		throw new Error(`Not in this test: ${cmd}`);
@@ -120,7 +132,6 @@ async function show(state: DockState) {
 				state={state}
 				onState={(next) => states.push(next)}
 				onClose={() => {}}
-				onOpenTeammate={() => {}}
 				onOpenTeammateThread={() => {}}
 				entry={all.find((one) => one.persona.id === huck.id) ?? null}
 				roster={all}
@@ -188,4 +199,50 @@ describe("task-501 a taken message and its work thread", () => {
 		await press(container.querySelector('.band button[title="Back"]'));
 		expect(states.at(-1)).toEqual(inbox);
 	});
+});
+
+// George, 2026-11-21: one press on a thread opens the thread itself, its brief and the
+// teammate's work as it happens. No page whose only content is a row that leads to the
+// real thread, no "handed you", and no bar under the work saying again who handed it over.
+describe("one press on a hand-off opens its brief and its work", () => {
+	const step = (id: string, title: string, status: "completed" | "in_progress"): TranscriptEvent => ({
+		kind: "tool", id: `tool:${id}`, ts: NOW - 570_000, toolCallId: id, title, toolKind: "read", status,
+		said: { key: id, one: title, many: title, doing: title },
+		...(status === "completed" ? { endedTs: NOW - 569_000 } : {}),
+	});
+	const working = [seeded, step("t1", "Read SKILL.md", "completed"), step("t2", "Map screenshot folders and briefs", "completed"), step("t3", "Reading the desk and phone UI", "in_progress")];
+	for (const held of [true, false]) {
+		test(`while the teammate is still reading, before it has said a word, ${held ? "with its item in the inbox view" : "with its item no longer in the view"}`, async () => {
+			// A thread of its own, so no other test's lines of it are kept.
+			workKey = `s-design-${held}`;
+			const work = { kind: "side" as const, key: workKey };
+			threadEvents = working;
+			listed = [{ ...row, thread: work }];
+			huckView = { ...view, open: held ? [{ ...taken, work }] : [] };
+			await show({ open: { thread: work, title: TITLE } });
+			// The brief, whole, from its sender, at the top: the item's words, not the line the desk hands the teammate.
+			const brief = container.querySelector(".pane-task");
+			expect(brief?.querySelector(".spine-rule-title")?.textContent).toBe("Message");
+			expect(brief?.querySelector(".pane-task-from")?.textContent).toEndWith("Goldie");
+			expect(brief?.textContent).toContain(taken.body);
+			expect(brief?.textContent).not.toContain("wants work");
+			// The work under it as it happens, each step there to read without a press.
+			const activity = container.querySelector(".pane-task")?.nextElementSibling;
+			expect(activity?.textContent).toContain("Activity");
+			// The thread's lines arrive a tick after its pane is drawn.
+			for (let tick = 0; tick < 10 && !(container.querySelector(".pane-stream")?.textContent ?? "").includes("SKILL"); tick++) {
+				await act(async () => {
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				});
+			}
+			const stream = container.querySelector(".pane-stream")?.textContent ?? "";
+			for (const said of ["Read SKILL.md", "Map screenshot folders and briefs", "Reading the desk and phone UI"]) expect(stream).toContain(said);
+			// Nothing that is only a way to the thread, and who handed it over is not said again under the work.
+			expect(container.textContent).not.toContain("handed you");
+			expect(container.textContent).not.toContain("handed this to");
+			expect(container.querySelector(".hung-line")).toBeNull();
+			expect(container.querySelector(".handoff-bar")).toBeNull();
+			expect(container.querySelector("textarea")).not.toBeNull();
+		});
+	}
 });

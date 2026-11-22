@@ -275,8 +275,11 @@ type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
  * than the question it answers: the answer the turn ended on when the desk
  * says it (`answer`), since a turn often opens with what it is about to
  * check. `null` for your own answer to a card: the card already says it.
+ * A handoff is said in the person's terms, who handed what to whom
+ * (`receiver`, the teammate whose thread it lands in): never "you", since
+ * the person is reading, not the teammate.
  */
-export function deliveryLine(event: DeliveryEvent): { name: string; said: string } | null {
+export function deliveryLine(event: DeliveryEvent, receiver: string): { name: string; said: string } | null {
 	const cause = event.cause;
 	if (cause.kind === "answer") return null;
 	if (cause.kind === "peer" && cause.status === "failed")
@@ -286,7 +289,7 @@ export function deliveryLine(event: DeliveryEvent): { name: string; said: string
 	if (cause.kind === "question") return { name: cause.name, said: `asks: ${said}` };
 	if (cause.kind !== "handoff") return { name: cause.name, said };
 	// A handoff still behind the teammate's current turn says so; once taken up it is just what was handed.
-	return { name: cause.name, said: `handed you: ${said}${event.receipt === "sent" ? " · queued" : ""}` };
+	return { name: cause.name, said: `handed this to ${receiver} · ${said}${event.receipt === "sent" ? " · queued" : ""}` };
 }
 
 /** A first line that only acknowledges the work, before what came of it. */

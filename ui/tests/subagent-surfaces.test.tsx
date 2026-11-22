@@ -102,7 +102,6 @@ async function dock(open: ThreadRef | null, roster: RosterEntry[]) {
 				state={{ open }}
 				onState={() => {}}
 				onClose={() => {}}
-				onOpenTeammate={() => {}}
 				entry={roster[0] ?? null}
 				roster={roster}
 				width={360}

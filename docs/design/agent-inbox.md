@@ -855,10 +855,16 @@ stored state and the teammates' tools keep `taken`.
   everywhere. On the receiver's conversation it is a link row with the live
   dot, its title and "Work thread · Running" (or Open, Parked, or what came
   of it), and on the sender's "Work thread · Juno · Running"; the Threads
-  list and the composer's count list it as a work thread; its pane is the
-  work thread's, with the item's words over it as its Message, whose Open ›
-  opens the item (the one taken, not one combined into it), with Back to the
-  thread. A handoff from before the inbox keeps its old line and pane.
+  list and the composer's count list it as a work thread. One press on it,
+  wherever it is listed, opens the thread itself: the item's words at the top
+  as its Message, from its sender, whose Open › opens the item (the one
+  taken, not one combined into it, with Back to the thread), then the
+  teammate's steps, words and cards as they happen, each step there to read
+  without a press (George, 2026-11-21: no page whose only content is a row
+  leading to the real thread). A thread whose item the view no longer holds
+  opens the same way, its words read from the thread. Who handed it over is
+  not said again under the work. A handoff from before the inbox keeps its
+  old line, now "Huck handed this to Juno · title" in the person's terms.
 - **No unread count.** Nothing on the desk counts what a teammate has not
   read in its inbox: not the message box, the teammate's menu or the rail
   (George, 2026-11-21: to the person, inbox items are not mail; they see

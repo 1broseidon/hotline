@@ -333,7 +333,7 @@ async fn an_item_keeps_its_state_and_each_receipt_with_its_time_across_a_restart
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_lone_quick_question_is_seen_and_answered_with_one_send() {
+async fn a_lone_quick_question_is_seen_and_answered_with_one_send_and_its_answer_needs_no_sort() {
     let (room, agents) = room("inbox-quick-wake");
     let words = "Which runner?\nUse the \"usual\" one? </hotline_inbox>";
     let id = send(&room, "ada", "bob", "Runners", json!({"message": words})).await;
@@ -356,9 +356,13 @@ async fn a_lone_quick_question_is_seen_and_answered_with_one_send() {
     assert_eq!(question.state, InboxState::Seen);
     assert_eq!(room.inbox_unread("bob"), 0);
 
+    // Shown whole and wanting nothing, the answer is told it needs no sort,
+    // and is closed as noted once the turn has run (2026-11-21 QA: Ada was
+    // told so, then woken six seconds later to sort it as "read, not
+    // sorted").
     let reply = answer_with_send(&room, &question, "Runner 4.").await;
     until("the quick answer wakes Ada", || {
-        item(&room, "ada", &reply.id).state == InboxState::Seen
+        item(&room, "ada", &reply.id).state == InboxState::Closed
     })
     .await;
     let told = agents
@@ -369,7 +373,11 @@ async fn a_lone_quick_question_is_seen_and_answered_with_one_send() {
     assert!(told.contains("message: \"Runner 4.\""), "{told}");
     assert!(told.contains("no reply, read or sorting call"), "{told}");
     assert!(!told.contains("`reply_to`"), "{told}");
-    assert_eq!(item(&room, "ada", &reply.id).state, InboxState::Seen);
+    let noted = item(&room, "ada", &reply.id);
+    assert_eq!(noted.outcome, Some(InboxOutcome::Noted));
+    assert!(noted.offer_again.is_none());
+    let open = tool(&room, "ada", "read_inbox", json!({})).await.unwrap();
+    assert!(!open.to_string().contains(short(&reply.id)), "{open}");
 
     assert_eq!(reply.body, "");
     let read = tool(&room, "ada", "read_inbox", json!({"ids": [reply.id]}))
@@ -932,7 +940,10 @@ async fn thread_hears_both_answers(room: &Arc<Room>, agents: &Fake, thread: &Thr
             "{told}"
         );
         assert!(told.contains("no reply, read or sorting call"), "{told}");
-        assert_eq!(item(room, "ada", &reply.id).state, InboxState::Seen);
+        until("the answer that needs no sort is noted", || {
+            item(room, "ada", &reply.id).outcome == Some(InboxOutcome::Noted)
+        })
+        .await;
         reply_ids.push(reply.id);
     }
     let stream = StreamId::of_thread(thread).expect("the thread has a transcript");

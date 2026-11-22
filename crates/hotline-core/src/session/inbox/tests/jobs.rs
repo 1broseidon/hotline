@@ -329,7 +329,8 @@ async fn a_waiting_scheduled_job_hears_a_send_reply_and_then_ends() {
     .await;
     let received = item(&room, "ada", &reply.id);
     assert!(received.offered.is_some());
-    assert_eq!(received.state, InboxState::Seen);
+    assert_eq!(received.state, InboxState::Closed);
+    assert_eq!(received.outcome, Some(InboxOutcome::Noted));
     assert_eq!(once_record(&room).awaiting, None);
     assert_eq!(turns_of(&room, ONCE), 2);
     assert!(

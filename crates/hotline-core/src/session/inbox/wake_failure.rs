@@ -3,7 +3,8 @@
 
 use super::{Room, clock, kept, moved, now_ms};
 use crate::contract::{
-    InboxItem, InboxState, InboxWakeFailure, InboxWakeFailureState as State, ThreadKind,
+    InboxItem, InboxOutcome, InboxState, InboxWakeFailure, InboxWakeFailureState as State,
+    InboxWants, ThreadKind,
 };
 use crate::session::{exchanges::Cut, runner::Driven};
 use serde_json::Value;
@@ -150,7 +151,20 @@ impl Room {
                     if inline != Some(id.as_str()) || item.state != InboxState::New {
                         return changed;
                     }
-                    moved(item, InboxState::Seen, None, None, None);
+                    // Shown whole and asking nothing back, it was told no
+                    // sorting is needed: it is done with, not left to be
+                    // offered again as unsorted.
+                    if item.wants == InboxWants::Nothing {
+                        moved(
+                            item,
+                            InboxState::Closed,
+                            None,
+                            Some(InboxOutcome::Noted),
+                            None,
+                        );
+                    } else {
+                        moved(item, InboxState::Seen, None, None, None);
+                    }
                     true
                 });
             }

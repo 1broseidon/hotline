@@ -1347,7 +1347,8 @@ which the sender decided when the receiver was interrupted and concurrent
 messages were each handled blind to the others. `send(to, title, message,
 wants, waiting)` returns at once; the receiver is woken once a gather delay
 after an item lands when idle and given a one-line title notice when busy.
-A lone new quick item that wakes it is shown whole and marked seen; a
+A lone new quick item that wakes it is shown whole and marked seen (closed
+as noted once the turn has run, when it asks nothing back); a
 question can be answered with one `send` and `reply_to`. For other items,
 the receiver is told titles and decides what to read, take, combine or
 leave with `read_inbox` and `update_inbox`. What it left for later, or was shown

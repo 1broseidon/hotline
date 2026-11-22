@@ -1724,7 +1724,9 @@ offered to a turn (title, sender, `waiting on you`, what it wants, age, short
 id), and what moved among the items the teammate sent (`SENT · what moved`).
 An item is offered once and marked `noticed`. An inbox wake with exactly
 one new quick item offers its whole message as fenced, quoted sender words
-and marks it `seen` instead. Only a question needs a `send` with `reply_to`;
+and marks it `seen` instead; one that asks nothing back is closed as
+`noted` once the turn has run (`settle_inbox_offer`), since the turn was told
+no sort is needed. Only a question needs a `send` with `reply_to`;
 neither a read nor a sort is needed. Items left
 unread that no turn's start was offered wake the thread when its turn ends,
 by the same rule, so an item wakes its receiver once as new.

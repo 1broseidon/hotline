@@ -52,8 +52,10 @@ pub(super) struct Live {
     titles: Mutex<HashMap<String, String>>,
     /// Permission requests waiting on a person, by the id their card carries.
     pub(super) pending: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
-    /// `session/load` replays the whole history; nothing is written while it
-    /// does, or every restart would duplicate the conversation onto the tape.
+    /// `session/load` replays the whole history, and `session/resume` may
+    /// speak while it reopens; nothing is written while either runs, or every
+    /// restart would duplicate the conversation onto the tape, or open an
+    /// activity of the agent's own that nothing ends.
     pub(super) replaying: AtomicBool,
     /// Whether this connection has been told what kind of room it is in.
     /// Per-connection, so a restarted backend hears it again and a resumed one

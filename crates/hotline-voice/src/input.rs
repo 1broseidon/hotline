@@ -74,9 +74,15 @@ impl Calls {
         self.queue_text(id, seq, text, TranscriptSource::Device, silence_ms)
     }
 
-    /// Admit work to the call's occupant before acknowledging it. Startup
-    /// and model execution happen on that occupant's independent task.
-    pub(crate) async fn work_on_it(&self, id: &str, seq: u32, words: &str) -> Result<(), String> {
+    /// Acknowledge work only once it has been admitted or explicitly queued.
+    /// Startup and model execution run on the occupant's own task.
+    pub(crate) async fn work_on_it(
+        &self,
+        id: &str,
+        seq: u32,
+        words: &str,
+        capability: Option<&hotline_tools::capability::CapabilityLease>,
+    ) -> Result<Option<String>, String> {
         if words.trim().is_empty() || words.chars().count() > 8_000 {
             return Err("Work needs between 1 and 8,000 characters.".into());
         }
@@ -93,31 +99,66 @@ impl Calls {
             if call.state == VoiceState::Held {
                 return Err("Resume the call first.".into());
             }
+            if let Some(wait) = &call.waiting_for_call
+                && !wait.done.is_cancelled()
+            {
+                return Err(format!("This call already has work queued behind {}. The caller's words stay on this call.", wait.holder));
+            }
             let target = call.target.clone().zip(call.thread.clone());
             if target.is_some() {
+                capability.ok_or("This call has no teammate lease.")?.check()?;
                 call.seq = Some(seq);
                 call.begin_answer(seq);
                 call.words = words.into();
                 call.activity = Instant::now();
                 call.state(VoiceState::Thinking, None);
             }
-            Ok(target)
+            Ok(target.map(|(persona, thread)| (persona, thread, call.admission.clone())))
         })?;
-        let Some((persona, thread)) = target else {
-            return self.queue_text(id, seq, words, TranscriptSource::Front, None);
+        let Some((persona, thread, cancel)) = target else {
+            self.queue_text(id, seq, words, TranscriptSource::Front, None)?;
+            return Ok(None);
         };
-        let result = self.room.call_prompt(&persona, &thread, words).await;
+        let origin = super::Origin {
+            call_id: id.into(),
+            seq,
+            direct: true,
+            front: true,
+        };
+        let capability = capability.ok_or("This call has no teammate lease.")?;
+        let result = match self
+            .room
+            .live_work(&persona, &thread, words, &origin, &cancel, capability)
+            .await
+        {
+            Ok(Some(wait)) => {
+                let holder = wait.holder.clone();
+                self.change(id, |call| {
+                    if cancel.is_cancelled() {
+                        return Err("The call stopped waiting for work.".into());
+                    }
+                    call.waiting_for_call = Some(wait);
+                    Ok(Some(holder))
+                })
+            }
+            other => other.map(|_| None),
+        };
         if result.is_err() {
             let _ = self.change(id, |call| {
-                call.answering = None;
+                if call.answering == Some(seq) {
+                    call.answering = None;
+                    if call.state == VoiceState::Thinking {
+                        call.state(call.resting(), None);
+                    }
+                }
                 Ok(())
             });
         }
-        result.map(drop)
+        result
     }
 
-    pub(crate) fn stop_work(&self, id: &str) -> Result<String, String> {
-        let (persona, thread, unfinished) = self.change(id, |call| {
+    pub(crate) async fn stop_work(&self, id: &str) -> Result<String, String> {
+        let (persona, thread, unfinished, waiting) = self.change(id, |call| {
             if call.state == VoiceState::Held {
                 return Err("Resume the call first.".into());
             }
@@ -125,9 +166,10 @@ impl Calls {
                 call.target.clone().ok_or("Choose a teammate first.")?,
                 call.thread.clone().ok_or("The call has no thread.")?,
                 call.words.clone(),
+                call.withdraw_call_admission(),
             ))
         })?;
-        self.room.cancel_work(&persona, &thread)?;
+        self.room.cancel_work(&persona, &thread, waiting).await?;
         self.change(id, |call| {
             call.answering = None;
             call.state(call.resting(), None);

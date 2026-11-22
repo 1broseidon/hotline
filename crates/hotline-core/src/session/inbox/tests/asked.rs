@@ -79,7 +79,7 @@ async fn an_answer_that_finishes_the_persons_ask_wakes_a_turn_they_read_told_to_
         "{told}"
     );
     assert!(
-        told.contains("The person reads this turn. Tell the person the result in your own words, addressed to them")
+        told.contains("They read this turn: tell them the result in your own words.")
             && told.contains("Do not paste or quote your colleague's reply"),
         "{told}"
     );
@@ -87,6 +87,11 @@ async fn an_answer_that_finishes_the_persons_ask_wakes_a_turn_they_read_told_to_
         told.contains("finishes what the person asked of you"),
         "the index marks it too: {told}"
     );
+    assert!(
+        told.contains("message: \"Devils 7, Capitals 4, Saturday.\""),
+        "{told}"
+    );
+    assert!(!told.contains("`reply_to`"), "{told}");
     assert!(!told.contains(QUIET_WAKE_LINE), "not quiet: {told}");
     until("Ada's turn ended", || {
         idle(&room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
@@ -103,6 +108,117 @@ async fn an_answer_that_finishes_the_persons_ask_wakes_a_turn_they_read_told_to_
     assert!(room.finished_asks("ada").is_empty(), "told once");
 }
 
+/// Mack and Nina on Claude Code with Haiku, 2026-11-21: the person asked Mack,
+/// Mack asked Nina, and Nina answered "6" with `send`, `reply_to` and, as
+/// Haiku does every time, `wants: answer`. Mack's turn the person read told
+/// them; the answer, shown whole there, was left seen, so Mack was woken
+/// again in a quiet turn to sort it, whose line invites telling the person
+/// a second time. The answer to the teammate's own question is done with
+/// once the turn that told it has run: nothing wakes the teammate again.
+#[tokio::test]
+async fn an_answer_shown_in_the_turn_that_tells_the_person_is_not_offered_again() {
+    let (room, agents) = room("asked-answer-once");
+    at_rest(&room, "ada").await;
+    let asked = ask(&room, &["bob"], "What is 3 plus 3?").await;
+    let answered = crate::session::tests::send_past_card(
+        &room,
+        "bob",
+        json!({"to": ["ada"], "message": "6", "reply_to": asked[0], "wants": "answer"}),
+    )
+    .await
+    .unwrap();
+    let reply = answered["sent"][0]["id"].as_str().unwrap().to_string();
+    until("Ada's turn the person reads ended", || {
+        idle(&room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
+    })
+    .await;
+    let told = adas_wakes(&agents);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(
+        told[0].contains("Finished:") && told[0].contains("message: \"6\""),
+        "{}",
+        told[0]
+    );
+    until("the answer is noted", || {
+        item(&room, "ada", &reply).state == InboxState::Closed
+    })
+    .await;
+    assert_eq!(
+        item(&room, "ada", &reply).outcome,
+        Some(InboxOutcome::Noted)
+    );
+    // The idle pick-up has nothing to offer: no quiet turn follows.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert!(
+        agents
+            .told()
+            .iter()
+            .all(|line| !line.contains("read, not sorted")),
+        "{:?}",
+        agents.told()
+    );
+    assert_eq!(adas_wakes(&agents).len(), 1);
+}
+
+/// Bob answers Ada's question; the answer, shown whole, wakes her turn.
+async fn answered_in_a_turn(room: &Arc<Room>, extra: Value) -> String {
+    at_rest(room, "ada").await;
+    let asked = ask(room, &["bob"], "What is 3 plus 3?").await;
+    let mut arguments =
+        json!({"to": ["ada"], "message": "6", "reply_to": asked[0], "wants": "answer"});
+    if let Value::Object(fields) = extra {
+        for (key, value) in fields {
+            arguments[key] = value;
+        }
+    }
+    let answered = crate::session::tests::send_past_card(room, "bob", arguments)
+        .await
+        .unwrap();
+    let reply = answered["sent"][0]["id"].as_str().unwrap().to_string();
+    until("Ada's turn ended", || {
+        idle(room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
+    })
+    .await;
+    reply
+}
+
+/// Shield's review of the above: a turn that made progress and was then
+/// stopped may not have taken the answer in, so it stays seen, to be
+/// offered again, rather than closed.
+#[tokio::test]
+async fn an_answer_shown_in_a_turn_cancelled_after_progress_stays_seen() {
+    let (room, _) = room_on(
+        "asked-answer-cancelled",
+        crate::session::tests::Scripted::new(vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "partway".into(),
+                text: "Bob says".into(),
+            },
+            Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            },
+        ]),
+    );
+    let reply = answered_in_a_turn(&room, json!({})).await;
+    let kept = item(&room, "ada", &reply);
+    assert_eq!(kept.state, InboxState::Seen);
+    assert_eq!(kept.outcome, None);
+}
+
+/// An answer whose sender waits on a reply is still a question: a turn
+/// that ends without answering it leaves it seen.
+#[tokio::test]
+async fn a_waiting_answer_to_a_closed_ask_stays_seen_when_the_turn_does_not_reply() {
+    let (room, _) = room("asked-answer-waiting");
+    let reply = answered_in_a_turn(&room, json!({"waiting": true})).await;
+    let kept = item(&room, "ada", &reply);
+    assert!(kept.waiting);
+    assert_eq!(kept.state, InboxState::Seen);
+    assert_eq!(kept.outcome, None);
+}
+
 /// A send to several is finished when the last of its items closes: Bob's
 /// answer alone is progress, heard in a quiet turn, whose line says the
 /// result is told in a turn the person reads once it is all in.
@@ -117,9 +233,6 @@ async fn a_send_to_several_finishes_when_every_item_is_closed_and_until_then_its
     let first = adas_wakes(&agents).remove(0);
     assert!(first.contains(QUIET_WAKE_LINE), "{first}");
     assert!(!first.contains("Finished:"), "{first}");
-    assert!(
-        QUIET_WAKE_LINE.contains("A result they asked you to get is not for a post: once everything you sent colleagues for it is finished, Hotline gives you a turn they read to tell them.")
-    );
     until("Ada's quiet turn ended", || {
         idle(&room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
     })
@@ -153,6 +266,7 @@ async fn a_send_to_several_finishes_when_every_item_is_closed_and_until_then_its
         finished.contains("\"Release on Thursday?\" (Bob: answered, Cy: dropped)"),
         "a decline finishes it too, with nothing landing in Ada's inbox: {finished}"
     );
+    assert!(finished.contains("They read this turn: tell them the result in your own words."));
 }
 
 /// An item held for the person's first-contact card is not finished, and an
@@ -251,7 +365,7 @@ async fn an_ask_that_finishes_mid_turn_is_said_into_the_turn_the_person_reads() 
     until("said into the turn", || {
         agents.steered().iter().any(|line| {
             line.contains("is finished, \"Score?\" (Bob: answered)")
-                && line.contains("Tell the person in this turn.")
+                && line.contains("Tell the person in your own words")
         })
     })
     .await;

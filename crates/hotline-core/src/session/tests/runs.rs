@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 fn spec(room: &Room, run_id: &str, task: &str) -> RunSpec {
     RunSpec {
+        work_for: crate::session::ownership::WorkFor::Person,
         persona_id: "ada".to_string(),
         run_id: run_id.to_string(),
         title: "Check the crane".to_string(),
@@ -393,6 +394,7 @@ async fn a_run_has_the_computer_unless_the_home_agent_leaves_it_out() {
     let whole = room
         .run(
             RunSpec {
+                work_for: crate::session::ownership::WorkFor::Person,
                 capability: home.clone(),
                 ..spec(&room, "r9", "Look at the screen.")
             },
@@ -416,6 +418,7 @@ async fn a_run_has_the_computer_unless_the_home_agent_leaves_it_out() {
     let stale = room
         .run(
             RunSpec {
+                work_for: crate::session::ownership::WorkFor::Person,
                 capability: home,
                 ..spec(&room, "r11", "Anything.")
             },

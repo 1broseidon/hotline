@@ -267,13 +267,12 @@ decision for George, not a bug fix.
   ([sessions.md](sessions.md#a-quiet-return)), keeps
   every tool the teammate has, and Hotline Agent has no per-action cards, so
   shell, files, browser and network run without the person's attention. Its
-  trail is kept (the "Inbox · read 3, sent 1" line, whose rows are the
-  items it sorted and sent and the turn's steps, or, for a turn that
-  posted, the Inbox section of the path its post's time opens), but
-  nothing points the person at it. What it puts in front of the person (a post, a file, a card,
+  trail is kept on the tape and in the work pane (for a turn that posted,
+  the Inbox section of the path its post's time opens), but a turn that
+  posted nothing draws nothing in the chat, so nothing points the person
+  at it. What it puts in front of the person (a post, a file, a card,
   a job) says which colleague's message prompted it, in one line, when one
-  item alone woke the turn, save a post of words straight under the sent
-  row of the item it answers, where that row says it; a turn several woke
+  item alone woke the turn; a turn several woke
   names none, and the browser's own cards never do (`docs/design/agent-inbox.md`, What a
   colleague's message prompted).
 - **Cost has no desk-wide ceiling.** The brake is twelve items and replies
@@ -351,7 +350,10 @@ reads to the call thread and the teammate's current capability lease; writes,
 MCP calls and shell work run on the call's independently leased clone. The
 front has no direct posting or raw MCP tools. A policy change revokes both
 paths. `validate_call_thread` checks ownership and lifecycle before work or
-cancellation; `work_on_it` refuses a held or non-live call. The clone uses the
+cancellation; `work_on_it` refuses a held or non-live call. Live work waiting
+on another call thread reserves no occupant and keeps its original capability
+generation. Admission rechecks the thread and lease under the same gate that
+starts a call thread; hold, hang-up and Stop withdraw work not yet admitted. The clone uses the
 teammate's own model and harness without steering the home session.
 Its starting prompt is a scrubbed, budgeted slice of the DM and identity, never credentials. Mid-call instruction updates add bounded scrubbed speech, interruption notices, running work and confirmed posts from the same call. Speech-to-speech audio cannot be filtered before it is heard: the identity prompt, tool framing and opt-in live scripted-front regression deck enforce phrasing, rather than a runtime audio filter.
 The work brief includes the whole call transcript, including tools. Hanging
@@ -2040,9 +2042,12 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   `Room::brake`, which
   `Room::update_inbox` also checks for an answer and, after Stop, for work
   taken into a thread; `Room::heard_from_person` leaves a paused pair
-  alone), and `collaboration_granted`; an item
-  that is not granted yet is kept `held`, outside everything its receiver can
-  read (`store::inbox::received`), its files held on the desk, while
+  alone), and `collaboration_granted`. The existing answer grant also covers
+  `send` with `reply_to` only for a text-only answer to the sole asker of an
+  open question in the caller's inbox, with `wants: nothing`. Its destination
+  is the same as for `update_inbox`'s `answer`; the brake and lease still
+  apply. An item that is not granted yet is kept `held`, outside everything
+  its receiver can read (`store::inbox::received`), its files held on the desk, while
   `Room::await_consent` waits on `authorize_collaboration` with the two
   lasting leases: a yes lets it in, a no, an expiry or the person's Stop
   exchange (`Room::settle_pair_collaboration`) closes it `dropped`, unseen.
@@ -2052,15 +2057,20 @@ handoff) and a colleague's `aside`; neither is offered to any thread.
   starts work on the receiver. That request needs no card of its own
   (`authorize_exchange` passes a request that carries items, its leases still
   checked at admission and at each turn), and its result and any answer are
-  items in the sender's inbox, counted on the pair's brake.
+  items in the sender's inbox, counted on the pair's brake. `Room::deliver`
+  persists new colleague items after their callers' checks. It does not
+  grant access: consent updates a held item in place, and work results are
+  already counted by the exchange. Hotline's notices keep their own writer.
   `Sending::from_arguments` and `Sorting::from_arguments` keep a title and a
   reason as one plain line (`fence::one_line`: no control character, line
   break, direction override, zero-width or tag character; 80 and 200
   characters) and refuse an answer longer than a message.
-  `inbox/heard.rs` tells a turn titles, senders and whether the sender waits,
-  never bodies, fenced as data (`hotline_inbox`), each title and reason
-  quoted with its quotes escaped (`fence::quoted`), as the pick-up's line,
-  the expired notice and the thread index quote them; a taken item's work
+  `inbox/heard.rs` usually tells a turn titles, senders and waiting marks.
+  An inbox wake that offers one new quick item includes its whole message
+  as a JSON string inside the same `hotline_inbox` fence and labels it as
+  untrusted sender data. The fence escapes `<` so a message cannot close it.
+  Titles and reasons use `fence::quoted`, as in the pick-up's line, the
+  expired notice and the thread index; a taken item's work
   thread hears its title only inside the colleague's fence
   (`peers::delivery_wire` names no colleague's words outside it). `inbox/pick_up.rs`
   offers an idle main conversation what it set aside the same way, with its
@@ -3683,7 +3693,11 @@ environment; no snapshot, volume or log of the desk's carries one.
   exchange records carry none.
 - **Enforcement:** `Calls::lead_call` checks target, live call and current lead.
   `TeammateTools::call` checks the capability lease and limits the front to
-  lookups plus `send` of named work (`wants: work`) on that desk call. The exchange
+  lookups plus `send` of named work on that desk call. `FrontWork` supplies
+  the front's schema and checks the same fields in the handler: named recipients
+  (not broadcast aliases), a title, the person's words and `wants: work`.
+  Valid front sends still use `Room::send_items`, including its brake and
+  call-grant checks. The exchange
   records the source call only for a local recipient and rechecks both leases
   and the lead/call before starting or resuming the handoff. A queued request
   whose call or lead ended fails explicitly, including after restart. Stop,
@@ -3692,8 +3706,10 @@ environment; no snapshot, volume or log of the desk's carries one.
 - **Proof:** `tests/voice/lead.rs`
   `the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on` proves
   roster lookup without a working-model request, unchanged named handoff
-  without a first-contact card or dispatcher call, and denied ask, stop and
-  former-lead use through the real handlers;
+  without a first-contact card or dispatcher call, the front's narrowed `send`,
+  one sent row on the call, and denied ask, note, untitled work, broadcast,
+  unadvertised send fields, stop and former-lead use through the real handlers,
+  with nothing delivered;
   `a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant` proves the
   direct-call refusal; `a_no_lead_front_knows_the_person_and_roster` proves
   fallback context; `session/exchanges/tests.rs`
@@ -3753,6 +3769,13 @@ The existing thread-lease and revoked-post tests still cover tool authority.
 Residual risk: classification is syntactic; a model can mislabel or omit useful
 content, and its spoken wording can ignore an instruction. A missing or failed
 narrator leaves the written result available without a new spoken pointer.
+
+An inbox result goes to the local asker after their originating call ends.
+The origin is captured from the desk's live call, not supplied by `send`.
+Only results admitted through the normal inbox gates take this route: it
+adds no send grant, file access, destination, brake exemption or quiet DM
+turn. The optional live offer fences the colleague's words as data;
+recovering the chat copy never starts a session or speaks it again.
 
 ## Cards answered on a call
 

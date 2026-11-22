@@ -521,7 +521,11 @@ without asking the model, on either agent:
   (`Wired::unprompted`, opened when output arrives with no prompt of
   Hotline's out, `driver/acp/translate.rs`): Claude Code waking for its own
   background helper or command, and the line it makes its model write after
-  an empty answer, which lands in the same quiet turn;
+  an empty answer, which lands in the same quiet turn. What an agent says
+  while its session reopens (`session/resume`, as `session/load`'s replay)
+  is not such work and is not written: Codex's warning there that the
+  session was recorded under another model once held the teammate working,
+  its inbox waiting, until the five-minute quiet bound;
 - the rest of any turn once it has replied and parked for its helpers
   (`Update::Parked`, from Hotline Agent's loop and from Claude's adapter
   alike, `session/dm.rs`): what wakes it next is a helper's or a command's
@@ -530,6 +534,13 @@ without asking the model, on either agent:
 A turn said on a call, and one answering a colleague's question, is never
 made quiet: the person is on the line, or the reply is the colleague's. The
 inbox's hourly limit counts only the inbox's own quiet turns.
+
+When the harness starts work by itself, Hotline offers the quiet-return note
+once at the first available non-interrupting step. An ACP harness must
+advertise active-input support; an idle, unsupported, late or refused note is
+not retried as a prompt. This does not make the note a chat message. In the
+existing steps pane, a quiet turn with no written reply says “Worked quietly”
+when it has steps to open; one with words kept in its path says “Wrote quietly”.
 
 While the turn is quiet the main conversation's witness writes what the
 agent says as `thought` lines marked `said: true`, the turn's path, streams
@@ -1668,7 +1679,10 @@ where it landed, and writes an `inbox_sent` row on the thread it was said
 in: at once, unless it raised a first-contact card, which it waits on for up
 to 45 seconds so its result says the person's answer (yes: in inbox; no:
 not sent, dropped) or, still unanswered, that nothing was sent yet
-([agent-inbox.md](design/agent-inbox.md#the-tools)). One `send`
+([agent-inbox.md](design/agent-inbox.md#the-tools)). Sent in a turn the
+person reads, its result tells the teammate to say in one short line what
+it asked and of whom, in their terms, and not that it will pass the answer
+on. One `send`
 to several makes an item each, and each names the others in `alsoTo`, which
 `read_inbox` and the item's pane say. Each item is kept on the receiver's own
 stream, `inbox/<id>.jsonl` (`StreamId::Inbox`),
@@ -1712,7 +1726,13 @@ the main conversation, a work thread or a call opens with an `INBOX` section
 in its [thread index](#the-thread-index): the counts, each new item not yet
 offered to a turn (title, sender, `waiting on you`, what it wants, age, short
 id), and what moved among the items the teammate sent (`SENT · what moved`).
-An item is offered once and marked `noticed`; the count stays. Items left
+An item is offered once and marked `noticed`. An inbox wake with exactly
+one new quick item offers its whole message as fenced, quoted sender words
+and marks it `seen` instead; one that asks nothing back, or that answers a
+question the teammate asked, is closed as `noted` once the turn has run
+(`settle_inbox_offer`): the turn was told no sort is needed, or told the
+answer, and a quiet offer to sort it would invite telling the person twice. Only a question needs a `send` with `reply_to`;
+neither a read nor a sort is needed. Items left
 unread that no turn's start was offered wake the thread when its turn ends,
 by the same rule, so an item wakes its receiver once as new.
 
@@ -1791,7 +1811,8 @@ before.
 **Sorting.** `read_inbox` lists the newest 50 open items without their words, or, with
 `list`, the newest 20 closed ones (with their outcome, `expired` among them) or the newest 20 the
 teammate sent (with whom each went to and where it stands now, and since
-when), or reads the ones named whole and marks them `seen`. `update_inbox` sorts several in one
+when), or reads the ones named whole and marks them `seen`. For a title-only
+item, the title is also the message. `update_inbox` sorts several in one
 call, in the order the receiver means to work them: `taken`, `later` with a
 reason, `closed` with an outcome (`done`, `noted`, `dropped`), `combined`
 into another item, or an `answer`, which replies and closes the item as done.

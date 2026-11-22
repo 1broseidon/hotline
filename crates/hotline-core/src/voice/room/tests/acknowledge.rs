@@ -299,16 +299,48 @@ async fn nothing_is_said_when_there_is_no_line_to_say_in_time() {
     }
 }
 
-/// A desk with no call assistant has no fast model to write the line.
+/// A desk with no call assistant has no fast model to write the line, so
+/// the teammate's turn is never told of one, switched on or never set.
 #[tokio::test]
 async fn without_a_call_assistant_nothing_is_said() {
-    let (_root, desk, calls, id, _persona, mut rx, fake) = direct_call_with(false).await;
-    acknowledging(&desk, true);
+    for set in [true, false] {
+        let (_root, desk, calls, id, _persona, mut rx, fake) = direct_call_with(false).await;
+        if set {
+            acknowledging(&desk, true);
+        }
+        utterance(&calls, &id, 1).unwrap();
+        handed_over(&calls, &id).await;
+        let sent = sent_within(&mut rx, Duration::from_millis(600)).await;
+        assert!(sent.is_empty(), "{set}: {sent:?}");
+        assert!(lock(&fake.acks).is_empty(), "{set}");
+        assert!(
+            calls
+                .test_change(&id, |call| Ok(!call.acknowledging))
+                .unwrap(),
+            "{set}: no news of a line for the prompt"
+        );
+        assert!(
+            calls
+                .turn_instruction(&id)
+                .starts_with(crate::voice::spoken::CONTRACT),
+            "{set}: the contract that asks for the teammate's own opening"
+        );
+        calls.end(&id).unwrap();
+    }
+}
+
+/// A desk that never set it acknowledges, as one that switched it on does.
+#[tokio::test]
+async fn never_set_a_slow_teammate_is_covered() {
+    let (_root, _desk, calls, id, _persona, mut rx, fake) = direct_call().await;
+    *lock(&fake.ack) = Ok(LINE.into());
     utterance(&calls, &id, 1).unwrap();
-    handed_over(&calls, &id).await;
-    let sent = sent_within(&mut rx, Duration::from_millis(600)).await;
-    assert!(sent.is_empty(), "{sent:?}");
-    assert!(lock(&fake.acks).is_empty());
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == LINE),
+    )
+    .await;
+    assert_eq!(lock(&fake.acks).len(), 1);
     calls.end(&id).unwrap();
 }
 
@@ -363,8 +395,8 @@ async fn interrupt_hold_and_hang_up_stop_the_line() {
         })
         .await;
         match how {
-            "interrupt" => calls.interrupt(&id).unwrap(),
-            "hold" => calls.hold(&id, true).unwrap(),
+            "interrupt" => calls.interrupt(&id, None).unwrap(),
+            "hold" => calls.hold(&id, true, None).unwrap(),
             _ => calls.end(&id).unwrap(),
         }
         let sent = sent_within(&mut rx, Duration::from_millis(700)).await;

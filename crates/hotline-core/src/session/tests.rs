@@ -83,6 +83,7 @@ pub(crate) struct Scripted {
     room_models: Option<Arc<Mutex<Vec<ConfigChoice>>>>,
     /// Work this agent starts by itself, for the room to take once.
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
+    wakes: Mutex<Option<mpsc::UnboundedReceiver<super::jobs::ProcessReturn>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
     /// Steering the agent uses in the turn it joined, so nothing comes back.
@@ -96,6 +97,7 @@ pub(crate) struct Scripted {
     /// Each line said as one nobody waits on (`prompt_unasked`), by its
     /// words, apart from the prompts it also counts as.
     unasked: Arc<Mutex<Vec<String>>>,
+    notes: Arc<Mutex<Vec<String>>>,
     /// One permit lets one start finish, so a start can be caught while the
     /// harness is still coming up. `None` starts at once.
     start_gate: Option<Arc<Semaphore>>,
@@ -143,12 +145,14 @@ impl Scripted {
             info_changes: None,
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
+            wakes: Mutex::new(None),
             unconsumed: None,
             consumes: false,
             steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
             unasked: Arc::default(),
+            notes: Arc::default(),
             start_gate: None,
             start_error: Mutex::new(None),
             plan: Arc::new(Mutex::new(None)),
@@ -186,6 +190,12 @@ impl Scripted {
     pub(super) fn with_unprompted(self) -> (Self, mpsc::UnboundedSender<mpsc::Receiver<Update>>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.unprompted) = Some(receiver);
+        (self, sender)
+    }
+
+    pub(super) fn with_wakes(self) -> (Self, mpsc::UnboundedSender<super::jobs::ProcessReturn>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *lock(&self.wakes) = Some(receiver);
         (self, sender)
     }
 
@@ -357,6 +367,11 @@ impl Driver for Scripted {
         true
     }
 
+    fn note(&self, text: String) -> bool {
+        lock(&self.notes).push(text);
+        false
+    }
+
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
         self.unconsumed
             .as_ref()
@@ -382,6 +397,10 @@ impl Driver for Scripted {
         self.info_changes
             .as_ref()
             .map(tokio::sync::watch::Sender::subscribe)
+    }
+
+    fn subscribe_wakes(&self) -> Option<mpsc::UnboundedReceiver<super::jobs::ProcessReturn>> {
+        lock(&self.wakes).take()
     }
 
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
@@ -482,6 +501,10 @@ impl Fake {
     /// From now on every start is refused, for a harness that stops coming up.
     pub(super) fn fail_starts(&self, reason: &str) {
         *lock(&self.driver.start_error) = Some(reason.to_string());
+    }
+
+    pub(super) fn allow_starts(&self) {
+        *lock(&self.driver.start_error) = None;
     }
 
     /// Makes the agents stand in for a child that issues this session id, and

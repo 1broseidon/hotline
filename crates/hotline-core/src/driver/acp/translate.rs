@@ -782,49 +782,60 @@ pub(super) async fn steer_lane(
             refused.push((text, attachments));
             continue;
         }
-        let request = agent_client_protocol::UntypedMessage::new(
-            STEERING_METHOD,
-            serde_json::json!({
-                "sessionId": session_id,
-                "prompt": operator_blocks(&text, &attachments),
-                "_meta": { "steering": { "idleBehavior": "promptRequired" } },
-            }),
-        );
-        let answer = match request {
-            Ok(request) => tokio::select! {
-                biased;
-                // Stop drops this line with the rest, so there is nothing
-                // left to learn from the agent's answer.
-                () = stop.cancelled() => break,
-                answer = tokio::time::timeout(
-                    STEER_REPLY,
-                    connection.send_request(request).block_task(),
-                ) => answer.ok(),
-            },
-            Err(_) => None,
+        let injected = tokio::select! {
+            biased;
+            // Stop drops this line with the rest.
+            () = stop.cancelled() => break,
+            injected = try_steer(&live, &connection, &session_id, &text, &attachments) => injected,
         };
-        let outcome = match &answer {
-            Some(Ok(reply)) => reply.get("outcome").and_then(Value::as_str),
-            _ => None,
-        };
-        match outcome {
-            Some("injected") => lock(&live.history).push(operator_fact(&text, &attachments)),
-            Some("startedNewTurn") => {
-                let _ = connection.send_notification(CancelNotification::new(session_id.clone()));
-                refused.push((text, attachments));
-            }
-            _ => {
-                if matches!(&answer, Some(Err(error)) if error.code == acp::ErrorCode::MethodNotFound)
-                {
-                    live.steerable.store(false, Ordering::SeqCst);
-                    lock(&live.session).info.capabilities.active_input = false;
-                    live.publish_info();
-                }
-                refused.push((text, attachments));
-            }
+        if injected {
+            lock(&live.history).push(operator_fact(&text, &attachments));
+        } else {
+            refused.push((text, attachments));
         }
     }
     refused
+}
+
+/// Offer a line only to a running step. An idle or unsupported harness cannot
+/// start a new turn in order to take it.
+pub(super) async fn try_steer(
+    live: &Live,
+    connection: &ConnectionTo<Agent>,
+    session_id: &SessionId,
+    text: &str,
+    attachments: &[Attachment],
+) -> bool {
+    let Ok(request) = agent_client_protocol::UntypedMessage::new(
+        STEERING_METHOD,
+        serde_json::json!({
+            "sessionId": session_id,
+            "prompt": operator_blocks(text, attachments),
+            "_meta": { "steering": { "idleBehavior": "promptRequired" } },
+        }),
+    ) else {
+        return false;
+    };
+    let answer = tokio::time::timeout(STEER_REPLY, connection.send_request(request).block_task())
+        .await
+        .ok();
+    match answer {
+        Some(Ok(reply)) => match reply.get("outcome").and_then(Value::as_str) {
+            Some("injected") => true,
+            Some("startedNewTurn") => {
+                let _ = connection.send_notification(CancelNotification::new(session_id.clone()));
+                false
+            }
+            _ => false,
+        },
+        Some(Err(error)) if error.code == acp::ErrorCode::MethodNotFound => {
+            live.steerable.store(false, Ordering::SeqCst);
+            lock(&live.session).info.capabilities.active_input = false;
+            live.publish_info();
+            false
+        }
+        _ => false,
+    }
 }
 
 /// One operator line as ACP content. Attachments lead the message the way

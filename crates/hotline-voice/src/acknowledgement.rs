@@ -15,6 +15,7 @@
 //! than none. Nothing here changes a call with the setting off.
 
 use super::dispatcher::Dispatcher;
+use super::heard::Words;
 use super::ledger::{self, Kind};
 use super::record::Speaker;
 use super::speech::Clip;
@@ -247,7 +248,15 @@ impl Calls {
                 text: line.to_string(),
             },
         );
-        self.clip(id, &said, 0, true, clip, Some(interrupted));
+        self.clip(
+            id,
+            &said,
+            0,
+            true,
+            clip,
+            Some(interrupted),
+            Words::sentence(line),
+        );
         Ok(())
     }
 
@@ -286,11 +295,42 @@ struct Turn {
     words: String,
 }
 
+/// What a fast model writes when it was asked for no line and wrote one
+/// anyway: the prompt once named "an empty reply", and the call said those
+/// words aloud. Compared after brackets, quotes, case and punctuation go.
+const PLACEHOLDERS: [&str; 13] = [
+    "empty reply",
+    "empty",
+    "nothing",
+    "none",
+    "no reply",
+    "no response",
+    "no line",
+    "no text",
+    "blank",
+    "silence",
+    "na",
+    "null",
+    "n a",
+];
+
+/// Whether `line` stands for no line at all: a placeholder such as "(Empty
+/// reply)" or "N/A", or nothing but punctuation ("...", "—").
+pub(super) fn placeholder(line: &str) -> bool {
+    let words: Vec<String> = line
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    words.is_empty() || PLACEHOLDERS.contains(&words.join(" ").as_str())
+}
+
 /// The model's line as it can be said: one line, without quotes or markup,
-/// of a few words; None for nothing, or for more than it was asked for.
+/// of a few words; None for nothing, a placeholder for nothing, or more
+/// than it was asked for.
 fn sayable(line: &str) -> Option<String> {
     let line = line.trim();
-    if line.lines().count() != 1 {
+    if line.lines().count() != 1 || placeholder(line) {
         return None;
     }
     let line = spoken::speech_text(line.trim_matches(['"', '“', '”']).trim());
@@ -334,13 +374,58 @@ mod tests {
             "Sure, Got it, Okay",
             "let me check that for you",
             "handing that off",
-            "an empty reply",
+            "return no text at all",
             "small talk",
             "a yes or a no",
             "a correction",
             "A question still gets a line",
         ] {
             assert!(ACKNOWLEDGE.contains(rule), "{rule}");
+        }
+        // A phrase for the empty case is a phrase the model can say back.
+        assert!(!ACKNOWLEDGE.to_lowercase().contains("empty"));
+    }
+
+    /// Every way a fast model has, or might, write "no line" is not said.
+    #[test]
+    fn a_placeholder_for_no_line_is_not_said() {
+        for written in [
+            "Empty reply",
+            "(empty reply)",
+            "[Empty reply.]",
+            "\"Empty reply\"",
+            "EMPTY",
+            "Nothing.",
+            "*nothing*",
+            "None",
+            "No reply",
+            "(no response)",
+            "No line.",
+            "no text",
+            "Silence",
+            "[silence]",
+            "N/A",
+            "n/a.",
+            "null",
+            "...",
+            "…",
+            "—",
+            "\"…\"",
+        ] {
+            assert_eq!(sayable(written), None, "{written}");
+        }
+    }
+
+    #[test]
+    fn a_line_that_only_contains_those_words_is_still_said() {
+        for line in [
+            "Nothing new in the deploy logs.",
+            "Checking why the reply was empty.",
+            "Looking at the null pointer crash.",
+            "The silence in the logs.",
+            "None of the tests, then.",
+        ] {
+            assert_eq!(sayable(line).as_deref(), Some(line), "{line}");
         }
     }
 }

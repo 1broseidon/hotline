@@ -89,9 +89,9 @@ async fn a_blocked_dispatcher_says_nothing_and_interrupt_preserves_its_text() {
         );
         assert!(lock(&fake.spoken).is_empty());
         if held {
-            calls.hold(&id, true).unwrap();
+            calls.hold(&id, true, None).unwrap();
         } else {
-            calls.interrupt(&id).unwrap();
+            calls.interrupt(&id, None).unwrap();
         }
         assert!(utterance(&calls, &id, 2).is_err());
         gate.add_permits(1);
@@ -192,7 +192,7 @@ async fn a_delivery_never_replaces_the_utterance_cancel_token() {
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     assert!(calls.delivery("mack", "reply", "Mack", "The tests passed.", false, None));
     event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
-    calls.interrupt(&id).unwrap();
+    calls.interrupt(&id, None).unwrap();
     assert!(original.is_cancelled());
     event(&mut rx, |e| {
         matches!(

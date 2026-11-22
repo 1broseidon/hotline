@@ -409,6 +409,9 @@ fn checked(line: &str, said: Option<&str>) -> Result<String, String> {
         return Err("the call assistant wrote no single line".into());
     }
     let line = line.trim_matches(['"', '“', '”']).trim();
+    if super::acknowledgement::placeholder(line) {
+        return Err("its line stood for no line".into());
+    }
     if !plain(line) {
         return Err("its line named a file, address, command or id".into());
     }
@@ -530,6 +533,26 @@ mod tests {
     /// line that started this: dropped, as is any line leaning on an earlier
     /// one. After an acknowledgement a follow-on is fine, but never "still"
     /// and never the acknowledgement again.
+    /// A placeholder for no line, however written, is not said; a line with
+    /// one of those words in it is.
+    #[test]
+    fn a_placeholder_is_not_a_progress_line() {
+        for written in [
+            "(Empty reply)",
+            "Nothing.",
+            "N/A",
+            "[silence]",
+            "No response",
+            "...",
+        ] {
+            assert!(checked(written, None).is_err(), "{written}");
+        }
+        assert_eq!(
+            checked("Reading the empty test file now.", None).as_deref(),
+            Ok("Reading the empty test file now.")
+        );
+    }
+
     #[test]
     fn a_line_that_leans_on_nothing_said_is_dropped() {
         for leaning in [

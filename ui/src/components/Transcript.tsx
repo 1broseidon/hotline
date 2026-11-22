@@ -1,11 +1,10 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, answersUnderTheirRow, foldInboxRuns, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink, sentRowsSay } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink, withoutUnsaidTurns } from "../scheduledRuns";
 import { inboxWork, itemsOf, useInbox } from "../inbox";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
-import type { LinkEvent } from "../dock";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
 import { type WorkMark, activityOf } from "../activity";
 import { Glyph } from "../ui/Glyph";
@@ -45,7 +44,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
-import { InboxFromRow, InboxRows, InboxRun, InboxSentRow, Prompted } from "./transcript/InboxLines";
+import { InboxFromRow, InboxRows, InboxSentRow, Prompted } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -63,7 +62,6 @@ export {
 export { StepRows } from "./transcript/Steps";
 export { SaidAloud, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
 
-const NONE: ReadonlySet<string> = new Set();
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -245,7 +243,7 @@ export function Transcript({
 	/* Who the person looped in here: their answers are said whole, under their faces. */
 	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(heardOnce(events, false)), [events]);
+	const written = useMemo(() => toBlocks(heardOnce(events, false), false, thread === undefined), [events, thread]);
 	/* The items this teammate sent or sorted, live from its own inbox: watched only once the tape has one. */
 	const sendsMail = useMemo(
 		() =>
@@ -265,8 +263,6 @@ export function Transcript({
 		return { items, work: inboxWork(items), onOpen: onOpenInboxItem };
 	}, [inboxView, onOpenInboxItem]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
-	/* A work thread's row in an inbox run opens its thread, as its own row does. */
-	const openLink = useCallback((link: LinkEvent) => onOpenThread?.({ thread: threadOfLink(link), title: link.title }), [onOpenThread]);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
 	const rowThread = useMemo(() => thread ?? dmOf(personaId), [thread, personaId]);
@@ -511,10 +507,9 @@ export function Transcript({
 	// so this is decided on what is left to draw.
 	// A block that holds what it held is the block it was (keepBlocks), so
 	// its row is handed what it was handed before and is not drawn again.
-	// In the teammate's own conversation a run of its inbox activity is one
-	// line (foldInboxRuns), made of the blocks it was, kept the same way, and
-	// a turn whose only work was the inbox lets its sent row say what came of
-	// it (sentRowsSay).
+	// In the teammate's own conversation a turn that said nothing in the chat
+	// draws nothing (withoutUnsaidTurns): what it read and sent is on the line
+	// under a reply, never a line of its own.
 	const drawnBefore = useRef<Block[]>([]);
 	const blocks = useMemo(() => {
 		const grouped = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(groupInbox(
@@ -536,12 +531,10 @@ export function Transcript({
 			drawnBefore.current = grouped;
 			return grouped;
 		}
-		const drawn = keepBlocks(drawnBefore.current, foldInboxRuns(sentRowsSay(grouped), inboxRows.work));
-		drawnBefore.current = [...drawn, ...drawn.flatMap((block) => (block.kind === "inboxRun" ? block.members : []))];
+		const drawn = keepBlocks(drawnBefore.current, withoutUnsaidTurns(grouped, inboxRows.work));
+		drawnBefore.current = drawn;
 		return drawn;
 	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId, inboxRows.work, thread]);
-	// An answer straight under the row of the item it answers needs no line saying whose message it is.
-	const underRow = useMemo(() => (thread === undefined ? answersUnderTheirRow(blocks, inboxRows.items) : NONE), [blocks, inboxRows.items, thread]);
 	const underway = useMemo(
 		() =>
 			onOpenThreads === undefined
@@ -579,8 +572,7 @@ export function Transcript({
 		const holds = (block: Block): boolean =>
 			(block.kind === "sent" && block.messages.some((message) => message.id === landing.eventId)) ||
 			(block.kind === "steps" && block.items.some((item) => item.id === landing.eventId)) ||
-			(block.kind === "inbox" && block.sent.some((one) => one.id === landing.eventId)) ||
-			(block.kind === "inboxRun" && block.members.some((member) => blockId(member) === landing.eventId || holds(member)));
+			(block.kind === "inbox" && block.sent.some((one) => one.id === landing.eventId));
 		return rows.find((row) => holds(row.block))?.id ?? landing.eventId;
 	}, [landing, rows]);
 	// Made once per jump: a new one each render would send the flight again.
@@ -625,19 +617,18 @@ export function Transcript({
 				{block.kind === "scheduled" ? (
 					<ScheduledGroup name={block.name} runs={block.runs} />
 				) : block.kind === "inbox" ? (
-					<InboxSentRow title={block.title} sent={block.sent} people={people} quiet={block.asked === true} />
-				) : block.kind === "inboxRun" ? (
-					<InboxRun run={block} owner={personaId} people={people} onOpenThread={openLink} {...(onOpenWork !== undefined ? { onOpenWork, workOpen } : {})} />
+					<InboxSentRow title={block.title} sent={block.sent} people={people} />
 				) : block.kind === "calls" ? (
 					<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
 				) : block.kind === "steps" ? (
 					<Steps
 						id={block.id}
 						items={block.items}
+						{...(block.elapsed !== undefined ? { elapsed: block.elapsed } : {})}
 						// A turn open only for its helpers is not over: no line under it until it is (the mark below is the line).
 						live={(live || waiting) && block.open === true}
 						shown={workShown}
-						rowSays={block.rowSays}
+						people={people}
 						{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 					/>
 				) : block.kind === "sent" ? (
@@ -660,7 +651,7 @@ export function Transcript({
 						{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 						onJump={onJump}
 					/>
-				) : event === null ? null : (
+				) : event === null || event.kind === "outcome" || event.kind === "inbox_sent" || event.kind === "inbox_sorted" ? null : (
 					<Row
 						personaId={personaId}
 						thread={rowThread}
@@ -672,7 +663,6 @@ export function Transcript({
 						}
 						loopedIn={event.kind === "delivery" && event.cause.kind === "peer" && looped.has(event.cause.personaId)}
 						quote={event.kind === "user" && event.replyTo !== undefined ? said.get(event.replyTo) : undefined}
-						underRow={underRow.has(event.id)}
 						top={run.top}
 						bottom={run.bottom}
 						people={people}
@@ -832,7 +822,6 @@ const Row = memo(function Row({
 	working,
 	loopedIn,
 	quote,
-	underRow = false,
 	top,
 	bottom,
 	people,
@@ -857,8 +846,6 @@ const Row = memo(function Row({
 	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
 	quote: Quote | undefined;
-	/** A bubble straight under the sent row of the item it answers: no line saying whose message it is (`answersUnderTheirRow`). */
-	underRow?: boolean;
 	top: boolean;
 	bottom: boolean;
 	people: ReadonlyMap<string, Person> | undefined;
@@ -912,7 +899,7 @@ const Row = memo(function Row({
 					run={run}
 					reactions={worn}
 					bubble={people?.get(personaId)?.bubble}
-					{...(event.fromItem !== undefined && !underRow ? { prompted: <InboxFromRow itemId={event.fromItem} people={people} /> } : {})}
+					{...(event.fromItem !== undefined ? { prompted: <InboxFromRow itemId={event.fromItem} people={people} /> } : {})}
 					{...(onReply !== undefined ? { onReply } : {})}
 					{...(onReact !== undefined ? { onReact } : {})}
 				/>
@@ -1072,14 +1059,6 @@ const Row = memo(function Row({
 
 		case "aside":
 			return <AsideLine aside={event} personaId={personaId} here={thread} people={people} onOpenThread={onOpenThread} />;
-
-		/* Items sent are drawn as their block (groupInbox), one row per send. */
-		case "inbox_sent":
-			return null;
-
-		/* The receiver's sort of what it read is a row of its run of inbox activity (InboxRun). */
-		case "inbox_sorted":
-			return null;
 
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;

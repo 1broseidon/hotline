@@ -17,6 +17,7 @@ mod front;
 mod front_context;
 mod front_prompt;
 pub mod front_tools;
+mod heard;
 mod input;
 mod progress;
 pub mod realtime;
@@ -496,6 +497,8 @@ pub struct Call {
     events: broadcast::Sender<VoiceEvent>,
     work: mpsc::Sender<Work>,
     pub cancel: CancellationToken,
+    admission: CancellationToken,
+    waiting_for_call: Option<call_room::WaitingForCall>,
     pub speech: CancellationToken,
     pub deliveries: CancellationToken,
     pub utterance_pending: bool,
@@ -523,7 +526,7 @@ pub struct Call {
     /// A direct call's thread, which keeps all of what was said. A desk call
     /// is kept on the desk tape.
     record: Option<Record>,
-    speech_line: record::SpeechLine,
+    speech_line: heard::SpeechLine,
     interrupted_through: Option<u32>,
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
@@ -683,6 +686,16 @@ impl Call {
             listening: self.listening_while_thinking(),
         }
     }
+    fn withdraw_call_admission(&mut self) -> bool {
+        let waiting = self
+            .waiting_for_call
+            .take()
+            .is_some_and(|wait| !wait.done.is_cancelled());
+        self.admission.cancel();
+        self.admission = self.cancel.child_token();
+        waiting
+    }
+
     pub fn state(&mut self, state: VoiceState, reason: Option<VoiceEndReason>) {
         // Ended is terminal, whoever writes the state.
         if self.state == VoiceState::Ended {
@@ -690,6 +703,9 @@ impl Call {
         }
         if state == VoiceState::Ended {
             self.keep_front_speech();
+        }
+        if matches!(state, VoiceState::Held | VoiceState::Ended) && self.withdraw_call_admission() {
+            self.answering = None;
         }
         self.state = state;
         self.reason = reason;

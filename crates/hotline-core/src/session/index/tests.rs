@@ -81,6 +81,7 @@ fn thread(log: &Log, thread: ThreadId, title: &str, state: ThreadState, ts: i64)
         asked_in: None,
         request: None,
         run_kind: None,
+        from_item: None,
     };
     write_link(log, &link);
     link
@@ -820,6 +821,7 @@ async fn a_run_hears_only_its_parent_thread() {
     let outcome = room
         .run(
             crate::session::runner::RunSpec {
+                work_for: crate::session::ownership::WorkFor::Person,
                 persona_id: "bob".into(),
                 run_id: "r2".into(),
                 title: "Measure the quay".into(),

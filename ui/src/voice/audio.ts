@@ -1,4 +1,4 @@
-import { ClipPlayer } from "./player";
+import { ClipPlayer, type ClipId, type ClipPlayed } from "./player";
 import { rms } from "./wav";
 
 /**
@@ -13,13 +13,21 @@ export interface CallAudio {
 	closeMic(): void;
 	/** Asks for the microphone and starts reading it, first or again after `closeMic`; rejects when it cannot. */
 	openMic(): Promise<void>;
-	/** Queues one playable clip; `onIdle` fires once the queue has drained. */
-	play(mimeType: string, data: string): void;
+	/** Queues one playable clip, of a `said` line when `clip` says which; `onIdle` fires once the queue has drained. */
+	play(mimeType: string, data: string, clip?: ClipId): void;
 	/** Queues raw PCM16 mono at `rate`, a voice front's speech, straight after what is playing. */
 	playPcm(data: string, rate: number): void;
 	/** How much of the speech playing now has been heard, in ms. */
 	playedMs(): number;
+	/** The last clip of a `said` line that began to play since playback last stopped, and how far into it playback is. */
+	position(): ClipPlayed | null;
+	/** Stops and forgets what plays; a paused reply is let go too. */
 	stopPlayback(): void;
+	/** Holds what plays where it is, to go on from the same sample with `resumePlayback`. */
+	pausePlayback(): void;
+	resumePlayback(): void;
+	/** Turns what plays down, or back up; stopping lets it go too. */
+	duckPlayback(down: boolean): void;
 	readonly playing: boolean;
 	/** The loudness of what is playing now, as RMS. */
 	outputLevel(): number;
@@ -27,6 +35,9 @@ export interface CallAudio {
 	chime(kind: "connect" | "end"): number;
 	close(): void;
 }
+
+/** What a reply turned down plays at: about 14 dB down, heard but out of the way. */
+const DUCKED = 0.2;
 
 /** A block of the mic is this many frames: ~43ms at 48 kHz. */
 const BLOCK = 2048;
@@ -42,6 +53,14 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 	let closing = false;
 	let micGeneration = 0;
 	let quietUntil = 0;
+	/**
+	 * Paused by the call, not by the system: the whole playback clock stops,
+	 * so every clip already scheduled, and every one that arrives meanwhile,
+	 * plays on from where it was once it resumes.
+	 */
+	let paused = false;
+	/** Everything the call plays goes through this, so it can be turned down. */
+	let volume: GainNode | null = null;
 
 	const takeMic = async () => {
 		const context = ctx;
@@ -85,10 +104,11 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 			ctx = context;
 			// A suspended context (the system took audio away) is asked back.
 			context.onstatechange = () => {
-				if (!closing && context.state === "suspended") void context.resume().catch(() => {});
+				if (!closing && !paused && context.state === "suspended") void context.resume().catch(() => {});
 			};
 			await context.resume();
 			const out = context.createGain();
+			volume = out;
 			analyser = context.createAnalyser();
 			analyser.fftSize = 1024;
 			out.connect(analyser);
@@ -107,8 +127,8 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		},
 		closeMic: dropMic,
 		openMic: takeMic,
-		play(mimeType, data) {
-			player?.push(mimeType, data);
+		play(mimeType, data, clip) {
+			player?.push(mimeType, data, clip);
 		},
 		playPcm(data, rate) {
 			player?.pushPcm(data, rate);
@@ -116,8 +136,28 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		playedMs() {
 			return player?.playedMs() ?? 0;
 		},
+		position() {
+			return player?.position() ?? null;
+		},
 		stopPlayback() {
 			player?.stop();
+			this.resumePlayback();
+			this.duckPlayback(false);
+		},
+		duckPlayback(down) {
+			if (volume === null || ctx === null) return;
+			// A short ramp, so turning down is never a click.
+			volume.gain.setTargetAtTime(down ? DUCKED : 1, ctx.currentTime, 0.02);
+		},
+		pausePlayback() {
+			if (paused || ctx === null) return;
+			paused = true;
+			void ctx.suspend().catch(() => {});
+		},
+		resumePlayback() {
+			if (!paused) return;
+			paused = false;
+			void ctx?.resume().catch(() => {});
 		},
 		get playing() {
 			return player?.busy ?? false;

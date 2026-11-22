@@ -393,10 +393,10 @@ export function Conversation({
 					goal={persona.goal}
 					people={people}
 					events={shown}
-					streaming={streaming}
+					streaming={session.quietInbox ? [] : streaming}
 					live={isWorking(session)}
-					waiting={awaitingSubagents(session)}
-					words={entry.activity}
+					waiting={!session.quietInbox && awaitingSubagents(session)}
+					words={session.quietInbox ? undefined : entry.activity}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}

@@ -299,18 +299,20 @@ export function listenForPatch(current: unknown, words: string[]): Record<string
 	return Object.keys(voice).length === 0 ? null : voice;
 }
 
-/** Whether the desk acknowledges, in the teammate's voice, while the teammate thinks on Turn by turn (`acknowledge`): only `true` is on. */
+/**
+ * Whether the desk acknowledges, in the teammate's voice, while the teammate thinks on Turn by turn (`acknowledge`):
+ * on unless the owner switched it off, which is the one `false` (the desk reads it the same way).
+ */
 export function acknowledgeOf(voice: unknown): boolean {
-	return voice !== null && typeof voice === "object" && !Array.isArray(voice) && (voice as Record<string, unknown>)["acknowledge"] === true;
+	return !(voice !== null && typeof voice === "object" && !Array.isArray(voice) && (voice as Record<string, unknown>)["acknowledge"] === false);
 }
 
-/** The voice setting with acknowledging on, or off, which takes the key away: the desk reads it absent as off. */
-export function acknowledgePatch(current: unknown, on: boolean): Record<string, unknown> | null {
+/** The voice setting with acknowledging on or off, kept as said: off is `false`, never the key taken away, which reads as on. */
+export function acknowledgePatch(current: unknown, on: boolean): Record<string, unknown> {
 	const voice: Record<string, unknown> =
 		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
-	if (on) voice["acknowledge"] = true;
-	else delete voice["acknowledge"];
-	return Object.keys(voice).length === 0 ? null : voice;
+	voice["acknowledge"] = on;
+	return voice;
 }
 
 /**
@@ -432,7 +434,7 @@ export function callRows(kind: CallKind): string[] {
 		case "live":
 			return ["Model", "Voice", "Call assistant"];
 		case "turn-by-turn":
-			return ["Model", "Transcription", "Speech", "Call assistant", "Acknowledge"];
+			return ["Model", "Transcription", "Speech", "Call assistant", "Acknowledge", "Interrupt"];
 		case "off":
 			return ["Model"];
 	}

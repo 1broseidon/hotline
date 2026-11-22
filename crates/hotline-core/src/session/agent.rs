@@ -102,7 +102,7 @@ pub(super) struct Watches {
     pub info: Option<watch::Receiver<DriverInfo>>,
     pub unprompted: Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>,
     pub subagents: Option<mpsc::UnboundedReceiver<SubagentReport>>,
-    pub wakes: Option<mpsc::UnboundedReceiver<String>>,
+    pub wakes: Option<mpsc::UnboundedReceiver<crate::session::jobs::ProcessReturn>>,
 }
 
 impl ThreadAgent {
@@ -807,6 +807,7 @@ mod tests {
         let room = room_with(&persona("ada"), scratch("agent-run-fresh"), agents.clone());
         room.run(
             RunSpec {
+                work_for: crate::session::ownership::WorkFor::Person,
                 persona_id: "ada".to_string(),
                 run_id: "r1".to_string(),
                 title: "Check".to_string(),

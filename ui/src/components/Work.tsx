@@ -139,7 +139,7 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const waiting = blockId === null && live && run === undefined;
 	const ending = run === undefined ? "done" : runEnding(events, run.items);
 	// A turn the person was not part of worked quietly: never "Done" beside "Working now".
-	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : ending === "stopped" ? "Stopped" : ending === "quiet" ? "Worked quietly" : "Done";
+	const state = running || waiting ? "Working" : resting && run?.open === true ? "Waiting" : ending === "stopped" ? "Stopped" : ending === "quiet-written" ? "Wrote quietly" : ending === "quiet" ? "Worked quietly" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	// What it sorted and sent: a quiet turn that posted has these here and no line in the chat.
@@ -211,7 +211,7 @@ export function WorkPage({
 	// Only the turn it opened at opens a line on arrival.
 	const openId = held === blockId ? stepId : undefined;
 	const hot = useHot();
-	const counts = run === undefined ? undefined : workLine(run.items);
+	const counts = run === undefined ? undefined : workLine(run.items, run.elapsed);
 	// The page's one status mark, on Steps: blocked on the person before all else.
 	const status: Status = blocked ? "blocked" : state === "Working" || state === "Waiting" ? "live" : counts !== undefined && counts.failed > 0 ? "failed" : "stopped";
 	const actions = (runs.length > 1 || (fresh && runs.length > 0)) && (

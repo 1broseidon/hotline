@@ -103,7 +103,7 @@ async fn a_yes_inside_the_wait_says_in_inbox_as_a_send_without_a_card_does_and_l
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_no_says_declined_and_nothing_lands() {
     let room = up("held-no");
     let send = sending(
@@ -125,6 +125,72 @@ async fn a_no_says_declined_and_nothing_lands() {
     assert!(dropped.held, "Bob never had it");
     assert_eq!(dropped.outcome, Some(InboxOutcome::Dropped));
     assert_eq!(dropped.sender_told, 1);
+    tokio::time::sleep(heard::gather_delay() * 2).await;
+    assert!(
+        room.session("bob").is_err(),
+        "a denied item never started Bob"
+    );
+    assert_eq!(room.tape("bob"), [] as [Value; 0]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn both_answer_styles_can_reply_up_in_access_without_a_reverse_grant() {
+    let room = up("held-answer-up");
+    // Bob's questions reach Ada down in access; she has no grant to ask him.
+    let quick = send(&room, "bob", "ada", "Which runner is red?", json!({})).await;
+    let sorted = send(&room, "bob", "ada", "Which runner is slow?", json!({})).await;
+    let question = item(&room, "ada", &quick);
+    let quick_reply = answer_with_send(&room, &question, "Linux is red.").await;
+    tool(
+        &room,
+        "ada",
+        "update_inbox",
+        json!({"items": [{"id": sorted, "answer": "The Mac is slow."}]}),
+    )
+    .await
+    .unwrap();
+
+    let received = kept::received(&room.log, "bob");
+    assert!(received.iter().any(|item| item.id == quick_reply.id));
+    assert!(received.iter().any(|item| {
+        item.reply_to.as_deref() == Some(sorted.as_str()) && item.wants == InboxWants::Nothing
+    }));
+    assert_eq!(
+        item(&room, "ada", &sorted).outcome,
+        Some(InboxOutcome::Answered)
+    );
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|event| event["kind"] != "permission")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reply_to_that_asks_something_up_in_access_still_needs_first_contact() {
+    let room = up("held-follow-up");
+    let question = send(&room, "bob", "ada", "Which runner is red?", json!({})).await;
+    let follow_up = sending(
+        &room,
+        json!({"to": ["bob"], "message": "Which fleet do you mean?",
+            "reply_to": short(&question), "wants": "answer"}),
+    );
+    let request = card(&room).await;
+    assert!(
+        !follow_up.is_finished(),
+        "the follow-up waits for the person"
+    );
+    assert_eq!(kept::received(&room.log, "bob"), []);
+
+    room.answer_permission("ada", &request, "deny")
+        .await
+        .unwrap();
+    let denied = follow_up.await.unwrap().unwrap();
+    assert_eq!(
+        denied["sent"][0]["delivery"],
+        "not sent, the person declined"
+    );
+    assert_eq!(kept::received(&room.log, "bob"), []);
 }
 
 /// A card taken down unanswered, here by the person's Stop of the two

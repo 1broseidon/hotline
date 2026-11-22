@@ -52,7 +52,7 @@ impl Room {
                 return Err(crate::driver::failure::NO_PROVIDER.to_string());
             }
             let capability = self.stop_with_capability(persona_id);
-            self.start_now(persona_id, capability).await?;
+            self.start_now(persona_id, capability, false).await?;
             return Ok((self.session(persona_id)?, held));
         }
         if self
@@ -64,7 +64,7 @@ impl Room {
             return Ok((session, held));
         }
         let capability = self.stop_with_capability(persona_id);
-        self.start_now(persona_id, capability).await?;
+        self.start_now(persona_id, capability, false).await?;
         Ok((self.session(persona_id)?, held))
     }
 
@@ -160,6 +160,8 @@ impl Room {
                     retry: false,
                     wake: false,
                     back: false,
+                    work_for: crate::session::ownership::WorkFor::Person,
+                    starter: super::returns::Starter::Person,
                     quiet: false,
                     pick_up: false,
                     woke: Vec::new(),
@@ -376,6 +378,7 @@ impl Room {
         wire.text = timed_from(ts, client, &wire.text);
         wire.said = Some(id);
         self.dispatch(session.clone(), wire);
+        self.show_inbox_activity(session);
     }
 
     /// Stamps every line the driver has taken as read, now that the agent has

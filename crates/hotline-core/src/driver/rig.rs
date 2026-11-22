@@ -519,7 +519,9 @@ impl Driver for InProcess {
         std::mem::take(&mut *lock(&self.unconsumed))
     }
 
-    fn subscribe_wakes(&self) -> Option<mpsc::UnboundedReceiver<String>> {
+    fn subscribe_wakes(
+        &self,
+    ) -> Option<mpsc::UnboundedReceiver<crate::session::jobs::ProcessReturn>> {
         Some(self.processes.subscribe())
     }
 
@@ -754,6 +756,7 @@ impl InProcess {
             processes: self.processes.clone(),
             asked,
             returns: self.teammate.returns(),
+            ownership: self.teammate.ownership(),
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
@@ -853,6 +856,7 @@ struct Turn {
     /// The line said with a result that comes back when nobody waits on it
     /// ([`crate::session::returns`]); none for a run's turn.
     returns: Option<crate::session::returns::Note>,
+    ownership: crate::session::ownership::Track,
 }
 
 impl Turn {

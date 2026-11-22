@@ -20,6 +20,8 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
   private var failure: Error?
   private var committed: [(range: CMTimeRange, text: String)] = []
   private var volatile = ""
+  /** Results the transcriber has given this utterance, for the line logged when it ends. */
+  private var heard = 0
 
   init(locale: Locale, emit: @escaping SpeechEmit, microphone: SpeechMicrophone) {
     self.locale = locale
@@ -63,6 +65,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
       do {
         for try await result in transcriber.results {
           guard let self, !self.cancelled else { return }
+          self.heard += 1
           let phrase = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
           if result.isFinal {
             if let existing = self.committed.firstIndex(where: { CMTimeRangeEqual($0.range, result.range) }) {
@@ -92,11 +95,22 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
       consume: { buffer in audio.append(buffer) },
       level: { [weak self] db in
         guard let self, !self.cancelled, self.finishing == nil else { return }
-        self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000])
+        self.emit(["type": "level", "levelDb": db, "unit": "dbfs", "at": Date().timeIntervalSince1970 * 1000,
+          "processed": self.microphone.processed])
       },
-      interrupted: { [weak self] in
-        self?.fail(LocalSpeechError(message: "The microphone changed. Call again."))
-      })
+      interrupted: { [weak self] why in self?.fail(why) })
+    NSLog("[hotline-speech] listening: microphone %@, analyzer %@, voice processing %@",
+      microphone.format.description, format.description, microphone.processed ? "on" : "off")
+  }
+
+  /**
+   One line when listening ends: a moving meter with silent buffers or no
+   results says where the words were lost.
+   */
+  private func traceEnd(_ how: String) {
+    guard let sent = audio?.sent else { return }
+    NSLog("[hotline-speech] %@: %d buffers to the analyzer, %d silent, %d results",
+      how, sent.buffers, sent.silent, heard)
   }
 
   func stop() async throws -> String {
@@ -105,6 +119,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
     if let finishing { return try await finishing.value }
     guard !cancelled, let analyzer else { throw CancellationError() }
     microphone.stop(owner: ObjectIdentifier(self))
+    traceEnd("stopped")
     audio?.finish()
     audio = nil
     input = nil
@@ -138,6 +153,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
     guard !cancelled, failure == nil, completed == nil else { return }
     failure = error
     microphone.stop(owner: ObjectIdentifier(self))
+    traceEnd("failed")
     audio?.finish()
     audio = nil
     input?.finish()
@@ -152,6 +168,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
     guard !cancelled else { return }
     cancelled = true
     microphone.stop(owner: ObjectIdentifier(self))
+    traceEnd("cancelled")
     audio?.finish()
     audio = nil
     input?.finish()
@@ -162,15 +179,21 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
   }
 }
 
-/** Owns converter state on the audio thread, with a lock against stop/cancel on Main. */
+/**
+ Owns converter state on the audio thread, with a lock against stop/cancel on Main.
+ `check/` drives it with recorded speech, so it is not private to this file.
+ */
 @available(macOS 26.0, *)
-private final class AnalyzerAudioSink: @unchecked Sendable {
+final class AnalyzerAudioSink: @unchecked Sendable {
   private let converter: AVAudioConverter
   private let format: AVAudioFormat
   private let input: AsyncStream<AnalyzerInput>.Continuation
   private let onFailure: @MainActor @Sendable (Error) -> Void
   private let lock = NSLock()
   private var accepting = true
+  /** What crossed so far, for the line logged when an utterance ends. */
+  private var buffers = 0
+  private var silentBuffers = 0
 
   init(from source: AVAudioFormat, to target: AVAudioFormat,
     input: AsyncStream<AnalyzerInput>.Continuation,
@@ -180,6 +203,15 @@ private final class AnalyzerAudioSink: @unchecked Sendable {
       throw LocalSpeechError(message: "This microphone cannot supply on-device speech audio.")
     }
     converter.primeMethod = .none
+    // Voice processing hands the tap its processed voice first and then one
+    // reference channel per output channel, carrying what the Mac plays: a
+    // Bluetooth headset playing stereo (the call window's audio) gives
+    // three. A converter has no layout for three channels and writes
+    // silence, so the analyzer heard nothing while the meter moved. Every
+    // analyzer channel takes the first, which is the voice.
+    if source.channelCount != target.channelCount {
+      converter.channelMap = Array(repeating: 0, count: Int(target.channelCount))
+    }
     self.converter = converter
     self.format = target
     self.input = input
@@ -217,6 +249,8 @@ private final class AnalyzerAudioSink: @unchecked Sendable {
       return
     }
     guard converted.frameLength > 0 else { return }
+    buffers += 1
+    if Self.silent(converted) { silentBuffers += 1 }
     // Each converted buffer is freshly allocated; never enqueue the tap's reused buffer.
     if case .dropped = input.yield(AnalyzerInput(buffer: converted)) {
       fail(LocalSpeechError(message: "On-device speech could not keep up. Please try again."))
@@ -234,6 +268,21 @@ private final class AnalyzerAudioSink: @unchecked Sendable {
     defer { lock.unlock() }
     accepting = false
     input.finish()
+  }
+
+  /** Buffers sent to the analyzer, and how many of them were digital silence. */
+  var sent: (buffers: Int, silent: Int) {
+    lock.lock()
+    defer { lock.unlock() }
+    return (buffers, silentBuffers)
+  }
+
+  /** Every sample zero: not a quiet room, which is never exactly zero, but no audio at all. */
+  private static func silent(_ buffer: AVAudioPCMBuffer) -> Bool {
+    let frames = Int(buffer.frameLength)
+    if let data = buffer.int16ChannelData { return (0..<frames).allSatisfy { data[0][$0] == 0 } }
+    if let data = buffer.floatChannelData { return (0..<frames).allSatisfy { data[0][$0] == 0 } }
+    return false
   }
 }
 #endif

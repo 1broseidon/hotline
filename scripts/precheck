@@ -142,7 +142,40 @@ leg_ui() {
 # changing either builds a new one. It is arm64, this Mac's own: the runner is
 # x86_64, and code that differs by architecture rather than by OS is the one
 # thing this does not see.
+# One Linux leg at a time on this Mac, whichever worktree runs it: several
+# agents pushing at once would each start a VM and link the speech engine
+# side by side. A directory is the lock (mkdir is atomic); it names its pid,
+# and a lock whose pid is gone is stale and taken over.
+LINUX_LOCK="${TMPDIR:-/tmp}/hotline-precheck-linux.lock"
+linux_lock() {
+  local waited=0 holder
+  while ! mkdir "$LINUX_LOCK" 2>/dev/null; do
+    holder="$(cat "$LINUX_LOCK/pid" 2>/dev/null)"
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -f "$LINUX_LOCK/pid"; rmdir "$LINUX_LOCK" 2>/dev/null
+      continue
+    fi
+    [ "$waited" -eq 0 ] && echo "precheck: waiting for another worktree's Linux leg (pid ${holder:-?})"
+    waited=1
+    sleep 5
+  done
+  echo "$$" >"$LINUX_LOCK/pid"
+}
+linux_unlock() {
+  [ "$(cat "$LINUX_LOCK/pid" 2>/dev/null)" = "$$" ] || return 0
+  rm -f "$LINUX_LOCK/pid"; rmdir "$LINUX_LOCK" 2>/dev/null
+  return 0
+}
+
 leg_linux() {
+  linux_lock
+  leg_linux_locked
+  local status=$?
+  linux_unlock
+  return "$status"
+}
+
+leg_linux_locked() {
   command -v container >/dev/null || { echo "precheck: Apple's container CLI is not installed (github.com/apple/container)"; return 1; }
   if ! container system status >/dev/null 2>&1; then
     say "precheck: starting the container system service"
@@ -177,20 +210,25 @@ leg_linux() {
   python3 scripts/fetch-speech-engine --target aarch64-unknown-linux-gnu || return 1
   # The volumes mount as root; the tests run as the runner user, as on GitHub.
   # TS_RS_EXPORT_DIR moves the generated contract off the read-only checkout.
-  # Half this Mac's memory: the VM has no swap, and with less, a dozen test
-  # binaries linking the speech engine at once get the linker killed.
+  # A fixed, modest size so it runs beside the person's own work: it used to
+  # take all but two CPUs and half the memory (64 GB here), which spun the
+  # fans and starved the Mac when several agents pushed. The VM has no swap,
+  # and a dozen test binaries linking the speech engine at once get the
+  # linker killed at this size, so cargo runs fewer jobs at a time instead.
+  # PRECHECK_LINUX_CPUS, _MEMORY (GB) and _JOBS override the three.
   # An init reaps what the tests kill; without one a killed child stays a
   # zombie, and the tests that check it is gone see it alive. The container
   # masks parts of /proc, which stops bubblewrap mounting its own; a runner
   # masks nothing, so neither does this. The sandbox tests are ignored on
   # Linux unless asked for, and this container has bubblewrap, so it asks.
-  container run --rm --cpus "$(($(sysctl -n hw.ncpu) - 2))" \
-    --memory "$(($(sysctl -n hw.memsize) / 2 / 1024 / 1024 / 1024))G" \
+  container run --rm --name "hotline-precheck-linux-$$" \
+    --cpus "${PRECHECK_LINUX_CPUS:-8}" --memory "${PRECHECK_LINUX_MEMORY:-16}G" \
     --init --masked-path NONE --read-only-path NONE \
     --user root --workdir /src \
     --mount "type=bind,source=$ROOT,target=/src,readonly" \
     "${volumes[@]}" \
     -e CARGO_TARGET_DIR=/target -e TS_RS_EXPORT_DIR=/target/generated \
+    -e CARGO_BUILD_JOBS="${PRECHECK_LINUX_JOBS:-3}" \
     "$image" bash -c '
       chown runner:runner "$@" &&
       runuser -u runner -- bash -c "

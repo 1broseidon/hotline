@@ -2,8 +2,10 @@
 //! real teammate session: the turn reaches the teammate's model before the
 //! line is written, the turn is told the desk acknowledges it and asked for
 //! no opening of its own, and with the setting off the call is as it always
-//! was. A teammate that then works in silence has one line said on what it
-//! is doing, from the step its session took.
+//! was. A desk that never set it acknowledges, and one with no call
+//! assistant leaves the turn as it always was. A teammate that then works in
+//! silence has one line said on what it is doing, from the step its session
+//! took.
 use super::*;
 use hotline_core::voice::spoken::{ACKNOWLEDGED_CONTRACT, CONTRACT};
 use std::time::Instant;
@@ -157,17 +159,18 @@ struct Turn {
     answered_at: Option<Instant>,
 }
 
-/// A desk with `assistant` for its call assistant and acknowledging `on`,
-/// Mack on `model` working in `root`, and a device-text call to Mack: the
-/// socket, what stops the desk's server, and the call.
+/// A desk with `assistant` for its call assistant (none without one) and
+/// acknowledging as `acknowledge` sets it (never set for `None`), Mack on
+/// `model` working in `root`, and a device-text call to Mack: the socket,
+/// what stops the desk's server, and the call.
 async fn call_to_mack(
-    on: bool,
-    assistant: Acknowledger,
+    acknowledge: Option<bool>,
+    assistant: Option<Acknowledger>,
     model: &str,
     root: &std::path::Path,
 ) -> (Socket, tokio::task::AbortHandle, String) {
     let mut services = services();
-    services.dispatcher = Some(Arc::new(assistant));
+    services.dispatcher = assistant.map(|assistant| Arc::new(assistant) as Arc<dyn Dispatcher>);
     let desk = Arc::new(
         hotline_core::desk::Desk::open_with_voice_services(root, common::store(), Some(services))
             .unwrap(),
@@ -182,11 +185,11 @@ async fn call_to_mack(
         .unwrap();
     let saved = answer(&mut socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Slow fixture","baseUrl":model,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
     assert_eq!(saved["ok"], true, "{saved}");
-    if on {
+    if let Some(on) = acknowledge {
         let set = answer(
             &mut socket,
             89,
-            json!({"cmd":"settings.update","params":{"patch":{"voice":{"acknowledge":true}}}}),
+            json!({"cmd":"settings.update","params":{"patch":{"voice":{"acknowledge":on}}}}),
         )
         .await;
         assert_eq!(set["ok"], true, "{set}");
@@ -237,27 +240,35 @@ async fn ask_and_hear(socket: &mut Socket, call: &str, silence_ms: u32) -> Vec<(
     }
 }
 
-/// One device-text turn of a call to Mack, with acknowledging `on`, the
-/// person's speech ending `silence_ms` before the desk takes it, the call
-/// assistant's line after `line_delay`, and Mack's model taking
-/// `model_delay` to answer.
+/// One device-text turn of a call to Mack, with acknowledging as
+/// `acknowledge` sets it, the person's speech ending `silence_ms` before the
+/// desk takes it, the call assistant's line after `line_delay` (no call
+/// assistant without `assistant`), and Mack's model taking `model_delay` to
+/// answer.
 async fn one_turn(
-    on: bool,
+    acknowledge: Option<bool>,
+    assistant: bool,
     silence_ms: u32,
     line: &'static str,
     line_delay: Duration,
     model_delay: Duration,
 ) -> Turn {
     let root = tempfile::tempdir().unwrap();
-    let assistant = Acknowledger::new(line, line_delay, "");
-    let asked = assistant.asked.clone();
-    let answered = assistant.answered.clone();
+    let acknowledger = Acknowledger::new(line, line_delay, "");
+    let asked = acknowledger.asked.clone();
+    let answered = acknowledger.answered.clone();
     let (model, requests) = model_answering(vec![(
         model_delay,
         text_chunks("<spoken>The checks passed.</spoken>"),
     )])
     .await;
-    let (mut socket, server, call) = call_to_mack(on, assistant, &model, root.path()).await;
+    let (mut socket, server, call) = call_to_mack(
+        acknowledge,
+        assistant.then_some(acknowledger),
+        &model,
+        root.path(),
+    )
+    .await;
     let said = ask_and_hear(&mut socket, &call, silence_ms).await;
     let (asked_at, asked_model) = requests
         .lock()
@@ -290,6 +301,7 @@ async fn one_turn(
 #[tokio::test]
 async fn a_slow_teammate_is_asked_at_once_and_its_line_is_said_first() {
     let turn = one_turn(
+        Some(true),
         true,
         550,
         LINE,
@@ -331,7 +343,15 @@ async fn an_empty_or_late_line_is_not_said() {
         (550, "", Duration::ZERO),
         (3_800, LINE, Duration::from_millis(900)),
     ] {
-        let turn = one_turn(true, silence, line, delay, Duration::from_millis(1_500)).await;
+        let turn = one_turn(
+            Some(true),
+            true,
+            silence,
+            line,
+            delay,
+            Duration::from_millis(1_500),
+        )
+        .await;
         assert_eq!(turn.acknowledgements, 1);
         assert_eq!(turn.said, ["The checks passed."], "{line:?}");
         assert!(
@@ -342,11 +362,59 @@ async fn an_empty_or_late_line_is_not_said() {
     }
 }
 
-/// Off, the call assistant is never asked and the turn is today's: the
-/// teammate's words alone, and the contract that asks for its own opening.
+/// Switched off, the call assistant is never asked and the turn is today's:
+/// the teammate's words alone, and the contract that asks for its own
+/// opening.
 #[tokio::test]
 async fn with_the_setting_off_the_turn_is_unchanged() {
     let turn = one_turn(
+        Some(false),
+        true,
+        550,
+        LINE,
+        Duration::ZERO,
+        Duration::from_millis(1_500),
+    )
+    .await;
+    assert_eq!(turn.acknowledgements, 0);
+    assert_eq!(turn.said, ["The checks passed."]);
+    assert!(turn.asked.contains(&as_sent(CONTRACT)), "{}", turn.asked);
+    assert!(
+        !turn.asked.contains("brief acknowledgement"),
+        "{}",
+        turn.asked
+    );
+}
+
+/// A desk that never set it acknowledges: the line is asked for and said
+/// first, and the teammate is told the desk acknowledges the turn.
+#[tokio::test]
+async fn never_set_the_turn_is_acknowledged() {
+    let turn = one_turn(
+        None,
+        true,
+        550,
+        LINE,
+        Duration::from_millis(300),
+        Duration::from_millis(2_500),
+    )
+    .await;
+    assert_eq!(turn.acknowledgements, 1);
+    assert_eq!(turn.said, [LINE, "The checks passed."], "{:?}", turn.said);
+    assert!(
+        turn.asked.contains(&as_sent(ACKNOWLEDGED_CONTRACT)),
+        "{}",
+        turn.asked
+    );
+}
+
+/// Never set, on a desk with no call assistant: no line can be written, so
+/// the teammate is not told of one and keeps its own opening, as the
+/// contract it always had asks.
+#[tokio::test]
+async fn never_set_without_a_call_assistant_the_turn_is_unchanged() {
+    let turn = one_turn(
+        None,
         false,
         550,
         LINE,
@@ -357,6 +425,7 @@ async fn with_the_setting_off_the_turn_is_unchanged() {
     assert_eq!(turn.acknowledgements, 0);
     assert_eq!(turn.said, ["The checks passed."]);
     assert!(turn.asked.contains(&as_sent(CONTRACT)), "{}", turn.asked);
+    assert!(turn.asked.contains("Before a tool"), "{}", turn.asked);
     assert!(
         !turn.asked.contains("brief acknowledgement"),
         "{}",
@@ -384,7 +453,8 @@ async fn a_teammate_working_in_silence_is_heard_saying_what_it_is_doing() {
         ),
     ])
     .await;
-    let (mut socket, server, call) = call_to_mack(true, assistant, &model, root.path()).await;
+    let (mut socket, server, call) =
+        call_to_mack(Some(true), Some(assistant), &model, root.path()).await;
     let asked = Instant::now();
     let said = ask_and_hear(&mut socket, &call, 550).await;
     socket.close(None).await.unwrap();

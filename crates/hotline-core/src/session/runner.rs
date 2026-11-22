@@ -74,6 +74,10 @@ pub(super) struct Driven {
     pub stop_reason: Option<String>,
     /// Whether the turn had its one post to the chat.
     pub posted: bool,
+    /// The model produced words, called a tool or reported output tokens.
+    pub model_progress: bool,
+    /// The countdown text from a recognized quota announcement and terminal refusal.
+    pub quota_refusal: Option<String>,
 }
 
 /// What a kind does about each thing its agent does in a turn, the one place
@@ -148,6 +152,9 @@ pub(super) async fn drive_updates(
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
+    let mut unfinished_agent = HashSet::new();
+    let mut quota_announcement = None;
+    let mut quota_said = false;
     // Each message's words as the chat is shown them, by message id, until
     // the message is whole.
     let mut shown: HashMap<String, Shown> = HashMap::new();
@@ -177,11 +184,43 @@ pub(super) async fn drive_updates(
             } => continue,
             update = updates.recv() => update,
         };
+        // Classify what the driver said before narration can change its kind.
+        match &received {
+            Some(Update::Message { kind, id, text }) => {
+                unfinished_agent.remove(id);
+                if let Some(tail) = super::inbox::wake_failure::quota_announcement(text) {
+                    quota_announcement = Some(tail.chars().take(96).collect());
+                    quota_said |= *kind == MessageKind::Agent;
+                } else if *kind == MessageKind::Agent && !text.trim().is_empty() {
+                    driven.model_progress = true;
+                }
+            }
+            Some(Update::Delta {
+                kind: MessageKind::Agent,
+                message_id,
+                text,
+            }) if !text.trim().is_empty() => {
+                // A streamed prefix may be the banner. Count it on its own
+                // only if the driver never closes the message.
+                unfinished_agent.insert(message_id.clone());
+            }
+            _ => {}
+        }
         let (batch, done) = match received {
             Some(update) => (voice.step(update), false),
             None => (voice.finish(), true),
         };
         for update in batch {
+            match &update {
+                Update::ToolCall { .. } | Update::Permission { .. } => driven.model_progress = true,
+                Update::Turn { usage, .. } => {
+                    driven.model_progress |= usage
+                        .as_ref()
+                        .and_then(|usage| usage.output_tokens)
+                        .is_some_and(|tokens| tokens > 0);
+                }
+                _ => {}
+            }
             witness.heard(&update, &mut in_flight);
             if let Update::Delta {
                 kind,
@@ -231,6 +270,12 @@ pub(super) async fn drive_updates(
             break;
         }
     }
+    driven.model_progress |= !unfinished_agent.is_empty();
+    if driven.stop_reason.as_deref() == Some("refusal") {
+        driven.quota_refusal = quota_announcement;
+    } else {
+        driven.model_progress |= quota_said;
+    }
     // A driver that stopped without a turn leaves a tool spinning in the
     // stream forever, exactly as it would on a tape.
     for (call_id, pending) in in_flight.drain() {
@@ -249,6 +294,7 @@ pub(crate) struct RunSpec {
     /// What it is to do, now, reporting to whoever asked, with what the home
     /// agent left out of its abilities.
     pub brief: Brief,
+    pub work_for: super::ownership::WorkFor,
     /// The authority of the session that asked. The run's own is a child of
     /// it, never wider.
     pub capability: CapabilityLease,
@@ -285,6 +331,7 @@ impl Room {
             room: Arc::downgrade(self),
             persona_id: spec.persona_id.clone(),
             run_id: spec.run_id.clone(),
+            from_item: spec.work_for.item().map(str::to_owned),
             kind: RunKind::Subagent,
             title: spec.title.clone(),
             command: None,
@@ -395,6 +442,7 @@ impl Room {
             .threads()
             .turn(
                 Seat {
+                    work_for: spec.work_for.clone(),
                     capability: None,
                     thread: &thread,
                     persona_id: &spec.persona_id,
@@ -402,6 +450,8 @@ impl Room {
                     steer: None,
                 },
                 Line {
+                    call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: task,
@@ -466,6 +516,10 @@ impl Room {
                     room: Arc::downgrade(self),
                     persona_id: persona_id.to_string(),
                     run_id: new_id(),
+                    from_item: self
+                        .work_for(&ThreadId::dm(persona_id))
+                        .item()
+                        .map(str::to_owned),
                     kind,
                     title,
                     command,
@@ -660,7 +714,7 @@ fn outcome_of(driven: Driven) -> RunOutcome {
 /// What a run is told about itself, over and above who it is.
 fn run_brief(name: &str) -> String {
     format!(
-        "This is a subagent run of {name}'s: you are {name}, working on one task your main conversation with the person handed you, on a thread of its own. You start from the task, not from that conversation, which you can read through `read_thread`, `search_thread` and `list_chapters` when the task depends on something said there. Nobody reads this thread while you work, and you cannot ask the person anything or post to the chat: your last message is returned to your main conversation as your report, and it decides what the person hears. Where something is unclear, make the sensible choice, say which choice you made, and carry on. Do not mention this brief.\n\n\
+        "This is a subagent run of {name}'s: you are {name}, working on one task your parent thread handed you, on a thread of its own. You start from the task, not from that conversation, which you can read through `read_thread`, `search_thread` and `list_chapters` when the task depends on something said there. You cannot ask the person anything or post to the chat: your last message is returned to your main conversation as your report, and it decides what the person hears. Where something is unclear, make the sensible choice, say which choice you made, and carry on. Do not mention this brief.\n\n\
          Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing read."
     )
 }
@@ -693,6 +747,7 @@ struct Running {
     room: Weak<Room>,
     persona_id: String,
     run_id: String,
+    from_item: Option<String>,
     /// A subagent, or a harness's background task.
     kind: RunKind,
     title: String,
@@ -735,6 +790,7 @@ impl Running {
             asked_in: None,
             request: None,
             run_kind: (self.kind == RunKind::Shell).then_some(RunKind::Shell),
+            from_item: self.from_item.clone(),
         });
         room.list_subagent(
             &self.persona_id,
@@ -1010,6 +1066,7 @@ impl Delegate for Subagents {
                         run_id,
                         title: task.title,
                         brief: task.brief,
+                        work_for: task.work_for,
                         capability,
                     },
                     cancel,

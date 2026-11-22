@@ -90,7 +90,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tokio_util::sync::CancellationToken;
 use translate::{
     ask_permission, operator_blocks, operator_fact, receive, steer_lane, stop_reason_of,
-    text_block, usage_of,
+    text_block, try_steer, usage_of,
 };
 
 /// How many updates may be in flight before the connection waits for the room
@@ -841,6 +841,27 @@ impl Driver for ChildAgent {
     /// session drops it rather than say it as a prompt (`sides.rs`).
     fn note(&self, text: String) -> bool {
         self.steer(text, Vec::new())
+    }
+
+    async fn note_unprompted(&self, text: String) {
+        if self.check_capability().is_err()
+            || !self.live.steerable.load(Ordering::SeqCst)
+            || self.live.cancelled.load(Ordering::SeqCst)
+            || lock(&self.live.unprompted_open).is_none()
+        {
+            return;
+        }
+        let connection = lock(&self.live.connection).clone();
+        let session_id = lock(&self.live.session).id.clone();
+        if let (Some(connection), Some(session_id)) = (connection, session_id) {
+            // With no session/prompt outstanding there is no steering lane.
+            // Try the advertised, non-starting extension once, with no replay.
+            let _ = tokio::time::timeout(
+                Duration::from_millis(500),
+                try_steer(&self.live, &connection, &session_id, &text, &[]),
+            )
+            .await;
+        }
     }
 
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {

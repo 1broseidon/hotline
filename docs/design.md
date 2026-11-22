@@ -820,25 +820,18 @@ at the column's far edge, and under a turn with nothing else to say a lone
 as the conversation's other quiet lines do, and the time wraps with the
 words before it rather than alone on a row (`inline-lines.css`).
 
-Asking a colleague is one row (George, 2026-11-16, task-505). "Ask Timo
-what the score of the last game was" drew eight things before the answer:
-two bubbles saying it would ask and had asked, the sent row, the outcome
-"Asked Timo", the quiet turn's inbox line, the answer's "From Timo's
-message" and the answer with its time. The sent row already says what went
-and where it stands, so a turn whose only work was the inbox draws no
-outcome line under a reply while its row is drawn, and a turn the person
-asked for with no bubble draws no time either: the row stands for the turn.
-What reaching a colleague takes on the way is no work of its own: both
-agents look before nearly every send (George's own tape read the room's
-skill and the team first; Claude Code loads Hotline's tools), and counting it
-would leave the line under every such turn.
-A quiet turn that posts folds its inbox line into the bubble: what it read
-and sent is under Inbox in the path that bubble's time opens, and a quiet
-turn that posts nothing keeps its "Inbox · read 1". An answer straight
-under the sent row it answers draws no "From Timo's message" over it, since
-the row says what was asked and of whom; one that comes after other talk, or
-that the window cannot link to a row in view, keeps it, and files, cards and
-jobs always do.
+Sends in a turn the person reads are told in a bubble, and their inbox rows
+fold into the turn's activity line (superseding task-505's standalone sent
+row in the chat). When a teammate sends or sorts in a turn the person
+started or a quiet turn that posted a bubble, `inbox_sent` and
+`inbox_sorted` draw no chat-level rows of their own: they live inside that
+turn's `Steps` when opened (at the place they happened) and under Inbox in
+the turn's path pane. The teammate says in one short line what it asked and
+of whom, the turn keeps its normal activity line, which says what it read
+and sent ("Sent a message"), and a bubble woken by a colleague's message
+keeps its "From Timo's message" line. A quiet turn that posts nothing draws
+nothing: George ruled on 2026-11-21 that the chat never shows a standalone
+"Inbox" line (superseding task-494's "Inbox · read 3, sent 1" run).
 It is the window's drawing; the tape, the wire and the phone are unchanged,
 since the phone has no inbox rows yet.
 
@@ -1146,13 +1139,20 @@ ends, and a tap (Cut in) is the way to interrupt. Echo cancellation in the
 browser's capture and the Mac recognizer's voice processing did not keep a
 reply on a speaker from being heard as the person and cutting itself off;
 a realtime model handles its own echo, the pipeline cannot. Late clips from
-a cut Turn by turn line are discarded.
+a cut Turn by turn line are discarded. Interrupt by speaking, on by default
+and only where this Mac's analyzer hears the call, listens over the reply
+again without letting energy cut it: a voice only pauses it, and only words
+the reply did not say interrupt it, through the same `voice.interrupt` as a
+tap ([design/voice-interrupt.md](design/voice-interrupt.md)).
 
-An interruption writes a notice on the call thread with the generated line,
-its speech id and the played milliseconds when the live client supplies them.
-It explicitly says that the line was not heard to its end and that the last
-heard word is unknown: generation and elapsed audio do not establish a word
-boundary. The notice metadata is additive; older readers keep its text, and the tape
+An interruption writes a notice on the call thread with its speech id. When
+the client reports where playback stood (the last clip begun and how far
+into it), it says which sentences were heard in full, which never began, and
+the one cut, with a cut point that is exact only from a voice's word timings
+and otherwise labelled an estimate from playback time: elapsed audio does
+not establish a word boundary, so it is never offered as one. Without a
+report it carries the whole generated line and says where it stopped is
+unknown; a live front's played milliseconds are given as such. The notice metadata is additive; older readers keep its text, and the tape
 segment layout and importer are unchanged. The written reply remains intact.
 The next Turn by turn thread turn gets
 the interruption as playback context, separately from the saved caller text,
@@ -1345,10 +1345,13 @@ Teammates reach each other one way, an item in the colleague's inbox
 replaced `message_teammate`'s ask and handoff and a colleague's `aside`, under
 which the sender decided when the receiver was interrupted and concurrent
 messages were each handled blind to the others. `send(to, title, message,
-wants, waiting)` returns at once; the receiver is told titles, never bodies,
-woken once a gather delay after an item lands when idle, given a one-line
-notice when busy, and decides itself what to read, take, combine or leave
-with `read_inbox` and `update_inbox`. What it left for later, or was shown
+wants, waiting)` returns at once; the receiver is woken once a gather delay
+after an item lands when idle and given a one-line title notice when busy.
+A lone new quick item that wakes it is shown whole and marked seen (closed
+as noted once the turn has run, when it asks nothing back); a
+question can be answered with one `send` and `reply_to`. For other items,
+the receiver is told titles and decides what to read, take, combine or
+leave with `read_inbox` and `update_inbox`. What it left for later, or was shown
 and left unsorted, is offered to it once more, in a quiet turn, when its main
 conversation goes idle after a turn something other than that offer started. Work it takes runs in a work thread of
 its own, started by its sort and never by the sender, and answers and
@@ -1466,7 +1469,9 @@ back, and `settings.update` cannot name a lead around these rules. Being lead
 changes nothing else about a teammate: its own model, memory and tools stay
 its own. A desk call opens the lead's own call thread and voice front. The
 front answers roster questions with `list_teammates` and puts named work in
-the teammate's inbox with `send`, `wants: work`, saying whose inbox it is in.
+the teammate's inbox with `send`, `wants: work`, saying whose inbox it is in;
+a question for a colleague goes through `work_on_it` to the lead's own
+session, which asks it.
 The live desk call and current lead together let that item in without a
 first-contact card; a direct call, DM, stopped call or former lead does not
 carry that grant. The queue checks it again before starting work. Stopping or

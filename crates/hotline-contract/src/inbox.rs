@@ -125,13 +125,41 @@ impl InboxOutcome {
 /// teammate's words, and never set by a teammate's tool. `expired`: an item
 /// the teammate sent was closed as expired in its receiver's inbox.
 /// `unanswered`: a question the teammate asked a colleague before the inbox
-/// was ended unanswered when Hotline was updated.
+/// was ended unanswered when Hotline was updated. `wakeFailed`: the desk
+/// could not wake the receiver for an item that is still in its inbox.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum InboxNotice {
     Expired,
     Unanswered,
+    WakeFailed,
+}
+
+/// Why the desk could not wake an inbox item's receiver.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum InboxWakeFailureState {
+    OutOfQuota,
+    NotSignedIn,
+    Stopped,
+    CouldNotStart,
+    Other,
+}
+
+/// What Hotline knows about a failed inbox wake, saved on its notice only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct InboxWakeFailure {
+    pub state: InboxWakeFailureState,
+    /// The provider's reset, if known, in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<i64>,
+    /// Bounded, redacted diagnostic text. Present it as quoted data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// One change of an item's state, when it happened, and why.
@@ -154,6 +182,13 @@ pub struct InboxReceipt {
     #[serde(flatten)]
     #[ts(skip)]
     pub newer: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The colleague and item the sending turn was working for, if any.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxWorkOwner {
+    pub name: String,
+    pub item: String,
 }
 
 /// One item, as it is kept on its receiver's own stream (`inbox/<id>`),
@@ -258,10 +293,22 @@ pub struct InboxItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub for_person: bool,
+    /// Captured when this item was sent, so its reply can resume that work.
+    /// Separate from `for_person`, which decides whether to wake the main chat loudly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub work_owner: Option<InboxWorkOwner>,
+    /// The particular call a request (or its returning result) belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub asked_on_call: Option<String>,
     /// Hotline's own notice, not a teammate's words: what it is about. Its
     /// `from` is the teammate it is about; only the desk sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<InboxNotice>,
+    /// The failure recorded on a `wakeFailed` notice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wake_failure: Option<InboxWakeFailure>,
     /// When a pick-up offers it again while it is still set aside: an hour
     /// after a pick-up first offered it, then a day after each offer.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 const { Call, supportsDirectCalls } = await import("../src/voice/call");
 import { UNHEARD } from "../src/voice/transcription";
+import { NO_MICROPHONE } from "../src/voice/microphone";
+import { interruptBySpeaking, setInterruptBySpeaking } from "../src/voice/hearing";
 import { AUDIO_SILENCE_MS, FAST_SILENCE_MS } from "../src/voice/turn";
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
@@ -10,6 +12,8 @@ import type { DeviceTranscription, TranscriptionCapability, TranscriptionEvent }
 type Handlers = { snapshot(items: unknown[]): void; event(item: unknown): void };
 
 function rig(options: CallOptions = {}, response: unknown = null, capabilities: string[] = ["voice", "voiceDirectCalls"], transcription?: DeviceTranscription) {
+	const notes: string[] = [];
+	options = { note: (line) => notes.push(line), ...options };
 	const sent: { cmd: string; params: Record<string, unknown> }[] = [];
 	let handlers: Handlers | null = null;
 	let connection: ((state: "open" | "closed" | "gone") => void) | null = null;
@@ -44,7 +48,14 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	const chimes: string[] = [];
 	let queue = 0;
 	let idle: () => void = () => {};
+	/** The reply's loudness as the player meters it, and whether the call paused it. */
+	const output = { level: 0, paused: false, pauses: 0, resumes: 0, ducked: false, pausedAt: 0 };
 	const mic = { open: true, closed: 0, opened: 0 };
+	/**
+	 * The playback clock: the last clip of a said line begun, a ten-second clip
+	 * begun when it was queued, and the time it has stood still, paused.
+	 */
+	const clock = { clip: null as { line: string; index: number } | null, at: 0, pausedAt: null as number | null, pausedFor: 0 };
 	const audio: CallAudio = {
 		open: async () => {},
 		closeMic: () => {
@@ -56,22 +67,41 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 			mic.open = true;
 			mic.opened++;
 		},
-		play: (_mime, data) => {
+		play: (_mime, data, clip) => {
 			played.push(data);
 			queue++;
+			if (clip !== undefined) Object.assign(clock, { clip, at: now, pausedFor: 0 });
 		},
 		playPcm: (data, rate) => {
 			pcm.push({ data, rate });
 			queue++;
 		},
 		playedMs: () => playedMs,
+		position: () => clock.clip === null ? null : { ...clock.clip, ms: (clock.pausedAt ?? now) - clock.at - clock.pausedFor, clipMs: 10_000 },
 		stopPlayback: () => {
 			queue = 0;
+			output.paused = false;
+			output.ducked = false;
+			Object.assign(clock, { clip: null, pausedAt: null, pausedFor: 0 });
+		},
+		duckPlayback: (down) => {
+			output.ducked = down;
+		},
+		pausePlayback: () => {
+			if (!output.paused) clock.pausedAt = output.pausedAt = now;
+			output.paused = true;
+			output.pauses++;
+		},
+		resumePlayback: () => {
+			if (output.paused) output.resumes++;
+			if (clock.pausedAt !== null) clock.pausedFor += now - clock.pausedAt;
+			clock.pausedAt = null;
+			output.paused = false;
 		},
 		get playing() {
 			return queue > 0;
 		},
-		outputLevel: () => 0,
+		outputLevel: () => (output.paused ? 0 : output.level),
 		chime: (kind) => {
 			chimes.push(kind);
 			return 0;
@@ -91,6 +121,8 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		pcm,
 		heardFor: (ms: number) => (playedMs = ms),
 		chimes,
+		notes,
+		output,
 		mic,
 		desk: (event: unknown) => handlers?.event(event),
 		snapshot: (items: unknown[]) => handlers?.snapshot(items),
@@ -206,6 +238,28 @@ describe("a call with the desk", () => {
 		expect(r.call.current.phase).toBe("listening");
 		r.speak(0.3, 3_100, 3_700);
 		expect(r.call.current.phase).toBe("hearing");
+	});
+
+	test("a tap, a hold and a hang-up tell the desk where playback stood, so it can say what was heard", async () => {
+		const r = rig();
+		await r.call.start();
+		r.desk({ type: "said", id: "s1", text: "A long answer. With a second sentence." });
+		r.at(2_000);
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		r.at(2_700);
+		r.call.interrupt();
+		expect(r.sent.find((one) => one.cmd === "voice.interrupt")?.params).toEqual({ callId: r.call.id, played: { line: "s1", index: 0, ms: 700, clipMs: 10_000 } });
+		// The waiting sound is no line said: nothing of a said line has begun since the cut.
+		r.desk({ type: "clip", id: "waiting-2", index: 0, final: true, mimeType: "audio/wav", data: "tone" });
+		await r.call.hold(true);
+		expect(r.sent.find((one) => one.cmd === "voice.hold")?.params).toEqual({ callId: r.call.id, hold: true, played: { index: 0, ms: 0, clipMs: 0 } });
+		await r.call.hold(false);
+		expect(r.sent.filter((one) => one.cmd === "voice.hold").at(-1)?.params).toEqual({ callId: r.call.id, hold: false });
+		r.desk({ type: "said", id: "s2", text: "Another answer." });
+		r.desk({ type: "clip", id: "s2", index: 0, final: true, mimeType: "audio/wav", data: "two" });
+		r.at(3_200);
+		r.call.hangUp();
+		expect(r.sent.find((one) => one.cmd === "voice.call_end")?.params).toEqual({ callId: r.call.id, played: { line: "s2", index: 0, ms: 500, clipMs: 10_000 } });
 	});
 
 	test("cutting in on unfinished work waits for the desk to say it can listen", async () => {
@@ -756,6 +810,7 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 	let onEvent: (event: TranscriptionEvent) => void = () => {};
 	let final = "";
 	let stopping: (() => Promise<string>) | null = null;
+	let starting: (() => Promise<boolean>) | null = null;
 	const counts = { permits: 0, starts: 0, stops: 0, cancels: 0 };
 	const transcription: DeviceTranscription = {
 		capability: async () => ({ available: true, onDevice: true, locale: "en-US", engine: "apple-analyzer", ...capability }),
@@ -767,7 +822,7 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 			onEvent = callback;
 			final = "";
 			counts.starts++;
-			return true;
+			return starting !== null ? starting() : true;
 		},
 		stop: async () => {
 			counts.stops++;
@@ -786,6 +841,7 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 		},
 		finalize: (text: string) => (final = text),
 		stopWith: (next: () => Promise<string>) => (stopping = next),
+		startWith: (next: () => Promise<boolean>) => (starting = next),
 	};
 }
 
@@ -808,6 +864,35 @@ function textRig(speech = fakeSpeech(), response: unknown = { callId: "c", input
 }
 
 describe("a call heard by this Mac", () => {
+	test("with no microphone the engine's refusal is what the call says, and it ends rather than crashing", async () => {
+		const speech = fakeSpeech();
+		speech.startWith(() => Promise.reject(new Error(NO_MICROPHONE)));
+		const r = textRig(speech);
+		await r.call.start();
+		await tick();
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe(NO_MICROPHONE);
+		expect(r.sent.some((one) => one.cmd === "voice.call_end")).toBe(true);
+	});
+
+	test("a start refused with no reason still says to check speech access", async () => {
+		const speech = fakeSpeech();
+		speech.startWith(async () => false);
+		const r = textRig(speech);
+		await r.call.start();
+		await tick();
+		expect(r.call.current.trouble).toContain("Speech recognition on this Mac could not start");
+	});
+
+	test("a microphone lost mid-call ends it with the engine's words", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-74, 1_000, 1_400);
+		r.speech.emit({ type: "error", message: "Hotline can't hear the microphone any more. Call again when it's back." });
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe("Hotline can't hear the microphone any more. Call again when it's back.");
+	});
+
 	test("runs as text when the desk, this Mac and the person all allow it, and leaves the webview mic shut", async () => {
 		const r = textRig();
 		await r.call.start();
@@ -891,8 +976,8 @@ describe("a call heard by this Mac", () => {
 		expect(r.speech.counts.starts).toBe(2);
 	});
 
-	test("this Mac stops listening while a reply plays and listens again once it ends", async () => {
-		const r = textRig();
+	test("with Interrupt by speaking off, this Mac stops listening while a reply plays and listens again once it ends", async () => {
+		const r = textRig(undefined, undefined, undefined, { interruptBySpeaking: () => false });
 		await r.call.start();
 		const starts = r.speech.counts.starts;
 		const cancels = r.speech.counts.cancels;
@@ -1269,3 +1354,298 @@ test("a failed live call finishes its fixed notice once before the Turn by turn 
     expect(r.call.current.turnByTurnOffered).toBe(true);
     expect(r.sent.filter(({ cmd }) => cmd === "voice.call_start")).toHaveLength(1);
 });
+
+describe("interrupting by talking over the teammate, heard by this Mac", () => {
+	const REPLY = "I looked through the build logs and the failing step is the linker, which ran out of memory.";
+	/** A Turn by turn call heard by this Mac's analyzer with Interrupt by speaking on, the reply playing. */
+	async function overReply(options: CallOptions = { interruptBySpeaking: () => true }, earlier: string[] = []) {
+		const r = textRig(fakeSpeech(), undefined, TEXT_DESK, options);
+		await r.call.start();
+		r.levels(-74, 1_000, 1_400);
+		for (const [index, text] of earlier.entries()) r.desk({ type: "said", id: `earlier-${index}`, text });
+		r.desk({ type: "said", id: "s1", text: REPLY });
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		return {
+			...r,
+			/** Native levels every 50 ms while the reply plays at `output`; `db` may follow it. */
+			reply: (from: number, to: number, db: (output: number, at: number) => number, output: (at: number) => number = (at) => (Math.floor(at / 100) % 2 === 0 ? 0.12 : 0.04)) => {
+				for (let at = from; at <= to; at += 50) {
+					r.output.level = output(at);
+					r.at(at);
+					r.speech.emit({ type: "level", levelDb: db(r.output.paused ? 0 : r.output.level, at), at, unit: "dbfs", processed: true });
+				}
+			},
+			commands: () => r.sent.map((one) => one.cmd).filter((cmd) => cmd !== "voice.status" && cmd !== "voice.call_start"),
+		};
+	}
+	const ROOM = () => -74;
+	/** Speech near -40 dBFS on the processed channel, -22 as a raw microphone would read it. */
+	const VOICE = () => -40;
+
+	test("words over the reply interrupt it, the cut is recorded as a tap's is, and the words are the next turn", async () => {
+		const r = await overReply();
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.speech.counts.starts).toBe(2);
+		r.reply(1_450, 2_000, ROOM);
+		r.speech.emit({ type: "partial", text: "I looked through the" });
+		r.reply(2_050, 2_300, VOICE);
+		expect(r.output.paused).toBe(true);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		r.speech.emit({ type: "partial", text: "I looked through the wait" });
+		expect(r.call.current.phase).toBe("hearing");
+		expect(r.output.paused).toBe(false);
+		expect(r.commands()).toContain("voice.interrupt");
+		r.speech.emit({ type: "partial", text: "I looked through the wait use the other machine" });
+		expect(r.call.current.lines.at(-1)).toEqual({ kind: "you", id: "heard-1", text: "wait use the other machine" });
+		// What is still to come of the cut reply is not played.
+		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "two" });
+		expect(r.played).toEqual(["one"]);
+		r.speech.finalize("I looked through the wait. Use the other machine.");
+		r.levels(-74, 2_350, 4_000);
+		await tick();
+		expect(r.sentText().map((one) => one["text"])).toEqual(["wait. Use the other machine."]);
+		const commands = r.commands();
+		expect(commands.indexOf("voice.interrupt")).toBeLessThan(commands.indexOf("voice.text"));
+		// The cut is where the voice paused the reply, not where the words decided it.
+		const played = r.sent.find((one) => one.cmd === "voice.interrupt")?.params["played"] as { line: string; ms: number };
+		expect(played.line).toBe("s1");
+		expect(played.ms).toBe(r.output.pausedAt - 1_400);
+		expect(played.ms).toBeLessThan(2_300 - 1_400);
+		expect(r.notes.some((line) => line.includes("paused the reply"))).toBe(true);
+		expect(r.notes.some((line) => line.includes("interrupted the reply"))).toBe(true);
+		// The log says why, never what was said.
+		expect(r.notes.join("\n")).not.toContain("machine");
+	});
+
+	test("a cough pauses the reply and resumes it where it was, with nothing cut or sent", async () => {
+		const r = await overReply();
+		r.reply(1_450, 2_000, ROOM);
+		r.reply(2_050, 2_300, VOICE);
+		expect(r.output.paused).toBe(true);
+		r.reply(2_350, 3_400, ROOM);
+		expect(r.output.paused).toBe(false);
+		expect(r.output.resumes).toBe(1);
+		expect(r.call.current.phase).toBe("speaking");
+		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "two" });
+		expect(r.played).toEqual(["one", "two"]);
+		expect(r.commands().filter((cmd) => cmd === "voice.interrupt" || cmd === "voice.text" || cmd === "voice.input_state")).toEqual([]);
+		r.finishClip();
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("the reply leaking into the microphone, and its words recognized, never interrupt it", async () => {
+		const r = await overReply();
+		// The reply's own sound at a tenth of its strength on the processed channel, louder than speech would need.
+		const leak = (output: number) => 20 * Math.log10(Math.max(output * 0.5, 1e-6)) - 18;
+		r.reply(1_450, 5_000, leak);
+		r.speech.emit({ type: "partial", text: "I looked through the build logs and the failing step" });
+		r.reply(5_050, 7_000, leak);
+		expect(r.output.pauses).toBe(0);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		expect(r.call.current.phase).toBe("speaking");
+	});
+
+	test("an onset whose only words are the reply's own resumes it, and a second turns listening over it off for the call", async () => {
+		const r = await overReply();
+		r.reply(1_450, 2_000, ROOM);
+		r.reply(2_050, 2_300, VOICE);
+		r.speech.emit({ type: "partial", text: "the failing step is the linker" });
+		r.reply(2_350, 3_400, ROOM);
+		expect(r.output.paused).toBe(false);
+		r.reply(3_450, 5_500, ROOM);
+		r.reply(5_550, 5_800, VOICE);
+		r.speech.emit({ type: "partial", text: "the failing step is the linker which ran out of memory" });
+		const before = r.speech.counts.cancels;
+		r.reply(5_850, 6_900, ROOM);
+		expect(r.output.paused).toBe(false);
+		expect(r.speech.counts.cancels).toBeGreaterThan(before);
+		expect(r.notes.some((line) => line.includes("off for this call"))).toBe(true);
+		r.reply(6_950, 7_600, VOICE);
+		expect(r.output.pauses).toBe(2);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		// A tap still interrupts.
+		r.call.interrupt();
+		expect(r.commands()).toContain("voice.interrupt");
+	});
+
+	test("words over the acknowledgement line interrupt it and are not lost", async () => {
+		const r = textRig(fakeSpeech(), undefined, TEXT_DESK, { interruptBySpeaking: () => true });
+		await r.call.start();
+		r.levels(-74, 1_000, 1_400);
+		r.speech.emit({ type: "partial", text: "check the build" });
+		r.levels(-40, 1_450, 1_900);
+		r.speech.finalize("Check the build.");
+		r.levels(-74, 1_950, 3_000);
+		await tick();
+		expect(r.sentText().map((one) => one["text"])).toEqual(["Check the build."]);
+		// The desk takes the words, and says the acknowledgement while the teammate's model starts.
+		r.desk({ type: "state", state: "thinking" });
+		r.desk({ type: "said", id: "ack-1", text: "Checking the build now." });
+		r.desk({ type: "clip", id: "ack-1", index: 0, final: true, mimeType: "audio/wav", data: "ack" });
+		expect(r.call.current.phase).toBe("speaking");
+		for (let at = 3_050; at <= 3_600; at += 50) {
+			r.output.level = 0.1;
+			r.at(at);
+			r.speech.emit({ type: "level", levelDb: -74, at, unit: "dbfs", processed: true });
+		}
+		for (let at = 3_650; at <= 3_900; at += 50) {
+			r.at(at);
+			r.speech.emit({ type: "level", levelDb: -40, at, unit: "dbfs", processed: true });
+		}
+		expect(r.output.paused).toBe(true);
+		r.speech.emit({ type: "partial", text: "no wait use staging" });
+		expect(r.call.current.phase).toBe("hearing");
+		r.speech.finalize("No, wait, use staging.");
+		r.levels(-74, 3_950, 5_500);
+		await tick();
+		expect(r.sentText().map((one) => one["text"])).toEqual(["Check the build.", "No, wait, use staging."]);
+		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
+	});
+
+	/** This window's storage holding `stored` for the setting, or nothing, for the length of `run`. */
+	async function withStored(stored: string | null, run: () => Promise<void>) {
+		const values = new Map<string, string>(stored === null ? [] : [["hotline.interruptBySpeaking", stored]]);
+		const before = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+		Object.defineProperty(globalThis, "localStorage", {
+			value: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) },
+			configurable: true,
+		});
+		try {
+			await run();
+		} finally {
+			if (before) Object.defineProperty(globalThis, "localStorage", before);
+			else Reflect.deleteProperty(globalThis, "localStorage");
+		}
+	}
+
+	test("never set, the setting is on: this Mac listens over the reply and words over it interrupt", async () => {
+		await withStored(null, async () => {
+			const r = await overReply({});
+			expect(r.notes.some((line) => line.endsWith(": interrupt by speaking: on"))).toBe(true);
+			expect(r.speech.counts.starts).toBe(2);
+			r.reply(1_450, 2_000, ROOM);
+			r.reply(2_050, 2_300, VOICE);
+			expect(r.output.paused).toBe(true);
+			r.speech.emit({ type: "partial", text: "wait use the other machine" });
+			expect(r.commands()).toContain("voice.interrupt");
+			expect(r.call.current.phase).toBe("hearing");
+		});
+	});
+
+	test("the switch keeps off as off and on as on; never set reads as on", async () => {
+		await withStored(null, async () => {
+			expect(interruptBySpeaking()).toBe(true);
+			setInterruptBySpeaking(false);
+			expect(localStorage.getItem("hotline.interruptBySpeaking")).toBe("off");
+			expect(interruptBySpeaking()).toBe(false);
+			setInterruptBySpeaking(true);
+			expect(interruptBySpeaking()).toBe(true);
+		});
+	});
+
+	test("switched off in this window's storage, it stays off: nothing listens over the reply", async () => {
+		await withStored("off", async () => {
+			const r = await overReply({});
+			expect(r.speech.counts.starts).toBe(1);
+			expect(r.notes).toEqual([]);
+		});
+	});
+
+	test("with the setting off, a reply plays as today: nothing listens over it and only a tap interrupts", async () => {
+		const r = await overReply({ interruptBySpeaking: () => false });
+		expect(r.speech.counts.starts).toBe(1);
+		r.reply(1_450, 2_000, ROOM);
+		r.reply(2_050, 2_600, VOICE);
+		r.speech.emit({ type: "partial", text: "wait use the other machine" });
+		expect(r.output.pauses).toBe(0);
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.commands()).toEqual([]);
+		expect(r.notes).toEqual([]);
+		r.call.interrupt();
+		expect(r.commands()).toEqual(["voice.interrupt"]);
+		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("a tap while the reply is paused for the person interrupts it and lets the pause go", async () => {
+		const r = await overReply();
+		r.reply(1_450, 2_000, ROOM);
+		r.reply(2_050, 2_300, VOICE);
+		expect(r.output.paused).toBe(true);
+		r.call.interrupt();
+		expect(r.output.paused).toBe(false);
+		expect(r.commands()).toEqual(["voice.interrupt"]);
+		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("a microphone without echo cancellation is never listened over", async () => {
+		const r = await overReply();
+		r.at(1_450);
+		r.speech.emit({ type: "level", levelDb: -40, at: 1_450, unit: "dbfs", processed: false });
+		r.reply(1_500, 2_600, VOICE);
+		expect(r.output.pauses).toBe(0);
+		expect(r.notes.some((line) => line.includes("no echo cancellation"))).toBe(true);
+	});
+
+	test("this Mac's older recognizer is not listened over", async () => {
+		const speech = fakeSpeech({ engine: "apple-recognizer" });
+		const r = textRig(speech, undefined, TEXT_DESK, { interruptBySpeaking: () => true });
+		await r.call.start();
+		r.desk({ type: "said", id: "s1", text: REPLY });
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		expect(speech.counts.starts).toBe(1);
+		expect(r.notes.some((line) => line.includes("older recognizer"))).toBe(true);
+	});
+
+	/** Earlier replies on the call, the everyday words a person's own words share. */
+	const EARLIER = [
+		"I checked the other branch and what I found is that the tests pass there, so the problem is only on main.",
+		"Sure, I can look at that. The build on the other machine is about ten minutes behind, so give it a moment.",
+		"Done. I pushed the fix to your branch and the checks are running now; I'll tell you what they say.",
+	];
+
+	test("after a cough resumed the reply, a short phrase whose words come 1.3 s after it began still interrupts, in a call with earlier replies", async () => {
+		const r = await overReply(undefined, EARLIER);
+		r.reply(1_450, 2_000, ROOM);
+		// A cough: paused, then quiet, and the reply goes on.
+		r.reply(2_050, 2_300, VOICE);
+		expect(r.output.paused).toBe(true);
+		r.reply(2_350, 3_400, ROOM);
+		// It plays on turned down while the engine's words may still come, then at full volume.
+		expect(r.output.paused).toBe(false);
+		expect(r.output.ducked).toBe(true);
+		r.speech.emit({ type: "partial", text: "Hm" });
+		r.reply(3_450, 4_500, ROOM);
+		expect(r.output.ducked).toBe(false);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		// "What about the other branch?", over in 0.6 s; its words arrive 1.3 s after it began.
+		r.reply(4_550, 5_150, VOICE);
+		r.reply(5_200, 5_800, ROOM);
+		expect(r.output.ducked).toBe(true);
+		r.speech.emit({ type: "partial", text: "Hm what about the other branch" });
+		expect(r.commands()).toContain("voice.interrupt");
+		expect(r.call.current.lines.at(-1)).toEqual({ kind: "you", id: "heard-1", text: "what about the other branch" });
+	});
+
+	test("words still interrupt after several pauses and resumes in one session, with the engine's text cumulative and revised", async () => {
+		const r = await overReply(undefined, EARLIER);
+		r.reply(1_450, 2_000, ROOM);
+		let at = 2_050;
+		for (const heard of ["Hm", "Hm mm-hmm", "Hmm mm-hmm okay"]) {
+			r.reply(at, at + 250, VOICE);
+			r.reply(at + 300, at + 1_300, ROOM);
+			r.speech.emit({ type: "partial", text: heard });
+			r.reply(at + 1_350, at + 3_400, ROOM);
+			at += 3_500;
+		}
+		expect(r.output.pauses).toBe(3);
+		expect(r.output.paused).toBe(false);
+		expect(r.commands()).not.toContain("voice.interrupt");
+		r.reply(at, at + 600, VOICE);
+		r.reply(at + 650, at + 1_250, ROOM);
+		// The engine revises the last of what it had and adds the person's words.
+		r.speech.emit({ type: "partial", text: "Hmm mm-hmm. Okay, can you check the build on main" });
+		expect(r.commands()).toContain("voice.interrupt");
+	});
+});
+

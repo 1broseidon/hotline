@@ -17,7 +17,7 @@ use super::runner::{Driven, Witness, Words, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
 use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
-use crate::contract::{ScheduledRun, ThreadId};
+use crate::contract::{ScheduledRun, ThreadId, ThreadKind};
 use crate::driver::{Driver, MessageKind, Update};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -111,6 +111,9 @@ impl<T> Turns<T> {
 /// One line for a thread's agent: the words as the driver is to hear them,
 /// already stamped, with what came attached.
 pub(super) struct Line {
+    /// A best-effort offer to this call only; its inbox item owns the chat copy.
+    pub call_inbox: bool,
+    pub return_for: Option<super::ownership::WorkFor>,
     /// Captured when accepted, so reattaching voice cannot speak an older turn.
     pub voice: Option<crate::voice::Origin>,
     pub text: String,
@@ -150,6 +153,7 @@ pub(super) struct RequestLine {
 
 /// The agent a turn is for, and the thread and teammate it answers as.
 pub(super) struct Seat<'a> {
+    pub work_for: super::ownership::WorkFor,
     /// Work threads retain their own lease for call-file delivery.
     pub capability: Option<&'a crate::driver::CapabilityLease>,
     pub thread: &'a ThreadId,
@@ -415,10 +419,12 @@ impl Threads<'_> {
         let driver = seat.driver;
         let thread = seat.thread.clone();
         let _posting = self.room.open_posting(&thread, job);
+        self.room.set_work_for(&thread, seat.work_for.clone());
         let voice = line
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
+        let call_inbox = line.call_inbox;
         let subject = super::index::asked(&line.text).to_string();
         let mut told = Told {
             replies: Vec::new(),
@@ -516,7 +522,8 @@ impl Threads<'_> {
         {
             voice.turn_ended(told.seat.persona_id, &origin);
         }
-        if (told.open)() {
+        // The inbox result itself is already the source of the chat post.
+        if !call_inbox && (told.open)() {
             self.room
                 .post_detached_reply(told.seat.persona_id, &thread, &subject, &told.replies)
                 .await;
@@ -643,8 +650,14 @@ impl Room {
         occupant.rest(&self);
         // A nudge or an inbox item that landed while a turn ran waited; the
         // thread is idle now.
-        self.rewake(occupant.persona_id(), &occupant.thread());
-        self.inbox_rewake(occupant.persona_id(), &occupant.thread());
+        let thread = occupant.thread();
+        self.rewake(occupant.persona_id(), &thread);
+        // A stopped DM queue must not rearm its unread items under a new
+        // lease, even if Stop won just as the wake's claimed turn was spawned.
+        let _lifecycle = (thread.kind == ThreadKind::Dm).then(|| lock(&self.lifecycle));
+        if thread.kind != ThreadKind::Dm || occupant.answering(&self) {
+            self.inbox_rewake(occupant.persona_id(), &thread);
+        }
     }
 }
 

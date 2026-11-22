@@ -364,10 +364,7 @@ transition and animation, and holds the mark still.
   of what the turn left behind, in the teammate's words — sent, made,
   changed, still open, yours to do, a failure first in red — then the
   sites of the web pages it opened, then how long it took; a turn that
-  left nothing and opened nothing says only its time. A turn whose only
-  work was the inbox, with its sent row in the chat, says no outcome
-  there: the row says what went and where it stands. Asked for and with
-  no bubble, it draws no line at all, and the row stands for the turn. The sites are a
+  left nothing and opened nothing says only its time. The sites are a
   stack of their icons, the first three overlapping by 2px at 16px, and
   "+N" for the other sites, in the order first opened. A page is a source
   when a fetch, a command or the teammate's browser opened it, or a

@@ -909,6 +909,27 @@ pub enum VoiceEndReason {
     Idle,
 }
 
+/// Where a Turn by turn call's playback stood when the person stopped it
+/// (Cut in, talking over it, hold or hang-up): the last clip that began to
+/// play, by the `said` line it belongs to and its index, how far into it
+/// playback got, and the clip's own length. Talking over a reply pauses it
+/// before the words decide, so `ms` is where it paused. Without `line`,
+/// nothing had begun to play since playback was last stopped. A client that
+/// sends none of this leaves the desk not knowing where the line stopped.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct VoicePlayed {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+    #[serde(default)]
+    pub index: u32,
+    #[serde(default)]
+    pub ms: u32,
+    #[serde(default)]
+    pub clip_ms: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "type",

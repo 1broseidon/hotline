@@ -4,7 +4,7 @@
 //! waits a little while for that answer, so the teammate's one message about
 //! it is true: in their inbox, declined, or not sent yet.
 
-use super::{IN_INBOX, ROW_IS_THE_RECEIPT, Room, lock, moved, topics};
+use super::{IN_INBOX, Room, SAY_WHAT_YOU_ASKED, lock, moved, topics};
 use crate::contract::{InboxItem, InboxOutcome, InboxState, InboxWants, Persona};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -94,7 +94,7 @@ pub(super) fn result_words(
     if landed.contains(&Landed::In) {
         note.push(IN_INBOX.to_string());
         if for_person {
-            note.push(ROW_IS_THE_RECEIPT.to_string());
+            note.push(SAY_WHAT_YOU_ASKED.to_string());
         }
     }
     let held = names(&|landed| *landed == Landed::Held);
@@ -233,8 +233,7 @@ impl Room {
         });
         match changed {
             Some(released) if !released.held => {
-                self.count_message(&released.from, &released.to);
-                self.arrived(&released);
+                self.finish_delivery(&released, true);
                 Landed::In
             }
             Some(_) if declined => Landed::Declined,

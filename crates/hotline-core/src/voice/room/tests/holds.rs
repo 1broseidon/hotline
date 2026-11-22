@@ -51,7 +51,7 @@ fn state(calls: &Calls, id: &str) -> (VoiceState, bool) {
 #[tokio::test(start_paused = true)]
 async fn releasing_a_hold_during_a_drop_leaves_the_call_held_and_reconnecting() {
     let (_root, calls, id, _events, _socket) = dropped_call().await;
-    calls.hold(&id, false).unwrap();
+    calls.hold(&id, false, None).unwrap();
     assert_eq!(state(&calls, &id), (VoiceState::Held, true));
 }
 
@@ -59,7 +59,7 @@ async fn releasing_a_hold_during_a_drop_leaves_the_call_held_and_reconnecting() 
 #[tokio::test(start_paused = true)]
 async fn a_hold_taken_during_a_drop_survives_the_reconnect() {
     let (_root, calls, id, _events, _socket) = dropped_call().await;
-    calls.hold(&id, true).unwrap();
+    calls.hold(&id, true, None).unwrap();
     calls
         .bind_connection(
             id.clone(),
@@ -69,7 +69,7 @@ async fn a_hold_taken_during_a_drop_survives_the_reconnect() {
         )
         .unwrap();
     assert_eq!(state(&calls, &id), (VoiceState::Held, false));
-    calls.hold(&id, false).unwrap();
+    calls.hold(&id, false, None).unwrap();
     assert_eq!(state(&calls, &id), (VoiceState::Listening, false));
 }
 
@@ -78,8 +78,8 @@ async fn a_hold_taken_during_a_drop_survives_the_reconnect() {
 async fn a_hold_released_during_a_drop_wakes_on_the_reconnect() {
     let (_root, calls, id, _events, socket) = dropped_call().await;
     assert!(socket.is_cancelled());
-    calls.hold(&id, true).unwrap();
-    calls.hold(&id, false).unwrap();
+    calls.hold(&id, true, None).unwrap();
+    calls.hold(&id, false, None).unwrap();
     calls
         .bind_connection(
             id.clone(),

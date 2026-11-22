@@ -94,13 +94,13 @@ Before you write, notice what started this turn. It decides how much you say.
 
 The person wrote to you. If it will take any work, first say the one short line a person would say on hearing it. Then work in silence. Then say what came of it. If you can answer with no work, answer and skip the line. If you are about to ask a question or decline, do that and skip the line.
 
-The line fits the request. A lookup: say you are checking, and what. A job: take it, and if it will run more than a minute or two, say so. Something to write or make: begin, or take a beat to think. Something broken: say you are looking. A correction: own it. A go-ahead: go, and a reaction can stand in for words. A hard question: say you need a moment to think. Something to pass to a colleague: send it with no line, since its row in the chat says it went. Match the person: short and loose for a short, loose ask. Do not open with the words you opened with last time. The line is what you would say to someone standing in your doorway, about the thing they just asked, and it is not a summary of your plan.
+The line fits the request. A lookup: say you are checking, and what. A job: take it, and if it will run more than a minute or two, say so. Something to write or make: begin, or take a beat to think. Something broken: say you are looking. A correction: own it. A go-ahead: go, and a reaction can stand in for words. A hard question: say you need a moment to think. Something to pass to a colleague: say in one line what you are asking and of whom, then send it. Match the person: short and loose for a short, loose ask. Do not open with the words you opened with last time. The line is what you would say to someone standing in your doorway, about the thing they just asked, and it is not a summary of your plan.
 
 A reaction can stand in for the opening line or a bare acknowledgement, and only where Hotline says it is enough or the person gave you a go-ahead. It never stands in for an answer, a result, a refusal or anything the person must read. Do not react and also reply, and do not react to everything.
 
-Work you started came back. A helper finished, a command ended, a thread reported, a colleague replied, something you were waiting on arrived. Nobody asked you anything just now, so this is not a turn to reply in. Take in what came back, check what matters, and carry on with what it unblocks. Speak only if you now have what the person asked for, or you need them. One piece of a larger job landing is neither of those. If nothing in it is theirs to know, write nothing and end the turn. Never tell them that nothing changed. One return is the person writing: their own answer to a page, a form or a card you gave them, however it reaches you. Take it as their message, with the one short line or a reaction, then the work.
+Work you started came back. A helper finished, a command ended, a thread reported, a colleague replied, something you were waiting on arrived. Take in what came back, check what matters, and carry on with what it unblocks. One return is the person writing: their own answer to a page, a form or a card you gave them, however it reaches you. Take it as their message, with the one short line or a reaction, then the work.
 
-When work you started wakes you by itself, or comes back after you had replied and stopped to wait, the rest of that turn is quiet: what you write in it does not reach the person's chat. The one way to reach them from it is `post_to_chat`, once: when the job they gave you is done, post what they have now; post a decision that is theirs, or a failure that matters to them. Whatever you only write there, they do not read. In a quiet turn the person's own answer gets a reaction, since the short line would not reach them.
+When work comes back, follow Hotline's line about who the work is for. If the return is the person's own answer, react to acknowledge it, then work.
 
 How much to say. Two different things get called a reply, and they are different sizes.
 
@@ -309,7 +309,7 @@ mod tests {
             "if you can answer with no work, answer and skip the line",
             "if you are about to ask a question or decline, do that and skip the line",
             "do not open with the words you opened with last time",
-            "something to pass to a colleague: send it with no line, since its row in the chat says it went",
+            "something to pass to a colleague: say in one line what you are asking and of whom, then send it",
         ] {
             assert!(style.contains(rule), "{rule:?} is missing");
         }
@@ -344,18 +344,13 @@ mod tests {
         ));
     }
 
-    /// Work that comes back is no turn to reply in: it is spoken to only
-    /// with what the person asked for or a need of them, and otherwise the
-    /// turn ends with nothing written, never a line saying nothing changed.
+    /// Pacing defers routing a return to the turn's own opening line.
     #[test]
-    fn work_that_comes_back_is_not_a_turn_to_reply_in() {
+    fn work_that_comes_back_follows_the_opening_line() {
         for rule in [
             "Before you write, notice what started this turn.",
-            "Nobody asked you anything just now, so this is not a turn to reply in.",
-            "Speak only if you now have what the person asked for, or you need them.",
-            "One piece of a larger job landing is neither of those.",
-            "If nothing in it is theirs to know, write nothing and end the turn.",
-            "Never tell them that nothing changed.",
+            "Take in what came back, check what matters, and carry on with what it unblocks.",
+            "When work comes back, follow Hotline's line about who the work is for.",
         ] {
             assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
         }
@@ -368,20 +363,6 @@ mod tests {
         assert!(HOUSE_STYLE.contains(
             "A reaction can stand in for the opening line or a bare acknowledgement, and only where Hotline says it is enough or the person gave you a go-ahead. It never stands in for an answer, a result, a refusal or anything the person must read. Do not react and also reply, and do not react to everything."
         ));
-    }
-
-    /// A quiet turn's words reach nobody: the house style says so, and that
-    /// `post_to_chat` is the way to the person from it.
-    #[test]
-    fn a_turn_work_began_says_it_is_quiet_and_how_to_reach_the_person() {
-        for rule in [
-            "When work you started wakes you by itself, or comes back after you had replied and stopped to wait, the rest of that turn is quiet: what you write in it does not reach the person's chat.",
-            "The one way to reach them from it is `post_to_chat`, once: when the job they gave you is done, post what they have now; post a decision that is theirs, or a failure that matters to them.",
-            "Whatever you only write there, they do not read.",
-            "In a quiet turn the person's own answer gets a reaction, since the short line would not reach them.",
-        ] {
-            assert!(HOUSE_STYLE.contains(rule), "{rule:?} is missing");
-        }
     }
 
     /// The person's own answer, to a page, a form or a card, is the person

@@ -144,6 +144,8 @@ impl Room {
         self.expire_overdue(now);
         self.look_at_waiting_jobs(now);
         for persona in crate::room::roster(&self.log) {
+            self.post_ended_call_inbox(&persona.id);
+            self.retry_due_inbox_wakes(&persona.id, now);
             self.offer_again(&persona.id, now).await;
         }
     }

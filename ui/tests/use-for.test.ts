@@ -310,18 +310,21 @@ describe("the words the desk listens for", () => {
 });
 
 describe("acknowledging while the teammate thinks", () => {
-	test("is on only when the setting says true", () => {
+	test("is on while it was never set, and off only when the setting says false", () => {
+		expect(acknowledgeOf({})).toBe(true);
+		expect(acknowledgeOf(undefined)).toBe(true);
+		expect(acknowledgeOf(null)).toBe(true);
 		expect(acknowledgeOf({ acknowledge: true })).toBe(true);
-		expect(acknowledgeOf({ acknowledge: "true" })).toBe(false);
-		expect(acknowledgeOf({})).toBe(false);
-		expect(acknowledgeOf(undefined)).toBe(false);
+		expect(acknowledgeOf({ acknowledge: "false" })).toBe(true);
+		expect(acknowledgeOf({ acknowledge: false })).toBe(false);
 	});
 
-	test("is written beside the voice picks, and off takes the key away", () => {
+	test("is written beside the voice picks, and off is kept as false rather than taking the key away", () => {
 		const voice = { tts: { provider: "ollama", model: "phonon", voice: "Zoey" } };
 		expect(acknowledgePatch(voice, true)).toEqual({ ...voice, acknowledge: true });
-		expect(acknowledgePatch({ ...voice, acknowledge: true }, false)).toEqual(voice);
-		expect(acknowledgePatch({ acknowledge: true }, false)).toBeNull();
+		expect(acknowledgePatch({ ...voice, acknowledge: true }, false)).toEqual({ ...voice, acknowledge: false });
+		expect(acknowledgePatch(undefined, false)).toEqual({ acknowledge: false });
+		expect(acknowledgeOf(acknowledgePatch(undefined, false))).toBe(false);
 	});
 });
 

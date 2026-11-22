@@ -593,7 +593,7 @@ silenceMs?: number, } } | { "cmd": "voice.front_audio", "params": { callId: stri
  * before it ended the turn, in milliseconds: diagnostics for the
  * desk's turn timing line. Older clients omit it.
  */
-silenceMs?: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, features?: Array<string>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, aboutItem?: string, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+silenceMs?: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, played?: VoicePlayed, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, played?: VoicePlayed, } } | { "cmd": "voice.call_end", "params": { callId: string, played?: VoicePlayed, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, features?: Array<string>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, aboutItem?: string, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -1387,6 +1387,10 @@ forPerson?: boolean,
  */
 notice?: InboxNotice, 
 /**
+ * The failure recorded on a `wakeFailed` notice.
+ */
+wakeFailure?: InboxWakeFailure, 
+/**
  * When a pick-up offers it again while it is still set aside: an hour
  * after a pick-up first offered it, then a day after each offer.
  */
@@ -1418,9 +1422,10 @@ state: string, };
  * teammate's words, and never set by a teammate's tool. `expired`: an item
  * the teammate sent was closed as expired in its receiver's inbox.
  * `unanswered`: a question the teammate asked a colleague before the inbox
- * was ended unanswered when Hotline was updated.
+ * was ended unanswered when Hotline was updated. `wakeFailed`: the desk
+ * could not wake the receiver for an item that is still in its inbox.
  */
-export type InboxNotice = "expired" | "unanswered";
+export type InboxNotice = "expired" | "unanswered" | "wakeFailed";
 
 /**
  * How a closed item ended: `answered` (a reply went back with
@@ -1478,6 +1483,24 @@ export type InboxState = "new" | "noticed" | "seen" | "taken" | "later" | "close
  * build cannot read, held for it or sent by it, newest first.
  */
 export type InboxView = { personaId: string, open: Array<InboxItem>, closed: Array<InboxItem>, sent: Array<InboxItem>, unread: number, newer?: Array<InboxNewerItem>, };
+
+/**
+ * What Hotline knows about a failed inbox wake, saved on its notice only.
+ */
+export type InboxWakeFailure = { state: InboxWakeFailureState, 
+/**
+ * The provider's reset, if known, in epoch milliseconds.
+ */
+resetAt?: number, 
+/**
+ * Bounded, redacted diagnostic text. Present it as quoted data.
+ */
+detail?: string, };
+
+/**
+ * Why the desk could not wake an inbox item's receiver.
+ */
+export type InboxWakeFailureState = "outOfQuota" | "notSignedIn" | "stopped" | "couldNotStart" | "other";
 
 /**
  * What the sender of an item wants from it: facts about the sender, not an
@@ -2700,6 +2723,11 @@ configs: Array<SessionConfig>, slashCommands: Array<SlashCommand>, capabilities:
  */
 awaitingSubagents?: boolean, 
 /**
+ * The desk can hide activity for a main conversation started only to
+ * hear the inbox. This does not change whether the session is busy.
+ */
+quietInbox?: boolean, 
+/**
  * Commands the teammate left running past the turns that started them:
  * a server, a watcher. They do not change `state`: a teammate with a
  * server up and nothing to do reads idle.
@@ -3622,7 +3650,11 @@ request?: string,
  * What a run runs: `shell` for a command a harness left running.
  * Absent for a subagent and every other kind.
  */
-runKind?: RunKind, } | { "kind": "aside" } & Aside | { "kind": "inbox_sent", id: string, ts: number, item: string, 
+runKind?: RunKind, 
+/**
+ * The inbox item this thread was started for.
+ */
+fromItem?: string, } | { "kind": "aside" } & Aside | { "kind": "inbox_sent", id: string, ts: number, item: string, 
 /**
  * The teammate it went to.
  */
@@ -3634,7 +3666,11 @@ key: string,
 /**
  * When an open one was closed.
  */
-closedAt?: number, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+closedAt?: number, 
+/**
+ * The inbox item this work was for.
+ */
+fromItem?: string, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */
@@ -3775,6 +3811,17 @@ export type VoiceFrontModel = { providerId: string, modelId: string, voice: stri
 export type VoiceInputMode = "audio" | "text";
 
 export type VoiceModel = { providerId: string, modelId: string, voice?: string, };
+
+/**
+ * Where a Turn by turn call's playback stood when the person stopped it
+ * (Cut in, talking over it, hold or hang-up): the last clip that began to
+ * play, by the `said` line it belongs to and its index, how far into it
+ * playback got, and the clip's own length. Talking over a reply pauses it
+ * before the words decide, so `ms` is where it paused. Without `line`,
+ * nothing had begun to play since playback was last stopped. A client that
+ * sends none of this leaves the desk not knowing where the line stopped.
+ */
+export type VoicePlayed = { line?: string, index: number, ms: number, clipMs: number, };
 
 /**
  * How one model's replies on calls to teammates were said: each reply is

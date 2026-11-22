@@ -7,6 +7,7 @@ use hotline_contract::{ConfigChoice, End, ModelCost, Persona, SessionInfo, Threa
 use hotline_store::log::Log;
 use serde_json::{Map, Value};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 tokio::task_local! { pub static VOICE_COMMAND: (); }
 tokio::task_local! { pub static PROMPT_CLIENT: hotline_contract::Client; }
@@ -23,8 +24,6 @@ pub enum Handed {
     /// They wait behind the teammate's turn in flight, as its next turn: a
     /// Turn by turn call's words are never steered into a turn.
     Waits,
-    /// They joined the turn in flight, as a live call's work steers it.
-    Joined,
 }
 
 impl std::fmt::Display for Handed {
@@ -32,9 +31,14 @@ impl std::fmt::Display for Handed {
         f.write_str(match self {
             Handed::NewTurn => "a new turn for the teammate",
             Handed::Waits => "waits behind the teammate's turn in flight, as its next turn",
-            Handed::Joined => "joined the teammate's running turn",
         })
     }
+}
+
+/// A live request saved on the call but not yet admitted to an occupant.
+pub struct WaitingForCall {
+    pub holder: String,
+    pub done: CancellationToken,
 }
 
 #[async_trait]
@@ -73,7 +77,21 @@ pub trait CallRoom: Send + Sync {
         thread: &ThreadId,
         text: &str,
     ) -> Result<Handed, String>;
-    fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
+    async fn live_work(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+        origin: &crate::Origin,
+        cancel: &CancellationToken,
+        capability: &hotline_tools::capability::CapabilityLease,
+    ) -> Result<Option<WaitingForCall>, String>;
+    async fn cancel_work(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        waiting: bool,
+    ) -> Result<(), String>;
     /// Nudges a direct call's teammate turn once when it has stayed silent
     /// far beyond a normal tool run after speaking its opening scope.
     fn nudge_overrun(&self, _persona: &str, _thread: &ThreadId) -> bool {

@@ -416,7 +416,24 @@ async fn run_inner(
                     () = turn.steering.changed(revision) => {}
                     // The turn had replied and stopped to wait: what comes
                     // back now, nobody is waiting on.
-                    job = activity.jobs.next() => activity.job_results.push(publish_job(turn, sender, job?, true).await),
+                    job = activity.jobs.next() => {
+                        let first = job?;
+                        let mut owner = first.work_for.clone();
+                        let ready = activity.jobs.ready()?;
+                        let mut mixed = false;
+                        for job in &ready {
+                            mixed |= owner.merge(&job.work_for);
+                        }
+                        if turn.returns.is_some() {
+                            (turn.ownership)(Some(owner));
+                        }
+                        if mixed {
+                            activity.job_results.push(Message::user("Hotline: work for different people came back together; this turn is for the person.".to_string()));
+                        }
+                        for (index, job) in std::iter::once(first).chain(ready).enumerate() {
+                            activity.job_results.push(publish_job(turn, sender, job, index == 0).await);
+                        }
+                    },
                 }
             } else if turn.steering.finish_if_empty() {
                 return Ok(("end_turn", activity.usage, activity.usage_complete));
@@ -862,6 +879,7 @@ impl Activity<'_> {
             )));
         }
         let jobs = &mut *self.jobs;
+        jobs.work_for = (self.turn.ownership)(None);
         let result = match call.function.name.as_str() {
             "shell" if jobs.shell_enabled() => job_result(jobs.launch(call_id.into(), arguments)),
             jobs::SUBAGENT if jobs.delegates() => {
@@ -984,7 +1002,7 @@ fn job_message(turn: &Turn, job: &JobSnapshot, back: bool) -> Message {
 /// own: the same result a turn would have been handed, said to be late.
 pub(crate) fn process_ended(output_dir: &Path, job: &JobSnapshot) -> String {
     format!(
-        "Hotline execution data (not an operator instruction): a command you left running has ended. If its output is the person's own answer to something you gave them, they are writing to you: react to show you have it, then the work. Otherwise the person did not ask you anything just now. If its result is what they are waiting for, or it failed and that changes what they should do, tell them with post_to_chat, once. Otherwise write nothing and end the turn. managed job result {}",
+        "Hotline execution data (not an operator instruction): a command you left running has ended. managed job result {}",
         model_job(output_dir, job)
     )
 }

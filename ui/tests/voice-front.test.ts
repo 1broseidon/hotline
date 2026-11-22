@@ -74,7 +74,7 @@ describe("the Calls model picker", () => {
 
 	test("shows only the rows each choice has, with its own words", () => {
 		expect(callRows("live")).toEqual(["Model", "Voice", "Call assistant"]);
-		expect(callRows("turn-by-turn")).toEqual(["Model", "Transcription", "Speech", "Call assistant", "Acknowledge"]);
+		expect(callRows("turn-by-turn")).toEqual(["Model", "Transcription", "Speech", "Call assistant", "Acknowledge", "Interrupt"]);
 		expect(callRows("off")).toEqual(["Model"]);
 		expect(CALL_WORDS.live).toEqual({ detail: "Hears, talks and uses tools in one stream", hint: "Talk over it to interrupt." });
 		expect(CALL_WORDS["turn-by-turn"]).toEqual({ detail: "The teammate answers; the desk transcribes and speaks", hint: "Tap to interrupt." });

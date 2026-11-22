@@ -283,6 +283,7 @@ impl LocalVoice {
                 let chunk = SpeechChunk {
                     clip: wav_clip(&clip),
                     final_chunk: false,
+                    marks: Vec::new(),
                 };
                 output
                     .send(chunk)
@@ -301,6 +302,7 @@ impl LocalVoice {
         let chunk = SpeechChunk {
             clip: wav_clip(&pending),
             final_chunk: true,
+            marks: Vec::new(),
         };
         output
             .send(chunk)

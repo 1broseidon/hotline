@@ -77,8 +77,25 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         f["sub"] == 30 && f["snapshot"].is_array()
     })
     .await;
+    assert!(config.instructions.contains(
+        "A question, a note or a check for a teammate is not work and is not sent from the call: use work_on_it"
+    ));
     assert_eq!(config.voice, "ara");
-    assert!(config.tools.iter().any(|t| t.name == "send"));
+    let front_send = config.tools.iter().find(|t| t.name == "send").unwrap();
+    assert!(
+        front_send
+            .description
+            .starts_with("Hand a named teammate a job from this call")
+    );
+    assert_eq!(
+        front_send.parameters["properties"]["wants"]["enum"],
+        json!(["work"])
+    );
+    assert!(
+        front_send.parameters["properties"]
+            .get("reply_to")
+            .is_none()
+    );
     desk.events
         .send(Ok(RealtimeEvent::Heard("Who is on the team?".into())))
         .await
@@ -149,18 +166,47 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         .load(&hotline_core::log::StreamId::Call(call.clone()));
     assert!(transcript.iter().any(|e| e["title"] == "list_teammates"));
     assert_eq!(
+        transcript
+            .iter()
+            .filter(|event| event["kind"] == "inbox_sent" && event["item"] == item["id"])
+            .count(),
+        1,
+        "the accepted front send has one row on its call thread"
+    );
+    assert_eq!(
         desk.log.load(&hotline_core::log::StreamId::Tape(
             "voice-dispatcher".into()
         )),
-        Vec::<Value>::new()
+        [] as [Value; 0]
     );
-    let refused = tool(
-        &mut desk,
-        "send",
+    // Calls made directly to the handler are held to the front's schema too.
+    for arguments in [
+        json!({"to":["Mack"],"message":"quick check that the tools work","wants":"nothing"}),
+        json!({"to":["Mack"],"title":"Tool check","message":"quick check that the tools work","wants":"nothing"}),
+        json!({"to":["Mack"],"title":"A question","message":"what was the score?","wants":"answer"}),
         json!({"to":["Mack"],"title":"A question","message":"a question"}),
-    )
-    .await;
-    assert!(refused.contains("only hand named work"), "{refused}");
+        json!({"to":["Mack"],"message":"fix the build","wants":"work"}),
+        json!({"to":["Mack"],"title":"Work","wants":"work"}),
+        json!({"to":["team"],"title":"Work","message":"broadcast work","wants":"work"}),
+        json!({"to":["Mack"],"title":"Work","message":"attach files","wants":"work","files":["report.txt"]}),
+        json!({"to":["Mack"],"title":"Work","message":"follow up","wants":"work","reply_to":item["id"]}),
+    ] {
+        let refused = tool(&mut desk, "send", arguments).await;
+        assert!(
+            refused.contains("Nothing was sent: from a call only a job goes to a teammate")
+                && refused.contains("use work_on_it so your own session asks them")
+                && refused.contains("never turn a question into a work item"),
+            "{refused}"
+        );
+    }
+    let inbox = desk
+        .log
+        .load(&hotline_core::log::StreamId::Inbox(team[1].clone()));
+    assert_eq!(inbox.len(), 1, "a refused send delivers nothing: {inbox:?}");
+    assert_eq!(
+        inbox[0]["id"], item["id"],
+        "the accepted item is still kept"
+    );
     let refused = tool(&mut desk, "session.stop", json!({"personaId":team[1]})).await;
     assert!(refused.contains("no tool"), "{refused}");
     let changed = answer(

@@ -1802,3 +1802,107 @@ async fn a_line_steered_into_a_thread_turn_the_restart_cuts_is_kept() {
     assert_eq!(kept[0]["thread"], id.as_str());
     drop(stopped);
 }
+
+#[tokio::test]
+async fn live_call_work_waits_for_the_other_call_without_taking_its_slot() {
+    use tokio_util::sync::CancellationToken;
+
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(vec![turn()]).gated(gate.clone()));
+    let room = room("live-call-slot", agents.clone());
+    let holder = ThreadId::call("holder");
+    let next = ThreadId::call("next");
+    let dropped = ThreadId::call("dropped");
+    let revoked = ThreadId::call("revoked");
+    for thread in [&holder, &next, &dropped, &revoked] {
+        room.call_began(thread, "ada", now_ms());
+    }
+    room.prompt_call_work("ada", &holder, "Finish the first task")
+        .await
+        .unwrap();
+    heard(&agents, 1).await;
+    let refused = room.prepare_call("ada", &next).await.unwrap_err();
+    assert!(refused.contains("holder"), "{refused}");
+    let origin = |thread: &ThreadId| crate::voice::Origin {
+        call_id: thread.key.clone(),
+        seq: 1,
+        direct: true,
+        front: true,
+    };
+    let lease = room.capability_lease("ada");
+    let cancel = CancellationToken::new();
+    let waiting = room
+        .start_live_call_work(
+            "ada",
+            &dropped,
+            "Do not run this",
+            &origin(&dropped),
+            &cancel,
+            &lease,
+        )
+        .await
+        .unwrap()
+        .expect("queued behind the holder");
+    cancel.cancel();
+    room.stop_live_call_work("ada", &dropped, true)
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), waiting.done.cancelled())
+        .await
+        .unwrap();
+
+    let revoked_lease = lease.scoped();
+    let waiting = room
+        .start_live_call_work(
+            "ada",
+            &revoked,
+            "Do not run after the lease is revoked",
+            &origin(&revoked),
+            &CancellationToken::new(),
+            &revoked_lease,
+        )
+        .await
+        .unwrap()
+        .expect("queued with a current lease");
+    revoked_lease.revoke();
+    tokio::time::timeout(Duration::from_secs(2), waiting.done.cancelled())
+        .await
+        .unwrap();
+    assert!(room.sides.get(&revoked.key).is_none());
+
+    let words = "Keep the exact words";
+    room.call_said(
+        &next,
+        "ada",
+        &serde_json::json!({
+            "kind": "user", "id": "caller", "ts": now_ms(), "text": words
+        }),
+    );
+    let live = CancellationToken::new();
+    let waiting = room
+        .start_live_call_work("ada", &next, words, &origin(&next), &live, &lease)
+        .await
+        .unwrap()
+        .expect("queued behind the holder");
+    assert!(waiting.holder.contains("holder"));
+    assert!(room.sides.get(&next.key).is_none());
+    assert_eq!(agents.prompts().len(), 1);
+    gate.add_permits(1);
+    tokio::time::timeout(Duration::from_secs(2), waiting.done.cancelled())
+        .await
+        .unwrap();
+    heard(&agents, 2).await;
+    assert!(room.sides.get(&holder.key).is_none());
+    assert!(room.sides.get(&dropped.key).is_none());
+    assert!(agents.prompts()[1].contains(words));
+    let transcript = room.log.load(&StreamId::Call(next.key.clone()));
+    assert_eq!(
+        transcript
+            .iter()
+            .filter(|line| line["id"] == "caller")
+            .count(),
+        1
+    );
+    gate.add_permits(1);
+    settled(&room, &next.key).await;
+}

@@ -10,17 +10,19 @@ export function awaitingSubagents(session: Pick<SessionInfo, "state" | "awaiting
 	return session.state === "thinking" && session.awaitingSubagents === true;
 }
 
+type ShownSession = Pick<SessionInfo, "state" | "awaitingSubagents" | "quietInbox">;
+
 /**
- * The state a session reads as. A turn open only for its subagents reads as
- * done: its reply is in the chat, nothing works under the conversation, and
+ * An inbox-only wake reads as idle on the desk. A turn open only for its
+ * subagents reads as done: its reply is in the chat, nothing works under the conversation, and
  * the composer takes a line as it does between turns (the core steers it into
  * the open turn), while the subagents are counted in the composer's threads.
  * Only the mark knows the difference: it rests in the composer beside the
  * roster row's words, what the teammate said it is waiting on or how many
  * helpers are working, rather than going to sleep.
  */
-export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagents">): SessionState {
-	return awaitingSubagents(session) ? "ready" : session.state;
+export function shownState(session: ShownSession): SessionState {
+	return session.quietInbox === true || awaitingSubagents(session) ? "ready" : session.state;
 }
 
 /**
@@ -28,10 +30,10 @@ export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagen
  * the band's beat, the transcript's mark and the work pane all take. A session
  * that is `starting` is working, as the composer already read it; a turn held
  * open only for subagents is not (see `shownState`). The core reads the same
- * two fields the same way (`working` in crates/hotline-core/src/wire/roster.rs)
- * to give the row its words, so the beat never turns beside a bare mark.
+ * working state to give the row its words. The desk ignores those words for
+ * an inbox-only wake.
  */
-export function isWorking(session: Pick<SessionInfo, "state" | "awaitingSubagents">): boolean {
+export function isWorking(session: ShownSession): boolean {
 	const state = shownState(session);
 	return state === "starting" || state === "thinking";
 }
@@ -45,7 +47,7 @@ export function isWorking(session: Pick<SessionInfo, "state" | "awaitingSubagent
  * beat.
  */
 export function faceBlinks(row: {
-	session: Pick<SessionInfo, "state" | "awaitingSubagents">;
+	session: ShownSession;
 	waiting: boolean;
 	persona: { avatar?: { poses?: { shut: string } | undefined } | undefined };
 }): boolean {

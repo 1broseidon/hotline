@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { Person } from "../../avatars";
 import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
@@ -7,12 +8,50 @@ import { failedRuns, markOf, outcomesOf } from "../../outcomes";
 import type { RunLink } from "../../scheduledRuns";
 import { durationText, SITES_NAMED, sitesOf, sitesSaid, sourcesOf, turnTook } from "../../turnFacts";
 import { Favicons } from "../Favicon";
+import { inboxWords } from "../../inbox";
+import { InboxSentRow, InboxSortedRow } from "./InboxLines";
 import { Sources } from "./Sources";
+
+/** The quiet disclosure under a reply that opens its turn's path. */
+function StepsCaption({
+	expanded,
+	inPlaceOpen = expanded,
+	title,
+	onClick,
+	label,
+	sources,
+	children,
+}: {
+	expanded: boolean;
+	/** A path open in the pane still points to it, rather than down to rows in place. */
+	inPlaceOpen?: boolean;
+	title?: string;
+	onClick: () => void;
+	label: ReactNode;
+	sources?: ReactNode;
+	children?: ReactNode;
+}) {
+	return (
+		<button type="button" className="steps-caption" title={title} aria-expanded={expanded} onClick={onClick}>
+			{children}
+			{/* The stack and the label wrap together; a stack still asking for icons leaves an empty span that CSS skips, dot and all. */}
+			<span className="steps-caption-end">
+				{sources !== undefined && <span className="steps-caption-sources">{sources}</span>}
+				<span className="steps-caption-took">
+					{label !== undefined && <span>{label}</span>}
+					{inPlaceOpen ? <ChevronDownIcon /> : <ChevronRightIcon />}
+				</span>
+			</span>
+		</button>
+	);
+}
 
 /**
  * The line under a reply: what the turn left behind, in the teammate's own
  * words, each marked by how it went (failed first, in red), then the sites
  * of the web pages it read as a stack of their icons, then how long it took.
+ * What it read and sent of its inbox is said there too ("Sent a message"):
+ * the chat has no line of its own for it.
  * A helper or a command the turn started that failed is marked failed
  * there too, first of all: the conversation has no row of its own for one,
  * and a failure is what the person must not miss. The sources are not
@@ -23,9 +62,7 @@ import { Sources } from "./Sources";
  * from the left as one short line of text, a dot between each, and the time
  * and the chevron come straight after the last of them, as on the phone: the
  * line is about the reply above it, so it sits where the reply does, and the
- * press hugs it as the conversation's other quiet lines do. A turn whose only
- * work was the inbox, under its sent row (`rowSays`), says no outcomes: the
- * row says what went and where it stands. It is always the
+ * press hugs it as the conversation's other quiet lines do. It is always the
  * way in: pressed, it opens the path the turn took, in the pane beside a
  * conversation (`onOpenWork`) or in place in a thread or a run, where the
  * live rows show only if you pressed the mark; either way the path lists
@@ -35,39 +72,43 @@ import { Sources } from "./Sources";
 export const Steps = memo(function Steps({
 	id,
 	items,
+	elapsed,
 	live,
 	shown,
+	people,
 	onOpenWork,
 	open: paneOpen,
-	rowSays = false,
 }: {
 	id: string;
 	items: Step[];
+	elapsed?: number;
 	live: boolean;
 	shown: boolean;
-	/** The turn's sent row says what came of it (`sentRowsSay`): no outcomes on the line. */
-	rowSays?: boolean | undefined;
+	people?: ReadonlyMap<string, Person> | undefined;
 	onOpenWork?(blockId: string): void;
 	open?: boolean;
 }) {
 	const [toggled, setToggled] = useState(false);
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
-	const outcomes = useMemo(() => (rowSays ? [] : outcomesOf(items)), [items, rowSays]);
+	const outcomes = useMemo(() => outcomesOf(items), [items]);
 	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
 	const sites = useMemo(() => sitesOf(items), [items]);
-	const took = useMemo(() => turnTook(items), [items]);
+	const took = useMemo(() => turnTook(items, elapsed), [items, elapsed]);
+	const inbox = useMemo(() => inboxWords(items), [items]);
 	const expanded = inPane ? paneOpen === true : open;
+	if (items.length === 0) return null;
 
 	return (
 		<div className="my-2">
 			{!live && (
-				<button
-					type="button"
-					className="steps-caption"
+				<StepsCaption
 					title={expanded ? "Hide the path" : "Show the path"}
-					aria-expanded={expanded}
+					expanded={expanded}
+					inPlaceOpen={open}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
+					label={took !== null && took > 0 ? durationText(took) : undefined}
+					sources={sites.length > 0 ? <Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} /> : undefined}
 				>
 					{failed.map((words) => (
 						<span key={words} className="outcome" data-mark="failed">
@@ -79,25 +120,13 @@ export const Steps = memo(function Steps({
 							{outcome.message}
 						</span>
 					))}
-					{/* The stack and the time are one unbroken end of the line, so the time never stands on a row of its own. */}
-					<span className="steps-caption-end">
-						{/* A span of its own, so a stack still asking for its icons, which draws nothing, leaves an empty part the line skips, dot and all. */}
-						{sites.length > 0 && (
-							<span className="steps-caption-sources">
-								<Favicons sites={sites} most={SITES_NAMED} size={16} said={sitesSaid(sites)} />
-							</span>
-						)}
-						<span className="steps-caption-took">
-							{took !== null && took > 0 && <span>{durationText(took)}</span>}
-							{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
-						</span>
-					</span>
-				</button>
+					{inbox !== undefined && <span data-kind="inbox-words">{inbox}</span>}
+				</StepsCaption>
 			)}
 			{open && (
 				<div className="steps ml-[11px]">
 					<InPlaceSources items={items} />
-					<StepRows items={items} />
+					<StepRows items={items} people={people} />
 				</div>
 			)}
 		</div>
@@ -136,12 +165,14 @@ export function StepRows({
 	items,
 	settled = false,
 	openId,
+	people,
 }: {
 	items: Step[];
 	/** The turn is over: nothing in it is still running. */
 	settled?: boolean;
 	/** The row to open on arrival, brought into view: the one pressed in the peek. */
 	openId?: string | undefined;
+	people?: ReadonlyMap<string, Person> | undefined;
 }) {
 	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | { kind: "said"; id: string; text: string } | Exclude<Step, { kind: "thought" }>)[] = [];
 	for (const item of items) {
@@ -173,6 +204,14 @@ export function StepRows({
 			<p key={row.id} className="step-outcome outcome" data-step-id={row.id} data-mark={markOf(row)}>
 				{row.message}
 			</p>
+		) : row.kind === "inbox_sent" ? (
+			<InboxSentRow key={row.id} title={row.title} sent={[row]} people={people} quiet />
+		) : row.kind === "inbox_sorted" ? (
+			<Fragment key={row.id}>
+				{row.entries.map((entry, entryAt) => (
+					<InboxSortedRow key={`${row.id}:${entryAt}`} entry={entry} people={people} />
+				))}
+			</Fragment>
 		) : (
 			<Tool
 				key={row.id}

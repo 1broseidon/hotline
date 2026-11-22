@@ -306,6 +306,8 @@ impl Room {
                 retry: false,
                 wake: false,
                 back: false,
+                work_for: crate::session::ownership::WorkFor::Person,
+                starter: super::returns::Starter::Person,
                 quiet: false,
                 pick_up: false,
                 woke: Vec::new(),
@@ -343,6 +345,8 @@ impl Room {
         self.resume_in_work(
             thread,
             Line {
+                call_inbox: false,
+                return_for: None,
                 voice: None,
                 text: line.text.clone(),
                 attachments: line.attachments.clone(),

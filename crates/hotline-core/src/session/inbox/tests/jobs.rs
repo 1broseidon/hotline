@@ -304,6 +304,44 @@ async fn a_one_time_jobs_run_waits_for_the_reply_hears_it_in_the_job_and_then_en
     );
 }
 
+/// A quick `send` answer returns to the run just as `update_inbox` does.
+#[tokio::test(start_paused = true)]
+async fn a_waiting_scheduled_job_hears_a_send_reply_and_then_ends() {
+    let (room, agents, ids) =
+        waiting_on_bob("job-once-send-reply", &["Which runners are red?"]).await;
+    assert_eq!(once_record(&room).awaiting, Some(vec!["bob".to_string()]));
+    let question = item(&room, "bob", &ids[0]);
+    let thread = ThreadId::job(ONCE);
+    assert_eq!(question.from_thread, thread);
+
+    let reply = answer_with_send(&room, &question, "linux-2 and mac-1 are red.").await;
+    assert_eq!(reply.about.as_ref(), Some(&thread));
+    assert_eq!(room.inbox_heard_in(&reply), thread);
+    until("the job's last run hears the reply and ends", || {
+        once_closed(&room)
+            && agents.told().iter().any(|line| {
+                line.contains("This is the job's last run")
+                    && line.contains(&reply.id)
+                    && line.contains("message: \"linux-2 and mac-1 are red.\"")
+                    && line.contains("no reply, read or sorting call")
+            })
+    })
+    .await;
+    let received = item(&room, "ada", &reply.id);
+    assert!(received.offered.is_some());
+    assert_eq!(received.state, InboxState::Closed);
+    assert_eq!(received.outcome, Some(InboxOutcome::Noted));
+    assert_eq!(once_record(&room).awaiting, None);
+    assert_eq!(turns_of(&room, ONCE), 2);
+    assert!(
+        agents
+            .told()
+            .iter()
+            .all(|line| !(line.contains("quiet inbox") && line.contains(short(&reply.id)))),
+        "the main conversation did not hear the job's reply"
+    );
+}
+
 /// Bob never picks the item up: it expires as any item does, Hotline's
 /// notice of it is heard in the waiting job, and the job ends.
 #[tokio::test]

@@ -1,13 +1,8 @@
-import { createContext, memo, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import type { InboxItem, InboxSortedEntry } from "../../generated/contract";
 import type { Person } from "../../avatars";
-import type { LinkEvent } from "../../dock";
 import { InboxIcon } from "../../icons";
-import { type InboxSent, runWords, senderWords, sentState, sortedFacts, topicOf, toWords } from "../../inbox";
-import type { Block } from "../../scheduledRuns";
-import { LinkRow } from "./LinkRow";
-import { Steps } from "./Steps";
-import { FoldLine } from "./Trail";
+import { type InboxSent, senderWords, sentState, sortedFacts, topicOf, toWords } from "../../inbox";
 
 /**
  * What the inbox rows of a conversation read: every item the teammate's own
@@ -30,8 +25,8 @@ export const InboxRows = createContext<InboxRowsContext>({ items: new Map(), wor
  * live from the sender's inbox ("To Juno · Picked up"; "To Juno, Ivy, Huck
  * · 1 done · 1 seen · 1 awaiting approval", answers first). A press opens
  * the topic it is in, which for several sent together is the whole send,
- * every teammate's lane. `quiet`, in an inbox run or as what came of a turn
- * the person asked for, it is in plain weight with the tray in grey.
+ * every teammate's lane. `quiet`, as a row of a turn's path, it is in plain
+ * weight with the tray in grey.
  */
 export function InboxSentRow({ title, sent, people, quiet = false }: { title: string; sent: InboxSent[]; people: ReadonlyMap<string, Person> | undefined; quiet?: boolean }) {
 	const { items, onOpen } = useContext(InboxRows);
@@ -138,67 +133,12 @@ export function Prompted({ itemId, people, children }: { itemId: string | undefi
 }
 
 /**
- * A run of the teammate's inbox activity, as one quiet line among the
- * conversation's ("Inbox · read 3, sent 1"), drawn as a path line is
- * (Trail.tsx's FoldLine). Pressed, it opens in place to its rows in the
- * order they happened, with no box around them: a row for each item it
- * sorted (its title, whom it is from, what became of it, and a later's
- * reason), each send (InboxSentRow), the work an item started once it is
- * over, and each quiet turn's time, which opens that turn's path as the
- * line under a reply does. Every row is quiet: plain weight, the tray in
- * grey. A press on an item's row opens the item.
- */
-export const InboxRun = memo(function InboxRun({
-	run,
-	owner,
-	people,
-	onOpenThread,
-	onOpenWork,
-	workOpen,
-}: {
-	run: Extract<Block, { kind: "inboxRun" }>;
-	/** Whose conversation this is. */
-	owner: string;
-	people: ReadonlyMap<string, Person> | undefined;
-	onOpenThread?: ((link: LinkEvent) => void) | undefined;
-	onOpenWork?: ((blockId: string) => void) | undefined;
-	workOpen?: string | null | undefined;
-}) {
-	return (
-		<ol className="trail my-2" data-kind="inbox-run">
-			<FoldLine id={run.id} said={runWords(run.read, run.sent)} detail="inbox-run-rows">
-				{run.members.map((member) => {
-					if (member.kind === "inbox") return <InboxSentRow key={member.id} title={member.title} sent={member.sent} people={people} quiet />;
-					if (member.kind === "steps")
-						return (
-							<Steps
-								key={member.id}
-								id={member.id}
-								items={member.items}
-								live={false}
-								shown={false}
-								rowSays={member.rowSays}
-								{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === member.id } : {})}
-							/>
-						);
-					if (member.kind !== "event") return null;
-					const event = member.event;
-					if (event.kind === "inbox_sorted") return event.entries.map((entry, at) => <InboxSortedRow key={`${event.id}:${at}`} entry={entry} people={people} />);
-					if (event.kind === "link") return <LinkRow key={event.id} link={event} owner={owner} people={people} inboxWork onOpen={() => onOpenThread?.(event)} />;
-					return null;
-				})}
-			</FoldLine>
-		</ol>
-	);
-});
-
-/**
- * One item a sort moved, as a row of the run: the tray, its title, whom it
+ * One item a sort moved, as a row of a turn's path: the tray, its title, whom it
  * is from (Hotline for the desk's own notice, whoever it is about), what
  * became of it in the word the sent row and the panes use, and a later's
  * reason. A press opens the item.
  */
-function InboxSortedRow({ entry, people }: { entry: InboxSortedEntry; people: ReadonlyMap<string, Person> | undefined }) {
+export function InboxSortedRow({ entry, people }: { entry: InboxSortedEntry; people: ReadonlyMap<string, Person> | undefined }) {
 	const { onOpen } = useContext(InboxRows);
 	const facts = sortedFacts(entry, (id) => people?.get(id)?.name);
 	const words = (

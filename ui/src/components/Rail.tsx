@@ -305,7 +305,7 @@ function Row({
 }) {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
-	const busy = entry.session.state === "starting" || entry.drawing;
+	const busy = state === "starting" || entry.drawing;
 	const blinking = faceBlinks(entry);
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
@@ -456,8 +456,9 @@ function PinTile({
 	onTip: ShowTip;
 }) {
 	const { persona } = entry;
-	const vital = VITAL[entry.session.state];
-	const busy = entry.session.state === "starting" || entry.drawing;
+	const state = shownState(entry.session);
+	const vital = VITAL[state];
+	const busy = state === "starting" || entry.drawing;
 	const blinking = faceBlinks(entry);
 	const line = lineOf(entry);
 	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;

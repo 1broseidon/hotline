@@ -226,3 +226,98 @@ async fn a_post_between_turns_is_refused() {
     assert!(refused.contains("turn in progress"), "{refused}");
     assert_eq!(posts(&room), [] as [Value; 0]);
 }
+
+#[tokio::test]
+async fn kinds_are_checked_at_the_mcp_handler_before_a_post_is_taken() {
+    use crate::session::ownership::WorkFor;
+    let room = room("post-kind", Fake::new(Scripted::new(Vec::new())));
+    let dm = ThreadId::dm("ada");
+    let tools = TeammateTools::new(&room, "ada");
+    let colleague = WorkFor::Colleague {
+        name: "Pork Chop".into(),
+        item: "6d1b005a-4e90-47a2-a9e6-9efed6db0581".into(),
+    };
+    for (quiet, owner) in [
+        (false, WorkFor::Person),
+        (true, WorkFor::Person),
+        (true, colleague.clone()),
+    ] {
+        for kind in ["decision", "problem", "result"] {
+            let _turn = room.open_posting(&dm, None);
+            room.set_quiet(&dm, quiet);
+            room.set_work_for(&dm, owner.clone());
+            let result = tools
+                .call("post_to_chat", &json!({"text":"I found it.", "kind":kind}))
+                .await;
+            if !quiet {
+                assert!(result.unwrap_err().contains("already the chat"));
+            } else if owner == colleague && kind == "result" {
+                assert_eq!(
+                    result.unwrap_err(),
+                    "The result goes to Pork Chop: answer item 6d1b005a."
+                );
+            } else {
+                assert_eq!(result.as_deref(), Ok("Posted to the chat."));
+            }
+        }
+    }
+    let _turn = room.open_posting(&dm, None);
+    room.set_quiet(&dm, true);
+    let rows: Vec<Value> = include_str!("receiver-slice.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let entry = &rows
+        .iter()
+        .find(|row| row["kind"] == "inbox_sorted")
+        .unwrap()["entries"][0];
+    let item = entry["item"].as_str().unwrap();
+    room.set_work_for(
+        &dm,
+        WorkFor::Colleague {
+            name: "Pork Chop".into(),
+            item: item.into(),
+        },
+    );
+    room.finish_work_for(&dm, item);
+    let post = rows.iter().rfind(|row| row["kind"] == "agent").unwrap()["text"].clone();
+    let result = tools
+        .call("post_to_chat", &json!({"text":post}))
+        .await
+        .unwrap_err();
+    assert_eq!(result, crate::session::post::POST_KIND);
+    let result = tools
+        .call("post_to_chat", &json!({"text":post,"kind":"result"}))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        result,
+        "The result goes to Pork Chop: answer item 6d1b005a."
+    );
+    assert!(!room.has_posted(&dm));
+}
+
+#[tokio::test]
+async fn a_colleagues_file_is_refused_before_it_is_read() {
+    use crate::session::ownership::WorkFor;
+    let room = room("file-for-colleague", Fake::new(Scripted::new(Vec::new())));
+    let dm = ThreadId::dm("ada");
+    let _turn = room.open_posting(&dm, None);
+    let tools = TeammateTools::new(&room, "ada");
+    let args = json!({"source": "workspace", "path": "missing.txt"});
+    room.set_work_for(
+        &dm,
+        WorkFor::Colleague {
+            name: "Pork Chop".into(),
+            item: "item-123".into(),
+        },
+    );
+    let refused = tools.call("send_file", &args).await.unwrap_err();
+    assert_eq!(
+        refused,
+        "Attach the file to your answer with `send`, using `files` and `reply_to: item-123`."
+    );
+    room.set_work_for(&dm, WorkFor::Person);
+    assert_ne!(tools.call("send_file", &args).await.unwrap_err(), refused);
+    assert_eq!(posts(&room), [] as [Value; 0]);
+}

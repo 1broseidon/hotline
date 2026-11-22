@@ -640,6 +640,7 @@ mod tests {
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
@@ -829,6 +830,7 @@ mod tests {
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         };
         let tape = StreamId::Tape("ada".into());
         let stream = StreamId::of_thread(&call).unwrap();
@@ -896,6 +898,7 @@ mod tests {
             asked_in: None,
             request: None,
             run_kind: None,
+            from_item: None,
         };
         let mut copy = live.event();
         copy["id"] = format!("{}@ada", live.id).into();

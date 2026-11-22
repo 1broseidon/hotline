@@ -34,7 +34,7 @@ async fn live_audio_cannot_dispatch_before_commit_or_after_cancel() {
             .audio(&id, 1, 1, &STANDARD.encode(vec![0; 32_770]), false, None)
             .is_err()
     );
-    calls.interrupt(&id).unwrap();
+    calls.interrupt(&id, None).unwrap();
     event(&mut rx, |e| {
         matches!(
             e,
@@ -207,6 +207,7 @@ impl speech::Speech for BrokenChunks {
                     bytes: wav(),
                 },
                 final_chunk: false,
+                marks: Vec::new(),
             };
             output
                 .send(chunk)

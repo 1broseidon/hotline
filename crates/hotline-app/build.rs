@@ -49,6 +49,7 @@ fn main() {
         "speech_start",
         "speech_stop",
         "speech_cancel",
+        "voice_note",
         "window_title",
         "chat_window",
         "browser_pane_open",

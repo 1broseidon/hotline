@@ -124,8 +124,8 @@ async fn a_hold_an_interrupt_and_a_dropped_connection_each_end_the_callers_turn(
         rig.send(RealtimeEvent::SpeechStarted).await;
         rig.speaking(true).await;
         match how {
-            "hold" => rig.calls.hold(&rig.id, true).unwrap(),
-            "interrupt" => rig.calls.interrupt(&rig.id).unwrap(),
+            "hold" => rig.calls.hold(&rig.id, true, None).unwrap(),
+            "interrupt" => rig.calls.interrupt(&rig.id, None).unwrap(),
             _ => socket.cancel(),
         }
         rig.speaking(false).await;

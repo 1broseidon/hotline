@@ -5,6 +5,7 @@ import { bubbleId, pacedLive } from "./pacing";
 import { wholeBubbles } from "./reveal";
 import { type Block, type Step, isRunLink } from "./scheduledRuns";
 import type { Streaming } from "./tape";
+import { turnTook } from "./turnFacts";
 
 /**
  * Whose bubble a block is. Anything else on screen — a card, a notice, a
@@ -17,7 +18,7 @@ export type Side = "me" | "them" | "other" | null;
 export type Run = { top: boolean; bottom: boolean };
 
 export function sideOf(block: Block): Side {
-	if (block.kind === "scheduled" || block.kind === "calls" || block.kind === "inbox" || block.kind === "inboxRun") return "other";
+	if (block.kind === "scheduled" || block.kind === "calls" || block.kind === "inbox") return "other";
 	if (block.kind === "sent") return "them";
 	if (block.kind !== "event") return null;
 	const event = block.event;
@@ -83,22 +84,30 @@ function sameWords(a: string, b: string): boolean {
  * that never wrote its end. A call's transcript keeps each run of steps where
  * it fell (`inline`), between the lines said aloud around it.
  */
-export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
+export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inline): Block[] {
 	const blocks: Block[] = [];
 	let group: { id: string; ts: number; items: Step[] } | null = null;
-	const close = () => {
+	let prompt: { ts: number; replied: boolean } | undefined;
+	const close = (elapsed?: number) => {
 		if (group === null) return;
 		const last = blocks[blocks.length - 1];
 		// Stamped as the bubble it follows, so it never draws a time line of its own.
 		const after = last === undefined ? group.ts : last.kind === "event" ? last.event.ts : last.ts;
-		blocks.push({ kind: "steps", id: group.id, ts: Math.max(group.ts, after), items: group.items });
+		blocks.push({ kind: "steps", id: group.id, ts: Math.max(group.ts, after), items: group.items, ...(elapsed !== undefined ? { elapsed } : {}) });
 		group = null;
 	};
-	for (const event of events) {
+	for (let at = 0; at < events.length; at++) {
+		const event = events[at]!;
 		if (event.kind === "computer_pull") continue;
 		// The call that said what it was on, or what came of it, is the line it wrote.
 		if (event.kind === "tool" && declares(event)) continue;
-		if (event.kind === "thought" || event.kind === "tool" || event.kind === "activity" || event.kind === "outcome") {
+		if (
+			event.kind === "thought" ||
+			event.kind === "tool" ||
+			event.kind === "activity" ||
+			event.kind === "outcome" ||
+			((event.kind === "inbox_sent" || event.kind === "inbox_sorted") && inbox)
+		) {
 			group ??= { id: event.id, ts: event.ts, items: [] };
 			group.items.push(event);
 			continue;
@@ -111,7 +120,23 @@ export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 			group.items.push(event);
 			continue;
 		}
-		if (inline || event.kind === "turn" || event.kind === "user") close();
+		if (inline) close();
+		else if (event.kind === "user") {
+			close();
+			prompt = event.scheduled === undefined && event.receipt !== "sent" ? { ts: event.ts, replied: false } : undefined;
+		} else if (event.kind === "turn") {
+			let elapsed: number | undefined;
+			if (group !== null && prompt?.replied && event.stopReason === "end_turn" && event.quiet !== true) {
+				const sincePrompt = event.ts - prompt.ts;
+				if (sincePrompt > 0 && turnTook(group.items) === 0) elapsed = sincePrompt;
+			}
+			close(elapsed);
+			prompt = undefined;
+		} else if (event.kind === "chapter" || (event.kind === "delivery" && event.receipt !== "sent")) {
+			prompt = undefined;
+		} else if (prompt !== undefined && event.kind === "agent" && event.from === undefined && event.fromItem === undefined && event.scheduled === undefined) {
+			prompt.replied = true;
+		}
 		blocks.push({ kind: "event", event });
 	}
 	if (group !== null) {
@@ -183,7 +208,7 @@ function sameBlock(was: Block, now: Block): boolean {
 			// A streamed bubble is a new line each time it is worked out: the same while it says the same.
 			return was.live === true && was.event.kind === "agent" && now.event.kind === "agent" && was.event.text === now.event.text && was.event.ts === now.event.ts;
 		case "steps":
-			return now.kind === "steps" && was.open === now.open && was.rowSays === now.rowSays && was.ts === now.ts && sameMembers(was.items, now.items);
+			return now.kind === "steps" && was.open === now.open && was.elapsed === now.elapsed && was.ts === now.ts && sameMembers(was.items, now.items);
 		case "scheduled":
 			return now.kind === "scheduled" && sameMembers(was.runs, now.runs);
 		case "calls":
@@ -191,9 +216,7 @@ function sameBlock(was: Block, now: Block): boolean {
 		case "sent":
 			return now.kind === "sent" && sameMembers(was.messages, now.messages);
 		case "inbox":
-			return now.kind === "inbox" && was.asked === now.asked && sameMembers(was.sent, now.sent);
-		case "inboxRun":
-			return now.kind === "inboxRun" && was.ts === now.ts && sameMembers(was.members, now.members);
+			return now.kind === "inbox" && sameMembers(was.sent, now.sent);
 	}
 }
 
@@ -202,10 +225,12 @@ function sameBlock(was: Block, now: Block): boolean {
  * it by, `open` while its turn has not ended. What is streaming joins the
  * running turn's, as it does on screen.
  */
-export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[]; open?: boolean }[] {
-	return withStreaming(toBlocks(events), streaming).flatMap((block) =>
-		block.kind === "steps" ? [{ id: block.id, items: block.items, ...(block.open === true ? { open: true } : {}) }] : [],
-	);
+export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[]; open?: boolean; elapsed?: number }[] {
+	return withStreaming(toBlocks(events), streaming).flatMap((block) => {
+		if (block.kind !== "steps") return [];
+		const { id, items, open, elapsed } = block;
+		return [{ id, items, ...(open === true ? { open } : {}), ...(elapsed !== undefined ? { elapsed } : {}) }];
+	});
 }
 
 /**
@@ -214,7 +239,7 @@ export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { i
  * of (the inbox woke it, and they never spoke into it). Read from the first
  * turn line after it.
  */
-export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" | "quiet" {
+export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" | "quiet" | "quiet-written" {
 	const last = items[items.length - 1];
 	if (last === undefined) return "done";
 	const at = events.findIndex((event) => event.id === last.id);
@@ -222,7 +247,8 @@ export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "s
 	for (const event of events.slice(at + 1)) {
 		if (event.kind !== "turn") continue;
 		if (event.stopReason !== "end_turn") return "stopped";
-		return event.quiet === true ? "quiet" : "done";
+		if (event.quiet !== true) return "done";
+		return items.some((item) => item.kind === "thought" && item.said === true && item.text.trim() !== "") ? "quiet-written" : "quiet";
 	}
 	return "done";
 }

@@ -8,6 +8,7 @@
 use super::front::{self, FRONT_LINE_PREFIX};
 use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
 use super::front_tools::FrontTools;
+use super::heard::{Playback, Stop};
 use super::realtime::{
     Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
 };
@@ -280,7 +281,7 @@ impl Calls {
                 return Ok(None);
             }
             front.interrupted = front.responding;
-            call.cut_speech(Some(played_ms));
+            call.cut_speech(Stop::CutIn, Playback::Front(played_ms));
             call.activity = Instant::now();
             if call.state == VoiceState::Speaking {
                 call.state(call.resting(), None);
@@ -413,7 +414,7 @@ impl Calls {
             .unwrap_or_default();
         let mut instructions = self.front_instructions(persona.as_ref(), &desk_definitions);
         if desk_definitions.iter().any(|tool| tool.name == "send") {
-            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. Keep the spoken answer short: names and what each teammate is working on, or idle. Do not recite models, tools or machine reach unless the person asks for those details. When the person names a teammate to do work, use send with wants work, a short title and their words unchanged as the message. Say whose inbox it is in once it is sent. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
+            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. Keep the spoken answer short: names and what each teammate is working on, or idle. Do not recite models, tools or machine reach unless the person asks for those details. When the person names a teammate to do work, use send with wants work, a short title and their words unchanged as the message. Say whose inbox it is in once it is sent. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. A question, a note or a check for a teammate is not work and is not sent from the call: use work_on_it with the person's words, and your own session asks them or passes it on; never turn it into a work item to get it through. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
         }
         let config = RealtimeConfig {
             instructions: self.front_context(&id, &instructions, None),
@@ -698,7 +699,7 @@ impl Calls {
                 RealtimeEvent::SpeechStarted => self.change(id, |call| {
                     call.caller_speaking = true;
                     if call.front.as_ref().is_some_and(|front| front.responding) {
-                        call.cut_speech(None);
+                        call.cut_speech(Stop::CutIn, Playback::Unreported);
                     }
                     if let Some(front) = &mut call.front {
                         front.interrupted = front.responding;

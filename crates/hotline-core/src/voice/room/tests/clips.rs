@@ -125,7 +125,7 @@ async fn holding_uses_normal_push_and_refuses_microphone_audio() {
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
     let (_, mut rx) = calls.subscribe(&id).unwrap();
-    calls.hold(&id, true).unwrap();
+    calls.hold(&id, true, None).unwrap();
     assert!(utterance(&calls, &id, 1).is_err());
     assert!(!calls.delivery("mack", "reply", "Mack", "The tests passed.", true, None));
     tokio::time::sleep(Duration::from_millis(30)).await;
@@ -135,7 +135,7 @@ async fn holding_uses_normal_push_and_refuses_microphone_audio() {
             VoiceEvent::Clip { .. } | VoiceEvent::Said { .. } | VoiceEvent::Delivery { .. }
         ));
     }
-    calls.hold(&id, false).unwrap();
+    calls.hold(&id, false, None).unwrap();
     assert!(calls.delivery(
         "mack",
         "new-reply",
@@ -166,7 +166,7 @@ async fn interrupt_cancels_audio_without_ending_the_call() {
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The first sentence."),
     )
     .await;
-    calls.interrupt(&id).unwrap();
+    calls.interrupt(&id, None).unwrap();
     tokio::time::sleep(Duration::from_millis(30)).await;
     while let Ok(event) = rx.try_recv() {
         assert!(!matches!(
@@ -416,7 +416,7 @@ async fn a_late_provider_completion_cannot_publish_after_interrupt() {
     let generation = calls
         .test_change(&id, |call| Ok(call.speech.clone()))
         .unwrap();
-    calls.interrupt(&id).unwrap();
+    calls.interrupt(&id, None).unwrap();
     // Model the provider returning between the outer cancellation check and
     // publishing its finished clip. The publication boundary must recheck it.
     calls.test_clip(

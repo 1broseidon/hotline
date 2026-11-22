@@ -110,6 +110,7 @@ pub(super) struct LiveSide {
     /// The words a colleague's handoff or question opened this thread with,
     /// as its link keeps them ([`crate::thread::request_words`]).
     opened_with: Option<String>,
+    from_item: Option<String>,
     /// The request the turn in flight is answering, a handoff or a question,
     /// until what came of it is saved.
     request: Mutex<Option<String>>,
@@ -262,6 +263,11 @@ impl LiveSide {
         }
     }
 
+    fn call_slot_name(&self) -> String {
+        // Identify the holder without sharing another call's title with the front.
+        format!("call {}", &self.id[..self.id.floor_char_boundary(8)])
+    }
+
     /// Whether the queue is claimed: a turn is in flight, or the agent is
     /// still starting. Nothing parks the thread meanwhile.
     pub(super) fn working(&self) -> bool {
@@ -305,6 +311,8 @@ impl LiveSide {
 /// it is handed to the driver.
 pub(super) struct WorkTurn {
     line: Option<Line>,
+    offered: Vec<String>,
+    inline: Option<String>,
 }
 
 impl Occupant for LiveSide {
@@ -338,6 +346,9 @@ impl Occupant for LiveSide {
     /// A request's turn is the exchange's: it begins only while the request
     /// is still running, and what came of it is saved when it ends.
     async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: Line) -> Begin<WorkTurn> {
+        if !room.can_offer_call_inbox(self, &line) {
+            return Begin::Skip;
+        }
         // A call's agent that a line has reached is no longer unused.
         lock(&self.warm).take();
         // A result that came back from a colleague is heard once: it is
@@ -388,7 +399,12 @@ impl Occupant for LiveSide {
         // inbox or was left it about this one, open the line. A line that only
         // woke it is spent once a turn before it has heard what woke it.
         let asides = room.hear_asides(&self.persona_id, &self.thread);
-        let inbox = room.inbox_told(&self.persona_id, &self.thread, false);
+        let inbox = room.inbox_told(
+            &self.persona_id,
+            &self.thread,
+            false,
+            line.wake && line.text.ends_with(super::inbox::WAKE_LINE),
+        );
         if asides.is_empty() && !inbox.news && line.wake {
             return Begin::Skip;
         }
@@ -431,17 +447,40 @@ impl Occupant for LiveSide {
         }
         // The person's Stop or Interrupt from here on is this turn's.
         lock(&self.cut).take();
-        Begin::Go(WorkTurn { line: Some(line) })
+        Begin::Go(WorkTurn {
+            line: Some(line),
+            offered: inbox.offered,
+            inline: inbox.inline,
+        })
     }
 
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut WorkTurn) -> Driven {
         let thread = self.thread();
-        let line = held.line.take().expect("a turn is taken once");
+        let mut line = held.line.take().expect("a turn is taken once");
         let driver = self.driver().expect("turns run only once the agent is up");
         let steer = || room.steer_into_work(self);
+        let work_for = line.return_for.clone().unwrap_or_else(|| {
+            if line.said.is_some() && line.from.is_none() && line.request.is_none() {
+                return super::ownership::WorkFor::Person;
+            }
+            lock(&self.request)
+                .as_deref()
+                .map_or_else(Default::default, |id| room.inbox_request_owner(id))
+        });
+        if line.return_for.is_some() {
+            let opening = room.opening_note(
+                &self.persona_id,
+                &thread,
+                super::returns::Starter::Command,
+                &work_for,
+            );
+            line.text.push_str("\n\n");
+            line.text.push_str(&opening);
+        }
         room.threads()
             .turn(
                 Seat {
+                    work_for,
                     capability: Some(&self.capability),
                     thread: &thread,
                     persona_id: &self.persona_id,
@@ -457,9 +496,16 @@ impl Occupant for LiveSide {
             .await
     }
 
-    fn end(self: &Arc<Self>, room: &Arc<Room>, _held: WorkTurn, driven: Driven) -> Then {
+    fn end(self: &Arc<Self>, room: &Arc<Room>, held: WorkTurn, driven: Driven) -> Then {
         let side = self;
         *lock(&side.last_used) = now_ms();
+        room.settle_inbox_offer(
+            &side.persona_id,
+            &held.offered,
+            held.inline.as_deref(),
+            &driven,
+            *lock(&side.cut),
+        );
         if side.closed.is_set() {
             // A thread ended under a turn still settles the request it
             // answered.
@@ -469,6 +515,9 @@ impl Occupant for LiveSide {
             return Then::Stop;
         }
         let cut = lock(&side.cut).take().filter(|_| cut_short(&driven));
+        // Take back unconsumed input under the same queue lock as the
+        // one-shot call offer, so it cannot be mistaken for a person's line.
+        let mut turns = lock(&side.turns);
         let mut steered = std::mem::take(&mut *lock(&side.steered));
         if let Some(driver) = side.driver() {
             let unconsumed = driver.take_unconsumed();
@@ -494,8 +543,14 @@ impl Occupant for LiveSide {
                     .iter()
                     .rposition(|line| line.text == text && line.attachments == attachments)
                 {
+                    Some(index) if steered[index].call_inbox => {
+                        steered.remove(index);
+                        continue;
+                    }
                     Some(index) => steered.remove(index),
                     None => Line {
+                        call_inbox: false,
+                        return_for: None,
                         said: None,
                         voice: room.attached_voice(&side.thread),
                         text,
@@ -509,7 +564,6 @@ impl Occupant for LiveSide {
                 };
                 handed_back.push(line);
             }
-            let mut turns = lock(&side.turns);
             if room.closing() {
                 drop(turns);
                 // Last first, as the driver handed them back.
@@ -519,7 +573,10 @@ impl Occupant for LiveSide {
                 for line in handed_back {
                     turns.waiting.push_front(line);
                 }
+                drop(turns);
             }
+        } else {
+            drop(turns);
         }
         room.remember_session(side, &driven);
         // A card the turn left open is a button nobody is behind.
@@ -670,14 +727,32 @@ impl Sides {
                 .min_by_key(|side| (*lock(&side.last_used), side.started))
                 .cloned()
                 .ok_or_else(|| {
-                    format!(
-                        "That teammate already has {limit} threads working. Let one finish, then try again."
-                    )
+                    if kind == ThreadKind::Call {
+                        let holder = live.first().map_or_else(|| "a call thread starting up".into(), |side| side.call_slot_name());
+                        format!("The teammate's call slot is held by {holder}. Let it finish, then try again.")
+                    } else {
+                        format!("That teammate already has {limit} threads working. Let one finish, then try again.")
+                    }
                 })?;
             return Ok(Place::Evict(idlest));
         }
         *inner.starting.entry(reservation).or_default() += 1;
         Ok(Place::Granted)
+    }
+
+    /// Other call starts and input share `waking`. An idle holder can be
+    /// parked by `reserve`; a busy or ending one keeps its place until then.
+    fn busy_call(&self, persona: &str, requested: &ThreadId) -> Option<String> {
+        lock(&self.inner)
+            .live
+            .values()
+            .find(|side| {
+                side.persona_id == persona
+                    && side.thread.kind == ThreadKind::Call
+                    && side.thread != *requested
+                    && (side.closed.is_set() || side.working())
+            })
+            .map(|side| side.call_slot_name())
     }
 
     /// Whether a thread could be opened for this teammate now: a place is free,
@@ -998,6 +1073,16 @@ impl Room {
         let live = Arc::new(LiveSide {
             roster: Mutex::default(),
             id: start.thread.key.clone(),
+            from_item: self
+                .link_of(&start.thread)
+                .and_then(|link| link.from_item)
+                .or_else(|| {
+                    start.handoff.as_ref().and_then(|handoff| {
+                        self.inbox_request_owner(&handoff.request)
+                            .item()
+                            .map(str::to_owned)
+                    })
+                }),
             thread: start.thread,
             persona_id: persona_id.to_string(),
             title: Mutex::new(start.title),
@@ -1619,6 +1704,8 @@ impl Room {
         self.queue_in_side(
             side,
             Line {
+                call_inbox: false,
+                return_for: None,
                 said: Some(said_id),
                 voice,
                 text: text.clone(),
@@ -1786,6 +1873,8 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    call_inbox: false,
+                    return_for: None,
                     said: None,
                     voice: None,
                     text: super::timed(ts, &wire),

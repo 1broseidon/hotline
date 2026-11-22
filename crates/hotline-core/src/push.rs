@@ -318,10 +318,10 @@ mod tests {
         };
         notify();
         assert_eq!(push.sent.lock().unwrap().len(), 0);
-        calls.hold(&call, true).unwrap();
+        calls.hold(&call, true, None).unwrap();
         notify();
         assert_eq!(push.sent.lock().unwrap().len(), 1);
-        calls.hold(&call, false).unwrap();
+        calls.hold(&call, false, None).unwrap();
         notify();
         assert_eq!(push.sent.lock().unwrap().len(), 1);
         calls.end(&call).unwrap();

@@ -2441,29 +2441,6 @@
 	.trail-head[aria-expanded="true"] .trail-chevron {
 		opacity: 1;
 	}
-	/* The line for a run of inbox activity in the conversation
-	 * (InboxLines.tsx) sits as the conversation's quiet lines do: its dot
-	 * where a link row's is, the press hugging its words, and its chevron in
-	 * sight, as the steps caption under a reply has it; there it is one line
-	 * on its own, not one of a column. Opened, its rows sit under its words
-	 * with no rule or box, the conversation's own quiet rows. */
-	.trail[data-kind="inbox-run"] {
-		margin-inline-start: -6px;
-	}
-	.trail[data-kind="inbox-run"] > .trail-step > .trail-head {
-		width: fit-content;
-	}
-	.trail[data-kind="inbox-run"] .trail-chevron {
-		opacity: 0.6;
-	}
-	.trail[data-kind="inbox-run"] .trail-head:is(:hover, :focus-visible, [aria-expanded="true"]) .trail-chevron {
-		opacity: 1;
-	}
-	.inbox-run-rows {
-		display: flex;
-		flex-direction: column;
-		padding: 2px 0 4px 22px;
-	}
 	/* Opened: the thinking before it, then each step as a person reads it. */
 	.trail-detail {
 		display: flex;

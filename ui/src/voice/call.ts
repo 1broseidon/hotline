@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { activeDeskId, allDesks, watchDesks, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
-import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../generated/contract";
+import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront, VoicePlayed } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
 import { AUDIO_SILENCE_MS, SILENCE_MS, TurnDetector, levelFromDb, silenceAfter } from "./turn";
@@ -14,7 +14,9 @@ import {
 	hearsOnThisMac,
 	rawEquivalentDb,
 } from "./transcription";
-import { hearOnThisMac, subscribeHearing } from "./hearing";
+import { hearOnThisMac, interruptBySpeaking, subscribeHearing } from "./hearing";
+import { type BargeDecision, BargeIn, personWords, scriptOf } from "./bargeIn";
+import { voiceNote } from "./note";
 import { hearsWithDeskModel } from "./desk";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmResampler, PcmTurn } from "./stream";
@@ -146,7 +148,15 @@ const FRONT_GONE = "Live voice disconnected and could not reconnect.";
 type Names = (personaId: string) => string | undefined;
 
 export type CallTarget = { thread?: import("../generated/contract").ThreadId; personaId: string; name: string; avatarHash?: string | undefined };
-export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined; turnByTurn?: boolean };
+export type CallOptions = {
+	deskId?: string | null;
+	target?: CallTarget | undefined;
+	turnByTurn?: boolean;
+	/** Where the call's `[voice]` lines go; the app's log in the window (note.ts). */
+	note?: (line: string) => void;
+	/** Whether talking over the teammate interrupts it; Settings › Voice in the window (hearing.ts). */
+	interruptBySpeaking?: () => boolean;
+};
 
 /** Remove only a stable recognized prefix known to predate the speaker's onset. */
 function afterRecognizedPrefix(text: string, prefix: string): string {
@@ -227,7 +237,7 @@ export class Call {
 	 * they finish, and goes if they said something (they cut in, and the desk
 	 * stops it too) or plays if it was only noise.
 	 */
-	private deferred: { id: string; mimeType: string; data: string }[] = [];
+	private deferred: { id: string; index: number; mimeType: string; data: string }[] = [];
 	/** An utterance is on its way and the desk has not answered with a state yet. */
 	private awaiting = false;
 	private get held(): boolean {
@@ -279,6 +289,20 @@ export class Call {
 	private readonly wordless = new WordlessVoice();
 	/** The connect chime is not the speaker. */
 	private quietUntil = 0;
+	/** Which of this Mac's engines hears: only the analyzer is heard over a reply (bargeIn.ts). */
+	private textEngine = "";
+	/**
+	 * Talking over the teammate interrupts it: the setting is on, this Mac's
+	 * analyzer hears the call and voice processing cancels the echo. It goes
+	 * off for the rest of the call once that is shown not to hold.
+	 */
+	private overhearing = false;
+	/** Listening while a reply plays, for the person talking over it. */
+	private barge: BargeIn | null = null;
+	/** The person cut the reply off by talking: their words follow these, which were the reply's. */
+	private cutFrom: { before: string; script: string[] } | null = null;
+	/** The lines played since the call last listened: only their echo can be in the microphone now. */
+	private readonly playedLines = new Set<string>();
 
 	/**
 	 * A front call: a realtime model on the desk hears and speaks, so the
@@ -368,6 +392,11 @@ export class Call {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return;
 		}
+		this.overhearing = this.textInput && this.front === null && (this.options.interruptBySpeaking ?? interruptBySpeaking)();
+		if (this.overhearing && this.textEngine !== "apple-analyzer") {
+			this.overhearing = false;
+			this.note("interrupt by speaking: off, this Mac's older recognizer does not hear the echo-cancelled channel alone");
+		} else if (this.overhearing) this.note("interrupt by speaking: on");
 		if (this.textInput) this.detector = new TurnDetector(this.now(), TEXT_MIN_SPEECH_MS, SILENCE_MS);
 		else {
 			if (this.front === null) this.detector = new TurnDetector(this.now(), undefined, AUDIO_SILENCE_MS);
@@ -448,19 +477,20 @@ export class Call {
 		const capability = await transcription.capability();
 		if (!capability.available || this.ended) return false;
 		this.textLocale = capability.locale;
+		this.textEngine = capability.engine ?? "";
 		return transcription.permit();
 	}
 
 	hangUp(): void {
 		if (this.ended) return;
-		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
+		if (this.started) void this.transport.command("voice.call_end", { callId: this.id, ...this.played() }).catch(() => {});
 		this.end("client");
 	}
 
 	async hold(on: boolean): Promise<void> {
 		if (this.ended || this.snapshot.phase === "connecting" || on === this.held) return;
 		if (this.closing !== null) return this.end(this.closing);
-		void this.transport.command("voice.hold", { callId: this.id, hold: on }).catch(() => {});
+		void this.transport.command("voice.hold", { callId: this.id, hold: on, ...(on ? this.played() : {}) }).catch(() => {});
 		if (on) {
 			this.holdGeneration++;
 			this.go({ type: "hold" });
@@ -507,9 +537,20 @@ export class Call {
 		this.settle();
 	}
 
+	/**
+	 * Where playback stands, for the desk to tell the teammate what was
+	 * heard when it is stopped: read before playback stops, and, after
+	 * talking over the reply paused it, where it paused. A live front's
+	 * sound is one stream with no clips, and says nothing here.
+	 */
+	private played(): { played?: VoicePlayed } {
+		if (this.front !== null) return {};
+		return { played: this.audio.position() ?? { index: 0, ms: 0, clipMs: 0 } };
+	}
+
 	/** Stops the desk's reply: what plays, and what is still to come of it. */
 	private silence(): void {
-		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
+		void this.transport.command("voice.interrupt", { callId: this.id, ...this.played() }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
 		this.deferred = [];
 		this.outputLines.clear();
@@ -595,13 +636,14 @@ export class Call {
 				else this.outputLines.add(event.id);
 				// The person is talking and keeps the floor; nothing plays over them, so the mic never hears it.
 				if (this.snapshot.phase === "hearing") {
-					if (event.data !== "") this.deferred.push({ id: event.id, mimeType: event.mimeType, data: event.data });
+					if (event.data !== "") this.deferred.push({ id: event.id, index: event.index, mimeType: event.mimeType, data: event.data });
 					return;
 				}
 				try {
 					if (event.data !== "") {
 						if (this.endpoint !== null && this.endpoint.clipAt === undefined) this.endpoint.clipAt = this.now();
-						this.audio.play(event.mimeType, event.data);
+						this.audio.play(event.mimeType, event.data, this.clipOf(event.id, event.index));
+						this.playedLines.add(event.id);
 					}
 				}
 				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
@@ -638,6 +680,11 @@ export class Call {
 		this.settle();
 	}
 
+	/** A clip of a line the desk said, which a cut is placed in; the waiting sound is none. */
+	private clipOf(line: string, index: number): { line: string; index: number } | undefined {
+		return this.snapshot.lines.some((one) => one.kind === "desk" && one.id === line) ? { line, index } : undefined;
+	}
+
 	private remember(id: string): void {
 		this.seen.add(id);
 		while (this.seen.size > 128) {
@@ -662,14 +709,18 @@ export class Call {
 		if (this.link.kind === "reconnecting") return this.set({ phase: "reconnecting" });
 		if (this.held) return this.set({ phase: "held" });
 		if (this.audio.playing) {
-			// Turn by turn does not listen while a reply plays, so the reply is
-			// never cut off by its own echo: a tap on the call interrupts it. A
-			// live model hears all the time and handles its own echo.
-			if (this.snapshot.phase !== "speaking") {
+			// Turn by turn does not listen for a turn while a reply plays, so the
+			// reply is never cut off by its own echo: a tap on the call interrupts
+			// it. With Interrupt by speaking, this Mac listens over it for words
+			// the reply does not explain (bargeIn.ts). A live model hears all the
+			// time and handles its own echo.
+			const entering = this.snapshot.phase !== "speaking";
+			if (entering) {
 				this.cancelInput();
 				this.detector.reset(this.now());
 			}
 			this.set({ phase: "speaking" });
+			if (entering && this.overhearing) this.overhear();
 			return;
 		}
 		// A front listens all the time; it says when the teammate is working.
@@ -685,6 +736,7 @@ export class Call {
 		if (phase === "listening") return this.set({});
 		this.cancelInput();
 		this.detector.reset(this.now());
+		this.playedLines.clear();
 		this.set({ phase: "listening" });
 		if (this.textInput) this.listen();
 	}
@@ -866,11 +918,14 @@ export class Call {
 	private listen(): void {
 		const session = ++this.textSession;
 		this.recognizing = true;
+		this.cutFrom = null;
 		this.textPart = "";
 		this.textIgnored = "";
 		this.textSnapshots = [];
-		const failed = () => {
-			if (session === this.textSession && !this.ended) this.fail(NO_TRANSCRIPTION);
+		// The engine's own reason (no microphone, say) is said as it is; a bare refusal is speech access.
+		const failed = (error?: unknown) => {
+			const why = error instanceof Error && error.message !== "" ? error.message : NO_TRANSCRIPTION;
+			if (session === this.textSession && !this.ended) this.fail(why);
 		};
 		this.transcription!.start((event) => {
 			if (session === this.textSession && this.recognizing && !this.ended) this.transcribed(event);
@@ -881,6 +936,10 @@ export class Call {
 
 	/** Lets the session go, unsent: the call holds, the desk has the floor, or nobody spoke. */
 	private stopListening(): void {
+		// A reply paused or turned down for the person goes on as it was, unless what let the session go stops it too.
+		if (this.barge !== null) this.letGo(this.barge);
+		this.barge = null;
+		this.cutFrom = null;
 		this.textSession++;
 		this.recognizing = false;
 		this.textPrefix = "";
@@ -893,6 +952,7 @@ export class Call {
 	}
 
 	private transcribed(event: TranscriptionEvent): void {
+		if (this.barge !== null && this.snapshot.phase === "speaking") return this.overheard(event, this.barge);
 		switch (event.type) {
 			case "level": {
 				const now = this.now();
@@ -970,7 +1030,8 @@ export class Call {
 	/** What the speaker has said this turn: nothing until the meter heard a voice, so the room's words are never sent. */
 	private spoken(part: string): string {
 		if (!this.heard) return "";
-		return [this.textPrefix, afterRecognizedPrefix(part, this.textIgnored)].filter((one) => one !== "").join(" ").trim();
+		const own = this.cutFrom === null ? afterRecognizedPrefix(part, this.textIgnored) : personWords(part, this.cutFrom.before, this.cutFrom.script);
+		return [this.textPrefix, own].filter((one) => one !== "").join(" ").trim();
 	}
 
 	/** The words so far are the live line, under the id the desk's own `heard` will replace. */
@@ -1012,6 +1073,110 @@ export class Call {
 			.then(() => this.delivered(), (error: unknown) => this.refused(error));
 	}
 
+	// ------------------------------------------------------------- talking over a reply
+
+	/** A fresh session while the reply plays, heard only for the person talking over it. */
+	private overhear(): void {
+		this.barge = new BargeIn(this.now(), this.detector.noiseFloor);
+		this.listen();
+	}
+
+	/** The engine while a reply plays: its level may pause the reply, its words may cut it off. */
+	private overheard(event: TranscriptionEvent, barge: BargeIn): void {
+		switch (event.type) {
+			case "level": {
+				if (event.processed === false) return this.stopOverhearing("no echo cancellation on this microphone");
+				const output = barge.paused ? 0 : this.audio.outputLevel();
+				return this.decide(barge.level(levelFromDb(rawEquivalentDb(event.levelDb)), output, this.now(), this.textPart), barge);
+			}
+			case "partial":
+			case "final":
+				this.textPart = event.text.trim();
+				this.wordless.heard(this.textPart);
+				return this.decide(barge.words(this.textPart, this.now(), this.replyScript()), barge);
+			case "error":
+				this.fail(event.message || NO_TRANSCRIPTION);
+				return;
+			case "ended":
+				if (event.reason === "error") return this.fail("Speech recognition on this Mac stopped. Call again.");
+				if (event.reason === "cancelled") return;
+				// The engine ended the session on its own: listen over the reply afresh, as it was.
+				this.letGo(barge);
+				this.overhear();
+				return;
+		}
+	}
+
+	private decide(decision: BargeDecision | null, barge: BargeIn): void {
+		if (decision === null) return;
+		switch (decision.kind) {
+			case "pause":
+				this.audio.pausePlayback();
+				this.note(`interrupt by speaking: paused the reply, ${decision.why}`);
+				return;
+			case "resume":
+				this.audio.duckPlayback(barge.turnedDown);
+				this.audio.resumePlayback();
+				this.note(`interrupt by speaking: resumed the reply, ${decision.why}`);
+				return;
+			case "full":
+				this.audio.duckPlayback(false);
+				this.note(`interrupt by speaking: the reply is at full volume again, ${decision.why}`);
+				return;
+			case "echo":
+				this.note(`interrupt by speaking: not an interruption, ${decision.why}`);
+				return;
+			case "off":
+				this.audio.duckPlayback(false);
+				this.audio.resumePlayback();
+				return this.stopOverhearing(decision.why);
+			case "interrupt":
+				return this.interruptedBySpeech(decision.why, barge);
+		}
+	}
+
+	/** The reply plays on as it was before `barge` paused it or turned it down. */
+	private letGo(barge: BargeIn): void {
+		if (barge.turnedDown) this.audio.duckPlayback(false);
+		if (barge.paused) this.audio.resumePlayback();
+	}
+
+	/** Talking over the reply stops for this call: a tap still interrupts. */
+	private stopOverhearing(why: string): void {
+		this.overhearing = false;
+		this.note(`interrupt by speaking: off for this call, ${why}`);
+		this.stopListening();
+	}
+
+	/**
+	 * The person's words cut the reply off: it stops, and is recorded as cut
+	 * as a tap's is (`voice.interrupt`), and their words, already being heard
+	 * in this session, are their next turn.
+	 */
+	private interruptedBySpeech(why: string, barge: BargeIn): void {
+		const voice = barge.voice;
+		const now = this.now();
+		this.note(`interrupt by speaking: interrupted the reply, ${why}, ${voice === null ? "" : `${Math.round(now - voice.onset)} ms after the voice began`}`.replace(/, $/, ""));
+		this.barge = null;
+		this.silence();
+		this.cutFrom = { before: barge.wordsBefore, script: this.replyScript() };
+		this.inputState(true);
+		this.heard = true;
+		this.detector.begin(voice?.onset ?? now, voice?.last ?? now, now);
+		this.set({ phase: "hearing" });
+		this.showDraft();
+		this.settle();
+	}
+
+	/** What the teammate said since the call last listened: only that can be echo now. */
+	private replyScript(): string[] {
+		return scriptOf(this.snapshot.lines.filter((line) => line.kind === "desk" && this.playedLines.has(line.id)).map((line) => line.text));
+	}
+
+	private note(line: string): void {
+		(this.options.note ?? voiceNote)(`call ${this.id.slice(0, 8)}: ${line}`);
+	}
+
 	/**
 	 * The person said something over what the desk began to say: it goes, as
 	 * the desk stops it on taking their words.
@@ -1030,7 +1195,10 @@ export class Call {
 		this.deferred = [];
 		if (deferred.length === 0) return false;
 		try {
-			for (const clip of deferred) this.audio.play(clip.mimeType, clip.data);
+			for (const clip of deferred) {
+				this.audio.play(clip.mimeType, clip.data, this.clipOf(clip.id, clip.index));
+				this.playedLines.add(clip.id);
+			}
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return true;

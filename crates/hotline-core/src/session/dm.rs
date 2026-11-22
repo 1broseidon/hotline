@@ -50,7 +50,9 @@
 //! the Dm row of [`Room::sweep`].
 
 use super::asides::result_of;
+use super::ownership::WorkFor;
 use super::prompt::PendingTool;
+use super::returns::Starter;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{Glance, Room, Session, Wired, call_origin, lock};
@@ -65,6 +67,7 @@ use std::sync::{Arc, Mutex};
 /// What the DM keeps from the door of a turn to its end.
 pub(super) struct Hold {
     source: Option<Source>,
+    work_for: WorkFor,
     reach: Reach,
     /// Whether the line came from a voice, which decides how the reply is said.
     from_voice: bool,
@@ -78,6 +81,8 @@ pub(super) struct Hold {
     /// The inbox items that woke a quiet turn: those its line offered, or
     /// those its index offered for the first time.
     woke: Vec<String>,
+    offered: Vec<String>,
+    inline: Option<String>,
     /// The turn is a pick-up of what the teammate set aside, which no other
     /// pick-up follows.
     pick_up: bool,
@@ -147,7 +152,6 @@ impl Occupant for Session {
             eprintln!("question not taken up: {error}");
             return Begin::Skip;
         }
-        room.set_state(session, SessionState::Thinking);
         let reach = room.reach_of(&session.persona_id);
         if !session.answering(room) {
             session.abandon();
@@ -167,8 +171,12 @@ impl Occupant for Session {
         // a turn nobody started: quiet as the inbox's is, though no inbox
         // limit counts it. One said on a call is heard there.
         let returning = (wired.back || wired.unprompted.is_some()) && wired.voice.is_none();
+        let mut work_for = wired.work_for.clone();
+        let mut mixed = false;
         let pick_up = wired.pick_up;
         let mut woke = wired.woke.clone();
+        let mut offered = Vec::new();
+        let mut inline = None;
         // A pick-up whose items were all sorted meanwhile has nothing to offer.
         if pick_up && room.set_aside(&session.persona_id).is_empty() {
             return Begin::Skip;
@@ -202,6 +210,7 @@ impl Occupant for Session {
             };
             if is_result {
                 for behind in room.results_behind(session) {
+                    mixed |= work_for.merge(&behind.work_for);
                     if let Some(said) = behind.said {
                         lock(&session.unread).push(said);
                     }
@@ -216,11 +225,38 @@ impl Occupant for Session {
                 &session.persona_id,
                 &session.thread(),
                 wired.quiet || returning,
+                // The loud wake is a finished ask; an aside's wake is also a return.
+                wired.wake
+                    && !wired.steer
+                    && (!wired.back || text.ends_with(super::inbox::QUIET_WAKE_LINE)),
             );
             if asides.is_empty() && !inbox.news && wired.wake {
                 return Begin::Skip;
             }
-            woke.extend(inbox.offered);
+            let mut starter = if wired.quiet {
+                Starter::Inbox
+            } else {
+                wired.starter
+            };
+            woke.extend(inbox.offered.iter().cloned());
+            if wired.quiet
+                && let [item] = woke.as_slice()
+                && let Ok(item) = room.item_of(&session.persona_id, item)
+            {
+                work_for = room.colleague_work(&item);
+                if item.notice.is_some() {
+                    starter = Starter::Desk;
+                } else if super::inbox::quick_message(&item).is_some() {
+                    starter = Starter::Quick;
+                }
+            }
+            if mixed {
+                text = format!(
+                    "Hotline: work for different people came back together; this turn is for the person.\n\n{text}"
+                );
+            }
+            offered = inbox.offered;
+            inline = inbox.inline;
             // Which sites it holds the person's cookies for, when that changed.
             text = room.with_cookie_news(&session.told_cookies, &session.persona_id, text);
             if let Some(index) = room.thread_index(
@@ -235,11 +271,10 @@ impl Occupant for Session {
             // Work that came back, or a line that only wakes the teammate:
             // nobody waits on its reply, and Hotline says so with the facts
             // of the moment.
-            if wired.back {
-                text = format!(
-                    "{text}\n\n{}",
-                    room.return_note(&session.persona_id, &session.thread())
-                );
+            if wired.back || wired.quiet {
+                let opening =
+                    room.opening_note(&session.persona_id, &session.thread(), starter, &work_for);
+                text = format!("{text}\n\n{opening}");
             }
             // The person's emoji alone is a reaction, said so, and waits on
             // no reply ([`super::marks`]).
@@ -260,14 +295,18 @@ impl Occupant for Session {
         // This turn hears the inbox in its index: a pick-up the last one
         // armed is spent.
         lock(&session.pick_up).began();
+        room.set_state(session, SessionState::Thinking, work_for.item().is_some());
         Begin::Go(Hold {
             source: Some(source),
+            work_for,
             reach,
             from_voice,
             steered: Vec::new(),
             request,
             quiet: wired.quiet || returning,
             woke,
+            offered,
+            inline,
             pick_up,
             reaction,
         })
@@ -276,8 +315,15 @@ impl Occupant for Session {
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut Hold) -> Driven {
         let source = held.source.take().expect("a turn is taken once");
         let _posting = room.open_posting(&self.thread(), None);
+        room.set_work_for(&self.thread(), held.work_for.clone());
         if held.quiet {
-            room.quiet_turn(&self.thread(), &held.woke);
+            let thread = self.thread();
+            room.quiet_turn(&thread, &held.woke);
+            if matches!(&source, Source::Updates(_)) {
+                self.driver
+                    .note_unprompted(room.return_note(&self.persona_id, &thread))
+                    .await;
+            }
         }
         let mut heard = Heard {
             room,
@@ -342,10 +388,18 @@ impl Occupant for Session {
             }
         }
         let cut = lock(&session.cut).take();
+        let failed_wake = room.settle_inbox_offer(
+            &session.persona_id,
+            &held.offered,
+            held.inline.as_deref(),
+            &driven,
+            cut,
+        );
         // Whether the conversation, once idle, may be offered what it set
         // aside: never after a pick-up's own turn, so pick-ups cannot chain,
         // and never after a turn the person stopped or that did not finish.
-        let may_pick_up = !held.pick_up
+        let may_pick_up = !failed_wake
+            && !held.pick_up
             && cut.is_none()
             && !super::exchanges::cut_short(&driven)
             && driven.failure.is_none();
@@ -361,7 +415,7 @@ impl Occupant for Session {
             lock(&self.turns).running = false;
             return;
         }
-        room.set_state(self, SessionState::Ready);
+        room.set_state(self, SessionState::Ready, false);
         room.attach_computer_when_idle(&self.persona_id);
         room.swap_computer_when_idle(&self.persona_id);
         room.rebuild_for_sign_in_when_idle(self);
@@ -644,6 +698,28 @@ impl Room {
         }
     }
 
+    /// The wire flag is just for the desk; the actual session state stays working.
+    pub(super) fn show_inbox_activity(&self, session: &Arc<Session>) {
+        self.inbox_activity(session, false);
+    }
+
+    pub(super) fn inbox_activity(&self, session: &Arc<Session>, private_work: bool) {
+        let _lifecycle = lock(&self.lifecycle);
+        if !session.capability.is_current() || !self.current_session(session) {
+            return;
+        }
+        let hidden = private_work
+            && !lock(&session.turns)
+                .waiting
+                .iter()
+                .any(|line| line.person.is_some());
+        let mut info = lock(&session.info);
+        if info.quiet_inbox != hidden {
+            info.quiet_inbox = hidden;
+            let _ = self.info_changes.send(info.clone());
+        }
+    }
+
     /// Hands the driver the lines waiting that may join the turn in flight,
     /// the person's with the mark of the moment ([`super::marks`]), and says
     /// whether one of them was the person's.
@@ -673,8 +749,12 @@ impl Room {
         }
         // A line that is more than an inbox notice is the person's: a quiet
         // turn they have spoken into answers them out loud from here on.
+        if person {
+            self.set_work_for(&session.thread(), WorkFor::Person);
+        }
         if taken.iter().any(|wire| !wire.wake) {
             self.set_quiet(&session.thread(), false);
+            self.show_inbox_activity(session);
         }
         steered_inputs.extend(taken);
         // A turn that was only waiting on its subagents has a line to

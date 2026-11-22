@@ -1,4 +1,4 @@
-import type { Attachment, InboxItem, ScheduledRun, TranscriptEvent } from "./generated/contract";
+import type { Attachment, ScheduledRun, TranscriptEvent } from "./generated/contract";
 
 /**
  * A helper (a subagent) or a command left running, as the line its teammate's
@@ -15,7 +15,7 @@ export const isRunLink = (event: TranscriptEvent): event is RunLink => event.kin
  * behind (`outcome`, which the line under the reply is made of), and the
  * helpers and commands it started (`RunLink`).
  */
-export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" | "activity" | "outcome" }> | RunLink;
+export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" | "activity" | "outcome" | "inbox_sent" | "inbox_sorted" }> | RunLink;
 
 /** A prompt a schedule or loop sent, as the operator's line it arrives on. */
 export type ScheduledEvent = Extract<TranscriptEvent, { kind: "user" }> & { scheduled: ScheduledRun };
@@ -32,19 +32,17 @@ type AgentEvent = Extract<TranscriptEvent, { kind: "agent" }>;
  * last and `open`. A job that fired again and again
  * with nothing between is one block too, oldest run first, sitting where the
  * newest run sits; so are finished calls one after another, and a turn's
- * files sent a message each. A run of a teammate's inbox activity in its
- * own conversation is one block too (`foldInboxRuns`); a send in a turn the
- * person asked for stays its own row, `asked`.
+ * files sent a message each. A turn's sends and sorts fold into its Steps
+ * (`toBlocks`), and a turn that said nothing in the chat draws nothing
+ * (`withoutUnsaidTurns`).
  */
 export type Block =
-	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
-	/** `rowSays`: the turn's only work was the inbox, and its sent row says what came of it (`sentRowsSay`). */
-	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean; rowSays?: true }
+	| { kind: "event"; event: Exclude<TranscriptEvent, Step> | Extract<TranscriptEvent, { kind: "outcome" | "inbox_sent" | "inbox_sorted" }>; live?: boolean }
+	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean; elapsed?: number }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] }
 	| { kind: "sent"; id: string; ts: number; messages: AgentEvent[]; files: { eventId: string; index: number; file: Attachment }[] }
-	| { kind: "inbox"; id: string; ts: number; title: string; sent: InboxSentEvent[]; asked?: true }
-	| { kind: "inboxRun"; id: string; ts: number; members: Block[]; read: number; sent: number };
+	| { kind: "inbox"; id: string; ts: number; title: string; sent: InboxSentEvent[] };
 
 type InboxSentEvent = Extract<TranscriptEvent, { kind: "inbox_sent" }>;
 
@@ -189,209 +187,33 @@ export function groupInbox(blocks: Block[]): Block[] {
 }
 
 /**
- * A turn's part of the blocks, from the line after the last person's line or
- * turn's end to the next: `asked` when the person's own line began it (a
- * scheduled one is no ask), `said` when it put a bubble in the chat, `sent`
- * when it holds a sent row, and how it ended (`quiet` when its turn's end
- * says the person was never part of it), unset while it runs.
+ * What the teammate's own conversation draws of a turn that put nothing in
+ * the chat: nothing. A turn that ended quiet with no bubble (an inbox wake,
+ * a helper coming back) leaves no line, however much it read, sent or did,
+ * and the work thread an inbox item started is no row of its own: both are
+ * a colleague's business or the machinery's, and the person reads only
+ * what a turn said. What it sent or read in a turn that did say something
+ * is on the line under that reply (`toBlocks`, `inboxWords`). A turn still
+ * running, and one that failed, keep theirs. `work` is the work threads
+ * inbox items started, by key.
  */
-type Turn = { asked: boolean; said: boolean; sent: boolean; ended?: "quiet" | "other" };
-
-/** The turn each block belongs to, by its index. A person's line or a turn's end starts the next. */
-function turnsOf(blocks: Block[]): Turn[] {
-	const of: Turn[] = [];
-	let turn: Turn = { asked: false, said: false, sent: false };
-	for (const block of blocks) {
-		const event = block.kind === "event" ? block.event : undefined;
-		if (event?.kind === "user" || event?.kind === "turn") {
-			turn.ended = event.kind === "turn" && event.quiet === true ? "quiet" : "other";
-			turn = { asked: event.kind === "user" && event.scheduled === undefined, said: false, sent: false };
-		}
-		if (event?.kind === "agent" && event.text.trim() !== "") turn.said = true;
-		if (block.kind === "inbox") turn.sent = true;
-		of.push(turn);
-	}
-	return of;
-}
-
-/**
- * A quiet turn, one the person did not ask for and never spoke into, that
- * posted a bubble: its sorts and its sends are no line of the chat's (they
- * are in the path behind the bubble's time, `turnInbox` in `inbox.ts`).
- */
-function answeredQuietly(turn: Turn): boolean {
-	return !turn.asked && turn.said && turn.ended !== "other";
-}
-
-/**
- * Steps whose every tool call was the inbox's (`send`, `read_inbox`,
- * `update_inbox`), with at least one. Saying what it was on or what came of
- * it, a reaction and a post to the chat are no work of their own; a helper or
- * a command started is. Nor is what reaching a colleague takes on the way,
- * which both agents do before nearly every send: a look at the team
- * (`list_teammates`), Claude Code loading Hotline's tools (`ToolSearch`), and
- * Hotline Agent reading the room's own skill on how to reach one.
- */
-function inboxWorkOnly(items: Step[]): boolean {
-	let inbox = false;
-	for (const item of items) {
-		if (item.kind === "link") return false;
-		if (item.kind !== "tool") continue;
-		const key = item.said?.key;
-		if (key === "colleague") inbox = true;
-		else if (!NO_WORK.has(key ?? "") && !lookedUpTools(item) && !(key === "read" && ROOM_SKILL.test(item.title))) return false;
-	}
-	return inbox;
-}
-
-/** The step groups that are no work of their own beside a send: a reaction, a post, a look at the team. */
-const NO_WORK = new Set(["react", "post", "team"]);
-
-/** The agent looking up its own tools, in the desk's words for it (a tool called through `call_tool` is work). */
-const lookedUpTools = (item: Extract<Step, { kind: "tool" }>) => item.said?.key === "tools" && item.said.one === "Looked up its tools";
-
-/** Hotline's skill for working in the room, which Hotline Agent reads before reaching a colleague. */
-const ROOM_SKILL = /skills\/hotline-room\/SKILL\.md$/;
-
-/**
- * A turn whose only work was the inbox, and that has a sent row in the chat,
- * draws no outcome line: the row says what went and where it stands
- * (`rowSays`, its steps' line its time alone). A turn the person asked for
- * that also put no bubble in the chat draws no time either: the row stands
- * for the turn, and its path is still a turn of the pane's. Only the window
- * draws it so; what the desk keeps and sends, and the phone's line, do not
- * change. An outcome that failed, or only partly happened, keeps the line:
- * a failure is never left out.
- */
-export function sentRowsSay(blocks: Block[]): Block[] {
-	const turns = turnsOf(blocks);
-	return blocks.flatMap((block, at) => {
-		const turn = turns[at]!;
-		if (block.kind !== "steps" || block.open === true || !turn.sent || !inboxWorkOnly(block.items)) return [block];
-		if (block.items.some((item) => item.kind === "outcome" && (item.state === "failed" || item.state === "partial"))) return [block];
-		if (turn.asked && !turn.said) return [];
-		return [{ ...block, rowSays: true }];
-	});
-}
-
-/**
- * The bubbles drawn straight under the sent row of the item they answer,
- * whose "From Timo's message" line the desk leaves out: the row above says
- * what was asked and of whom. Straight under means nothing is drawn between
- * the row and the bubble but a time stamp (a turn that ended draws nothing,
- * and the lines `sentRowsSay` and `foldInboxRuns` leave out are not in the
- * blocks), the answer's own bubbles before it aside. An answer the window
- * cannot link to a row in view (its item names none it answers, the teammate's
- * inbox does not know it yet, or the row is not loaded) keeps its line, and
- * so does a file: only words change.
- */
-export function answersUnderTheirRow(blocks: Block[], items: ReadonlyMap<string, InboxItem>): Set<string> {
-	const under = new Set<string>();
-	blocks.forEach((block, at) => {
-		const answer = block.kind === "event" && block.event.kind === "agent" ? block.event : undefined;
-		if (answer?.fromItem === undefined || answer.text.trim() === "" || (answer.attachments?.length ?? 0) > 0) return;
-		const asked = items.get(answer.fromItem)?.replyTo;
-		if (asked === undefined) return;
-		let before = at - 1;
-		while (before >= 0 && (drawsNothing(blocks[before]!) || sameAnswer(blocks[before]!, answer.fromItem))) before -= 1;
-		const row = blocks[before];
-		if (row?.kind === "inbox" && row.sent.some((one) => one.item === asked)) under.add(answer.id);
-	});
-	return under;
-}
-
-/** A bubble posted for the same item: the answer's own, before this one. */
-function sameAnswer(block: Block, item: string): boolean {
-	return block.kind === "event" && block.event.kind === "agent" && block.event.fromItem === item;
-}
-
-/** A blocks' line as its fold reads it: one that joins the run, one that stands beside it, or one that ends it. */
-type Place = "member" | "beside" | "end";
-
-/**
- * A teammate's inbox activity in its own conversation, a run at a time, as
- * one quiet line ("Inbox · read 3, sent 1") that opens to its rows in the
- * order they happened: the items it sorted, the items it sent, the work an
- * item started once that work is over, and the time of each turn its inbox
- * woke that said nothing in the chat (a quiet turn's "5.0s"). A run ends at
- * what the person should read: their own line, a bubble the teammate
- * posted, a turn they asked for (whose sent rows stay out of the line as
- * quiet rows of their own, `asked`, being what came of their ask), and any
- * card, notice or other row. What draws nothing, a quiet turn still
- * running, and a work thread an item started while it is not over stand
- * beside the run without ending it: they are drawn under its line, and a
- * work thread joins the line once it is over. The line sits where the run's
- * first row is, and is named and dated by it, so a run that grows keeps its
- * row, open or not, and only its counts move. A run that read and sent nothing (a
- * quiet turn's time alone, a finished work thread alone) is drawn as its
- * rows were. A quiet turn that posted a bubble folds its sorts and sends
- * into that bubble: they are in the path its time opens, and no line of the
- * chat's (`answeredQuietly`). `work` is the work threads inbox items
- * started, by key.
- */
-export function foldInboxRuns(blocks: Block[], work: { has(key: string): boolean }): Block[] {
-	const out: Block[] = [];
-	let run: { block: Block; member: boolean }[] | null = null;
-	// The turn going now: the person's line began it or was steered into it, and it posted a bubble.
-	let asked = false;
+export function withoutUnsaidTurns(blocks: Block[], work: { has(key: string): boolean }): Block[] {
 	let posted = false;
-	const flush = () => {
-		if (run === null) return;
-		const members = run.filter((one) => one.member).map((one) => one.block);
-		const beside = run.filter((one) => !one.member).map((one) => one.block);
-		const read = new Set(members.flatMap((block) => (block.kind === "event" && block.event.kind === "inbox_sorted" ? block.event.entries.map((entry) => entry.item) : []))).size;
-		const sent = members.filter((block) => block.kind === "inbox").length;
-		if (read + sent === 0) out.push(...run.map((one) => one.block));
-		else {
-			const first = members[0]!;
-			const [id, ts] = first.kind === "event" ? [first.event.id, first.event.ts] : [first.id, first.ts];
-			out.push({ kind: "inboxRun", id: `inbox-run:${id}`, ts, members, read, sent }, ...beside);
-		}
-		run = null;
-	};
-	const turns = turnsOf(blocks);
-	blocks.forEach((block, at) => {
-		const inbox = block.kind === "inbox" || (block.kind === "event" && block.event.kind === "inbox_sorted");
-		if (inbox && answeredQuietly(turns[at]!)) return;
-		const place = placeIn(block, at);
-		if (place === "end") {
-			flush();
-			out.push(block.kind === "inbox" && asked ? { ...block, asked: true } : block);
-		} else if (place === "member") (run ??= []).push({ block, member: true });
-		else if (run !== null) run.push({ block, member: false });
-		else out.push(block);
-		if (block.kind !== "event") return;
+	return blocks.filter((block, at) => {
+		if (block.kind === "steps") return block.open === true || posted || !endedQuiet(blocks, at);
+		if (block.kind !== "event") return true;
 		const event = block.event;
-		if (event.kind === "user" && event.scheduled === undefined) asked = true;
-		else if (event.kind === "agent") posted = true;
-		else if (event.kind === "turn") {
-			asked = false;
-			posted = false;
-		}
+		if (event.kind === "agent") posted = true;
+		else if (event.kind === "turn" || event.kind === "user") posted = false;
+		return !(event.kind === "link" && event.threadKind === "side" && work.has(event.thread));
 	});
-	flush();
-	return out;
-
-	function placeIn(block: Block, at: number): Place {
-		if (block.kind === "inbox") return asked ? "end" : "member";
-		if (block.kind === "steps") {
-			if (block.open === true) return "beside";
-			return !posted && endedQuiet(blocks, at) ? "member" : "end";
-		}
-		if (block.kind !== "event") return "end";
-		const event = block.event;
-		if (event.kind === "inbox_sorted") return "member";
-		if (event.kind === "turn") return event.stopReason === "end_turn" ? "beside" : "end";
-		if (event.kind === "link" && event.threadKind === "side" && work.has(event.thread)) return event.state === "closed" ? "member" : "beside";
-		return "end";
-	}
 }
 
-/** Whether the turn a run of steps belongs to ended quiet: the first turn's end or person's line after it says. */
+/** Whether the turn a run of steps belongs to ended quiet on its own: the first turn's end or person's line after it says. */
 function endedQuiet(blocks: Block[], at: number): boolean {
 	for (const block of blocks.slice(at + 1)) {
 		if (block.kind !== "event") continue;
-		if (block.event.kind === "turn") return block.event.quiet === true;
+		if (block.event.kind === "turn") return block.event.quiet === true && block.event.stopReason === "end_turn";
 		if (block.event.kind === "user") return false;
 	}
 	return false;

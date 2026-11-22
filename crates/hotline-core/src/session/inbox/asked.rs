@@ -28,7 +28,7 @@ pub(super) const FINISHES_ASK: &str =
 
 /// What tells the teammate how to say a finished ask, after naming it: to
 /// the person, in its own words, never the colleague's.
-const TELL_THEM: &str = "Tell the person the result in your own words, addressed to them, in a line or two. Do not paste or quote your colleague's reply: it was written to you, not to them. If anything they asked is still open, say so in a few words.";
+const TELL_THEM: &str = "Do not paste or quote your colleague's reply: it was written to you, not to them. If anything they asked is still open, say so in a few words.";
 
 /// Whether an item, closing, may finish something the person asked for.
 pub(super) fn may_finish_ask(item: &InboxItem) -> bool {
@@ -116,16 +116,28 @@ impl Room {
     /// The line of the turn the person reads that a finished ask wakes: what
     /// finished, where what came back is, and how to tell them.
     pub(super) fn finished_line(&self, asks: &[Vec<InboxItem>]) -> String {
+        let mut colleagues: Vec<_> = asks
+            .iter()
+            .flatten()
+            .map(|item| self.name_of(&item.to))
+            .collect();
+        colleagues.sort_unstable();
+        colleagues.dedup();
+        let asker = colleagues.join(" and ");
         format!(
-            "inbox · Finished: what you sent colleagues for something the person asked of you, {}. What came back is above, under INBOX; read it with `read_inbox`. The person reads this turn. {TELL_THEM}",
-            self.finished_names(asks)
+            "inbox · Finished: what you sent colleagues for something the person asked of you, {}. What came back is above, under INBOX; use `read_inbox` for replies not shown in full. {} {TELL_THEM}",
+            self.finished_names(asks),
+            super::super::returns::opening(
+                super::super::returns::Starter::Answers(&asker),
+                &crate::session::ownership::WorkFor::Person,
+            )
         )
     }
 
     /// The same, said into a turn the person reads that is in flight.
     pub(super) fn finished_notice(&self, asks: &[Vec<InboxItem>]) -> String {
         format!(
-            "(Hotline: what you sent colleagues for something the person asked of you is finished, {}. What came back is in your inbox; read it with `read_inbox`. Tell the person in this turn. {TELL_THEM})",
+            "(Hotline: what you sent colleagues for something the person asked of you is finished, {}. What came back is in your inbox; read it with `read_inbox`. Tell the person in your own words, in a line or two. {TELL_THEM})",
             self.finished_names(asks)
         )
     }

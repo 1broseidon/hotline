@@ -61,8 +61,12 @@ These are George's, and what the inbox holds to.
   `message` or a `title`. An answer (`reply_to` naming an open question in
   the sender's own inbox, sent back to whoever asked it) closes that
   question as Answered, as `update_inbox`'s `answer` does, and wants
-  nothing back unless it says so; a reply to an item that wants work is a
-  question about it and leaves it open. It returns with each item's id and
+  nothing back unless it says so. A text-only answer to the asker alone
+  needs no new first-contact card, and goes back to the thread or job run
+  that asked while it is live, as an `update_inbox` answer does. Extra
+  recipients, files, and requests for an answer or work use the ordinary
+  send grant. A reply to an item that wants work is a question about it
+  and leaves it open. It returns with each item's id and
   where each landed, per recipient and in the desk's words, first in its
   note: "Huck: in inbox · Quill: not sent yet, waiting on the person's
   card"; a held item is never said to have arrived (`delivery` on the
@@ -97,12 +101,12 @@ These are George's, and what the inbox holds to.
   when its MCP cancellation arrives. Neither touches the card or the item,
   which go on as below. `wants` and `waiting` are described to agents as facts
   about the sender, never as urgency. Sent in a turn the person reads, its
-  result adds that the person sees the message as a row with where it
-  stands, so the teammate does not say it sent it or will pass on its
-  answer, and says only what the row does not, or nothing (task-505); the
-  house style's opening line for something to pass to a colleague is the
-  send itself, with no words, for the same reason. A quiet turn's send is
-  told no such thing.
+  result tells the teammate to say in one short line what it asked and of
+  whom, in their terms, and not that it will pass the answer on (the answer
+  comes back as a turn of its own that they read); the house style's opening
+  line for something to pass to a colleague says the same: say in one line
+  what you are asking and of whom, then send it. A quiet turn's send is told
+  no such thing.
 - **`read_inbox`** without `ids` lists the open items, the newest 50 with
   how many older ones there are, newest first: id, title,
   sender, `wants`, `waiting`, who else the send reached (`alsoTo`), state and
@@ -129,7 +133,18 @@ These are George's, and what the inbox holds to.
 `list_teammates` and the rest are unchanged; `post_to_chat` also takes the
 one post of a quiet turn of the main conversation (below). The lead's voice
 front on a desk call has `send` in place of `message_teammate`, for named
-work only, by the call's grant.
+work only, by the call's grant. `FrontWork` describes and checks that
+narrow `send`: named recipients, a title, the person's words, and `wants`
+fixed to `work`. It refuses broadcast aliases and fields the front is not
+shown. For a question, a note or a check the front uses `work_on_it`, whose
+working session on the call thread holds the general `send`.
+
+`Room::deliver` keeps each colleague item once, for `send`, `update_inbox`
+answers, work results and Loop in. A held send is kept unseen until its card
+settles that same item; it counts and wakes the recipient only upon landing.
+An exchange has already counted its work result. Loop in keeps its own quiet
+transcript line instead of a sent row. Hotline writes its own notices
+separately; they are not colleague deliveries.
 
 ## An item and its states
 
@@ -236,10 +251,50 @@ restarts keeps it waiting: the record says it is in its last run, the items
 are on disk, and what came back meanwhile wakes it as the desk opens.
 
 - **Idle.** An item that lands while that thread is idle wakes it once, after
-  the gather delay, 4 seconds (a unit test's room gathers in 150 ms). Items that land within the delay are heard in one
-  turn. A teammate that is not running is started for it, as one was for a
-  colleague's question. The wake line carries titles, senders and waiting
-  marks, never bodies.
+  the gather delay, normally 4 seconds. A lone new quick message to an idle
+  receiver waits 1 second; if another item lands or work begins within that
+  second, the normal deadline still holds. Items that land within the delay
+  are heard in one turn. A newly landed colleague item for the main
+  conversation can start a stopped receiver's driver and open its saved
+  session during the gather window, without a prompt or model turn. A held
+  first contact starts nothing until it lands; recovery, reminders and desk
+  notices still wait for the ordinary wake. Stop or a policy change withdraws
+  the old gather's authority, and a failed early start is not retried by the
+  same gather. The index usually carries titles, senders and
+  waiting marks. If the wake offers exactly one new quick item, it shows the
+  whole message as quoted sender words. The offer is not a read: the inbox
+  marks the item `seen` only after the driver reports a completed model turn
+  or observable model work, or the receiver explicitly reads it. This is either a
+  compact title-only message or a body of at most 280 characters that asks
+  for an answer or is a reply. Work handoffs, Loop in items and desk notices
+  stay title-only. One `send` to the sender with `reply_to` answers a question:
+  neither `read_inbox` nor `update_inbox` is needed. An answer or result that
+  wants nothing back does not need a reply. This applies in the main
+  conversation, work threads, calls and jobs; it does not change busy
+  notices, multiple new items or anything already offered.
+- **A wake that could not run.** An unread item stays open. A failed wake
+  does not start the idle pick-up; the inbox clock offers it again after an
+  hour, then daily, or at a known provider reset. An explicit read or answer
+  can still pick it up sooner. Hotline sends the original sender one
+  `wakeFailed` notice per item and failure state, in the asking thread while
+  it is live; the notice neither answers the item nor counts on the brake.
+  It asks nothing of its sender: once a turn that had it ends cleanly, it
+  closes as noted (`settle_inbox_offer`), so no quiet turn is woken only to
+  sort it. For an item sent for the person, a separate short notice appears
+  in chat.
+  The wire's `wakeFailure.state` is one of:
+  - `outOfQuota`: the driver reported a quota or rate limit, including a
+    refusal with the harness's known quota announcement, whether streamed
+    as speech or thought. The announcement alone is not model work.
+    `resetAt` is an estimated epoch millisecond time when the driver gives
+    a retry interval. Chat shows the time on the desk's clock; the inbox
+    notice includes its date and offset.
+  - `notSignedIn`: the driver identified a provider or harness sign-in problem.
+  - `stopped`: the person explicitly stopped the turn before it did model work.
+  - `couldNotStart`: no session could open for the wake.
+  - `other`: no more specific diagnosis. A bounded, redacted diagnostic line
+    may be included as data; a thought or a silent stream alone is not proof
+    of model work, an account failure, or a Stop.
 - **The quiet turn.** The turn of the main conversation that the inbox wakes
   is quiet, as a quiet job's firing is ("I think like scheduled tasks it can
   run quiet and escalate to the user when needed"). Its line begins `quiet
@@ -254,7 +309,10 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   ordinary message from the teammate. It runs in the main conversation's own
   session and context, never a thread or a clone of its own. The person's
   line steered into it ends the quiet, and the turn answers them; a work
-  thread or a call the inbox wakes is not quiet.
+  thread or a call the inbox wakes is not quiet. The desk hides the live work
+  indicators during an inbox-only start and turn, but still shows cards
+  waiting on the person. A line from the person restores the indicators as
+  soon as it is admitted, even if it must queue.
 - **What the person asked for** (`inbox/asked.rs`). A send made in a turn of
   the sender's main conversation that the person read, a turn started by
   their follow-up line (`aboutItem`) included, is theirs (`forPerson`). While
@@ -280,6 +338,17 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   them the result, in your own words`. A send that wants nothing back
   finishes nothing the person waits on, and a send not for the person stays
   quiet to the end.
+- **Results for a call** (`inbox/on_call.rs`). A request for an answer or work
+  sent on a call remembers that particular call. An admitted answer or work
+  result gets one best-effort offer to the call's work agent, as steering
+  if it is busy or a new turn if it is idle. The desk does not inspect the
+  agent's speech to decide whether it worked and does not retry refused or
+  unused steering. On hang-up (or on arrival if the call is already over),
+  Hotline writes the attributed result to the asker's main chat, without
+  waking that agent. The chat event is keyed by the result item, so hang-up,
+  delivery and recovery cannot post it twice. Startup recovers written
+  copies from the inbox; it does not recreate voice offers. Ordinary
+  progress, receipts, and consent cards keep their existing routes.
 - **Busy.** An item that lands mid-turn starts no turn and no work thread.
   When the gather delay is up, the turn in flight in the main conversation is
   handed the one-line notice, steered into it as the person's mid-turn line
@@ -379,7 +448,7 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
 - **The clock** looks when the desk opens (after the room has handed on what
   it resumes: what expired while it was closed closes first, then the pick-up
   at start) and then every 30 seconds.
-- **The times** are fixed: the gather delay 4 seconds, an offer again an
+- **The times** are fixed: the gather delay normally 4 seconds (1 for a lone quick message to an idle receiver), an offer again an
   hour after the first pick-up and a day after each later one, expiry three
   days after an item arrived. Nothing on a desk changes them; a unit test's
   room uses 150 ms, a minute, two minutes and five minutes (`cfg!(test)`),
@@ -660,66 +729,26 @@ stored state and the teammates' tools keep `taken`.
   topic its item is in, which for a send to several is the whole send,
   every teammate's lane, in the right-hand pane (`ui/src/inbox.ts`,
   `components/transcript/InboxLines.tsx`). In a work thread a sent row is
-  its own row, the title in bold and the tray in the accent; in the
-  teammate's main conversation it is in a run (below), or, sent in a turn
-  the person asked for, a quiet row of its own: the title in plain weight,
-  the tray in grey, its state word kept, since it is what came of their ask.
-  So it is the turn's receipt (task-505): a turn whose only work was the
-  inbox (`send`, `read_inbox`, `update_inbox`; saying what came of it, a
-  reaction and a post are no work, nor is what reaching a colleague takes
-  on the way: a look at the team, Claude Code loading its tools, Hotline
-  Agent reading the room's skill) draws no outcome line under a reply
-  while one of its sent rows is drawn, only its time, and a turn the person
-  asked for that also put no bubble in the chat draws no time either: the
-  row stands for the turn (`sentRowsSay` in `ui/src/scheduledRuns.ts`). An
-  outcome that failed or only partly happened keeps the line. It is the
-  window's drawing: the tape, the wire and the phone's line are unchanged.
-- **A run of inbox activity.** In the teammate's main conversation, its
-  inbox activity between two things the person should read is one quiet
-  line, "Inbox · read 3, sent 1", drawn as a line of a turn's path is (the
-  dot, the words, the chevron; `FoldLine` in
-  `components/transcript/Trail.tsx`, which the path's "Started 4 helpers"
-  line also is), with no card, header or numbering (`foldInboxRuns` in
-  `ui/src/scheduledRuns.ts`, `InboxRun`). It says only what the run has:
-  how many items it sorted ("read 2") and how many sends it made ("sent
-  1"). Pressed, it opens in place, with no rule or box around them, to the
-  run's rows in the order they happened, each a quiet row (plain weight,
-  the tray in grey): a row per item a sort moved (each `inbox_sorted`
-  entry: its title, "From" its sender, Hotline for the desk's own notice,
-  what became of it in the word the sent row and the panes use, and a
-  later's reason), each send, the work thread an item started once it is
-  over, and the time of each quiet turn ("5.0s ›"), which opens that turn's
-  path in the pane as the line under a reply does. A press on an item's row
-  opens the item.
-  - **What ends a run:** the person's own line, a bubble the teammate
-    posts, a turn the person asked for (a sort in one is a run of its own
-    above the reply, its sends stay out as quiet rows), and any other row:
-    a card, a notice, a chapter, a call, a scheduled line.
-  - **What stands beside it:** a turn's end, which draws nothing; a quiet
-    turn still running; and a work thread an item started while it is live
-    or parked, which does not split the run but is drawn under its line,
-    and joins the line once it is over.
-  - **A quiet turn that posted** keeps its time under its bubble, as any
-    reply's is, and its own sorts and sends are no part of a run
-    (task-505): its bubble says what came of them, so they draw no line,
-    and its path lists them under Inbox, before its steps, each a row
-    that opens its item (`turnInbox` in `ui/src/inbox.ts`, `TurnInbox` in
-    `components/InboxPane.tsx`). A quiet turn that posts nothing keeps its
-    line. Every turn's path has the section when it sorted or sent.
-  - **Growing.** The line stands where the run's first row is and is named
-    by it, so as the run grows it keeps its place and stays open or shut;
-    only its counts and rows change. A run that read and sent nothing (a
-    quiet turn's time alone, a finished work thread alone) is drawn as its
-    rows were, with no line.
-  - It is the window's fold of the tape: no wire field changes, and the
-    phone, which draws no inbox rows, is not touched.
-- **A quiet turn.** The turn the inbox woke draws as path, not as a reply:
-  its sorts, its sends and its time are rows of the run it is in, its tool
-  rows and its words, as thinking, in the turn's steps behind that time,
-  and no bubble unless it posted. A sort in the middle of a turn the person
-  started is a run of its own where it fell, above the reply; it does not
-  split the turn's steps, which stay one run under the reply. A turn that
-  ends without a new line in the chat posts no desktop toast
+  its own row, the title in bold and the tray in the accent. In the
+  teammate's main conversation no inbox row and no "Inbox" line is ever
+  drawn (George, 2026-11-21): a turn's sends and sorts fold into its
+  `Steps` at the place they happened (`toBlocks` in
+  `ui/src/transcriptFolds.ts`), drawn as quiet rows when opened (the title
+  in plain weight, the tray in grey, its live state word kept), and the line
+  under its reply says what it read and sent in a few words, "Read 2
+  messages, sent a message" (`inboxWords` in `ui/src/inbox.ts`), before its
+  time. Its path lists them under Inbox, before its steps, each a row that
+  opens its item (`turnInbox`, `TurnInbox` in `components/InboxPane.tsx`).
+  The teammate's bubble says what it asked and of whom. It is the window's
+  drawing: the tape, the wire and the phone's line are unchanged.
+- **A turn that said nothing.** A turn that ended quiet with no bubble (one
+  the inbox woke, one a helper's return started) draws nothing in the
+  teammate's main conversation, however much it read, sent or did, and the
+  work thread an inbox item started is no row of its own there
+  (`withoutUnsaidTurns` in `ui/src/scheduledRuns.ts`): it is a colleague's
+  business, and it stays in the Threads list and the pane. A turn still
+  running keeps its working mark, and one that failed keeps its line. A
+  turn that ends without a new line in the chat posts no desktop toast
   (`ui/src/notify.ts`).
 - **Woken by its inbox.** A bubble the teammate posts from a quiet turn one
   item woke carries one quiet line above it, "From Goldie's message · Rerun
@@ -728,14 +757,7 @@ stored state and the teammates' tools keep `taken`.
   opens the item. The desk stamps the post with the item (`fromItem`) when
   exactly one item woke the turn: its line or its index offered that item
   alone; several together could each be what it posts about, so it names
-  none. A bubble straight under the sent row of the item it answers draws
-  no such line (task-505): the row above says what was asked and of whom.
-  Straight under means nothing is drawn between them but a time stamp and
-  the lines the window leaves out (an inbox-only turn's outcome and time, a
-  posting quiet turn's inbox line); the answer's own bubbles count as one.
-  An answer the window cannot link to a row in view (its item names none it
-  answers, or the row is not loaded) keeps the line, and so does every
-  file, card and job (`answersUnderTheirRow` in `ui/src/scheduledRuns.ts`).
+  none.
   The turn's end is marked `quiet` when the person never spoke into
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.

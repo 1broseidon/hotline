@@ -10,6 +10,14 @@ import Speech
 struct LocalSpeechError: LocalizedError {
   let message: String
   var errorDescription: String? { message }
+
+  /** The window's own words for a missing microphone (`NO_MICROPHONE`, ui/src/voice/microphone.ts). */
+  static let noMicrophone = LocalSpeechError(
+    message: "No microphone found. Connect one or pick it in your computer's sound settings, then try again.")
+  /** The window's words for a microphone lost mid-call (ui/src/voice/call.ts). */
+  static let microphoneGone = LocalSpeechError(
+    message: "Hotline can't hear the microphone any more. Call again when it's back.")
+  static let microphoneChanged = LocalSpeechError(message: "The microphone changed. Call again.")
 }
 
 typealias SpeechEmit = @MainActor ([String: Any]) -> Void
@@ -140,6 +148,9 @@ final class SpeechController {
     sessionId = id // Cancellation must invalidate capability/preparation before a mic exists.
     guard SFSpeechRecognizer.authorizationStatus() == .authorized,
       AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return false }
+    // Before any engine or analyzer work: with no microphone, the engine's
+    // input node still reports a plausible format and its tap aborts the app.
+    do { try SpeechMicrophone.requireInput() } catch { sessionId = nil; throw error }
     let locale = Locale.current
     guard token == generation else { return false }
     let event: SpeechEmit = { value in
@@ -210,6 +221,12 @@ final class SpeechMicrophone {
   private var device: AudioDeviceID?
   /** The utterance listening now; a stop from any other is late and changes nothing. */
   private var owner: ObjectIdentifier?
+  /**
+   * Whether voice processing, and so echo cancellation, is on for the
+   * microphone listening now. Without it the teammate's reply reaches the
+   * first channel at full strength, so the window does not listen over it.
+   */
+  private(set) var processed = false
   private var warmed = false
 
   /**
@@ -217,7 +234,8 @@ final class SpeechMicrophone {
    * settles before anyone speaks rather than during their first words.
    */
   func warmUp() async {
-    guard !warmed, owner == nil else { return }
+    // With no microphone there is nothing to settle; a later one is warmed by the next permit.
+    guard !warmed, owner == nil, Self.inputChannels() > 0 else { return }
     warmed = true
     prepare()
     engine.prepare()
@@ -231,7 +249,9 @@ final class SpeechMicrophone {
   func prepare() {
     // Analyzer calls prepare again when starting its tap. Do not retry a
     // rejected device then and change the format its converter already chose.
-    guard !inputPrepared else { return }
+    // Nor prepare without a microphone: processing that failed for want of
+    // one would stay off for the headset connected afterwards.
+    guard !inputPrepared, Self.inputChannels() > 0 else { return }
     inputPrepared = true
     // Configure processing before SpeechAnalyzer chooses its converter format:
     // enabling it can change the input node's sample rate and channel count.
@@ -257,8 +277,9 @@ final class SpeechMicrophone {
     owner: ObjectIdentifier,
     consume: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     level: @escaping @MainActor @Sendable (Double) -> Void,
-    interrupted: @escaping @MainActor @Sendable () -> Void
+    interrupted: @escaping @MainActor @Sendable (LocalSpeechError) -> Void
   ) throws {
+    try Self.requireInput()
     prepare()
     // A previous utterance's tap or observer must not outlive it here.
     release()
@@ -266,12 +287,14 @@ final class SpeechMicrophone {
     let input = engine.inputNode
     let format = input.outputFormat(forBus: 0)
     guard format.sampleRate > 0, format.channelCount > 0 else {
-      throw LocalSpeechError(message: "This Mac's microphone is unavailable.")
+      self.owner = nil
+      throw LocalSpeechError.noMicrophone
     }
+    processed = input.isVoiceProcessingEnabled
     let tap: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
       consume(buffer)
       // Copy only the scalar into the actor; AVAudioEngine reuses the tap's buffer.
-      if let db = Self.level(buffer) {
+      if let db = Self.voiceLevel(buffer) {
         Task { @MainActor in level(db) }
       }
     }
@@ -281,22 +304,26 @@ final class SpeechMicrophone {
     // The engine reports a configuration change for its own voice processing
     // settling as well as for a new device. Same device and format: start it
     // again and keep listening. A different device stops the engine with a
-    // converter already fixed to the old format, so the utterance ends rather
-    // than going quietly deaf.
+    // converter already fixed to the old format, and no device leaves nothing
+    // to hear, so the utterance ends, saying which, rather than going quietly
+    // deaf or restarting an engine with no input under it.
     configurationChange = NotificationCenter.default.addObserver(
       forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
     ) { [weak self] _ in
       Task { @MainActor in
         guard let self else { return }
-        let now = self.engine.inputNode.outputFormat(forBus: 0)
-        let same = Self.defaultInputDevice() == self.device && now.isEqual(format)
-        NSLog("[hotline-speech] configuration change: same device and format %@, running %@",
-          same ? "yes" : "no", self.engine.isRunning ? "yes" : "no")
-        if same {
+        let change = Self.inputChange(
+          from: self.device, to: Self.defaultInputDevice(), channels: Self.inputChannels(),
+          sameFormat: self.engine.inputNode.outputFormat(forBus: 0).isEqual(format))
+        NSLog("[hotline-speech] configuration change: %@, running %@",
+          "\(change)", self.engine.isRunning ? "yes" : "no")
+        switch change {
+        case .same:
           if self.engine.isRunning { return }
-          do { try self.engine.start(); return } catch {}
+          do { try self.engine.start(); return } catch { interrupted(.microphoneChanged) }
+        case .gone: interrupted(.microphoneGone)
+        case .changed: interrupted(.microphoneChanged)
         }
-        interrupted()
       }
     }
     engine.prepare()
@@ -317,7 +344,7 @@ final class SpeechMicrophone {
     if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }
   }
 
-  /** The device macOS records from now, or nil if it cannot say. */
+  /** The device macOS records from now, or nil if it cannot say or there is none. */
   nonisolated private static func defaultInputDevice() -> AudioDeviceID? {
     var id = AudioDeviceID(0)
     var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -326,19 +353,68 @@ final class SpeechMicrophone {
       mScope: kAudioObjectPropertyScopeGlobal,
       mElement: kAudioObjectPropertyElementMain)
     let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id)
-    return status == noErr ? id : nil
+    return status == noErr && id != AudioDeviceID(kAudioObjectUnknown) ? id : nil
   }
 
-  nonisolated private static func level(_ buffer: AVAudioPCMBuffer) -> Double? {
-    guard buffer.frameLength > 0, buffer.format.channelCount > 0 else { return nil }
-    let channels = Int(buffer.format.channelCount)
+  /** How many channels the default input device records; 0 when there is none (a Mac Studio with its headset away). */
+  nonisolated static func inputChannels() -> Int {
+    guard let device = defaultInputDevice() else { return 0 }
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioDevicePropertyStreamConfiguration,
+      mScope: kAudioObjectPropertyScopeInput,
+      mElement: kAudioObjectPropertyElementMain)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr, size > 0 else { return 0 }
+    let list = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+    defer { list.deallocate() }
+    guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, list) == noErr else { return 0 }
+    let buffers = UnsafeMutableAudioBufferListPointer(list.assumingMemoryBound(to: AudioBufferList.self))
+    return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+  }
+
+  /**
+   * Throws the window's no-microphone words unless something can be
+   * recorded. Without a device the input node still reports a format (two
+   * channels at 44.1 kHz), and installing a tap on it raises an exception
+   * Swift cannot catch: the app aborted ("format mismatch").
+   */
+  nonisolated static func requireInput() throws {
+    guard inputChannels() > 0 else { throw LocalSpeechError.noMicrophone }
+  }
+
+  enum InputChange: Equatable { case same, changed, gone }
+
+  /** What a configuration change did to the microphone an utterance began on. */
+  nonisolated static func inputChange(from start: AudioDeviceID?, to now: AudioDeviceID?, channels: Int, sameFormat: Bool)
+    -> InputChange
+  {
+    if now == nil || channels == 0 { return .gone }
+    return now == start && sameFormat ? .same : .changed
+  }
+
+  /**
+   * The dBFS of the person's voice in one tap buffer: its first channel.
+   * Voice processing puts the processed microphone first and then one
+   * reference channel per output channel, carrying what the Mac plays (three
+   * with a headset playing stereo): measured across all of them, the meter
+   * moved with the teammate's reply. A raw microphone's first channel is
+   * its voice too.
+   */
+  nonisolated static func voiceLevel(_ buffer: AVAudioPCMBuffer) -> Double? {
+    channelLevel(buffer, channels: 0..<1)
+  }
+
+  /** The mean power of `channels` of `buffer`, in dBFS, or nil when it cannot be read. */
+  nonisolated static func channelLevel(_ buffer: AVAudioPCMBuffer, channels: Range<Int>) -> Double? {
+    let count = Int(buffer.format.channelCount)
+    guard buffer.frameLength > 0, !channels.isEmpty, channels.upperBound <= count else { return nil }
     let frames = Int(buffer.frameLength)
     let interleaved = buffer.format.isInterleaved
     var power: Double = 0
-    for channel in 0..<channels {
+    for channel in channels {
       for frame in 0..<frames {
         let pointer = interleaved ? 0 : channel
-        let index = interleaved ? frame * channels + channel : frame
+        let index = interleaved ? frame * count + channel : frame
         let value: Double
         switch buffer.format.commonFormat {
         case .pcmFormatFloat32:
@@ -357,7 +433,7 @@ final class SpeechMicrophone {
       }
     }
     guard power.isFinite else { return nil }
-    let mean = power / Double(frames * channels)
+    let mean = power / Double(frames * channels.count)
     return max(-160, min(0, 10 * log10(max(mean, 1e-16))))
   }
 }

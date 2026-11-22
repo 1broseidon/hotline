@@ -328,7 +328,9 @@ pub trait Driver: Send + Sync {
     /// turn of its own, queued behind any in flight. Subscribing is what lets
     /// the driver leave commands running past a turn, so only the session
     /// that can be woken does; a driver that never leaves one answers `None`.
-    fn subscribe_wakes(&self) -> Option<mpsc::UnboundedReceiver<String>> {
+    fn subscribe_wakes(
+        &self,
+    ) -> Option<mpsc::UnboundedReceiver<crate::session::jobs::ProcessReturn>> {
         None
     }
 
@@ -408,6 +410,12 @@ pub trait Driver: Send + Sync {
     /// already ended or this driver has no such channel; the line is dropped.
     fn note(&self, _text: String) -> bool {
         false
+    }
+
+    /// Offers a note to an activity the agent started itself. A refusal is
+    /// final: this is never a reason to send a new prompt.
+    async fn note_unprompted(&self, text: String) {
+        self.note(text);
     }
 
     /// Input admitted just before a failed activity closed, but never used in a request.

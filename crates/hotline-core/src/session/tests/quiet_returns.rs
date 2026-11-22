@@ -98,9 +98,15 @@ async fn a_line_that_work_came_back_begins_a_quiet_turn_that_posts_once() {
     let dm = ThreadId::dm("ada");
     assert!(room.is_quiet(&dm));
     assert_eq!(
-        room.post_to_chat("ada", &dm, "The build is done.", false)
-            .await
-            .as_deref(),
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "The build is done.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .as_deref(),
         Ok("Posted to the chat.")
     );
     gate.add_permits(2);
@@ -147,9 +153,15 @@ async fn the_rest_of_a_turn_after_it_parks_is_quiet() {
     .await;
     assert!(!room.is_quiet(&dm), "the person's turn is read");
     assert!(
-        room.post_to_chat("ada", &dm, "Early.", false)
-            .await
-            .is_err_and(|error| error.contains("already the chat"))
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "Early.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .is_err_and(|error| error.contains("already the chat"))
     );
 
     gate.add_permits(2);
@@ -164,9 +176,15 @@ async fn the_rest_of_a_turn_after_it_parks_is_quiet() {
     })
     .await;
     assert_eq!(
-        room.post_to_chat("ada", &dm, "Built: it is in the dev window.", false)
-            .await
-            .as_deref(),
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "Built: it is in the dev window.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .as_deref(),
         Ok("Posted to the chat.")
     );
     gate.add_permits(1);
@@ -276,6 +294,8 @@ async fn the_persons_line_steered_into_a_parked_turn_is_answered_out_loud() {
 #[tokio::test]
 async fn work_the_agent_began_by_itself_is_a_quiet_turn_from_its_first_word() {
     let (scripted, unprompted) = Scripted::new(Vec::new()).with_unprompted();
+    let notes = scripted.notes.clone();
+    let prompts = scripted.prompts.clone();
     let room = room("quiet-unprompted", Fake::new(scripted));
     pair_a_phone(&room);
     room.start("ada").await.unwrap();
@@ -287,11 +307,22 @@ async fn work_the_agent_began_by_itself_is_a_quiet_turn_from_its_first_word() {
         .await
         .unwrap();
     let dm = ThreadId::dm("ada");
-    until("the agent's own turn is running", || room.is_quiet(&dm)).await;
+    let guidance = room.return_note("ada", &dm);
+    until("the agent's own turn is running", || {
+        !lock(&notes).is_empty()
+    })
+    .await;
+    assert!(room.is_quiet(&dm));
     assert_eq!(
-        room.post_to_chat("ada", &dm, "All green: it is merged.", false)
-            .await
-            .as_deref(),
+        room.post_to_chat(
+            "ada",
+            &dm,
+            "All green: it is merged.",
+            false,
+            Some(crate::session::post::PostKind::Decision)
+        )
+        .await
+        .as_deref(),
         Ok("Posted to the chat.")
     );
     sender.send(ends()).await.unwrap();
@@ -311,4 +342,43 @@ async fn work_the_agent_began_by_itself_is_a_quiet_turn_from_its_first_word() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     let sent = lock(&room.push.sent).clone();
     assert_eq!(sent.len(), 1, "the post alone is pushed: {sent:?}");
+    assert_eq!(*lock(&notes), [guidance]);
+    assert!(
+        lock(&prompts).is_empty(),
+        "a note refusal must not start a prompt"
+    );
+}
+
+#[tokio::test]
+async fn a_colleagues_return_hides_activity_until_the_person_writes() {
+    let gate = Arc::new(Semaphore::new(0));
+    let room = room(
+        "colleague-return-activity",
+        Fake::new(Scripted::turns(vec![vec![ends()], vec![ends()]]).gated(gate.clone())),
+    );
+    room.start("ada").await.unwrap();
+    {
+        let _working = room.working().unwrap();
+        room.dispatch(
+            room.session("ada").unwrap(),
+            Wired {
+                work_for: crate::session::ownership::WorkFor::Colleague {
+                    name: "Pork Chop".into(),
+                    item: "6d1b005a".into(),
+                },
+                ..Wired::back(timed(now_ms(), "A helper came back."))
+            },
+        );
+    }
+    until("a colleague's return reaches the driver", || {
+        room.is_quiet(&ThreadId::dm("ada"))
+    })
+    .await;
+    let info = room.info("ada");
+    assert_eq!(info.state, SessionState::Thinking);
+    assert!(info.quiet_inbox);
+    room.prompt("ada", "Hello", None, None).await.unwrap();
+    assert!(!room.info("ada").quiet_inbox);
+    gate.add_permits(4);
+    until_state(&room, "ada", SessionState::Ready).await;
 }

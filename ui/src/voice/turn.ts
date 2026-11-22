@@ -120,6 +120,20 @@ export class TurnDetector {
     this.recent = [];
   }
 
+  /**
+   * A turn already under way: the person began at `onset` and was last
+   * heard at `lastVoice`, as when they talked over the teammate's reply and
+   * their words, not this detector, said so. No `start` is reported; the
+   * turn ends after a pause as any other.
+   */
+  begin(onset: number, lastVoice: number, now: number): void {
+    this.reset(now);
+    this.clipStart = onset;
+    this.started = true;
+    this.sampled = true;
+    this.lastVoice = lastVoice;
+  }
+
   push(level: number | null, now: number, silenceMs = this.defaultSilenceMs): readonly TurnEvent[] {
     if (!this.armed) return NONE;
     const elapsed = Math.max(0, now - this.lastSample);

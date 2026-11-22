@@ -71,6 +71,9 @@ impl Room {
         capability: Option<CapabilityLease>,
         thread: &ThreadId,
     ) -> Result<String, String> {
+        if let Some(instruction) = self.attach_to_answer(thread) {
+            return Err(instruction);
+        }
         let persona = self.reaching_from(persona_id, thread)?;
         let caption = caption.trim();
         if caption.chars().count() > MAX_CAPTION_CHARS {
@@ -192,6 +195,14 @@ impl Room {
         })
     }
 
+    pub(super) fn attach_to_answer(&self, thread: &ThreadId) -> Option<String> {
+        self.result_item(thread).map(|item| {
+            format!(
+                "Attach the file to your answer with `send`, using `files` and `reply_to: {item}`."
+            )
+        })
+    }
+
     /// Refuses a file before it is fetched, or an image before it is drawn,
     /// when the job's turn sending it from `thread`, or the main
     /// conversation's quiet turn, has had its one post.
@@ -226,7 +237,7 @@ impl Room {
         };
         let taken = (from.kind == ThreadKind::Job
             || (from.kind == ThreadKind::Dm && self.is_quiet(&from)))
-            && match self.take_post(&from)? {
+            && match self.take_post(&from, |_| Ok(()))? {
                 Turn::Taken(scheduled) => {
                     post.scheduled = scheduled;
                     true

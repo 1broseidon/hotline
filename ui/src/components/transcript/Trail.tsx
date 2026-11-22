@@ -269,7 +269,7 @@ function HelpersLine({ links, onOpen, now = false }: { links: RunLink[]; onOpen:
  * The helpers a turn started are one; the conversation's line for a run of
  * inbox activity is another (InboxLines.tsx), whose rows sit in no rule.
  */
-export function FoldLine({
+function FoldLine({
 	id,
 	said,
 	status = "completed",

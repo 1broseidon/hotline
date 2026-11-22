@@ -99,13 +99,39 @@ the only network use; recognition is not.
 
 Each start is a fresh utterance from the default input device through
 `AVAudioEngine`, with voice processing on where the device allows it and
-other audio ducked as little as it permits. Every text event is the whole
-utterance so far. Level events are the dBFS of each microphone buffer.
+other audio ducked as little as it permits. Voice processing gives the tap
+the processed voice in its first channel and then one reference channel per
+output channel, carrying what the Mac is playing, in a discrete layout no
+converter maps to mono by itself: a Bluetooth headset playing stereo (the
+call window's audio) gives three. The analyzer takes the first channel;
+without that it was fed silence while the meter moved, and the call ended
+"no words". Level events are the dBFS of that first channel alone, so the
+meter never moves with the teammate's reply in the reference channels, and
+say whether voice processing is on (`processed`).
+`crates/hotline-app/macos/speech/check/run` feeds a `say` sentence through
+the sink at one, two and three channels and fails unless each is heard, and
+fails if a buffer with silence first and sound in the others meters as
+anything but silence. Each utterance logs `[hotline-speech] listening` with
+the microphone's and the analyzer's formats, and one line when it ends with
+the buffers sent, how many were silent and how many results came back (`log
+stream --predicate 'eventMessage CONTAINS "[hotline-speech]"'`). Every text
+event is the whole utterance so far.
+With no microphone connected (a Mac Studio whose headset is away) the input
+node still reports two channels at 44.1 kHz, and a tap on it raised an
+exception that ended the app ("format mismatch"). A start now asks Core
+Audio first whether the default input device records anything and, when it
+does not, fails with the window's own "No microphone found" sentence, which
+the call and dictation say as it is; voice processing is not set up and the
+engine is not warmed until a microphone is there, so the headset connected
+later still gets echo cancellation. The check starts a session when no
+microphone is connected, and fails unless it refuses with those words.
 `speech_stop` closes the microphone and waits up to five seconds for the
 final text, failing rather than returning a partial. A changed input device
-ends the utterance with an error. Cancelling with an empty id cancels
-whatever is current, a model download included, and a reload of the window
-does that too.
+ends the utterance with an error, "The microphone changed", and a device
+gone with none in its place says "Hotline can't hear the microphone any
+more", as the window does for its own capture; neither restarts the engine.
+Cancelling with an empty id cancels whatever is current, a model download
+included, and a reload of the window does that too.
 
 A Speech Recognition grant that no longer matches the app's signature (a
 self-signed build with the same bundle id was run) leaves the engine
@@ -133,7 +159,17 @@ is hung up with a message to update it. A Turn by turn call does not listen
 while a reply plays: recognition (or, on an audio call, the turn detector) is
 let go when playback starts and taken up again when it ends, so the desk's
 own reply, loud in the microphone, can never be taken for the person and cut
-it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
+it off. A tap on the call (Cut in) interrupts it. With Settings › Voice ›
+Calls › Interrupt by speaking on (this computer's choice, on unless the
+person switched it off, which is kept as off, and offered only where this
+Mac's analyzer hears calls), a session listens over
+the reply on the echo-cancelled channel: a voice pauses the reply, words the
+reply did not say within three seconds interrupt it as a tap would, and the
+same words become the person's next turn; otherwise it resumes where it
+paused, turned down until the recognizer's words could have come (1.5 s
+after the voice ended), then at full volume ([design/voice-interrupt.md](design/voice-interrupt.md)). Its decisions
+are `[voice] … interrupt by speaking` lines in the app's log, written by the
+window through the shell's `voice_note`, never with the words. Hold and hang-up cancel
 recognition too. A live model hears all the time, so talking over it
 interrupts, with its own echo handling. A `thinking` that says `listening`
 is listened through: the call's phase is `listening` while the teammate
@@ -878,7 +914,12 @@ say that again." on the call.
 Speaking over the teammate (`voice.interrupt`) stops what it is saying at once
 and gives the person the floor: the call listens even though the turn is still
 open, the rest of that reply is not said, and what the person says next waits
-behind the open turn as the next one. The turn itself is never stopped by the
+behind the open turn as the next one. That turn is told what the person
+heard: the window reports the clip that was playing and how far into it, so
+the notice says what was heard in full, the sentence cut off with where
+(exact from a voice's word timings, which none gives yet, else an estimate
+from playback time at a word, said to be one), and what was not heard
+([design/voice-interrupt.md](design/voice-interrupt.md#how-the-teammate-learns-it-was-cut-off)). The turn itself is never stopped by the
 call, and what the teammate says after it, such as its report, is said. A hold stops
 a reply too, and a reply cut off by a hold, or that lands while the call is
 held, reaches the phone as a notification instead.
@@ -924,8 +965,10 @@ voice. Desk calls always use the desk's voice.
 
 A teammate's model can take ten seconds to write its first words, and Turn
 by turn is quiet meanwhile. With `acknowledge` on (Settings › Voice ›
-Calls, Acknowledge while the teammate thinks, shown for Turn by turn; off
-by default), the desk covers that wait with one short line in the
+Calls, Acknowledge while the teammate thinks, shown for Turn by turn; on
+unless it is `false`, which the switch writes for off so a room that never
+set it gets it and an owner who switched it off keeps it off), the desk
+covers that wait with one short line in the
 teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
 
 - Once the person's words are in, the call assistant is asked for one line
@@ -933,8 +976,12 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   (`dispatcher::ACKNOWLEDGE`): at most eight words, the topic only, never a
   claim that something is done, a promised result or an answer, no filler
   opener or stock phrase, and nothing at all for small talk, a yes or no, a
-  correction, or anything a quick answer serves better. A reply of more than
-  one line or twelve words is not said.
+  correction, or anything a quick answer serves better; the prompt asks for
+  no text at all then and names no phrase for it, since a fast model said
+  "Empty reply" back when it did. A reply of more than one line or twelve
+  words is not said, and neither is a placeholder for no line, whatever its
+  brackets, quotes, case or punctuation ("(empty reply)", "Nothing.", "N/A",
+  "[silence]", "...": `acknowledgement::placeholder`).
 - It is asked for beside the hand-off, never before it: the person's turn
   goes to the teammate at once, as with the setting off, because a hosted
   fast model does not answer in the half second a hand-off could wait. The
@@ -967,7 +1014,9 @@ teammate's own voice (`hotline-voice`'s `acknowledgement.rs`):
   earlier turn, even one that has spoken its answer, are always asked a line
   however quick the teammate was: they wait behind that turn, and the line is
   how the person hears they were taken. The teammate's turn is told of a
-  line only when one is asked for.
+  line only when one is asked for: a turn these rules skip, a desk with no
+  call assistant among them, keeps the usual contract and the teammate's
+  own opening line.
 - The call assistant's request reserves on Chat and the line's speech on
   Voice, as a rewrite does; either refused, nothing is said for the turn and
   the call goes on.
@@ -1008,7 +1057,8 @@ can reach the line.
   result or a time; no filler opener; never "still"; and, when nothing was
   said before it, nothing that leans on an earlier line ("also", "again",
   "as I said", "continuing", "keep"); after an acknowledgement, never the
-  acknowledgement again. A line that fails is not said.
+  acknowledgement again; never a placeholder for no line, as above. A line
+  that fails is not said.
 - Without a call assistant the desk says its own line for four kinds: "I'm
   searching the web for that now.", "I'm reading that now." (files or a web
   page), "I'm running that now." and "I'm working on that in the browser

@@ -467,6 +467,8 @@ pub(super) fn words(said: Vec<Said>) -> Vec<Said> {
 pub(crate) struct Fake {
     driver: Arc<Scripted>,
     pub(super) preambles: Arc<Mutex<Vec<String>>>,
+    /// Each preamble's standing part, in the same order.
+    pub(super) standings: Arc<Mutex<Vec<String>>>,
     pub(super) seeds: Arc<Mutex<Vec<Vec<Said>>>>,
     /// Each agent's view of its teammate and the tools it was handed, in the
     /// order the room asked for them.
@@ -574,6 +576,7 @@ impl Fake {
         Arc::new(Fake {
             driver: Arc::new(driver),
             preambles: Arc::new(Mutex::new(Vec::new())),
+            standings: Arc::new(Mutex::new(Vec::new())),
             seeds: Arc::new(Mutex::new(Vec::new())),
             views: Arc::new(Mutex::new(Vec::new())),
             tools: Arc::new(Mutex::new(Vec::new())),
@@ -592,11 +595,13 @@ impl Agents for Fake {
         &self,
         persona: &Persona,
         preamble: String,
+        standing: String,
         said: Vec<Said>,
         tools: TeammateTools,
         extra_mcp: Vec<crate::mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String> {
         lock(&self.preambles).push(preamble);
+        lock(&self.standings).push(standing);
         lock(&self.mcps).push(extra_mcp);
         lock(&self.seeds).push(said);
         lock(&self.views).push(persona.clone());

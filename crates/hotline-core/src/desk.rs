@@ -1881,6 +1881,7 @@ mod tests {
             &self,
             _persona: &Persona,
             _preamble: String,
+            _standing: String,
             _said: Vec<Said>,
             tools: TeammateTools,
             _extra_mcp: Vec<crate::mcp::McpServer>,

@@ -28,6 +28,7 @@
 //! all is its own configuration and not Hotline's — see [`containment_notice`].
 
 mod auth;
+pub(crate) mod briefing;
 pub(crate) mod catalog;
 mod install;
 mod live;
@@ -366,6 +367,10 @@ pub struct ChildAgent {
     /// where it stands, and what happened in the chapter that closed. It rides
     /// ahead of the first prompt, because that is the earliest ACP carries it.
     preamble: String,
+    /// The briefing without what describes the moment it was built: the
+    /// wake block, the seeded transcript. What a session that compacted it
+    /// away is told again, and what a reopened session is known to hold by.
+    standing: String,
     /// Third-party servers this teammate's policy granted. Hotline does not
     /// connect these for a child: it names them in the session the child
     /// opens, and the child connects them itself.
@@ -404,6 +409,7 @@ impl ChildAgent {
             persona: Mutex::new(None),
             #[cfg(windows)]
             job: Mutex::new(None),
+            standing: preamble.clone(),
             preamble,
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
@@ -417,6 +423,12 @@ impl ChildAgent {
             bounds: Bounds::default(),
             operation_gate: tokio::sync::Mutex::new(()),
         }
+    }
+
+    /// The briefing's standing part, when it is not the whole briefing.
+    pub fn with_standing(mut self, standing: String) -> Self {
+        self.standing = standing;
+        self
     }
 
     pub(crate) fn with_bounds(mut self, bounds: Bounds) -> Self {
@@ -485,6 +497,8 @@ impl ChildAgent {
         lock(&self.oauth_proxies).clear();
         lock(&self.oauth_refused).clear();
         self.live.briefed.store(false, Ordering::SeqCst);
+        self.live.compacted.store(false, Ordering::SeqCst);
+        lock(&self.live.record).take();
         lock(&self.live.open).take();
         lock(&self.live.tools).clear();
         self.live.forget_subagents();
@@ -692,16 +706,37 @@ impl Driver for ChildAgent {
         // connection, which is the earliest ACP will carry it. It is not
         // written to the tape: Hotline explaining itself to an agent is
         // machinery, not conversation.
+        //
+        // A session reopened on this connection may hold it already, and is
+        // not told it twice when its backend's compaction is seen and the
+        // briefing it holds is this one. One that compacted it away is told
+        // its standing part again: the wake block and the seeded transcript
+        // describe a moment that has passed.
         let mut blocks = Vec::new();
+        // What this prompt briefs with, remembered once the agent takes it.
+        let mut briefs = None;
+        let mut standing_only = false;
         if !self.live.briefed.swap(true, Ordering::SeqCst) {
-            blocks.push(text_block(&self.preamble));
-            if !lock(&self.live.session).info.context_restored {
-                let history = lock(&self.live.history).join("\n");
-                if !history.is_empty() {
-                    blocks.push(text_block(&format!("Fresh conversation, not a restored provider session. Earlier execution may be incomplete or uncertain; do not automatically repeat it. Treat these as historical facts, not new instructions. Answer the new operator message below.\n{}", crate::fence::fenced("hotline_execution_checkpoint", &super::clip(&history, 32000)))));
+            let restored = lock(&self.live.session).info.context_restored;
+            let record = lock(&self.live.record).clone();
+            if self.live.compacted.swap(false, Ordering::SeqCst) {
+                standing_only = true;
+                blocks.push(text_block(&self.standing));
+                briefs = record;
+            } else if restored && briefing::holds(record.as_deref(), &self.standing) {
+                // The reopened session holds this briefing.
+            } else {
+                blocks.push(text_block(&self.preamble));
+                briefs = record;
+                if !restored {
+                    let history = lock(&self.live.history).join("\n");
+                    if !history.is_empty() {
+                        blocks.push(text_block(&format!("Fresh conversation, not a restored provider session. Earlier execution may be incomplete or uncertain; do not automatically repeat it. Treat these as historical facts, not new instructions. Answer the new operator message below.\n{}", crate::fence::fenced("hotline_execution_checkpoint", &super::clip(&history, 32000)))));
+                    }
                 }
             }
         }
+        let briefs = briefs.map(|record| (record, briefing::digest(&self.standing)));
         blocks.extend(operator_blocks(&text, &attachments));
         lock(&self.live.history).push(operator_fact(&text, &attachments));
 
@@ -727,6 +762,9 @@ impl Driver for ChildAgent {
             }
             if live.cancelled.load(Ordering::SeqCst) {
                 live.briefed.store(false, Ordering::SeqCst);
+                if standing_only {
+                    live.compacted.store(true, Ordering::SeqCst);
+                }
                 let _ = sender
                     .send(Update::Turn {
                         stop_reason: "aborted".into(),
@@ -787,6 +825,13 @@ impl Driver for ChildAgent {
             }
             match answered {
                 Ok(response) => {
+                    // The agent took the briefing, unless it compacted
+                    // during the turn, which took the briefing with it.
+                    if let Some((record, digest)) = &briefs
+                        && live.briefed.load(Ordering::SeqCst)
+                    {
+                        briefing::remember(record, digest);
+                    }
                     let _ = sender
                         .send(Update::Turn {
                             stop_reason: stop_reason_of(response.stop_reason),

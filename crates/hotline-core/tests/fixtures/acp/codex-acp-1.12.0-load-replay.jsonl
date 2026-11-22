@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"01a200e5-fdd6-7723-a61b-36ff2fd01da4","update":{"sessionUpdate":"tool_call","toolCallId":"01a200e6-140e-7bd3-8b4b-d3d48a541511","kind":"think","title":"Compact conversation","status":"completed","_meta":{"contextCompaction":{"version":1}}}}}

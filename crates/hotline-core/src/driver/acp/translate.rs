@@ -13,10 +13,19 @@ pub(super) async fn receive(live: &Arc<Live>, notification: RawSessionUpdate) {
         live.subagent(announced).await;
         return;
     }
+    let sender = Sender::of(live, &notification.session_id);
+    // Only the conversation's own compaction takes its briefing: a
+    // subagent that compacts its context compacts its own. One replayed by
+    // `session/load` (Codex's replays it) was answered when it happened, and
+    // returned above.
+    if matches!(sender, Sender::Own) && super::briefing::completed_compaction(&notification.update)
+    {
+        live.compacted();
+    }
     let Ok(update) = serde_json::from_value::<SessionUpdate>(notification.update) else {
         return;
     };
-    match Sender::of(live, &notification.session_id) {
+    match sender {
         Sender::Child(scribe) => {
             translate_in(&Pen::child(live, &notification.session_id, &scribe), update).await;
         }

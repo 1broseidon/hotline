@@ -558,6 +558,7 @@ impl ChildAgent {
         {
             disposition.current_mode_id = Some(launched.to_string());
         }
+        *lock(&self.live.record) = super::briefing::record(&self.root, &self.backend_id, &id.0);
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;

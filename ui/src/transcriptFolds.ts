@@ -18,7 +18,7 @@ export type Side = "me" | "them" | "other" | null;
 export type Run = { top: boolean; bottom: boolean };
 
 export function sideOf(block: Block): Side {
-	if (block.kind === "scheduled" || block.kind === "calls" || block.kind === "inbox" || block.kind === "inboxRun") return "other";
+	if (block.kind === "scheduled" || block.kind === "calls" || block.kind === "inbox") return "other";
 	if (block.kind === "sent") return "them";
 	if (block.kind !== "event") return null;
 	const event = block.event;
@@ -84,39 +84,8 @@ function sameWords(a: string, b: string): boolean {
  * that never wrote its end. A call's transcript keeps each run of steps where
  * it fell (`inline`), between the lines said aloud around it.
  */
-/**
- * Whether each event belongs to a turn whose inbox rows (`inbox_sent`,
- * `inbox_sorted`, and stamped `outcome`) fold into its Steps instead of
- * standing as rows of their own in the chat: a turn the person's line
- * started, or any turn that put a non-empty bubble in the chat.
- */
-function inboxInSteps(events: TranscriptEvent[]): boolean[] {
-	const fold = new Array<boolean>(events.length).fill(false);
-	let start = 0;
-	let asked = false;
-	let said = false;
-	const finish = (end: number) => {
-		if (asked || said) {
-			for (let at = start; at < end; at++) fold[at] = true;
-		}
-	};
-	events.forEach((event, at) => {
-		if (event.kind === "user" || event.kind === "turn") {
-			finish(at);
-			start = at + 1;
-			asked = event.kind === "user" && event.scheduled === undefined;
-			said = false;
-			return;
-		}
-		if (event.kind === "agent" && event.text.trim() !== "") said = true;
-	});
-	finish(events.length);
-	return fold;
-}
-
 export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inline): Block[] {
 	const blocks: Block[] = [];
-	const foldInbox = inbox ? inboxInSteps(events) : undefined;
 	let group: { id: string; ts: number; items: Step[] } | null = null;
 	let prompt: { ts: number; replied: boolean } | undefined;
 	const close = (elapsed?: number) => {
@@ -136,8 +105,8 @@ export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inl
 			event.kind === "thought" ||
 			event.kind === "tool" ||
 			event.kind === "activity" ||
-			(event.kind === "outcome" && (!inbox || event.fromItem === undefined || foldInbox?.[at] === true)) ||
-			((event.kind === "inbox_sent" || event.kind === "inbox_sorted") && foldInbox?.[at] === true)
+			event.kind === "outcome" ||
+			((event.kind === "inbox_sent" || event.kind === "inbox_sorted") && inbox)
 		) {
 			group ??= { id: event.id, ts: event.ts, items: [] };
 			group.items.push(event);
@@ -147,7 +116,7 @@ export function toBlocks(events: TranscriptEvent[], inline = false, inbox = !inl
 		// started. One with no turn open here was started by another thread of
 		// the teammate's (its line is on this tape all the same) and stays a
 		// line of its own, which the conversation does not draw.
-		if (isRunLink(event) && (!inbox || event.fromItem === undefined) && group !== null) {
+		if (isRunLink(event) && group !== null) {
 			group.items.push(event);
 			continue;
 		}
@@ -248,8 +217,6 @@ function sameBlock(was: Block, now: Block): boolean {
 			return now.kind === "sent" && sameMembers(was.messages, now.messages);
 		case "inbox":
 			return now.kind === "inbox" && sameMembers(was.sent, now.sent);
-		case "inboxRun":
-			return now.kind === "inboxRun" && was.ts === now.ts && sameMembers(was.members, now.members);
 	}
 }
 

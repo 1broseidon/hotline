@@ -14,7 +14,7 @@ const real = await import("../src/voice/transcription");
 mock.module("../src/voice/transcription", () => ({ ...real, hearsOnThisMac: async () => true }));
 const { wire } = await import("../src/wire");
 const { toBlocks } = await import("../src/transcriptFolds");
-const { foldInboxRuns, groupInbox } = await import("../src/scheduledRuns");
+const { groupInbox, withoutUnsaidTurns } = await import("../src/scheduledRuns");
 
 const NOW = Date.now();
 /** When the lines were said: long enough ago that the chat's pacing shows every bubble at once. */
@@ -46,12 +46,11 @@ function shape(blocks: Block[]): string[] {
 		if (block.kind === "event") return block.event.kind === "turn" ? [] : [block.event.id];
 		if (block.kind === "steps") return [`steps:${block.id}`];
 		if (block.kind === "inbox") return [`row:${block.title}`];
-		if (block.kind === "inboxRun") return [`run(${block.read},${block.sent})`];
 		return [`${block.kind}:${block.id}`];
 	});
 }
 
-const drawn = (events: TranscriptEvent[]) => foldInboxRuns(groupInbox(toBlocks(events)), new Set());
+const drawn = (events: TranscriptEvent[]) => withoutUnsaidTurns(groupInbox(toBlocks(events)), new Set());
 
 class NoResize {
 	observe() {}
@@ -124,26 +123,27 @@ describe("answer bubble keeps From Timo's message with no chat-level sent row", 
 	});
 });
 
-describe("task-505 rule 3: the quiet inbox line folds into the answer", () => {
+describe("task-505 rule 3: a quiet turn's inbox is the answer's, and a turn that said nothing draws nothing", () => {
 	test("a quiet turn that posts draws no inbox line: its bubble and its time", () => {
 		expect(shape(drawn([ended("e0"), ...answerTurn]))).toEqual(["p1", "steps:q1"]);
 	});
 
-	test("a quiet turn that posts nothing keeps its line exactly as today", () => {
-		expect(shape(drawn([ended("e0"), readInbox("q1"), sortInbox("q2"), answered("s1"), ended("e2", true)]))).toEqual(["run(1,0)"]);
+	// George, 2026-11-21: the chat never shows a standalone Inbox line, not even for a turn with no bubble.
+	test("a quiet turn that posts nothing draws nothing", () => {
+		expect(shape(drawn([ended("e0"), readInbox("q1"), sortInbox("q2"), answered("s1"), ended("e2", true)]))).toEqual([]);
 	});
 
-	test("an earlier quiet turn's line stays, and only the posting turn's rows leave it", () => {
+	test("an earlier quiet turn draws nothing, and the posting turn keeps its bubble and its time", () => {
 		const earlier = [readInbox("r1"), sorting("s0", { item: "notes", title: "Storage numbers", from: "timo", state: "later", reason: "after the release" }), ended("e1", true)];
-		expect(shape(drawn([ended("e0"), ...earlier, ...answerTurn]))).toEqual(["run(1,0)", "p1", "steps:q1"]);
+		expect(shape(drawn([ended("e0"), ...earlier, ...answerTurn]))).toEqual(["p1", "steps:q1"]);
 	});
 
 	test("while the quiet turn still runs, its posted answer already stands alone", () => {
 		expect(shape(drawn([ended("e0"), readInbox("q1"), sortInbox("q2"), answered("s1"), post("q3"), said("p1", "Timo says 7–4.", "reply")]))).toEqual(["p1", "steps:q1"]);
 	});
 
-	test("a turn the person spoke into is theirs: the sort before their line keeps its line", () => {
-		expect(shape(drawn([ended("e0"), readInbox("q1"), answered("s1"), ask("u1", "what did timo say?"), said("a1", "7–4 to the Devils."), ended("e2")]))).toEqual(["run(1,0)", "steps:q1", "u1", "a1"]);
+	test("a turn the person spoke into is theirs: what it sorted before their line is on their answer's line", () => {
+		expect(shape(drawn([ended("e0"), readInbox("q1"), answered("s1"), ask("u1", "what did timo say?"), said("a1", "7–4 to the Devils."), ended("e2")]))).toEqual(["steps:q1", "u1", "a1"]);
 	});
 
 	test("the rows it would have opened to are the path's, behind the answer's time", async () => {

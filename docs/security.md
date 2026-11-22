@@ -267,10 +267,10 @@ decision for George, not a bug fix.
   ([sessions.md](sessions.md#a-quiet-return)), keeps
   every tool the teammate has, and Hotline Agent has no per-action cards, so
   shell, files, browser and network run without the person's attention. Its
-  trail is kept (the "Inbox · read 3, sent 1" line, whose rows are the
-  items it sorted and sent and the turn's steps, or, for a turn that
-  posted, the Inbox section of the path its post's time opens), but
-  nothing points the person at it. What it puts in front of the person (a post, a file, a card,
+  trail is kept on the tape and in the work pane (for a turn that posted,
+  the Inbox section of the path its post's time opens), but a turn that
+  posted nothing draws nothing in the chat, so nothing points the person
+  at it. What it puts in front of the person (a post, a file, a card,
   a job) says which colleague's message prompted it, in one line, when one
   item alone woke the turn; a turn several woke
   names none, and the browser's own cards never do (`docs/design/agent-inbox.md`, What a

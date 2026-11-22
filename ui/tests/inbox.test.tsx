@@ -6,8 +6,8 @@ import type { Block } from "../src/scheduledRuns";
 import { installDom } from "./dom";
 
 // task-456: the desk draws the inbox (docs/design/agent-inbox.md, "On the
-// desk"). A sender's conversation has one quiet row per send, live from its
-// inbox; a receiver's has one quiet line per sort; the composer counts what the
+// desk"). What a turn sent and sorted is in its path, each a quiet row live
+// from the teammate's inbox, and the chat draws no Inbox line; the composer counts what the
 // teammate has not read; the pane lists its inbox and opens one item with
 // its receipts. The person reads; nothing here sends or sorts.
 
@@ -146,7 +146,7 @@ describe("a turn the inbox woke is drawn as path", () => {
 	const tool = (id: string, title: string): TranscriptEvent => ({ kind: "tool", id, ts: NOW, toolCallId: id, title, status: "completed" });
 	const thought = (id: string, text: string): TranscriptEvent => ({ kind: "thought", id, ts: NOW, text });
 
-	test("its sort's line stays, its tools and words fold into the turn's steps, and no bubble follows", async () => {
+	test("its sorts and sends fold into the turn's steps with its tools and words, and no bubble follows", async () => {
 		const { toBlocks } = await import("../src/transcriptFolds");
 		const drawn = groupInbox(
 			toBlocks([
@@ -158,9 +158,9 @@ describe("a turn the inbox woke is drawn as path", () => {
 				ended("e1"),
 			]),
 		);
-		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["inbox", "inbox_sorted", "steps", "turn"]);
+		expect(drawn.map((block) => (block.kind === "event" ? block.event.kind : block.kind))).toEqual(["steps", "turn"]);
 		const steps = drawn.find((block) => block.kind === "steps");
-		expect(steps?.kind === "steps" && steps.items.map((one) => one.kind)).toEqual(["tool", "tool", "thought"]);
+		expect(steps?.kind === "steps" && steps.items.map((one) => one.kind)).toEqual(["tool", "tool", "inbox_sent", "inbox_sorted", "thought"]);
 		expect(drawn.some((block) => block.kind === "event" && block.event.kind === "agent")).toBe(false);
 	});
 
@@ -203,7 +203,10 @@ describe("a turn the inbox woke is drawn as path", () => {
 	});
 });
 
-describe("task-494 a run of inbox activity is one line in the chat", () => {
+// George, 2026-11-21: the chat never shows a standalone Inbox line, not even
+// for a turn with no bubble. What a turn sent or read is on the line under
+// its reply; a turn that put nothing in the chat shows nothing.
+describe("no Inbox line in the chat", () => {
 	const tool = (id: string, title: string): TranscriptEvent => ({ kind: "tool", id, ts: NOW, toolCallId: id, title, status: "completed" });
 	const quietEnd = (id: string): TranscriptEvent => ({ kind: "turn", id, ts: NOW, stopReason: "end_turn", quiet: true });
 	const sorted = (id: string, ...items: string[]): TranscriptEvent => ({
@@ -217,46 +220,20 @@ describe("task-494 a run of inbox activity is one line in the chat", () => {
 	const link = (id: string, thread: string, state: "live" | "closed"): TranscriptEvent =>
 		({ kind: "link", id, ts: NOW, thread, threadKind: "side", title: "Rerun the Linux build", state, personaId: "juno", openerId: "chop" }) as TranscriptEvent;
 	const shape = (blocks: Block[]) =>
-		blocks.flatMap((block) =>
-			block.kind === "inboxRun"
-				? [`run(${block.read},${block.sent}):${block.members.map((member) => (member.kind === "event" ? member.event.id : member.kind === "steps" ? `steps:${member.id}` : member.id)).join(",")}`]
-				: block.kind === "event"
-					? block.event.kind === "turn"
-						? []
-						: [block.event.id]
-					: block.kind === "inbox"
-						? [block.id]
-						: [`${block.kind}:${block.id}`],
-		);
-	const fold = async (events: TranscriptEvent[], work: ReadonlySet<string> = new Set()) => {
+		blocks.flatMap((block) => (block.kind === "event" ? (block.event.kind === "turn" ? [] : [block.event.id]) : [`${block.kind}:${block.id}`]));
+	const drawn = async (events: TranscriptEvent[], work: ReadonlySet<string> = new Set()) => {
 		const { toBlocks } = await import("../src/transcriptFolds");
-		const { foldInboxRuns } = await import("../src/scheduledRuns");
-		return foldInboxRuns(groupInbox(toBlocks(events)), work);
+		const { withoutUnsaidTurns } = await import("../src/scheduledRuns");
+		return withoutUnsaidTurns(groupInbox(toBlocks(events)), work);
 	};
 
-	test("quiet turns' sorts, sends and times run together into one line, which says how many it read and sent", async () => {
-		const drawn = await fold([
-			tool("t1", "read_inbox"),
-			sent("r1", "chop", "Re: Test message"),
-			sorted("s1", "i1"),
-			quietEnd("e1"),
-			tool("t2", "read_inbox"),
-			sorted("s2", "i2", "i3"),
-			quietEnd("e2"),
-		]);
-		expect(shape(drawn)).toEqual(["run(3,1):inbox-sent:r1,s1,steps:t1,s2,steps:t2"]);
-		// Named by its first row, so it keeps its row as it grows.
-		expect(drawn[0]?.kind === "inboxRun" && drawn[0].id).toBe("inbox-run:inbox-sent:r1");
-		expect(inbox.runWords(3, 1)).toBe("Inbox · read 3, sent 1");
+	test("quiet turns that read, sent and worked but said nothing draw nothing", async () => {
+		const blocks = await drawn([tool("t1", "read_inbox"), sent("r1", "chop", "Re: Test message"), sorted("s1", "i1"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2", "i3"), quietEnd("e2"), tool("t3", "read_inbox"), quietEnd("e3")]);
+		expect(shape(blocks)).toEqual([]);
 	});
 
-	test("the label says only what the run has: only sorting, only sending", () => {
-		expect(inbox.runWords(2, 0)).toBe("Inbox · read 2");
-		expect(inbox.runWords(0, 1)).toBe("Inbox · sent 1");
-	});
-
-	test("a run ends at the person's line, a bubble the teammate posts and a turn the person asked for", async () => {
-		const drawn = await fold([
+	test("a turn that said something keeps its line, and what it read and sent is on it, wherever the turn started", async () => {
+		const blocks = await drawn([
 			tool("t0", "read_inbox"),
 			sorted("s0", "i0"),
 			quietEnd("e0"),
@@ -265,56 +242,35 @@ describe("task-494 a run of inbox activity is one line in the chat", () => {
 			{ kind: "tool", id: "t2", ts: NOW, toolCallId: "t2", title: "post_to_chat", status: "completed" },
 			said("p1", "The crane permit is yours to sign."),
 			quietEnd("e1"),
-			tool("t3", "read_inbox"),
-			sorted("s2", "i2"),
-			quietEnd("e2"),
 			{ kind: "user", id: "u1", ts: NOW, text: "Ask Huck whether staging is safe to wipe." },
 			sent("a1", "huck", "Is staging safe to wipe?"),
 			tool("t4", "update_inbox"),
 			sorted("s3", "i3"),
 			said("a2", "Asked Huck."),
 			ended("e3"),
-			tool("t5", "read_inbox"),
-			sorted("s4", "i4"),
-			quietEnd("e4"),
 		]);
-		expect(shape(drawn)).toEqual([
-			"run(1,0):s0,steps:t0",
-			// The quiet turn that posted folds its own sort into the path behind its bubble (task-505).
-			"p1",
-			// A quiet turn that posted keeps its time under its bubble, as any reply does.
-			"steps:t1",
-			"run(1,0):s2,steps:t3",
-			"u1",
-			// Sends and sorts in a turn the person asked for fold into its Steps, not rows in the chat.
-			"a2",
-			"steps:inbox-sent:a1",
-			"run(1,0):s4,steps:t5",
-		]);
+		expect(shape(blocks)).toEqual(["p1", "steps:t1", "u1", "a2", "steps:inbox-sent:a1"]);
+		const lines = blocks.flatMap((block) => (block.kind === "steps" ? [inbox.inboxWords(block.items)] : []));
+		expect(lines).toEqual(["Read a message", "Read a message, sent a message"]);
 	});
 
-	test("a work thread an item started stands beside the run while it runs, and folds in once it is over", async () => {
+	test("the words count each item a sort moved once and each item sent, and say nothing for a turn that did neither", () => {
+		expect(inbox.inboxWords([sorted("s1", "i1", "i2"), sorted("s2", "i2"), sent("r1", "huck", "A"), sent("r2", "ivy", "A")])).toBe("Read 2 messages, sent 2 messages");
+		expect(inbox.inboxWords([sent("r1", "huck", "A")])).toBe("Sent a message");
+		expect(inbox.inboxWords([tool("t1", "read")])).toBeUndefined();
+	});
+
+	test("the work thread an item started is no row of the receiver's chat, running or over; one no item started keeps its row", async () => {
 		const work = new Set(["w1"]);
-		const running = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), link("l1", "w1", "live"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2"), quietEnd("e2")], work);
-		// It does not split the run: the line, then the running thread under it.
-		expect(shape(running)).toEqual(["run(2,0):s1,steps:t1,s2,steps:t2", "l1"]);
-		const over = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), link("l1", "w1", "closed"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2"), quietEnd("e2")], work);
-		expect(shape(over)).toEqual(["run(2,0):s1,l1,steps:t1,s2,steps:t2"]);
-		// A thread no item started is no part of a run.
-		expect(shape(await fold([sorted("s1", "i1"), link("l1", "w1", "closed"), sorted("s2", "i2")]))).toEqual(["run(1,0):s1", "l1", "run(1,0):s2"]);
+		expect(shape(await drawn([tool("t1", "update_inbox"), sorted("s1", "i1"), link("l1", "w1", "live"), quietEnd("e1")], work))).toEqual([]);
+		expect(shape(await drawn([tool("t1", "update_inbox"), sorted("s1", "i1"), link("l1", "w1", "closed"), quietEnd("e1")], work))).toEqual([]);
+		expect(shape(await drawn([link("l1", "w2", "live")], work))).toEqual(["l1"]);
 	});
 
-	test("a quiet turn's time alone, with nothing read or sent, stays its own line", async () => {
-		expect(shape(await fold([tool("t1", "read_inbox"), quietEnd("e1")]))).toEqual(["steps:t1"]);
-	});
-
-	test("a run that grows keeps the block it was, and the turn still running sits under it", async () => {
-		const { keepBlocks } = await import("../src/transcriptFolds");
-		const first = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), quietEnd("e1"), tool("t2", "read_inbox")]);
-		expect(shape(first)).toEqual(["run(1,0):s1,steps:t1", "steps:t2"]);
-		const grown = await fold([tool("t1", "update_inbox"), sorted("s1", "i1"), quietEnd("e1"), tool("t2", "read_inbox"), sorted("s2", "i2"), quietEnd("e2")]);
-		expect(grown[0]?.kind === "inboxRun" && grown[0].id).toBe(first[0]?.kind === "inboxRun" && first[0].id);
-		expect(keepBlocks(first, first)[0]).toBe(first[0]);
+	test("a quiet turn still running keeps its block, and one that failed keeps its line", async () => {
+		expect(shape(await drawn([tool("t1", "read_inbox"), sorted("s1", "i1")]))).toEqual(["steps:t1"]);
+		const failed: TranscriptEvent = { kind: "turn", id: "e1", ts: NOW, stopReason: "error", quiet: true } as TranscriptEvent;
+		expect(shape(await drawn([tool("t1", "read_inbox"), failed]))).toEqual(["steps:t1"]);
 	});
 });
 
@@ -549,167 +505,26 @@ describe("task-456 drawn", () => {
 		expect(cards).toEqual(["ivy"]);
 	});
 
-	/** A run as the fold makes it, of these lines. */
-	const runOf = async (events: TranscriptEvent[], work: ReadonlySet<string> = new Set()) => {
-		const { toBlocks } = await import("../src/transcriptFolds");
-		const { foldInboxRuns } = await import("../src/scheduledRuns");
-		const run = foldInboxRuns(groupInbox(toBlocks(events)), work).find((block) => block.kind === "inboxRun");
-		if (run?.kind !== "inboxRun") throw new Error("no run");
-		return run;
-	};
-
-	test("a stamped outcome opens inside Inbox without a sort in view", async () => {
-		const { InboxRun } = await import("../src/components/transcript/InboxLines");
-		const event = {"kind": "outcome", "id": "51a11891-ea6a-45e8-be51-b5234492ae97", "ts": 1795211618382, "type": "made", "message": "Saved the uncommitted call-delivery draft; busy-call delivery is unresolved", "state": "partial", "key": "51a11891", "fromItem": "98367872"} as const;
-		const run = await runOf([event]);
-		const opened: string[] = [];
-		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} onOpenThread={(one) => opened.push(one.thread)} />));
-		expect(container.textContent).toBe("Inbox");
-		expect(container.querySelector(".steps-caption .text-warn-ink")?.textContent).toBe("Inbox");
-		await press(container.querySelector(".steps-caption")!);
-		expect(container.querySelector(".inbox-run-rows .text-warn-ink")?.textContent).toBe(event.message);
-	});
-
-	test("a stamped link opens inside Inbox without a sort in view", async () => {
-		const { InboxRun } = await import("../src/components/transcript/InboxLines");
-		const event = {"kind": "link", "id": "link:run:c03aea99-7607-4872-8796-ad41361183b1", "ts": 1795210363568, "thread": "c03aea99-7607-4872-8796-ad41361183b1", "threadKind": "run", "title": "Add answer-route regression tests", "state": "closed", "end": "done", "personaId": "33d512f8-7308-4193-ab5c-0b28a4180e75", "elapsedMs": 123974, "fromItem": "98367872"} as const;
-		const run = await runOf([event]);
-		const opened: string[] = [];
-		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} onOpenThread={(one) => opened.push(one.thread)} />));
-		expect(container.textContent).toBe("Inbox");
-		await press(container.querySelector(".steps-caption")!);
-		const row = container.querySelector(".inbox-run-rows button")!;
-		expect(row.textContent).toContain(event.title);
-		await press(row);
-		expect(opened).toEqual([event.thread]);
-	});
-
-
-	test("a run is one quiet line that opens in place to its rows in the order they happened, each item's opening it", async () => {
-		const { InboxRows, InboxRun } = await import("../src/components/transcript/InboxLines");
-		const opened: string[] = [];
-		const worked: string[] = [];
-		const run = await runOf([
-			{
-				kind: "inbox_sorted",
-				id: "sorted-1",
-				ts: NOW,
-				open: 1,
-				unread: 0,
-				entries: [
-					{ item: "thursday", title: "Release moves to Thursday", from: "ivy", state: "closed", outcome: "noted" },
-					{ item: "notes", title: "Storage numbers", from: "chop", state: "later", reason: "after this research" },
-				],
-			},
-			sent("r1", "huck", "Re: Is the staging database safe to wipe?"),
-			{ kind: "tool", id: "t1", ts: NOW, toolCallId: "t1", title: "update_inbox", status: "completed" },
-			{ kind: "turn", id: "e1", ts: NOW, stopReason: "end_turn", quiet: true },
-		]);
-		await act(async () =>
-			root!.render(
-				<InboxRows.Provider value={{ work: new Map(), items: new Map([["r1", item("r1", { to: "huck", state: "seen" })]]), onOpen: (id) => opened.push(id) }}>
-					<InboxRun run={run} owner="juno" people={people} onOpenWork={(id) => worked.push(id)} />
-				</InboxRows.Provider>,
-			),
-		);
-		// A caption, not a card: no leading dot, no rows until it is pressed.
-		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!;
-		expect(line.textContent).toBe("Inbox · read 2, sent 1");
-		expect(line.getAttribute("aria-expanded")).toBe("false");
-		expect(container.querySelector(".trail-dot, .trail-fact")).toBeNull();
-		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
-		await press(line);
-		// No rule or box around them: the conversation's own quiet rows, in order, the quiet turn's time last.
-		const rows = container.querySelector(".inbox-run-rows")!;
-		expect(container.querySelector(".trail-detail")).toBeNull();
-		expect([...rows.querySelectorAll(".link-row")].map((row) => row.textContent)).toEqual([
-			"Release moves to Thursday· From Ivy · NotedOpen ›",
-			"Storage numbers· From Pork Chop · Later · after this researchOpen ›",
-			"Re: Is the staging database safe to wipe?· To Huck · SeenOpen ›",
-		]);
-		expect([...rows.querySelectorAll(".link-row")].every((row) => row.closest(".inbox-run-rows") === rows)).toBe(true);
-		expect(rows.lastElementChild?.querySelector(".steps-caption")).not.toBeNull();
-		await press(rows.querySelectorAll<HTMLButtonElement>(".link-row")[1]!);
-		await press(rows.querySelectorAll<HTMLButtonElement>(".link-row")[2]!);
-		expect(opened).toEqual(["notes", "r1"]);
-		await press(rows.querySelector<HTMLButtonElement>(".steps-caption")!);
-		expect(worked).toHaveLength(1);
-		await press(line);
-		expect(container.querySelectorAll(".link-row")).toHaveLength(0);
-	});
-
-	test("two quiet turns with one send share the Steps caption and unfold their rows under it", async () => {
-		const { InboxRun } = await import("../src/components/transcript/InboxLines");
-		const run = await runOf([
-			{ kind: "thought", id: "think-1", ts: NOW, text: "No action yet." },
-			{ kind: "thought", id: "said-1", ts: NOW + 1_200, text: "Nothing to post.", said: true },
-			{ kind: "turn", id: "end-1", ts: NOW + 1_300, stopReason: "end_turn", quiet: true },
-			{ kind: "thought", id: "think-2", ts: NOW + 9_000, text: "I'll acknowledge it." },
-			{ kind: "tool", id: "tool:call-1\nfc_1", ts: NOW + 11_100, toolCallId: "call-1\nfc_1", title: "hotline: send", status: "completed", endedTs: NOW + 11_300 },
-			sent("ack", "ivy", "got it", NOW + 11_250),
-			{ kind: "turn", id: "end-2", ts: NOW + 11_500, stopReason: "end_turn", quiet: true },
-		]);
-		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} />));
-		const caption = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!;
-		expect(caption.textContent).toBe("Inbox · sent 1");
-		expect(caption.querySelector(".trail-dot, .step-mark")).toBeNull();
-		expect(caption.getAttribute("aria-expanded")).toBe("false");
-		expect(caption.nextElementSibling).toBeNull();
-
-		const chevron = () => caption.querySelector(".steps-caption-end > .steps-caption-took > span + svg > path")?.getAttribute("d");
-		const closedChevron = chevron();
-		expect(closedChevron).toBeDefined();
-		await press(caption);
-		expect(caption.getAttribute("aria-expanded")).toBe("true");
-		expect(chevron()).not.toBe(closedChevron);
-		const rows = caption.nextElementSibling!;
-		expect(rows.className).toBe("inbox-run-rows");
-		expect([...rows.children].map((row) => row.querySelector(".steps-caption, .link-row-title")?.textContent)).toEqual(["1.2s", "got it", "2.3s"]);
-		expect(rows.querySelector(".link-row")?.textContent).toBe("got it· To Ivy");
-		await press(caption);
-		expect(caption.getAttribute("aria-expanded")).toBe("false");
-		expect(chevron()).toBe(closedChevron);
-		expect(caption.nextElementSibling).toBeNull();
-	});
-
-	test("Picked up in the chat's inbox rows: a sort's row and a sent row say it where the item was taken", async () => {
-		const { InboxRows, InboxRun, InboxSentRow } = await import("../src/components/transcript/InboxLines");
-		const run = await runOf([
-			{ kind: "inbox_sorted", id: "s", ts: NOW, open: 1, unread: 0, entries: [{ item: "build", title: "Rerun the Linux build", from: "chop", state: "taken" }] },
-			{ kind: "turn", id: "e", ts: NOW, stopReason: "end_turn", quiet: true },
-		]);
+	test("Picked up in a path's inbox rows: a sort's row and a sent row say it where the item was taken", async () => {
+		const { InboxRows, InboxSentRow, InboxSortedRow } = await import("../src/components/transcript/InboxLines");
 		const taken = item("i1", { state: "taken" });
 		await act(async () =>
 			root!.render(
 				<InboxRows.Provider value={{ work: new Map(), items: new Map([["i1", taken]]), onOpen: () => {} }}>
-					<InboxRun run={run} owner="juno" people={people} onOpenWork={() => {}} />
+					<InboxSortedRow entry={{ item: "build", title: "Rerun the Linux build", from: "chop", state: "taken" }} people={people} />
 					<InboxSentRow title="Release" sent={[sent("i1", "juno", "Release")] as InboxSent[]} people={people} />
 				</InboxRows.Provider>,
 			),
 		);
 		expect(container.querySelector("button.link-row[data-kind=inbox]")?.textContent).toContain("To Juno · Picked up");
-		await press(container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!);
-		expect(container.querySelector(".inbox-run-rows .link-row")?.textContent).toContain("From Pork Chop · Picked up");
+		expect(container.querySelector(".link-row[data-kind=inbox-sorted]")?.textContent).toContain("From Pork Chop · Picked up");
 		expect(container.textContent).not.toContain("Taken");
 	});
 
-	test("a run's row for Hotline's notice credits Hotline, and an item's row does nothing where nothing opens it", async () => {
-		const { InboxRun } = await import("../src/components/transcript/InboxLines");
-		const run = await runOf([
-			{
-				kind: "inbox_sorted",
-				id: "s",
-				ts: NOW,
-				open: 0,
-				unread: 0,
-				entries: [{ item: "n", title: "Expired: Changelog wording", from: "huck", state: "closed", outcome: "noted", notice: "expired" }],
-			},
-		]);
-		await act(async () => root!.render(<InboxRun run={run} owner="juno" people={people} />));
-		const line = container.querySelector<HTMLButtonElement>("[data-kind=inbox-run] > .steps-caption")!;
-		expect(line.textContent).toBe("Inbox · read 1");
-		await press(line);
-		const row = container.querySelector(".inbox-run-rows .link-row")!;
+	test("a sort's row for Hotline's notice credits Hotline, and does nothing where nothing opens it", async () => {
+		const { InboxSortedRow } = await import("../src/components/transcript/InboxLines");
+		await act(async () => root!.render(<InboxSortedRow entry={{ item: "n", title: "Expired: Changelog wording", from: "huck", state: "closed", outcome: "noted", notice: "expired" }} people={people} />));
+		const row = container.querySelector(".link-row")!;
 		expect(row.tagName).toBe("P");
 		expect(row.textContent).toBe("Expired: Changelog wording· From Hotline · Noted");
 	});
@@ -931,35 +746,26 @@ describe("task-456 drawn", () => {
 		expect(opened).toEqual([]);
 	});
 
-	test("the receiver's conversation draws the work its sort started as a work-thread row, while an old handoff keeps its line", async () => {
+	test("the receiver's conversation draws no row for the work its sort started, while an old handoff keeps its line", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const juno = view({ open: [item("i-build", { state: "taken", work: { kind: "side", key: "s-build" } })] });
 		spyOn(wire, "subscribe").mockImplementation(((target: { inbox?: string }, handlers: { snapshot(items: unknown): void }) => {
 			if (target.inbox === "juno") handlers.snapshot(juno);
 			return () => {};
 		}) as typeof wire.subscribe);
-		const opened: string[] = [];
 		const events: TranscriptEvent[] = [
 			{ kind: "inbox_sorted", id: "sorted", ts: NOW - 2_000, open: 1, unread: 0, entries: [{ item: "i-build", title: "Rerun the Linux build", from: "chop", state: "taken" }] },
 			{ kind: "link", id: "link:side:s-build", ts: NOW - 1_000, thread: "s-build", threadKind: "side", personaId: "juno", title: "Rerun the Linux build", state: "live", openerId: "chop", openerName: "Pork Chop" },
 			{ kind: "link", id: "link:side:s-old", ts: NOW, thread: "s-old", threadKind: "side", personaId: "juno", title: "Old handoff", state: "live", openerId: "huck", openerName: "Huck" },
 		];
 		await act(async () =>
-			root!.render(
-				<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} workingSides={["s-build", "s-old"]} onOpenThreads={() => {}} onOpenThread={(open) => opened.push(`${open.thread.kind}:${open.thread.key}`)} />,
-			),
+			root!.render(<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} workingSides={["s-build", "s-old"]} onOpenThreads={() => {}} onOpenThread={() => {}} />),
 		);
-		const row = container.querySelector<HTMLButtonElement>(".link-row[data-inbox]");
-		expect(row?.querySelector(".link-row-title")?.textContent).toBe("Rerun the Linux build");
-		expect(row?.querySelector(".link-row-outcome")?.textContent).toBe("· Work thread · Running");
-		expect(row?.getAttribute("aria-label")).toBe("Work thread · Rerun the Linux build · Running. Open it");
-		expect(row?.querySelector(".link-row-dot")?.getAttribute("data-tone")).toBe("live");
-		await press(row!);
-		expect(opened).toEqual(["side:s-build"]);
+		expect(container.querySelector(".link-row[data-inbox]")).toBeNull();
+		expect(container.textContent).not.toContain("Rerun the Linux build");
 		// The handoff from before the inbox keeps its one line; this work is not in it.
 		expect(container.textContent).toContain("Working on a handoff from Huck");
 		expect(container.textContent).not.toContain("handoff from Pork Chop");
-		expect(container.querySelectorAll(".link-row[data-kind=thread]")).toHaveLength(1);
 	});
 
 	test("a teammate's row in the rail shows no inbox count, however much is unread", async () => {
@@ -1131,15 +937,14 @@ describe("sends in a turn the person reads fold into that turn's Steps (goldie-s
 	});
 	const press = async (target: Element) => act(async () => void target.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
 
-	test("23:14, 23:27 sends and 23:31, 23:38 answers turns fold into their turns' Steps with no InboxRun", async () => {
+	test("23:14, 23:27 sends and 23:31, 23:38 answers turns fold into their turns' Steps, whose line says what they sent and read", async () => {
 		const events = await loadRealTape();
 		const { toBlocks } = await import("../src/transcriptFolds");
-		const { foldInboxRuns } = await import("../src/scheduledRuns");
-		const blocks = foldInboxRuns(groupInbox(toBlocks(events)), new Set());
+		const { withoutUnsaidTurns } = await import("../src/scheduledRuns");
+		const blocks = withoutUnsaidTurns(groupInbox(toBlocks(events)), new Set());
 
-		// No chat-level inbox rows or InboxRuns anywhere in the built blocks.
-		expect(blocks.some((block) => block.kind === "inbox")).toBe(false);
-		expect(blocks.some((block) => block.kind === "inboxRun")).toBe(false);
+		// No chat-level inbox rows anywhere in the built blocks.
+		expect(blocks.some((block) => block.kind === "inbox" || (block.kind === "event" && (block.event.kind === "inbox_sent" || block.event.kind === "inbox_sorted")))).toBe(false);
 
 		// 23:14 turn: four sends inside its Steps, none at chat level.
 		const turn2314 = blocks.find((block) => block.kind === "steps" && block.id === "tool:5e3e4b05-1676-43cf-bd86-987792c54e54");
@@ -1153,10 +958,9 @@ describe("sends in a turn the person reads fold into that turn's Steps (goldie-s
 		if (turn2327?.kind !== "steps") throw new Error("missing 23:27 steps");
 		expect(turn2327.items.filter((one) => one.kind === "inbox_sent")).toHaveLength(1);
 
-		// 23:31 answers turn: no InboxRun before the 23:31:53 bubble; its sort and outcome fold into its Steps in tape order.
+		// 23:31 answers turn: under the 23:31:53 bubble, its sort and outcome fold into its Steps in tape order.
 		const agent2331At = blocks.findIndex((block) => block.kind === "event" && block.event.id === "02abc441-f28c-445c-a2e7-42b3e3785553");
 		expect(agent2331At).toBeGreaterThan(0);
-		expect(blocks[agent2331At - 1]?.kind).not.toBe("inboxRun");
 		const steps2331 = blocks[agent2331At + 1];
 		expect(steps2331?.kind).toBe("steps");
 		if (steps2331?.kind !== "steps") throw new Error("missing 23:31 steps");
@@ -1167,10 +971,9 @@ describe("sends in a turn the person reads fold into that turn's Steps (goldie-s
 			"outcome",
 		]);
 
-		// 23:38 answers turn: no InboxRun before the 23:39:14 table bubble; its sort and outcome fold into its Steps in tape order.
+		// 23:38 answers turn: under the 23:39:14 table bubble, its sort and outcome fold into its Steps in tape order.
 		const agent2338At = blocks.findIndex((block) => block.kind === "event" && block.event.id === "401b4027-11cb-4c57-9ce0-58fa8e88941d");
 		expect(agent2338At).toBeGreaterThan(0);
-		expect(blocks[agent2338At - 1]?.kind).not.toBe("inboxRun");
 		const steps2338 = blocks[agent2338At + 1];
 		expect(steps2338?.kind).toBe("steps");
 		if (steps2338?.kind !== "steps") throw new Error("missing 23:38 steps");
@@ -1193,15 +996,16 @@ describe("sends in a turn the person reads fold into that turn's Steps (goldie-s
 			root!.render(<Transcript personaId="goldie" name="Goldie" people={realPeople} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={(id) => opened.push(id)} />),
 		);
 
-		// No [data-kind="inbox"] or [data-kind="inbox-run"] anywhere at chat level before opening any Steps.
-		expect(container.querySelectorAll('[data-kind="inbox"]')).toHaveLength(0);
-		expect(container.querySelectorAll('[data-kind="inbox-run"]')).toHaveLength(0);
+		// No inbox row and no Inbox line anywhere at chat level before opening any Steps.
+		expect(container.querySelectorAll('[data-kind="inbox"], [data-kind="inbox-sorted"]')).toHaveLength(0);
+		expect([...container.querySelectorAll(".steps-caption")].some((caption) => /^Inbox\b/.test(caption.textContent ?? ""))).toBe(false);
 
 		// 23:27 turn: Steps caption is drawn with its time; opened, holds one sent row for Huck.
 		const row2327 = container.querySelector<HTMLElement>('[data-event-id="inbox-sent:78b2069d-8d87-44ab-82ef-04436503f882"]')!;
 		const caption2327 = row2327.querySelector<HTMLButtonElement>(".steps-caption")!;
 		expect(caption2327).not.toBeNull();
 		expect(caption2327.querySelector(".steps-caption-took")?.textContent).toBe("14s");
+		expect(caption2327.querySelector("[data-kind=inbox-words]")?.textContent).toBe("Sent a message");
 		await press(caption2327);
 		const sent2327 = [...row2327.querySelectorAll(".steps [data-kind=inbox]")];
 		expect(sent2327).toHaveLength(1);
@@ -1262,7 +1066,6 @@ describe("sends in a turn the person reads fold into that turn's Steps (goldie-s
 		await act(async () =>
 			root!.render(<Transcript personaId="goldie" name="Goldie" people={realPeople} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={() => {}} />),
 		);
-		expect(container.querySelectorAll('[data-kind="inbox-run"]')).toHaveLength(0);
 		const stepsRow = container.querySelector<HTMLElement>('[data-event-id="t1"]')!;
 		const captionOutcome = stepsRow.querySelector<HTMLElement>(".steps-caption .outcome");
 		expect(captionOutcome?.getAttribute("data-mark")).toBe("partial");

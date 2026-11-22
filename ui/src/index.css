@@ -2441,13 +2441,6 @@
 	.trail-head[aria-expanded="true"] .trail-chevron {
 		opacity: 1;
 	}
-	/* The inbox run opens to the conversation's own quiet rows, indented with no rule or box. */
-	.inbox-run-rows {
-		display: flex;
-		flex-direction: column;
-		padding-block: 2px 4px;
-		padding-inline-start: 16px;
-	}
 	/* Opened: the thinking before it, then each step as a person reads it. */
 	.trail-detail {
 		display: flex;

@@ -28,11 +28,10 @@ your chat.
   the start of its next turn, what became of each item it sent: seen, picked
   up, left for later, closed.
 - **In the chat.** What a teammate does with its inbox while you are not
-  talking to it is one quiet line in its chat, such as "Inbox · read 3, sent
-  1". Click it to see each message it read or sent, what became of it, and
-  how long each look at its inbox took; click a message to open it. What it
-  posts to you, and a work thread while it is still running, show on their
-  own. A post, a file, a card asking you something or a schedule it makes
+  talking to it puts nothing in its chat. When it does write to you, the
+  line under its reply says what it read and sent, such as "Sent a
+  message"; click it to see each message and what became of it, and click
+  a message to open it. What it posts to you shows on its own. A post, a file, a card asking you something or a schedule it makes
   while working on one colleague's message has a line over it, such as
   "From Goldie's message · Rerun the Linux build", so you can tell a
   colleague asked for it, not you.

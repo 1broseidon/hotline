@@ -897,15 +897,13 @@
 	.link-row[data-kind="inbox-from"] .inbox-row-mark {
 		color: var(--ink-4);
 	}
-	/* The rows of a run of inbox activity, and what a turn the person asked
-	 * for sent: quiet rows, the title in plain weight and the tray in grey. */
-	.link-row[data-quiet] .link-row-title,
-	.inbox-run-rows .link-row .link-row-title {
+	/* What a turn sent, as a row of its path: quiet, the title in plain
+	 * weight and the tray in grey. */
+	.link-row[data-quiet] .link-row-title {
 		font-weight: 400;
 		color: var(--ink-2);
 	}
-	.link-row[data-quiet] .inbox-row-mark,
-	.inbox-run-rows .inbox-row-mark {
+	.link-row[data-quiet] .inbox-row-mark {
 		color: var(--ink-4);
 	}
 }

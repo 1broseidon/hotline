@@ -8,11 +8,12 @@ import { failedRuns, markOf, outcomesOf } from "../../outcomes";
 import type { RunLink } from "../../scheduledRuns";
 import { durationText, SITES_NAMED, sitesOf, sitesSaid, sourcesOf, turnTook } from "../../turnFacts";
 import { Favicons } from "../Favicon";
+import { inboxWords } from "../../inbox";
 import { InboxSentRow, InboxSortedRow } from "./InboxLines";
 import { Sources } from "./Sources";
 
-/** The same quiet disclosure on the tape, whether it opens a turn's path or a run of inbox activity. */
-export function StepsCaption({
+/** The quiet disclosure under a reply that opens its turn's path. */
+function StepsCaption({
 	expanded,
 	inPlaceOpen = expanded,
 	title,
@@ -49,6 +50,8 @@ export function StepsCaption({
  * The line under a reply: what the turn left behind, in the teammate's own
  * words, each marked by how it went (failed first, in red), then the sites
  * of the web pages it read as a stack of their icons, then how long it took.
+ * What it read and sent of its inbox is said there too ("Sent a message"):
+ * the chat has no line of its own for it.
  * A helper or a command the turn started that failed is marked failed
  * there too, first of all: the conversation has no row of its own for one,
  * and a failure is what the person must not miss. The sources are not
@@ -92,6 +95,7 @@ export const Steps = memo(function Steps({
 	const failed = useMemo(() => failedWords(failedRuns(items)), [items]);
 	const sites = useMemo(() => sitesOf(items), [items]);
 	const took = useMemo(() => turnTook(items, elapsed), [items, elapsed]);
+	const inbox = useMemo(() => inboxWords(items), [items]);
 	const expanded = inPane ? paneOpen === true : open;
 	if (items.length === 0) return null;
 
@@ -116,6 +120,7 @@ export const Steps = memo(function Steps({
 							{outcome.message}
 						</span>
 					))}
+					{inbox !== undefined && <span data-kind="inbox-words">{inbox}</span>}
 				</StepsCaption>
 			)}
 			{open && (

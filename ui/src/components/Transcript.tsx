@@ -1,11 +1,10 @@
 import { ErrorCard } from "./ErrorCard";
 import { memo, type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryCause, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Block, type CallLink, type ScheduledEvent, type Step, foldInboxRuns, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupInbox, groupScheduled, groupSent, isRunLink, withoutUnsaidTurns } from "../scheduledRuns";
 import { inboxWork, itemsOf, useInbox } from "../inbox";
 import { ArrowDownIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
-import type { LinkEvent } from "../dock";
 import { handedIn, handoffsUnderway, namesSaid, threadOfLink } from "../links";
 import { type WorkMark, activityOf } from "../activity";
 import { Glyph } from "../ui/Glyph";
@@ -45,7 +44,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
-import { InboxFromRow, InboxRows, InboxRun, InboxSentRow, Prompted } from "./transcript/InboxLines";
+import { InboxFromRow, InboxRows, InboxSentRow, Prompted } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -264,8 +263,6 @@ export function Transcript({
 		return { items, work: inboxWork(items), onOpen: onOpenInboxItem };
 	}, [inboxView, onOpenInboxItem]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
-	/* A work thread's row in an inbox run opens its thread, as its own row does. */
-	const openLink = useCallback((link: LinkEvent) => onOpenThread?.({ thread: threadOfLink(link), title: link.title }), [onOpenThread]);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
 	const rowThread = useMemo(() => thread ?? dmOf(personaId), [thread, personaId]);
@@ -510,8 +507,9 @@ export function Transcript({
 	// so this is decided on what is left to draw.
 	// A block that holds what it held is the block it was (keepBlocks), so
 	// its row is handed what it was handed before and is not drawn again.
-	// In the teammate's own conversation a run of its inbox activity is one
-	// line (foldInboxRuns), made of the blocks it was, kept the same way.
+	// In the teammate's own conversation a turn that said nothing in the chat
+	// draws nothing (withoutUnsaidTurns): what it read and sent is on the line
+	// under a reply, never a line of its own.
 	const drawnBefore = useRef<Block[]>([]);
 	const blocks = useMemo(() => {
 		const grouped = keepBlocks(drawnBefore.current, groupSent(groupCalls(groupScheduled(groupInbox(
@@ -523,7 +521,7 @@ export function Transcript({
 							answered.has(block.event.id) ||
 							reacted.lines.has(block.event.id) ||
 							(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
-							(isRunLink(block.event) && (thread !== undefined || block.event.fromItem === undefined)) ||
+							isRunLink(block.event) ||
 							// Work taking an inbox item started is a work thread with a row of its own, not a handoff.
 							(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId) && !inboxRows.work.has(block.event.thread)))
 					),
@@ -533,8 +531,8 @@ export function Transcript({
 			drawnBefore.current = grouped;
 			return grouped;
 		}
-		const drawn = keepBlocks(drawnBefore.current, foldInboxRuns(grouped, inboxRows.work));
-		drawnBefore.current = [...drawn, ...drawn.flatMap((block) => (block.kind === "inboxRun" ? block.members : []))];
+		const drawn = keepBlocks(drawnBefore.current, withoutUnsaidTurns(grouped, inboxRows.work));
+		drawnBefore.current = drawn;
 		return drawn;
 	}, [arrived, hidden, answered, reacted, onOpenThreads, personaId, inboxRows.work, thread]);
 	const underway = useMemo(
@@ -574,8 +572,7 @@ export function Transcript({
 		const holds = (block: Block): boolean =>
 			(block.kind === "sent" && block.messages.some((message) => message.id === landing.eventId)) ||
 			(block.kind === "steps" && block.items.some((item) => item.id === landing.eventId)) ||
-			(block.kind === "inbox" && block.sent.some((one) => one.id === landing.eventId)) ||
-			(block.kind === "inboxRun" && block.members.some((member) => blockId(member) === landing.eventId || holds(member)));
+			(block.kind === "inbox" && block.sent.some((one) => one.id === landing.eventId));
 		return rows.find((row) => holds(row.block))?.id ?? landing.eventId;
 	}, [landing, rows]);
 	// Made once per jump: a new one each render would send the flight again.
@@ -621,8 +618,6 @@ export function Transcript({
 					<ScheduledGroup name={block.name} runs={block.runs} />
 				) : block.kind === "inbox" ? (
 					<InboxSentRow title={block.title} sent={block.sent} people={people} />
-				) : block.kind === "inboxRun" ? (
-					<InboxRun run={block} owner={personaId} people={people} onOpenThread={openLink} {...(onOpenWork !== undefined ? { onOpenWork, workOpen } : {})} />
 				) : block.kind === "calls" ? (
 					<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
 				) : block.kind === "steps" ? (

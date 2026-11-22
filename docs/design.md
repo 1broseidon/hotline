@@ -827,9 +827,11 @@ started or a quiet turn that posted a bubble, `inbox_sent` and
 `inbox_sorted` draw no chat-level rows of their own: they live inside that
 turn's `Steps` when opened (at the place they happened) and under Inbox in
 the turn's path pane. The teammate says in one short line what it asked and
-of whom, the turn keeps its normal activity line, a quiet turn that posts
-nothing keeps its "Inbox · read 1" run, and a bubble woken by a colleague's
-message keeps its "From Timo's message" line.
+of whom, the turn keeps its normal activity line, which says what it read
+and sent ("Sent a message"), and a bubble woken by a colleague's message
+keeps its "From Timo's message" line. A quiet turn that posts nothing draws
+nothing: George ruled on 2026-11-21 that the chat never shows a standalone
+"Inbox" line (superseding task-494's "Inbox · read 3, sent 1" run).
 It is the window's drawing; the tape, the wire and the phone are unchanged,
 since the phone has no inbox rows yet.
 

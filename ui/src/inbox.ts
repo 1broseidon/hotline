@@ -256,8 +256,8 @@ export type TurnInboxRow = { kind: "sorted"; key: string; entry: InboxSortedEntr
 /**
  * What a turn sorted and sent, in the order it did, read off the tape from
  * the person's line or turn's end before its first step to the line or end
- * after its last: the rows its path lists under Inbox. A quiet turn that
- * posted a bubble has them there and nowhere in the chat (`foldInboxRuns`).
+ * after its last: the rows its path lists under Inbox. The chat has them
+ * nowhere else (`toBlocks`, `withoutUnsaidTurns`).
  */
 export function turnInbox(events: readonly TranscriptEvent[], stepIds: readonly string[]): TurnInboxRow[] {
 	const ids = new Set(stepIds);
@@ -276,9 +276,19 @@ export function turnInbox(events: readonly TranscriptEvent[], stepIds: readonly 
 	});
 }
 
-/** "Inbox · read 3, sent 1": the line for a run of a teammate's inbox activity, saying only what it has. */
-export const runWords = (read: number, sent: number): string =>
-	`Inbox · ${[read > 0 && `read ${read}`, sent > 0 && `sent ${sent}`].filter((part): part is string => part !== false).join(", ")}`;
+/**
+ * What a turn read and sent, as the line under its reply says it ("Read 2
+ * messages, sent a message"), or nothing when it did neither. A read is an
+ * item it sorted, counted once however many sorts moved it; a send is one
+ * item to one teammate.
+ */
+export function inboxWords(events: readonly TranscriptEvent[]): string | undefined {
+	const read = new Set(events.flatMap((event) => (event.kind === "inbox_sorted" ? event.entries.map((entry) => entry.item) : []))).size;
+	const sent = events.filter((event) => event.kind === "inbox_sent").length;
+	const messages = (count: number) => (count === 1 ? "a message" : `${count} messages`);
+	const words = [read > 0 && `read ${messages(read)}`, sent > 0 && `sent ${messages(sent)}`].filter((part): part is string => part !== false).join(", ");
+	return words === "" ? undefined : words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /**
  * The words that seeded a work thread, as its Message shows them to the

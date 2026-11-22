@@ -851,7 +851,13 @@ async fn a_connected_custom_provider_generates_through_the_real_resolver_and_htt
             },
         )
         .unwrap();
-    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, Bounds::default());
+    let room = Room::new_with_mcp(
+        log,
+        Arc::new(NoKeys),
+        vault,
+        Arc::new(crate::credentials::MemoryStore::default()),
+        Bounds::default(),
+    );
     let tools = TeammateTools::new(&room, "ada");
     let result: Value = serde_json::from_str(&tools.call("generate_image", &json!({
         "prompt": "a lighthouse", "aspect": "16:9", "transparent": true, "name": "resolved"
@@ -907,7 +913,13 @@ async fn http_400_refusals_leave_the_ledger_unchanged() {
             },
         )
         .unwrap();
-    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, Bounds::default());
+    let room = Room::new_with_mcp(
+        log,
+        Arc::new(NoKeys),
+        vault,
+        Arc::new(crate::credentials::MemoryStore::default()),
+        Bounds::default(),
+    );
     let tools = TeammateTools::new(&room, "ada");
     let before = room.spending_summary().unwrap();
     for _ in 0..3 {

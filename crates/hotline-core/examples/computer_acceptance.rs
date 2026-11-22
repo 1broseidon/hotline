@@ -20,10 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() != 3 {
         return Err("usage: computer_acceptance URL TOKEN_FILE | --provision IMAGE OUTPUT [PASSIVE_QA_PERSONA_ID]".into());
     }
-    let ready = computer::Ready {
-        url: format!("{}/mcp", args[1].trim_end_matches('/')),
-        token: std::fs::read_to_string(&args[2])?.trim().into(),
-    };
+    let ready = computer::Ready::new(
+        format!("{}/mcp", args[1].trim_end_matches('/')),
+        std::fs::read_to_string(&args[2])?.trim(),
+    );
     let connected = mcp::connect(
         "release-acceptance-hotline",
         &[computer::mcp_server(&ready)],

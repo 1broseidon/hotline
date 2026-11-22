@@ -389,10 +389,8 @@ async fn an_unknown_held_use_is_passed_over_and_no_pending_door_is_none() {
     assert_eq!(cards(room.log()).len(), 1);
 
     let (port, _) = crate::computer::guide::fake::serve_taking(Some("0.12.0")).await;
-    let ready = crate::computer::Ready {
-        url: format!("http://127.0.0.1:{port}/mcp"),
-        token: "fixture-token".into(),
-    };
+    let ready =
+        crate::computer::Ready::new(format!("http://127.0.0.1:{port}/mcp"), "fixture-token");
     assert_eq!(
         crate::computer::uses::pending_signins(&ready).await,
         Ok(Vec::new())

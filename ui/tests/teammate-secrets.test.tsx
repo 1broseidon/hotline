@@ -190,6 +190,19 @@ test("one notice says keys wait for an update, with Update when there is one", a
 	status = { state: "running", release: "0.13.0", protection: "protected" };
 	await mount(persona);
 	expect(section("Computer")?.textContent).not.toContain("Keys waiting");
+	await act(async () => root.render(null));
+	status = { state: "running", release: "0.11.0", protection: "needsUpdate" };
+	await mount(persona);
+	expect(section("Computer")?.textContent).toContain("Keys waiting · until a newer computer");
+});
+
+test("keys waiting on the newest computer, whose key this desk does not hold, say to restart it", async () => {
+	status = { state: "running", release: "0.13.0", protection: "needsUpdate" };
+	await mount(persona);
+	const computer = section("Computer")!;
+	expect(computer.textContent).toContain("Keys waiting · restart the computer");
+	expect(computer.textContent).not.toContain("until a newer computer");
+	expect([...computer.querySelectorAll("button")].some((node) => node.textContent === "Update")).toBe(false);
 });
 
 test("a teammate with no computer gives a variable to its shell, and is told so", async () => {
@@ -317,6 +330,16 @@ test("a login or passkey for this machine, and a key used with Other, are readab
 	expect(calls.length).toBe(before);
 	await act(async () => [...ticking.querySelectorAll("button")].find((node) => node.textContent === "Give")!.click());
 	expect(calls.at(-1)?.params).toEqual({ id: "ada", patch: { secretGrants: [{ name: "API_KEY" }] } });
+});
+
+test("what a protected computer says it cannot keep from its programs is labelled readable as well", async () => {
+	stored.push(login, passkey);
+	restores.push(() => stored.splice(2));
+	// A key used with GitHub on an enterprise host is Other to the computer.
+	status = { state: "running", protection: "protected", readable: ["GITHUB_TOKEN", "GITHUB_LOGIN"] };
+	const secrets = await openSecrets({ ...persona, secrets: ["GITHUB_TOKEN", "GITHUB_LOGIN", "GITHUB_PASSKEY"], secretGrants: [{ name: "GITHUB_TOKEN" }, { name: "GITHUB_LOGIN" }, { name: "GITHUB_PASSKEY" }] });
+	for (const name of ["GITHUB_TOKEN", "GITHUB_LOGIN"]) expect(rowOf(secrets, name).textContent, name).toContain("Readable by this teammate's programs");
+	expect(rowOf(secrets, "GITHUB_PASSKEY").textContent).not.toContain("Readable by this teammate's programs");
 });
 
 test("a site on this machine is one whatever its spelling, and a public one is not", async () => {

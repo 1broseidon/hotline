@@ -646,7 +646,8 @@ readonly: boolean, };
  * takes every grant, keys as stand-ins; `legacy`, it does not, and holds
  * readable variables, logins and passkeys where its programs can read
  * them; `needsUpdate`, the same, and keys granted to it wait on the desk
- * until it is updated.
+ * until it is updated, or, on a release that splits whose boot's key this
+ * desk does not hold, until it is restarted.
  */
 export type ComputerProtection = "protected" | "needsUpdate" | "legacy";
 
@@ -721,6 +722,13 @@ limitsChanged?: boolean,
  * it has been handed its set since this desk started or it was made.
  */
 protection?: ComputerProtection, 
+/**
+ * The granted names a protected computer said, at that handing over,
+ * it holds but cannot keep from its programs: a login or passkey for a
+ * site on the computer itself, a key used with an "Other" service. The
+ * pane labels them readable as it labels what the desk knows to be.
+ */
+readable?: Array<string>, 
 /**
  * After a computer's first split boot, while the person has not yet
  * said what becomes of the snapshots from before it: the one choice

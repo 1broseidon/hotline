@@ -148,7 +148,7 @@ pub(super) fn create_args(
 /// Whether a release boots split: 0.13 and later. A tag that is not a
 /// release number, `latest` or a local build's, is taken as an older one,
 /// which today's flags run as they always have.
-pub(super) fn splits_users(release: &str) -> bool {
+pub(crate) fn splits_users(release: &str) -> bool {
     let mut parts = release.split(['.', '-']).map(str::parse::<u32>);
     match (parts.next(), parts.next()) {
         (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= (0, 13),

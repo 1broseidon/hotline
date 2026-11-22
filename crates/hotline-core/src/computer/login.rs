@@ -390,10 +390,10 @@ mod tests {
         let serving = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        let ready = Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "the-token".to_owned(),
-        };
+        let ready = Ready::new(
+            format!("http://127.0.0.1:{port}/mcp"),
+            "the-token".to_owned(),
+        );
         (ready, fake, serving)
     }
 

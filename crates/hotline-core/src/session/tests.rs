@@ -955,6 +955,37 @@ pub(crate) struct ComputerRoom {
     asked: Arc<std::sync::atomic::AtomicUsize>,
     /// Every set of secrets the fake computer was handed, in order.
     pub(crate) taken: crate::computer::guide::fake::Taken,
+    /// The store the vault keeps its secrets in, and, for a room made
+    /// with [`kept_computer_room`], its computers their attest keys.
+    pub(crate) store: Arc<crate::credentials::MemoryStore>,
+    /// Where the room asks for releases.
+    releases_url: String,
+}
+
+/// The desk started again over `fixture`'s data root, store and runtime,
+/// as a desk restart finds them: the same container running with the same
+/// bearer, and nothing this process held in memory.
+#[cfg(unix)]
+pub(crate) fn reopened(fixture: &ComputerRoom) -> Arc<Room> {
+    let log = Log::open(fixture.room.log.root());
+    let vault =
+        Arc::new(Vault::open_with_store(log.root(), log.clone(), fixture.store.clone()).unwrap());
+    Room::with_agents_computers_and_vault(
+        log,
+        Arc::new(DeskKeys),
+        fixture.agents.clone(),
+        crate::computer::Computer::with_path(fixture.root.as_os_str())
+            .with_releases(&fixture.releases_url)
+            .with_store(fixture.store.clone()),
+        Some(vault),
+    )
+}
+
+/// [`computer_room`], its computers keeping their attest keys in the
+/// room's store, as the desk's own do.
+#[cfg(unix)]
+pub(crate) async fn kept_computer_room(name: &str, release: Option<&str>) -> ComputerRoom {
+    computer_room_with(name, release, TWO_RELEASES, true, true).await
 }
 
 /// `release` is what the fake computer claims to be (`None`: too old to
@@ -967,6 +998,21 @@ async fn computer_room(
     releases: &'static str,
     pinned: bool,
 ) -> ComputerRoom {
+    computer_room_with(name, release, releases, pinned, false).await
+}
+
+/// `kept` gives the room's computers the room's store for their attest
+/// keys. A pinned image is named for the release when that release splits
+/// its users, as the desk makes a computer that splits, and `test` when
+/// not.
+#[cfg(unix)]
+async fn computer_room_with(
+    name: &str,
+    release: Option<&str>,
+    releases: &'static str,
+    pinned: bool,
+    kept: bool,
+) -> ComputerRoom {
     use crate::computer::{Computer, fixtures, guide, releases as published};
     let root = fixtures::scratch(name);
     let cwd = root.join("work");
@@ -978,31 +1024,32 @@ async fn computer_room(
     let log = scratch(name);
     // A vault of the test's own, so a granted secret has somewhere to be
     // read from on its way to the machine.
-    let vault = Arc::new(
-        Vault::open_with_store(
-            log.root(),
-            log.clone(),
-            Arc::new(crate::credentials::MemoryStore::default()),
-        )
-        .unwrap(),
-    );
+    let store = Arc::new(crate::credentials::MemoryStore::default());
+    let vault = Arc::new(Vault::open_with_store(log.root(), log.clone(), store.clone()).unwrap());
+    let tag = release
+        .filter(|release| crate::computer::splits_users(release))
+        .unwrap_or("test");
     let mut ada = persona("ada");
     ada.cwd = cwd.to_string_lossy().into_owned();
     ada.computer = Some(PersonaComputer {
         cpus: None,
         enabled: true,
-        image: pinned.then(|| "hotline-computer:test".to_string()),
+        image: pinned.then(|| format!("hotline-computer:{tag}")),
         memory: None,
         pids: None,
         mounts: None,
     });
     enrol(&log, &ada);
     let agents = Fake::new(Scripted::new(Vec::new()));
+    let mut computers = Computer::with_path(root.as_os_str()).with_releases(&url);
+    if kept {
+        computers = computers.with_store(store.clone());
+    }
     let room = Room::with_agents_computers_and_vault(
         log,
         Arc::new(DeskKeys),
         agents.clone(),
-        Computer::with_path(root.as_os_str()).with_releases(&url),
+        computers,
         Some(vault),
     );
     ComputerRoom {
@@ -1012,6 +1059,8 @@ async fn computer_room(
         cwd,
         asked,
         taken,
+        store,
+        releases_url: url,
     }
 }
 

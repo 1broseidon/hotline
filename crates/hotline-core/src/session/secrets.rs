@@ -28,7 +28,11 @@ impl Room {
         ready: &crate::computer::Ready,
         automatic: bool,
     ) {
-        let notice = |text: String| eprintln!("{}: {text}", persona.name);
+        let notice = |text: String| {
+            #[cfg(test)]
+            lock(&self.secret_notices).push(text.clone());
+            eprintln!("{}: {text}", persona.name);
+        };
         let grants: Vec<crate::contract::SecretGrant> = persona
             .grants()
             .into_iter()
@@ -108,6 +112,7 @@ impl Room {
                     crate::contract::ComputerProtection::NeedsUpdate,
                 );
                 self.computers.learned_migration(&persona.id, None);
+                self.computers.learned_readable(&persona.id, Vec::new());
                 notice(format!(
                     "{}'s computer {}",
                     persona.name,
@@ -124,6 +129,8 @@ impl Room {
                     crate::contract::ComputerProtection::NeedsUpdate
                 };
                 self.computers.learned_protection(&persona.id, protection);
+                self.computers
+                    .learned_readable(&persona.id, handed.readable.clone());
                 // A computer's first split boot may have snapshots from
                 // before it waiting for the person's answer.
                 let migration = if protected {
@@ -136,6 +143,12 @@ impl Room {
                 };
                 self.computers.learned_migration(&persona.id, migration);
                 if handed.waiting.is_empty() {
+                } else if handed.restart {
+                    notice(format!(
+                        "{}'s computer cannot be checked until it starts again, so {} on this desk. Restart the computer from the teammate's pane.",
+                        persona.name,
+                        listed(&handed.waiting)
+                    ));
                 } else if protected {
                     notice(format!(
                         "{} on this desk: a key not granted readable needs its Used with under Settings → Secrets.",

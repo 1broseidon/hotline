@@ -904,6 +904,9 @@ pub struct Room {
     /// How far a test has moved the passkey armings' clock on.
     #[cfg(test)]
     passkey_clock_ahead: std::sync::atomic::AtomicI64,
+    /// What handing a computer its secrets said, for a test to read.
+    #[cfg(test)]
+    pub(crate) secret_notices: Mutex<Vec<String>>,
     #[cfg(test)]
     pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
     #[cfg(test)]
@@ -991,12 +994,15 @@ impl Room {
         )
     }
 
-    /// The production room passes its protected vault to both drivers. Tests
-    /// use new or with_agents and therefore keep their in-memory seams.
+    /// The production room passes its protected vault to both drivers, and
+    /// the store the desk was opened with to its computers, which keep each
+    /// one's attest key there. Tests use new or with_agents and therefore
+    /// keep their in-memory seams.
     pub(crate) fn new_with_mcp(
         log: Log,
         keys: Arc<dyn ProviderKeys>,
         vault: Arc<Vault>,
+        store: Arc<dyn crate::credentials::SecretStore>,
         acp_bounds: acp::Bounds,
     ) -> Arc<Self> {
         let agents = Arc::new(DeskAgents {
@@ -1006,7 +1012,13 @@ impl Room {
             mcp_vault: Some(vault.clone()),
             acp_bounds,
         });
-        Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
+        Self::with_agents_computers_and_vault(
+            log,
+            keys,
+            agents,
+            Computer::new().with_store(store),
+            Some(vault),
+        )
     }
 
     /// The room, on an agent seam a test can script. [`Room::new`] is this on
@@ -1104,6 +1116,8 @@ impl Room {
             passkey_armings: Mutex::new(HashMap::new()),
             #[cfg(test)]
             passkey_clock_ahead: std::sync::atomic::AtomicI64::new(0),
+            #[cfg(test)]
+            secret_notices: Mutex::default(),
             secret_uses: Mutex::default(),
             #[cfg(test)]
             cookie_candidates: Mutex::default(),

@@ -15,11 +15,11 @@ use crate::contract::{
     ComputerCapacity, ComputerReleases, ComputerState, ComputerStatus, Persona, RuntimeReport,
 };
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
-pub(crate) use container::folder_mounts;
 use container::{
     create, create_args, folder_mount_args, image_present, inspect, inspect_within, is_not_found,
     limits_of, pick_runtime, pull, run, wait_healthy,
 };
+pub(crate) use container::{folder_mounts, splits_users};
 pub(crate) use hotline_room::computer::HOME_MOUNT;
 use runtime::{BinSearch, Runtime};
 use serde_json::Value;
@@ -113,11 +113,42 @@ pub enum PullOutcome {
 }
 
 /// What the grant and the in-process client need once the machine is up.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A computer is its address and its bearer; `attest` is the key its boot
+/// handed this desk, shared by every `Ready` of it (see
+/// [`secrets::AttestKey`]), and not part of which computer it is.
+/// `made_to_split` is whether this desk made the container to split its
+/// users (a release from 0.13, see [`splits_users`]), read from
+/// the runtime's label, which nothing inside the container can change: only
+/// such a computer can be believed when it says it keeps secrets from its
+/// jobs.
+#[derive(Clone, Debug)]
 pub struct Ready {
     pub url: String,
     pub token: String,
+    pub attest: secrets::AttestKey,
+    pub made_to_split: bool,
 }
+
+impl Ready {
+    /// A computer at `url` with `token`, holding no attest key yet, and not
+    /// made to split.
+    pub fn new(url: impl Into<String>, token: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            token: token.into(),
+            attest: secrets::AttestKey::default(),
+            made_to_split: false,
+        }
+    }
+}
+
+impl PartialEq for Ready {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url && self.token == other.token
+    }
+}
+
+impl Eq for Ready {}
 
 /// A client for the desk's own requests to a computer. It follows no
 /// redirect: every door is on the computer's loopback port and answers
@@ -235,15 +266,20 @@ pub fn preferred_image(settings: &serde_json::Map<String, Value>) -> Option<Stri
 /// one is fetched, so overlapping askers share the fetch.
 type Remembered<T> = tokio::sync::Mutex<Option<(Instant, T)>>;
 
-/// Every teammate computer this process has woken, keyed by persona id.
+/// Every teammate computer this process has woken or adopted, keyed by
+/// persona id.
 ///
-/// The token is generated for each container when it is made, and kept here
-/// for its life: a container made again, for new folders, limits or an
-/// update, gets a new one, because an older computer's programs could read
-/// the old one and a newer computer must not open to it. A container that
-/// already exists from a previous run of Hotline has a token we no longer know
-/// — it was process state, never a setting — so it is removed and recreated
-/// rather than started with a bearer nobody can present.
+/// The token is generated for each container when it is made, passed in the
+/// runtime CLI's environment, and kept here for its life: a container made
+/// again, for new folders, limits or an update, gets a new one, because an
+/// older computer's programs could read the old one and a newer computer
+/// must not open to it. The desk keeps no copy of its own: a container a
+/// previous run of Hotline left has its token read back from the container's
+/// own settings by `inspect` and is adopted with it ([`Computer::adopt`]),
+/// and its v2 attest key from the OS store ([`secrets::AttestKey`]). Only a
+/// container whose token cannot be read, or one retired because the runtime
+/// would not remove it, is removed and made again rather than started with a
+/// bearer nobody can present.
 #[derive(Clone)]
 pub struct Computer {
     inner: Arc<Mutex<Inner>>,
@@ -257,6 +293,9 @@ pub struct Computer {
     runtimes: Arc<Remembered<Vec<RuntimeReport>>>,
     /// Where published releases are listed; a test points this at its own.
     releases_url: String,
+    /// Where each computer's attest key is kept across a desk restart: the
+    /// OS store the desk was opened with. None keeps it in memory alone.
+    store: Option<Arc<dyn crate::credentials::SecretStore>>,
 }
 
 struct Inner {
@@ -303,6 +342,13 @@ struct Live {
     /// The snapshots its move to split mode left for the person, while
     /// they have not answered.
     migration: Option<crate::contract::ComputerMigration>,
+    /// What it said at the last handing over it holds but cannot keep from
+    /// its programs, while it proved itself protected.
+    readable: Vec<String>,
+    /// The key its boot handed this desk, kept in memory and, with a
+    /// store, in the OS store under the bearer's hash; forgotten with the
+    /// bearer.
+    attest: secrets::AttestKey,
 }
 
 impl Computer {
@@ -331,6 +377,7 @@ impl Computer {
             runtimes: Arc::default(),
             bins: BinSearch::from_env(),
             releases_url: releases::RELEASES_URL.to_string(),
+            store: None,
         }
     }
 
@@ -353,6 +400,7 @@ impl Computer {
             runtimes: Arc::default(),
             bins: BinSearch::only(path),
             releases_url: "http://127.0.0.1:1/releases".to_string(),
+            store: None,
         }
     }
 
@@ -361,6 +409,22 @@ impl Computer {
     pub fn with_releases(mut self, url: &str) -> Self {
         self.releases_url = url.to_string();
         self
+    }
+
+    /// The same desk, keeping each computer's attest key in `store` (see
+    /// [`secrets::AttestKey`]), so a restart does not lose it.
+    pub fn with_store(mut self, store: Arc<dyn crate::credentials::SecretStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// A new attest key for `persona_id`'s computer under `token`: kept in
+    /// the store when this desk has one, in memory alone when not.
+    fn attest_for(&self, persona_id: &str, token: &str) -> secrets::AttestKey {
+        match &self.store {
+            Some(store) => secrets::AttestKey::kept(store.clone(), persona_id, token),
+            None => secrets::AttestKey::default(),
+        }
     }
 
     /// Looks up the newest release when it is due — once at desk start,
@@ -526,11 +590,8 @@ impl Computer {
         let (runtime, cmd) = pick_runtime(prefer, &self.bins).await?;
         let name = container_name(&persona.id);
         let cwd = abs_cwd(workspace_cwd);
-        let known_token = self
-            .lock()
-            .containers
-            .get(&persona.id)
-            .map(|live| live.token.clone());
+        let known = self.lock().containers.get(&persona.id).cloned();
+        let known_token = known.as_ref().map(|live| live.token.clone());
 
         let mut inspection = inspect(&cmd, runtime, &name).await?;
         let known_token = inspection.token.clone().or(known_token);
@@ -569,6 +630,8 @@ impl Computer {
             _ => new_token(),
         };
         let mut made_on = inspection.release.clone();
+        // A container started now is on a boot nobody has asked the key of.
+        let started = !inspection.running;
         if !inspection.exists {
             // A computer made now is made on the newest release, so a desk
             // that has not asked yet asks first. A pinned image never asks.
@@ -593,6 +656,16 @@ impl Computer {
         let mcp_port = inspection.mcp_port.ok_or_else(|| {
             format!("Could not read the computer's published port for {MCP_PORT}/tcp")
         })?;
+        // The attest key goes with the bearer: kept for the container kept,
+        // forgotten, entry and all, for one made again.
+        let attest = match known {
+            Some(live) if live.token == token => live.attest,
+            Some(live) => {
+                live.attest.forget().await;
+                self.attest_for(&persona.id, &token)
+            }
+            None => self.attest_for(&persona.id, &token),
+        };
         self.lock().containers.insert(
             persona.id.clone(),
             Live {
@@ -602,16 +675,29 @@ impl Computer {
                 mcp_port,
                 last_activity_ms: now_ms(),
                 release: None,
-                made_on,
+                made_on: made_on.clone(),
                 protection: None,
                 migration: None,
+                readable: Vec::new(),
+                attest: attest.clone(),
             },
         );
         wait_healthy(mcp_port).await?;
-        Ok(Ready {
+        let ready = Ready {
             url: mcp_url(mcp_port),
             token,
-        })
+            attest,
+            made_to_split: made_to_split(made_on.as_deref()),
+        };
+        // A boot hands its attest key once, to the first bearer holder who
+        // asks: the desk asks before any session is handed the computer. A
+        // computer left running holds on to the boot whose key this desk
+        // kept, so it is not asked again: its door would answer 409. One not
+        // made to split is never believed, so it is not asked at all.
+        if ready.made_to_split && (started || !ready.attest.holds().await) {
+            secrets::take_attest_key(&ready).await;
+        }
+        Ok(ready)
     }
 
     /// The endpoint of a teammate's computer while it is running and this
@@ -626,6 +712,8 @@ impl Computer {
         inspection.running.then(|| Ready {
             url: mcp_url(live.mcp_port),
             token: live.token,
+            attest: live.attest,
+            made_to_split: made_to_split(live.made_on.as_deref()),
         })
     }
 
@@ -655,6 +743,14 @@ impl Computer {
     ) {
         if let Some(live) = self.lock().containers.get_mut(persona_id) {
             live.protection = Some(protection);
+        }
+    }
+
+    /// What a protected computer said at its last handing over it holds but
+    /// cannot keep from its programs; empty for any other.
+    pub fn learned_readable(&self, persona_id: &str, readable: Vec<String>) {
+        if let Some(live) = self.lock().containers.get_mut(persona_id) {
+            live.readable = readable;
         }
     }
 
@@ -712,12 +808,18 @@ impl Computer {
     pub async fn remove(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
         let _turn = self.turn_of(persona_id).lock_owned().await;
         let name = container_name(persona_id);
-        let cmd = self
-            .lock()
-            .containers
-            .remove(persona_id)
-            .map(|live| live.cmd);
-        let cmd = match cmd {
+        let removed = self.lock().containers.remove(persona_id);
+        match &removed {
+            Some(live) => live.attest.forget().await,
+            // One a previous desk left and this one never took in may have
+            // a key kept for it: it goes with the computer all the same.
+            None => {
+                if let Some(store) = &self.store {
+                    let _ = store.delete(&secrets::entry_name(persona_id));
+                }
+            }
+        }
+        let cmd = match removed.map(|live| live.cmd) {
             Some(cmd) => cmd,
             None => match pick_runtime(prefer, &self.bins).await {
                 Ok((_, cmd)) => cmd,
@@ -786,6 +888,7 @@ impl Computer {
                     update_failed: None,
                     limits_changed: false,
                     protection: None,
+                    readable: Vec::new(),
                     migration: None,
                 });
             };
@@ -796,6 +899,7 @@ impl Computer {
             // can say before a grant whether logins go to it readable.
             if status.state != ComputerState::Absent {
                 status.protection = live.protection;
+                status.readable = live.readable;
             }
             if status.state == ComputerState::Running {
                 status.migration = live.migration;
@@ -813,6 +917,7 @@ impl Computer {
                 update_failed: None,
                 limits_changed: false,
                 protection: None,
+                readable: Vec::new(),
                 migration: None,
             });
         };
@@ -826,6 +931,7 @@ impl Computer {
                 update_failed: None,
                 limits_changed: false,
                 protection: None,
+                readable: Vec::new(),
                 migration: None,
             });
         };
@@ -877,6 +983,7 @@ impl Computer {
                 match (seen.exists, seen.token) {
                     (false, _) => false,
                     (true, Some(token)) => {
+                        let attest = self.attest_for(&id, &token);
                         inner.containers.insert(
                             id,
                             Live {
@@ -889,6 +996,8 @@ impl Computer {
                                 release: seen.release,
                                 protection: None,
                                 migration: None,
+                                readable: Vec::new(),
+                                attest,
                             },
                         );
                         false
@@ -942,7 +1051,10 @@ impl Computer {
                     .await
                     .is_ok()
                 {
-                    self.lock().containers.remove(&id);
+                    let removed = self.lock().containers.remove(&id);
+                    if let Some(live) = removed {
+                        live.attest.forget().await;
+                    }
                 }
             } else if idle >= COMPUTER_IDLE_STOP_MS
                 && let Ok(seen) = inspect(&cmd, runtime, &name).await
@@ -1000,6 +1112,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             update_failed: None,
             limits_changed: false,
             protection: None,
+            readable: Vec::new(),
             migration: None,
         };
     }
@@ -1013,6 +1126,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             update_failed: None,
             limits_changed: false,
             protection: None,
+            readable: Vec::new(),
             migration: None,
         };
     }
@@ -1035,6 +1149,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             _ => None,
         },
         protection: None,
+        readable: Vec::new(),
         migration: None,
     }
 }
@@ -1104,6 +1219,11 @@ fn abs_cwd(cwd: &str) -> String {
         |_| cwd.to_string(),
         |path| path.to_string_lossy().into_owned(),
     )
+}
+
+/// Whether a container made on `made_on` was made to split its users.
+fn made_to_split(made_on: Option<&str>) -> bool {
+    made_on.is_some_and(splits_users)
 }
 
 fn new_token() -> String {

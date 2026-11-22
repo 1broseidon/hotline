@@ -165,6 +165,14 @@ pub(crate) mod fake {
         pub(crate) legacy: Arc<std::sync::atomic::AtomicBool>,
         /// It says split, but attests with a key that is not the bearer.
         pub(crate) forged: Arc<std::sync::atomic::AtomicBool>,
+        /// It attests as 0.13.0-rc.3 does (v2): with [`ATTEST_KEY`], which
+        /// `POST /capabilities/key` hands once.
+        pub(crate) v2: Arc<std::sync::atomic::AtomicBool>,
+        /// Whether its key was handed out; a test sets it to say something
+        /// else took it first.
+        pub(crate) key_taken: Arc<std::sync::atomic::AtomicBool>,
+        /// How many times `POST /capabilities/key` was asked, by anyone.
+        pub(crate) key_asked: Arc<std::sync::atomic::AtomicUsize>,
         /// The version of each set handed over, 1 or 2, beside `sets`.
         forms: Arc<Mutex<Vec<u8>>>,
         /// Every `/sessions` call: the method, the name and the body.
@@ -432,9 +440,39 @@ pub(crate) mod fake {
         }
     }
 
+    /// The key a v2 fake's boot makes.
+    pub(crate) const ATTEST_KEY: [u8; 32] = [0x42; 32];
+
+    /// `POST /capabilities/key`: 404 unless the fake attests as v2, then
+    /// its key once and a 409 after.
+    async fn attest_key(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+    ) -> axum::response::Response {
+        use std::sync::atomic::Ordering::SeqCst;
+        if !bearer_present(&headers) {
+            return json_answer(axum::http::StatusCode::UNAUTHORIZED, json!({}));
+        }
+        if !taken.v2.load(SeqCst) {
+            return json_answer(axum::http::StatusCode::NOT_FOUND, json!({}));
+        }
+        taken.key_asked.fetch_add(1, SeqCst);
+        if taken.key_taken.swap(true, SeqCst) {
+            return json_answer(axum::http::StatusCode::CONFLICT, json!({}));
+        }
+        let key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, ATTEST_KEY);
+        json_answer(
+            axum::http::StatusCode::OK,
+            json!({"v": 2, "boot": "fake-boot", "key": key}),
+        )
+    }
+
     /// `GET /capabilities` as a 0.13 computer answers it: split unless
     /// told it booted legacy, with the HMAC of the boot and the nonce under
-    /// the bearer it was asked with, or under another key when forged.
+    /// the bearer it was asked with, or under another key when forged. As
+    /// v2, under [`ATTEST_KEY`] over the mode and the release too, naming
+    /// what of the set it holds it cannot keep from its programs: a login
+    /// for `localhost`, a key used anywhere but GitHub.
     async fn capabilities(
         axum::extract::State(taken): axum::extract::State<Taken>,
         headers: axum::http::HeaderMap,
@@ -474,6 +512,36 @@ pub(crate) mod fake {
         } else {
             "split"
         };
+        if taken.v2.load(SeqCst) {
+            let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&ATTEST_KEY).unwrap();
+            mac.update(
+                format!("hotline-broker-v2|fake-boot|{mode}|0.13.0-rc.3|{nonce}").as_bytes(),
+            );
+            let attest = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                mac.finalize().into_bytes(),
+            );
+            let readable: Vec<String> = taken
+                .sets
+                .lock()
+                .unwrap()
+                .last()
+                .into_iter()
+                .flatten()
+                .filter(|(_, entry)| {
+                    entry["sites"].to_string().contains("localhost")
+                        || entry["use"]["origins"].as_array().is_some_and(|origins| {
+                            !origins.contains(&json!("https://api.github.com"))
+                        })
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
+            return json_answer(
+                axum::http::StatusCode::OK,
+                json!({"version": "0.13.0-rc.3", "boot": "fake-boot", "attest": attest,
+                       "protected": {"v": 2, "mode": mode, "loopback": "readable", "other": "readable", "readable": readable}}),
+            );
+        }
         json_answer(
             axum::http::StatusCode::OK,
             json!({"version": "0.13.0", "boot": "fake-boot", "protected": {"v": 1, "mode": mode}, "attest": attest}),
@@ -1053,6 +1121,7 @@ pub(crate) mod fake {
         if version.is_some_and(has_capabilities) {
             app = app
                 .route("/capabilities", axum::routing::get(capabilities))
+                .route("/capabilities/key", axum::routing::post(attest_key))
                 .route(
                     "/sessions/{name}",
                     axum::routing::put(sessions).delete(sessions),
@@ -1093,10 +1162,7 @@ mod tests {
     #[tokio::test]
     async fn the_guide_is_the_release_the_computer_says_it_is() {
         let port = fake::serve(Some("0.9.1")).await;
-        let ready = Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "fixture-token".into(),
-        };
+        let ready = Ready::new(format!("http://127.0.0.1:{port}/mcp"), "fixture-token");
         let guide = fetch(&ready).await.expect("the fake answers");
         assert_eq!(guide.version, "0.9.1");
         assert_eq!(guide.skill, fake::skill_of("0.9.1"));
@@ -1106,10 +1172,7 @@ mod tests {
     #[tokio::test]
     async fn an_older_image_without_the_action_is_a_sentence_not_a_skill() {
         let port = fake::serve(None).await;
-        let ready = Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "fixture-token".into(),
-        };
+        let ready = Ready::new(format!("http://127.0.0.1:{port}/mcp"), "fixture-token");
         let refused = fetch(&ready).await.unwrap_err();
         assert!(refused.contains("unknown action guide"), "{refused}");
     }

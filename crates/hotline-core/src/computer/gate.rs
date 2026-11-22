@@ -938,10 +938,10 @@ mod tests {
             let _ = axum::serve(listener, router).await;
         });
         (
-            super::super::Ready {
-                url: format!("http://127.0.0.1:{port}/mcp"),
-                token: "real-token".to_string(),
-            },
+            super::super::Ready::new(
+                format!("http://127.0.0.1:{port}/mcp"),
+                "real-token".to_string(),
+            ),
             seen,
         )
     }
@@ -1064,10 +1064,10 @@ mod tests {
         tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
-        let computer = super::super::Ready {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token: "real-token".to_string(),
-        };
+        let computer = super::super::Ready::new(
+            format!("http://127.0.0.1:{port}/mcp"),
+            "real-token".to_string(),
+        );
         let leases = quick();
         let gate = serve(&computer, leases.clone(), "ada", holder("main"), || true)
             .await

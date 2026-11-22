@@ -28,10 +28,11 @@
 //! computer (0.13.0-rc.2 and before) attests with the bearer. A v2 one
 //! attests with a key its door makes at each boot and hands once, to the
 //! first bearer holder who asks at `POST /capabilities/key`: the desk asks
-//! right after it starts the computer and keeps the key beside the bearer
-//! ([`AttestKey`]). A split computer whose boot this desk holds no key for
-//! (the key was taken before the desk asked, or by an earlier run of the
-//! desk) cannot be checked, and is handed what a desk that knew only v1
+//! right after it starts the computer and keeps the key in memory and in
+//! the OS store, bound to the bearer's hash, so a desk restart reads it
+//! back ([`AttestKey`]). A split computer whose boot this desk holds no key
+//! for (the key was taken before the desk asked, or by a desk that did not
+//! keep it) cannot be checked, and is handed what a desk that knew only v1
 //! would hand it: what a legacy computer gets.
 
 use super::Ready;
@@ -64,19 +65,116 @@ fn attest_input_v2(boot: &str, mode: &str, version: &str, nonce: &str) -> String
 }
 
 /// The key a v2 computer attests with, for the boot it was handed on. It
-/// lives beside the bearer, in this process alone: never in the
-/// container's settings, an argument, a file or a log, and sent nowhere —
-/// the desk only computes with it. Every [`Ready`] of one running computer
-/// shares one, and it is forgotten when the computer is removed or made
-/// again; a key for another boot is never used. The lock is held across
-/// taking it, so two askers at once do not both ask and one get the 409.
+/// lives beside nothing of the container's: in this process, and, for a
+/// desk given a store ([`super::Computer::with_store`]), in the OS store
+/// under the teammate's id, bound to a hash of the bearer it was taken
+/// with, so a desk restarted beside a running computer reads it back
+/// rather than asking a door that answers each boot once. Never in the
+/// container's settings, an argument, a file under the data root, a log,
+/// an error or `Debug`, and sent nowhere: the desk only computes with it.
+/// Every [`Ready`] of one running computer shares one, and it is forgotten,
+/// entry and all, when the computer is removed, hibernated or made again;
+/// a key for another boot is never used. The lock is held across taking
+/// it, so two askers at once do not both ask and one get the 409.
 #[derive(Clone, Default)]
-pub struct AttestKey(Arc<tokio::sync::Mutex<Option<BootKey>>>);
+pub struct AttestKey {
+    held: Arc<tokio::sync::Mutex<Held>>,
+    slot: Option<Arc<Slot>>,
+}
+
+#[derive(Default)]
+struct Held {
+    key: Option<BootKey>,
+    /// Whether the store was read, so it is read once, at the first asking.
+    read: bool,
+    /// Forgotten: the computer is gone, and this key never touches its
+    /// teammate's entry again, which may be the next computer's by then.
+    gone: bool,
+}
 
 struct BootKey {
     boot: String,
     key: Vec<u8>,
 }
+
+/// Where a computer's key is kept across a desk restart: one entry per
+/// teammate, and the hash of the bearer the record must carry to be used.
+struct Slot {
+    store: Arc<dyn crate::credentials::SecretStore>,
+    persona_id: String,
+    bearer: String,
+}
+
+/// The entry a teammate's computer's attest key is kept under.
+fn entry_name(persona_id: &str) -> String {
+    format!("computer-attest/{persona_id}")
+}
+
+/// The hex SHA-256 of a bearer: what binds a kept key to one container
+/// without the store holding a second copy of the bearer.
+fn bearer_hash(bearer: &str) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(bearer.as_bytes()))
+}
+
+impl Slot {
+    fn name(&self) -> String {
+        entry_name(&self.persona_id)
+    }
+
+    /// The kept key, if the record is one this desk wrote for this
+    /// bearer: `v` 1, the bearer's hash, a boot, and 32 bytes of key.
+    fn read(&self, bytes: &[u8]) -> Option<BootKey> {
+        let record: Value = serde_json::from_slice(bytes).ok()?;
+        if record["v"] != 1 || record["bearer"].as_str() != Some(self.bearer.as_str()) {
+            return None;
+        }
+        let boot = record["boot"].as_str().filter(|boot| !boot.is_empty())?;
+        let key = record["key"]
+            .as_str()
+            .and_then(|key| base64::engine::general_purpose::STANDARD.decode(key).ok())
+            .filter(|key| key.len() == 32)?;
+        Some(BootKey {
+            boot: boot.to_owned(),
+            key,
+        })
+    }
+
+    /// Writes `taken` over whatever was kept. A store that will not take it
+    /// costs only the next restart: the key stays in memory, and the line
+    /// said names the teammate, never the key.
+    fn keep(&self, taken: &BootKey) {
+        let record = json!({
+            "v": 1,
+            "bearer": self.bearer,
+            "boot": taken.boot,
+            "key": base64::engine::general_purpose::STANDARD.encode(&taken.key),
+        });
+        if let Err(error) = self.store.set(&self.name(), record.to_string().as_bytes()) {
+            say(format!(
+                "The attest key of {}'s computer is held for this run only: the OS store would not keep it ({error}). After the desk restarts, the computer is unprotected until it starts again.",
+                self.persona_id
+            ));
+        }
+    }
+
+    fn delete(&self) {
+        let _ = self.store.delete(&self.name());
+    }
+}
+
+/// One line on the desk's stderr about the kept key. A test reads what was
+/// said, so it can show the key is not in it.
+fn say(line: String) {
+    #[cfg(test)]
+    SAID.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(line.clone());
+    eprintln!("{line}");
+}
+
+#[cfg(test)]
+static SAID: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 impl std::fmt::Debug for AttestKey {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -85,25 +183,96 @@ impl std::fmt::Debug for AttestKey {
 }
 
 impl AttestKey {
-    /// Drops the key, so nothing holding this computer's [`Ready`] keeps it.
-    pub async fn forget(&self) {
-        *self.0.lock().await = None;
+    /// A key for `persona_id`'s computer under `bearer`, kept in `store`
+    /// as well as in memory, and read back from it at the first asking.
+    pub fn kept(
+        store: Arc<dyn crate::credentials::SecretStore>,
+        persona_id: &str,
+        bearer: &str,
+    ) -> Self {
+        Self {
+            held: Arc::default(),
+            slot: Some(Arc::new(Slot {
+                store,
+                persona_id: persona_id.to_owned(),
+                bearer: bearer_hash(bearer),
+            })),
+        }
     }
 
-    /// The key for `boot`: the one held, or this boot's, taken now.
+    /// Drops the key, so nothing holding this computer's [`Ready`] keeps
+    /// it, and deletes the kept entry, so no later desk reads it back.
+    pub async fn forget(&self) {
+        let mut held = self.held.lock().await;
+        held.key = None;
+        if !held.gone
+            && let Some(slot) = &self.slot
+        {
+            slot.delete();
+        }
+        held.gone = true;
+    }
+
+    /// Whether a key is held for some boot, the kept one read first.
+    pub async fn holds(&self) -> bool {
+        let mut held = self.held.lock().await;
+        self.load(&mut held);
+        held.key.is_some()
+    }
+
+    /// The kept key into memory, the first time this computer is asked
+    /// about with nothing there. A record that is not this bearer's, or not
+    /// one this desk wrote, is deleted; a store that will not answer is no
+    /// record.
+    fn load(&self, held: &mut Held) {
+        if held.read || held.gone {
+            return;
+        }
+        held.read = true;
+        let Some(slot) = &self.slot else {
+            return;
+        };
+        if held.key.is_some() {
+            return;
+        }
+        let Ok(Some(bytes)) = slot.store.get(&slot.name()) else {
+            return;
+        };
+        match slot.read(&bytes) {
+            Some(kept) => held.key = Some(kept),
+            None => slot.delete(),
+        }
+    }
+
+    /// `taken` into memory and into the store, replacing what was there.
+    fn replace(&self, held: &mut Held, taken: BootKey) {
+        if !held.gone
+            && let Some(slot) = &self.slot
+        {
+            slot.keep(&taken);
+        }
+        held.key = Some(taken);
+    }
+
+    /// The key for `boot`: the one held (read from the store if nothing is
+    /// in memory yet), or this boot's, taken now. Only a take that succeeds
+    /// changes what is kept: a 409, or no answer, leaves it as it was, so
+    /// nothing that merely answers the port can erase it.
     async fn for_boot(
         &self,
         client: &reqwest::Client,
         ready: &Ready,
         boot: &str,
     ) -> Option<Vec<u8>> {
-        let mut held = self.0.lock().await;
-        if held.as_ref().is_none_or(|held| held.boot != boot)
+        let mut held = self.held.lock().await;
+        self.load(&mut held);
+        if held.key.as_ref().is_none_or(|held| held.boot != boot)
             && let Some(taken) = take(client, ready).await
         {
-            *held = Some(taken);
+            self.replace(&mut held, taken);
         }
-        held.as_ref()
+        held.key
+            .as_ref()
             .filter(|held| held.boot == boot)
             .map(|held| held.key.clone())
     }
@@ -112,14 +281,15 @@ impl AttestKey {
 /// Takes this boot's attest key, once, as soon as the computer answers:
 /// the desk starting it is the first to ask. A release without the door
 /// (before 0.13.0-rc.3), or a boot whose key was taken already, leaves
-/// what is held as it was.
+/// what is held, and kept, as it was.
 pub async fn take_attest_key(ready: &Ready) {
     let Ok(client) = client() else {
         return;
     };
-    let mut held = ready.attest.0.lock().await;
+    let mut held = ready.attest.held.lock().await;
+    ready.attest.load(&mut held);
     if let Some(taken) = take(&client, ready).await {
-        *held = Some(taken);
+        ready.attest.replace(&mut held, taken);
     }
 }
 

@@ -171,6 +171,8 @@ pub(crate) mod fake {
         /// Whether its key was handed out; a test sets it to say something
         /// else took it first.
         pub(crate) key_taken: Arc<std::sync::atomic::AtomicBool>,
+        /// How many times `POST /capabilities/key` was asked, by anyone.
+        pub(crate) key_asked: Arc<std::sync::atomic::AtomicUsize>,
         /// The version of each set handed over, 1 or 2, beside `sets`.
         forms: Arc<Mutex<Vec<u8>>>,
         /// Every `/sessions` call: the method, the name and the body.
@@ -454,6 +456,7 @@ pub(crate) mod fake {
         if !taken.v2.load(SeqCst) {
             return json_answer(axum::http::StatusCode::NOT_FOUND, json!({}));
         }
+        taken.key_asked.fetch_add(1, SeqCst);
         if taken.key_taken.swap(true, SeqCst) {
             return json_answer(axum::http::StatusCode::CONFLICT, json!({}));
         }

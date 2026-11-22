@@ -2357,3 +2357,229 @@ async fn a_sign_in_to_finish_is_one_card_until_the_computer_clears_it() {
         .unwrap();
     assert_eq!(last["status"], "expired");
 }
+
+/// What the room's store keeps of ada's computer's attest key.
+fn kept_attest(store: &crate::credentials::MemoryStore) -> Option<Value> {
+    use crate::credentials::SecretStore;
+    store
+        .get("computer-attest/ada")
+        .unwrap()
+        .map(|bytes| serde_json::from_slice(&bytes).unwrap())
+}
+
+fn bearer_hash(bearer: &str) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(bearer.as_bytes()))
+}
+
+/// Every file under `root`, for a test that looks for what must not be in
+/// any of them.
+fn files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let mut todo = vec![root.to_path_buf()];
+    while let Some(dir) = todo.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => todo.push(path),
+                Ok(kind) if kind.is_file() => found.push(path),
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+/// A v2 computer keeps running across a desk restart, and the key its boot
+/// handed the first desk is read back from the store by the second: it is
+/// handed the v2 set, keys and all, its door is not asked again, nothing
+/// waits, and a value changed after the restart reaches it.
+#[tokio::test]
+async fn a_desk_restart_keeps_a_v2_computer_protected_and_its_key_is_used_without_waiting() {
+    use base64::Engine;
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut fixture = kept_computer_room("restart-v2", Some("0.13.0")).await;
+    let taken = fixture.taken.clone();
+    taken.v2.store(true, SeqCst);
+    grant_a_key_a_variable_and_a_login(&fixture.room);
+    fixture.room.start("ada").await.unwrap();
+    assert_eq!(
+        protection(&fixture.room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+    let bearer = fixture.room.computers.running("ada").await.unwrap().token;
+    let entry = kept_attest(&fixture.store).expect("kept as it was taken");
+    assert_eq!(entry["bearer"], bearer_hash(&bearer));
+    assert_eq!(taken.key_asked.load(SeqCst), 1);
+
+    // The desk restarts: the same data root, store and runtime, the same
+    // container still running with the same bearer, its door now saying
+    // 409 to anyone who asks for the key.
+    fixture.room = reopened(&fixture);
+    let room = fixture.room.clone();
+    room.start("ada").await.unwrap();
+    assert_eq!(
+        room.computers.running("ada").await.unwrap().token,
+        bearer,
+        "the same container"
+    );
+    assert_eq!(taken.forms(), [2, 2], "the v2 form after the restart too");
+    let set = &taken.sets()[1];
+    assert_eq!(set["GITHUB_TOKEN"]["use"]["standIn"]["prefix"], "ghp_");
+    assert_eq!(
+        set["GITHUB_TOKEN"]["value"],
+        "ghp_notarealtoken00000000000000000000001"
+    );
+    let status = room.computer_status("ada").await.unwrap();
+    assert_eq!(
+        status.protection,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+    let said = lock(&room.secret_notices).clone();
+    assert!(
+        !said.iter().any(|text| text.contains("on this desk")),
+        "nothing waits: {said:?}"
+    );
+    assert_eq!(
+        taken.key_asked.load(SeqCst),
+        1,
+        "the key door was asked once across both desks"
+    );
+
+    // A use after the restart runs with nothing waiting: a new value is
+    // handed over at once, as a protected key.
+    let github = crate::vault::resolve_used_with(&crate::contract::UsedWith {
+        service: "github".into(),
+        host: None,
+    })
+    .unwrap();
+    room.vault
+        .as_ref()
+        .unwrap()
+        .set_shared(
+            "GITHUB_TOKEN",
+            crate::vault::StoredSecret::Variable {
+                value: "ghp_notarealtoken00000000000000000000002".into(),
+                r#use: Some(github),
+            },
+        )
+        .unwrap();
+    room.secrets_changed().await;
+    assert_eq!(taken.forms(), [2, 2, 2]);
+    let set = &taken.sets()[2];
+    assert_eq!(
+        set["GITHUB_TOKEN"]["value"],
+        "ghp_notarealtoken00000000000000000000002"
+    );
+    assert!(set["GITHUB_TOKEN"]["use"].is_object());
+    assert_eq!(taken.key_asked.load(SeqCst), 1);
+
+    // The key is in the store alone: no file of the desk's or the
+    // container's settings holds it, in any spelling.
+    let key = crate::computer::guide::fake::ATTEST_KEY;
+    let spellings = [
+        base64::engine::general_purpose::STANDARD.encode(key),
+        hex::encode(key),
+    ];
+    for path in files_under(room.log.root())
+        .into_iter()
+        .chain(files_under(&fixture.root))
+    {
+        let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_lowercase();
+        for spelling in &spellings {
+            assert!(
+                !text.contains(&spelling.to_lowercase()),
+                "{} holds the key",
+                path.display()
+            );
+        }
+    }
+}
+
+/// A computer a desk that knew only v1 left running never had its key
+/// asked for: the desk now running takes it at its first asking, keeps it,
+/// and the computer is protected without starting again.
+#[tokio::test]
+async fn a_computer_left_by_a_desk_that_never_took_its_key_is_protected_at_the_first_asking() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture = kept_computer_room("left-v1-desk", Some("0.13.0")).await;
+    let taken = fixture.taken.clone();
+    taken.v2.store(true, SeqCst);
+    // The container the earlier desk made, running, its bearer in its
+    // settings, its release on its label.
+    let state = fixture.root.join("state");
+    std::fs::write(&state, "running").unwrap();
+    std::fs::write(fixture.root.join("state.token"), "").unwrap();
+    std::fs::write(fixture.root.join("state.release"), "0.13.0").unwrap();
+    assert_eq!(kept_attest(&fixture.store), None);
+    let room = fixture.room.clone();
+    grant_a_key_a_variable_and_a_login(&room);
+    room.computers
+        .adopt(&["ada".to_owned()], None, crate::session::now_ms())
+        .await;
+    room.start("ada").await.unwrap();
+    let commands = runtime_commands(&fixture.root);
+    assert!(
+        !commands
+            .iter()
+            .any(|line| line.starts_with("start ") || line.starts_with("create ")),
+        "not started again: {commands:?}"
+    );
+    assert_eq!(taken.forms(), [2]);
+    assert!(taken.sets()[0]["GITHUB_TOKEN"]["use"].is_object());
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+    let entry = kept_attest(&fixture.store).expect("written as it was taken");
+    assert_eq!(entry["bearer"], bearer_hash("fixture-persisted-token"));
+    assert_eq!(entry["boot"], "fake-boot");
+    assert_eq!(taken.key_asked.load(SeqCst), 1);
+}
+
+/// A computer made again has a bearer of its own, and the key kept for the
+/// one before goes with it: the entry is written again for the new bearer.
+#[tokio::test]
+async fn a_computer_made_again_forgets_the_kept_key() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture = kept_computer_room("made-again-v2", Some("0.13.0")).await;
+    let taken = fixture.taken.clone();
+    taken.v2.store(true, SeqCst);
+    let room = fixture.room.clone();
+    room.start("ada").await.unwrap();
+    let before = room.computers.running("ada").await.unwrap().token;
+    assert_eq!(
+        kept_attest(&fixture.store).unwrap()["bearer"],
+        bearer_hash(&before)
+    );
+    let session = room.session("ada").unwrap();
+    // The container made again boots with a key nobody has taken.
+    taken.key_taken.store(false, SeqCst);
+    room.computer_restart("ada").await.unwrap();
+    let swapped = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let replaced = room
+                .session("ada")
+                .is_ok_and(|now| !Arc::ptr_eq(&now, &session) && now.computer);
+            if replaced && room.info("ada").state == SessionState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        swapped.is_ok(),
+        "the teammate carries on with a new computer"
+    );
+    let after = room.computers.running("ada").await.unwrap().token;
+    assert_ne!(after, before, "made again, with a bearer of its own");
+    let entry = kept_attest(&fixture.store).expect("the new boot's key is kept");
+    assert_eq!(entry["bearer"], bearer_hash(&after));
+    assert_ne!(entry["bearer"], bearer_hash(&before));
+    assert_eq!(taken.key_asked.load(SeqCst), 2);
+
+    // Removed, it is gone from the store.
+    room.computer_remove("ada").await.unwrap();
+    assert_eq!(kept_attest(&fixture.store), None);
+}

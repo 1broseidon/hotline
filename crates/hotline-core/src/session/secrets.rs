@@ -28,7 +28,11 @@ impl Room {
         ready: &crate::computer::Ready,
         automatic: bool,
     ) {
-        let notice = |text: String| eprintln!("{}: {text}", persona.name);
+        let notice = |text: String| {
+            #[cfg(test)]
+            lock(&self.secret_notices).push(text.clone());
+            eprintln!("{}: {text}", persona.name);
+        };
         let grants: Vec<crate::contract::SecretGrant> = persona
             .grants()
             .into_iter()

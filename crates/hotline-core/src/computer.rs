@@ -280,6 +280,9 @@ pub struct Computer {
     runtimes: Arc<Remembered<Vec<RuntimeReport>>>,
     /// Where published releases are listed; a test points this at its own.
     releases_url: String,
+    /// Where each computer's attest key is kept across a desk restart: the
+    /// OS store the desk was opened with. None keeps it in memory alone.
+    store: Option<Arc<dyn crate::credentials::SecretStore>>,
 }
 
 struct Inner {
@@ -329,8 +332,9 @@ struct Live {
     /// What it said at the last handing over it holds but cannot keep from
     /// its programs, while it proved itself protected.
     readable: Vec<String>,
-    /// The key its boot handed this desk, kept beside the bearer and
-    /// forgotten with it.
+    /// The key its boot handed this desk, kept in memory and, with a
+    /// store, in the OS store under the bearer's hash; forgotten with the
+    /// bearer.
     attest: secrets::AttestKey,
 }
 
@@ -360,6 +364,7 @@ impl Computer {
             runtimes: Arc::default(),
             bins: BinSearch::from_env(),
             releases_url: releases::RELEASES_URL.to_string(),
+            store: None,
         }
     }
 
@@ -382,6 +387,7 @@ impl Computer {
             runtimes: Arc::default(),
             bins: BinSearch::only(path),
             releases_url: "http://127.0.0.1:1/releases".to_string(),
+            store: None,
         }
     }
 
@@ -390,6 +396,22 @@ impl Computer {
     pub fn with_releases(mut self, url: &str) -> Self {
         self.releases_url = url.to_string();
         self
+    }
+
+    /// The same desk, keeping each computer's attest key in `store` (see
+    /// [`secrets::AttestKey`]), so a restart does not lose it.
+    pub fn with_store(mut self, store: Arc<dyn crate::credentials::SecretStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// A new attest key for `persona_id`'s computer under `token`: kept in
+    /// the store when this desk has one, in memory alone when not.
+    fn attest_for(&self, persona_id: &str, token: &str) -> secrets::AttestKey {
+        match &self.store {
+            Some(store) => secrets::AttestKey::kept(store.clone(), persona_id, token),
+            None => secrets::AttestKey::default(),
+        }
     }
 
     /// Looks up the newest release when it is due — once at desk start,
@@ -595,6 +617,8 @@ impl Computer {
             _ => new_token(),
         };
         let mut made_on = inspection.release.clone();
+        // A container started now is on a boot nobody has asked the key of.
+        let started = !inspection.running;
         if !inspection.exists {
             // A computer made now is made on the newest release, so a desk
             // that has not asked yet asks first. A pinned image never asks.
@@ -620,14 +644,14 @@ impl Computer {
             format!("Could not read the computer's published port for {MCP_PORT}/tcp")
         })?;
         // The attest key goes with the bearer: kept for the container kept,
-        // forgotten for one made again.
+        // forgotten, entry and all, for one made again.
         let attest = match known {
             Some(live) if live.token == token => live.attest,
             Some(live) => {
                 live.attest.forget().await;
-                secrets::AttestKey::default()
+                self.attest_for(&persona.id, &token)
             }
-            None => secrets::AttestKey::default(),
+            None => self.attest_for(&persona.id, &token),
         };
         self.lock().containers.insert(
             persona.id.clone(),
@@ -652,8 +676,12 @@ impl Computer {
             attest,
         };
         // A boot hands its attest key once, to the first bearer holder who
-        // asks: the desk asks before any session is handed the computer.
-        secrets::take_attest_key(&ready).await;
+        // asks: the desk asks before any session is handed the computer. A
+        // computer left running holds on to the boot whose key this desk
+        // kept, so it is not asked again: its door would answer 409.
+        if started || !ready.attest.holds().await {
+            secrets::take_attest_key(&ready).await;
+        }
         Ok(ready)
     }
 
@@ -932,6 +960,7 @@ impl Computer {
                 match (seen.exists, seen.token) {
                     (false, _) => false,
                     (true, Some(token)) => {
+                        let attest = self.attest_for(&id, &token);
                         inner.containers.insert(
                             id,
                             Live {
@@ -945,7 +974,7 @@ impl Computer {
                                 protection: None,
                                 migration: None,
                                 readable: Vec::new(),
-                                attest: secrets::AttestKey::default(),
+                                attest,
                             },
                         );
                         false

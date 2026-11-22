@@ -692,4 +692,265 @@ async fn the_attest_key_is_never_said_and_goes_with_the_computer() {
     ready.attest.forget().await;
     assert_eq!(door(&ready).await, Ok(Door::Unprotected));
     serving.abort();
+
+    // Kept in a store, it is said no more than in memory: not by the key,
+    // its computer, or a line the desk prints about keeping it.
+    let store = Arc::new(Refusing::default());
+    let (ready, _fake, serving) = computer(true, Is::SplitV2).await;
+    let ready = Ready {
+        attest: AttestKey::kept(store, "said-ada", &ready.token),
+        ..ready
+    };
+    take_attest_key(&ready).await;
+    let handed = deliver(&ready, &the_v2_set()).await.unwrap();
+    assert_eq!(handed.door, Door::Protected);
+    let lines = SAID.lock().unwrap().clone();
+    assert!(lines.iter().any(|line| line.contains("said-ada")));
+    for said in [format!("{ready:?}"), format!("{:?}", ready.attest)]
+        .into_iter()
+        .chain(lines)
+    {
+        assert!(!said.contains(&encoded), "{said}");
+        assert!(!said.contains("90, 90"), "{said}");
+        assert!(!said.to_ascii_lowercase().contains("5a5a"), "{said}");
+    }
+    serving.abort();
+}
+
+/// The entry a kept key is under, as the store holds it.
+fn kept(store: &crate::credentials::MemoryStore, persona_id: &str) -> Option<Value> {
+    use crate::credentials::SecretStore;
+    store
+        .get(&entry_name(persona_id))
+        .unwrap()
+        .map(|bytes| serde_json::from_slice(&bytes).unwrap())
+}
+
+/// `ready` again, as a desk started since sees it: the same computer and
+/// bearer, and a key read from `store`, nothing in memory.
+fn after_restart(
+    ready: &Ready,
+    store: &Arc<crate::credentials::MemoryStore>,
+    persona_id: &str,
+) -> Ready {
+    Ready {
+        attest: AttestKey::kept(store.clone(), persona_id, &ready.token),
+        ..ready.clone()
+    }
+}
+
+/// A v2 stand-in whose `Ready` keeps its key in `store` for `persona_id`.
+async fn kept_computer(
+    store: &Arc<crate::credentials::MemoryStore>,
+    persona_id: &str,
+) -> (Ready, Fake, tokio::task::JoinHandle<()>) {
+    let (ready, fake, serving) = computer(true, Is::SplitV2).await;
+    let ready = Ready {
+        attest: AttestKey::kept(store.clone(), persona_id, &ready.token),
+        ..ready
+    };
+    (ready, fake, serving)
+}
+
+#[tokio::test]
+async fn the_attest_key_is_kept_in_the_os_store_and_a_new_desk_reads_it_back() {
+    let store = Arc::new(crate::credentials::MemoryStore::default());
+    let (ready, fake, serving) = kept_computer(&store, "kept-ada").await;
+    take_attest_key(&ready).await;
+    let entry = kept(&store, "kept-ada").expect("written as it was taken");
+    assert_eq!(entry["v"], 1);
+    assert_eq!(entry["boot"], "boot-1");
+    assert_eq!(entry["bearer"], bearer_hash("the-token"));
+    assert_ne!(
+        entry["bearer"], "the-token",
+        "the bearer's hash, not the bearer"
+    );
+    assert_eq!(
+        entry["key"],
+        base64::engine::general_purpose::STANDARD.encode(BOOT_KEY)
+    );
+
+    // A desk started since holds nothing in memory: it reads the entry,
+    // and the computer proves itself without its door being asked again.
+    let restarted = after_restart(&ready, &store, "kept-ada");
+    let handed = deliver(&restarted, &the_v2_set()).await.unwrap();
+    assert_eq!(handed.door, Door::Protected);
+    assert!(handed.waiting.is_empty(), "{handed:?}");
+    assert_eq!(fake.taken.lock().unwrap()[0].0.as_deref(), Some(V2));
+    let restarted = after_restart(&ready, &store, "kept-ada");
+    assert!(restarted.attest.holds().await, "read from the store");
+    assert_eq!(door(&restarted).await, Ok(Door::Protected));
+    assert_eq!(fake.asked.load(Ordering::SeqCst), 1, "asked once in all");
+    serving.abort();
+}
+
+#[tokio::test]
+async fn a_kept_key_is_used_only_under_the_bearer_it_was_taken_with() {
+    let store = Arc::new(crate::credentials::MemoryStore::default());
+    let (ready, fake, serving) = kept_computer(&store, "bearer-ada").await;
+    take_attest_key(&ready).await;
+    assert!(kept(&store, "bearer-ada").is_some());
+
+    // The container was made again: another bearer, and the entry of the
+    // one before. It is not this computer's key.
+    let another = Ready {
+        attest: AttestKey::kept(store.clone(), "bearer-ada", "another-bearer"),
+        ..ready.clone()
+    };
+    assert!(!another.attest.holds().await, "not used");
+    assert_eq!(kept(&store, "bearer-ada"), None, "and deleted when met");
+    assert_eq!(
+        door(&another).await,
+        Ok(Door::Unprotected),
+        "no key for this boot"
+    );
+    assert_eq!(fake.asked.load(Ordering::SeqCst), 2);
+
+    // Nor is a record this desk did not write, or one with a key of
+    // another length: each is deleted.
+    use crate::credentials::SecretStore;
+    for record in [
+        json!({"v": 2, "bearer": bearer_hash("the-token"), "boot": "boot-1",
+               "key": base64::engine::general_purpose::STANDARD.encode(BOOT_KEY)}),
+        json!({"v": 1, "bearer": bearer_hash("the-token"), "boot": "boot-1",
+               "key": base64::engine::general_purpose::STANDARD.encode([0x5a; 16])}),
+        json!("not a record"),
+    ] {
+        store
+            .set(&entry_name("bearer-ada"), record.to_string().as_bytes())
+            .unwrap();
+        let reread = after_restart(&ready, &store, "bearer-ada");
+        assert!(!reread.attest.holds().await, "{record}");
+        assert_eq!(kept(&store, "bearer-ada"), None, "{record}");
+    }
+    serving.abort();
+}
+
+#[tokio::test]
+async fn a_new_boots_key_replaces_the_kept_one_and_a_boot_whose_key_is_gone_leaves_it() {
+    let store = Arc::new(crate::credentials::MemoryStore::default());
+    let (ready, fake, serving) = kept_computer(&store, "reboot-ada").await;
+    take_attest_key(&ready).await;
+    assert_eq!(kept(&store, "reboot-ada").unwrap()["boot"], "boot-1");
+
+    // It booted again: the desk asks once for the new boot, and keeps it.
+    fake.reboot("boot-2", [0x77; 32]);
+    assert_eq!(door(&ready).await, Ok(Door::Protected));
+    let entry = kept(&store, "reboot-ada").unwrap();
+    assert_eq!(entry["boot"], "boot-2");
+    assert_eq!(
+        entry["key"],
+        base64::engine::general_purpose::STANDARD.encode([0x77; 32])
+    );
+
+    // It booted again and something else took that boot's key: this
+    // asking is unprotected, and the entry stays as it was, so nothing that
+    // merely answers the port erases it.
+    fake.reboot("boot-3", [0x78; 32]);
+    fake.taken_by_another();
+    assert_eq!(door(&ready).await, Ok(Door::Unprotected));
+    assert_eq!(kept(&store, "reboot-ada"), Some(entry.clone()));
+    let restarted = after_restart(&ready, &store, "reboot-ada");
+    assert_eq!(door(&restarted).await, Ok(Door::Unprotected));
+    assert_eq!(kept(&store, "reboot-ada"), Some(entry));
+    serving.abort();
+}
+
+#[tokio::test]
+async fn a_proof_that_fails_under_a_kept_key_gets_nothing_and_keeps_the_key() {
+    for spoil in [Spoil::WrongKey, Spoil::Mode, Spoil::Version, Spoil::Replay] {
+        let store = Arc::new(crate::credentials::MemoryStore::default());
+        let (ready, fake, serving) = kept_computer(&store, "spoil-ada").await;
+        take_attest_key(&ready).await;
+        let entry = kept(&store, "spoil-ada").unwrap();
+
+        let restarted = after_restart(&ready, &store, "spoil-ada");
+        *fake.spoil.lock().unwrap() = spoil;
+        let handed = deliver(&restarted, &the_v2_set()).await.unwrap();
+        assert_eq!(handed.door, Door::Unproven);
+        assert!(fake.taken.lock().unwrap().is_empty(), "not even a variable");
+        assert_eq!(kept(&store, "spoil-ada"), Some(entry), "the key is kept");
+
+        // The real computer proves itself at the next asking.
+        *fake.spoil.lock().unwrap() = Spoil::None;
+        let handed = deliver(&restarted, &the_v2_set()).await.unwrap();
+        assert_eq!(handed.door, Door::Protected);
+        assert_eq!(fake.asked.load(Ordering::SeqCst), 1, "never asked again");
+        serving.abort();
+    }
+}
+
+#[tokio::test]
+async fn forgetting_the_key_removes_it_from_the_store() {
+    let store = Arc::new(crate::credentials::MemoryStore::default());
+    let (ready, fake, serving) = kept_computer(&store, "forget-ada").await;
+    take_attest_key(&ready).await;
+    assert!(kept(&store, "forget-ada").is_some());
+    ready.attest.forget().await;
+    assert_eq!(kept(&store, "forget-ada"), None);
+    let restarted = after_restart(&ready, &store, "forget-ada");
+    assert!(!restarted.attest.holds().await);
+
+    // A forgotten key never writes its teammate's entry again, which may
+    // be the next computer's by then.
+    fake.reboot("boot-2", [0x77; 32]);
+    assert_eq!(door(&ready).await, Ok(Door::Protected), "held in memory");
+    assert_eq!(kept(&store, "forget-ada"), None);
+    serving.abort();
+}
+
+/// A store whose writes fail, as a locked keychain's do.
+#[derive(Default)]
+struct Refusing(crate::credentials::MemoryStore);
+
+impl crate::credentials::SecretStore for Refusing {
+    fn get(&self, key: &str) -> std::io::Result<Option<Vec<u8>>> {
+        self.0.get(key)
+    }
+    fn set(&self, _: &str, _: &[u8]) -> std::io::Result<()> {
+        Err(std::io::Error::other("the keychain is locked"))
+    }
+    fn delete(&self, key: &str) -> std::io::Result<()> {
+        self.0.delete(key)
+    }
+}
+
+#[tokio::test]
+async fn a_store_that_fails_costs_only_the_next_restart() {
+    use crate::credentials::SecretStore;
+    let store = Arc::new(Refusing::default());
+    let (ready, fake, serving) = computer(true, Is::SplitV2).await;
+    let ready = Ready {
+        attest: AttestKey::kept(store.clone(), "locked-ada", &ready.token),
+        ..ready
+    };
+    take_attest_key(&ready).await;
+    let handed = deliver(&ready, &the_v2_set()).await.unwrap();
+    assert_eq!(handed.door, Door::Protected, "protected now");
+    assert_eq!(fake.asked.load(Ordering::SeqCst), 1);
+    assert_eq!(store.get(&entry_name("locked-ada")).unwrap(), None);
+    let said: Vec<String> = SAID
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|line| line.contains("locked-ada"))
+        .cloned()
+        .collect();
+    assert_eq!(said.len(), 1, "one line, naming the teammate: {said:?}");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(BOOT_KEY);
+    assert!(!said[0].contains(&encoded), "{}", said[0]);
+    assert!(
+        !said[0].to_ascii_lowercase().contains("5a5a"),
+        "{}",
+        said[0]
+    );
+    assert!(said[0].contains("the keychain is locked"), "{}", said[0]);
+
+    // After a restart there is nothing to read back: today's behaviour.
+    let restarted = Ready {
+        attest: AttestKey::kept(store.clone(), "locked-ada", &ready.token),
+        ..ready.clone()
+    };
+    assert_eq!(door(&restarted).await, Ok(Door::Unprotected));
+    serving.abort();
 }

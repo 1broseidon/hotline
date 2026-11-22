@@ -287,7 +287,7 @@ impl Desk {
         if let Err(error) = crate::session::avatar::give_faces_their_poses(&log) {
             eprintln!("Faces were not given their poses: {error}");
         }
-        let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
+        let vault = Arc::new(Vault::open_with_store(root, log.clone(), store.clone())?);
         // One budget for the desk: voice, the call assistant and teammates'
         // turns all reserve through it, so none can spend what another did.
         let budget = Arc::new(crate::voice::metering::Budget::open(log.clone()));
@@ -296,7 +296,7 @@ impl Desk {
             log: log.clone(),
             budget: budget.clone(),
         });
-        let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_bounds);
+        let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), store, acp_bounds);
         let mcp_oauth = Arc::new(McpOAuth::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {

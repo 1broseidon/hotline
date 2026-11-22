@@ -48,14 +48,18 @@ the chosen image, the teammate's pane offers the update.
   `hotline-broker-v1|<boot>|<N>`. v2 (0.13.0-rc.3 on): each boot makes a
   32-byte key and hands it once, `POST /capabilities/key` →
   `{v: 2, boot, key}`, then 409; the desk takes it as soon as a computer it
-  started answers, keeps it beside the bearer in its own memory, never
-  sends or logs it, and forgets it with the computer; `attest` is base64
+  started answers and keeps it beside nothing of the container's: in its
+  own memory and in the OS store, under `computer-attest/<teammate id>`
+  with the boot and the SHA-256 of the bearer it was taken with, so a desk
+  restart reads it back and a container made again (a new bearer) never
+  uses it. It is never sent or logged, and the entry is deleted when the
+  computer is removed, hibernated or made again; `attest` is base64
   HMAC-SHA256 under that key of
   `hotline-broker-v2|<boot>|<mode>|<version>|<N>`. `mode: "split"` with an
   `attest` that checks is a protected computer; a 404 (a release before
   0.13), `mode: "legacy"`, a version the desk does not know, or a v2 boot
   whose key the desk does not hold (taken first by something else, or by
-  the desk before it restarted) is not, and is handed what a legacy
+  a desk that did not keep it) is not, and is handed what a legacy
   computer is; `split` with any other `attest` (none, one for another
   nonce, boot, mode or release, one another key made) is handed nothing at
   all, and the pane treats it as needing an update. The checks are

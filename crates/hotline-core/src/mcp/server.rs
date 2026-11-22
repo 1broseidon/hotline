@@ -795,7 +795,7 @@ fn descriptors() -> Vec<Tool> {
                     },
                     "title": { "type": "string", "minLength": 1, "maxLength": crate::session::inbox::TITLE_CHARS, "description": "For a hand-off, a short line saying what it is: all they see before they read it. Leave it out for a quick line, whose first line is its title." },
                     "message": { "type": "string", "maxLength": crate::session::TEAMMATE_MESSAGE_MAX },
-                    "wants": { "type": "string", "enum": ["answer", "work", "nothing"], "default": "answer" },
+                    "wants": { "type": "string", "enum": ["answer", "work", "nothing"], "description": "Leave it out on an answer, which wants nothing back. Left out otherwise, it is answer." },
                     "waiting": { "type": "boolean", "default": false, "description": "True only when you have stopped and will not go on until this is answered." },
                     "about": { "type": "string", "description": "One of their threads as kind:key, when it is about work there: it is heard in that thread while the thread is live." },
                     "reply_to": { "type": "string", "description": "The id of an item in your inbox that this answers, or of one you sent or were sent that this follows up on." },

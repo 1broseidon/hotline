@@ -108,6 +108,58 @@ async fn an_answer_that_finishes_the_persons_ask_wakes_a_turn_they_read_told_to_
     assert!(room.finished_asks("ada").is_empty(), "told once");
 }
 
+/// Mack and Nina on Claude Code with Haiku, 2026-11-21: the person asked Mack,
+/// Mack asked Nina, and Nina answered "6" with `send`, `reply_to` and, as
+/// Haiku does every time, `wants: answer`. Mack's turn the person read told
+/// them; the answer, shown whole there, was left seen, so Mack was woken
+/// again in a quiet turn to sort it, whose line invites telling the person
+/// a second time. The answer to the teammate's own question is done with
+/// once the turn that told it has run: nothing wakes the teammate again.
+#[tokio::test]
+async fn an_answer_shown_in_the_turn_that_tells_the_person_is_not_offered_again() {
+    let (room, agents) = room("asked-answer-once");
+    at_rest(&room, "ada").await;
+    let asked = ask(&room, &["bob"], "What is 3 plus 3?").await;
+    let answered = crate::session::tests::send_past_card(
+        &room,
+        "bob",
+        json!({"to": ["ada"], "message": "6", "reply_to": asked[0], "wants": "answer"}),
+    )
+    .await
+    .unwrap();
+    let reply = answered["sent"][0]["id"].as_str().unwrap().to_string();
+    until("Ada's turn the person reads ended", || {
+        idle(&room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
+    })
+    .await;
+    let told = adas_wakes(&agents);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(
+        told[0].contains("Finished:") && told[0].contains("message: \"6\""),
+        "{}",
+        told[0]
+    );
+    until("the answer is noted", || {
+        item(&room, "ada", &reply).state == InboxState::Closed
+    })
+    .await;
+    assert_eq!(
+        item(&room, "ada", &reply).outcome,
+        Some(InboxOutcome::Noted)
+    );
+    // The idle pick-up has nothing to offer: no quiet turn follows.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert!(
+        agents
+            .told()
+            .iter()
+            .all(|line| !line.contains("read, not sorted")),
+        "{:?}",
+        agents.told()
+    );
+    assert_eq!(adas_wakes(&agents).len(), 1);
+}
+
 /// A send to several is finished when the last of its items closes: Bob's
 /// answer alone is progress, heard in a quiet turn, whose line says the
 /// result is told in a turn the person reads once it is all in.

@@ -146,15 +146,19 @@ impl Room {
                 ));
         if ran {
             for id in offered {
+                let shown = inline == Some(id.as_str());
+                let answer = shown && self.answers_own_ask(receiver, id);
                 self.change_item(receiver, id, |item| {
                     let changed = item.offer_again.take().is_some();
-                    if inline != Some(id.as_str()) || item.state != InboxState::New {
+                    if !shown || item.state != InboxState::New {
                         return changed;
                     }
-                    // Shown whole and asking nothing back, it was told no
-                    // sorting is needed: it is done with, not left to be
-                    // offered again as unsorted.
-                    if item.wants == InboxWants::Nothing {
+                    // Shown whole, an item asking nothing back was told no
+                    // sorting is needed, and an answer to the teammate's own
+                    // question was what that turn told: either is done with,
+                    // not left to be offered again in a quiet turn, whose
+                    // line would invite telling the person a second time.
+                    if item.wants == InboxWants::Nothing || answer {
                         moved(
                             item,
                             InboxState::Closed,
@@ -195,6 +199,18 @@ impl Room {
             self.defer_inbox_wake(receiver, id, cause.as_ref());
         }
         true
+    }
+
+    /// Whether `id` in `receiver`'s inbox answers a question `receiver`
+    /// asked, now closed: the reply its ask was waiting for.
+    fn answers_own_ask(&self, receiver: &str, id: &str) -> bool {
+        let Ok(item) = self.item_of(receiver, id) else {
+            return false;
+        };
+        item.reply_to.as_deref().is_some_and(|asked| {
+            self.item_of(&item.from, asked)
+                .is_ok_and(|asked| asked.from == receiver && asked.state == InboxState::Closed)
+        })
     }
 
     /// Only the ordinary clock re-arms a failed wake, never the end of the

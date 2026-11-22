@@ -3,8 +3,8 @@
 
 use super::{Room, clock, kept, moved, now_ms};
 use crate::contract::{
-    InboxItem, InboxOutcome, InboxState, InboxWakeFailure, InboxWakeFailureState as State,
-    InboxWants, ThreadKind,
+    InboxItem, InboxNotice, InboxOutcome, InboxState, InboxWakeFailure,
+    InboxWakeFailureState as State, InboxWants, ThreadKind,
 };
 use crate::session::{exchanges::Cut, runner::Driven};
 use serde_json::Value;
@@ -156,6 +156,22 @@ impl Room {
                 let answer = shown && self.answers_own_ask(receiver, id);
                 self.change_item(receiver, id, |item| {
                     let changed = item.offer_again.take().is_some();
+                    // Hotline's word that a wake failed asks nothing of its
+                    // sender, whose turn was told so: once a turn has had it,
+                    // it is not offered again for a quiet turn to sort.
+                    if clean
+                        && item.notice == Some(InboxNotice::WakeFailed)
+                        && item.state != InboxState::Closed
+                    {
+                        moved(
+                            item,
+                            InboxState::Closed,
+                            None,
+                            Some(InboxOutcome::Noted),
+                            None,
+                        );
+                        return true;
+                    }
                     if !shown || item.state != InboxState::New {
                         return changed;
                     }

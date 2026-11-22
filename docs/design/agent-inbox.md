@@ -278,7 +278,10 @@ are on disk, and what came back meanwhile wakes it as the desk opens.
   can still pick it up sooner. Hotline sends the original sender one
   `wakeFailed` notice per item and failure state, in the asking thread while
   it is live; the notice neither answers the item nor counts on the brake.
-  For an item sent for the person, a separate short notice appears in chat.
+  It asks nothing of its sender: once a turn that had it ends cleanly, it
+  closes as noted (`settle_inbox_offer`), so no quiet turn is woken only to
+  sort it. For an item sent for the person, a separate short notice appears
+  in chat.
   The wire's `wakeFailure.state` is one of:
   - `outOfQuota`: the driver reported a quota or rate limit, including a
     refusal with the harness's known quota announcement, whether streamed

@@ -361,3 +361,57 @@ async fn a_cold_start_failure_retries_only_when_due_and_posts_the_persons_notice
         .unwrap();
     assert_eq!(item(&room, "bob", &id).state, InboxState::Seen);
 }
+
+/// 2026-11-21 QA, Ada and an out-of-quota Quinn: the failed-wake notice
+/// woke Ada for a turn told there was nothing to answer, and then a quiet
+/// pick-up turn only to close it. A turn that has had the notice and ended
+/// cleanly is done with it: it closes as noted, and nothing wakes the
+/// sender again for it.
+#[tokio::test(start_paused = true)]
+async fn a_failed_wake_notice_is_closed_once_a_turn_has_had_it() {
+    let script = Scripted::turns(vec![
+        quota_refusal(MessageKind::Agent),
+        vec![Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        }],
+    ]);
+    let (room, agents) = room_on("inbox-wake-notice-closed", script);
+    let bob = at_rest(&room, "bob").await;
+    let sent = {
+        let _turn = room.open_posting(&ThreadId::dm("ada"), None);
+        tool(
+            &room,
+            "ada",
+            "send",
+            json!({"to": ["bob"], "message": "Which runner?"}),
+        )
+        .await
+        .unwrap()
+    };
+    let id = sent["sent"][0]["id"].as_str().unwrap();
+    until("Bob's wake failed", || {
+        items(&room, "ada")
+            .iter()
+            .any(|item| item.notice == Some(InboxNotice::WakeFailed))
+    })
+    .await;
+    idle(&bob).await;
+    let notice = wake_notice(&room, id, InboxWakeFailureState::OutOfQuota);
+    until("Ada's turn has had the notice", || {
+        item(&room, "ada", &notice.id).state == InboxState::Closed
+    })
+    .await;
+    assert_eq!(
+        item(&room, "ada", &notice.id).outcome,
+        Some(InboxOutcome::Noted)
+    );
+    let turns = agents.prompts().len();
+    assert_eq!(turns, 2, "Bob's failed wake and Ada's one turn");
+    sleep(heard::gather_delay() * 5).await;
+    room.inbox_due(now_ms()).await;
+    sleep(heard::gather_delay() * 5).await;
+    assert_eq!(agents.prompts().len(), turns, "no quiet turn to sort it");
+    // Bob's item still waits, unread, for its retry.
+    deferred(&room, id);
+}

@@ -36,7 +36,7 @@ use crate::log::StreamId;
 use crate::paths::thread_key;
 use crate::store::inbox as kept;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{fmt::Write, sync::Arc};
 
 mod asked;
 mod clock;
@@ -517,8 +517,25 @@ impl Room {
             .await;
         let on_call =
             call.is_some() || self.sent_from(&caller.id, sent_from).kind == ThreadKind::Call;
-        let (delivery, note) =
+        let (delivery, mut note) =
             held::result_words(&targets, &mut sent, &landed, for_person, on_call);
+        // A reply to work a colleague asked of this teammate is a question
+        // about it: the item stays open, and its sender hears it is finished
+        // only when it closes. Said here, where a result sent this way is
+        // still in hand.
+        if let Some(asked) = replied.as_ref().filter(|asked| {
+            !answering
+                && asked.to == caller.id
+                && asked.wants == InboxWants::Work
+                && asked.state != InboxState::Closed
+        }) {
+            let _ = write!(
+                note,
+                " {} ({}) wants work and is still open: this reached them as a question about it. If it was your result, give it as the item's `answer` in `update_inbox`, which closes it.",
+                self.sender_of(asked),
+                short(&asked.id)
+            );
+        }
         Ok(json!({ "sent": sent, "delivery": delivery, "note": note }).to_string())
     }
 

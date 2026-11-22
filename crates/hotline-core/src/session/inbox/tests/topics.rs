@@ -268,6 +268,70 @@ async fn a_reply_sent_with_reply_to_closes_the_question_as_answered() {
     assert_ne!(item(&room, "bob", &work).state, InboxState::Closed);
 }
 
+/// Bea on Claude Code, 2026-11-21 QA: woken by Ada's "Count words in
+/// otters.txt" (wants work), she did it in the turn and sent the count with
+/// `send` and `reply_to`. That is a question about the work, so the item
+/// stayed open, Ada heard the count as a stray quiet message, and the person
+/// heard it only after Bea was offered the item again and closed it. The
+/// send says, while the result is in hand, that the item is still open and
+/// how to close it with the result; `update_inbox`'s `answer` then closes it
+/// as answered.
+#[tokio::test]
+async fn a_reply_to_open_work_says_it_left_the_item_open_and_how_to_close_it() {
+    let (room, _) = room("topic-work-reply");
+    let work = send(
+        &room,
+        "ada",
+        "bob",
+        "Count words in otters.txt",
+        json!({"wants": "work"}),
+    )
+    .await;
+    let replied = tool(
+        &room,
+        "bob",
+        "send",
+        json!({"to": ["ada"], "message": "otters.txt has 42 words.", "reply_to": short(&work), "wants": "answer"}),
+    )
+    .await
+    .unwrap();
+    let note = replied["note"].as_str().unwrap();
+    assert!(
+        note.ends_with(&format!(
+            " Ada ({}) wants work and is still open: this reached them as a question about it. If it was your result, give it as the item's `answer` in `update_inbox`, which closes it.",
+            short(&work)
+        )),
+        "{note}"
+    );
+    assert_ne!(item(&room, "bob", &work).state, InboxState::Closed);
+    tool(
+        &room,
+        "bob",
+        "update_inbox",
+        json!({"items": [{"id": short(&work), "answer": "otters.txt has 42 words."}]}),
+    )
+    .await
+    .unwrap();
+    let closed = item(&room, "bob", &work);
+    assert_eq!(closed.state, InboxState::Closed);
+    assert_eq!(closed.outcome, Some(InboxOutcome::Answered));
+
+    // A question answered by `send` says nothing of the kind.
+    let asked = send(&room, "ada", "bob", "What was the score?", json!({})).await;
+    let answered = tool(
+        &room,
+        "bob",
+        "send",
+        json!({"to": ["ada"], "message": "Devils 7–4.", "reply_to": short(&asked)}),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !answered["note"].as_str().unwrap().contains("wants work"),
+        "{answered}"
+    );
+}
+
 /// A teammate can follow up on its own send that nobody has answered: the
 /// follow-up names it and is in its topic, and the first stays open.
 #[tokio::test]

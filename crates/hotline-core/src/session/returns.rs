@@ -41,13 +41,21 @@ pub(crate) fn opening(starter: Starter<'_>, owner: &WorkFor) -> String {
         ),
         WorkFor::Colleague { name, item } => {
             let item = super::inbox::short(item);
-            let post = if matches!(starter, Starter::Quick) {
-                " Nothing goes to the person's chat."
+            // A quick line is answered with one `send`, as the index says
+            // under it. Anything else is answered by `update_inbox`, which
+            // closes the item: a `send` replying to work is a question about
+            // it and leaves it open, so the asker would hear the result as a
+            // stray message and again when the item closed.
+            let (answer, post) = if matches!(starter, Starter::Quick) {
+                ("answer the item", " Nothing goes to the person's chat.")
             } else {
-                " Post to the person only for a decision that is theirs or a problem only they can fix."
+                (
+                    "when it is done, give it as the item's `answer` in `update_inbox`, which closes it",
+                    " Post to the person only for a decision that is theirs or a problem only they can fix.",
+                )
             };
             format!(
-                "Hotline: {start}. This work is for {name} (item {item}), not the person. Your result goes to {name}: answer the item.{post}"
+                "Hotline: {start}. This work is for {name} (item {item}), not the person. Your result goes to {name}: {answer}.{post}"
             )
         }
     }

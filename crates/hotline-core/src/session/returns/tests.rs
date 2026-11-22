@@ -27,7 +27,7 @@ fn each_row_has_one_opening_line() {
         (
             Starter::Helpers,
             &colleague,
-            "Hotline: your helpers came back. This work is for Pork Chop (item 6d1b005a), not the person. Your result goes to Pork Chop: answer the item. Post to the person only for a decision that is theirs or a problem only they can fix.",
+            "Hotline: your helpers came back. This work is for Pork Chop (item 6d1b005a), not the person. Your result goes to Pork Chop: when it is done, give it as the item's `answer` in `update_inbox`, which closes it. Post to the person only for a decision that is theirs or a problem only they can fix.",
         ),
         (
             Starter::Job {

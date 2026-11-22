@@ -611,18 +611,18 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             ASK_QUESTION,
-            "Ask the person a yes/no question, including whether to go ahead with your plan ('Should I add priorities to these two tasks?'). This is the card to use when the person asks for a yes/no or approval card. It may be answered by voice on the person's call. Use request_human instead for credentials, 2FA, a screen, a payment or a deletion: those wait for the desk. The question becomes a card; its answer arrives later in this thread. Do not poll.",
+            "Ask the person a yes/no question, including whether to go ahead with your plan ('Should I add priorities to these two tasks?'). This is the card to use when the person asks for a yes/no or approval card. It may be answered by voice on the person's call. Use request_credential instead for a login or passkey, and request_human for 2FA, a screen, a payment or a deletion: those wait for the desk. The question becomes a card; its answer arrives later in this thread. Do not poll.",
             schema(
                 json!({"type":"object", "properties": {"question": {"type":"string", "minLength":3, "maxLength":500}}, "required":["question"], "additionalProperties":false}),
             ),
         ),
         Tool::new(
             WITHDRAW_REQUEST,
-            "Take back a request_human card of yours that you no longer need: the work moved on, you found another way, or the flow it asked about is gone. The card is taken down, the person is no longer shown it as waiting, and nothing comes back to you. Pass the id request_human returned. Withdraw a request as soon as you stop needing it rather than leaving it for the person.",
+            "Take back a request_human, request_credential or ask_cookies card of yours that you no longer need: the work moved on, you found another way, or the flow it asked about is gone. The card is taken down, the person is no longer shown it as waiting, and nothing comes back to you. Pass the id the request tool returned. Withdraw a request as soon as you stop needing it rather than leaving it for the person.",
             schema(json!({
                 "type": "object",
                 "properties": {
-                    "id": { "type": "string", "description": "The id request_human returned." },
+                    "id": { "type": "string", "description": "The id request_human, request_credential or ask_cookies returned." },
                 },
                 "required": ["id"],
                 "additionalProperties": false,

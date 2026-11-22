@@ -358,7 +358,10 @@ async fn computer(with_route: bool, is: Is) -> (Ready, Fake, tokio::task::JoinHa
     let serving = tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
-    let ready = Ready::new(format!("http://127.0.0.1:{port}/mcp"), "the-token");
+    let ready = Ready {
+        made_to_split: true,
+        ..Ready::new(format!("http://127.0.0.1:{port}/mcp"), "the-token")
+    };
     (ready, fake, serving)
 }
 
@@ -953,4 +956,44 @@ async fn a_store_that_fails_costs_only_the_next_restart() {
     };
     assert_eq!(door(&restarted).await, Ok(Door::Unprotected));
     serving.abort();
+}
+
+#[tokio::test]
+async fn a_split_claim_from_a_computer_not_made_to_split_gets_nothing() {
+    for is in [Is::Split, Is::SplitV2] {
+        let (ready, fake, serving) = computer(true, is).await;
+        let ready = Ready {
+            made_to_split: false,
+            ..ready
+        };
+        assert_eq!(door(&ready).await, Ok(Door::Unproven));
+        let handed = deliver(&ready, &the_v2_set()).await.unwrap();
+        assert_eq!(handed.door, Door::Unproven);
+        assert_eq!(
+            handed.waiting,
+            ["GITHUB", "GITHUB_TOKEN", "LOCAL", "LOCAL_KEY", "NPM_TOKEN"]
+        );
+        assert!(fake.taken.lock().unwrap().is_empty(), "not even a variable");
+        assert_eq!(
+            fake.asked.load(Ordering::SeqCst),
+            0,
+            "the key door never asked"
+        );
+        assert!(
+            !fake.claimed.load(Ordering::SeqCst),
+            "and its key not taken"
+        );
+        serving.abort();
+    }
+
+    // An honest one says legacy, or has no such door: unaffected.
+    for is in [Is::Old, Is::Legacy] {
+        let (ready, _fake, serving) = computer(true, is).await;
+        let ready = Ready {
+            made_to_split: false,
+            ..ready
+        };
+        assert_eq!(door(&ready).await, Ok(Door::Unprotected));
+        serving.abort();
+    }
 }

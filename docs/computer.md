@@ -62,7 +62,11 @@ the chosen image, the teammate's pane offers the update.
   a desk that did not keep it) is not, and is handed what a legacy
   computer is; `split` with any other `attest` (none, one for another
   nonce, boot, mode or release, one another key made) is handed nothing at
-  all, and the pane treats it as needing an update. The checks are
+  all, and the pane treats it as needing an update. So is `split`, v1 or
+  v2, from a container the desk did not make to split (its
+  `hotline.release` label is before 0.13 or not a release number), before
+  any key is asked for: there everything runs as one user, and a job could
+  answer the port. The checks are
   `computer/secrets.rs` `verify_attest_v1` and `verify_attest_v2`, the
   MAC's inputs `attest_input_v1` and `attest_input_v2`; the set goes only
   after the proof verified, on the same client. A v2 computer's

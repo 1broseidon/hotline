@@ -15,11 +15,11 @@ use crate::contract::{
     ComputerCapacity, ComputerReleases, ComputerState, ComputerStatus, Persona, RuntimeReport,
 };
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
-pub(crate) use container::folder_mounts;
 use container::{
     create, create_args, folder_mount_args, image_present, inspect, inspect_within, is_not_found,
     limits_of, pick_runtime, pull, run, wait_healthy,
 };
+pub(crate) use container::{folder_mounts, splits_users};
 pub(crate) use hotline_room::computer::HOME_MOUNT;
 use runtime::{BinSearch, Runtime};
 use serde_json::Value;
@@ -116,20 +116,28 @@ pub enum PullOutcome {
 /// A computer is its address and its bearer; `attest` is the key its boot
 /// handed this desk, shared by every `Ready` of it (see
 /// [`secrets::AttestKey`]), and not part of which computer it is.
+/// `made_to_split` is whether this desk made the container to split its
+/// users (a release from 0.13, see [`splits_users`]), read from
+/// the runtime's label, which nothing inside the container can change: only
+/// such a computer can be believed when it says it keeps secrets from its
+/// jobs.
 #[derive(Clone, Debug)]
 pub struct Ready {
     pub url: String,
     pub token: String,
     pub attest: secrets::AttestKey,
+    pub made_to_split: bool,
 }
 
 impl Ready {
-    /// A computer at `url` with `token`, holding no attest key yet.
+    /// A computer at `url` with `token`, holding no attest key yet, and not
+    /// made to split.
     pub fn new(url: impl Into<String>, token: impl Into<String>) -> Self {
         Self {
             url: url.into(),
             token: token.into(),
             attest: secrets::AttestKey::default(),
+            made_to_split: false,
         }
     }
 }
@@ -662,7 +670,7 @@ impl Computer {
                 mcp_port,
                 last_activity_ms: now_ms(),
                 release: None,
-                made_on,
+                made_on: made_on.clone(),
                 protection: None,
                 migration: None,
                 readable: Vec::new(),
@@ -674,12 +682,14 @@ impl Computer {
             url: mcp_url(mcp_port),
             token,
             attest,
+            made_to_split: made_to_split(made_on.as_deref()),
         };
         // A boot hands its attest key once, to the first bearer holder who
         // asks: the desk asks before any session is handed the computer. A
         // computer left running holds on to the boot whose key this desk
-        // kept, so it is not asked again: its door would answer 409.
-        if started || !ready.attest.holds().await {
+        // kept, so it is not asked again: its door would answer 409. One not
+        // made to split is never believed, so it is not asked at all.
+        if ready.made_to_split && (started || !ready.attest.holds().await) {
             secrets::take_attest_key(&ready).await;
         }
         Ok(ready)
@@ -698,6 +708,7 @@ impl Computer {
             url: mcp_url(live.mcp_port),
             token: live.token,
             attest: live.attest,
+            made_to_split: made_to_split(live.made_on.as_deref()),
         })
     }
 
@@ -1196,6 +1207,11 @@ fn abs_cwd(cwd: &str) -> String {
         |_| cwd.to_string(),
         |path| path.to_string_lossy().into_owned(),
     )
+}
+
+/// Whether a container made on `made_on` was made to split its users.
+fn made_to_split(made_on: Option<&str>) -> bool {
+    made_on.is_some_and(splits_users)
 }
 
 fn new_token() -> String {

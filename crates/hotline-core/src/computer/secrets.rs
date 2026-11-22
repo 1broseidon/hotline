@@ -346,9 +346,11 @@ pub enum Door {
     /// checked, so it is handed what a legacy one is.
     Unprotected,
     /// It said it runs split but did not prove it: no attest, one for
-    /// another nonce or boot, or one another key made. What answered may
-    /// not be this computer, so it is handed nothing, and it is a computer
-    /// that needs an update until it proves itself.
+    /// another nonce or boot, or one another key made; or it said so from a
+    /// container this desk did not make to split, where a job could say
+    /// anything. What answered may not be this computer, so it is handed
+    /// nothing, and it is a computer that needs an update until it proves
+    /// itself.
     Unproven,
 }
 
@@ -368,11 +370,13 @@ fn client() -> Result<reqwest::Client, Refusal> {
 
 /// [`door`] on `client`, with the answer it was told: the request carries
 /// the bearer and a nonce, and nothing else, so no value leaves before the
-/// answer is verified. The version of the proof is the computer's
-/// `protected.v`: 1 is checked under the bearer as it always was, 2 under
-/// the boot's key ([`AttestKey`]), taken now if this desk has none for that
-/// boot and the computer still hands it; any other is a computer this desk
-/// cannot read, and so unprotected.
+/// answer is verified. A claim of split from a container this desk did not
+/// make to split ([`Ready::made_to_split`]) is unproven whatever it
+/// attests. The version of the proof is the computer's `protected.v`: 1 is
+/// checked under the bearer as it always was, 2 under the boot's key
+/// ([`AttestKey`]), taken now if this desk has none for that boot and the
+/// computer still hands it; any other is a computer this desk cannot read,
+/// and so unprotected.
 async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value), Refusal> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
     let nonce = uuid::Uuid::new_v4().simple().to_string();
@@ -395,6 +399,15 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
         .json()
         .await
         .map_err(|_| Refusal::Failed("The computer's capabilities could not be read.".into()))?;
+    // A container this desk did not make to split runs everything as one
+    // user, so a job there can hold the bearer, answer the port and serve
+    // a key door of its own: what it says of itself proves nothing, and it
+    // is handed nothing before any key is asked for or taken.
+    let claims_split = matches!(answer["protected"]["v"].as_i64(), Some(1 | 2))
+        && answer["protected"]["mode"] == "split";
+    if claims_split && !ready.made_to_split {
+        return Ok((Door::Unproven, answer));
+    }
     let door = if answer["protected"]["v"] == 2 && answer["protected"]["mode"] == "split" {
         let boot = answer["boot"].as_str().unwrap_or_default();
         match ready.attest.for_boot(client, ready, boot).await {

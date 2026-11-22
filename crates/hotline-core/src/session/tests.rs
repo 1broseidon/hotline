@@ -974,7 +974,9 @@ async fn computer_room(
 }
 
 /// `kept` gives the room's computers the room's store for their attest
-/// keys.
+/// keys. A pinned image is named for the release when that release splits
+/// its users, as the desk makes a computer that splits, and `test` when
+/// not.
 #[cfg(unix)]
 async fn computer_room_with(
     name: &str,
@@ -996,7 +998,9 @@ async fn computer_room_with(
     // read from on its way to the machine.
     let store = Arc::new(crate::credentials::MemoryStore::default());
     let vault = Arc::new(Vault::open_with_store(log.root(), log.clone(), store.clone()).unwrap());
-    let tag = "test";
+    let tag = release
+        .filter(|release| crate::computer::splits_users(release))
+        .unwrap_or("test");
     let mut ada = persona("ada");
     ada.cwd = cwd.to_string_lossy().into_owned();
     ada.computer = Some(PersonaComputer {

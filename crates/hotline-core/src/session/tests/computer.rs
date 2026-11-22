@@ -2583,3 +2583,34 @@ async fn a_computer_made_again_forgets_the_kept_key() {
     room.computer_remove("ada").await.unwrap();
     assert_eq!(kept_attest(&fixture.store), None);
 }
+
+/// A computer made on a release before 0.13 runs everything as one user,
+/// so a job there can hold the bearer, take the port and answer as a split
+/// 0.13.0-rc.3, key door and all. It is handed nothing, needs an update,
+/// and the pane is told why.
+#[tokio::test]
+async fn an_old_computer_that_claims_to_split_is_handed_nothing() {
+    use std::sync::atomic::Ordering::SeqCst;
+    // What answers the port says it is 0.13 (the fake's own claim); the
+    // container was made on 0.12.0, as its label says.
+    let ComputerRoom { room, taken, .. } =
+        computer_room("old-claims-split", Some("0.13.0"), TWO_RELEASES, true).await;
+    taken.v2.store(true, SeqCst);
+    let mut ada = room.persona("ada").unwrap();
+    ada.computer.as_mut().unwrap().image = Some("hotline-computer:0.12.0".into());
+    enrol(&room.log, &ada);
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert!(taken.sets().is_empty(), "no set taken: {:?}", taken.sets());
+    assert_eq!(taken.key_asked.load(SeqCst), 0, "its key door never asked");
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+    let said = lock(&room.secret_notices).clone();
+    assert!(
+        said.iter()
+            .any(|text| text.contains(crate::computer::secrets::UNPROVEN)),
+        "{said:?}"
+    );
+}

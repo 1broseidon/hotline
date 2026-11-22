@@ -712,6 +712,7 @@ async fn the_desk_and_a_real_computer_keep_secrets_together() {
 
     // ---- 2. Update to the release candidate: the split flags. -------------
     let old_gate = gate;
+    let old_bearer = room.computers.running(&persona_id).await.unwrap().token;
     let mut teammate = room.persona(&persona_id).unwrap();
     teammate.computer.as_mut().unwrap().image = Some(image.clone());
     enrol(&room.log, &teammate);
@@ -746,6 +747,31 @@ async fn the_desk_and_a_real_computer_keep_secrets_together() {
         "the split flags: {split_create}"
     );
     let gate = Gate::of(&agents).unwrap();
+
+    // The computer the update made has a bearer of its own, and the one
+    // before it, which that computer's programs could read, opens nothing
+    // on it: not its proof, its key door, or its secrets.
+    let ready = room.computers.running(&persona_id).await.unwrap();
+    assert_ne!(ready.token, old_bearer, "a new bearer");
+    let base = ready.url.strip_suffix("/mcp").unwrap().to_owned();
+    let client = reqwest::Client::new();
+    for (method, path) in [
+        (reqwest::Method::GET, "/capabilities?nonce=old"),
+        (reqwest::Method::POST, "/capabilities/key"),
+        (reqwest::Method::PUT, "/secrets"),
+    ] {
+        let refused = client
+            .request(method, format!("{base}{path}"))
+            .bearer_auth(&old_bearer)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body("{}")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(refused, 401, "{path} under the old bearer");
+    }
+
     let status = room.computer_status(&persona_id).await.unwrap();
     say(format!(
         "split status: protection {:?}, release {:?}, available {:?}, migration {:?}",

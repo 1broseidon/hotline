@@ -2629,3 +2629,340 @@ async fn an_old_computer_that_claims_to_split_is_handed_nothing() {
         "{said:?}"
     );
 }
+
+/// Waits for the teammate to carry on with a session other than `before`,
+/// on a computer, as a swap between turns leaves it.
+async fn carried_on(room: &Arc<Room>, before: &Arc<Session>) {
+    let swapped = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let replaced = room
+                .session("ada")
+                .is_ok_and(|now| !Arc::ptr_eq(&now, before) && now.computer);
+            if replaced && room.info("ada").state == SessionState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        swapped.is_ok(),
+        "the teammate carries on with a new computer"
+    );
+}
+
+/// The bearer the scripted runtime made the container there now with.
+fn made_with(fixture: &ComputerRoom) -> String {
+    std::fs::read_to_string(fixture.root.join("state.envtoken")).unwrap_or_default()
+}
+
+/// What the desk did with the computer `bearer` opens, once it is made:
+/// every request since carried that bearer or met no container at all, the
+/// desk presents it and keeps the boot's key under it, the computer proved
+/// itself under the key its own boot handed, and a protected key reached
+/// it. Each bearer before it is refused by it, and a `Ready` still holding
+/// one hands it nothing.
+/// `seen` is how many requests the fake had noted when the last such look
+/// ended, and is moved past this one's own.
+async fn only_the_new_bearer(
+    fixture: &ComputerRoom,
+    before: &[String],
+    seen: &mut usize,
+) -> String {
+    let (room, taken) = (&fixture.room, &fixture.taken);
+    let bearer = made_with(fixture);
+    assert_ne!(bearer, "");
+    assert!(!before.contains(&bearer), "a bearer of its own: {before:?}");
+    let ready = room.computers.running("ada").await.unwrap();
+    assert_eq!(ready.token, bearer, "the desk presents the new bearer");
+    assert_eq!(
+        kept_attest(&fixture.store).unwrap()["bearer"],
+        bearer_hash(&bearer),
+        "the new boot's key, under the new bearer"
+    );
+    assert_eq!(
+        protection(room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+    let sets = taken.sets().len();
+    room.secrets_changed().await;
+    assert_eq!(taken.sets().len(), sets + 1);
+    assert!(taken.sets().last().unwrap()["GITHUB_TOKEN"]["use"].is_object());
+    let reused: Vec<_> = taken.bearers()[*seen..]
+        .iter()
+        .filter(|(presented, made)| !made.is_empty() && presented != made)
+        .cloned()
+        .collect();
+    assert!(reused.is_empty(), "an old bearer was presented: {reused:?}");
+
+    for old in before {
+        let refused = reqwest::Client::new()
+            .get(format!(
+                "{}/capabilities?nonce=old",
+                ready.url.strip_suffix("/mcp").unwrap()
+            ))
+            .bearer_auth(old)
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(refused, reqwest::StatusCode::UNAUTHORIZED);
+        let stale = crate::computer::Ready {
+            made_to_split: true,
+            ..crate::computer::Ready::new(ready.url.clone(), old.clone())
+        };
+        assert!(
+            crate::computer::secrets::deliver(&stale, &std::collections::BTreeMap::new())
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(
+        taken.sets().len(),
+        sets + 1,
+        "nothing taken under an old one"
+    );
+    *seen = taken.bearers().len();
+    bearer
+}
+
+/// Every way the desk makes a computer again gives it a bearer of its own:
+/// Update, a restart for new limits between turns or at the next start,
+/// and a removal the runtime refused followed by the next one that worked. The computer made opens only to
+/// its own bearer, the desk presents only that one from then on (never one
+/// a computer before it had, whose programs may have read it), the boot's
+/// v2 key is taken and kept under it, and a protected key goes to it once
+/// it proved itself with that key.
+#[tokio::test]
+async fn every_way_a_computer_is_made_again_gives_it_a_bearer_the_old_ones_do_not_open() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture = kept_computer_room("remade-bearers", Some("0.13.0")).await;
+    let (room, taken) = (fixture.room.clone(), fixture.taken.clone());
+    taken.v2.store(true, SeqCst);
+    taken.opens_only_to(fixture.root.join("state.envtoken"));
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    let mut seen = 0;
+    let mut bearers = vec![only_the_new_bearer(&fixture, &[], &mut seen).await];
+
+    // Update, with the teammate running between turns.
+    let session = room.session("ada").unwrap();
+    room.computer_update("ada").await.unwrap();
+    carried_on(&room, &session).await;
+    bearers.push(only_the_new_bearer(&fixture, &bearers, &mut seen).await);
+
+    // Made again for its limits, between turns.
+    let session = room.session("ada").unwrap();
+    room.computer_restart("ada").await.unwrap();
+    carried_on(&room, &session).await;
+    bearers.push(only_the_new_bearer(&fixture, &bearers, &mut seen).await);
+
+    // Made again for its limits at the next start, with the desk still
+    // holding the stopped computer's bearer.
+    room.stop("ada").unwrap();
+    room.computer_restart("ada").await.unwrap();
+    let mut ada = room.persona("ada").unwrap();
+    ada.computer.as_mut().unwrap().memory = Some("2048m".into());
+    enrol(&room.log, &ada);
+    let removes = commands_starting(&fixture.root, "rm ");
+    room.start("ada").await.unwrap();
+    assert_eq!(commands_starting(&fixture.root, "rm "), removes + 1);
+    bearers.push(only_the_new_bearer(&fixture, &bearers, &mut seen).await);
+
+    // The runtime will not remove it: the swap waits, the desk lets go of
+    // the bearer, and nothing is handed to the computer meanwhile.
+    std::fs::write(fixture.root.join("state.rmfail"), "").unwrap();
+    let session = room.session("ada").unwrap();
+    let removes = commands_starting(&fixture.root, "rm ");
+    room.computer_restart("ada").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while room.computers.running("ada").await.is_some() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the bearer is let go");
+    assert_eq!(commands_starting(&fixture.root, "rm "), removes + 1);
+    assert!(room.computer_links.swap_waiting("ada"), "the swap waits");
+    assert_ne!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+    let sets = taken.sets().len();
+    room.secrets_changed().await;
+    assert_eq!(taken.sets().len(), sets, "nothing handed to it");
+
+    // The next try removes it, and the computer made then has a new one.
+    std::fs::remove_file(fixture.root.join("state.rmfail")).unwrap();
+    room.swap_computer_when_idle("ada");
+    carried_on(&room, &session).await;
+    only_the_new_bearer(&fixture, &bearers, &mut seen).await;
+}
+
+/// A computer that proved itself with the v2 key its boot handed this desk
+/// cannot be stepped down to an older proof: answering as rc.2 does (v1,
+/// under the bearer the desk's asking carried) or saying it booted legacy,
+/// it is no longer said to be protected, and it is handed nothing — not the
+/// protected key, and not what a legacy computer gets — until it proves
+/// itself on v2 again. A computer that never offered v2 is told by its own
+/// answer, as before: one too old for `/capabilities`
+/// (`a_protected_key_never_reaches_an_old_computer`) or legacy
+/// (`a_login_reaches_a_legacy_computer_as_before_and_is_marked_unprotected`)
+/// is handed what 0.49 handed it, never a protected key, and labelled so.
+#[tokio::test]
+async fn a_computer_stepped_down_from_v2_is_not_protected_and_is_handed_nothing() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture = kept_computer_room("stepped-down", Some("0.13.0")).await;
+    let (room, taken) = (fixture.room.clone(), fixture.taken.clone());
+    taken.v2.store(true, SeqCst);
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert_eq!(taken.forms(), [2]);
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+
+    for legacy in [false, true] {
+        taken.v2.store(false, SeqCst);
+        taken.legacy.store(legacy, SeqCst);
+        room.secrets_changed().await;
+        assert_eq!(taken.forms(), [2], "nothing handed (legacy: {legacy})");
+        assert_eq!(
+            protection(&room).await,
+            Some(crate::contract::ComputerProtection::NeedsUpdate),
+            "legacy: {legacy}"
+        );
+        assert!(
+            lock(&room.secret_notices)
+                .last()
+                .is_some_and(|text| text.contains(crate::computer::secrets::UNPROVEN))
+        );
+    }
+
+    // The computer that handed the key answers again: protected.
+    taken.v2.store(true, SeqCst);
+    taken.legacy.store(false, SeqCst);
+    room.secrets_changed().await;
+    assert_eq!(taken.forms(), [2, 2]);
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::Protected)
+    );
+}
+
+/// An update that fails part way never leaves a protected label on a
+/// computer that has not proved itself, nor hands one a protected key: a
+/// download that fails keeps the computer it has, still protected; a new
+/// computer that will not start leaves no computer and no label; one whose
+/// boot's key something else took first is handed what a legacy one is,
+/// the key waiting; one that forges its proof is handed nothing. Each is
+/// said to need an update or a restart, and the next that proves itself
+/// takes the key.
+#[tokio::test]
+async fn an_update_that_fails_part_way_keeps_the_label_right_and_the_key_back() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture = kept_computer_room("update-part-way", Some("0.13.0")).await;
+    let (room, taken, root) = (
+        fixture.room.clone(),
+        fixture.taken.clone(),
+        fixture.root.clone(),
+    );
+    taken.v2.store(true, SeqCst);
+    taken.opens_only_to(root.join("state.envtoken"));
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    let first = made_with(&fixture);
+    let protected = Some(crate::contract::ComputerProtection::Protected);
+    let needs_update = Some(crate::contract::ComputerProtection::NeedsUpdate);
+    assert_eq!(protection(&room).await, protected);
+    let keys_handed = |taken: &crate::computer::guide::fake::Taken| {
+        taken
+            .sets()
+            .iter()
+            .filter(|set| set.contains_key("GITHUB_TOKEN"))
+            .count()
+    };
+    assert_eq!(keys_handed(&taken), 1);
+
+    // The download fails: the computer it has stays, proved and protected.
+    std::fs::write(root.join("state.noimage"), "").unwrap();
+    std::fs::write(root.join("state.pullfail"), "").unwrap();
+    room.computer_update("ada").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while room
+            .computer_status("ada")
+            .await
+            .unwrap()
+            .update_failed
+            .is_none()
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the pane is told");
+    assert_eq!(made_with(&fixture), first, "the same computer");
+    assert_eq!(protection(&room).await, protected);
+    room.secrets_changed().await;
+    assert_eq!(taken.forms(), [2, 2], "it proved itself again first");
+    std::fs::remove_file(root.join("state.pullfail")).unwrap();
+    std::fs::remove_file(root.join("state.noimage")).unwrap();
+
+    // The old one goes and the new one will not start: no computer, no
+    // label, no key kept, nothing handed.
+    std::fs::write(root.join("state.startfail"), "").unwrap();
+    room.computer_update("ada").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while room.session("ada").is_ok() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the teammate is left stopped");
+    assert!(room.computers.running("ada").await.is_none());
+    assert_eq!(room.computer_status("ada").await.unwrap().protection, None);
+    assert_eq!(
+        kept_attest(&fixture.store),
+        None,
+        "forgotten with the old one"
+    );
+    room.secrets_changed().await;
+    assert_eq!(taken.forms(), [2, 2]);
+    std::fs::remove_file(root.join("state.startfail")).unwrap();
+
+    // It starts, but its boot's key was taken before the desk asked: it
+    // cannot be checked, so the key waits and it is not protected.
+    taken.keys_taken_first.store(true, SeqCst);
+    room.start("ada").await.unwrap();
+    assert_ne!(made_with(&fixture), first);
+    assert_eq!(protection(&room).await, needs_update);
+    assert_eq!(taken.forms(), [2, 2, 1]);
+    assert_eq!(keys_handed(&taken), 2, "the key stayed on the desk");
+    assert!(
+        lock(&room.secret_notices)
+            .last()
+            .is_some_and(|text| text.contains("cannot be checked until it starts again"))
+    );
+
+    // Made again on a computer that forges its proof: nothing at all.
+    taken.keys_taken_first.store(false, SeqCst);
+    taken.v2.store(false, SeqCst);
+    taken.forged.store(true, SeqCst);
+    let session = room.session("ada").unwrap();
+    room.computer_restart("ada").await.unwrap();
+    carried_on(&room, &session).await;
+    assert_eq!(taken.forms(), [2, 2, 1], "nothing handed");
+    assert_eq!(protection(&room).await, needs_update);
+
+    // The next computer proves itself with its own boot's key: protected,
+    // and the key goes to it.
+    taken.v2.store(true, SeqCst);
+    taken.forged.store(false, SeqCst);
+    let session = room.session("ada").unwrap();
+    room.computer_restart("ada").await.unwrap();
+    carried_on(&room, &session).await;
+    assert_eq!(protection(&room).await, protected);
+    assert_eq!(taken.forms(), [2, 2, 1, 2]);
+    assert_eq!(keys_handed(&taken), 3);
+}

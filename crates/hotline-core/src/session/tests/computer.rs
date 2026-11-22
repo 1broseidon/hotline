@@ -2146,6 +2146,15 @@ async fn a_v2_computer_proves_itself_with_its_boots_key_and_one_taken_first_does
         Some(crate::contract::ComputerProtection::NeedsUpdate)
     );
     assert_eq!(status.readable, Vec::<String>::new());
+    // No update helps it: only a new boot, whose key the desk takes.
+    let said = lock(&room.secret_notices).clone();
+    assert!(
+        said.iter()
+            .any(|text| text.contains("GITHUB_TOKEN waits on this desk")
+                && text.contains("Restart the computer")),
+        "{said:?}"
+    );
+    assert!(!said.iter().any(|text| text.contains("until it is updated")));
 }
 
 /// A protected key goes with its service's refuse list as this desk

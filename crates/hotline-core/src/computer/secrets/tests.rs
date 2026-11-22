@@ -421,6 +421,7 @@ async fn an_old_or_legacy_computer_is_handed_what_it_was_and_no_protected_key() 
                 door: Door::Unprotected,
                 waiting: vec!["GITHUB_TOKEN".into()],
                 readable: Vec::new(),
+                restart: false,
             }
         );
         let taken = fake.taken.lock().unwrap().clone();
@@ -445,6 +446,7 @@ async fn a_split_computer_that_attests_is_handed_every_grant_in_the_v2_form() {
             door: Door::Protected,
             waiting: Vec::new(),
             readable: Vec::new(),
+            restart: false,
         }
     );
     deliver(&ready, &BTreeMap::new()).await.expect("cleared");
@@ -630,6 +632,7 @@ async fn a_v2_computer_this_desk_holds_no_key_for_is_not_protected() {
     assert_eq!(handed.door, Door::Unprotected);
     assert_eq!(handed.waiting, ["GITHUB_TOKEN"]);
     assert_eq!(handed.readable, Vec::<String>::new());
+    assert!(handed.restart, "only a new boot can be checked");
     no_key(&fake.taken.lock().unwrap());
     serving.abort();
 

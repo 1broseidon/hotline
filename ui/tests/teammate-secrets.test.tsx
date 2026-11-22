@@ -190,6 +190,19 @@ test("one notice says keys wait for an update, with Update when there is one", a
 	status = { state: "running", release: "0.13.0", protection: "protected" };
 	await mount(persona);
 	expect(section("Computer")?.textContent).not.toContain("Keys waiting");
+	await act(async () => root.render(null));
+	status = { state: "running", release: "0.11.0", protection: "needsUpdate" };
+	await mount(persona);
+	expect(section("Computer")?.textContent).toContain("Keys waiting · until a newer computer");
+});
+
+test("keys waiting on the newest computer, whose key this desk does not hold, say to restart it", async () => {
+	status = { state: "running", release: "0.13.0", protection: "needsUpdate" };
+	await mount(persona);
+	const computer = section("Computer")!;
+	expect(computer.textContent).toContain("Keys waiting · restart the computer");
+	expect(computer.textContent).not.toContain("until a newer computer");
+	expect([...computer.querySelectorAll("button")].some((node) => node.textContent === "Update")).toBe(false);
 });
 
 test("a teammate with no computer gives a variable to its shell, and is told so", async () => {

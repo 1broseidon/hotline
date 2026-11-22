@@ -143,6 +143,12 @@ impl Room {
                 };
                 self.computers.learned_migration(&persona.id, migration);
                 if handed.waiting.is_empty() {
+                } else if handed.restart {
+                    notice(format!(
+                        "{}'s computer cannot be checked until it starts again, so {} on this desk. Restart the computer from the teammate's pane.",
+                        persona.name,
+                        listed(&handed.waiting)
+                    ));
                 } else if protected {
                     notice(format!(
                         "{} on this desk: a key not granted readable needs its Used with under Settings → Secrets.",

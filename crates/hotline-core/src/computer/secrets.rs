@@ -537,11 +537,15 @@ pub struct Granted {
 /// protect them by; every name, on one that did not prove what it said.
 /// `readable` is what a protected computer said, once it took the set, it
 /// holds but cannot keep from its programs (empty on any other).
+/// `restart` is an unprotected one that is a v2 split computer whose boot's
+/// key this desk does not hold: no update helps it, only a new boot, whose
+/// key the desk takes as it starts it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Handed {
     pub door: Door,
     pub waiting: Vec<String>,
     pub readable: Vec<String>,
+    pub restart: bool,
 }
 
 /// The v1 set: a variable as its bare value, which every computer release
@@ -628,14 +632,19 @@ pub async fn deliver(ready: &Ready, set: &BTreeMap<String, Granted>) -> Result<H
     // computer takes no such field; when it does, it is added here and the
     // computer refuses a set for another.
     let client = client()?;
-    let (door, _) = door_on(&client, ready).await?;
+    let (door, answer) = door_on(&client, ready).await?;
     if door == Door::Unproven {
         return Ok(Handed {
             door,
             waiting: set.keys().cloned().collect(),
             readable: Vec::new(),
+            restart: false,
         });
     }
+    // A split v2 claim is unprotected only for want of its boot's key.
+    let restart = door == Door::Unprotected
+        && answer["protected"]["v"] == 2
+        && answer["protected"]["mode"] == "split";
     let protected = door == Door::Protected;
     let mut waiting = Vec::new();
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
@@ -689,6 +698,7 @@ pub async fn deliver(ready: &Ready, set: &BTreeMap<String, Granted>) -> Result<H
             door,
             waiting,
             readable,
+            restart,
         });
     }
     if status == reqwest::StatusCode::NOT_FOUND {

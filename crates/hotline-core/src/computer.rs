@@ -266,15 +266,20 @@ pub fn preferred_image(settings: &serde_json::Map<String, Value>) -> Option<Stri
 /// one is fetched, so overlapping askers share the fetch.
 type Remembered<T> = tokio::sync::Mutex<Option<(Instant, T)>>;
 
-/// Every teammate computer this process has woken, keyed by persona id.
+/// Every teammate computer this process has woken or adopted, keyed by
+/// persona id.
 ///
-/// The token is generated for each container when it is made, and kept here
-/// for its life: a container made again, for new folders, limits or an
-/// update, gets a new one, because an older computer's programs could read
-/// the old one and a newer computer must not open to it. A container that
-/// already exists from a previous run of Hotline has a token we no longer know
-/// — it was process state, never a setting — so it is removed and recreated
-/// rather than started with a bearer nobody can present.
+/// The token is generated for each container when it is made, passed in the
+/// runtime CLI's environment, and kept here for its life: a container made
+/// again, for new folders, limits or an update, gets a new one, because an
+/// older computer's programs could read the old one and a newer computer
+/// must not open to it. The desk keeps no copy of its own: a container a
+/// previous run of Hotline left has its token read back from the container's
+/// own settings by `inspect` and is adopted with it ([`Computer::adopt`]),
+/// and its v2 attest key from the OS store ([`secrets::AttestKey`]). Only a
+/// container whose token cannot be read, or one retired because the runtime
+/// would not remove it, is removed and made again rather than started with a
+/// bearer nobody can present.
 #[derive(Clone)]
 pub struct Computer {
     inner: Arc<Mutex<Inner>>,

@@ -19,6 +19,13 @@ const UPDATE_ABOUT =
 const LIMITS_ABOUT = "Blank is 1024 processes; 0 is unlimited. A parallel build needs more.";
 
 /** The settings without one of them, so blank means absent on the wire rather than an empty string. */
+/** Whether a release splits its users, as the desk's `splits_users` reads it: 0.13 and on. */
+function splitsUsers(release: string | undefined): boolean {
+	const [major, minor] = (release ?? "").split(/[.-]/).map((part) => Number.parseInt(part, 10));
+	if (major === undefined || minor === undefined || Number.isNaN(major) || Number.isNaN(minor)) return false;
+	return major > 0 || minor >= 13;
+}
+
 function without(computer: PersonaComputer, key: "image" | "memory" | "cpus" | "pids" | "mounts"): PersonaComputer {
 	const next = { ...computer };
 	delete next[key];
@@ -252,10 +259,10 @@ export function ComputerRows({
 			{(current.enabled || state !== "absent") && (
 				<>
 					<FoldRow title="Desktop" value={shown} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} action={desktopKey} />
-					{/* The one notice a teammate gets when keys granted to it wait for a computer that runs its key proxy. */}
+					{/* The one notice a teammate gets when keys granted to it wait for a computer that runs its key proxy. One already on a release that splits, with nothing to update to, started before this desk took its boot's key: only a restart helps it. */}
 					{state === "running" && status?.protection === "needsUpdate" && (
 						<div className={NESTED}>
-							<RowText title="Keys waiting" value={status.available !== undefined ? `until ${status.available}` : "until a newer computer"} />
+							<RowText title="Keys waiting" value={status.available !== undefined ? `until ${status.available}` : splitsUsers(status.release) ? "restart the computer" : "until a newer computer"} />
 							{status.available !== undefined && (
 								<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.update")}>
 									Update

@@ -488,7 +488,8 @@ pub enum GrantPlace {
 /// takes every grant, keys as stand-ins; `legacy`, it does not, and holds
 /// readable variables, logins and passkeys where its programs can read
 /// them; `needsUpdate`, the same, and keys granted to it wait on the desk
-/// until it is updated.
+/// until it is updated, or, on a release that splits whose boot's key this
+/// desk does not hold, until it is restarted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]

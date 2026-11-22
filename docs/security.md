@@ -819,6 +819,12 @@ never a key granted protected, which waits on the desk while
 split but whose `attest` fails — made under another key, for another
 nonce, or over another boot, mode or release than it names — is handed
 nothing at all (`computer/secrets.rs`, `session/tests/computer.rs`). So is
+one that handed this desk a v2 key and now answers with less: the v1
+proof, which the desk's own asking hands the bearer to make, `legacy`, or
+no door. One container keeps the release and flags it was made with, so
+that is not the computer that handed the key, and nothing it says steps
+the desk down to an older proof; the key stays for the real one's next
+answer. So is
 one that says split, v1 or v2, from a container this desk did not make to
 split: a release before 0.13, or a tag that is not a release number,
 which the runtime's `hotline.release` label says and nothing inside the

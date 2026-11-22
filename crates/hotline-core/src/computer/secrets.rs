@@ -350,9 +350,10 @@ pub enum Door {
     /// It said it runs split but did not prove it: no attest, one for
     /// another nonce or boot, or one another key made; or it said so from a
     /// container this desk did not make to split, where a job could say
-    /// anything. What answered may not be this computer, so it is handed
-    /// nothing, and it is a computer that needs an update until it proves
-    /// itself.
+    /// anything; or it handed this desk a v2 key and now answers with less
+    /// (v1, legacy, no door). What answered may not be this computer, so it
+    /// is handed nothing, and it is a computer that needs an update until it
+    /// proves itself.
     Unproven,
 }
 
@@ -374,8 +375,10 @@ fn client() -> Result<reqwest::Client, Refusal> {
 /// the bearer and a nonce, and nothing else, so no value leaves before the
 /// answer is verified. A claim of split from a container this desk did not
 /// make to split ([`Ready::made_to_split`]) is unproven whatever it
-/// attests. The version of the proof is the computer's `protected.v`: 1 is
-/// checked under the bearer as it always was, 2 under the boot's key
+/// attests, and so is anything but a v2 claim from a computer that handed
+/// this desk a v2 key ([`stepped_down`]). The version of the proof is the
+/// computer's `protected.v`: 1 is checked under the bearer as it always
+/// was, 2 under the boot's key
 /// ([`AttestKey`]), taken now if this desk has none for that boot and the
 /// computer still hands it; any other is a computer this desk cannot read,
 /// and so unprotected.
@@ -389,7 +392,7 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
         .await
         .map_err(|error| Refusal::Failed(format!("Could not reach the computer: {error}")))?;
     match response.status() {
-        reqwest::StatusCode::NOT_FOUND => return Ok((Door::Unprotected, Value::Null)),
+        reqwest::StatusCode::NOT_FOUND => return Ok((stepped_down(ready).await, Value::Null)),
         status if !status.is_success() => {
             return Err(Refusal::Failed(format!(
                 "The computer would not say what it is ({status})."
@@ -410,7 +413,14 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
     if claims_split && !ready.made_to_split {
         return Ok((Door::Unproven, answer));
     }
-    let door = if answer["protected"]["v"] == 2 && answer["protected"]["mode"] == "split" {
+    let claims_v2 = answer["protected"]["v"] == 2 && answer["protected"]["mode"] == "split";
+    if !claims_v2 {
+        let door = stepped_down(ready).await;
+        if door == Door::Unproven {
+            return Ok((door, answer));
+        }
+    }
+    let door = if claims_v2 {
         let boot = answer["boot"].as_str().unwrap_or_default();
         match ready.attest.for_boot(client, ready, boot).await {
             Some(key) => verify_attest_v2(&key, &nonce, &answer),
@@ -420,6 +430,22 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
         verify_attest_v1(ready.token.as_bytes(), &nonce, &answer)
     };
     Ok((door, answer))
+}
+
+/// What an answer that is not a v2 claim of split — v1, legacy, a version
+/// this desk does not know, or no door at all — proves of a computer that
+/// handed this desk a v2 key: nothing. One container keeps the release and
+/// the flags it was made with, so the computer that handed the key cannot
+/// answer with an older proof; whatever answers its port so is not it, and
+/// a v1 attest is no check on that, since the desk's own request carries
+/// the bearer it is made with. Every other computer is unprotected here,
+/// and what a v1 claim proves is [`verify_attest_v1`]'s to say.
+async fn stepped_down(ready: &Ready) -> Door {
+    if ready.attest.holds().await {
+        Door::Unproven
+    } else {
+        Door::Unprotected
+    }
 }
 
 /// Whether `attest` is base64 of HMAC-SHA256 under `key` of `input`,

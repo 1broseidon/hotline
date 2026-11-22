@@ -33,6 +33,13 @@ enum Spoil {
     Version,
     /// Made for an earlier nonce, and sent again.
     Replay,
+    /// Stepped down to the older proof: v1, under the bearer the asking
+    /// carried, as rc.2 makes it.
+    V1,
+    /// Says it booted legacy.
+    Legacy,
+    /// Has no `/capabilities` at all, as a release before 0.13.
+    NoDoor,
 }
 
 /// The key a v2 stand-in's boot makes: fixed, so a test can look for it.
@@ -274,6 +281,19 @@ async fn capabilities(
     if fake.is == Is::SplitV2 {
         let (boot, key) = fake.boot.lock().unwrap().clone();
         let mut body = match *fake.spoil.lock().unwrap() {
+            Spoil::V1 => {
+                return (
+                    StatusCode::OK,
+                    answer(token, &boot, nonce, "split").to_string(),
+                );
+            }
+            Spoil::Legacy => {
+                return (
+                    StatusCode::OK,
+                    answer(token, &boot, nonce, "legacy").to_string(),
+                );
+            }
+            Spoil::NoDoor => return (StatusCode::NOT_FOUND, String::new()),
             Spoil::None => answer_v2(&key, &boot, nonce, "split"),
             Spoil::WrongKey => answer_v2(&[0x11; 32], &boot, nonce, "split"),
             Spoil::Mode => {
@@ -667,6 +687,41 @@ async fn a_v2_proof_that_fails_under_the_key_held_gets_nothing() {
             ["GITHUB", "GITHUB_TOKEN", "LOCAL", "LOCAL_KEY", "NPM_TOKEN"]
         );
         assert!(fake.taken.lock().unwrap().is_empty(), "not even a variable");
+        serving.abort();
+    }
+}
+
+/// A computer that handed this desk its boot's v2 key is believed only on
+/// v2, in this desk and in one restarted from the store. Whatever answers
+/// its port with the older proof (v1, made under the bearer the desk's own
+/// asking carried), says it booted legacy, or has no door, is not the
+/// computer that handed the key: it is handed nothing, not even what a
+/// legacy computer is, and the key stays for the real one's next answer.
+/// A computer that never handed a key is unaffected: v1 is still checked
+/// as it was (`a_split_computer_that_attests_is_handed_every_grant_in_the_v2_form`),
+/// legacy and no door still get what 0.49 gave
+/// (`an_old_or_legacy_computer_is_handed_what_it_was_and_no_protected_key`).
+#[tokio::test]
+async fn a_computer_that_handed_this_desk_a_v2_key_cannot_be_stepped_down() {
+    for spoil in [Spoil::V1, Spoil::Legacy, Spoil::NoDoor] {
+        let store = Arc::new(crate::credentials::MemoryStore::default());
+        let (ready, fake, serving) = kept_computer(&store, "down-ada").await;
+        take_attest_key(&ready).await;
+        assert_eq!(door(&ready).await, Ok(Door::Protected));
+        *fake.spoil.lock().unwrap() = spoil;
+        for asking in [ready.clone(), after_restart(&ready, &store, "down-ada")] {
+            let handed = deliver(&asking, &the_v2_set()).await.unwrap();
+            assert_eq!(handed.door, Door::Unproven);
+            assert_eq!(
+                handed.waiting,
+                ["GITHUB", "GITHUB_TOKEN", "LOCAL", "LOCAL_KEY", "NPM_TOKEN"]
+            );
+        }
+        assert!(fake.taken.lock().unwrap().is_empty(), "not even a variable");
+        assert!(kept(&store, "down-ada").is_some(), "the key is kept");
+        *fake.spoil.lock().unwrap() = Spoil::None;
+        assert_eq!(door(&ready).await, Ok(Door::Protected));
+        assert_eq!(fake.asked.load(Ordering::SeqCst), 1, "never asked again");
         serving.abort();
     }
 }

@@ -280,6 +280,12 @@ impl ChildAgent {
         if let Some(previous) = previous {
             let id = SessionId::new(previous.as_str());
             if capabilities.resume {
+                // What the agent says while it reopens the session is no work
+                // it took up by itself: Codex warns here that the session was
+                // recorded under another model, and taken as an activity that
+                // never reports its end, it held the conversation as working,
+                // with its inbox waiting, for five minutes.
+                let reopening = Replay::begin(&self.live.replaying);
                 let resumed = connection
                     .send_request(
                         ResumeSessionRequest::new(id.clone(), cwd.clone())
@@ -288,6 +294,7 @@ impl ChildAgent {
                     )
                     .block_task()
                     .await;
+                drop(reopening);
                 if let Ok(response) = resumed {
                     self.adopt(
                         id,

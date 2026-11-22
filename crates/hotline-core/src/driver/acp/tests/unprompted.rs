@@ -239,3 +239,81 @@ async fn an_autonomous_note_uses_non_starting_steering_and_drops_a_refusal() {
             .any(|fact| fact.contains("This turn is quiet."))
     );
 }
+
+/// An agent that resumes its session, saying a line while it does, as Codex
+/// warns that the session was recorded under another model.
+fn resuming_agent() -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("resuming")
+            .on_receive_request(
+                async |request: InitializeRequest, responder, _cx| {
+                    responder.respond(
+                        InitializeResponse::new(request.protocol_version).agent_capabilities(
+                            AgentCapabilities::new().session_capabilities(
+                                acp::SessionCapabilities::new()
+                                    .resume(acp::SessionResumeCapabilities::new()),
+                            ),
+                        ),
+                    )
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async |request: acp::ResumeSessionRequest,
+                       responder: Responder<acp::ResumeSessionResponse>,
+                       cx: ConnectionTo<Client>| {
+                    cx.send_notification(SessionNotification::new(
+                        request.session_id.clone(),
+                        SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
+                            TextContent::new(
+                                "Warning: This session was recorded with model `gpt-6-luna` but is resuming with `gpt-6.2-sol`.",
+                            ),
+                        ))),
+                    ))?;
+                    responder.respond(acp::ResumeSessionResponse::new())
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the resuming agent ended: {error}");
+        }
+    }
+}
+
+/// Codex on the desk, 2026-11-21 QA: each restart, its resume warning opened
+/// an activity of the agent's own that Codex never reports ended, so the
+/// teammate showed as working and its inbox waited five minutes, until the
+/// quiet bound closed it. What an agent says while its session reopens is no
+/// work it took up: no activity opens.
+#[tokio::test(flavor = "multi_thread")]
+async fn what_an_agent_says_while_its_session_resumes_opens_no_activity() {
+    let held = room("resume-chatter");
+    let ada = persona(
+        &scratch_cwd(),
+        vec![crate::contract::SessionCheckpoint {
+            backend_id: "codex".into(),
+            session_id: "recorded".into(),
+        }],
+    );
+    let driver = ChildAgent::new(
+        scratch("resume-chatter"),
+        "codex".to_string(),
+        "briefing".to_string(),
+        TeammateTools::new(&held, "ada"),
+    );
+    tokio::spawn(resuming_agent());
+    let mut activities = driver.subscribe_unprompted().unwrap();
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), activities.recv())
+            .await
+            .is_err(),
+        "the resume's warning opened an activity"
+    );
+    assert!(!driver.live.replaying.load(Ordering::SeqCst));
+}

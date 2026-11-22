@@ -521,7 +521,11 @@ without asking the model, on either agent:
   (`Wired::unprompted`, opened when output arrives with no prompt of
   Hotline's out, `driver/acp/translate.rs`): Claude Code waking for its own
   background helper or command, and the line it makes its model write after
-  an empty answer, which lands in the same quiet turn;
+  an empty answer, which lands in the same quiet turn. What an agent says
+  while its session reopens (`session/resume`, as `session/load`'s replay)
+  is not such work and is not written: Codex's warning there that the
+  session was recorded under another model once held the teammate working,
+  its inbox waiting, until the five-minute quiet bound;
 - the rest of any turn once it has replied and parked for its helpers
   (`Update::Parked`, from Hotline Agent's loop and from Claude's adapter
   alike, `session/dm.rs`): what wakes it next is a helper's or a command's

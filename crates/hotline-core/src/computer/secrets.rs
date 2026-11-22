@@ -24,16 +24,17 @@
 //! programs could read it there. One whose `attest` is wrong is handed
 //! nothing at all: what answers the port is not this computer.
 //!
-//! The proof comes in two versions, told apart by `protected.v`. A v1
-//! computer (0.13.0-rc.2 and before) attests with the bearer. A v2 one
-//! attests with a key its door makes at each boot and hands once, to the
+//! The proof is v2 (`protected.v` 2, 0.13.0-rc.3 on). A v1 claim of split
+//! (0.13.0-rc.2 and before) attests with the bearer, which the desk's own
+//! asking carries to whatever answers the port, so it proves nothing and is
+//! handed nothing. A v2 computer attests with a key its door makes at each
+//! boot and hands once, to the
 //! first bearer holder who asks at `POST /capabilities/key`: the desk asks
 //! right after it starts the computer and keeps the key in memory and in
 //! the OS store, bound to the bearer's hash, so a desk restart reads it
 //! back ([`AttestKey`]). A split computer whose boot this desk holds no key
 //! for (the key was taken before the desk asked, or by a desk that did not
-//! keep it) cannot be checked, and is handed what a desk that knew only v1
-//! would hand it: what a legacy computer gets.
+//! keep it) cannot be checked, and is handed what a legacy computer gets.
 
 use super::Ready;
 use crate::vault::StoredSecret;
@@ -49,13 +50,6 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// The v2 form's media type; a body without it is read as v1.
 const V2: &str = "application/vnd.hotline.secrets.v2+json";
-
-/// What a v1 `attest` is the HMAC of, under the bearer, after the boot and
-/// the nonce are joined on: the broker's own words, so it is never another
-/// door's MAC.
-fn attest_input_v1(boot: &str, nonce: &str) -> String {
-    format!("hotline-broker-v1|{boot}|{nonce}")
-}
 
 /// What a v2 `attest` is the HMAC of, under the boot's key: every field
 /// the desk relies on, so a proof of one mode, boot, release or nonce is
@@ -339,20 +333,24 @@ pub enum Refusal {
 /// What a computer proved about keeping secrets from its jobs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Door {
-    /// Split, and it answered for the boot it is on: under this computer's
-    /// bearer (v1), or under the key that boot handed this desk (v2).
+    /// Split, and it answered for the boot it is on under the key that boot
+    /// handed this desk (v2).
     Protected,
-    /// No `/capabilities`, a release before 0.13, or one that says it runs
-    /// legacy: today's one user, which a job shares with every value. Also a
-    /// v2 computer whose boot's key this desk does not hold: it cannot be
-    /// checked, so it is handed what a legacy one is.
+    /// No `/capabilities` on a release before 0.13, or one that says it runs
+    /// legacy: today's one user, which a job shares with every value; a
+    /// split computer whose key proxy did not start says so too, attested.
+    /// Also a v2 computer whose boot's key this desk does not hold: it
+    /// cannot be checked, so it is handed what a legacy one is.
     Unprotected,
-    /// It said it runs split but did not prove it: no attest, one for
-    /// another nonce or boot, or one another key made; or it said so from a
+    /// It said it runs split but did not prove it: a v1 claim, which only
+    /// the bearer makes; no attest, one for another nonce or boot, or one
+    /// another key made; or it said so from a
     /// container this desk did not make to split, where a job could say
-    /// anything. What answered may not be this computer, so it is handed
-    /// nothing, and it is a computer that needs an update until it proves
-    /// itself.
+    /// anything; or a container made to split has no door, which every
+    /// release made so serves; or it handed this desk a v2 key and now
+    /// answers with less than v2. What answered may not be this computer, so it
+    /// is handed nothing, and it is a computer that needs an update until it
+    /// proves itself.
     Unproven,
 }
 
@@ -374,11 +372,13 @@ fn client() -> Result<reqwest::Client, Refusal> {
 /// the bearer and a nonce, and nothing else, so no value leaves before the
 /// answer is verified. A claim of split from a container this desk did not
 /// make to split ([`Ready::made_to_split`]) is unproven whatever it
-/// attests. The version of the proof is the computer's `protected.v`: 1 is
-/// checked under the bearer as it always was, 2 under the boot's key
+/// attests, and so is a v1 claim of split from any container, no door on
+/// one made to split, and anything less than v2 from a computer that handed
+/// this desk a v2 key ([`stepped_down`]). A v2 answer from a container made
+/// to split, split or legacy, is checked under the boot's key
 /// ([`AttestKey`]), taken now if this desk has none for that boot and the
-/// computer still hands it; any other is a computer this desk cannot read,
-/// and so unprotected.
+/// computer still hands it; any other answer is a computer this desk cannot
+/// read, and so unprotected.
 async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value), Refusal> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
     let nonce = uuid::Uuid::new_v4().simple().to_string();
@@ -389,7 +389,12 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
         .await
         .map_err(|error| Refusal::Failed(format!("Could not reach the computer: {error}")))?;
     match response.status() {
-        reqwest::StatusCode::NOT_FOUND => return Ok((Door::Unprotected, Value::Null)),
+        // Every release a container is made to split on (0.13 on) serves
+        // `/capabilities`, split or legacy, so none of them answers 404.
+        reqwest::StatusCode::NOT_FOUND if ready.made_to_split => {
+            return Ok((Door::Unproven, Value::Null));
+        }
+        reqwest::StatusCode::NOT_FOUND => return Ok((stepped_down(ready).await, Value::Null)),
         status if !status.is_success() => {
             return Err(Refusal::Failed(format!(
                 "The computer would not say what it is ({status})."
@@ -410,16 +415,50 @@ async fn door_on(client: &reqwest::Client, ready: &Ready) -> Result<(Door, Value
     if claims_split && !ready.made_to_split {
         return Ok((Door::Unproven, answer));
     }
-    let door = if answer["protected"]["v"] == 2 && answer["protected"]["mode"] == "split" {
+    // A v1 attest is the bearer's MAC, and this asking just handed the
+    // bearer to whatever answered: it proves nothing about what that is.
+    if claims_split && answer["protected"]["v"] == 1 {
+        return Ok((Door::Unproven, answer));
+    }
+    // A split computer whose key proxy did not start says legacy, under the
+    // same proof as split, so either is checked when it can be.
+    let attested = answer["protected"]["v"] == 2
+        && matches!(
+            answer["protected"]["mode"].as_str(),
+            Some("split" | "legacy")
+        )
+        && ready.made_to_split;
+    let door = if attested {
         let boot = answer["boot"].as_str().unwrap_or_default();
         match ready.attest.for_boot(client, ready, boot).await {
             Some(key) => verify_attest_v2(&key, &nonce, &answer),
             None => Door::Unprotected,
         }
+    } else if ready.made_to_split {
+        // A container made to split answers v2, split or legacy, every
+        // time: anything else from one (v1 legacy, no `protected`, a
+        // version this desk does not know, a v3 too) is not the honest
+        // computer, and is handed nothing, on the safe side.
+        Door::Unproven
     } else {
-        verify_attest_v1(ready.token.as_bytes(), &nonce, &answer)
+        stepped_down(ready).await
     };
     Ok((door, answer))
+}
+
+/// What an answer this desk cannot check — v1 legacy, a version it does not
+/// know, no `protected` at all, no door — proves of a container not made to
+/// split: that it is unprotected, unless it handed this desk a v2 key, when
+/// it proves nothing. A container made to split never reaches here: it
+/// answers v2 every time, and anything else from one is unproven in
+/// [`door_on`]. A key is only ever taken from one made to split, so the
+/// held-key check is a second wall behind that one.
+async fn stepped_down(ready: &Ready) -> Door {
+    if ready.attest.holds().await {
+        Door::Unproven
+    } else {
+        Door::Unprotected
+    }
 }
 
 /// Whether `attest` is base64 of HMAC-SHA256 under `key` of `input`,
@@ -441,46 +480,27 @@ fn attests(key: &[u8], input: &str, attest: &Value) -> bool {
         })
 }
 
-/// What a v1 `/capabilities` answer to `nonce` proves, checked with `key`
-/// (the bearer), as every desk before v2 checked it:
-///
-/// 1. the claim: `protected.v` is the number 1 and `protected.mode` is the
-///    string `"split"`; anything else (absent, `legacy`, a version this
-///    desk does not know) is an unprotected computer, handed what 0.49
-///    handed it;
-/// 2. `boot` is a non-empty string;
-/// 3. `attest` is the MAC of [`attest_input_v1`] for that boot and this
-///    asking's own nonce.
-///
-/// A claim of split that fails 2 or 3 is [`Door::Unproven`]: a replayed
-/// attest (another nonce), an altered boot, or one another key made. v1
-/// does not cover the mode or the release; v2 does.
-fn verify_attest_v1(key: &[u8], nonce: &str, answer: &Value) -> Door {
-    let split = answer["protected"]["v"] == 1 && answer["protected"]["mode"] == "split";
-    if !split {
-        return Door::Unprotected;
-    }
-    let boot = answer["boot"].as_str().unwrap_or_default();
-    if boot.is_empty() || !attests(key, &attest_input_v1(boot, nonce), &answer["attest"]) {
-        return Door::Unproven;
-    }
-    Door::Protected
-}
-
-/// What a v2 claim of split proves, checked with the key this desk took
-/// for the answer's boot: `attest` must be the MAC of [`attest_input_v2`]
-/// over the answer's own boot, mode and version and this asking's nonce.
-/// Anything else — another key, a replayed nonce, an altered mode, boot or
-/// release, or no attest — is [`Door::Unproven`].
+/// What a v2 answer proves, checked with the key this desk took for the
+/// answer's boot: `attest` must be the MAC of [`attest_input_v2`] over the
+/// answer's own boot, mode and version and this asking's nonce. Then
+/// `split` is [`Door::Protected`] and `legacy` (a split computer whose key
+/// proxy did not start) [`Door::Unprotected`]. Anything else — another
+/// key, a replayed nonce, an altered mode, boot or release, another mode,
+/// or no attest — is [`Door::Unproven`].
 fn verify_attest_v2(key: &[u8], nonce: &str, answer: &Value) -> Door {
     let boot = answer["boot"].as_str().unwrap_or_default();
     let mode = answer["protected"]["mode"].as_str().unwrap_or_default();
     let version = answer["version"].as_str().unwrap_or_default();
+    let door = match mode {
+        "split" => Door::Protected,
+        "legacy" => Door::Unprotected,
+        _ => return Door::Unproven,
+    };
     let input = attest_input_v2(boot, mode, version, nonce);
-    if boot.is_empty() || mode != "split" || !attests(key, &input, &answer["attest"]) {
+    if boot.is_empty() || !attests(key, &input, &answer["attest"]) {
         return Door::Unproven;
     }
-    Door::Protected
+    door
 }
 
 /// The names a protected computer says it holds but cannot keep from its

@@ -15,8 +15,8 @@
 //! What it needs, and what it leaves:
 //! - macOS with Apple `container` running, and the probe build of the
 //!   release candidate (`hotline-computer:0.13.0-rc.3-probe`, or
-//!   `HOTLINE_E2E_IMAGE`, e.g. the rc.2 probe for a computer that attests
-//!   v1): the release image with its key proxy also trusting a test CA
+//!   `HOTLINE_E2E_IMAGE`, a later one that attests v2; an rc.2 one attests
+//!   v1, which this desk hands nothing): the release image with its key proxy also trusting a test CA
 //!   upstream (`qa/0.13.0-rc.N/Dockerfile.probe` in the computer repo). The CA is made here and handed to the container by a
 //!   test-only wrapper around `container create`, which also gives the
 //!   computer a named home volume so the update keeps its home, as Docker's
@@ -712,6 +712,7 @@ async fn the_desk_and_a_real_computer_keep_secrets_together() {
 
     // ---- 2. Update to the release candidate: the split flags. -------------
     let old_gate = gate;
+    let old_bearer = room.computers.running(&persona_id).await.unwrap().token;
     let mut teammate = room.persona(&persona_id).unwrap();
     teammate.computer.as_mut().unwrap().image = Some(image.clone());
     enrol(&room.log, &teammate);
@@ -746,6 +747,31 @@ async fn the_desk_and_a_real_computer_keep_secrets_together() {
         "the split flags: {split_create}"
     );
     let gate = Gate::of(&agents).unwrap();
+
+    // The computer the update made has a bearer of its own, and the one
+    // before it, which that computer's programs could read, opens nothing
+    // on it: not its proof, its key door, or its secrets.
+    let ready = room.computers.running(&persona_id).await.unwrap();
+    assert_ne!(ready.token, old_bearer, "a new bearer");
+    let base = ready.url.strip_suffix("/mcp").unwrap().to_owned();
+    let client = reqwest::Client::new();
+    for (method, path) in [
+        (reqwest::Method::GET, "/capabilities?nonce=old"),
+        (reqwest::Method::POST, "/capabilities/key"),
+        (reqwest::Method::PUT, "/secrets"),
+    ] {
+        let refused = client
+            .request(method, format!("{base}{path}"))
+            .bearer_auth(&old_bearer)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body("{}")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(refused, 401, "{path} under the old bearer");
+    }
+
     let status = room.computer_status(&persona_id).await.unwrap();
     say(format!(
         "split status: protection {:?}, release {:?}, available {:?}, migration {:?}",
@@ -753,10 +779,11 @@ async fn the_desk_and_a_real_computer_keep_secrets_together() {
     ));
     assert_eq!(status.available, None, "nothing more to update to");
 
-    // What the computer attests with. A v2 one (rc.3 on) handed its boot's
-    // key to the desk as it started, so it hands it to nobody now, and
-    // names what it cannot keep from its programs: the loopback login and
-    // passkey, and the key used with an "Other" host. A v1 one names none.
+    // What the computer attests with: v2 (rc.3 on), the only proof this
+    // desk takes. It handed its boot's key to the desk as it started, so it
+    // hands it to nobody now, and names what it cannot keep from its
+    // programs: the loopback login and passkey, and the key used with an
+    // "Other" host.
     let ready = room.computers.running(&persona_id).await.unwrap();
     let base = ready.url.strip_suffix("/mcp").unwrap().to_owned();
     let said = reqwest::Client::new()
@@ -772,22 +799,18 @@ async fn the_desk_and_a_real_computer_keep_secrets_together() {
         "/capabilities: protected {}, version {}",
         said["protected"], said["version"]
     ));
-    if said["protected"]["v"] == 2 {
-        let again = reqwest::Client::new()
-            .post(format!("{base}/capabilities/key"))
-            .bearer_auth(&ready.token)
-            .send()
-            .await
-            .unwrap()
-            .status();
-        assert_eq!(again, 409, "the desk took this boot's key first");
-        let mut readable = status.readable.clone();
-        readable.sort();
-        assert_eq!(readable, ["GH_TOKEN", "SITE", "SITEKEY"], "{status:?}");
-    } else {
-        assert_eq!(said["protected"]["v"], 1, "{said}");
-        assert!(status.readable.is_empty(), "{status:?}");
-    }
+    assert_eq!(said["protected"]["v"], 2, "{said}");
+    let again = reqwest::Client::new()
+        .post(format!("{base}/capabilities/key"))
+        .bearer_auth(&ready.token)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(again, 409, "the desk took this boot's key first");
+    let mut said_readable = status.readable.clone();
+    said_readable.sort();
+    assert_eq!(said_readable, ["GH_TOKEN", "SITE", "SITEKEY"], "{status:?}");
 
     // The first split boot of a home with a snapshot asks once.
     let migration = status

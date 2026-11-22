@@ -43,32 +43,35 @@ the chosen image, the teammate's pane offers the update.
 - `GET /capabilities?nonce=N` says whether the computer keeps secrets from
   its jobs: `{version, boot, protected: {v, mode, …}, attest}`. The desk
   asks with a fresh nonce before every handing over and before Use
-  Cookies, and reads the proof by `protected.v`. v1 (0.13.0-rc.2 and
-  before): `attest` is base64 HMAC-SHA256 under the bearer of
-  `hotline-broker-v1|<boot>|<N>`. v2 (0.13.0-rc.3 on): each boot makes a
-  32-byte key and hands it once, `POST /capabilities/key` →
-  `{v: 2, boot, key}`, then 409; the desk takes it as soon as a computer it
-  started answers and keeps it beside nothing of the container's: in its
-  own memory and in the OS store, under `computer-attest/<teammate id>`
-  with the boot and the SHA-256 of the bearer it was taken with, so a desk
-  restart reads it back and a container made again (a new bearer) never
-  uses it. It is never sent or logged, and the entry is deleted when the
-  computer is removed, hibernated or made again; `attest` is base64
-  HMAC-SHA256 under that key of
-  `hotline-broker-v2|<boot>|<mode>|<version>|<N>`. `mode: "split"` with an
-  `attest` that checks is a protected computer; a 404 (a release before
-  0.13), `mode: "legacy"`, a version the desk does not know, or a v2 boot
-  whose key the desk does not hold (taken first by something else, or by
-  a desk that did not keep it) is not, and is handed what a legacy
-  computer is; `split` with any other `attest` (none, one for another
-  nonce, boot, mode or release, one another key made) is handed nothing at
-  all, and the pane treats it as needing an update. So is `split`, v1 or
-  v2, from a container the desk did not make to split (its
-  `hotline.release` label is before 0.13 or not a release number), before
-  any key is asked for: there everything runs as one user, and a job could
-  answer the port. The checks are
-  `computer/secrets.rs` `verify_attest_v1` and `verify_attest_v2`, the
-  MAC's inputs `attest_input_v1` and `attest_input_v2`; the set goes only
+  Cookies. The proof is v2 (0.13.0-rc.3 on): each boot makes a 32-byte key
+  and hands it once, `POST /capabilities/key` → `{v: 2, boot, key}`, then
+  409; the desk takes it as soon as a computer it started answers and keeps
+  it beside nothing of the container's: in its own memory and in the OS
+  store, under `computer-attest/<teammate id>` with the boot and the
+  SHA-256 of the bearer it was taken with, so a desk restart reads it back
+  and a container made again (a new bearer) never uses it. It is never
+  sent or logged, and the entry is deleted when the computer is removed,
+  hibernated or made again; `attest` is base64 HMAC-SHA256 under that key
+  of `hotline-broker-v2|<boot>|<mode>|<version>|<N>`. `mode: "split"` with
+  an `attest` that checks is a protected computer. Handed what a legacy
+  computer is: `legacy` with an `attest` that checks (a split computer
+  whose key proxy did not start), a 404 from a release before 0.13,
+  `legacy` or no door from a container not made to split, and a v2 boot
+  whose key the desk does not hold (taken first by something else, or by a
+  desk that did not keep it). Handed
+  nothing at all, and treated by the pane as needing an update: a v1 claim
+  of split (0.13.0-rc.2 and before, `attest` under the bearer, which the
+  desk's own asking carries to whatever answers), `split` with any other
+  `attest` (none, one for another nonce, boot, mode or release, one
+  another key made), anything but v2 (split or legacy) from a container
+  made to split, which always answers v2 — a 404, `legacy` under the older
+  proof, no `protected`, or a later version such as a v3, which this desk
+  treats as needing an update — and `split`, v1 or v2, from a container the desk
+  did not make to split (its `hotline.release` label is before 0.13 or not
+  a release number), before any key is asked for: there everything runs
+  as one user, and a job could answer the port. The checks are
+  `computer/secrets.rs` `door_on`, `verify_attest_v2` and `stepped_down`,
+  the MAC's input `attest_input_v2`; the set goes only
   after the proof verified, on the same client. A v2 computer's
   `protected.readable` names what of the set it holds it cannot keep from
   its jobs (a login or passkey for a loopback site, a key used with an

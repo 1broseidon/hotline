@@ -161,13 +161,16 @@ pub(crate) mod fake {
         refuse_answers: Arc<std::sync::atomic::AtomicBool>,
         /// How much later than ten minutes an arming says it ends.
         arm_later_ms: Arc<std::sync::atomic::AtomicI64>,
-        /// A release from 0.13 booted as one user: it says `legacy`.
+        /// A release from 0.13 booted as one user, or split with its key
+        /// proxy down: it says `legacy`.
         pub(crate) legacy: Arc<std::sync::atomic::AtomicBool>,
-        /// It says split, but attests with a key that is not the bearer.
+        /// It attests with a key that is not the one it handed (v2), or not
+        /// the bearer (v1).
         pub(crate) forged: Arc<std::sync::atomic::AtomicBool>,
-        /// It attests as 0.13.0-rc.3 does (v2): with [`ATTEST_KEY`], which
-        /// `POST /capabilities/key` hands once.
-        pub(crate) v2: Arc<std::sync::atomic::AtomicBool>,
+        /// It attests as 0.13.0-rc.2 did (v1), under the bearer, and has no
+        /// key door. Unset, it attests as 0.13.0-rc.3 does (v2): with
+        /// [`ATTEST_KEY`], which `POST /capabilities/key` hands once.
+        pub(crate) v1: Arc<std::sync::atomic::AtomicBool>,
         /// Whether its key was handed out; a test sets it to say something
         /// else took it first.
         pub(crate) key_taken: Arc<std::sync::atomic::AtomicBool>,
@@ -182,6 +185,19 @@ pub(crate) mod fake {
         pub(crate) migration: Arc<Mutex<Value>>,
         /// Every answer `POST /migration/answer` was given.
         pub(crate) migration_answers: Arc<Mutex<Vec<Value>>>,
+        /// Every bearer a request carried, beside the bearer the container
+        /// there then was made with (empty with none there), in order.
+        bearers: Arc<Mutex<Vec<(String, String)>>>,
+        /// Where the scripted runtime keeps the bearer it made the
+        /// container with, once a test says the fake is that container:
+        /// then it opens to that bearer alone, and each container made is
+        /// a new boot, whose key nobody has taken.
+        made_with: Arc<Mutex<Option<std::path::PathBuf>>>,
+        /// The bearer of the container whose boot the key door is on.
+        boot_of: Arc<Mutex<Option<String>>>,
+        /// Each new boot's key is taken by something else before the desk
+        /// asks for it.
+        pub(crate) keys_taken_first: Arc<std::sync::atomic::AtomicBool>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -199,6 +215,21 @@ pub(crate) mod fake {
         #[cfg(unix)]
         pub(crate) fn forms(&self) -> Vec<u8> {
             self.forms.lock().unwrap().clone()
+        }
+
+        /// From now on the fake is the container the scripted runtime made
+        /// last, whose bearer it keeps at `path`: any other bearer is
+        /// refused, as a computer refuses one it was not made with.
+        #[cfg(unix)]
+        pub(crate) fn opens_only_to(&self, path: std::path::PathBuf) {
+            *self.made_with.lock().unwrap() = Some(path);
+        }
+
+        /// Every bearer presented so far, beside the bearer of the
+        /// container there when it was.
+        #[cfg(unix)]
+        pub(crate) fn bearers(&self) -> Vec<(String, String)> {
+            self.bearers.lock().unwrap().clone()
         }
 
         pub(crate) fn armed(&self) -> Option<String> {
@@ -386,6 +417,47 @@ pub(crate) mod fake {
             .into_response()
     }
 
+    /// In front of every route: notes the bearer, and, once a test said
+    /// which container the fake is ([`Taken::opens_only_to`]), refuses any
+    /// bearer but the one that container was made with. A request with
+    /// none (`/health`) passes as it would.
+    async fn door(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        request: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        use std::sync::atomic::Ordering::SeqCst;
+        let presented = request
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::to_owned);
+        let path = taken.made_with.lock().unwrap().clone();
+        let made = path.map(|path| std::fs::read_to_string(path).unwrap_or_default());
+        if let Some(made) = &made {
+            let mut boot = taken.boot_of.lock().unwrap();
+            if boot.as_deref() != Some(made.as_str()) {
+                *boot = Some(made.clone());
+                taken
+                    .key_taken
+                    .store(taken.keys_taken_first.load(SeqCst), SeqCst);
+            }
+        }
+        if let Some(presented) = &presented {
+            taken
+                .bearers
+                .lock()
+                .unwrap()
+                .push((presented.clone(), made.clone().unwrap_or_default()));
+            if made.as_ref().is_some_and(|made| made != presented) {
+                return axum::http::StatusCode::UNAUTHORIZED.into_response();
+            }
+        }
+        next.run(request).await
+    }
+
     fn bearer_present(headers: &axum::http::HeaderMap) -> bool {
         headers
             .get(axum::http::header::AUTHORIZATION)
@@ -443,8 +515,8 @@ pub(crate) mod fake {
     /// The key a v2 fake's boot makes.
     pub(crate) const ATTEST_KEY: [u8; 32] = [0x42; 32];
 
-    /// `POST /capabilities/key`: 404 unless the fake attests as v2, then
-    /// its key once and a 409 after.
+    /// `POST /capabilities/key`: 404 when the fake attests as v1, else its
+    /// key once and a 409 after.
     async fn attest_key(
         axum::extract::State(taken): axum::extract::State<Taken>,
         headers: axum::http::HeaderMap,
@@ -453,7 +525,7 @@ pub(crate) mod fake {
         if !bearer_present(&headers) {
             return json_answer(axum::http::StatusCode::UNAUTHORIZED, json!({}));
         }
-        if !taken.v2.load(SeqCst) {
+        if taken.v1.load(SeqCst) {
             return json_answer(axum::http::StatusCode::NOT_FOUND, json!({}));
         }
         taken.key_asked.fetch_add(1, SeqCst);
@@ -468,11 +540,12 @@ pub(crate) mod fake {
     }
 
     /// `GET /capabilities` as a 0.13 computer answers it: split unless
-    /// told it booted legacy, with the HMAC of the boot and the nonce under
-    /// the bearer it was asked with, or under another key when forged. As
-    /// v2, under [`ATTEST_KEY`] over the mode and the release too, naming
-    /// what of the set it holds it cannot keep from its programs: a login
-    /// for `localhost`, a key used anywhere but GitHub.
+    /// told it booted legacy, as v2 under [`ATTEST_KEY`] (another key when
+    /// forged) over the boot, mode, release and nonce, naming what of the
+    /// set it holds it cannot keep from its programs: a login for
+    /// `localhost`, a key used anywhere but GitHub. As v1, the HMAC of the
+    /// boot and the nonce under the bearer it was asked with, or under
+    /// another key when forged.
     async fn capabilities(
         axum::extract::State(taken): axum::extract::State<Taken>,
         headers: axum::http::HeaderMap,
@@ -512,8 +585,13 @@ pub(crate) mod fake {
         } else {
             "split"
         };
-        if taken.v2.load(SeqCst) {
-            let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&ATTEST_KEY).unwrap();
+        if !taken.v1.load(SeqCst) {
+            let attest_key = if taken.forged.load(SeqCst) {
+                [0x24; 32]
+            } else {
+                ATTEST_KEY
+            };
+            let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&attest_key).unwrap();
             mac.update(
                 format!("hotline-broker-v2|fake-boot|{mode}|0.13.0-rc.3|{nonce}").as_bytes(),
             );
@@ -1145,7 +1223,9 @@ pub(crate) mod fake {
                     axum::routing::post(crate::computer::uses::fake::answer),
                 );
         }
-        let app = app.with_state(taken.clone());
+        let app = app
+            .layer(axum::middleware::from_fn_with_state(taken.clone(), door))
+            .with_state(taken.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {

@@ -28,9 +28,26 @@ pub(crate) struct Sending {
     pub files: Vec<String>,
 }
 
+/// Every argument `send` takes, as its schema lists them.
+const FIELDS: [&str; 8] = [
+    "to", "title", "message", "wants", "waiting", "about", "reply_to", "files",
+];
+
 impl Sending {
-    /// The `send` tool's arguments.
+    /// The `send` tool's arguments. One it does not take is refused rather
+    /// than dropped: a misnamed `wants` (`"work": "work"`) would otherwise
+    /// send a hand-off as a question, which its receiver answers instead of
+    /// doing.
     pub(crate) fn from_arguments(arguments: &Value) -> Result<Self, String> {
+        if let Some(unknown) = arguments
+            .as_object()
+            .and_then(|fields| fields.keys().find(|key| !FIELDS.contains(&key.as_str())))
+        {
+            return Err(format!(
+                "Nothing was sent: send has no `{unknown}`. It takes {}.",
+                FIELDS.map(|field| format!("`{field}`")).join(", ")
+            ));
+        }
         let text = |key: &str| {
             arguments
                 .get(key)

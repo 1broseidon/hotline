@@ -216,6 +216,46 @@ async fn agents_reach_a_colleague_only_by_send() {
     );
 }
 
+/// Haiku on Claude Code, 2026-11-21 QA: asked twice for a hand-off with
+/// wants work, it called `send` with `"work": "work"`. The field was
+/// dropped, the item went as a question, and Bea answered it instead of
+/// taking it as work. A field `send` does not take is refused, naming the
+/// ones it does, and nothing lands.
+#[tokio::test]
+async fn a_send_with_a_field_it_does_not_take_is_refused_and_sends_nothing() {
+    let (room, _) = room("inbox-unknown-field");
+    let refused = tool(
+        &room,
+        "ada",
+        "send",
+        json!({
+            "to": "Bob",
+            "title": "List files in your working directory in summary.md",
+            "message": "Please look at the files in your own working directory.",
+            "work": "work",
+            "waiting": true,
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        refused.starts_with(
+            "Nothing was sent: send has no `work`. It takes `to`, `title`, `message`, `wants`,"
+        ),
+        "{refused}"
+    );
+    assert!(items(&room, "bob").is_empty());
+    let sent = send(
+        &room,
+        "ada",
+        "bob",
+        "Fix the crane",
+        json!({"wants": "work"}),
+    )
+    .await;
+    assert_eq!(item(&room, "bob", &sent).wants, InboxWants::Work);
+}
+
 #[tokio::test]
 async fn an_item_keeps_its_state_and_each_receipt_with_its_time_across_a_restart() {
     let (room, _) = room("inbox-states");

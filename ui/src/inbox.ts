@@ -188,9 +188,6 @@ export function stateWord(item: InboxItem): string {
 	}
 }
 
-/** "2 unread", the composer's chip and the menu's count. */
-export const unreadWords = (count: number): string => `${count > 9 ? "9+" : String(count)} unread`;
-
 /* ---------------------------------------------------- the sender's rows */
 
 /** Items sent together: one or more `inbox_sent` lines with the same title, side by side on the tape. */
@@ -256,7 +253,7 @@ export type TurnInboxRow = { kind: "sorted"; key: string; entry: InboxSortedEntr
 /**
  * What a turn sorted and sent, in the order it did, read off the tape from
  * the person's line or turn's end before its first step to the line or end
- * after its last: the rows its path lists under Inbox. The chat has them
+ * after its last: the rows its path lists under Teammates. The chat has them
  * nowhere else (`toBlocks`, `withoutUnsaidTurns`).
  */
 export function turnInbox(events: readonly TranscriptEvent[], stepIds: readonly string[]): TurnInboxRow[] {
@@ -547,9 +544,6 @@ export function topicMatches(one: Topic, query: string, nameOf: (personaId: stri
 	const hay = one.items.flatMap((item) => [item.title, item.body, nameOf(item.from) ?? "", nameOf(item.to) ?? ""]).join(" ").toLowerCase();
 	return words.every((word) => hay.includes(word));
 }
-
-/** What the teammate has not read, newest first: the composer's tray. */
-export const unreadItems = (view: InboxView | undefined): InboxItem[] => (view?.open ?? []).filter((item) => item.state === "new" || item.state === "noticed");
 
 /** The items a newer Hotline saved that belong on a tab: held for the teammate or sent by it, open or closed. */
 export function newerIn(view: InboxView, closed: boolean): InboxNewerItem[] {

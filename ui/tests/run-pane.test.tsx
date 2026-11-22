@@ -132,7 +132,6 @@ async function show(run: RunningSubagent | undefined) {
 				state={{ open: { thread: { kind: "run", key }, title: "Audit side-pane thread rows" } }}
 				onState={() => {}}
 				onClose={() => {}}
-				onOpenTeammate={() => {}}
 				entry={entry}
 				roster={[entry]}
 				width={360}

@@ -737,8 +737,12 @@ stored state and the teammates' tools keep `taken`.
   in plain weight, the tray in grey, its live state word kept), and the line
   under its reply says what it read and sent in a few words, "Read 2
   messages, sent a message" (`inboxWords` in `ui/src/inbox.ts`), before its
-  time. Its path lists them under Inbox, before its steps, each a row that
-  opens its item (`turnInbox`, `TurnInbox` in `components/InboxPane.tsx`).
+  time. Its path lists them under Teammates, before its steps, each a row
+  that opens its item and says what became of it ("From Timo · Answered",
+  "To Ivy · Awaiting approval"; `turnInbox`, `TurnInbox` in
+  `components/InboxPane.tsx`). The heading is Teammates, not Inbox: to the
+  person, inbox items are not mail; they see work (threads) and problems
+  (George, 2026-11-21).
   The teammate's bubble says what it asked and of whom. It is the window's
   drawing: the tape, the wire and the phone's line are unchanged.
 - **A turn that said nothing.** A turn that ended quiet with no bubble (one
@@ -750,22 +754,26 @@ stored state and the teammates' tools keep `taken`.
   running keeps its working mark, and one that failed keeps its line. A
   turn that ends without a new line in the chat posts no desktop toast
   (`ui/src/notify.ts`).
-- **Woken by its inbox.** A bubble the teammate posts from a quiet turn one
-  item woke carries one quiet line above it, "From Goldie's message · Rerun
-  the Linux build" (the sender's name, the item's title; "From Hotline's
-  notice" for the desk's own), a plain row with the tray in grey, which
-  opens the item. The desk stamps the post with the item (`fromItem`) when
-  exactly one item woke the turn: its line or its index offered that item
-  alone; several together could each be what it posts about, so it names
-  none.
+- **Woken by its inbox.** A bubble or a file the teammate posts from a
+  quiet turn one item woke is drawn like any other post, with no line over
+  it naming whose message it was (George, 2026-11-21: what a teammate says
+  is its own words, not a letter it got). The desk still stamps the post
+  with the item (`fromItem`) when exactly one item woke the turn: its line
+  or its index offered that item alone; several together could each be
+  what it posts about, so it names none. The desk window draws nothing
+  from it on a post.
   The turn's end is marked `quiet` when the person never spoke into
   it, and the steps pane heads such a turn "Worked quietly", never "Done",
   whatever turn is working now.
-- **What a colleague's message prompted** (task-469). The same line, by the
-  same rule (`Room::prompted_by`), is over everything else such a turn makes
-  that the person sees, so a card that appears because a colleague asked
-  for it never looks like it came from the person's own request: a file it
-  sends (`send_file`, `generate_image`: the post carries `fromItem`); a card
+- **What a colleague's message prompted** (task-469). By the same rule
+  (`Room::prompted_by`), what such a turn asks of the person carries one
+  quiet line, "From Goldie's message · Rerun the Linux build" (the sender's
+  name, the item's title; "From Hotline's notice" for the desk's own), a
+  plain row with the tray in grey, which opens the item. A card that
+  appears because a colleague asked for it never looks like it came from
+  the person's own request. A file it sends (`send_file`, `generate_image`)
+  carries `fromItem` on its post and is drawn with no line, as a bubble is.
+  The line is on a card
   it raises, a `request_human` or `ask_question` card (a source proposal, a
   new teammate or the person's name included), a credential request, a
   sign-in card (`ask_cookies`), a permission its harness asks, and the card
@@ -837,27 +845,32 @@ stored state and the teammates' tools keep `taken`.
   for several), and when it last moved, with the live dot while its work
   runs. A topic with something the teammate has not read is bold with its
   ring in the accent; a seen one is in To sort with a half ring and no part
-  of the unread count. In Closed a finished topic is ticked, a dropped one
+  of what is unread. In Closed a finished topic is ticked, a dropped one
   crossed, and an expired one keeps a dotted ring. It opens from the
-  teammate's menu (Inbox, beside Threads, with "N unread") and from the
-  composer's tray.
+  teammate's menu (Inbox, beside Threads, with no count) and from anything
+  that names one of its items.
 - **Work an item started.** The desk opens a taken item's work thread with
   the item's sender as its opener, as a handoff was. The window tells the two
   apart by the inbox views (`item.work`): such a thread is a work thread
   everywhere. On the receiver's conversation it is a link row with the live
   dot, its title and "Work thread · Running" (or Open, Parked, or what came
   of it), and on the sender's "Work thread · Juno · Running"; the Threads
-  list and the composer's count list it as a work thread; its pane is the
-  work thread's, with the item's words over it as its Message, whose Open ›
-  opens the item (the one taken, not one combined into it), with Back to the
-  thread. A handoff from before the inbox keeps its old line and pane.
-- **The composer and the rail.** While the open teammate has unread items,
-  the composer's bottom row has "N unread" with the tray, beside "N threads"
-  and in its style; it opens a tray of them (title, sender with "waiting"
-  when the sender waits, and when each arrived, the same on every row) with
-  a last row to the whole inbox. The rail shows no inbox count: a
-  teammate's unread is its own business, and the chip says it the moment
-  the person opens that conversation.
+  list and the composer's count list it as a work thread. One press on it,
+  wherever it is listed, opens the thread itself: the item's words at the top
+  as its Message, from its sender, whose Open › opens the item (the one
+  taken, not one combined into it, with Back to the thread), then the
+  teammate's steps, words and cards as they happen, each step there to read
+  without a press (George, 2026-11-21: no page whose only content is a row
+  leading to the real thread). A thread whose item the view no longer holds
+  opens the same way, its words read from the thread. Who handed it over is
+  not said again under the work. A handoff from before the inbox keeps its
+  old line, now "Huck handed this to Juno · title" in the person's terms.
+- **No unread count.** Nothing on the desk counts what a teammate has not
+  read in its inbox: not the message box, the teammate's menu or the rail
+  (George, 2026-11-21: to the person, inbox items are not mail; they see
+  work and problems). What a teammate has not read is its work, and it
+  shows up as threads it runs and cards that need the person. The view's
+  `unread` stays on the wire, and the desk window does not draw it.
 - **Conversations from before the inbox.** A conversation two teammates had
   in 0.49 (a pair thread) is kept to read: in the Threads list it is always
   under Earlier ("Earlier and routine" under Active), however recent, named

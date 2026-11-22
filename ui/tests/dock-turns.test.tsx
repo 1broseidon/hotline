@@ -138,7 +138,6 @@ async function show(pane: Persona, working: boolean | null) {
 				state={{ open: { thread: { kind: "side", key: desk.key }, title: "Add mul to calc.py" } }}
 				onState={() => {}}
 				onClose={() => {}}
-				onOpenTeammate={() => {}}
 				entry={all.find((one) => one.persona.id === pane.id) ?? null}
 				roster={all}
 				width={360}
@@ -273,8 +272,8 @@ const linkOf = (ended: boolean): TranscriptEvent => ({
 	...(ended ? { handoffEnded: true } : {}),
 });
 
-describe("the bar of a handed-over thread", () => {
-	test("names who handed it over while the handoff stands, and says it has ended once the desk ended it", async () => {
+describe("who handed a thread over is said once, in its head", () => {
+	test("no bar over the composer repeats it, and the head says once the desk ended the handoff", async () => {
 		sender = persona("poe", "Poe");
 		receiver = persona("toad", "Toad");
 		// The thread's link was on Toad's tape before the pane opened, and the list has heard from the thread since,
@@ -283,15 +282,18 @@ describe("the bar of a handed-over thread", () => {
 		dmFirst = [linkOf(false)];
 		await show(receiver, false);
 		expect(dmHandlers).toBeDefined();
-		expect(container.textContent).toContain("Poe handed this to Toad.");
-		expect(container.textContent).not.toContain("The handoff has ended.");
+		const facts = () => [...container.querySelectorAll(".spine-facts > div")].map((row) => `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`);
+		expect(facts()).toEqual(["From: Poe", "To: Toad", "Answers: go back to Poe"]);
+		expect(container.querySelector(".handoff-bar")).toBeNull();
+		expect(container.textContent).not.toContain("handed this to");
+		expect(container.textContent).not.toContain("Talk to Poe");
 
 		// The desk records the end on the thread's link, and the list read again says so.
 		desk = { ...desk, ended: true };
 		await act(async () => dmHandlers?.event(linkOf(true)));
 		await show(receiver, false);
-		expect(container.textContent).toContain("Poe handed this to Toad. The handoff has ended.");
-		expect(container.textContent).toContain("Talk to Poe about it");
+		expect(facts()).toEqual(["From: Poe", "To: Toad", "Answers: the handoff has ended"]);
+		expect(container.querySelector("textarea")).not.toBeNull();
 	});
 });
 

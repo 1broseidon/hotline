@@ -43,12 +43,12 @@ describe("Ask or hand off", () => {
 		expect(runs.map((run) => run.id)).toEqual(["old-thought", "new-thought"]);
 	});
 
-	test("a handoff is quiet and inspectable, and says when it is still queued", () => {
-		expect(deliveryLine(delivery)).toEqual({ name: "Mack", said: "handed you: Implement the fix and report back." });
+	test("a handoff is quiet and inspectable, said in the person's terms (never \"handed you\"), and says when it is still queued", () => {
+		expect(deliveryLine(delivery, "Ada")).toEqual({ name: "Mack", said: "handed this to Ada · Implement the fix and report back." });
 		expect(deliveryMissed(delivery)).toBe(false);
 		const html = transcript([delivery]);
 		expect(html).toContain("<button");
-		expect(html).toContain("handed you: Implement the fix");
+		expect(html).toContain("handed this to Ada · Implement the fix");
 		expect(html).not.toContain("queued");
 		expect(html).not.toContain("Linked with");
 		const queued = transcript([{ ...delivery, receipt: "sent" }]);
@@ -57,13 +57,13 @@ describe("Ask or hand off", () => {
 	});
 
 	test("an answer's preview skips an opener that only acknowledges the work", () => {
-		expect(deliveryLine({ ...delivery, text: "On it.\n\n7.0.0-31-generic" })?.said).toBe("handed you: 7.0.0-31-generic");
-		expect(deliveryLine({ ...delivery, text: "Sure!" })?.said).toBe("handed you: Sure!");
-		expect(deliveryLine({ ...delivery, text: "On it now, the build is red" })?.said).toBe("handed you: On it now, the build is red");
+		expect(deliveryLine({ ...delivery, text: "On it.\n\n7.0.0-31-generic" }, "Ada")?.said).toBe("handed this to Ada · 7.0.0-31-generic");
+		expect(deliveryLine({ ...delivery, text: "Sure!" }, "Ada")?.said).toBe("handed this to Ada · Sure!");
+		expect(deliveryLine({ ...delivery, text: "On it now, the build is red" }, "Ada")?.said).toBe("handed this to Ada · On it now, the build is red");
 	});
 
 	test("a quoted line reads as words, not markdown", () => {
-		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" })?.said).toBe("handed you: GET /receipts is live");
+		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" }, "Ada")?.said).toBe("handed this to Ada · GET /receipts is live");
 	});
 
 	test("the pending pair pause offers Keep going and Stop", () => {
@@ -148,15 +148,15 @@ describe("Ask or hand off", () => {
 
 	test("ask replies still open as answers, not handoffs", () => {
 		const answer = { ...delivery, cause: { ...handoff, kind: "peer" as const, status: "done" as const } };
-		expect(deliveryLine({ ...answer, text: "pong" })).toEqual({ name: "Mack", said: "pong" });
+		expect(deliveryLine({ ...answer, text: "pong" }, "Ada")).toEqual({ name: "Mack", said: "pong" });
 		// The answer the turn ended on, not what it said on the way there.
 		const turn = "on it — let me check the changelog file and the release note first.\n\nThe 0.46 Windows fix is the **bind path fix**.";
-		expect(deliveryLine({ ...answer, text: turn, cause: { ...answer.cause, answer: "The 0.46 Windows fix is the bind path fix." } })).toEqual({
+		expect(deliveryLine({ ...answer, text: turn, cause: { ...answer.cause, answer: "The 0.46 Windows fix is the bind path fix." } }, "Ada")).toEqual({
 			name: "Mack",
 			said: "The 0.46 Windows fix is the bind path fix.",
 		});
 		expect(turnCauseLine([answer])).toBe("Answering Mack");
-		expect(deliveryLine({ ...answer, cause: { ...answer.cause, status: "failed" } })).toEqual({
+		expect(deliveryLine({ ...answer, cause: { ...answer.cause, status: "failed" } }, "Ada")).toEqual({
 			name: "Mack",
 			said: "didn't answer · Implement the fix",
 		});
@@ -168,7 +168,7 @@ describe("Ask or hand off", () => {
 			text: "Which port?",
 			cause: { kind: "question" as const, requestId: "r", personaId: "ada", name: "Ada", threadKey: "ada~mack", about: "Which port?" },
 		};
-		expect(deliveryLine(question)).toEqual({ name: "Ada", said: "asks: Which port?" });
+		expect(deliveryLine(question, "Mack")).toEqual({ name: "Ada", said: "asks: Which port?" });
 	});
 
 	const marker: Extract<TranscriptEvent, { kind: "peer" }> = {

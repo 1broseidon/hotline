@@ -251,7 +251,6 @@ describe("the notes in the Threads list", () => {
 					state={{ open: null }}
 					onState={(next) => states.push(next)}
 					onClose={() => {}}
-					onOpenTeammate={() => {}}
 					entry={roster[1]!}
 					roster={roster}
 					width={360}
@@ -320,7 +319,6 @@ describe("a work thread's header", () => {
 					state={{ open: { thread: release, title: "release 0.11.1" } }}
 					onState={() => {}}
 					onClose={() => {}}
-					onOpenTeammate={() => {}}
 					entry={roster[0]!}
 					roster={roster}
 					width={360}
@@ -350,7 +348,8 @@ describe("a work thread's header", () => {
 		handed = true;
 		answers["thread.close"] = () => null;
 		await showThread([entry(goldie), entry(quill), entry(huck)]);
-		expect(container.textContent).toContain("Huck handed this to Goldie.");
+		expect(container.querySelector(".band-kind")?.textContent).toBe("Handoff");
+		expect(container.textContent).not.toContain("handed this to");
 		expect(container.querySelector('button[title="Archive this thread"]')).toBeNull();
 		const end = container.querySelector<HTMLButtonElement>('button[title="End this thread"]');
 		expect(end?.textContent).toBe("End thread");

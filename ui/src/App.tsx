@@ -755,7 +755,6 @@ export function App() {
 							width={dockWidth}
 							onWidth={setDockWidth}
 							overlay={dockOverlay}
-							onOpenTeammate={select}
 							onOpenTeammateThread={openTeammateThread}
 							onFollowUp={followUp}
 							onGoToCard={goToCard}

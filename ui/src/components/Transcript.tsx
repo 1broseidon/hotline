@@ -44,7 +44,7 @@ import { ComputerFrame } from "./transcript/ComputerFrame";
 import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 import { heightOf } from "./transcript/rowWindow";
 import { useRowWindow } from "./transcript/useRowWindow";
-import { InboxFromRow, InboxRows, InboxSentRow, Prompted } from "./transcript/InboxLines";
+import { InboxRows, InboxSentRow, Prompted } from "./transcript/InboxLines";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -253,7 +253,8 @@ export function Transcript({
 					event.kind === "inbox_sorted" ||
 					(event.kind === "user" && event.aboutItem !== undefined) ||
 					(event.kind === "link" && event.openerId !== undefined) ||
-					("fromItem" in event && event.fromItem !== undefined),
+					// A reply or a file is the teammate's own words: only a card names the message behind it.
+					(event.kind !== "agent" && "fromItem" in event && event.fromItem !== undefined),
 			),
 		[events],
 	);
@@ -899,7 +900,6 @@ const Row = memo(function Row({
 					run={run}
 					reactions={worn}
 					bubble={people?.get(personaId)?.bubble}
-					{...(event.fromItem !== undefined ? { prompted: <InboxFromRow itemId={event.fromItem} people={people} /> } : {})}
 					{...(onReply !== undefined ? { onReply } : {})}
 					{...(onReact !== undefined ? { onReact } : {})}
 				/>
@@ -1018,7 +1018,7 @@ const Row = memo(function Row({
 		 * answer never gets here: it is on its card. */
 		case "delivery": {
 			const cause = event.cause;
-			const line = deliveryLine(event);
+			const line = deliveryLine(event, ownerName);
 			if (cause.kind === "answer" || line === null) return null;
 			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (

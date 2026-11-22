@@ -889,7 +889,7 @@
 		font-weight: 600;
 		color: var(--ink);
 	}
-	/* What prompted a bubble: a plain quiet row over it, the tray in grey,
+	/* What prompted a card: a plain quiet row over it, the tray in grey,
 	 * nothing in the accent or the bold of a row of the teammate's own. */
 	.link-row[data-kind="inbox-from"] {
 		margin-bottom: 4px;

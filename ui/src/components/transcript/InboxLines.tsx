@@ -83,12 +83,14 @@ export function InboxAboutQuote({ itemId, owner, people }: { itemId: string; own
 }
 
 /**
- * Over a bubble a teammate posted from a turn one inbox item woke: one quiet
- * line saying whose message prompted it and its title ("From Goldie's
+ * Over a card a teammate raised in a turn one inbox item woke: one
+ * quiet line saying whose message prompted it and its title ("From Goldie's
  * message · Rerun the Linux build"), Hotline's own notice as Hotline's. A
  * press opens the item. Nothing until the teammate's inbox knows the item.
+ * A reply or a file has none: what the teammate says is its own words, and
+ * the person sees threads and problems, not mail.
  */
-export function InboxFromRow({ itemId, people }: { itemId: string; people: ReadonlyMap<string, Person> | undefined }) {
+function InboxFromRow({ itemId, people }: { itemId: string; people: ReadonlyMap<string, Person> | undefined }) {
 	const { items, onOpen } = useContext(InboxRows);
 	const item = items.get(itemId);
 	if (item === undefined) return null;
@@ -118,9 +120,9 @@ export function InboxFromRow({ itemId, people }: { itemId: string; people: Reado
 }
 
 /**
- * A card, a file or a job a teammate made in a quiet turn one inbox item
- * woke (`fromItem`), with the line over it saying whose message prompted
- * it: a colleague is behind it, not the person. Nothing over it otherwise.
+ * A card a teammate raised in a quiet turn one inbox item woke (`fromItem`),
+ * with the line over it saying whose message prompted it: a colleague is
+ * behind what the person is asked, not the person. Nothing over it otherwise.
  */
 export function Prompted({ itemId, people, children }: { itemId: string | undefined; people: ReadonlyMap<string, Person> | undefined; children: ReactNode }) {
 	if (itemId === undefined) return children;

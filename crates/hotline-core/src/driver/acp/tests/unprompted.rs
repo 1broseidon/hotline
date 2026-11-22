@@ -266,7 +266,7 @@ fn resuming_agent() -> impl std::future::Future<Output = ()> + Send + 'static {
                        responder: Responder<acp::ResumeSessionResponse>,
                        cx: ConnectionTo<Client>| {
                     cx.send_notification(SessionNotification::new(
-                        request.session_id.clone(),
+                        request.session_id,
                         SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
                             TextContent::new(
                                 "Warning: This session was recorded with model `gpt-6-luna` but is resuming with `gpt-6.2-sol`.",

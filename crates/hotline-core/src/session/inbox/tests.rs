@@ -244,7 +244,7 @@ async fn a_send_with_a_field_it_does_not_take_is_refused_and_sends_nothing() {
         ),
         "{refused}"
     );
-    assert!(items(&room, "bob").is_empty());
+    assert_eq!(items(&room, "bob"), [] as [InboxItem; 0]);
     let sent = send(
         &room,
         "ada",

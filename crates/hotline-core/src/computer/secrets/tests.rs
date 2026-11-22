@@ -12,7 +12,8 @@ enum Is {
     Old,
     /// 0.13 booted as one user.
     Legacy,
-    /// 0.13 split, attesting with the bearer (v1, rc.2 and before).
+    /// 0.13 split, attesting with the bearer (v1, rc.2 and before): no
+    /// proof at all, since the desk's asking carries the bearer.
     Split,
     /// Says split, attests with another key (v1).
     Forged,
@@ -36,8 +37,11 @@ enum Spoil {
     /// Stepped down to the older proof: v1, under the bearer the asking
     /// carried, as rc.2 makes it.
     V1,
-    /// Says it booted legacy.
+    /// Says it booted legacy, under the older proof.
     Legacy,
+    /// Says legacy under its own boot's key, as a split computer whose key
+    /// proxy did not start does: an honest answer.
+    ProxyDown,
     /// Has no `/capabilities` at all, as a release before 0.13.
     NoDoor,
 }
@@ -67,59 +71,6 @@ fn answer_v2(key: &[u8], boot: &str, nonce: &str, mode: &str) -> Value {
     );
     json!({"version": version, "boot": boot, "attest": attest,
            "protected": {"v": 2, "mode": mode, "loopback": "readable", "other": "readable", "readable": []}})
-}
-
-#[test]
-fn an_attest_is_the_bearers_mac_of_the_broker_context_the_boot_and_this_nonce() {
-    assert_eq!(
-        attest_input_v1("boot-1", "n1"),
-        "hotline-broker-v1|boot-1|n1"
-    );
-    let key = b"the-token";
-    let good = answer("the-token", "boot-1", "n1", "split");
-    assert_eq!(verify_attest_v1(key, "n1", &good), Door::Protected);
-}
-
-#[test]
-fn a_split_claim_without_its_proof_is_unproven() {
-    let key = b"the-token";
-    let replayed = answer("the-token", "boot-1", "an-older-nonce", "split");
-    let forged = answer("not-the-token", "boot-1", "n1", "split");
-    let mut altered = answer("the-token", "boot-1", "n1", "split");
-    altered["boot"] = json!("boot-2");
-    let mut missing = answer("the-token", "boot-1", "n1", "split");
-    missing.as_object_mut().unwrap().remove("attest");
-    let mut garbled = answer("the-token", "boot-1", "n1", "split");
-    garbled["attest"] = json!("not base64!");
-    let mut no_boot = answer("the-token", "", "n1", "split");
-    no_boot["boot"] = json!("");
-    for (what, answer) in [
-        ("replayed", replayed),
-        ("forged", forged),
-        ("altered boot", altered),
-        ("missing", missing),
-        ("garbled", garbled),
-        ("no boot", no_boot),
-    ] {
-        assert_eq!(
-            verify_attest_v1(key, "n1", &answer),
-            Door::Unproven,
-            "{what}"
-        );
-    }
-}
-
-#[test]
-fn a_computer_that_does_not_claim_split_is_unprotected_whatever_it_attests() {
-    let key = b"the-token";
-    let legacy = answer("the-token", "boot-1", "n1", "legacy");
-    let mut later = answer("the-token", "boot-1", "n1", "split");
-    later["protected"]["v"] = json!(3);
-    let mut none = answer("the-token", "boot-1", "n1", "split");
-    none.as_object_mut().unwrap().remove("protected");
-    for answer in [legacy, later, none] {
-        assert_eq!(verify_attest_v1(key, "n1", &answer), Door::Unprotected);
-    }
 }
 
 #[test]
@@ -294,6 +245,7 @@ async fn capabilities(
                 );
             }
             Spoil::NoDoor => return (StatusCode::NOT_FOUND, String::new()),
+            Spoil::ProxyDown => answer_v2(&key, &boot, nonce, "legacy"),
             Spoil::None => answer_v2(&key, &boot, nonce, "split"),
             Spoil::WrongKey => answer_v2(&[0x11; 32], &boot, nonce, "split"),
             Spoil::Mode => {
@@ -378,8 +330,9 @@ async fn computer(with_route: bool, is: Is) -> (Ready, Fake, tokio::task::JoinHa
     let serving = tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
+    // Only a release from 0.13 is made to split; one before has no door.
     let ready = Ready {
-        made_to_split: true,
+        made_to_split: is != Is::Old,
         ..Ready::new(format!("http://127.0.0.1:{port}/mcp"), "the-token")
     };
     (ready, fake, serving)
@@ -456,9 +409,22 @@ async fn an_old_or_legacy_computer_is_handed_what_it_was_and_no_protected_key() 
     }
 }
 
+/// A v1 claim of split is handed nothing, however good its attest: the
+/// bearer it is made with is the one the desk's own asking just carried.
+#[tokio::test]
+async fn a_v1_claim_of_split_is_handed_nothing_whatever_it_attests() {
+    let (ready, fake, serving) = computer(true, Is::Split).await;
+    let handed = deliver(&ready, &the_set()).await.unwrap();
+    assert_eq!(handed.door, Door::Unproven);
+    assert_eq!(handed.waiting, ["GITHUB", "GITHUB_TOKEN", "NPM_TOKEN"]);
+    assert!(fake.taken.lock().unwrap().is_empty(), "not even a variable");
+    serving.abort();
+}
+
 #[tokio::test]
 async fn a_split_computer_that_attests_is_handed_every_grant_in_the_v2_form() {
-    let (ready, fake, serving) = computer(true, Is::Split).await;
+    let (ready, fake, serving) = computer(true, Is::SplitV2).await;
+    take_attest_key(&ready).await;
     let handed = deliver(&ready, &the_set()).await.expect("taken");
     assert_eq!(
         handed,
@@ -694,13 +660,10 @@ async fn a_v2_proof_that_fails_under_the_key_held_gets_nothing() {
 /// A computer that handed this desk its boot's v2 key is believed only on
 /// v2, in this desk and in one restarted from the store. Whatever answers
 /// its port with the older proof (v1, made under the bearer the desk's own
-/// asking carried), says it booted legacy, or has no door, is not the
-/// computer that handed the key: it is handed nothing, not even what a
-/// legacy computer is, and the key stays for the real one's next answer.
-/// A computer that never handed a key is unaffected: v1 is still checked
-/// as it was (`a_split_computer_that_attests_is_handed_every_grant_in_the_v2_form`),
-/// legacy and no door still get what 0.49 gave
-/// (`an_old_or_legacy_computer_is_handed_what_it_was_and_no_protected_key`).
+/// asking carried), says it booted legacy under that proof, or has no door,
+/// is not the computer that handed the key: it is handed nothing, not even
+/// what a legacy computer is, and the key stays for the real one's next
+/// answer.
 #[tokio::test]
 async fn a_computer_that_handed_this_desk_a_v2_key_cannot_be_stepped_down() {
     for spoil in [Spoil::V1, Spoil::Legacy, Spoil::NoDoor] {
@@ -722,6 +685,63 @@ async fn a_computer_that_handed_this_desk_a_v2_key_cannot_be_stepped_down() {
         *fake.spoil.lock().unwrap() = Spoil::None;
         assert_eq!(door(&ready).await, Ok(Door::Protected));
         assert_eq!(fake.asked.load(Ordering::SeqCst), 1, "never asked again");
+        serving.abort();
+    }
+}
+
+/// A split computer whose key proxy did not start says legacy under its
+/// boot's own key: it is checked like split, and handed what a legacy
+/// computer is, the protected key waiting. The same answer under another
+/// key is not it, and gets nothing.
+#[tokio::test]
+async fn a_split_computer_whose_key_proxy_did_not_start_is_handed_what_a_legacy_one_is() {
+    let (ready, fake, serving) = computer(true, Is::SplitV2).await;
+    take_attest_key(&ready).await;
+    *fake.spoil.lock().unwrap() = Spoil::ProxyDown;
+    let handed = deliver(&ready, &the_set()).await.unwrap();
+    assert_eq!(handed.door, Door::Unprotected);
+    assert_eq!(handed.waiting, ["GITHUB_TOKEN"]);
+    assert!(!handed.restart, "a restart is not what it needs");
+    let taken = fake.taken.lock().unwrap().clone();
+    assert_eq!(taken.len(), 1);
+    assert_ne!(taken[0].0.as_deref(), Some(V2));
+    assert!(taken[0].1.get("GITHUB_TOKEN").is_none());
+    assert_eq!(taken[0].1["GITHUB"]["kind"], "login");
+    serving.abort();
+
+    let (ready, fake, serving) = computer(true, Is::SplitV2).await;
+    take_attest_key(&ready).await;
+    let forged = answer_v2(&[0x11; 32], "boot-1", "n1", "legacy");
+    assert_eq!(verify_attest_v2(&BOOT_KEY, "n1", &forged), Door::Unproven);
+    assert!(fake.taken.lock().unwrap().is_empty());
+    serving.abort();
+}
+
+/// What is left without a key held: a computer made to split that answers
+/// with no door is still not it, since every release made so serves one;
+/// but one that answers legacy under the older proof, before this desk
+/// took a key or after the OS store would not give the kept one back, is
+/// handed what a legacy computer is, never the protected key.
+#[tokio::test]
+async fn without_a_key_held_only_the_missing_door_is_told_from_the_container() {
+    for (spoil, want) in [
+        (Spoil::NoDoor, Door::Unproven),
+        (Spoil::Legacy, Door::Unprotected),
+        (Spoil::V1, Door::Unproven),
+    ] {
+        let (ready, fake, serving) = computer(true, Is::SplitV2).await;
+        fake.taken_by_another();
+        *fake.spoil.lock().unwrap() = spoil;
+        let handed = deliver(&ready, &the_set()).await.unwrap();
+        assert_eq!(handed.door, want);
+        let taken = fake.taken.lock().unwrap().clone();
+        assert!(
+            taken
+                .iter()
+                .all(|(_, set)| set.get("GITHUB_TOKEN").is_none()
+                    && set["secrets"].get("GITHUB_TOKEN").is_none()),
+            "the protected key never goes: {taken:?}"
+        );
         serving.abort();
     }
 }

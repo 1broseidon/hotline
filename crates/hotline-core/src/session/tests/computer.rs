@@ -2080,6 +2080,59 @@ async fn a_split_computer_that_proves_itself_takes_every_grant_and_a_forged_one_
     );
 }
 
+/// A computer that attests as 0.13.0-rc.2 did, v1 under the bearer, is
+/// handed nothing, however good its attest: the desk's own asking carried
+/// the bearer that attest is made with to whatever answered, so it proves
+/// nothing about what that is. It is never said to be protected, and the
+/// pane says it needs an update.
+#[tokio::test]
+async fn a_v1_claim_of_split_is_handed_nothing_whatever_it_attests() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let ComputerRoom { room, taken, .. } =
+        computer_room("v1-claim", Some("0.13.0-rc.2"), TWO_RELEASES, true).await;
+    taken.v1.store(true, SeqCst);
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert!(taken.sets().is_empty(), "{:?}", taken.sets());
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+    let said = lock(&room.secret_notices).clone();
+    assert!(
+        said.iter()
+            .any(|text| text.contains(crate::computer::secrets::UNPROVEN)),
+        "{said:?}"
+    );
+}
+
+/// Every release a container is made to split on serves `/capabilities`,
+/// split or legacy, so one that answers 404 there is not that computer, and
+/// is handed nothing, with no key held to tell: not even what a release
+/// from before 0.13 is handed.
+#[tokio::test]
+async fn a_computer_made_to_split_without_a_capabilities_door_is_handed_nothing() {
+    // What answers the port is a release from before `/capabilities`; the
+    // container was made on 0.13.0, as its label says.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "split-no-door",
+        Some(crate::computer::COMPUTER_VERSION),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    let mut ada = room.persona("ada").unwrap();
+    ada.computer.as_mut().unwrap().image = Some("hotline-computer:0.13.0".into());
+    enrol(&room.log, &ada);
+    grant_a_key_a_variable_and_a_login(&room);
+    room.start("ada").await.unwrap();
+    assert!(taken.sets().is_empty(), "{:?}", taken.sets());
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+}
+
 /// A computer from 0.13.0-rc.3 proves itself with the key its boot hands
 /// once: the desk takes it as it starts the computer, hands every grant, a
 /// login for the computer itself readable so it is still typed there, and
@@ -2112,7 +2165,6 @@ async fn a_v2_computer_proves_itself_with_its_boots_key_and_one_taken_first_does
 
     let ComputerRoom { room, taken, .. } =
         computer_room("protected-v2", Some("0.13.0"), TWO_RELEASES, true).await;
-    taken.v2.store(true, SeqCst);
     grant_a_key_a_variable_and_a_login(&room);
     local_login(&room);
     room.start("ada").await.unwrap();
@@ -2131,7 +2183,6 @@ async fn a_v2_computer_proves_itself_with_its_boots_key_and_one_taken_first_does
 
     let ComputerRoom { room, taken, .. } =
         computer_room("protected-v2-taken", Some("0.13.0"), TWO_RELEASES, true).await;
-    taken.v2.store(true, SeqCst);
     taken.key_taken.store(true, SeqCst);
     grant_a_key_a_variable_and_a_login(&room);
     local_login(&room);
@@ -2409,7 +2460,6 @@ async fn a_desk_restart_keeps_a_v2_computer_protected_and_its_key_is_used_withou
     use std::sync::atomic::Ordering::SeqCst;
     let mut fixture = kept_computer_room("restart-v2", Some("0.13.0")).await;
     let taken = fixture.taken.clone();
-    taken.v2.store(true, SeqCst);
     grant_a_key_a_variable_and_a_login(&fixture.room);
     fixture.room.start("ada").await.unwrap();
     assert_eq!(
@@ -2519,7 +2569,6 @@ async fn a_computer_left_by_a_desk_that_never_took_its_key_is_protected_at_the_f
     use std::sync::atomic::Ordering::SeqCst;
     let fixture = kept_computer_room("left-v1-desk", Some("0.13.0")).await;
     let taken = fixture.taken.clone();
-    taken.v2.store(true, SeqCst);
     // The container the earlier desk made, running, its bearer in its
     // settings, its release on its label.
     let state = fixture.root.join("state");
@@ -2559,7 +2608,6 @@ async fn a_computer_made_again_forgets_the_kept_key() {
     use std::sync::atomic::Ordering::SeqCst;
     let fixture = kept_computer_room("made-again-v2", Some("0.13.0")).await;
     let taken = fixture.taken.clone();
-    taken.v2.store(true, SeqCst);
     let room = fixture.room.clone();
     room.start("ada").await.unwrap();
     let before = room.computers.running("ada").await.unwrap().token;
@@ -2610,7 +2658,6 @@ async fn an_old_computer_that_claims_to_split_is_handed_nothing() {
     // container was made on 0.12.0, as its label says.
     let ComputerRoom { room, taken, .. } =
         computer_room("old-claims-split", Some("0.13.0"), TWO_RELEASES, true).await;
-    taken.v2.store(true, SeqCst);
     let mut ada = room.persona("ada").unwrap();
     ada.computer.as_mut().unwrap().image = Some("hotline-computer:0.12.0".into());
     enrol(&room.log, &ada);
@@ -2630,15 +2677,29 @@ async fn an_old_computer_that_claims_to_split_is_handed_nothing() {
     );
 }
 
+/// Whether no update, restart or swap of the teammate's computer is under
+/// way: the swap has finished, whatever it came to (a start that failed
+/// leaves the reason for the pane).
+fn settled(room: &Room) -> bool {
+    use crate::session::computer::ComputerPhase;
+    !matches!(
+        room.computer_links.phase("ada"),
+        ComputerPhase::Preparing { .. }
+            | ComputerPhase::Swap { .. }
+            | ComputerPhase::Swapping { .. }
+    )
+}
+
 /// Waits for the teammate to carry on with a session other than `before`,
-/// on a computer, as a swap between turns leaves it.
+/// on a computer, as a swap between turns leaves it, and for the swap to
+/// have finished.
 async fn carried_on(room: &Arc<Room>, before: &Arc<Session>) {
     let swapped = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let replaced = room
                 .session("ada")
                 .is_ok_and(|now| !Arc::ptr_eq(&now, before) && now.computer);
-            if replaced && room.info("ada").state == SessionState::Ready {
+            if replaced && room.info("ada").state == SessionState::Ready && settled(room) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -2735,10 +2796,8 @@ async fn only_the_new_bearer(
 /// it proved itself with that key.
 #[tokio::test]
 async fn every_way_a_computer_is_made_again_gives_it_a_bearer_the_old_ones_do_not_open() {
-    use std::sync::atomic::Ordering::SeqCst;
     let fixture = kept_computer_room("remade-bearers", Some("0.13.0")).await;
     let (room, taken) = (fixture.room.clone(), fixture.taken.clone());
-    taken.v2.store(true, SeqCst);
     taken.opens_only_to(fixture.root.join("state.envtoken"));
     grant_a_key_a_variable_and_a_login(&room);
     room.start("ada").await.unwrap();
@@ -2774,16 +2833,25 @@ async fn every_way_a_computer_is_made_again_gives_it_a_bearer_the_old_ones_do_no
     std::fs::write(fixture.root.join("state.rmfail"), "").unwrap();
     let session = room.session("ada").unwrap();
     let removes = commands_starting(&fixture.root, "rm ");
+    let stops = commands_starting(&fixture.root, "stop ");
     room.computer_restart("ada").await.unwrap();
+    // The swap has given up once the refused removal stopped the computer
+    // and the swap waits again: the desk lets go of the bearer before it
+    // asks the runtime, so that alone says nothing of where the swap is.
     tokio::time::timeout(Duration::from_secs(10), async {
-        while room.computers.running("ada").await.is_some() {
+        while commands_starting(&fixture.root, "stop ") == stops
+            || !room.computer_links.swap_waiting("ada")
+        {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("the bearer is let go");
+    .expect("the swap gives up and waits");
     assert_eq!(commands_starting(&fixture.root, "rm "), removes + 1);
-    assert!(room.computer_links.swap_waiting("ada"), "the swap waits");
+    assert!(
+        room.computers.running("ada").await.is_none(),
+        "the bearer is let go"
+    );
     assert_ne!(
         protection(&room).await,
         Some(crate::contract::ComputerProtection::Protected)
@@ -2801,20 +2869,23 @@ async fn every_way_a_computer_is_made_again_gives_it_a_bearer_the_old_ones_do_no
 
 /// A computer that proved itself with the v2 key its boot handed this desk
 /// cannot be stepped down to an older proof: answering as rc.2 does (v1,
-/// under the bearer the desk's asking carried) or saying it booted legacy,
-/// it is no longer said to be protected, and it is handed nothing — not the
-/// protected key, and not what a legacy computer gets — until it proves
-/// itself on v2 again. A computer that never offered v2 is told by its own
-/// answer, as before: one too old for `/capabilities`
-/// (`a_protected_key_never_reaches_an_old_computer`) or legacy
-/// (`a_login_reaches_a_legacy_computer_as_before_and_is_marked_unprotected`)
-/// is handed what 0.49 handed it, never a protected key, and labelled so.
+/// under the bearer the desk's asking carried), split or legacy, or with a
+/// v2 proof another key made, it is no longer said to be protected, and it
+/// is handed nothing — not the protected key, and not what a legacy
+/// computer gets — until it proves itself on v2 again. Saying legacy under
+/// its own key, as a split computer whose key proxy did not start does, it
+/// is handed what a legacy computer is, the key waiting. A computer that
+/// never offered v2 is told by its own answer: one too old for
+/// `/capabilities` (`a_protected_key_never_reaches_an_old_computer`) or
+/// legacy (`a_login_reaches_a_legacy_computer_as_before_and_is_marked_unprotected`)
+/// is handed what 0.49 handed it, never a protected key, and labelled so;
+/// a v1 claim of split is handed nothing
+/// (`a_v1_claim_of_split_is_handed_nothing_whatever_it_attests`).
 #[tokio::test]
 async fn a_computer_stepped_down_from_v2_is_not_protected_and_is_handed_nothing() {
     use std::sync::atomic::Ordering::SeqCst;
     let fixture = kept_computer_room("stepped-down", Some("0.13.0")).await;
     let (room, taken) = (fixture.room.clone(), fixture.taken.clone());
-    taken.v2.store(true, SeqCst);
     grant_a_key_a_variable_and_a_login(&room);
     room.start("ada").await.unwrap();
     assert_eq!(taken.forms(), [2]);
@@ -2823,28 +2894,47 @@ async fn a_computer_stepped_down_from_v2_is_not_protected_and_is_handed_nothing(
         Some(crate::contract::ComputerProtection::Protected)
     );
 
-    for legacy in [false, true] {
-        taken.v2.store(false, SeqCst);
+    for (v1, legacy, forged) in [
+        (true, false, false),
+        (true, true, false),
+        (false, false, true),
+        (false, true, true),
+    ] {
+        let what = format!("v1 {v1}, legacy {legacy}, forged {forged}");
+        taken.v1.store(v1, SeqCst);
         taken.legacy.store(legacy, SeqCst);
+        taken.forged.store(forged, SeqCst);
         room.secrets_changed().await;
-        assert_eq!(taken.forms(), [2], "nothing handed (legacy: {legacy})");
+        assert_eq!(taken.forms(), [2], "nothing handed: {what}");
         assert_eq!(
             protection(&room).await,
             Some(crate::contract::ComputerProtection::NeedsUpdate),
-            "legacy: {legacy}"
+            "{what}"
         );
         assert!(
             lock(&room.secret_notices)
                 .last()
-                .is_some_and(|text| text.contains(crate::computer::secrets::UNPROVEN))
+                .is_some_and(|text| text.contains(crate::computer::secrets::UNPROVEN)),
+            "{what}"
         );
     }
 
-    // The computer that handed the key answers again: protected.
-    taken.v2.store(true, SeqCst);
+    // Its key proxy did not start: legacy, under its own key.
+    taken.v1.store(false, SeqCst);
+    taken.forged.store(false, SeqCst);
+    room.secrets_changed().await;
+    assert_eq!(taken.forms(), [2, 1]);
+    assert!(!taken.sets()[1].contains_key("GITHUB_TOKEN"));
+    assert_eq!(taken.sets()[1]["GITHUB_LOGIN"]["kind"], "login");
+    assert_eq!(
+        protection(&room).await,
+        Some(crate::contract::ComputerProtection::NeedsUpdate)
+    );
+
+    // The computer that handed the key answers split again: protected.
     taken.legacy.store(false, SeqCst);
     room.secrets_changed().await;
-    assert_eq!(taken.forms(), [2, 2]);
+    assert_eq!(taken.forms(), [2, 1, 2]);
     assert_eq!(
         protection(&room).await,
         Some(crate::contract::ComputerProtection::Protected)
@@ -2868,7 +2958,6 @@ async fn an_update_that_fails_part_way_keeps_the_label_right_and_the_key_back() 
         fixture.taken.clone(),
         fixture.root.clone(),
     );
-    taken.v2.store(true, SeqCst);
     taken.opens_only_to(root.join("state.envtoken"));
     grant_a_key_a_variable_and_a_login(&room);
     room.start("ada").await.unwrap();
@@ -2909,17 +2998,20 @@ async fn an_update_that_fails_part_way_keeps_the_label_right_and_the_key_back() 
     std::fs::remove_file(root.join("state.pullfail")).unwrap();
     std::fs::remove_file(root.join("state.noimage")).unwrap();
 
-    // The old one goes and the new one will not start: no computer, no
-    // label, no key kept, nothing handed.
+    // The old one goes and the new one will not start: the teammate goes
+    // on without a computer, and there is no label, no key kept, nothing
+    // handed. The rebuild takes the session out before it starts the new
+    // computer, so the session going is not the start having failed: the
+    // swap ending, with a session and no computer, is.
     std::fs::write(root.join("state.startfail"), "").unwrap();
     room.computer_update("ada").await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
-        while room.session("ada").is_ok() {
+        while !settled(&room) || room.session("ada").is_ok_and(|session| session.computer) {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("the teammate is left stopped");
+    .expect("the teammate goes on without a computer");
     assert!(room.computers.running("ada").await.is_none());
     assert_eq!(room.computer_status("ada").await.unwrap().protection, None);
     assert_eq!(
@@ -2934,7 +3026,7 @@ async fn an_update_that_fails_part_way_keeps_the_label_right_and_the_key_back() 
     // It starts, but its boot's key was taken before the desk asked: it
     // cannot be checked, so the key waits and it is not protected.
     taken.keys_taken_first.store(true, SeqCst);
-    room.start("ada").await.unwrap();
+    room.computer_start("ada").await.unwrap();
     assert_ne!(made_with(&fixture), first);
     assert_eq!(protection(&room).await, needs_update);
     assert_eq!(taken.forms(), [2, 2, 1]);
@@ -2947,7 +3039,6 @@ async fn an_update_that_fails_part_way_keeps_the_label_right_and_the_key_back() 
 
     // Made again on a computer that forges its proof: nothing at all.
     taken.keys_taken_first.store(false, SeqCst);
-    taken.v2.store(false, SeqCst);
     taken.forged.store(true, SeqCst);
     let session = room.session("ada").unwrap();
     room.computer_restart("ada").await.unwrap();
@@ -2957,7 +3048,6 @@ async fn an_update_that_fails_part_way_keeps_the_label_right_and_the_key_back() 
 
     // The next computer proves itself with its own boot's key: protected,
     // and the key goes to it.
-    taken.v2.store(true, SeqCst);
     taken.forged.store(false, SeqCst);
     let session = room.session("ada").unwrap();
     room.computer_restart("ada").await.unwrap();

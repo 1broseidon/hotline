@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
 import type { ThreadId, TranscriptEvent } from "../../generated/contract";
 import { LinkCard } from "../LinkCard";
 import { onlyLink, previewLink } from "../../linkPreview";
@@ -75,11 +75,8 @@ export function AgentSay({
 	onReply,
 	onReact,
     onOpenThread,
-	prompted,
 }: {
 	personaId: string;
-	/** What prompted a post, over it: the inbox item that woke its quiet turn. */
-	prompted?: ReactNode;
 	/** The colour the person gave this teammate's bubbles; grey when none. */
 	bubble?: string | undefined;
     onOpenThread?(open: { thread: ThreadId; title?: string }): void;
@@ -128,7 +125,6 @@ export function AgentSay({
 			{event.from?.kind === "job" && onOpenThread !== undefined ? (
 				<JobPostRow title={event.scheduled?.name ?? event.from.title ?? "Job"} onOpen={() => onOpenThread({ thread: { kind: "job", key: event.from!.thread }, ...(event.scheduled !== undefined ? { title: event.scheduled.name } : {}) })} />
 			) : origin !== null && (event.from !== undefined && onOpenThread !== undefined ? <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: event.from!.kind, key: event.from!.thread }, ...(event.from!.title !== undefined ? { title: event.from!.title } : {}) })}>{origin}</button> : <p className="said-name">{origin}</p>)}
-			{prompted}
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
 			{!wordless && (
 				// biome-ignore lint/a11y/noStaticElementInteractions: the pointer back on the words puts the toolbar's own keys back; nothing is done by it.

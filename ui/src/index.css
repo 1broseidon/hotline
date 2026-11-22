@@ -3062,19 +3062,6 @@
 		width: 12px;
 		height: 12px;
 	}
-	/* What the teammate has not read in its inbox, beside the threads and in
-	 * their style, led by the tray: "2 unread". */
-	.composer-inbox {
-		gap: 6px;
-		padding: 0 10px;
-	}
-	.composer-inbox-mark {
-		width: 14px;
-		height: 14px;
-	}
-	.composer-inbox-ring {
-		color: var(--accent-ink);
-	}
 	/* Open, they are the pill's first row, as a card waiting on the person
 	 * is: the Threads list's rows under a count, a long list scrolling. */
 	.composer[data-work] > .composer-threads-panel {

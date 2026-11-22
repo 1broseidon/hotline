@@ -4,9 +4,11 @@ import type { InboxItem, InboxView, ScheduledJob, TranscriptEvent } from "../src
 import { installDom } from "./dom";
 
 // task-469: what a colleague's message prompted says so in one quiet line.
-// A file, a card or a job a teammate made in a quiet turn one inbox item
-// woke carries that item (`fromItem`), and the desk draws "From Huck's
-// message · title" over it, which opens the item.
+// A card or a job a teammate made in a quiet turn one inbox item woke
+// carries that item (`fromItem`), and the desk draws "From Huck's message ·
+// title" with it, which opens the item. A file or a reply carries it too,
+// and the desk draws nothing over it (George, 2026-11-21: to the person,
+// inbox items are not mail).
 
 const query = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 Object.assign(globalThis, { window: { matchMedia: query } });
@@ -71,7 +73,7 @@ afterEach(async () => {
 const press = async (target: Element) => act(async () => void target.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
 const lines = () => [...container.querySelectorAll<HTMLButtonElement>(".link-row[data-kind=inbox-from]")];
 
-test("a file and a card a quiet turn one item woke each have the line over them, and a card the person's own turn raised has none", async () => {
+test("a card a quiet turn one item woke has the line over it, a file from the same turn and a card the person's own turn raised have none", async () => {
 	const { Transcript } = await import("../src/components/Transcript");
 	const opened: string[] = [];
 	const events: TranscriptEvent[] = [
@@ -91,14 +93,12 @@ test("a file and a card a quiet turn one item woke each have the line over them,
 	await act(async () =>
 		root!.render(<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={(id) => opened.push(id)} />),
 	);
-	expect(lines().map((line) => line.querySelector(".link-row-words")?.textContent)).toEqual([
-		"From Huck's message ·Rerun the Linux build",
-		"From Huck's message ·Rerun the Linux build",
-	]);
-	expect(lines()[0]?.closest(".said-group")?.textContent).toContain("build.log");
-	expect(lines()[1]?.closest("[data-kind=prompted]")?.textContent).toContain("Sign the release");
+	expect(lines().map((line) => line.querySelector(".link-row-words")?.textContent)).toEqual(["From Huck's message ·Rerun the Linux build"]);
+	expect(lines()[0]?.closest("[data-kind=prompted]")?.textContent).toContain("Sign the release");
+	expect(container.textContent).toContain("build.log");
+	expect(container.querySelector(".said-group .link-row[data-kind=inbox-from]")).toBeNull();
 	expect(container.textContent).toContain("Push the tag?");
-	await press(lines()[1]!);
+	await press(lines()[0]!);
 	expect(opened).toEqual(["w"]);
 });
 

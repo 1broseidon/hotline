@@ -248,7 +248,8 @@ function markOf(item: Pick<InboxItem, "state" | "outcome" | "work">): string {
 
 /**
  * What a turn sorted and sent, in the order it did, as its path lists them
- * under Inbox (`turnInbox`): an item it sorted as the sort left it ("From
+ * under Teammates (`turnInbox`), not Inbox: the person sees work, not mail.
+ * An item it sorted reads as the sort left it ("From
  * Timo · Answered"), and one it sent with whom it went to and where it
  * stands now, read live from the teammate's inbox. A quiet turn that posted
  * has them here and no line in the chat. A press opens the item's topic,
@@ -268,8 +269,8 @@ export function TurnInbox({
 	const items = itemsOf(useInbox(personaId));
 	const nameOf = (id: string) => people?.get(id)?.name;
 	return (
-		<section aria-label="Inbox">
-			<SectionRule title="Inbox" count={rows.length} />
+		<section aria-label="Teammates">
+			<SectionRule title="Teammates" count={rows.length} />
 			{rows.map((row) => {
 				const [itemId, title, mark, line] =
 					row.kind === "sorted"

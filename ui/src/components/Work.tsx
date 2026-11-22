@@ -159,7 +159,7 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
  * line asked for arrives open and in view; otherwise the page follows the
  * newest step. A helper or a command the turn started opens from its line
  * here, in the pane's place, with Back to this turn (`onOpenThread`), and so
- * does an item it sorted or sent, from its row under Inbox (`onOpenItem`).
+ * does an item it sorted or sent, from its row under Teammates (`onOpenItem`).
  */
 export function WorkPage({
 	personaId,

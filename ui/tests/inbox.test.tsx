@@ -7,9 +7,10 @@ import { installDom } from "./dom";
 
 // task-456: the desk draws the inbox (docs/design/agent-inbox.md, "On the
 // desk"). What a turn sent and sorted is in its path, each a quiet row live
-// from the teammate's inbox, and the chat draws no Inbox line; the composer counts what the
-// teammate has not read; the pane lists its inbox and opens one item with
-// its receipts. The person reads; nothing here sends or sorts.
+// from the teammate's inbox, and the chat draws no Inbox line; the pane
+// lists its inbox and opens one item with its receipts. The person reads;
+// nothing here sends or sorts, and nothing counts what a teammate has not
+// read (George, 2026-11-21: to the person, inbox items are not mail).
 
 const query = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 Object.assign(globalThis, { window: { matchMedia: query } });
@@ -295,7 +296,6 @@ describe("topics", () => {
 		expect(score.items.map((one) => one.id)).toEqual(["a1", "a2"]);
 		expect([score.unread, inbox.topicMark(score)]).toEqual([0, "◐"]);
 		expect(topics.find((one) => one.key === "e")!.unread).toBe(1);
-		expect(inbox.unreadItems(view).map((one) => one.id)).toEqual(["e1"]);
 		expect(inbox.topicLine(score, nameOf)).toEqual({ text: "Juno: Devils 7–4.", warn: false });
 		// What Goldie sent that waits on the person is Waiting on others, in amber.
 		const held = topics.find((one) => one.key === "d")!;
@@ -529,49 +529,6 @@ describe("task-456 drawn", () => {
 		expect(row.textContent).toBe("Expired: Changelog wording· From Hotline · Noted");
 	});
 
-	test("the composer counts what the teammate has not read only while there is some, its tray says when each arrived, and opens an item or the whole inbox", async () => {
-		const { Composer } = await import("../src/components/Composer");
-		const opened: string[] = [];
-		const draw = (items: InboxItem[]) =>
-			act(async () =>
-				root!.render(
-					<Composer
-						personaId="juno"
-						name="Juno"
-						state="ready"
-						replyQuote={null}
-						onSend={() => {}}
-						onCancel={() => {}}
-						onClearReply={() => {}}
-						inbox={{ items, nameOf, onOpen: (id) => opened.push(id), onAll: () => opened.push("all") }}
-					/>,
-				),
-			);
-		const key = () => container.querySelector<HTMLButtonElement>("button.composer-inbox");
-		await draw([]);
-		expect(key()).toBeNull();
-		expect(container.querySelector(".composer[data-work]")).toBeNull();
-		await draw([item("wipe", { from: "huck", waiting: true, title: "Is the staging database safe to wipe?" }, 40_000), item("log", { from: "ivy", title: "Changelog draft is ready" })]);
-		expect(key()?.textContent).toBe("2 unread");
-		expect(key()?.getAttribute("aria-expanded")).toBe("false");
-		await press(key()!);
-		const rows = [...container.querySelectorAll<HTMLButtonElement>(".composer-threads-panel .list-row[data-inbox]")];
-		expect(rows.map((row) => row.querySelector(".list-line")?.textContent)).toEqual(["Huck · waiting", "Ivy"]);
-		// A message whose sender is waiting says when it arrived, as every row does: "waiting" is in its line, not an amber count.
-		const { asideTime } = await import("../src/asides");
-		expect(rows.map((row) => row.querySelector(".list-when")?.textContent)).toEqual([asideTime(NOW - 40_000), asideTime(NOW - 60_000)]);
-		expect(rows.some((row) => row.querySelector(".list-when")?.hasAttribute("data-waiting"))).toBe(false);
-		await press(rows[0]!);
-		expect(opened).toEqual(["wipe"]);
-		expect(container.querySelector(".composer-threads-panel")).toBeNull();
-		await press(key()!);
-		await press(container.querySelector(".composer-threads-all")!);
-		expect(opened).toEqual(["wipe", "all"]);
-		// Read, the count goes.
-		await draw([]);
-		expect(key()).toBeNull();
-	});
-
 	test("the pane lists topics on Open and Closed under their groups, searches every message, and a row opens its topic", async () => {
 		const { InboxList } = await import("../src/components/InboxPane");
 		const shown = view({
@@ -781,7 +738,7 @@ describe("task-456 drawn", () => {
 		expect(row.textContent).not.toContain("3");
 	});
 
-	test("a bubble posted from a turn one item woke has one quiet line over it, whose message and its title, that opens the item", async () => {
+	test("a bubble posted from a turn one item woke has no line over it saying whose message it was", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const woke = item("w", { from: "huck", title: "Rerun the Linux build", state: "closed", outcome: "noted" });
 		const notice = item("n", { from: "ivy", title: "Expired: Changelog wording", notice: "expired", state: "closed", outcome: "noted" });
@@ -789,26 +746,18 @@ describe("task-456 drawn", () => {
 			if (target.inbox === "juno") handlers.snapshot(view({ closed: [woke, notice] }));
 			return () => {};
 		}) as typeof wire.subscribe);
-		const opened: string[] = [];
 		const events: TranscriptEvent[] = [
 			{ kind: "agent", id: "p1", ts: NOW - 50_000, text: "The Linux build is green again.", fromItem: "w" },
 			{ kind: "turn", id: "e1", ts: NOW - 49_000, stopReason: "end_turn", quiet: true },
 			{ kind: "agent", id: "p2", ts: NOW - 40_000, text: "Ivy never picked up the changelog wording.", fromItem: "n" },
 			{ kind: "turn", id: "e2", ts: NOW - 39_000, stopReason: "end_turn", quiet: true },
-			{ kind: "user", id: "u1", ts: NOW - 30_000, text: "Thanks" },
-			{ kind: "agent", id: "a1", ts: NOW - 20_000, text: "Any time." },
 		];
-		await act(async () =>
-			root!.render(<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={(id) => opened.push(id)} />),
-		);
-		const rows = [...container.querySelectorAll<HTMLButtonElement>(".link-row[data-kind=inbox-from]")];
-		expect(rows.map((row) => row.querySelector(".link-row-words")?.textContent)).toEqual(["From Huck's message ·Rerun the Linux build", "From Hotline's notice ·Expired: Changelog wording"]);
-		// Over its own bubble, and over no other.
-		expect(rows[0]?.closest(".said-group")?.textContent).toContain("The Linux build is green again.");
-		expect(container.textContent).toContain("Any time.");
-		expect(container.querySelectorAll(".said-group .link-row[data-kind=inbox-from]")).toHaveLength(2);
-		await press(rows[0]!);
-		expect(opened).toEqual(["w"]);
+		await act(async () => root!.render(<Transcript personaId="juno" name="Juno" people={people} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={() => {}} />));
+		expect(container.textContent).toContain("The Linux build is green again.");
+		expect(container.textContent).toContain("Ivy never picked up the changelog wording.");
+		expect(container.querySelectorAll(".link-row[data-kind=inbox-from]")).toHaveLength(0);
+		expect(container.textContent).not.toContain("'s message");
+		expect(container.textContent).not.toContain("Hotline's notice");
 	});
 
 	test("a message held for the person says Awaiting approval in amber wherever it stands, with the way to its card", async () => {
@@ -879,14 +828,12 @@ describe("task-456 work an inbox item started is a work thread, not a handoff", 
 });
 
 describe("task-456 the way in", () => {
-	test("the teammate's menu has Inbox beside Threads, with how many items it has not read", async () => {
+	test("the teammate's menu has Inbox beside Threads, with no count of what it has not read", async () => {
 		const { teammateActions } = await import("../src/components/Conversation");
-		const actions = (unread: number) =>
-			teammateActions({ inspectorOpen: false, chapterBusy: false, unseen: 0, unread, onToggleInspector: () => {}, onStartChapter: () => {}, onOpenThreadList: () => {}, onOpenInbox: () => {}, onDelete: () => {} });
-		const ids = actions(0).flatMap((one) => (one.kind === "item" ? [one.id] : []));
+		const actions = teammateActions({ inspectorOpen: false, chapterBusy: false, unseen: 0, onToggleInspector: () => {}, onStartChapter: () => {}, onOpenThreadList: () => {}, onOpenInbox: () => {}, onDelete: () => {} });
+		const ids = actions.flatMap((one) => (one.kind === "item" ? [one.id] : []));
 		expect(ids.indexOf("inbox")).toBe(ids.indexOf("side-list") + 1);
-		expect(actions(0).find((one) => one.kind === "item" && one.id === "inbox")).not.toHaveProperty("detail");
-		expect(actions(3).find((one) => one.kind === "item" && one.id === "inbox")).toMatchObject({ text: "Inbox", detail: "3 unread" });
+		expect(actions.find((one) => one.kind === "item" && one.id === "inbox")).toEqual({ kind: "item", id: "inbox", text: "Inbox", onSelect: expect.any(Function) });
 	});
 });
 

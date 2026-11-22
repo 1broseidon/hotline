@@ -12,7 +12,7 @@ import { sends, unlanded, useReturned, useSends } from "../sends";
 import { scheduleSummary } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { useAsides, withAsides } from "../asides";
-import { inboxWork, itemsOf, unreadItems, unreadWords, useInbox, useInboxWork } from "../inbox";
+import { inboxWork, itemsOf, useInbox, useInboxWork } from "../inbox";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -248,10 +248,8 @@ export function Conversation({
 		() => liveThreads({ listed, roster, entry, jobs: scheduled, nameOf: (id) => nameIn(roster, listed, id), now: Date.now(), inboxWork: work }),
 		[listed, roster, entry, scheduled, work],
 	);
-	/* What the teammate has not read in its inbox, for the composer's chip and its tray. */
-	const inbox = useInbox(personaId);
-	const unread = useMemo(() => unreadItems(inbox), [inbox]);
 	/* What the card in the composer names when a colleague's message prompted it. */
+	const inbox = useInbox(personaId);
 	const askRows = useMemo(() => {
 		const items = itemsOf(inbox);
 		return { items, work: inboxWork(items), onOpen: onOpenInboxItem };
@@ -473,7 +471,6 @@ export function Conversation({
 						onOpen: (thread) => onOpenThread(thread.open),
 						onAll: onOpenThreadList,
 					}}
-					inbox={{ items: unread, nameOf: (id) => nameIn(roster, listed, id), onOpen: onOpenInboxItem, onAll: onOpenInbox }}
 					{...(cornered
 						? { corner: <ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} /> }
 						: {})}
@@ -539,7 +536,6 @@ const ConversationBand = memo(function ConversationBand({
 			inspectorOpen,
 			chapterBusy,
 			unseen: entry.asidesNew ?? 0,
-			unread: entry.inbox ?? 0,
 			onToggleInspector,
 			onStartChapter: startChapter,
 			onOpenThreadList,
@@ -657,7 +653,6 @@ export function teammateActions({
 	inspectorOpen,
 	chapterBusy,
 	unseen,
-	unread = 0,
 	onToggleInspector,
 	onStartChapter,
 	onOpenThreadList,
@@ -667,8 +662,6 @@ export function teammateActions({
 	inspectorOpen: boolean;
 	chapterBusy: boolean;
 	unseen: number;
-	/** How many items in the teammate's inbox it has not read. */
-	unread?: number;
 	onToggleInspector(): void;
 	onStartChapter(): void;
 	onOpenThreadList(): void;
@@ -681,8 +674,8 @@ export function teammateActions({
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: onStartChapter },
 		// Asides are rows of the list, so its new ones are counted here.
 		{ kind: "item", id: "side-list", text: "Threads", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenThreadList },
-		// The inbox beside it, with how many items the teammate has not read.
-		...(onOpenInbox !== undefined ? [{ kind: "item" as const, id: "inbox", text: "Inbox", ...(unread > 0 ? { detail: unreadWords(unread) } : {}), onSelect: onOpenInbox }] : []),
+		// The inbox beside it, with no count: what a teammate has not read is its work, not the person's mail.
+		...(onOpenInbox !== undefined ? [{ kind: "item" as const, id: "inbox", text: "Inbox", onSelect: onOpenInbox }] : []),
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];

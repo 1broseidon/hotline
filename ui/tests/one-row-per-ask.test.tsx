@@ -5,8 +5,9 @@ import type { Block } from "../src/scheduledRuns";
 import { installDom } from "./dom";
 
 // Quiet turns that post an answer fold their inbox rows into the turn's Steps
-// and its path's Inbox section, and answer bubbles always keep their
-// "From <teammate>'s message" line.
+// and its path's Teammates section, and an answer bubble has no
+// "From <teammate>'s message" line over it (George, 2026-11-21: to the
+// person, inbox items are not mail).
 
 const query = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 Object.assign(globalThis, { window: { matchMedia: query } });
@@ -91,7 +92,7 @@ const sortInbox = (id: string) => tool(id, "update_inbox", "colleague");
 /** The quiet turn Timo's answer woke, which posts it. */
 const answerTurn: TranscriptEvent[] = [readInbox("q1"), sortInbox("q2"), answered("s1"), post("q3"), said("p1", "Timo says the Devils beat the Capitals 7–4.", "reply"), ended("e2", true)];
 
-describe("answer bubble keeps From Timo's message with no chat-level sent row", () => {
+describe("an answer bubble has no From Timo's message line and no chat-level sent row", () => {
 	beforeEach(async () => {
 		({ teardown } = installDom({ ResizeObserver: NoResize, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} }));
 		act = (await import("react")).act;
@@ -112,14 +113,14 @@ describe("answer bubble keeps From Timo's message with no chat-level sent row", 
 		await teardown();
 	});
 
-	test("an answer bubble keeps From Timo's message straight after an ask turn", async () => {
+	test("an answer bubble straight after an ask turn stands alone, with no line naming whose message it was", async () => {
 		const { Transcript } = await import("../src/components/Transcript");
 		const events = [ask("u1", "ask timo what the score of the last game was"), send("t1"), sent("score", "timo", "Score of the last game?"), ended("e1"), ...answerTurn];
 		await act(async () => root!.render(<Transcript personaId="goldie" name="Goldie" people={people} events={events} streaming={[]} live={false} focus={null} onOpenInboxItem={() => {}} onOpenWork={() => {}} />));
 		expect(container.querySelectorAll(".link-row[data-kind=inbox]")).toHaveLength(0);
-		const from = [...container.querySelectorAll(".link-row[data-kind=inbox-from]")];
-		expect(from.map((row) => row.querySelector(".link-row-words")?.textContent)).toEqual(["From Timo's message ·Re: Score of the last game?"]);
-		expect(from[0]?.closest(".said-group")?.textContent).toContain("Timo says the Devils beat the Capitals");
+		expect(container.querySelectorAll(".link-row[data-kind=inbox-from]")).toHaveLength(0);
+		expect(container.textContent).not.toContain("From Timo's message");
+		expect(container.textContent).toContain("Timo says the Devils beat the Capitals");
 	});
 });
 
@@ -197,7 +198,7 @@ describe("task-505 rule 3 in the pane: the answer's time opens a path that lists
 		await teardown();
 	});
 
-	test("Inbox, a section of the path, has the row the chat's line would have opened to, and a press opens the item", async () => {
+	test("Teammates, a section of the path, has the row the chat's line would have opened to, and a press opens the item", async () => {
 		const { WorkPage } = await import("../src/components/Work");
 		tape = [ended("e0"), ...answerTurn];
 		const opened: string[] = [];
@@ -207,8 +208,9 @@ describe("task-505 rule 3 in the pane: the answer's time opens a path that lists
 		await act(async () => {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
-		const section = container.querySelector("section[aria-label='Inbox']");
-		expect(section?.querySelector(".spine-rule-title")?.textContent).toBe("Inbox");
+		const section = container.querySelector("section[aria-label='Teammates']");
+		expect(section?.querySelector(".spine-rule-title")?.textContent).toBe("Teammates");
+		expect([...container.querySelectorAll(".spine-rule-title")].some((title) => title.textContent === "Inbox")).toBe(false);
 		const rows = [...(section?.querySelectorAll<HTMLButtonElement>(".list-row") ?? [])];
 		expect(rows.map((row) => [row.querySelector(".list-title-text")?.textContent, row.querySelector(".list-line")?.textContent])).toEqual([["Re: Score of the last game?", "From Timo · Answered"]]);
 		// Before the steps, as Files changed is.

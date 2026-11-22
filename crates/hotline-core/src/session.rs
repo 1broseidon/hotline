@@ -320,14 +320,17 @@ pub(crate) fn account_keys(
 #[async_trait]
 pub trait Agents: Send + Sync {
     /// A teammate's agent, chosen by the backend its record names, told the
-    /// preamble, seeded with what has been said in the chapter it is joining,
-    /// and given that teammate's own tools over its conversation. A backend
+    /// preamble (of which `standing` is the part that does not describe the
+    /// moment it was built: see `ChildAgent::with_standing`), seeded with
+    /// what has been said in the chapter it is joining, and given that
+    /// teammate's own tools over its conversation. A backend
     /// this desk cannot run is refused here, in a sentence naming what is
     /// missing.
     fn agent(
         &self,
         persona: &Persona,
         preamble: String,
+        standing: String,
         said: Vec<Said>,
         tools: TeammateTools,
         extra_mcp: Vec<mcp::McpServer>,
@@ -411,6 +414,7 @@ impl Agents for DeskAgents {
         &self,
         persona: &Persona,
         preamble: String,
+        standing: String,
         said: Vec<Said>,
         tools: TeammateTools,
         extra_mcp: Vec<mcp::McpServer>,
@@ -451,6 +455,7 @@ impl Agents for DeskAgents {
             preamble,
             tools,
         )
+        .with_standing(standing)
         .with_history(said)
         .with_mcp(grant.servers, grant.missing)
         .with_bounds(self.acp_bounds);

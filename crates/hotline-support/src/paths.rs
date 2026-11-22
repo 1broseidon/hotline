@@ -141,6 +141,13 @@ pub fn acp_models_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-models.json")
 }
 
+/// What briefing each reopenable ACP session was last given, one small file
+/// per backend and session, so a session reopened on a new process is not
+/// told it twice. A cache: deleting it costs one briefing per session.
+pub fn acp_briefed_dir(root: &Path) -> PathBuf {
+    root.join("cache").join("acp-briefed")
+}
+
 /// The latest plan usage reading of each harness login on this desk, by the
 /// backend id the login is one per. A cache: each reading says when it was
 /// taken, and a missing file is a desk that has read none yet.

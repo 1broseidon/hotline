@@ -398,7 +398,7 @@ impl Room {
         let build = |view: &Persona, transcript: Option<String>| {
             // The preamble lists the person's folders; each item names where
             // its files are kept.
-            let mut preamble = preamble_of(
+            let (mut preamble, mut standing) = briefings(
                 thread.kind,
                 &self.without_received(view.clone()),
                 reach,
@@ -412,16 +412,20 @@ impl Room {
                     note: note.clone(),
                 },
             );
-            if let Some(name) = &told_name {
-                preamble.push_str("\n\n");
-                preamble.push_str(&super::person_name::name_sentence(name));
-            }
-            if self.lead_call(&view.id, &thread) {
-                preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use send with wants work, the person's words unchanged as the message and a short title, and say whose inbox it is in. Do not stop or reassign another teammate's work.");
+            let lead = self.lead_call(&view.id, &thread);
+            for briefing in [&mut preamble, &mut standing] {
+                if let Some(name) = &told_name {
+                    briefing.push_str("\n\n");
+                    briefing.push_str(&super::person_name::name_sentence(name));
+                }
+                if lead {
+                    briefing.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use send with wants work, the person's words unchanged as the message and a short title, and say whose inbox it is in. Do not stop or reassign another teammate's work.");
+                }
             }
             self.agents.agent(
                 view,
                 preamble,
+                standing,
                 history.clone(),
                 tools_of(self, &thread, &view.id, &lease),
                 extra_mcp.clone(),
@@ -497,6 +501,41 @@ struct Joining<'a> {
     /// The DM's: how the chapter before it closed, and what became of its
     /// computer.
     note: Option<String>,
+}
+
+/// The briefing a kind's agent is told, and its standing part: the same
+/// briefing told nothing of the moment it was built (no parent context, no
+/// transcript, no wake block), which is what stays true of it for as long
+/// as the session lasts. The wake block says how long ago the last chapter
+/// ended, so the whole briefing differs on every start; the standing part
+/// changes only with what the teammate is.
+fn briefings(
+    kind: ThreadKind,
+    persona: &Persona,
+    reach: Option<Reach>,
+    stored: &[SharedSecret],
+    desk_browser: bool,
+    offered: &[String],
+    joining: Joining<'_>,
+) -> (String, String) {
+    let standing = Joining {
+        opened_by: joining.opened_by,
+        context: None,
+        transcript: None,
+        note: None,
+    };
+    (
+        preamble_of(kind, persona, reach, stored, desk_browser, offered, joining),
+        preamble_of(
+            kind,
+            persona,
+            reach,
+            stored,
+            desk_browser,
+            offered,
+            standing,
+        ),
+    )
 }
 
 /// What a kind tells its agent about itself, and about what it joins.
@@ -604,6 +643,50 @@ mod tests {
             mounts: None,
         });
         ada
+    }
+
+    /// The wake block says how long ago the last chapter ended, so the whole
+    /// briefing differs from one start to the next. Its standing part, what
+    /// a reopened session is known to hold its briefing by, does not.
+    #[test]
+    fn the_wake_block_does_not_change_the_briefing_hash() {
+        const ENDED: i64 = 1_700_000_000_000;
+        let ada = persona("ada");
+        let events = [
+            serde_json::json!({
+                "kind": "chapter", "id": "c1", "ts": ENDED - 100_000, "backendId": "claude-acp",
+                "endedAt": ENDED, "title": "Crane jam", "note": "Goal: get the crane moving",
+            }),
+            serde_json::json!({"kind": "user", "id": "u1", "ts": ENDED - 50_000, "text": "did it jam?"}),
+            serde_json::json!({"kind": "agent", "id": "a1", "ts": ENDED, "text": "It jammed."}),
+        ];
+        let built = |now: i64| {
+            briefings(
+                ThreadKind::Dm,
+                &ada,
+                None,
+                &[],
+                false,
+                &[],
+                Joining {
+                    opened_by: OpenedBy::Person,
+                    context: None,
+                    transcript: None,
+                    note: chapters::wake_block(&events, now),
+                },
+            )
+        };
+        let (soon, soon_standing) = built(ENDED + 60_000);
+        let (later, later_standing) = built(ENDED + 3 * 3_600_000);
+
+        assert!(soon.contains("fresh working context"), "{soon}");
+        assert_ne!(soon, later, "the wake block tells the time");
+        assert!(!soon_standing.contains("fresh working context"));
+        assert!(soon_standing.contains("You are Ada."), "{soon_standing}");
+        assert_eq!(
+            crate::driver::acp::briefing::digest(&soon_standing),
+            crate::driver::acp::briefing::digest(&later_standing)
+        );
     }
 
     #[test]

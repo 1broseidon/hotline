@@ -272,6 +272,17 @@ async fn the_wake_block_carries_the_previous_chapters_note() {
         woken.contains(r#"{"speaker":"user","text":"did it jam?"}"#),
         "{woken}"
     );
+    // The wake block is the moment's, not the teammate's: the briefing's
+    // standing part is the one the first chapter's agent was told.
+    let standings = lock(&agents.standings).clone();
+    assert!(
+        !standings[1].contains("fresh working context"),
+        "{}",
+        standings[1]
+    );
+    assert!(standings[1].contains("You are Ada."), "{}", standings[1]);
+    assert_eq!(standings[0], standings[1]);
+    assert_eq!(standings[0], lock(&agents.preambles)[0]);
 }
 
 /// The DM's row of the room's one sweep is its chapters.

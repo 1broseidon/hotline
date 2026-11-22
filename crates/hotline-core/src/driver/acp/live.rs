@@ -55,10 +55,18 @@ pub(super) struct Live {
     /// `session/load` replays the whole history; nothing is written while it
     /// does, or every restart would duplicate the conversation onto the tape.
     pub(super) replaying: AtomicBool,
-    /// Whether this connection has been told what kind of room it is in.
-    /// Per-connection, so a restarted backend hears it again and a resumed one
-    /// does not hear it twice in the same conversation.
+    /// Whether this connection has been told what kind of room it is in, or
+    /// found the session it reopened already holds it. Per-connection, so a
+    /// restarted backend hears it again unless its session is known to hold
+    /// it, and a resumed one does not hear it twice in the same conversation.
     pub(super) briefed: AtomicBool,
+    /// Whether the agent compacted its context after it was briefed: the
+    /// briefing went with the rest, and the next prompt says its standing
+    /// part again (see [`Live::compacted`]).
+    pub(super) compacted: AtomicBool,
+    /// Where whether the open session holds its briefing is kept, for a
+    /// backend whose compaction Hotline sees (see `briefing::record`).
+    pub(super) record: Mutex<Option<PathBuf>>,
     /// Where this connection is in its life; see [`Lifecycle`].
     pub(super) state: Mutex<Lifecycle>,
     pub(super) cancelled: AtomicBool,
@@ -521,6 +529,19 @@ impl Live {
         }
         self.flush().await;
         self.emit(Update::Parked).await;
+    }
+
+    /// The agent finished compacting its context, which summarised the
+    /// briefing away: the session no longer holds it, and the next prompt
+    /// says its standing part again. A briefing not yet said on this
+    /// connection is still said as it was going to be.
+    pub(super) fn compacted(&self) {
+        if self.briefed.swap(false, Ordering::SeqCst) {
+            self.compacted.store(true, Ordering::SeqCst);
+        }
+        if let Some(record) = lock(&self.record).as_deref() {
+            super::briefing::forget(record);
+        }
     }
 
     /// Answers every permission still waiting, which is what the end of a turn

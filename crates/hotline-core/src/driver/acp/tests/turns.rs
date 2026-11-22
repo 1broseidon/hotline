@@ -1978,3 +1978,268 @@ async fn real_harnesses_starts_and_declarations_reach_the_turn_under_the_desks_k
         ))
     );
 }
+
+/// The briefing a reopened session holds, and the one it lost to a
+/// compaction. The compactions are the adapters' own updates, captured from
+/// a real `/compact` on 2026-11-21 (`tests/fixtures/acp/`).
+mod briefing {
+    use super::*;
+
+    const CLAUDE_COMPACT: &str =
+        include_str!("../../../../tests/fixtures/acp/claude-acp-0.78.0-compact.jsonl");
+    const CODEX_COMPACT: &str =
+        include_str!("../../../../tests/fixtures/acp/codex-acp-1.12.0-compact.jsonl");
+
+    /// The updates of a captured compaction, sent on `session`. `failed`
+    /// ends it the way the adapters end one that did not finish.
+    fn compaction(captured: &str, session: &SessionId, failed: bool) -> Vec<SessionNotification> {
+        captured
+            .lines()
+            .map(|line| {
+                let mut notification: Value = serde_json::from_str(line).unwrap();
+                let params = &mut notification["params"];
+                params["sessionId"] = Value::String(session.0.to_string());
+                if failed && params["update"]["status"] == "completed" {
+                    params["update"]["status"] = Value::String("failed".into());
+                }
+                serde_json::from_value(params.take()).unwrap()
+            })
+            .collect()
+    }
+
+    /// An agent that reopens whatever session it is asked to load, keeps
+    /// what each prompt said, and compacts its context when told
+    /// `/compact` (or fails to, told `/compact fails`).
+    fn compacting_agent(
+        prompted: Arc<Mutex<Vec<Vec<String>>>>,
+        captured: &'static str,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("compacting")
+                .on_receive_request(
+                    async |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_capabilities(AgentCapabilities::new().load_session(true)),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("kept-session")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: LoadSessionRequest, responder, _cx| {
+                        responder.respond(LoadSessionResponse::new())
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let prompted = prompted.clone();
+                        async move {
+                            let said: Vec<String> = request
+                                .prompt
+                                .iter()
+                                .map(|block| match block {
+                                    ContentBlock::Text(text) => text.text.clone(),
+                                    _ => "?".to_string(),
+                                })
+                                .collect();
+                            let asked = said.last().cloned().unwrap_or_default();
+                            prompted.lock().unwrap().push(said);
+                            if let Some(how) = asked.strip_prefix("/compact") {
+                                let failed = how.trim() == "fails";
+                                for update in compaction(captured, &request.session_id, failed) {
+                                    cx.send_notification(update)?;
+                                }
+                            }
+                            responder.respond(PromptResponse::new(StopReason::EndTurn))
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the compacting agent ended: {error}");
+            }
+        }
+    }
+
+    /// One start of the agent on `backend`: a new process, briefed with
+    /// `standing` and a wake line that differs on every start, reopening
+    /// the session it opened before when there was one.
+    struct Start {
+        driver: ChildAgent,
+        prompted: Arc<Mutex<Vec<Vec<String>>>>,
+        preamble: String,
+        _room: Arc<crate::session::Room>,
+    }
+
+    async fn start(
+        root: &Path,
+        backend: &str,
+        standing: &str,
+        reopening: bool,
+        captured: &'static str,
+    ) -> Start {
+        static STARTS: AtomicUsize = AtomicUsize::new(0);
+        let started = STARTS.fetch_add(1, Ordering::SeqCst);
+        let prompted = Arc::new(Mutex::new(Vec::new()));
+        let agent = compacting_agent(prompted.clone(), captured);
+        let held = room("briefing-room");
+        let preamble = format!("{standing}\n\nThe last chapter ended {started} minutes ago.");
+        let driver = ChildAgent::new(
+            root.to_path_buf(),
+            backend.to_string(),
+            preamble.clone(),
+            TeammateTools::new(&held, "ada"),
+        )
+        .with_standing(standing.to_string());
+        tokio::spawn(agent);
+        let checkpoints = if reopening {
+            vec![SessionCheckpoint {
+                backend_id: backend.to_string(),
+                session_id: "kept-session".to_string(),
+            }]
+        } else {
+            Vec::new()
+        };
+        let info = driver
+            .handshake(&persona(&scratch_cwd(), checkpoints), client_transport())
+            .await
+            .unwrap();
+        assert_eq!(info.context_restored, reopening);
+        Start {
+            driver,
+            prompted,
+            preamble,
+            _room: held,
+        }
+    }
+
+    impl Start {
+        /// Says `text` and waits the turn out; what the agent was sent.
+        async fn say(&self, text: &str) -> Vec<String> {
+            let mut updates = self
+                .driver
+                .prompt(text.to_string(), Vec::new(), Reach::Workspace)
+                .await;
+            assert_eq!(turn_end(&mut updates).await, "end_turn");
+            self.prompted.lock().unwrap().last().cloned().unwrap()
+        }
+    }
+
+    const STANDING: &str = "You are Ada. Keep the harbour running.";
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_restored_session_with_the_same_briefing_is_not_briefed_again() {
+        for (backend, captured) in [("claude-acp", CLAUDE_COMPACT), ("codex-acp", CODEX_COMPACT)] {
+            let root = scratch("briefing-same");
+            let first = start(&root, backend, STANDING, false, captured).await;
+            assert_eq!(first.say("hello").await, [first.preamble.as_str(), "hello"]);
+            drop(first);
+
+            let again = start(&root, backend, STANDING, true, captured).await;
+            assert_eq!(again.say("carry on").await, ["carry on"], "{backend}");
+            assert_eq!(again.say("and on").await, ["and on"], "{backend}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_restored_session_is_briefed_again_when_its_standing_text_changed() {
+        let root = scratch("briefing-changed");
+        let first = start(&root, "claude-acp", STANDING, false, CLAUDE_COMPACT).await;
+        first.say("hello").await;
+        drop(first);
+
+        let edited = "You are Ada. Keep the harbour running, and the lighthouse.";
+        let again = start(&root, "claude-acp", edited, true, CLAUDE_COMPACT).await;
+        assert_eq!(
+            again.say("carry on").await,
+            [again.preamble.as_str(), "carry on"]
+        );
+        assert_eq!(again.say("and on").await, ["and on"]);
+        drop(again);
+
+        // The edited briefing is the one it holds now.
+        let third = start(&root, "claude-acp", edited, true, CLAUDE_COMPACT).await;
+        assert_eq!(third.say("still there").await, ["still there"]);
+    }
+
+    /// A backend whose compaction Hotline never sees is briefed on every new
+    /// process, which is the only thing that gives it a compacted briefing
+    /// back.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_restored_session_on_a_backend_without_a_compaction_signal_is_briefed_as_before() {
+        let root = scratch("briefing-unsignalled");
+        let first = start(&root, "cursor", STANDING, false, CLAUDE_COMPACT).await;
+        assert_eq!(first.say("hello").await, [first.preamble.as_str(), "hello"]);
+        drop(first);
+
+        let again = start(&root, "cursor", STANDING, true, CLAUDE_COMPACT).await;
+        assert_eq!(
+            again.say("carry on").await,
+            [again.preamble.as_str(), "carry on"]
+        );
+        assert_eq!(again.say("and on").await, ["and on"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_completed_compaction_sends_the_standing_briefing_once_on_the_next_prompt() {
+        for (backend, captured) in [("claude-acp", CLAUDE_COMPACT), ("codex-acp", CODEX_COMPACT)] {
+            let root = scratch("briefing-compacted");
+            let agent = start(&root, backend, STANDING, false, captured).await;
+            assert_eq!(agent.say("hello").await, [agent.preamble.as_str(), "hello"]);
+            assert_eq!(agent.say("/compact").await, ["/compact"]);
+            // The standing part only: the wake line is a moment that passed.
+            assert_eq!(agent.say("next").await, [STANDING, "next"], "{backend}");
+            assert_eq!(agent.say("after").await, ["after"], "{backend}");
+            drop(agent);
+
+            // What it was told after the compaction is what it holds.
+            let again = start(&root, backend, STANDING, true, captured).await;
+            assert_eq!(again.say("carry on").await, ["carry on"], "{backend}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_compaction_does_not_resend_the_briefing() {
+        let root = scratch("briefing-failed");
+        let agent = start(&root, "claude-acp", STANDING, false, CLAUDE_COMPACT).await;
+        agent.say("hello").await;
+        assert_eq!(agent.say("/compact fails").await, ["/compact fails"]);
+        assert_eq!(agent.say("next").await, ["next"]);
+        drop(agent);
+
+        let again = start(&root, "claude-acp", STANDING, true, CLAUDE_COMPACT).await;
+        assert_eq!(again.say("carry on").await, ["carry on"]);
+    }
+
+    /// The record goes with the compaction, not with the next prompt, so a
+    /// restart in between still briefs.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_compaction_before_a_restart_still_gets_the_briefing_after_it() {
+        let root = scratch("briefing-compacted-restart");
+        let agent = start(&root, "claude-acp", STANDING, false, CLAUDE_COMPACT).await;
+        agent.say("hello").await;
+        agent.say("/compact").await;
+        drop(agent);
+
+        let again = start(&root, "claude-acp", STANDING, true, CLAUDE_COMPACT).await;
+        assert_eq!(
+            again.say("carry on").await,
+            [again.preamble.as_str(), "carry on"]
+        );
+        assert_eq!(again.say("and on").await, ["and on"]);
+    }
+}

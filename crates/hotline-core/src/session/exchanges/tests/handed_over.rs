@@ -16,6 +16,7 @@ impl Agents for Apart {
         &self,
         persona: &Persona,
         preamble: String,
+        standing: String,
         said: Vec<crate::driver::rig::Said>,
         tools: TeammateTools,
         mcp: Vec<crate::mcp::McpServer>,
@@ -25,7 +26,7 @@ impl Agents for Apart {
         } else {
             &self.others
         };
-        agents.agent(persona, preamble, said, tools, mcp)
+        agents.agent(persona, preamble, standing, said, tools, mcp)
     }
     async fn complete(&self, _model: &str, _system: &str, _prompt: &str) -> Result<String, String> {
         Err("not needed".into())

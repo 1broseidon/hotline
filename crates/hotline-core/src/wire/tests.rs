@@ -192,6 +192,7 @@ impl Agents for NoAgents {
         &self,
         _persona: &Persona,
         _preamble: String,
+        _standing: String,
         _said: Vec<crate::driver::rig::Said>,
         _tools: TeammateTools,
         _extra_mcp: Vec<crate::mcp::McpServer>,

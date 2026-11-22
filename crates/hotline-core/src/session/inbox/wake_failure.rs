@@ -145,6 +145,12 @@ impl Room {
                     Some("end_turn" | "max_tokens" | "max_turn_requests" | "tool_use")
                 ));
         if ran {
+            // Only a turn that ended as a turn ends may close what it was
+            // shown: one that failed, was stopped or ran out of room may not
+            // have taken it in.
+            let clean = driven.failure.is_none()
+                && !driven.cancelled
+                && driven.stop_reason.as_deref() == Some("end_turn");
             for id in offered {
                 let shown = inline == Some(id.as_str());
                 let answer = shown && self.answers_own_ask(receiver, id);
@@ -157,8 +163,10 @@ impl Room {
                     // sorting is needed, and an answer to the teammate's own
                     // question was what that turn told: either is done with,
                     // not left to be offered again in a quiet turn, whose
-                    // line would invite telling the person a second time.
-                    if item.wants == InboxWants::Nothing || answer {
+                    // line would invite telling the person a second time. An
+                    // answer whose sender waits on a reply stays to be
+                    // answered.
+                    if clean && (item.wants == InboxWants::Nothing || (answer && !item.waiting)) {
                         moved(
                             item,
                             InboxState::Closed,

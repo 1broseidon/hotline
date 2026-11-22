@@ -160,6 +160,65 @@ async fn an_answer_shown_in_the_turn_that_tells_the_person_is_not_offered_again(
     assert_eq!(adas_wakes(&agents).len(), 1);
 }
 
+/// Bob answers Ada's question; the answer, shown whole, wakes her turn.
+async fn answered_in_a_turn(room: &Arc<Room>, extra: Value) -> String {
+    at_rest(room, "ada").await;
+    let asked = ask(room, &["bob"], "What is 3 plus 3?").await;
+    let mut arguments =
+        json!({"to": ["ada"], "message": "6", "reply_to": asked[0], "wants": "answer"});
+    if let Value::Object(fields) = extra {
+        for (key, value) in fields {
+            arguments[key] = value;
+        }
+    }
+    let answered = crate::session::tests::send_past_card(room, "bob", arguments)
+        .await
+        .unwrap();
+    let reply = answered["sent"][0]["id"].as_str().unwrap().to_string();
+    until("Ada's turn ended", || {
+        idle(room, "ada") && room.tape("ada").iter().any(|event| event["kind"] == "turn")
+    })
+    .await;
+    reply
+}
+
+/// Shield's review of the above: a turn that made progress and was then
+/// stopped may not have taken the answer in, so it stays seen, to be
+/// offered again, rather than closed.
+#[tokio::test]
+async fn an_answer_shown_in_a_turn_cancelled_after_progress_stays_seen() {
+    let (room, _) = room_on(
+        "asked-answer-cancelled",
+        crate::session::tests::Scripted::new(vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "partway".into(),
+                text: "Bob says".into(),
+            },
+            Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            },
+        ]),
+    );
+    let reply = answered_in_a_turn(&room, json!({})).await;
+    let kept = item(&room, "ada", &reply);
+    assert_eq!(kept.state, InboxState::Seen);
+    assert_eq!(kept.outcome, None);
+}
+
+/// An answer whose sender waits on a reply is still a question: a turn
+/// that ends without answering it leaves it seen.
+#[tokio::test]
+async fn a_waiting_answer_to_a_closed_ask_stays_seen_when_the_turn_does_not_reply() {
+    let (room, _) = room("asked-answer-waiting");
+    let reply = answered_in_a_turn(&room, json!({"waiting": true})).await;
+    let kept = item(&room, "ada", &reply);
+    assert!(kept.waiting);
+    assert_eq!(kept.state, InboxState::Seen);
+    assert_eq!(kept.outcome, None);
+}
+
 /// A send to several is finished when the last of its items closes: Bob's
 /// answer alone is progress, heard in a quiet turn, whose line says the
 /// result is told in a turn the person reads once it is all in.

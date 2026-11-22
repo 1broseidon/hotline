@@ -106,7 +106,7 @@ struct Slot {
 }
 
 /// The entry a teammate's computer's attest key is kept under.
-fn entry_name(persona_id: &str) -> String {
+pub(crate) fn entry_name(persona_id: &str) -> String {
     format!("computer-attest/{persona_id}")
 }
 

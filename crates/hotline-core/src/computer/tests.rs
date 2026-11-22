@@ -1011,6 +1011,51 @@ async fn sweep_stops_then_removes_by_idle_age() {
     );
 }
 
+/// A computer the sweep hibernates, or one removed, is gone with its
+/// bearer, and so is the attest key kept for it: no later desk reads it
+/// back.
+#[tokio::test]
+async fn hibernating_a_computer_deletes_its_kept_attest_key() {
+    use crate::credentials::SecretStore;
+    let root = scratch("sweep-kept");
+    let cwd = root.join("work");
+    fs::create_dir_all(&cwd).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "absent").unwrap();
+    let store = Arc::new(crate::credentials::MemoryStore::default());
+    let computers = Computer::with_path(root.as_os_str()).with_store(store.clone());
+    let ada = persona("ada", cwd.to_str().unwrap());
+    computers
+        .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
+        .await
+        .expect("ensure");
+    store
+        .set("computer-attest/ada", br#"{"v":1}"#)
+        .expect("an entry kept for it");
+    let now = now_ms();
+    computers
+        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .await;
+    assert!(
+        store.get("computer-attest/ada").unwrap().is_some(),
+        "a computer stopped for idling keeps it"
+    );
+    computers
+        .sweep(now + COMPUTER_HIBERNATE_MS + 1, &HashSet::new())
+        .await;
+    assert_eq!(store.get("computer-attest/ada").unwrap(), None);
+
+    // Removed before this desk took it in, after a restart: the entry a
+    // previous desk kept goes too.
+    let restarted = Computer::with_path(root.as_os_str()).with_store(store.clone());
+    store
+        .set("computer-attest/ada", br#"{"v":1}"#)
+        .expect("an entry a previous desk kept");
+    restarted.remove("ada", None).await.unwrap();
+    assert_eq!(store.get("computer-attest/ada").unwrap(), None);
+}
+
 #[test]
 fn a_computer_tool_is_named_computer_underscore_underscore() {
     assert!(is_computer_tool("computer__capture", "see the screen"));

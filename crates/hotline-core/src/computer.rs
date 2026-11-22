@@ -809,8 +809,15 @@ impl Computer {
         let _turn = self.turn_of(persona_id).lock_owned().await;
         let name = container_name(persona_id);
         let removed = self.lock().containers.remove(persona_id);
-        if let Some(live) = &removed {
-            live.attest.forget().await;
+        match &removed {
+            Some(live) => live.attest.forget().await,
+            // One a previous desk left and this one never took in may have
+            // a key kept for it: it goes with the computer all the same.
+            None => {
+                if let Some(store) = &self.store {
+                    let _ = store.delete(&secrets::entry_name(persona_id));
+                }
+            }
         }
         let cmd = match removed.map(|live| live.cmd) {
             Some(cmd) => cmd,

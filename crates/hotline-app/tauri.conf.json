@@ -24,6 +24,7 @@
   },
   "bundle": {
     "active": true,
+    "shortDescription": "A team of AI agents on your own computer.",
     "targets": "all",
     "macOS": {
       "minimumSystemVersion": "13.0",

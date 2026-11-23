@@ -537,7 +537,8 @@ From the release branch, with `make precheck` passing:
 2. Set the version and bring the lock file along:
    `python3 scripts/release_version.py X.Y.Z-beta.N --set && cargo update --workspace`.
    That changes `Cargo.toml`, `crates/hotline-app/tauri.conf.json` and the
-   workspace's own entries in `Cargo.lock`.
+   workspace's own entries in `Cargo.lock`. A final also changes the
+   version `site/public/index.html` shows.
 3. Commit it as `Release X.Y.Z-beta.N`, push the branch, and wait for CI on
    that commit.
 4. Tag that commit `desktop-vX.Y.Z-beta.N` and push the tag. Betas count up

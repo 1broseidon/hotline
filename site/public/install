@@ -59,6 +59,9 @@ unit_is_relay() {
 
 desk_user() {
     user=$(systemctl show -p User --value hotline 2>/dev/null || true)
+    # With no system bus systemctl answers only root, so the unit is read: it
+    # knows the user unless a drop-in changed it.
+    [ -n "$user" ] || user=$(sed -n 's/^User=//p' "$UNIT" 2>/dev/null | tail -n 1)
     echo "${user:-hotline}"
 }
 
@@ -101,6 +104,22 @@ pick_user() {
     esac
     printf '%s\n' "$run_user" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' || fail "$run_user is not a user name"
     id -u "$run_user" >/dev/null 2>&1 || fail "there is no user $run_user on this machine"
+    # Teammates run commands as the desk's user, so an account that sudos
+    # without a password makes each of them root. Only an account the installer
+    # chose is questioned: --user is the person's own word.
+    if [ -z "$run_as" ] && passwordless_sudo "$run_user"; then
+        say "Warning: $run_user can use sudo without a password, so a teammate given the whole machine, or one run by Claude Code, Codex or Cursor, can become root on this machine."
+        if has_tty; then
+            ask "Run the desk as a separate hotline service account instead? y/n" n
+            case "$answer" in [Yy]*) run_user= ;; esac
+        fi
+    fi
+}
+
+# Whether sudo lets this account run something without asking for a password.
+# -n never prompts: an account that needs its password lists nothing here.
+passwordless_sudo() {
+    if [ "$(id -un)" = "$1" ]; then sudo -n -l; else sudo -n -l -U "$1"; fi 2>/dev/null | grep -q NOPASSWD
 }
 
 # The one person with a login on this machine: a regular account (uid 1000 to
@@ -265,7 +284,7 @@ confirm_install() {
         return 0
     fi
     if [ -z "$yes" ] && has_tty; then
-        ask "Install Hotline $version? (y/N)" N
+        ask "Install Hotline $version? y/n" n
         case "$answer" in
             y | Y | yes | YES | Yes) ;;
             *) say "Not installed; nothing changed."; return 1 ;;
@@ -429,7 +448,7 @@ server() {
     # The browser is opt-in: asked for, or offered once, on a first full
     # install at a terminal.
     if [ -n "$fresh" ] && [ -z "$relay" ] && [ -z "$browser" ] && has_tty; then
-        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 500 MB (y/N)" N
+        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 500 MB. y/n" n
         case "$answer" in [Yy]*) browser=1 ;; esac
     fi
 
@@ -454,6 +473,13 @@ server() {
     fi
 
     as_root install -m 0755 "$work/$dir/hotline" /usr/local/bin/hotline
+    # The desk links libdbus for a keyring a server never opens, a minimal
+    # Debian has none, and a tarball has no dependency list to bring it.
+    # shortcut: apt only; name dbus-libs for dnf and zypper when a server there lacks it.
+    if command -v apt-get >/dev/null 2>&1 && ! dpkg -s libdbus-1-3 2>/dev/null | grep -q '^Status: install ok installed'; then
+        as_root apt-get update -q
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libdbus-1-3
+    fi
     # The browser helper always goes beside it; without its packages it is
     # never started, and the desk offers no browser.
     if [ -f "$work/$dir/hotline-browser" ]; then
@@ -537,12 +563,6 @@ server() {
     say "Open the port for your phones and nothing else. Teammates that run"
     say "through npx need Node on the unit's PATH: sudo systemctl edit hotline."
     say ""
-    if has_tty; then
-        as_desk /usr/local/bin/hotline pair </dev/tty ||
-            say "Pair later with: sudo -u $(desk_user) HOTLINE_DATA_DIR=$ROOM hotline pair"
-    else
-        say "Pair a phone with: sudo -u $(desk_user) HOTLINE_DATA_DIR=$ROOM hotline pair"
-    fi
     if [ "$(desk_user)" = hotline ]; then
         say "The desk runs as the hotline service account, which has no claude or codex"
         say "of its own yet. Install and sign in to one as that account:"
@@ -550,6 +570,23 @@ server() {
         say "See https://hotline.dev/docs/server/models/"
     else
         say "Next, connect a model: https://hotline.dev/docs/server/models/"
+    fi
+    say ""
+    # Root and the desk's own user reach the room as they are; anyone else through sudo.
+    pair="hotline pair"
+    [ "$(id -u)" -eq 0 ] || [ "$(id -un)" = "$(desk_user)" ] || pair="sudo hotline pair"
+    # Pairing is last and said before its QR: it waits two minutes for a phone
+    # that someone without the iPhone app does not have.
+    if has_tty; then
+        # Ctrl-C at the QR ends this script where its EXIT trap does not run.
+        rm -rf "$work"
+        say "Then pair your iPhone. Hotline for iPhone is in beta: https://testflight.apple.com/join/wwK11AS7"
+        say "No iPhone, or not now? Press Ctrl-C to pair later with: $pair"
+        say "(a desktop pairs with: $pair --link)"
+        say ""
+        as_desk /usr/local/bin/hotline pair </dev/tty || say "Pair later with: $pair"
+    else
+        say "Then pair your iPhone with: $pair"
     fi
 }
 

@@ -483,7 +483,7 @@ impl Failure {
             ),
             Kind::Auth => (
                 "Provider sign-in required",
-                "The provider refused this connection. Check its credentials in Settings.",
+                "The provider refused this connection. Check its credentials in Settings › Providers, or on a server with `hotline wire credential.create`.",
             ),
             Kind::ProviderRefused => (
                 "Provider is refusing requests",

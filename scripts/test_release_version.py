@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -52,13 +53,24 @@ class ReleaseVersionTests(unittest.TestCase):
             tauri = (ROOT / "crates" / "hotline-app" / "tauri.conf.json").read_text()
             (root / "Cargo.toml").write_text(cargo)
             (root / "crates" / "hotline-app" / "tauri.conf.json").write_text(tauri)
+            (root / "site" / "public").mkdir(parents=True)
+            page = (ROOT / "site" / "public" / "index.html").read_text()
+            (root / "site" / "public" / "index.html").write_text(page)
             write(root, parse("9.8.7-beta.6"))
+            # A beta is not the latest release, so the homepage keeps the final it names.
+            self.assertEqual((root / "site" / "public" / "index.html").read_text(), page)
             current = parse_current(cargo)
             self.assertEqual((root / "Cargo.toml").read_text(),
                              cargo.replace(f'version = "{current}"', 'version = "9.8.7-beta.6"', 1))
             self.assertEqual((root / "crates" / "hotline-app" / "tauri.conf.json").read_text(),
                              tauri.replace(f'"version": "{current}"', '"version": "9.8.7-beta.6"', 1))
             self.assertIn('rust-version = "', (root / "Cargo.toml").read_text())
+            # A final is the version the homepage shows wherever it shows one, and its script is left alone.
+            write(root, parse("9.8.7"))
+            shown = (root / "site" / "public" / "index.html").read_text()
+            self.assertEqual(shown.count("<span data-version>9.8.7</span>"), page.count("<span data-version>") - 1)
+            self.assertEqual(shown, re.sub(r"(<span data-version>)[0-9][^<]*", r"\g<1>9.8.7", page))
+            self.assertIn("<span data-version>${", shown)
             (root / "Cargo.toml").write_text("[package]\nname = \"other\"\n")
             with self.assertRaisesRegex(ValueError, "no version to set"):
                 write(root, parse("9.8.7"))

@@ -34,6 +34,9 @@ sha2 = "0.10"
 tempfile = "3"
 
 [dev-dependencies]
+# The `hotline` these tests run adds made-up keys, which a test build never
+# asks a real provider about (`providers::discovery::key_refused`).
+hotline-core = { path = "../hotline-core", features = ["test-support"] }
 getrandom = "0.3"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 snow = "0.10"

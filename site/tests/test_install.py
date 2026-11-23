@@ -35,6 +35,7 @@ class InstallerTests(unittest.TestCase):
         for command in ("sudo", "runuser", "systemctl", "install", "curl", "apt-get", "dnf", "zypper", "useradd"):
             self.stub(command, 'echo "UNEXPECTED command" >&2; exit 99')
         self.stub("dpkg-query", "exit 1")
+        self.stub("dpkg", 'echo "Status: install ok installed"')
         self.stub("rpm", 'echo "package hotline is not installed"; exit 1')
         self.stub("uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac')
         source = INSTALL.read_text().removesuffix('main "$@"\n')
@@ -401,10 +402,15 @@ main --version 0.50.0 --yes
         self.stub("systemctl", "exit 1")
         self.run_shell('as_desk hotline status')
         self.assertEqual(self.actions(), [f"sudo -u hotline env HOTLINE_DATA_DIR={self.room} hotline status"])
+        # No system bus, so systemctl answers nobody but root: the unit says who.
+        self.log.unlink()
+        self.unit.write_text("[Service]\nUser=agent\n")
+        self.run_shell('as_desk hotline status')
+        self.assertEqual(self.actions(), [f"sudo -u agent env HOTLINE_DATA_DIR={self.room} hotline status"])
 
     # -- which user runs the desk (BRO-139) ------------------------------------
 
-    def pick(self, run_as="", sudo_user="", me="root", people=(), success=True):
+    def pick(self, run_as="", sudo_user="", me="root", people=(), success=True, before=""):
         """pick_user as `me`, on a machine whose passwd lists `people` (name, uid, shell, home)."""
         passwd = "\n".join(f"{name}:x:{uid}:{uid}::{home}:{shell}" for name, uid, shell, home in people)
         return self.run_shell(f'''
@@ -417,7 +423,7 @@ id() {{
     esac
 }}
 getent() {{ printf '%s\\n' {shlex.quote(passwd)}; }}
-run_as={shlex.quote(run_as)}
+{before}run_as={shlex.quote(run_as)}
 {f"SUDO_USER={shlex.quote(sudo_user)}" if sudo_user else "unset SUDO_USER"}
 pick_user
 echo "$run_user"
@@ -455,6 +461,24 @@ echo "$run_user"
         self.assertEqual(self.pick(sudo_user="hotline"), "")
         self.assertEqual(self.pick(run_as="hotline", sudo_user="agent"), "")
         self.assertEqual(self.pick(run_as="hotline", people=[self.person("agent")]), "")
+
+    def test_a_chosen_account_with_passwordless_sudo_is_warned_about_and_the_service_account_offered(self):
+        self.stub("sudo", 'echo "    (ALL : ALL) NOPASSWD: ALL"')
+        # Nobody to ask: the warning, and the account stays.
+        out = self.pick(sudo_user="agent")
+        self.assertIn("Warning: agent can use sudo without a password, so a teammate given the whole machine, or one run by Claude Code, Codex or Cursor, can become root on this machine.", out)
+        self.assertTrue(out.endswith("\nagent"), out)
+        self.assertNotIn("PROMPT", self.actions())
+        # At a terminal the service account is offered, and no keeps the account.
+        tty = 'has_tty() { return 0; }; ask() { echo "PROMPT $1" >>"$LOG"; answer=%s; }\n'
+        for me, sudo_user, people in (("root", "agent", ()), ("agent", "", ()), ("root", "", [self.person("agent")])):
+            self.assertTrue(self.pick(me=me, sudo_user=sudo_user, people=people, before=tty % "y").endswith("machine."))
+            self.assertTrue(self.pick(me=me, sudo_user=sudo_user, people=people, before=tty % "n").endswith("\nagent"))
+        self.assertEqual(len([a for a in self.actions() if a.startswith("PROMPT Run the desk as a separate hotline service account")]), 6)
+        # A user the person named is theirs to choose, and an account that needs its password is not warned about.
+        self.assertEqual(self.pick(run_as="agent", before=tty % "y"), "agent")
+        self.stub("sudo", "exit 1")
+        self.assertEqual(self.pick(sudo_user="agent", before=tty % "y"), "agent")
 
     def test_a_user_that_cannot_run_the_desk_is_refused(self):
         self.assertIn("does not run as root", self.pick(run_as="root", success=False))
@@ -544,7 +568,8 @@ main --server --version 0.26.0 --yes {args}
         self.assertIn("Group=agentgroup", unit)
         self.assertIn(f"Environment=HOME={self.home}", unit)
         self.assertIn("The desk will run as agent", out)
-        self.assertIn(f"sudo -u agent HOTLINE_DATA_DIR={self.room} hotline pair", out)
+        # Connecting a model is said before pairing, and the pairing hint is the plain command.
+        self.assertLess(out.index("Next, connect a model"), out.index("Then pair your iPhone with: hotline pair\n"))
         self.assertNotIn("sudo -u hotline -H bash", out)
 
     def test_a_first_server_install_can_run_the_desk_as_a_named_user(self):
@@ -572,7 +597,7 @@ main --server --version 0.26.0 --yes {args}
             self.assertIn("User=hotline", unit)
             self.assertIn("Environment=HOME=/var/lib/hotline", unit)
             self.assertNotIn("The desk will run as", out)
-            self.assertIn(f"sudo -u hotline HOTLINE_DATA_DIR={self.room} hotline pair", out)
+            self.assertIn("Then pair your iPhone with: hotline pair\n", out)
             self.assertIn("sudo -u hotline -H bash", out)
             self.assertIn("Environment=PATH=/var/lib/hotline/.local/bin:/var/lib/hotline/.npm-global/bin:/usr/local/bin:/usr/bin:/bin", unit)
 
@@ -687,6 +712,17 @@ main --server --version 0.26.0 --yes {args}
         self.assertLess(actions.index(self.BROWSER), next(i for i, a in enumerate(actions) if "enable --now hotline" in a))
         self.assertIn("Installing the browser's packages", out)
 
+    def test_a_server_without_libdbus_gets_it_before_the_desk_starts(self):
+        self.server_run(self.LISTEN)
+        self.assertFalse([a for a in self.actions() if "libdbus" in a])
+        self.log.unlink()
+        self.unit.unlink()
+        self.stub("dpkg", "exit 1")
+        self.server_run(self.LISTEN)
+        actions = self.actions()
+        dbus = next(i for i, a in enumerate(actions) if a.endswith("apt-get install -y --no-install-recommends libdbus-1-3"))
+        self.assertLess(dbus, next(i for i, a in enumerate(actions) if "enable --now hotline" in a))
+
     def test_an_installed_server_gets_the_browser_on_a_rerun_with_browser(self):
         self.server_run("--browser", unit_exists=True, hotline_exists=True)
         self.assertIn(self.BROWSER, self.actions())
@@ -729,6 +765,11 @@ main --server --version 0.26.0 --yes {args}
         self.log.unlink()
         self.server_run("", unit_exists=True, hotline_exists=True, before='has_tty() { return 0; }; ask() { echo "PROMPT $1" >>"$LOG"; answer=y; }')
         self.assertFalse([a for a in self.actions() if a.startswith("PROMPT")], self.actions())
+
+    def test_a_first_install_at_a_terminal_says_what_scans_the_qr_and_how_to_leave_before_it_waits(self):
+        out = self.server_run(self.LISTEN, sudo_user="agent", before='has_tty() { return 0; }; ask() { answer=n; }; as_desk() { case "$*" in *" pair") return 1 ;; esac; }')
+        said = [out.index(line) for line in ("Next, connect a model", "https://testflight.apple.com/join/", "Press Ctrl-C to pair later with: hotline pair\n", "Pair later with: hotline pair\n")]
+        self.assertEqual(said, sorted(said), out)
 
     def test_a_relay_has_no_browser(self):
         out = self.server_run(f"--relay {self.LISTEN} --browser", success=False)

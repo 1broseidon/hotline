@@ -15,8 +15,9 @@ It downloads the server build for your architecture, checks it against the
 release's checksums, installs `hotline` to `/usr/local/bin`, writes the unit
 below, and starts the desk. It asks for `sudo` when it needs it, and for the
 [listen address and public URL](#listen-address-and-tls), or takes them as
-`--listen` and `--public-url`. Once the desk is up it shows a pairing QR, so
-keep your phone handy.
+`--listen` and `--public-url`. Once the desk is up it shows a pairing QR for
+[Hotline on your iPhone](/docs/phone/); press Ctrl-C to
+[pair later](/docs/server/pair/).
 
 The desk runs as you, whether you ran the installer as yourself or with
 `sudo`, so it sees the `claude` and `codex` you installed and signed in to.

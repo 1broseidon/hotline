@@ -42,6 +42,13 @@ Whatever answered at that address doesn't hold the key from the QR code the
 phone scanned: a different machine, or a room recreated from scratch. If you
 rebuilt the server on purpose, pair again. If you didn't, don't.
 
+## `hotline` exits at once and says nothing
+
+On Linux a command's stderr is turned away until `hotline` itself starts, to
+hide a warning one of its libraries prints on a CPU it cannot name. A crash
+that early is silent. Run it again with `HOTLINE_EARLY_STDERR=1` set to see
+what was written, for example `HOTLINE_EARLY_STDERR=1 hotline status`.
+
 ## A teammate's harness can't sign in or can't be found
 
 The desk runs harnesses as its own account, with the unit's

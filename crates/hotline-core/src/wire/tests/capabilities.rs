@@ -85,9 +85,13 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
 
     let secret = "capabilities-private-credential";
     desk.credential_create("anthropic", "Chat only", secret)
+        .await
         .unwrap();
-    desk.credential_create("groq", "Speech", secret).unwrap();
+    desk.credential_create("groq", "Speech", secret)
+        .await
+        .unwrap();
     desk.credential_create("openai", "Everything", secret)
+        .await
         .unwrap();
     let answer = remote_control_answer(
         Seat::Owner,
@@ -256,6 +260,7 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
 
     let secret = "image-status-private-credential";
     desk.credential_create("anthropic", "No image provider", secret)
+        .await
         .unwrap();
     let unsupported = remote_control_answer(
         Seat::Owner,
@@ -268,8 +273,10 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
     assert_eq!(unsupported["result"]["available"], false, "{unsupported}");
     let openai = desk
         .credential_create("openai", "Image provider", secret)
+        .await
         .unwrap();
     desk.credential_create("google", "Second image provider", secret)
+        .await
         .unwrap();
     let before = desk.log.load(&StreamId::Room);
     for seat in [Seat::Desk, Seat::Owner] {
@@ -628,6 +635,7 @@ async fn images_status_preserves_the_shared_ledgers_failure_state_without_leakin
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     desk.credential_create("openai", "Image provider", "private-image-key")
+        .await
         .unwrap();
     let handle: Arc<dyn RoomHandle> = desk.clone();
     for seat in [Seat::Desk, Seat::Owner] {
@@ -669,6 +677,7 @@ async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     desk.credential_create("openai", "Image provider", "private-image-key")
+        .await
         .unwrap();
     let handle: Arc<dyn RoomHandle> = desk.clone();
     for images in [json!({"provider": 17}), json!([]), json!({"model": " "})] {
@@ -777,6 +786,7 @@ async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_con
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     desk.credential_create("openai", "Image provider", "private-image-key")
+        .await
         .unwrap();
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let disabled = remote_control_answer(
@@ -868,6 +878,7 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
         );
     }
     desk.credential_create("openai", "API", "options-test-key")
+        .await
         .unwrap();
     let selected = remote_control_answer(
         Seat::Owner,

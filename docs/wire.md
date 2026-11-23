@@ -744,7 +744,9 @@ connections continue to edit their IDs through `credential.custom_save`.
 
 `providers.list` also exposes `credentialKinds`, the methods each provider
 offers (`api_key`, `oauth`, or `local`). `credential.create` accepts only
-providers offering `api_key` and refuses blank keys.
+providers offering `api_key` and refuses blank keys, and a key the provider's
+own model listing answers 400, 401 or 403 to. A listing that cannot be reached
+does not hold a key back.
 `credential.connect_local {baseUrl}` validates an Ollama HTTP/HTTPS URL,
 discovers its models, and then records a `local` credential with that
 `baseUrl`. It writes no secret. The chosen server may have a reverse-proxy

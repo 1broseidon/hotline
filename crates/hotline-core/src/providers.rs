@@ -13,7 +13,7 @@ use crate::credentials::CredentialFile;
 use oauth2::PkceCodeChallenge;
 use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use url::Url;
 
@@ -36,17 +36,91 @@ pub(crate) fn ollama_url(input: &str) -> Result<String, String> {
     Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
-pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Ollama, String> {
-    let http = reqwest::Client::builder()
+// Chat and the loaded-runner check use the same client and redirect policy.
+static OLLAMA_HTTP: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
+    reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        // Credentials must never follow a redirect to another server.
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())
+});
+
+pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Ollama, String> {
+    let http = (*OLLAMA_HTTP).clone()?;
     Ok(ollama::OllamaConfig::new()
         .with_base_url(base_url)
         .with_api_key(key)
         .connect(rig::http_client::ReqwestClient::from(http)))
+}
+
+#[derive(Deserialize)]
+struct OllamaProcesses {
+    models: Vec<OllamaProcess>,
+}
+
+#[derive(Deserialize)]
+struct OllamaProcess {
+    model: Option<String>,
+    name: Option<String>,
+    context_length: Option<u64>,
+}
+
+/// The live context, not the model's advertised maximum. An uncertain
+/// answer leaves the first reply held for the usage check.
+pub(crate) async fn ollama_loaded_context(base_url: &str, model: &str) -> Option<u64> {
+    const MAX_LIST_BYTES: usize = 64 * 1024;
+    let mut response = OLLAMA_HTTP
+        .as_ref()
+        .ok()?
+        .get(format!("{}/api/ps", base_url.trim_end_matches('/')))
+        .timeout(Duration::from_millis(300))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.ok()? {
+        if chunk.len() > MAX_LIST_BYTES - body.len() {
+            return None;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let running: OllamaProcesses = serde_json::from_slice(&body).ok()?;
+    let model = ollama_name_parts(model);
+    let matches = |name: &str| {
+        ollama_name_parts(name)
+            .into_iter()
+            .zip(model)
+            .all(|(listed, asked)| listed.eq_ignore_ascii_case(asked))
+    };
+    let mut context = None;
+    for row in &running.models {
+        let names = [row.model.as_deref(), row.name.as_deref()];
+        if !names.into_iter().flatten().any(matches) {
+            continue;
+        }
+        if context.is_some() || names.into_iter().flatten().any(|name| !matches(name)) {
+            return None;
+        }
+        context = Some(row.context_length.filter(|length| *length > 0)?);
+    }
+    context
+}
+
+/// Ollama's listing may omit the default registry or namespace, while a
+/// request may omit the default `latest` tag.
+fn ollama_name_parts(name: &str) -> [&str; 4] {
+    let mut parts = name.rsplitn(3, '/');
+    let id = parts.next().unwrap_or_default();
+    let (model, tag) = id.split_once(':').unwrap_or((id, "latest"));
+    [
+        parts.next().unwrap_or("library"),
+        parts.next().unwrap_or("registry.ollama.ai"),
+        model,
+        tag,
+    ]
 }
 
 pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<String>, String> {

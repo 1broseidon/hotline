@@ -13,6 +13,7 @@ use rig::operation::Completion;
 use rig::streaming::{Item, Part, StreamEvent};
 use rig::tool::{ToolContext, ToolResult, ToolSet};
 use serde_json::json;
+use std::collections::VecDeque;
 
 /// Meters a turn's rounds against the Chat budget when its model is billed
 /// per token: each round reserves an estimate before its request goes out
@@ -517,8 +518,22 @@ impl Activity<'_> {
         if let Some(context) = self.jobs.context() {
             history.push(Message::user(context));
         }
-        let ollama_estimate = std::mem::take(&mut self.check_ollama_prompt)
+        let mut ollama_estimate = std::mem::take(&mut self.check_ollama_prompt)
             .then(|| recovery::estimated_tokens(&history, preamble, &template.tools));
+        let turn = self.turn;
+        let loaded_context = async {
+            let (provider, model) = turn.model.split_once('/')?;
+            let ProviderAuth::Local { base_url } = turn.keys.get(provider)? else {
+                return None;
+            };
+            crate::providers::ollama_loaded_context(base_url, model).await
+        };
+        tokio::pin!(loaded_context);
+        let mut probing = false;
+        // Backpressure keeps the short probe from buffering an unbounded stream.
+        const PROBE_BUFFER_ITEMS: usize = 128;
+        let mut buffered = VecDeque::new();
+        let mut stream_ended = false;
         // Before a paid request goes out, the Chat budget must have room for
         // it; the reservation is kept unless this round's usage settles it.
         let reservation = match &self.turn.meter {
@@ -571,8 +586,26 @@ impl Activity<'_> {
                     self.job_results.push(publish_job(self.turn, self.sender, job?, !self.asked).await);
                     continue;
                 }
-                item = stream.next() => item,
+                context = &mut loaded_context, if probing => {
+                    probing = false;
+                    // shortcut: /api/ps is a snapshot, until Ollama identifies the runner in the stream.
+                    if context.zip(ollama_estimate).is_some_and(|(loaded, estimate)| loaded >= estimate) {
+                        ollama_estimate = None;
+                    }
+                    continue;
+                }
+                item = async {
+                    if !probing && let Some(item) = buffered.pop_front() {
+                        return Some(item);
+                    }
+                    if stream_ended { None } else { stream.next().await }
+                }, if !probing || (!stream_ended && buffered.len() < PROBE_BUFFER_ITEMS) => item,
             };
+            if probing {
+                stream_ended = item.as_ref().is_none_or(Result::is_err);
+                buffered.extend(item);
+                continue;
+            }
             let Some(item) = item else { break };
             let item = match item {
                 Ok(item) => item,
@@ -585,8 +618,15 @@ impl Activity<'_> {
                     return self.retry(failure, revision).await;
                 }
             };
+            if !started && ollama_estimate.is_some() {
+                // This item came from a loaded runner. Hold it while asking how much it could read.
+                started = true;
+                probing = true;
+                buffered.push_back(Ok(item));
+                continue;
+            }
             started = true;
-            // Ollama reports prompt usage at the end; don't publish words before that check.
+            // Without proof the prompt fit, don't publish words before the usage check.
             if ollama_estimate.is_some() {
                 continue;
             }

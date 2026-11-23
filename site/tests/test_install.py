@@ -394,7 +394,7 @@ echo "$run_user"
         self.stub("sudo", 'echo "    (ALL : ALL) NOPASSWD: ALL"')
         # Nobody to ask: the warning, and the account stays.
         out = self.pick(sudo_user="agent")
-        self.assertIn("Warning: agent can use sudo without a password", out)
+        self.assertIn("Warning: agent can use sudo without a password, so a teammate given the whole machine, or one run by Claude Code, Codex or Cursor, can become root on this machine.", out)
         self.assertTrue(out.endswith("\nagent"), out)
         self.assertNotIn("PROMPT", self.actions())
         # At a terminal the service account is offered, and no keeps the account.

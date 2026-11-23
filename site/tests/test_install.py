@@ -496,7 +496,8 @@ main --server --version 0.26.0 --yes {args}
         self.assertIn("Group=agentgroup", unit)
         self.assertIn(f"Environment=HOME={self.home}", unit)
         self.assertIn("The desk will run as agent", out)
-        self.assertIn(f"sudo -u agent HOTLINE_DATA_DIR={self.room} hotline pair", out)
+        # Connecting a model is said before pairing, and the pairing hint is the plain command.
+        self.assertLess(out.index("Next, connect a model"), out.index("Then pair your iPhone with: hotline pair\n"))
         self.assertNotIn("sudo -u hotline -H bash", out)
 
     def test_a_first_server_install_can_run_the_desk_as_a_named_user(self):
@@ -524,7 +525,7 @@ main --server --version 0.26.0 --yes {args}
             self.assertIn("User=hotline", unit)
             self.assertIn("Environment=HOME=/var/lib/hotline", unit)
             self.assertNotIn("The desk will run as", out)
-            self.assertIn(f"sudo -u hotline HOTLINE_DATA_DIR={self.room} hotline pair", out)
+            self.assertIn("Then pair your iPhone with: hotline pair\n", out)
             self.assertIn("sudo -u hotline -H bash", out)
             self.assertIn("Environment=PATH=/var/lib/hotline/.local/bin:/var/lib/hotline/.npm-global/bin:/usr/local/bin:/usr/bin:/bin", unit)
 
@@ -681,6 +682,11 @@ main --server --version 0.26.0 --yes {args}
         self.log.unlink()
         self.server_run("", unit_exists=True, hotline_exists=True, before='has_tty() { return 0; }; ask() { echo "PROMPT $1" >>"$LOG"; answer=y; }')
         self.assertFalse([a for a in self.actions() if a.startswith("PROMPT")], self.actions())
+
+    def test_a_first_install_at_a_terminal_says_what_scans_the_qr_and_how_to_leave_before_it_waits(self):
+        out = self.server_run(self.LISTEN, sudo_user="agent", before='has_tty() { return 0; }; ask() { answer=n; }; as_desk() { case "$*" in *" pair") return 1 ;; esac; }')
+        said = [out.index(line) for line in ("Next, connect a model", "https://testflight.apple.com/join/", "Press Ctrl-C to pair later with: hotline pair\n", "Pair later with: hotline pair\n")]
+        self.assertEqual(said, sorted(said), out)
 
     def test_a_relay_has_no_browser(self):
         out = self.server_run(f"--relay {self.LISTEN} --browser", success=False)

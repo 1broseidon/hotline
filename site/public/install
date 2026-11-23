@@ -533,12 +533,6 @@ server() {
     say "Open the port for your phones and nothing else. Teammates that run"
     say "through npx need Node on the unit's PATH: sudo systemctl edit hotline."
     say ""
-    if has_tty; then
-        as_desk /usr/local/bin/hotline pair </dev/tty ||
-            say "Pair later with: sudo -u $(desk_user) HOTLINE_DATA_DIR=$ROOM hotline pair"
-    else
-        say "Pair a phone with: sudo -u $(desk_user) HOTLINE_DATA_DIR=$ROOM hotline pair"
-    fi
     if [ "$(desk_user)" = hotline ]; then
         say "The desk runs as the hotline service account, which has no claude or codex"
         say "of its own yet. Install and sign in to one as that account:"
@@ -546,6 +540,23 @@ server() {
         say "See https://hotline.dev/docs/server/models/"
     else
         say "Next, connect a model: https://hotline.dev/docs/server/models/"
+    fi
+    say ""
+    # Root and the desk's own user reach the room as they are; anyone else through sudo.
+    pair="hotline pair"
+    [ "$(id -u)" -eq 0 ] || [ "$(id -un)" = "$(desk_user)" ] || pair="sudo hotline pair"
+    # Pairing is last and said before its QR: it waits two minutes for a phone
+    # that someone without the iPhone app does not have.
+    if has_tty; then
+        # Ctrl-C at the QR ends this script where its EXIT trap does not run.
+        rm -rf "$work"
+        say "Then pair your iPhone. Hotline for iPhone is in beta: https://testflight.apple.com/join/wwK11AS7"
+        say "No iPhone, or not now? Press Ctrl-C to pair later with: $pair"
+        say "(a desktop pairs with: $pair --link)"
+        say ""
+        as_desk /usr/local/bin/hotline pair </dev/tty || say "Pair later with: $pair"
+    else
+        say "Then pair your iPhone with: $pair"
     fi
 }
 

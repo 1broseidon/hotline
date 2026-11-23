@@ -6,6 +6,7 @@ import io
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -325,6 +326,71 @@ main --server --version 0.26.0 --yes
         out = self.run_shell(body, success=False)
         self.assertIn("does not match its checksum", out)
         self.assertEqual(self.actions(), [])
+
+    # -- the Mac app is Hotline's before it is installed -------------------------
+
+    def mac_install(self, team="F3E8V88BVB", verify=0, requirement=0, notarized=0):
+        """Runs the real desktop_macos on a release whose checksum matches, as a
+        swapped release's would, with codesign and spctl answering as told."""
+        (self.applications / "Hotline.app").mkdir()
+        (self.applications / "Hotline.app/old").write_text("the installed app\n")
+        stage = self.root / "stage"
+        (stage / "Hotline.app/Contents").mkdir(parents=True)
+        (stage / "Hotline.app/Contents/new").write_text("the release's app\n")
+        archive = self.root / "hotline_0.50.0_macos_aarch64.app.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(stage / "Hotline.app", arcname="Hotline.app")
+        (self.root / "checksums.txt").write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+        self.stub("uname", 'case "$1" in -s) echo Darwin;; -m) echo arm64;; esac')
+        self.stub("sysctl", "exit 1")
+        self.stub("PlistBuddy", "echo 0.49.2")
+        self.stub("xattr", 'echo "UNEXPECTED xattr" >&2; exit 99')
+        log = shlex.quote(str(self.log))
+        self.stub("codesign", f'''echo "codesign $*" >>{log}
+case "$*" in
+    -dv*) echo "TeamIdentifier={team}" >&2 ;;
+    *-R=*) exit {requirement} ;;
+    *) exit {verify} ;;
+esac''')
+        self.stub("spctl", f'echo "spctl $*" >>{log}; exit {notarized}')
+        source = self.source.read_text()
+        real = source[source.index("TEAM="):source.index("\ndesktop_linux() {")]
+        body = real + f'''
+fetch() {{ cp {shlex.quote(str(self.root))}/"${{1##*/}}" "$2"; }}
+main --version 0.50.0 --yes
+'''
+        return self.run_shell(body, success=False if verify or requirement or notarized or team != "F3E8V88BVB" else True)
+
+    def test_a_mac_app_signed_and_notarized_by_hotline_is_installed_and_gatekeeper_stays_on(self):
+        self.mac_install()
+        self.assertTrue((self.applications / "Hotline.app/Contents/new").exists())
+        self.assertFalse((self.applications / "Hotline.app/old").exists())
+        checks = self.actions()
+        self.assertTrue(any(a.startswith("codesign --verify --deep --strict") for a in checks), checks)
+        self.assertTrue(any('leaf[subject.OU] = "F3E8V88BVB"' in a for a in checks), checks)
+        self.assertTrue(any(a.startswith("spctl -a -t exec") for a in checks), checks)
+        self.assertNotIn("quarantine", INSTALL.read_text())
+
+    def test_a_mac_app_hotline_did_not_sign_is_refused_and_the_installed_one_is_untouched(self):
+        cases = [
+            ({"verify": 1}, "is not validly signed"),
+            ({"team": "not set"}, "is not signed by Hotline's team (F3E8V88BVB)"),
+            ({"team": "ABCDE12345"}, "is signed by team ABCDE12345, not Hotline's (F3E8V88BVB)"),
+            ({"requirement": 1}, "is not signed with Hotline's Developer ID"),
+            ({"notarized": 3}, "is not notarized by Apple"),
+        ]
+        for answers, message in cases:
+            with self.subTest(**answers):
+                out = self.mac_install(**answers)
+                self.assertIn(message, out)
+                self.assertIn("nothing was installed", out)
+                self.assertEqual((self.applications / "Hotline.app/old").read_text(), "the installed app\n")
+                self.assertFalse((self.applications / "Hotline.app/Contents").exists())
+                for path in (self.applications / "Hotline.app", self.root / "stage", self.log):
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    elif path.exists():
+                        path.unlink()
 
     def test_desk_commands_run_as_the_units_user(self):
         self.stub("systemctl", '[ "$*" = "show -p User --value hotline" ] && echo agent')

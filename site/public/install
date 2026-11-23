@@ -273,6 +273,26 @@ confirm_install() {
     fi
 }
 
+# Hotline's Apple Developer ID team. The checksum comes from the same release
+# as the app, so it proves the download is whole, not who made it; this does.
+TEAM=F3E8V88BVB
+
+# Refuses an app that Apple does not vouch for as Hotline's: a valid signature,
+# chained to Apple, by Hotline's team, and notarized. Nothing is installed
+# before this passes, and Gatekeeper is left on.
+mac_app_is_hotlines() {
+    codesign --verify --deep --strict "$1" || fail "Hotline.app is not validly signed; nothing was installed"
+    team=$(codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+    case "$team" in
+        "$TEAM") ;;
+        "" | "not set") fail "Hotline.app is not signed by Hotline's team ($TEAM); nothing was installed" ;;
+        *) fail "Hotline.app is signed by team $team, not Hotline's ($TEAM); nothing was installed" ;;
+    esac
+    codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$1" ||
+        fail "Hotline.app is not signed with Hotline's Developer ID; nothing was installed"
+    spctl -a -t exec "$1" || fail "Hotline.app is not notarized by Apple; nothing was installed"
+}
+
 desktop_macos() {
     machine=$(arch)
     # A shell under Rosetta reports x86_64 on Apple silicon.
@@ -282,12 +302,12 @@ desktop_macos() {
     asset "$file"
     tar -xzf "$work/$file" -C "$work"
     [ -d "$work/Hotline.app" ] || fail "$file has no Hotline.app"
+    mac_app_is_hotlines "$work/Hotline.app"
     target=/Applications
     [ -w "$target" ] || target="$HOME/Applications"
     mkdir -p "$target"
     rm -rf "$target/Hotline.app"
     mv "$work/Hotline.app" "$target/Hotline.app"
-    xattr -dr com.apple.quarantine "$target/Hotline.app" 2>/dev/null || true
     say ""
     say "Hotline $version is in $target. Open it with: open -a Hotline"
 }

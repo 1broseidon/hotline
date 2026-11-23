@@ -240,9 +240,15 @@ pub(crate) async fn collect(
     provider_id: &str,
     listing: impl Future<Output = Result<ModelList, rig::ProviderError>>,
 ) -> Result<Vec<ListedModel>, String> {
-    let listed = tokio::time::timeout(Duration::from_secs(30), listing).await
+    let listed = tokio::time::timeout(Duration::from_secs(30), listing)
+        .await
         .map_err(|_| "Model discovery timed out; the previous list is unchanged.".to_string())?
-        .map_err(|_| "Could not discover models. Check this connection and try again; the previous list is unchanged.".to_string())?;
+        .map_err(|error| {
+            refusal(error.provider_response_status().or(match &error {
+                rig::ProviderError::Http(error) => error.non_success_status(),
+                _ => None,
+            }))
+        })?;
     if listed.len() > MAX_MODELS {
         return Err("The provider returned too many models.".into());
     }
@@ -340,6 +346,14 @@ async fn openrouter_models_at(
         .map_err(|_| failed())?;
     let body = fetch(http.send::<Bytes, Vec<u8>>(request)).await?;
     openrouter_listing(&body)
+}
+
+async fn openrouter_key(key: &str) -> Result<Vec<u8>, String> {
+    let request = http::Request::get(format!("{OPENROUTER_URL}/key"))
+        .header(http::header::AUTHORIZATION, format!("Bearer {key}"))
+        .body(Bytes::new())
+        .map_err(|_| failed())?;
+    fetch(DiscoveryHttp::new()?.send::<Bytes, Vec<u8>>(request)).await
 }
 
 #[derive(Deserialize)]
@@ -454,6 +468,37 @@ pub(crate) fn failed() -> String {
     "Could not discover models. Check this connection and try again; the previous list is unchanged.".to_string()
 }
 
+/// What a listing fails with when the provider answered that it will not take
+/// these credentials: 401, 403, or the 400 Gemini answers a bad key with.
+pub(crate) const REFUSED: &str = "The provider refused these credentials.";
+
+fn refusal(status: Option<http::StatusCode>) -> String {
+    match status.map(|status| status.as_u16()) {
+        Some(400 | 401 | 403) => REFUSED.to_string(),
+        _ => failed(),
+    }
+}
+
+/// Whether the provider's own model listing refuses this key. A listing that
+/// fails any other way (offline, the provider down) says nothing of the key.
+/// OpenRouter lists its models for anyone, so it is asked about the key itself.
+// shortcut: Ollama Cloud lists for anyone and Z.ai has no listing, so their keys are kept unchecked; give each its own probe when a bad one costs someone a first turn.
+pub(crate) async fn key_refused(client: Client, key: &str) -> bool {
+    // A test's key is made up, and no test asks a real provider about one.
+    if cfg!(feature = "test-support") {
+        return false;
+    }
+    let listed = match client {
+        Client::XAi => xai_models(key).await,
+        Client::OllamaCloud => {
+            ollama_models("ollama-cloud", crate::providers::OLLAMA_CLOUD_URL, key).await
+        }
+        Client::OpenRouter => openrouter_key(key).await.map(|_| Vec::new()),
+        client => api_models(client, key).await,
+    };
+    listed.is_err_and(|error| error == REFUSED)
+}
+
 /// A listing's body, under discovery's time limit.
 pub(crate) async fn fetch(
     send: impl Future<Output = http_client::Result<http::Response<LazyBody<Vec<u8>>>>>,
@@ -465,7 +510,7 @@ pub(crate) async fn fetch(
             if error.to_string().contains(NO_ANSWER) {
                 NO_ANSWER.to_string()
             } else {
-                failed()
+                refusal(error.non_success_status())
             }
         })?;
     response.into_body().await.map_err(|_| failed())
@@ -870,6 +915,8 @@ mod tests {
                 .unwrap_err();
             assert!(!error.contains("private upstream secret"));
             assert!(!error.contains("test-only-key"));
+            // Only the provider's own no is a refusal of the key.
+            assert_eq!(error == REFUSED, status == StatusCode::UNAUTHORIZED);
         }
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();

@@ -796,7 +796,7 @@ impl RoomHandle for Desk {
         self.room.subscribe_deltas()
     }
 
-    fn credential_create(
+    async fn credential_create(
         &self,
         provider_id: &str,
         label: &str,
@@ -812,6 +812,10 @@ impl RoomHandle for Desk {
         }
         if secret.trim().is_empty() {
             return Err("Enter an API key.".into());
+        }
+        // A key its provider refuses fails every turn, so it is not kept.
+        if crate::providers::discovery::key_refused(wiring.client, secret.trim()).await {
+            return Err("The provider refused this key. Check it and add it again.".into());
         }
         self.vault
             .create(provider_id, label, secret.trim())

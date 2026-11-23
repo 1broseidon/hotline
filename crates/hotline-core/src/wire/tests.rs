@@ -410,7 +410,7 @@ impl RoomHandle for CoreHandle {
         self.room.subscribe_deltas()
     }
 
-    fn credential_create(
+    async fn credential_create(
         &self,
         _provider_id: &str,
         _label: &str,
@@ -825,7 +825,7 @@ impl RoomHandle for Quiet {
         self.deltas.subscribe()
     }
 
-    fn credential_create(
+    async fn credential_create(
         &self,
         provider_id: &str,
         label: &str,

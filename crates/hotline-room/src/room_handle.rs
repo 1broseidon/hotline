@@ -451,7 +451,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// written to a tape: the durable line lands when the message is whole.
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta>;
 
-    fn credential_create(
+    async fn credential_create(
         &self,
         provider_id: &str,
         label: &str,

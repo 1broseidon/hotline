@@ -249,6 +249,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
     );
     let room: Arc<dyn RoomHandle> = desk.clone();
     desk.credential_create("openai", "Speech fixture", "unused-test-key")
+        .await
         .unwrap();
     desk.log
         .append(

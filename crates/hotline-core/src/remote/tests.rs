@@ -401,13 +401,15 @@ impl RoomHandle for Computered {
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
         self.deltas.subscribe()
     }
-    fn credential_create(
+    async fn credential_create(
         &self,
         provider_id: &str,
         label: &str,
         secret: &str,
     ) -> Result<crate::contract::Credential, String> {
-        self.desk.credential_create(provider_id, label, secret)
+        self.desk
+            .credential_create(provider_id, label, secret)
+            .await
     }
     fn credential_revoke(&self, id: &str) -> Result<(), String> {
         self.desk.credential_revoke(id)

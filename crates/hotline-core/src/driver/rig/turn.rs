@@ -13,6 +13,7 @@ use rig::operation::Completion;
 use rig::streaming::{Item, Part, StreamEvent};
 use rig::tool::{ToolContext, ToolResult, ToolSet};
 use serde_json::json;
+use std::collections::VecDeque;
 
 /// Meters a turn's rounds against the Chat budget when its model is billed
 /// per token: each round reserves an estimate before its request goes out
@@ -277,11 +278,22 @@ async fn run_inner(
     sender: &mpsc::Sender<Update>,
     jobs: &mut Jobs,
 ) -> Result<(&'static str, Tokens, bool), Failure> {
+    let history = turn.history.lock().await.clone();
+    // shortcut: guard the opening exchange only, until we can detect cuts in growing histories.
+    let check_ollama_prompt = turn
+        .model
+        .split_once('/')
+        .and_then(|(provider, _)| models::wiring(provider))
+        .is_some_and(|wiring| wiring.client == Client::Ollama)
+        && !history
+            .iter()
+            .any(|message| matches!(message, Message::Assistant(_)));
     let mut activity = Activity {
         turn,
         sender,
         jobs,
-        history: turn.history.lock().await.clone(),
+        history,
+        check_ollama_prompt,
         job_results: Vec::new(),
         usage: Tokens::default(),
         usage_complete: true,
@@ -459,6 +471,7 @@ struct Activity<'a> {
     sender: &'a mpsc::Sender<Update>,
     jobs: &'a mut Jobs,
     history: Vec<Message>,
+    check_ollama_prompt: bool,
     /// Job results published since history last took them.
     job_results: Vec<Message>,
     usage: Tokens,
@@ -507,6 +520,23 @@ impl Activity<'_> {
         if let Some(context) = self.jobs.context() {
             history.push(Message::user(context));
         }
+        let mut ollama_estimate = self
+            .check_ollama_prompt
+            .then(|| recovery::estimated_tokens(&history, preamble, &template.tools));
+        let turn = self.turn;
+        let loaded_context = async {
+            let (provider, model) = turn.model.split_once('/')?;
+            let ProviderAuth::Local { base_url } = turn.keys.get(provider)? else {
+                return None;
+            };
+            crate::providers::ollama_loaded_context(base_url, model).await
+        };
+        tokio::pin!(loaded_context);
+        let mut probing = false;
+        // Backpressure keeps the short probe from buffering an unbounded stream.
+        const PROBE_BUFFER_ITEMS: usize = 128;
+        let mut buffered = VecDeque::new();
+        let mut stream_ended = false;
         // Before a paid request goes out, the Chat budget must have room for
         // it; the reservation is kept unless this round's usage settles it.
         let reservation = match &self.turn.meter {
@@ -559,8 +589,26 @@ impl Activity<'_> {
                     self.job_results.push(publish_job(self.turn, self.sender, job?, !self.asked).await);
                     continue;
                 }
-                item = stream.next() => item,
+                context = &mut loaded_context, if probing => {
+                    probing = false;
+                    // shortcut: /api/ps is a snapshot, until Ollama identifies the runner in the stream.
+                    if context.zip(ollama_estimate).is_some_and(|(loaded, estimate)| loaded >= estimate) {
+                        ollama_estimate = None;
+                    }
+                    continue;
+                }
+                item = async {
+                    if !probing && let Some(item) = buffered.pop_front() {
+                        return Some(item);
+                    }
+                    if stream_ended { None } else { stream.next().await }
+                }, if !probing || (!stream_ended && buffered.len() < PROBE_BUFFER_ITEMS) => item,
             };
+            if probing {
+                stream_ended = item.as_ref().is_none_or(Result::is_err);
+                buffered.extend(item);
+                continue;
+            }
             let Some(item) = item else { break };
             let item = match item {
                 Ok(item) => item,
@@ -573,7 +621,18 @@ impl Activity<'_> {
                     return self.retry(failure, revision).await;
                 }
             };
+            if !started && ollama_estimate.is_some() {
+                // This item came from a loaded runner. Hold it while asking how much it could read.
+                started = true;
+                probing = true;
+                buffered.push_back(Ok(item));
+                continue;
+            }
             started = true;
+            // Without proof the prompt fit, don't publish words before the usage check.
+            if ollama_estimate.is_some() {
+                continue;
+            }
             match shown(item) {
                 Some(Shown::Text { part, text }) => {
                     streamed.insert(part);
@@ -631,6 +690,34 @@ impl Activity<'_> {
         self.usage_complete &= reported.reported;
         self.context_tokens = reported.context();
         self.usage += reported;
+        if let Some(estimate) = ollama_estimate
+            && !self.turn.steering.superseded(revision)
+        {
+            // shortcut: allow the estimate to overcount by 2.5×, until Ollama reports cuts directly.
+            let unverified = if reported.input == 0 {
+                !response.choice.is_empty()
+            } else {
+                reported.input.saturating_mul(5) < estimate.saturating_mul(2)
+            };
+            if unverified {
+                return Err(Failure::ollama_unverified_prompt(reported.input, estimate));
+            }
+            if response.error.is_none() {
+                for part in &response.choice {
+                    let (kind, text) = match part {
+                        AssistantContent::Text(text) => {
+                            spoken.push_str(&text.text);
+                            (MessageKind::Agent, text.text.as_str())
+                        }
+                        AssistantContent::Reasoning(reasoning) => {
+                            (MessageKind::Thought, reasoning.text.as_str())
+                        }
+                        _ => continue,
+                    };
+                    chunk_into(self.sender, &mut self.open, kind, text).await;
+                }
+            }
+        }
         flush(self.sender, &mut self.open).await;
         if self.turn.steering.superseded(revision) {
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
@@ -674,6 +761,10 @@ impl Activity<'_> {
                 "The model response was truncated or filtered; its tool calls were not executed."
                     .into(),
             );
+        }
+        // An empty, unasked-for response with no count said nothing and proved nothing.
+        if ollama_estimate.is_none() || reported.input > 0 {
+            self.check_ollama_prompt = false;
         }
         self.retries = 0;
         Ok(Streamed::Response(Box::new(response)))

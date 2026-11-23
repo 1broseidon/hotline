@@ -704,6 +704,99 @@ async fn a_truncated_response_never_dispatches_its_tools() {
     }
 }
 
+#[tokio::test(start_paused = true)]
+async fn ollama_checks_the_first_prompt_after_a_retry_or_steer() {
+    for first_end in [
+        Some(Err(ProviderError::ProviderResponse(
+            rig::ProviderResponseError::new(http::StatusCode::SERVICE_UNAVAILABLE, "busy"),
+        ))),
+        Some(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::new().input_tokens(16_518),
+        )))),
+        Some(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
+        )))),
+        None,
+    ] {
+        let (mut turn, request) = fixture();
+        turn.model = "ollama/test".into();
+        turn.preamble = "Keep your answers short and clear. ".repeat(2_048);
+        let steering = turn.steering.clone();
+        let history = turn.history.clone();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, a) = mpsc::channel(8);
+        let (second, b) = mpsc::channel(8);
+        let model = scripted(seen, [Some(a), Some(b)]);
+        let (updates, receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        let mut expected = vec![Message::user("first request")];
+        if let Some(end) = first_end {
+            if end.is_err() {
+                first
+                    .send(Ok(MockStreamEvent::Text("Suspect partial.".into())))
+                    .await
+                    .unwrap();
+            }
+            first.send(end).await.unwrap();
+        } else {
+            let input = Message::user("Change direction.");
+            assert!(steering.admit(input.clone()));
+            expected.push(input);
+        }
+        assert_eq!(said(&receive(&mut requests).await), parts(&expected));
+        drop(first);
+        second
+            .send(Ok(MockStreamEvent::Text("Suspect reply.".into())))
+            .await
+            .unwrap();
+        second
+            .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+                Usage::new().input_tokens(2_050),
+            ))))
+            .await
+            .unwrap();
+        drop(second);
+        let failure = task.await.unwrap().unwrap_err();
+        assert_eq!(failure.kind, Kind::Configuration);
+        assert!(failure.summary.contains("Ollama cut this request"));
+        assert_eq!(*history.lock().await, expected);
+        assert_eq!(updates_of(receiver).await, [] as [Update; 0]);
+    }
+}
+
+#[tokio::test]
+async fn ollama_context_cut_takes_precedence_over_a_completed_response_error() {
+    let (mut turn, request) = fixture();
+    turn.model = "ollama/test".into();
+    turn.preamble = "Keep your answers short and clear. ".repeat(2_048);
+    let (seen, _requests) = mpsc::unbounded_channel();
+    let (chunks, stream) = mpsc::channel(8);
+    let model = scripted(seen, [Some(stream)]);
+    chunks
+        .send(Ok(MockStreamEvent::Text("Suspect reply.".into())))
+        .await
+        .unwrap();
+    let mut terminal = mock_final(Usage::new().input_tokens(2_050));
+    terminal.error = Some("The provider reported a failure.".into());
+    chunks
+        .send(Ok(MockStreamEvent::FinalResponse(terminal)))
+        .await
+        .unwrap();
+    drop(chunks);
+    let (sender, receiver) = mpsc::channel(64);
+    let failure = run(&model, request, &ToolSet::default(), &turn, &sender, None)
+        .await
+        .unwrap_err();
+    assert_eq!(failure.kind, Kind::Configuration);
+    assert!(failure.summary.contains("Ollama cut this request"));
+    assert_eq!(*turn.history.lock().await, [Message::user("first request")]);
+    drop(sender);
+    assert_eq!(updates_of(receiver).await, [] as [Update; 0]);
+}
+
 /// A megabyte of build log reaches the model once, as a few KB with both
 /// streams' ends and where the rest is, and not again in wait_jobs.
 #[cfg(unix)]

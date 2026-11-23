@@ -175,7 +175,9 @@ export function NewTeammateForm({
 	const backendName = backends.find((one) => one.id === backendId)?.name ?? "Hotline Agent";
 	const thinks = onHotline ? `Hotline Agent · ${modelName}` : backendName;
 	const abilities = [
-		onHotline && machine ? "Whole machine" : "Its folder only",
+		// A harness runs as its own process with the person's account, outside
+		// Hotline's sandbox: what it may touch is its own setting, not this one.
+		onHotline ? (machine ? "Whole machine" : "Its folder only") : `Managed by ${backendName}`,
 		backgroundWork ? "Works while you're away" : null,
 		computerReady && computer ? "Own computer" : null,
 	]
@@ -313,9 +315,11 @@ export function NewTeammateForm({
 						onChange={setCwd}
 					/>
 					<p className="hint">
-						{simple
-							? "Where it keeps its work. It only touches files here unless you give it the whole machine."
-							: "Where it keeps its work. It only touches files here and in the folders below, unless you give it the whole machine."}
+						{!onHotline
+							? `Where it keeps its work. ${backendName} runs with its own permissions, so what it can touch is set there.`
+							: simple
+								? "Where it keeps its work. It only touches files here unless you give it the whole machine."
+								: "Where it keeps its work. It only touches files here and in the folders below, unless you give it the whole machine."}
 					</p>
 					{!simple && (
 						<div>

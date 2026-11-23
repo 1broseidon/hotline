@@ -71,7 +71,8 @@ fn main() -> ExitCode {
 /// logging setting reaches it. stderr points at /dev/null from before those
 /// initializers until `main` starts; `.init_array.00099` is sorted ahead of
 /// the plain `.init_array` they are in. A test binary has no `main` of ours to
-/// put stderr back, so it is left alone.
+/// put stderr back, so it is left alone. With `HOTLINE_EARLY_STDERR` set to
+/// anything stderr is left alone too, so a crash before `main` can be read.
 #[cfg(all(target_os = "linux", not(test)))]
 mod hush {
     use std::sync::atomic::{AtomicI32, Ordering};
@@ -82,8 +83,12 @@ mod hush {
     #[unsafe(link_section = ".init_array.00099")]
     static BEFORE_MAIN: extern "C" fn() = {
         extern "C" fn away() {
-            // SAFETY: descriptor calls on this process's own stderr, before any thread exists.
+            // SAFETY: descriptor calls on this process's own stderr, and a read of its
+            // environment, before any thread exists.
             unsafe {
+                if !libc::getenv(c"HOTLINE_EARLY_STDERR".as_ptr()).is_null() {
+                    return;
+                }
                 let null = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
                 let saved = libc::fcntl(2, libc::F_DUPFD_CLOEXEC, 3);
                 if null >= 0 && saved >= 0 && libc::dup2(null, 2) >= 0 {

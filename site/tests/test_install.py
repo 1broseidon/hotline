@@ -34,6 +34,7 @@ class InstallerTests(unittest.TestCase):
         for command in ("sudo", "runuser", "systemctl", "install", "curl", "apt-get", "dnf", "zypper", "useradd"):
             self.stub(command, 'echo "UNEXPECTED command" >&2; exit 99')
         self.stub("dpkg-query", "exit 1")
+        self.stub("dpkg", 'echo "Status: install ok installed"')
         self.stub("rpm", 'echo "package hotline is not installed"; exit 1')
         self.stub("uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac')
         source = INSTALL.read_text().removesuffix('main "$@"\n')
@@ -335,6 +336,11 @@ main --server --version 0.26.0 --yes
         self.stub("systemctl", "exit 1")
         self.run_shell('as_desk hotline status')
         self.assertEqual(self.actions(), [f"sudo -u hotline env HOTLINE_DATA_DIR={self.room} hotline status"])
+        # No system bus, so systemctl answers nobody but root: the unit says who.
+        self.log.unlink()
+        self.unit.write_text("[Service]\nUser=agent\n")
+        self.run_shell('as_desk hotline status')
+        self.assertEqual(self.actions(), [f"sudo -u agent env HOTLINE_DATA_DIR={self.room} hotline status"])
 
     # -- which user runs the desk (BRO-139) ------------------------------------
 
@@ -639,6 +645,17 @@ main --server --version 0.26.0 --yes {args}
         # Installed before the desk starts, so its first boot finds them.
         self.assertLess(actions.index(self.BROWSER), next(i for i, a in enumerate(actions) if "enable --now hotline" in a))
         self.assertIn("Installing the browser's packages", out)
+
+    def test_a_server_without_libdbus_gets_it_before_the_desk_starts(self):
+        self.server_run(self.LISTEN)
+        self.assertFalse([a for a in self.actions() if "libdbus" in a])
+        self.log.unlink()
+        self.unit.unlink()
+        self.stub("dpkg", "exit 1")
+        self.server_run(self.LISTEN)
+        actions = self.actions()
+        dbus = next(i for i, a in enumerate(actions) if a.endswith("apt-get install -y --no-install-recommends libdbus-1-3"))
+        self.assertLess(dbus, next(i for i, a in enumerate(actions) if "enable --now hotline" in a))
 
     def test_an_installed_server_gets_the_browser_on_a_rerun_with_browser(self):
         self.server_run("--browser", unit_exists=True, hotline_exists=True)

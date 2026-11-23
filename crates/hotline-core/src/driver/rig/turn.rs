@@ -277,11 +277,20 @@ async fn run_inner(
     sender: &mpsc::Sender<Update>,
     jobs: &mut Jobs,
 ) -> Result<(&'static str, Tokens, bool), Failure> {
+    let history = turn.history.lock().await.clone();
+    // shortcut: check only fresh conversations, until Ollama reliably counts cached prompt tokens.
+    let check_ollama_prompt = matches!(history.as_slice(), [Message::User { .. }])
+        && turn
+            .model
+            .split_once('/')
+            .and_then(|(provider, _)| models::wiring(provider))
+            .is_some_and(|wiring| wiring.client == Client::Ollama);
     let mut activity = Activity {
         turn,
         sender,
         jobs,
-        history: turn.history.lock().await.clone(),
+        history,
+        check_ollama_prompt,
         job_results: Vec::new(),
         usage: Tokens::default(),
         usage_complete: true,
@@ -459,6 +468,7 @@ struct Activity<'a> {
     sender: &'a mpsc::Sender<Update>,
     jobs: &'a mut Jobs,
     history: Vec<Message>,
+    check_ollama_prompt: bool,
     /// Job results published since history last took them.
     job_results: Vec<Message>,
     usage: Tokens,
@@ -507,6 +517,8 @@ impl Activity<'_> {
         if let Some(context) = self.jobs.context() {
             history.push(Message::user(context));
         }
+        let ollama_estimate = std::mem::take(&mut self.check_ollama_prompt)
+            .then(|| recovery::estimated_tokens(&history, preamble, &template.tools));
         // Before a paid request goes out, the Chat budget must have room for
         // it; the reservation is kept unless this round's usage settles it.
         let reservation = match &self.turn.meter {
@@ -574,6 +586,10 @@ impl Activity<'_> {
                 }
             };
             started = true;
+            // Ollama reports prompt usage at the end; don't publish words before that check.
+            if ollama_estimate.is_some() {
+                continue;
+            }
             match shown(item) {
                 Some(Shown::Text { part, text }) => {
                     streamed.insert(part);
@@ -631,6 +647,30 @@ impl Activity<'_> {
         self.usage_complete &= reported.reported;
         self.context_tokens = reported.context();
         self.usage += reported;
+        if let Some(estimate) = ollama_estimate
+            && !self.turn.steering.superseded(revision)
+        {
+            if reported.reported
+                && reported.input > 0
+                && reported.input.saturating_mul(3) < estimate
+                && response.error.is_none()
+            {
+                return Err(Failure::ollama_context_cut(reported.input, estimate));
+            }
+            for part in &response.choice {
+                let (kind, text) = match part {
+                    AssistantContent::Text(text) => {
+                        spoken.push_str(&text.text);
+                        (MessageKind::Agent, text.text.as_str())
+                    }
+                    AssistantContent::Reasoning(reasoning) => {
+                        (MessageKind::Thought, reasoning.text.as_str())
+                    }
+                    _ => continue,
+                };
+                chunk_into(self.sender, &mut self.open, kind, text).await;
+            }
+        }
         flush(self.sender, &mut self.open).await;
         if self.turn.steering.superseded(revision) {
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;

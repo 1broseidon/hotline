@@ -148,7 +148,7 @@ async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
                     "message":{"role":"assistant", "content":"Hello from Ollama."}, "done":false});
                 let done = json!({"model":"custom/coder:latest", "created_at":"2026-09-09T00:00:00Z",
                     "message":{"role":"assistant", "content":""}, "done":true, "done_reason":"stop",
-                    "prompt_eval_count":10, "eval_count":4});
+                    "prompt_eval_count":16_000, "eval_count":4});
                 ([("Content-Type", "application/x-ndjson")], format!("{chunk}\n{done}\n"))
             }
         }));
@@ -1041,7 +1041,7 @@ async fn hotline_agent_with_no_provider_says_so_before_the_first_turn() {
                     "message":{"role":"assistant", "content":"Connected now."}, "done":false});
                 let done = json!({"model":"coder", "created_at":"2026-10-18T00:00:00Z",
                     "message":{"role":"assistant", "content":""}, "done":true, "done_reason":"stop",
-                    "prompt_eval_count":10, "eval_count":3});
+                    "prompt_eval_count":16_000, "eval_count":3});
                 (
                     [("Content-Type", "application/x-ndjson")],
                     format!("{chunk}\n{done}\n"),

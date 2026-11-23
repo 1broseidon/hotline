@@ -851,28 +851,29 @@ async fn rig_pin_copilot_chat_sends_assistant_content_as_a_string() {
 
 // ---- Ollama ---------------------------------------------------------------
 
+fn ollama_reply(text: &str, prompt_tokens: Option<u64>) -> Answer {
+    let text = json!({"model": "qwen-test", "created_at": "2026-10-20T00:00:00Z",
+        "message": {"role": "assistant", "content": text}, "done": false});
+    let mut done = json!({"model": "qwen-test", "created_at": "2026-10-20T00:00:00Z",
+        "message": {"role": "assistant", "content": ""}, "done": true,
+        "done_reason": "stop", "eval_count": 1});
+    if let Some(tokens) = prompt_tokens {
+        done["prompt_eval_count"] = json!(tokens);
+    }
+    Answer {
+        status: StatusCode::OK,
+        content_type: "application/x-ndjson",
+        retry_after: None,
+        body: format!("{text}\n{done}\n"),
+    }
+}
+
 /// Ollama takes a thinking level only on its own `/api/chat`, as `think`.
 /// A turn at an effort sends it there.
 #[tokio::test]
 async fn rig_pin_ollama_effort_reaches_api_chat_as_think() {
     let scratch = tempfile::tempdir().unwrap();
-    let line = |content: &str, done: bool| {
-        let mut line = json!({"model": "qwen-test", "created_at": "2026-10-20T00:00:00Z",
-            "message": {"role": "assistant", "content": content}, "done": done});
-        if done {
-            line["done_reason"] = json!("stop");
-            line["prompt_eval_count"] = json!(3);
-            line["eval_count"] = json!(1);
-        }
-        format!("{line}\n")
-    };
-    let mut stub = Stub::serve(vec![Answer {
-        status: StatusCode::OK,
-        content_type: "application/x-ndjson",
-        retry_after: None,
-        body: line("ok", false) + &line("", true),
-    }])
-    .await;
+    let mut stub = Stub::serve(vec![ollama_reply("ok", Some(2_000))]).await;
     let keys = HashMap::from([(
         "ollama".to_string(),
         ProviderAuth::Local {
@@ -892,6 +893,92 @@ async fn rig_pin_ollama_effort_reaches_api_chat_as_think() {
     assert_eq!(path, "/api/chat");
     assert_eq!(body["think"], "high", "{body}");
     assert_eq!(body["model"], "qwen-test");
+}
+
+#[tokio::test]
+async fn rig_pin_ollama_reports_a_cut_prompt_only_on_a_fresh_request_with_usage() {
+    let scratch = tempfile::tempdir().unwrap();
+    for (prompt_tokens, follow_up, cut) in [
+        (Some(2_050), false, true),
+        (Some(16_000), false, false),
+        (Some(0), false, false),
+        (None, false, false),
+        (Some(12), true, false),
+    ] {
+        let text = if cut { "Unreliable reply." } else { "Read it." };
+        let mut stub = Stub::serve(vec![ollama_reply(text, prompt_tokens)]).await;
+        let keys = HashMap::from([(
+            "ollama".to_string(),
+            ProviderAuth::Local {
+                base_url: stub.url.clone(),
+            },
+        )]);
+        let mut history = Vec::new();
+        if follow_up {
+            history.extend([Message::user("Hello."), Message::assistant("Hi.")]);
+        }
+        history.push(Message::user("Please answer briefly."));
+        let before = history.len();
+        let mut turn = turn_on(keys, "ollama/qwen-test", history, scratch.path());
+        turn.preamble = "Keep your answers short and clear. ".repeat(2_048);
+        let (sender, mut updates) = mpsc::channel(1024);
+        let result = turn.run(&sender, None).await;
+        drop(sender);
+        let mut messages = Vec::new();
+        while let Some(update) = updates.recv().await {
+            match update {
+                Update::Delta { .. } => assert!(!cut, "a rejected reply must not stream"),
+                Update::Message { text, .. } => messages.push(text),
+                _ => {}
+            }
+        }
+        if cut {
+            let failure = result.unwrap_err();
+            assert_eq!(failure.kind, Kind::Configuration);
+            assert!(failure.summary.contains("Ollama cut this request"));
+            assert!(failure.summary.contains("32k or more"));
+            assert!(
+                failure
+                    .summary
+                    .contains("choose a different provider or model for this teammate")
+            );
+            assert!(failure.details.contains("OLLAMA_CONTEXT_LENGTH=32768"));
+            assert!(failure.retry_delay(0).is_none());
+            assert!(!failure.tools_may_have_run);
+            assert_eq!(messages, [] as [String; 0]);
+            assert_eq!(turn.history.lock().await.len(), before);
+        } else {
+            result.unwrap();
+            assert_eq!(messages, [text]);
+        }
+        let requests = stub.bodies();
+        assert_eq!(requests.len(), 1, "this request is not retried");
+        assert_eq!(requests[0].0, "/api/chat");
+        assert!(requests[0].1["options"].get("num_ctx").is_none());
+    }
+}
+
+#[tokio::test]
+async fn rig_pin_low_chat_completions_usage_is_not_an_ollama_context_cut() {
+    let scratch = tempfile::tempdir().unwrap();
+    let mut stub = Stub::serve(vec![chat_reply("Read it.")]).await;
+    let mut turn = turn_on(
+        api_key("openrouter"),
+        "openrouter/openai/gpt-test",
+        vec![Message::user("Please answer briefly.")],
+        scratch.path(),
+    );
+    turn.preamble = "Keep your answers short and clear. ".repeat(2_048);
+    let config = openai::OpenAIConfig::with_key(&openai::wire::OPENROUTER, "test-only-key")
+        .with_base_url(&stub.url);
+    let model = openrouter_model(config, "openai/gpt-test", Reuse::Rounds).unwrap();
+    let (result, updates) = run_on(&model, &turn).await;
+    result.unwrap();
+    assert_eq!(recorded(&updates).unwrap().input_tokens, Some(10));
+    assert!(updates.iter().any(|update| matches!(update,
+        Update::Message { text, .. } if text == "Read it."
+    )));
+    assert_eq!(stub.bodies().len(), 1);
 }
 
 // ---- Custom servers -------------------------------------------------------

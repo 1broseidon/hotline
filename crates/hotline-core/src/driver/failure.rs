@@ -291,6 +291,25 @@ impl Failure {
         failure
     }
 
+    /// Replaying a silently cut prompt would lose the same instructions.
+    pub fn ollama_context_cut(read: u64, estimated: u64) -> Self {
+        Self {
+            kind: Kind::Configuration,
+            title: "Ollama context too small".into(),
+            summary: "Ollama cut this request to fit its context length, so the teammate lost its instructions. In the Ollama app's settings, set the context length to 32k or more, or choose a different provider or model for this teammate.",
+            details: format!(
+                "Ollama reported {read} prompt tokens; Hotline estimated {estimated}. If you run Ollama yourself, set OLLAMA_CONTEXT_LENGTH=32768 or higher before starting the server."
+            ),
+            phase: "stream",
+            status: None,
+            code: None,
+            retry_after_seconds: None,
+            tools_may_have_run: false,
+            sign_in: None,
+            model: None,
+        }
+    }
+
     /// A paid request the Chat budget refused, before it was sent.
     pub fn budget(refused: crate::voice::ledger::Exhausted) -> Self {
         let mut failure = Self {

@@ -65,8 +65,52 @@ fn main() -> ExitCode {
     ExitCode::FAILURE
 }
 
+/// The speech engine's onnxruntime writes "cpuid_info warning: Unknown CPU
+/// vendor" to stderr from a C++ static initializer, on a CPU it has no name
+/// for (an ARM VM on a Mac): before `main`, so on every command, and where no
+/// logging setting reaches it. stderr points at /dev/null from before those
+/// initializers until `main` starts; `.init_array.00099` is sorted ahead of
+/// the plain `.init_array` they are in. A test binary has no `main` of ours to
+/// put stderr back, so it is left alone.
+#[cfg(all(target_os = "linux", not(test)))]
+mod hush {
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    static STDERR: AtomicI32 = AtomicI32::new(-1);
+
+    #[used]
+    #[unsafe(link_section = ".init_array.00099")]
+    static BEFORE_MAIN: extern "C" fn() = {
+        extern "C" fn away() {
+            // SAFETY: descriptor calls on this process's own stderr, before any thread exists.
+            unsafe {
+                let null = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
+                let saved = libc::fcntl(2, libc::F_DUPFD_CLOEXEC, 3);
+                if null >= 0 && saved >= 0 && libc::dup2(null, 2) >= 0 {
+                    STDERR.store(saved, Ordering::Relaxed);
+                }
+                libc::close(null);
+            }
+        }
+        away
+    };
+
+    pub fn back() {
+        let saved = STDERR.swap(-1, Ordering::Relaxed);
+        if saved >= 0 {
+            // SAFETY: `saved` is the stderr this process started with, which `away` kept open.
+            unsafe {
+                libc::dup2(saved, 2);
+                libc::close(saved);
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 fn main() -> ExitCode {
+    #[cfg(all(target_os = "linux", not(test)))]
+    hush::back();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args == ["--version"] {
         println!("hotline {}", env!("CARGO_PKG_VERSION"));

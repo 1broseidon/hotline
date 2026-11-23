@@ -259,7 +259,7 @@ async fn a_run_the_person_stops_ends_cancelled_and_a_harness_subagent_is_refused
     assert!(gone.ends_with('.'), "{gone}");
 
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     reports
         .send(crate::driver::SubagentReport::Started {
             child: "child-1".to_string(),
@@ -467,7 +467,7 @@ async fn a_harness_subagent_is_written_as_a_run() {
     use crate::driver::SubagentReport;
     let room = room("harness-run", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     let child = || "child-1".to_string();
     reports
         .send(SubagentReport::Started {
@@ -544,7 +544,7 @@ async fn a_harness_subagent_nobody_heard_end_is_cancelled() {
     use crate::driver::SubagentReport;
     let room = room("harness-gone", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     reports
         .send(SubagentReport::Started {
             child: "child-1".to_string(),
@@ -585,7 +585,7 @@ async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
     use crate::driver::SubagentReport;
     let room = room("harness-background", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     reports
         .send(SubagentReport::Started {
             child: "t1".to_string(),
@@ -652,7 +652,7 @@ async fn a_background_commands_output_is_read_while_it_runs_and_kept_when_it_end
     use crate::driver::SubagentReport;
     let room = room("harness-output", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     reports
         .send(SubagentReport::Started {
             child: "c1".to_string(),
@@ -732,7 +732,7 @@ async fn a_runs_roster_row_follows_its_latest_step_and_words() {
     let room = room("harness-steps", Fake::new(Scripted::new(Vec::new())));
     let mut told = room.subscribe_info();
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     let send = |update: Update| {
         reports
             .send(SubagentReport::Update {
@@ -843,7 +843,7 @@ async fn a_subagents_task_said_after_its_start_opens_its_run() {
     use crate::driver::SubagentReport;
     let room = room("harness-told", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     reports
         .send(SubagentReport::Started {
             child: "child-1".to_string(),
@@ -878,7 +878,7 @@ async fn a_subagents_prompt_told_twice_in_a_row_is_written_once() {
     use crate::driver::SubagentReport;
     let room = room("harness-told-twice", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     let told = |text: &str| SubagentReport::Told {
         child: "child-1".to_string(),
         text: text.to_string(),
@@ -930,7 +930,7 @@ async fn a_subagents_prompt_said_at_its_spawn_and_told_again_is_written_once() {
     use crate::driver::SubagentReport;
     let room = room("harness-spawn-told", Fake::new(Scripted::new(Vec::new())));
     let (reports, received) = tokio::sync::mpsc::unbounded_channel();
-    room.watch_subagents("ada".to_string(), received);
+    room.watch_subagents("ada".to_string(), ThreadId::dm("ada"), received);
     reports
         .send(SubagentReport::Started {
             child: "child-1".to_string(),

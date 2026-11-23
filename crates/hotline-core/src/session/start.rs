@@ -235,7 +235,7 @@ impl Room {
             self.watch_unprompted(&session, unprompted);
         }
         if let Some(subagents) = subagents {
-            self.watch_subagents(persona.id.clone(), subagents);
+            self.watch_subagents(persona.id.clone(), ThreadId::dm(&persona.id), subagents);
         }
         if let Some(wakes) = wakes {
             self.watch_wakes(&session, wakes);

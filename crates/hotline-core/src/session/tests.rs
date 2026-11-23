@@ -84,6 +84,10 @@ pub(crate) struct Scripted {
     /// Work this agent starts by itself, for the room to take once.
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     wakes: Mutex<Option<mpsc::UnboundedReceiver<super::jobs::ProcessReturn>>>,
+    /// Where each agent built on this script reports its subagents, in the
+    /// order they subscribed, when the script stands in for a harness that
+    /// reports them. `None` reports none.
+    reporters: Option<Reporters>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
     /// Steering the agent uses in the turn it joined, so nothing comes back.
@@ -123,6 +127,10 @@ pub(crate) struct Scripted {
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
 
+/// Each subscriber's end of a harness's subagent reports, in the order the
+/// room subscribed: one script stands in for every agent a room builds.
+pub(super) type Reporters = Arc<Mutex<Vec<mpsc::UnboundedSender<crate::driver::SubagentReport>>>>;
+
 impl Scripted {
     pub(super) fn new(script: Vec<Update>) -> Self {
         Self::turns(vec![script])
@@ -146,6 +154,7 @@ impl Scripted {
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
             wakes: Mutex::new(None),
+            reporters: None,
             unconsumed: None,
             consumes: false,
             steered: Arc::new(Mutex::new(Vec::new())),
@@ -197,6 +206,15 @@ impl Scripted {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.wakes) = Some(receiver);
         (self, sender)
+    }
+
+    /// A harness that reports its own subagents, as Claude's adapter does:
+    /// every agent built on this script subscribes, and the test reports as
+    /// any one of them.
+    pub(super) fn with_subagents(mut self) -> (Self, Reporters) {
+        let reporters = Reporters::default();
+        self.reporters = Some(reporters.clone());
+        (self, reporters)
     }
 
     /// What a cancel produces, in place of the rest of the script.
@@ -405,6 +423,15 @@ impl Driver for Scripted {
 
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
         lock(&self.unprompted).take()
+    }
+
+    fn subscribe_subagents(
+        &self,
+    ) -> Option<mpsc::UnboundedReceiver<crate::driver::SubagentReport>> {
+        let reporters = self.reporters.as_ref()?;
+        let (sender, receiver) = mpsc::unbounded_channel();
+        lock(reporters).push(sender);
+        Some(receiver)
     }
 
     /// A card is answerable exactly once, the way a live request is.

@@ -216,6 +216,78 @@ async fn a_start_that_fails_before_anything_is_said_leaves_no_trace_until_the_fi
     calls.end(&id).unwrap();
 }
 
+/// Helpers the teammate's harness starts from a call are its runs as much as
+/// the main conversation's are: listed on its roster row while they go, which
+/// is what the main composer's threads chip counts, and for whoever the
+/// call's turn works for, not the main conversation's.
+#[tokio::test]
+async fn a_helper_the_harness_starts_in_a_call_is_listed_for_the_calls_work() {
+    use crate::driver::SubagentReport;
+    use crate::session::ownership::WorkFor;
+    let (driver, reporters) = Scripted::new(spoken_turn()).with_subagents();
+    let (room, _fake, calls) = calling("warm-call-helpers", driver).await;
+    let home = lock(&reporters).len();
+    let id = call_ada(&room, &calls);
+    let thread = ThreadId::call(&id);
+    until("the call's agent is up", || ready(&room, &id)).await;
+    until("the call's agent's helpers are watched", || {
+        lock(&reporters).len() == home + 1
+    })
+    .await;
+    let dm = ThreadId::dm("ada");
+    let _dm_turn = room.open_posting(&dm, None);
+    room.set_work_for(
+        &dm,
+        WorkFor::Colleague {
+            name: "Mack".to_string(),
+            item: "dm-item".to_string(),
+        },
+    );
+    let _call_turn = room.open_posting(&thread, None);
+    room.set_work_for(
+        &thread,
+        WorkFor::Colleague {
+            name: "Mack".to_string(),
+            item: "call-item".to_string(),
+        },
+    );
+    let reporter = lock(&reporters)[home].clone();
+    reporter
+        .send(SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: crate::contract::RunKind::Subagent,
+            title: "Harbour plan".to_string(),
+            task: "Read the harbour plan.".to_string(),
+        })
+        .unwrap();
+    until("the call's helper is listed", || {
+        !room.subagents("ada").is_empty()
+    })
+    .await;
+    let listed = room.subagents("ada");
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].title, "Harbour plan");
+    let link = room.link_of(&ThreadId::run(&listed[0].run_id)).unwrap();
+    assert_eq!(link.state, ThreadState::Live);
+    assert_eq!(
+        link.from_item.as_deref(),
+        Some("call-item"),
+        "the call's work, not the main conversation's"
+    );
+
+    reporter
+        .send(SubagentReport::Ended {
+            child: "child-1".to_string(),
+            status: crate::contract::SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the call's helper is off the roster", || {
+        room.subagents("ada").is_empty()
+    })
+    .await;
+    calls.end(&id).unwrap();
+}
+
 /// A call to the desk is the lead's to answer, and a live call talks to its
 /// front: neither starts the teammate's agent ahead of anything said.
 #[tokio::test]

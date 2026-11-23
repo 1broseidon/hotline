@@ -924,13 +924,14 @@ async fn rig_pin_ollama_effort_reaches_api_chat_as_think() {
 }
 
 #[tokio::test]
-async fn rig_pin_ollama_reports_a_cut_prompt_only_on_a_fresh_request_with_usage() {
+async fn rig_pin_ollama_holds_the_opening_reply_until_it_can_verify_the_prompt() {
     let scratch = tempfile::tempdir().unwrap();
-    let small = || {
+    let loaded = |length| {
         ollama_processes(json!([{
-            "name": "qwen-test:latest", "context_length": 4_096, "details": {"context_length": 262_144},
+            "name": "qwen-test:latest", "context_length": length, "details": {"context_length": 262_144},
         }]))
     };
+    let small = || loaded(4_096);
     let wrong_tag = ollama_processes(json!([{"name":"qwen-test:q4", "context_length":65_536}]));
     let duplicate = ollama_processes(json!([
         {"name":"qwen-test:latest", "context_length":65_536},
@@ -946,9 +947,11 @@ async fn rig_pin_ollama_reports_a_cut_prompt_only_on_a_fresh_request_with_usage(
         (Some(2_050), Some(hanging_body), true),
         (Some(2_050), Some(wrong_tag), true),
         (Some(2_050), Some(duplicate), true),
-        (Some(16_000), Some(small()), false),
-        (Some(0), Some(small()), false),
-        (None, Some(small()), false),
+        (Some(4_098), Some(loaded(8_192)), true),
+        (Some(8_194), Some(loaded(16_384)), true),
+        (Some(16_518), Some(ollama_processes(json!([]))), false),
+        (Some(0), Some(small()), true),
+        (None, Some(small()), true),
         (Some(12), None, false),
     ] {
         let follow_up = status.is_none();
@@ -993,7 +996,12 @@ async fn rig_pin_ollama_reports_a_cut_prompt_only_on_a_fresh_request_with_usage(
         if cut {
             let failure = result.unwrap_err();
             assert_eq!(failure.kind, Kind::Configuration);
-            assert!(failure.summary.contains("Ollama cut this request"));
+            let diagnosis = if prompt_tokens.unwrap_or_default() == 0 {
+                "Ollama did not report how much of the prompt it read"
+            } else {
+                "Ollama cut this request"
+            };
+            assert!(failure.summary.contains(diagnosis));
             assert!(failure.summary.contains("32k or more"));
             assert!(
                 failure
@@ -1018,6 +1026,57 @@ async fn rig_pin_ollama_reports_a_cut_prompt_only_on_a_fresh_request_with_usage(
             assert_eq!(requests[1].0, "/api/ps");
         }
     }
+}
+
+#[tokio::test]
+async fn rig_pin_ollama_checks_again_after_a_refused_first_message() {
+    let scratch = tempfile::tempdir().unwrap();
+    let mut stub = Stub::serve(
+        (0..2)
+            .flat_map(|_| {
+                [
+                    ollama_reply(
+                        json!({"role":"assistant", "content":"Suspect reply."}),
+                        Some(2_050),
+                    ),
+                    ollama_processes(json!([])),
+                ]
+            })
+            .collect(),
+    )
+    .await;
+    let keys = HashMap::from([(
+        "ollama".into(),
+        ProviderAuth::Local {
+            base_url: stub.url.clone(),
+        },
+    )]);
+    let mut turn = turn_on(keys, "ollama/qwen-test", Vec::new(), scratch.path());
+    turn.preamble = "Keep your answers short and clear. ".repeat(2_048);
+    let mut history = Vec::new();
+    for text in ["Please answer briefly.", "What about this instead?"] {
+        turn.steering = Arc::new(turn::Steering::default());
+        let message = Message::user(text);
+        history.push(message.clone());
+        let (sender, mut updates) = mpsc::channel(64);
+        let failure = turn.run(&sender, Some(message)).await.unwrap_err();
+        assert_eq!(failure.kind, Kind::Configuration);
+        assert!(failure.summary.contains("Ollama cut this request"));
+        assert_eq!(*turn.history.lock().await, history);
+        while let Ok(update) = updates.try_recv() {
+            assert!(!matches!(
+                update,
+                Update::Delta { .. } | Update::Message { .. } | Update::ToolCall { .. }
+            ));
+        }
+    }
+    assert_eq!(
+        stub.bodies()
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        ["/api/chat", "/api/ps", "/api/chat", "/api/ps"],
+    );
 }
 
 #[tokio::test]

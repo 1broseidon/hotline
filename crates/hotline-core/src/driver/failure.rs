@@ -291,14 +291,27 @@ impl Failure {
         failure
     }
 
-    /// Replaying a silently cut prompt would lose the same instructions.
-    pub fn ollama_context_cut(read: u64, estimated: u64) -> Self {
+    /// An opening reply is unusable if Ollama cut the prompt or did not say how much it read.
+    pub fn ollama_unverified_prompt(read: u64, estimated: u64) -> Self {
+        let (title, summary, count) = if read == 0 {
+            (
+                "Ollama prompt could not be verified",
+                "Ollama did not report how much of the prompt it read, so Hotline did not show its reply or run its tools. Try setting the context length to 32k or more in the Ollama app's settings, or choose a different provider or model for this teammate.",
+                "Ollama reported no usable prompt token count".into(),
+            )
+        } else {
+            (
+                "Ollama context too small",
+                "Ollama cut this request to fit its context length, so the teammate lost its instructions. In the Ollama app's settings, set the context length to 32k or more, or choose a different provider or model for this teammate.",
+                format!("Ollama reported {read} prompt tokens"),
+            )
+        };
         Self {
             kind: Kind::Configuration,
-            title: "Ollama context too small".into(),
-            summary: "Ollama cut this request to fit its context length, so the teammate lost its instructions. In the Ollama app's settings, set the context length to 32k or more, or choose a different provider or model for this teammate.",
+            title: title.into(),
+            summary,
             details: format!(
-                "Ollama reported {read} prompt tokens; Hotline estimated {estimated}. If you run Ollama yourself, set OLLAMA_CONTEXT_LENGTH=32768 or higher before starting the server."
+                "{count}; Hotline estimated {estimated}. If you run Ollama yourself, set OLLAMA_CONTEXT_LENGTH=32768 or higher before starting the server."
             ),
             phase: "stream",
             status: None,

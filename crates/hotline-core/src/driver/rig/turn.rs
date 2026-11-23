@@ -279,13 +279,15 @@ async fn run_inner(
     jobs: &mut Jobs,
 ) -> Result<(&'static str, Tokens, bool), Failure> {
     let history = turn.history.lock().await.clone();
-    // shortcut: check only fresh conversations, until Ollama reliably counts cached prompt tokens.
-    let check_ollama_prompt = matches!(history.as_slice(), [Message::User { .. }])
-        && turn
-            .model
-            .split_once('/')
-            .and_then(|(provider, _)| models::wiring(provider))
-            .is_some_and(|wiring| wiring.client == Client::Ollama);
+    // shortcut: guard the opening exchange only, until we can detect cuts in growing histories.
+    let check_ollama_prompt = turn
+        .model
+        .split_once('/')
+        .and_then(|(provider, _)| models::wiring(provider))
+        .is_some_and(|wiring| wiring.client == Client::Ollama)
+        && !history
+            .iter()
+            .any(|message| matches!(message, Message::Assistant(_)));
     let mut activity = Activity {
         turn,
         sender,
@@ -518,7 +520,8 @@ impl Activity<'_> {
         if let Some(context) = self.jobs.context() {
             history.push(Message::user(context));
         }
-        let mut ollama_estimate = std::mem::take(&mut self.check_ollama_prompt)
+        let mut ollama_estimate = self
+            .check_ollama_prompt
             .then(|| recovery::estimated_tokens(&history, preamble, &template.tools));
         let turn = self.turn;
         let loaded_context = async {
@@ -690,25 +693,29 @@ impl Activity<'_> {
         if let Some(estimate) = ollama_estimate
             && !self.turn.steering.superseded(revision)
         {
-            if reported.reported
-                && reported.input > 0
-                && reported.input.saturating_mul(3) < estimate
-                && response.error.is_none()
-            {
-                return Err(Failure::ollama_context_cut(reported.input, estimate));
+            // shortcut: allow the estimate to overcount by 2.5×, until Ollama reports cuts directly.
+            let unverified = if reported.input == 0 {
+                !response.choice.is_empty()
+            } else {
+                reported.input.saturating_mul(5) < estimate.saturating_mul(2)
+            };
+            if unverified {
+                return Err(Failure::ollama_unverified_prompt(reported.input, estimate));
             }
-            for part in &response.choice {
-                let (kind, text) = match part {
-                    AssistantContent::Text(text) => {
-                        spoken.push_str(&text.text);
-                        (MessageKind::Agent, text.text.as_str())
-                    }
-                    AssistantContent::Reasoning(reasoning) => {
-                        (MessageKind::Thought, reasoning.text.as_str())
-                    }
-                    _ => continue,
-                };
-                chunk_into(self.sender, &mut self.open, kind, text).await;
+            if response.error.is_none() {
+                for part in &response.choice {
+                    let (kind, text) = match part {
+                        AssistantContent::Text(text) => {
+                            spoken.push_str(&text.text);
+                            (MessageKind::Agent, text.text.as_str())
+                        }
+                        AssistantContent::Reasoning(reasoning) => {
+                            (MessageKind::Thought, reasoning.text.as_str())
+                        }
+                        _ => continue,
+                    };
+                    chunk_into(self.sender, &mut self.open, kind, text).await;
+                }
             }
         }
         flush(self.sender, &mut self.open).await;
@@ -754,6 +761,10 @@ impl Activity<'_> {
                 "The model response was truncated or filtered; its tool calls were not executed."
                     .into(),
             );
+        }
+        // An empty, unasked-for response with no count said nothing and proved nothing.
+        if ollama_estimate.is_none() || reported.input > 0 {
+            self.check_ollama_prompt = false;
         }
         self.retries = 0;
         Ok(Streamed::Response(Box::new(response)))

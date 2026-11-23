@@ -140,6 +140,10 @@ impl DiscoveryHttp {
     }
 }
 
+/// What a listing fails with when nothing accepted the connection, so a
+/// local server that is not running is told from one that answered badly.
+pub(crate) const NO_ANSWER: &str = "Nothing answered.";
+
 fn refused(message: &'static str) -> http_client::Error {
     http_client::Error::Instance(Box::new(std::io::Error::other(message)))
 }
@@ -167,7 +171,13 @@ impl HttpClientExt for DiscoveryHttp {
                 .body(body)
                 .send()
                 .await
-                .map_err(|_| refused("Model discovery request failed."))?;
+                .map_err(|error| {
+                    refused(if error.is_connect() {
+                        NO_ANSWER
+                    } else {
+                        "Model discovery request failed."
+                    })
+                })?;
             if !response.status().is_success() {
                 return Err(http_client::Error::non_success_with_details(
                     response.status(),
@@ -451,7 +461,13 @@ pub(crate) async fn fetch(
     let response = tokio::time::timeout(Duration::from_secs(30), send)
         .await
         .map_err(|_| "Model discovery timed out; the previous list is unchanged.".to_string())?
-        .map_err(|_| failed())?;
+        .map_err(|error| {
+            if error.to_string().contains(NO_ANSWER) {
+                NO_ANSWER.to_string()
+            } else {
+                failed()
+            }
+        })?;
     response.into_body().await.map_err(|_| failed())
 }
 

@@ -51,7 +51,11 @@ pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Ollama,
 
 pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<String>, String> {
     Ok(discovery::ollama_models("ollama", base_url, key)
-        .await?
+        .await
+        .map_err(|error| match error.as_str() {
+            discovery::NO_ANSWER => format!("Nothing answered at {base_url}; is Ollama running?"),
+            _ => error,
+        })?
         .into_iter()
         .map(|model| model.id)
         .collect())
@@ -235,6 +239,21 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         }));
         (url, task)
+    }
+
+    #[tokio::test]
+    async fn an_ollama_that_is_not_running_is_said_to_be_so() {
+        // A port that was just free: nothing listens on it.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let url = format!("http://127.0.0.1:{port}");
+        assert_eq!(
+            ollama_models(&url, "").await.unwrap_err(),
+            format!("Nothing answered at {url}; is Ollama running?")
+        );
     }
 
     #[test]

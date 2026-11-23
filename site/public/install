@@ -281,7 +281,7 @@ confirm_install() {
         return 0
     fi
     if [ -z "$yes" ] && has_tty; then
-        ask "Install Hotline $version? (y/N)" N
+        ask "Install Hotline $version? y/n" n
         case "$answer" in
             y | Y | yes | YES | Yes) ;;
             *) say "Not installed; nothing changed."; return 1 ;;
@@ -425,7 +425,7 @@ server() {
     # The browser is opt-in: asked for, or offered once, on a first full
     # install at a terminal.
     if [ -n "$fresh" ] && [ -z "$relay" ] && [ -z "$browser" ] && has_tty; then
-        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 500 MB (y/N)" N
+        ask "Give teammates without a computer a web browser? It installs WebKitGTK and Xvfb, about 500 MB. y/n" n
         case "$answer" in [Yy]*) browser=1 ;; esac
     fi
 

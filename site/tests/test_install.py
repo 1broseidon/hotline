@@ -338,7 +338,7 @@ main --server --version 0.26.0 --yes
 
     # -- which user runs the desk (BRO-139) ------------------------------------
 
-    def pick(self, run_as="", sudo_user="", me="root", people=(), success=True):
+    def pick(self, run_as="", sudo_user="", me="root", people=(), success=True, before=""):
         """pick_user as `me`, on a machine whose passwd lists `people` (name, uid, shell, home)."""
         passwd = "\n".join(f"{name}:x:{uid}:{uid}::{home}:{shell}" for name, uid, shell, home in people)
         return self.run_shell(f'''
@@ -351,7 +351,7 @@ id() {{
     esac
 }}
 getent() {{ printf '%s\\n' {shlex.quote(passwd)}; }}
-run_as={shlex.quote(run_as)}
+{before}run_as={shlex.quote(run_as)}
 {f"SUDO_USER={shlex.quote(sudo_user)}" if sudo_user else "unset SUDO_USER"}
 pick_user
 echo "$run_user"
@@ -389,6 +389,24 @@ echo "$run_user"
         self.assertEqual(self.pick(sudo_user="hotline"), "")
         self.assertEqual(self.pick(run_as="hotline", sudo_user="agent"), "")
         self.assertEqual(self.pick(run_as="hotline", people=[self.person("agent")]), "")
+
+    def test_a_chosen_account_with_passwordless_sudo_is_warned_about_and_the_service_account_offered(self):
+        self.stub("sudo", 'echo "    (ALL : ALL) NOPASSWD: ALL"')
+        # Nobody to ask: the warning, and the account stays.
+        out = self.pick(sudo_user="agent")
+        self.assertIn("Warning: agent can use sudo without a password", out)
+        self.assertTrue(out.endswith("\nagent"), out)
+        self.assertNotIn("PROMPT", self.actions())
+        # At a terminal the service account is offered, and no keeps the account.
+        tty = 'has_tty() { return 0; }; ask() { echo "PROMPT $1" >>"$LOG"; answer=%s; }\n'
+        for me, sudo_user, people in (("root", "agent", ()), ("agent", "", ()), ("root", "", [self.person("agent")])):
+            self.assertTrue(self.pick(me=me, sudo_user=sudo_user, people=people, before=tty % "y").endswith("machine."))
+            self.assertTrue(self.pick(me=me, sudo_user=sudo_user, people=people, before=tty % "n").endswith("\nagent"))
+        self.assertEqual(len([a for a in self.actions() if a.startswith("PROMPT Run the desk as a separate hotline service account")]), 6)
+        # A user the person named is theirs to choose, and an account that needs its password is not warned about.
+        self.assertEqual(self.pick(run_as="agent", before=tty % "y"), "agent")
+        self.stub("sudo", "exit 1")
+        self.assertEqual(self.pick(sudo_user="agent", before=tty % "y"), "agent")
 
     def test_a_user_that_cannot_run_the_desk_is_refused(self):
         self.assertIn("does not run as root", self.pick(run_as="root", success=False))

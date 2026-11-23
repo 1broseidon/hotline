@@ -101,6 +101,22 @@ pick_user() {
     esac
     printf '%s\n' "$run_user" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' || fail "$run_user is not a user name"
     id -u "$run_user" >/dev/null 2>&1 || fail "there is no user $run_user on this machine"
+    # Teammates run commands as the desk's user, so an account that sudos
+    # without a password makes each of them root. Only an account the installer
+    # chose is questioned: --user is the person's own word.
+    if [ -z "$run_as" ] && passwordless_sudo "$run_user"; then
+        say "Warning: $run_user can use sudo without a password, so a teammate running as $run_user can become root on this machine."
+        if has_tty; then
+            ask "Run the desk as a separate hotline service account instead? y/n" n
+            case "$answer" in [Yy]*) run_user= ;; esac
+        fi
+    fi
+}
+
+# Whether sudo lets this account run something without asking for a password.
+# -n never prompts: an account that needs its password lists nothing here.
+passwordless_sudo() {
+    if [ "$(id -un)" = "$1" ]; then sudo -n -l; else sudo -n -l -U "$1"; fi 2>/dev/null | grep -q NOPASSWD
 }
 
 # The one person with a login on this machine: a regular account (uid 1000 to

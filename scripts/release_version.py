@@ -14,6 +14,8 @@ their way, or the final would be a downgrade to them:
 Run with a version, this prints those as `name=value` lines for a workflow
 step's outputs. With `--set` it also writes the version into `Cargo.toml` and
 `tauri.conf.json`; `cargo update --workspace` then brings `Cargo.lock` along.
+A final is also written into the homepage (`site/public/index.html`), as the
+version it shows before, or without, asking GitHub for the latest release.
 """
 import argparse
 from pathlib import Path
@@ -62,12 +64,20 @@ def write(root: Path, release: Release) -> None:
         if count != 1:
             raise ValueError(f"{path} has no version to set")
         path.write_text(text)
+    # The homepage says the latest final until its script has asked GitHub, and
+    # to a visitor it cannot ask for (no JavaScript, GitHub's hourly limit).
+    if release.beta is None:
+        page = root / "site" / "public" / "index.html"
+        text, count = re.subn(r"(<span data-version>)[0-9][^<]*(</span>)", rf"\g<1>{release.version}\g<2>", page.read_text(encoding="utf-8"))
+        if count == 0:
+            raise ValueError(f"{page} has no version to set")
+        page.write_text(text, encoding="utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("version")
-    parser.add_argument("--set", action="store_true", help="write the version into Cargo.toml and tauri.conf.json")
+    parser.add_argument("--set", action="store_true", help="write the version into Cargo.toml and tauri.conf.json, and a final's into the homepage")
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args()
     try:

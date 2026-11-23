@@ -4,7 +4,9 @@ The landing page: one static file, `public/index.html`, shown in still
 captures of the app, plus `og.png`, `favicon.svg`, `_headers`, `robots.txt`
 and `sitemap.xml`. The docs are built into `public/docs/` from `../docs-site`
 and are not tracked. Download links resolve against the latest GitHub
-release at load time, so a release needs no change here.
+release at load time; the version shown until then, or to a visitor the page
+cannot ask GitHub for, is written by `scripts/release_version.py --set` when
+a final release is cut.
 
 ```bash
 make site-deploy   # from the repo root: builds the docs, deploys Worker `hotline-site`

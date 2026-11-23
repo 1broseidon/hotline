@@ -469,12 +469,14 @@ pub(crate) fn failed() -> String {
 }
 
 /// What a listing fails with when the provider answered that it will not take
-/// these credentials: 401, 403, or the 400 Gemini answers a bad key with.
+/// these credentials: 401, or the 400 Gemini and xAI answer a bad key with.
+/// Not 403: no provider here answers a wrong key with it, and a real key that
+/// may not list models gets it.
 pub(crate) const REFUSED: &str = "The provider refused these credentials.";
 
 fn refusal(status: Option<http::StatusCode>) -> String {
     match status.map(|status| status.as_u16()) {
-        Some(400 | 401 | 403) => REFUSED.to_string(),
+        Some(400 | 401) => REFUSED.to_string(),
         _ => failed(),
     }
 }
@@ -901,6 +903,7 @@ mod tests {
         for (status, body) in [
             (StatusCode::OK, "x".repeat(MAX_BYTES + 1)),
             (StatusCode::UNAUTHORIZED, "private upstream secret".into()),
+            (StatusCode::FORBIDDEN, "private upstream secret".into()),
         ] {
             let (url, _server) = serve(Router::new().route(
                 "/models",
@@ -915,7 +918,7 @@ mod tests {
                 .unwrap_err();
             assert!(!error.contains("private upstream secret"));
             assert!(!error.contains("test-only-key"));
-            // Only the provider's own no is a refusal of the key.
+            // Only the provider's own no is a refusal of the key, and a 403 is a key that may not list.
             assert_eq!(error == REFUSED, status == StatusCode::UNAUTHORIZED);
         }
         let calls = Arc::new(AtomicUsize::new(0));

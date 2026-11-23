@@ -474,9 +474,15 @@ impl Room {
     /// Writes the subagents a harness reports as runs of `persona_id`'s, for
     /// as long as the harness reports them. A subagent the harness never said
     /// the end of is settled as cancelled when the reports stop.
+    ///
+    /// `thread` is the thread whose agent the harness is: the main
+    /// conversation, a work thread, a call or a job. Every one of them lists
+    /// its runs on the teammate's roster row, and each run is for whoever
+    /// that thread's turn works for.
     pub(super) fn watch_subagents(
         self: &Arc<Self>,
         persona_id: String,
+        thread: ThreadId,
         mut reports: mpsc::UnboundedReceiver<SubagentReport>,
     ) {
         let room = Arc::downgrade(self);
@@ -486,7 +492,7 @@ impl Room {
                 let Some(room) = room.upgrade() else {
                     break;
                 };
-                room.harness_report(&persona_id, &mut runs, report);
+                room.harness_report(&persona_id, &thread, &mut runs, report);
             }
         });
     }
@@ -494,6 +500,7 @@ impl Room {
     fn harness_report(
         self: &Arc<Self>,
         persona_id: &str,
+        thread: &ThreadId,
         runs: &mut HashMap<String, HarnessRun>,
         report: SubagentReport,
     ) {
@@ -516,10 +523,7 @@ impl Room {
                     room: Arc::downgrade(self),
                     persona_id: persona_id.to_string(),
                     run_id: new_id(),
-                    from_item: self
-                        .work_for(&ThreadId::dm(persona_id))
-                        .item()
-                        .map(str::to_owned),
+                    from_item: self.work_for(thread).item().map(str::to_owned),
                     kind,
                     title,
                     command,

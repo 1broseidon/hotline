@@ -1049,6 +1049,11 @@ impl Room {
             })
             .await?;
         agent.keep();
+        // The subagents its harness starts are the teammate's runs, as the
+        // main conversation's and its other threads' are.
+        if let Some(reports) = agent.driver.subscribe_subagents() {
+            self.watch_subagents(job.persona_id.clone(), ThreadId::job(&job.id), reports);
+        }
         *lock(&live.holder) = agent.holder.clone();
         Ok(Up {
             driver: agent.driver.clone(),

@@ -58,6 +58,11 @@ impl Room {
                 }
             });
         }
+        // The subagents its harness starts are the teammate's runs, listed
+        // with the main conversation's, so the main composer counts them.
+        if let Some(reports) = agent.driver.subscribe_subagents() {
+            self.watch_subagents(side.persona_id.clone(), side.thread.clone(), reports);
+        }
         if let Some(processes) = agent.driver.processes() {
             let mut changes = processes.changes();
             let room = Arc::downgrade(self);

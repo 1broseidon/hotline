@@ -980,8 +980,13 @@ of lines and megabytes; the rest is `tape.page`, a page at a time. A phone is
 sent less: every stream's snapshot is its last 200 lines (a tape's reaching
 back to the last thing said, as above), then cut to 512 KiB of JSON, newest
 kept, with long text shortened, a computer frame made phone-sized or dropped,
-a tool's output left out and `mobileTruncated: true` on what was cut. Its
-events are cut the same way, and so is a page. The same is sent to any
+a tool's output left out and `mobileTruncated: true` on what was cut. The
+room is the exception: its snapshot always carries every live `setting`,
+whatever its age, uncut and outside the window and the budget, because the
+phone folds its settings from it and a setting left out would read as its
+default. A room's `exchange_pair` records, which the phone never reads, are
+left out of it. A phone's events are cut the same way as its snapshot, and
+so is a page. The same is sent to any
 remote socket that declared `lean` ([the phone seat](#the-phone-seat)). Such
 a socket may name a smaller window with the subscription,
 `{"id": n, "sub": {"tape": "<personaId>"}, "window": 50}`, from 1 to 200; the

@@ -120,3 +120,103 @@ fn a_long_turn_of_steps_still_opens_a_tape_on_the_last_message() {
         assert_eq!(lines.last().unwrap()["id"], "t500", "{seat:?}");
     }
 }
+
+/// A room whose settings were written first, then buried under 2,000 other
+/// events: newest-200 and 512 KB would cut every one of them.
+fn a_room_with_buried_settings(log: &Log) -> Vec<(&'static str, Value)> {
+    let room = StreamId::Room;
+    let setting = |id: &str, value: Value| json!({ "kind": "setting", "id": id, "value": value });
+    let early = [
+        ("voice", json!({ "mode": "local", "speaker": "old" })),
+        (
+            "mcpServers",
+            json!([{ "id": "ketch", "type": "stdio", "name": "ketch", "command": "ketch", "args": [] }]),
+        ),
+        ("enabledModels", json!({ "anthropic": ["opus"] })),
+        ("chapterIdleHours", json!(4)),
+        ("gone", json!(true)),
+    ];
+    for (id, value) in &early {
+        log.append(&room, &setting(id, value.clone())).unwrap();
+    }
+    let filler = "x".repeat(4096);
+    for n in 0..2_000 {
+        let kind = if n % 2 == 0 {
+            "exchange_pair"
+        } else {
+            "schedule"
+        };
+        log.append(
+            &room,
+            &json!({ "kind": kind, "id": format!("e{n}"), "ts": n, "note": filler }),
+        )
+        .unwrap();
+    }
+    // Rewritten late: the fold keeps its first slot, far behind the window.
+    let voice = json!({ "mode": "local", "speaker": "new" });
+    log.append(&room, &setting("voice", voice.clone())).unwrap();
+    log.append(
+        &room,
+        &json!({ "kind": "setting", "id": "gone", "deleted": true }),
+    )
+    .unwrap();
+    vec![
+        ("voice", voice),
+        // Servers are sent as the room always sends them: public, no env.
+        (
+            "mcpServers",
+            crate::mcp::public_room_event(setting("mcpServers", early[1].1.clone()))["value"]
+                .clone(),
+        ),
+        ("enabledModels", early[2].1.clone()),
+        ("chapterIdleHours", early[3].1.clone()),
+    ]
+}
+
+#[test]
+fn a_phones_room_snapshot_carries_every_live_setting_past_the_window() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let live = a_room_with_buried_settings(&log);
+    let room = StreamId::Room;
+    let lines = snapshot_for_seat(&log, &room, Seat::Phone, false);
+
+    let settings: Vec<&Value> = lines.iter().filter(|e| e["kind"] == "setting").collect();
+    assert_eq!(settings.len(), live.len(), "{settings:?}");
+    for (id, value) in &live {
+        let sent = settings.iter().find(|e| e["id"] == *id).unwrap();
+        assert_eq!(&sent["value"], value, "{id}");
+    }
+    assert!(!settings.iter().any(|e| e["id"] == "gone"));
+
+    // The rest is still the newest window, cut to budget, and the phone reads
+    // no exchange bookkeeping.
+    let rest: Vec<&Value> = lines.iter().filter(|e| e["kind"] != "setting").collect();
+    assert!(rest.iter().all(|e| e["kind"] == "schedule"));
+    assert!(!rest.is_empty() && rest.len() <= 200, "{}", rest.len());
+    assert_eq!(rest.last().unwrap()["id"], "e1999");
+    let bytes = |events: &[&Value]| events.iter().map(|e| e.to_string().len()).sum::<usize>();
+    assert!(bytes(&rest) <= 512 * 1024, "{}", bytes(&rest));
+    assert!(bytes(&settings) < 4 * 1024, "{}", bytes(&settings));
+}
+
+#[test]
+fn the_desk_and_an_owner_desk_still_get_the_whole_room() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    a_room_with_buried_settings(&log);
+    let room = StreamId::Room;
+    let whole: Vec<Value> = log
+        .load(&room)
+        .into_iter()
+        .map(crate::mcp::public_room_event)
+        .collect();
+    assert_eq!(whole.len(), 2_005);
+    for seat in [Seat::Desk, Seat::Owner] {
+        assert_eq!(
+            snapshot_for_seat(&log, &room, seat, false),
+            whole,
+            "{seat:?}"
+        );
+    }
+}

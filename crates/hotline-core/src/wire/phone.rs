@@ -166,8 +166,35 @@ pub(super) fn phone_budget(events: Vec<Value>) -> Vec<Value> {
     kept
 }
 
+/// What a phone's room snapshot always carries, and what it never does.
+///
+/// A folded setting keeps the slot it was first written in, so an old one
+/// (calls, servers, models) sits far behind the window. The phone folds its
+/// settings from the snapshot, so one left out reads as its default and a
+/// write from the phone would then rebuild it from that default. Every live
+/// setting is sent ahead of the window, uncut, whatever its age.
+///
+/// The phone reads no `exchange_pair`: that bookkeeping only takes window
+/// slots, so it is left out.
+fn phone_room(events: Vec<Value>, window: usize) -> Vec<Value> {
+    let mut settings = Vec::new();
+    let mut rest = Vec::new();
+    for event in events {
+        let deleted = event.get("deleted") == Some(&Value::Bool(true));
+        match event.get("kind").and_then(Value::as_str) {
+            Some("setting") if !deleted => settings.push(event),
+            Some("setting" | "exchange_pair") => {}
+            _ => rest.push(event),
+        }
+    }
+    let skip = rest.len().saturating_sub(window);
+    settings.extend(phone_budget(rest.into_iter().skip(skip).collect()));
+    settings
+}
+
 /// A stream's opening lines as this socket is sent them. A phone gets a
-/// window of `window` lines (or [`PHONE_WINDOW`]), cut and within budget.
+/// window of `window` lines (or [`PHONE_WINDOW`]), cut and within budget;
+/// on the room, every live setting besides (see [`phone_room`]).
 pub(super) fn snapshot_shaped(
     events: Vec<Value>,
     stream: &StreamId,
@@ -186,6 +213,9 @@ pub(super) fn snapshot_shaped(
         return events;
     }
     let window = window.unwrap_or(PHONE_WINDOW).min(PHONE_WINDOW);
+    if *stream == StreamId::Room {
+        return phone_room(events, window);
+    }
     let skip = if matches!(stream, StreamId::Tape(_)) {
         window_start(&events, window)
     } else {

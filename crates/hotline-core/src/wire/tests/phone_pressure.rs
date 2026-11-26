@@ -326,3 +326,39 @@ async fn coalesced_roster_rows_keep_catalogs_without_crossing_a_snapshot() {
     let after: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
     assert!(after["event"]["session"].get("models").is_none());
 }
+
+#[tokio::test]
+async fn a_paired_phone_subscribing_to_the_room_gets_settings_older_than_its_window() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    log.append(
+        &StreamId::Room,
+        &json!({"kind":"setting","id":"voice","value":{"speaker":"kept"}}),
+    )
+    .unwrap();
+    for n in 0..2_000 {
+        log.append(
+            &StreamId::Room,
+            &json!({"kind":"schedule","id":format!("s{n}"),"ts":n}),
+        )
+        .unwrap();
+    }
+    // A companion is never sent the room; a paired phone is an owner that
+    // names `lean`, and is sent the phone's window of it.
+    let (mut phone, serving) = phone_socket(log, Arc::new(Quiet::new()), Seat::Owner).await;
+    write(
+        &mut phone,
+        json!({"id":1,"cmd":"client.hello","params":{"capabilities":["lean"]}}),
+    )
+    .await;
+    assert_eq!(next(&mut phone).await["ok"], true);
+    // A small background seed still carries the settings.
+    write(&mut phone, json!({"id":2,"sub":"room","window":40})).await;
+    assert_eq!(next(&mut phone).await["ok"], true);
+    let seed = next(&mut phone).await;
+    let lines = seed["snapshot"].as_array().unwrap();
+    assert_eq!(lines.len(), 41);
+    assert_eq!(lines[0]["value"]["speaker"], "kept");
+    assert_eq!(lines.last().unwrap()["id"], "s1999");
+    serving.abort();
+}

@@ -67,7 +67,8 @@ leg_actionlint() {
   need_brew actionlint && need_brew shellcheck && actionlint
 }
 
-# docs/security.md proves each boundary by naming its tests; a test that is
+# docs/security.md proves each boundary by naming its tests, and
+# docs/contract/phone.md each rule; a test that is
 # renamed or moved without its row leaves a claim nothing proves.
 leg_citations() {
   python3 scripts/security-citations

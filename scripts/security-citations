@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Every test docs/security.md cites exists in the file it names."""
+"""Every test docs/security.md and docs/contract/phone.md cite exists in the file it names."""
 import re, os, sys
-s = open('docs/security.md').read()
+DOCS = ['docs/security.md', 'docs/contract/phone.md']
 roots = ['crates/hotline-core/src', 'crates/hotline-store/src', 'crates', 'crates/hotline-core', 'crates/hotline-cli', 'crates/hotline-app/src', 'crates/hotline-app', 'ui', '.']
 missing = []; checked = 0
-for line_no, row in enumerate(s.splitlines(), 1):
+rows = [(doc, n, row) for doc in DOCS for n, row in enumerate(open(doc).read().splitlines(), 1)]
+for doc, line_no, row in rows:
     if not row.startswith('|'): continue
     for seg in re.finditer(r'`([\w./-]+\.(?:rs|ts|tsx))`((?:,? ?`[a-z_0-9]+`)+)', row):
         path = seg.group(1); names = re.findall(r'`([a-z_0-9]+)`', seg.group(2))
@@ -12,7 +13,7 @@ for line_no, row in enumerate(s.splitlines(), 1):
         text = open(f).read() if f else ''
         for n in names:
             checked += 1
-            if not f or f'fn {n}' not in text: missing.append(f'docs/security.md:{line_no}: `{path}` `{n}`')
+            if not f or f'fn {n}' not in text: missing.append(f'{doc}:{line_no}: `{path}` `{n}`')
 print(f'checked {checked}, missing {len(missing)}')
 for m in missing: print(m)
 sys.exit(1 if missing else 0)

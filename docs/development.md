@@ -185,7 +185,8 @@ does not list with its review condition, and no crate under a license
 nobody reviewed), `scripts/window_licenses.py` (the same for the window's
 packages; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) says what was
 reviewed) and `bun audit` in `ui/` (no advisory at all, but the ones the Makefile's `BUN_AUDIT_IGNORE` names with their reasons); the speech engine fetched and checked against its pinned hash;
-`scripts/security-citations` (every test `docs/security.md` cites is a `fn` in
+`scripts/security-citations` (every test `docs/security.md` or
+`docs/contract/phone.md` cites is a `fn` in
 the file its row names); the Python tests under `scripts/` and
 `site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
@@ -228,7 +229,7 @@ rustup, and announced first.
 | `fmt` | `cargo fmt --all --check` | unformatted Rust |
 | `lockfile` | `cargo metadata --locked`, `bun install --frozen-lockfile` | a `Cargo.lock` or `bun.lock` that CI's `--locked` refuses |
 | `actionlint` | `actionlint` (with shellcheck) | a workflow that reads what is not there, a `run:` script shellcheck faults |
-| `citations` | `scripts/security-citations` | a test `docs/security.md` cites that is renamed or moved without its row |
+| `citations` | `scripts/security-citations` | a test `docs/security.md` or `docs/contract/phone.md` cites that is renamed or moved without its row |
 | `contract` | every ts-rs export test, writing `contract.ts` from nothing | a committed contract that is stale, or that a filtered run truncated; the file you have is put back |
 | `clippy` | `cargo clippy --workspace --all-targets --locked -- -D warnings` | the host's lints |
 | `windows` | the same clippy for `x86_64-pc-windows-msvc`, through `cargo xwin` | Windows-only code, and code only Unix uses that is dead on Windows |

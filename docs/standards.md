@@ -152,9 +152,10 @@ module map itself is [development.md](development.md#layout).
 - Scratch space is a `tempfile::TempDir`.
 - An opt-in test is `#[ignore = "needs …"]`, never an early return, so a
   skipped test shows as skipped. A missing tool fails by name.
-- `docs/security.md` cites only tests that exist. Renaming a cited test, or
-  changing what it asserts, updates the row in the same commit; precheck
-  refuses a cited test that is not in the file it names.
+- `docs/security.md` and `docs/contract/phone.md` cite only tests that
+  exist. Renaming a cited test, or changing what it asserts, updates the row
+  in the same commit; precheck refuses a cited test that is not in the file
+  it names.
 - In the window, `ui/tests/` stays flat. A `.ts` test is pure and a `.tsx`
   test uses the DOM, through the one `tests/dom.ts`. The tests are
   typechecked.

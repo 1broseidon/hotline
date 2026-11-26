@@ -984,8 +984,8 @@ a tool's output left out and `mobileTruncated: true` on what was cut. The
 room is the exception: its snapshot always carries every live `setting`,
 whatever its age, uncut and outside the window and the budget, because the
 phone folds its settings from it and a setting left out would read as its
-default. A room's `exchange_pair` records, which the phone never reads, are
-left out of it. A phone's events are cut the same way as its snapshot, and
+default ([Phone contract](contract/phone.md), R2). A room's `exchange_pair`
+records, which the phone never reads, are left out of it. A phone's events are cut the same way as its snapshot, and
 so is a page. The same is sent to any
 remote socket that declared `lean` ([the phone seat](#the-phone-seat)). Such
 a socket may name a smaller window with the subscription,

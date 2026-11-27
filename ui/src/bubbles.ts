@@ -33,6 +33,18 @@ export function bubbleOf(saved: string | undefined, personaId: string): Bubble {
 	return saved !== undefined && saved in NAMES ? (saved as Bubble) : ownBubble(personaId);
 }
 
+/**
+ * The light a teammate's conversation stands in (tokens.css `--glow-<name>`,
+ * dark theme only): its bubble's hue, and gold for a gold face, which has no
+ * bubble but may have a light, since a faint light is no card. None only for
+ * a teammate the person set to the grey bubble. The phone's rule (accent.ts).
+ */
+export function glowOf(saved: string | undefined, personaId: string): Exclude<Bubble, "grey"> | "gold" | undefined {
+	const bubble = bubbleOf(saved, personaId);
+	if (bubble !== "grey") return bubble;
+	return saved === "grey" ? undefined : "gold";
+}
+
 /** Grey, then the teammate's own face hue when it has a bubble, then the rest in hue order. */
 export function bubbleChoices(personaId: string): { id: Bubble; name: string }[] {
 	const own = BY_FACE[faceHue(personaId)] ?? null;

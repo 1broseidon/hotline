@@ -90,6 +90,17 @@
 	--bubble-blue: oklch(27% 0.035 242);
 	--bubble-violet: oklch(27% 0.035 285);
 	--bubble-pink: oklch(27% 0.035 328);
+	/* The light a teammate's conversation stands in, as on the phone: its
+	 * bubble's hue, brighter, and gold for a gold face. Teal's chroma is
+	 * pulled in to stay in sRGB. Dark only: the light palette names none and
+	 * index.css draws none there. */
+	--glow-gold: oklch(62% 0.11 70);
+	--glow-lime: oklch(62% 0.11 113);
+	--glow-green: oklch(62% 0.11 156);
+	--glow-teal: oklch(62% 0.106 199);
+	--glow-blue: oklch(62% 0.11 242);
+	--glow-violet: oklch(62% 0.11 285);
+	--glow-pink: oklch(62% 0.11 328);
 	/* An object a message carries (a table, code, a diagram) sits sunk into
 	 * its bubble as one sheet; its head, a callout and an inline code chip
 	 * take the lifted band. Alpha, so they read on grey and on every tint. */
@@ -402,6 +413,30 @@
 [data-bubble="pink"] {
 	--bubble: var(--bubble-pink);
 	--bubble-mark: oklch(var(--face-l) var(--face-c) 328);
+}
+
+/* A teammate's light by name, on its conversation: its bubble's hue, or gold
+ * for a gold face. A teammate set to the grey bubble has none. */
+[data-glow="gold"] {
+	--glow: var(--glow-gold);
+}
+[data-glow="lime"] {
+	--glow: var(--glow-lime);
+}
+[data-glow="green"] {
+	--glow: var(--glow-green);
+}
+[data-glow="teal"] {
+	--glow: var(--glow-teal);
+}
+[data-glow="blue"] {
+	--glow: var(--glow-blue);
+}
+[data-glow="violet"] {
+	--glow: var(--glow-violet);
+}
+[data-glow="pink"] {
+	--glow: var(--glow-pink);
 }
 
 /* A hairline is one device pixel, not one CSS pixel. */

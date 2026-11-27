@@ -4300,6 +4300,31 @@
 	.pane {
 		flex: 1;
 	}
+	/* The teammate's light: a conversation stands in a faint light of its
+	 * teammate's own colour, falling from the top centre, so the room reads
+	 * as this teammate's, as it does on the phone. It is fainter than the
+	 * phone's, and at its strongest the small grey times still hold 4.5:1.
+	 * Dark theme only: on a light canvas a tint reads as a stain. It ends at
+	 * the pane's side edges, so nothing of it meets a neighbour's hairline,
+	 * and it lies over the transcript and its scroll fade, so the two lift
+	 * together with no seam, and under the band's keys and words. The
+	 * conversation stacks on its own so the band's lift stays inside it. */
+	.conversation {
+		position: relative;
+		isolation: isolate;
+	}
+	.conversation .band {
+		z-index: 2;
+	}
+	:root:not([data-theme="light"]) .conversation[data-glow]::before {
+		content: "";
+		position: absolute;
+		inset: 0 0 auto;
+		z-index: 1;
+		height: 220px;
+		background: radial-gradient(50% 100% at 50% 0, color-mix(in oklab, var(--glow) 14%, transparent), color-mix(in oklab, var(--glow) 6%, transparent) 45%, transparent);
+		pointer-events: none;
+	}
 	/* The teammate pane opens on who they are: the face, the name in the
 	 * heading's size and the goal under it like a bio, both plain text
 	 * until pointed at, when they show the field they are. */

@@ -191,3 +191,38 @@ test("a callout's words and its label hold 4.5:1 on every bubble in both palette
 			for (const [mode, palette] of [["dark", dark], ["light", light]] as const)
 				expect({ ink, bubble, mode, ok: ratioOver(palette, ink, "sheet-head", bubble) >= 4.5 }).toEqual({ ink, bubble, mode, ok: true });
 });
+
+// The teammate's light (ui/design.md, 2026-11-27): a faint light of the
+// teammate's colour at the top of its conversation, drawn over the canvas and
+// what is on it, in the dark theme only.
+const glows = ["gold", "lime", "green", "teal", "blue", "violet", "pink"];
+const sheet = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+const lightRule = sheet.slice(sheet.indexOf(".conversation[data-glow]::before {"));
+const strengths = [...lightRule.slice(0, lightRule.indexOf("}")).matchAll(/var\(--glow\) ([\d.]+)%/g)].map((found) => Number(found[1]) / 100);
+
+describe("the teammate's light", () => {
+	test("has a colour for every face hue in the dark palette, at one lightness, and none in the light one", () => {
+		for (const name of glows) expect({ name, value: dark.get(`glow-${name}`) }).toEqual({ name, value: `oklch(62% ${name === "teal" ? "0.106" : "0.11"} ${70 + glows.indexOf(name) * 43})` });
+		expect([...block(':root[data-theme="light"]').keys()].filter((token) => token.startsWith("glow"))).toEqual([]);
+		for (const name of glows) expect(css).toContain(`[data-glow="${name}"] {\n\t--glow: var(--glow-${name});\n}`);
+	});
+
+	test("is drawn only where the theme is not light", () => {
+		expect(sheet.match(/^.*\[data-glow\].*\{$/gm)).toEqual(['\t:root:not([data-theme="light"]) .conversation[data-glow]::before {']);
+	});
+
+	test("leaves the small grey times at 4.5:1 at its peak and its mid strength, in every colour", () => {
+		expect(strengths).toHaveLength(2);
+		const [peak, mid] = strengths as [number, number];
+		expect(peak).toBeGreaterThan(mid);
+		const canvas = colour(dark, "canvas");
+		const time = colour(dark, "ink-3");
+		for (const name of glows)
+			for (const strength of [peak, mid]) {
+				// The light lies over the words as well as the canvas, so both take it.
+				const lit = (under: Rgb) => colour(dark, `glow-${name}`).map((v, i) => v * strength + under[i]! * (1 - strength)) as Rgb;
+				const [x, y] = [luminance(lit(time)), luminance(lit(canvas))].sort((m, n) => n - m);
+				expect({ name, strength, ok: (x! + 0.05) / (y! + 0.05) >= 4.5 }).toEqual({ name, strength, ok: true });
+			}
+	});
+});

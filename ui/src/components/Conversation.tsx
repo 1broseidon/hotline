@@ -14,6 +14,7 @@ import { dmOf, sameThread, useThread } from "../tape";
 import { useAsides, withAsides } from "../asides";
 import { inboxWork, itemsOf, useInbox, useInboxWork } from "../inbox";
 import { usePeople } from "../avatars";
+import { glowOf } from "../bubbles";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { harnessMark } from "../ui/Mark";
@@ -369,7 +370,7 @@ export function Conversation({
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused ?? convSends.notice);
 	return (
-		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
+		<section className="conversation pane" data-glow={glowOf(persona.bubble, persona.id)} aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 				onOpenSchedules, onDelete, onOpenThreadList, onOpenInbox, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />

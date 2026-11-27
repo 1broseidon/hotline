@@ -78,7 +78,7 @@ afterEach(async () => {
 });
 
 const { AgentSay } = await import("../src/components/transcript/Bubbles");
-const { bubbleChoices, ownBubble } = await import("../src/bubbles");
+const { bubbleChoices, glowOf, ownBubble } = await import("../src/bubbles");
 const { peopleOf } = await import("../src/avatars");
 const { faceHue } = await import("../src/ui/Avatar");
 
@@ -140,6 +140,22 @@ describe("a teammate's bubble", () => {
 		let id = "a";
 		while (faceHue(id) !== 0) id += "a";
 		expect(bubbleChoices(id).map((one) => one.id)).toEqual(["grey", "lime", "green", "teal", "blue", "violet", "pink"]);
+	});
+
+	test("a conversation's light is the teammate's bubble hue, gold for a gold face, and none only when grey was picked", async () => {
+		const gold = ["a", "b", "c", "d", "e", "f", "g", "h"].find((id) => ownBubble(id) === "grey")!;
+		const hued = ["a", "b", "c", "d", "e", "f", "g", "h"].find((id) => ownBubble(id) !== "grey")!;
+		expect(glowOf(undefined, hued)).toBe(ownBubble(hued) as "lime");
+		expect(glowOf("violet", hued)).toBe("violet");
+		expect(glowOf("violet", gold)).toBe("violet");
+		expect(glowOf(undefined, gold)).toBe("gold");
+		// A name this window does not know is no pick, as for the bubble.
+		expect(glowOf("gold", gold)).toBe("gold");
+		expect(glowOf("grey", gold)).toBeUndefined();
+		expect(glowOf("grey", hued)).toBeUndefined();
+		// The conversation wears it, for tokens.css and index.css to draw.
+		const source = await Bun.file(new URL("../src/components/Conversation.tsx", import.meta.url)).text();
+		expect(source).toContain('<section className="conversation pane" data-glow={glowOf(persona.bubble, persona.id)}');
 	});
 
 	test("colours that teammate's replies, and leaves a grey one without a colour of its own", async () => {

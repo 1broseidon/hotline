@@ -294,6 +294,17 @@ and are text or a soft wash, never a fill. Faces are seven hues at one
 lightness and one chroma, kept below the accent's so the working beat is
 the loudest colour in the rail; red is absent.
 
+A conversation stands in **the teammate's light**: a faint light of that
+teammate's own colour falling from the top centre of the pane, so the room
+reads as this teammate's and the desk and the phone are one app. It is the
+bubble's hue at `oklch(62% 0.11 <hue>)` (`--glow-<name>`), gold for a gold
+face, and none for a teammate set to the grey bubble. It is fainter than
+the phone's: 14% at the top centre, 6% part way, gone by 220px down and by
+the pane's side edges, so the small grey times hold 4.5:1 anywhere in it.
+It lies over the transcript and its scroll fade and under the band's keys
+and words. Dark theme only: light draws none. It is the one tint a surface
+takes; every other surface stays grey.
+
 ## Typography
 
 - Body and display: IBM Plex Sans 400 / 500 / 600, always roman.
@@ -496,10 +507,16 @@ there is one, and never in the row.
   with its buttons in the card's foot; adding is the accent row at a
   list's head. A pane carries no paragraph: a hint is one line, and the
   rest lives in the docs.
-- Nothing may carry an illustration, a gradient other than a scroll fade,
+- Nothing may carry an illustration, a gradient other than a scroll fade
+  and a teammate's light at the top of its conversation (dark theme only),
   or a shadow other than the float.
 
 ## Log
+
+- 2026-11-27 The teammate's light comes to the desk's conversation from the
+  phone, by George's word: dark theme only, fainter than the phone's. It
+  amends the "no gradient other than a scroll fade" rule above and
+  decision-42's "no surface tint, surfaces stay grey".
 
 - 2026-11-16 The right-hand pane on one skeleton (feat/right-pane, from the
   mock George approved): two columns, the band's word alone, a state line,

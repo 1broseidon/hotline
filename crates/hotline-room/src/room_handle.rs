@@ -123,6 +123,16 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// effect when the container is next made, and a running computer is
     /// handed the secrets it is granted now.
     async fn computer_settings_changed(&self, _persona_id: &str) {}
+    /// A teammate's change, already durable, took something away from its
+    /// computer: turned it off, took a folder, mount or secret from it, or
+    /// removed the teammate. Its container is stopped (`remake`: removed,
+    /// for what a container records nowhere and for a teammate who is gone)
+    /// before the change is answered, waiting a short while at most; the
+    /// error is for a stop that failed or is still going, in words for the
+    /// person. A room with no computers under it has nothing to stop.
+    async fn computer_taken_away(&self, _persona_id: &str, _remake: bool) -> Result<(), String> {
+        Ok(())
+    }
     /// Serializes policy persistence and reattachment across client sockets.
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>>;
     async fn agent_auth_start(

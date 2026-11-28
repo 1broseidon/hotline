@@ -1426,7 +1426,10 @@ something else.
 Idle uses the room's existing sweep, not a second clock. When a session
 stops, last activity is stamped; thirty minutes later (`COMPUTER_IDLE_STOP`)
 the container is `stop`ped (the rw layer survives). Seven days
-(`COMPUTER_HIBERNATE`) and the sweep `rm`s it.
+(`COMPUTER_HIBERNATE`) and the sweep `rm`s it. A teammate whose computer is
+off is never in use, however its session runs: the sweep stops its container
+at once, a backstop for the stop the change itself makes before it is
+answered (see Reattaching).
 
 ## Permissions
 
@@ -2688,7 +2691,13 @@ New starts cannot acquire usable authority during that interval.
 The wire answers the change before the restart is done
 (`Room::reattach_soon`): the revocation and the durable append are what the
 person is told about, and a computer turned on is made inside the restart,
-which can outlast a phone's patience. The restart runs on a task of its own
+which can outlast a phone's patience. A change that took something from the
+computer stops its container before the answer
+(`Room::computer_taken_away`, at most twelve seconds, then said as still
+stopping): the stop is queued on the container's lock before the restart is
+placed, and every start of a computer reads the record under that lock
+(`Computer::ensure_current`), so neither the restart nor anything that read
+the teammate before the change starts the old one again. The restart runs on a task of its own
 in two halves, both behind the start gate: `reattach_open` (the policy lock,
 the invalidate again, the old session out, the epoch activated) and
 `reattach_finish` (the desk browser and shared cookies follow the computer,

@@ -138,7 +138,14 @@ if [ -f "${STATE}.startfail" ]; then
   exit 1
 fi
 echo running > "$STATE"; exit 0 ;;
-  stop) echo stopped > "$STATE"; exit 0 ;;
+  stop)
+# A test holds the stop open for as long as this file exists.
+while [ -f "${STATE}.stopgate" ]; do sleep 0.05; done
+if [ -f "${STATE}.stopfail" ]; then
+  echo "Error: the runtime would not stop the container" >&2
+  exit 1
+fi
+echo stopped > "$STATE"; exit 0 ;;
   rm)
 if [ -f "${STATE}.rmfail" ]; then
   echo "Error: the runtime would not remove the container" >&2

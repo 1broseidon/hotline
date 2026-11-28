@@ -117,8 +117,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?, aboutItem?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. A teammate that cannot be started for it is refused with the reason, which is also written on its tape as `session.start` writes it. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead; `aboutItem` as on `session.prompt`, in the conversation only. A paired phone only |
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
-| `persona.update` | `{id, patch}` | the teammate after the patch, once it is saved; a restart the patch asks for goes on after the answer (see the patch rules below) |
-| `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept |
+| `persona.update` | `{id, patch}` | the teammate after the patch, once it is saved and, when it took something from the teammate's computer, its container stopped; a restart the patch asks for goes on after the answer (see the patch rules below) |
+| `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept, and a computer it had on removed before the answer |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.arrange` | `{ids}` | the desk's order of its team, as it now stands — the teammates in the order `ids` names, first to last (`teamOrder` below); an id that is no teammate on the desk, or a repeat, is dropped; an empty list leaves the desk unarranged; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
@@ -227,7 +227,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `inbound.remove` | `{id}` | none; the source delivers nothing more, and what it delivered stays. The desk and owner seats |
 | `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
-| `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`, once it is saved; turning the computer on or off restarts a live session as `persona.update` does, after the answer. Owner phone or desk only |
+| `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`, once it is saved; turning the computer off stops its container before the answer, and turning it on or off restarts a live session as `persona.update` does, after the answer. Owner phone or desk only |
 | `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
 | `computer.releases` | `{}` | `ComputerReleases`: `floor`, `repository`, `newest?`, `releases` (floor up, newest first), `checkedAt?`, `error?` |
 | `computer.releases.check` | `{}` | the same, after asking the releases endpoint now |
@@ -449,7 +449,8 @@ event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `folders`, `goal`, `mcpPolicy`,
 `skillPolicy`, `backgroundWork`, `allowedSenders`, `backendId` or
-`harnessOverride`, or turns `computer.enabled` on or off, invalidates
+`harnessOverride`, turns `computer.enabled` on or off, or takes something
+from a computer that is on (a mount or a computer secret), invalidates
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
@@ -459,7 +460,18 @@ A change is answered once it is saved. `persona.update`,
 `mobile.persona_computer` answer when the change is saved, not when the
 teammate is back. By the answer, what the change took away is gone (the old
 session's handles, its threads' and its peers' grants are revoked before the
-record is written) and the record is durable. The restart is the desk's own
+record is written) and the record is durable. A change that takes something
+from the teammate's computer — turns it off, takes a folder, a declared
+mount or a secret from it, makes one read-only or protected, moves the
+workspace, or has the teammate run as the person — also stops its
+container before the answer (removes it, for a moved workspace or mount),
+and restarts a live session. The answer waits for that stop twelve seconds
+at most: past that it is an error, `Saved. <name>'s computer is still
+stopping; …`, and the stop goes on; a stop that fails is an error,
+`Saved, but <name>'s computer did not stop, …`, and is said on the
+teammate's conversation as well. Either error comes after the change is
+saved. `persona.delete` answers once the deleted teammate's container is
+removed, with the same errors. The restart is the desk's own
 work after the answer: a computer turned on is made, started and checked in
 it, and a harness answers its handshake in it, which can take far longer
 than a phone waits for an answer (twenty seconds). The restart is told on the

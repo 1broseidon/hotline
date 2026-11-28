@@ -277,9 +277,18 @@ pub(crate) async fn run(
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => apply_persona_update(log, room, &id, &patch).await,
         Command::PersonaDelete { id } => {
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
-            delete_persona(log, room, &id)
+            let had_computer = {
+                let gate = room.policy_update_lock();
+                let _held = gate.lock().await;
+                delete_persona(log, room, &id)?
+            };
+            // Gone, the teammate's container goes too, before the answer and
+            // with the policy lock let go, as a change's stop does
+            // (`apply_persona_update_locked`).
+            if had_computer {
+                room.computer_taken_away(&id, true).await?;
+            }
+            Ok(Value::Null)
         }
         Command::PersonaPin { id, slot } => {
             let gate = room.policy_update_lock();

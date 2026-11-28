@@ -305,6 +305,15 @@ impl RoomHandle for CoreHandle {
         self.room.reattach_all().await
     }
 
+    async fn computer_taken_away(&self, persona_id: &str, remake: bool) -> Result<(), String> {
+        let taken = if remake {
+            crate::computer::Taken::Remove
+        } else {
+            crate::computer::Taken::Stop
+        };
+        self.room.computer_taken_away(persona_id, taken).await
+    }
+
     /// The room keeps no vault, so there is nothing to forget: the sign-out
     /// is the revocation and the reattach around it.
     async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {
@@ -1302,6 +1311,8 @@ mod asks;
 mod browser_drive;
 mod capabilities;
 mod capture;
+#[cfg(unix)]
+mod computer_off;
 mod consent;
 #[cfg(unix)]
 mod cookie_asks;

@@ -2,6 +2,7 @@
 //! removed.
 
 use super::{append, now};
+use crate::computer::Taken;
 use crate::contract::SkillPolicy;
 use crate::contract::{
     FolderGrant, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach, SessionInfo,
@@ -429,20 +430,42 @@ pub(super) async fn apply_persona_update(
 
 /// The caller hands over its held `policy_update_lock` guard. The read, merge
 /// and write run under it (the invalidate and the durable append), and then
-/// it is dropped before the reattach or computer rebuild, which take the start
-/// gate. The one lock order is `start_gate -> policy_update_lock`, so those
-/// effects run with the policy lock let go: a chapter close takes the two in
-/// that order and would deadlock against this otherwise.
+/// it is dropped before the computer's stop, the reattach or the computer
+/// rebuild, which take the teammate's container lock and its start gate. The
+/// one lock order is `start_gate -> policy_update_lock`, so those effects run
+/// with the policy lock let go: a chapter close takes the two in that order
+/// and would deadlock against this otherwise.
 ///
 /// The answer does not wait for the restart. By the time the guard drops,
-/// everything the person is told stands: the old session's handles, its
-/// threads and its peers' grants are revoked (`update_persona` invalidates
-/// before it appends) and the record is durable. Bringing the teammate back
-/// up — a computer turned on is made and started in it, a harness answers
-/// its handshake — is the room's own work after the answer
-/// ([`RoomHandle::reattach_soon`]), told on the teammate's session as any
-/// start is, a failure included. A phone gives up on an answer after twenty
-/// seconds, and a computer coming up takes longer than that.
+/// the old session's handles, its threads and its peers' grants are revoked
+/// (`update_persona` invalidates before it appends) and the record is
+/// durable. A change that took something from the teammate's computer
+/// ([`computer_taken`]) then stops its container before it is answered
+/// ([`RoomHandle::computer_taken_away`]), so what the change took away is no
+/// longer in a running container when the person is told it is saved. The
+/// ordering against everything that could bring the container back up:
+///
+/// - The stop is queued on the container's lock after the append, and every
+///   start reads the record under that lock (`Computer::ensure_current`). A
+///   start, a job, a thread or a cookie import that read the teammate before
+///   the change either got the lock first, and what it brought up is stopped
+///   here after it, or gets it after, and reads the record this change wrote.
+/// - The restart is placed only once the stop is queued, so its own start
+///   comes after the stop and makes the computer from the new record (or
+///   none, turned off). `Room::reattach_open` also takes the policy lock,
+///   which waits out an append still being written.
+/// - A turn in flight was revoked by the invalidate before the append; the
+///   computer's gate refuses its lease, and nothing on the gate starts a
+///   container.
+///
+/// The stop waits a short while at most (`Room::computer_taken_away`), and
+/// is said to the person, here and on the conversation, when it failed or is
+/// still going. Bringing the teammate back up — a computer turned on is made
+/// and started in it, a harness answers its handshake — is the room's own
+/// work after the answer ([`RoomHandle::reattach_soon`]), told on the
+/// teammate's session as any start is, a failure included. A phone gives up
+/// on an answer after twenty seconds, and a computer coming up takes longer
+/// than that.
 async fn apply_persona_update_locked(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -450,8 +473,16 @@ async fn apply_persona_update_locked(
     patch: &Value,
     held: tokio::sync::OwnedMutexGuard<()>,
 ) -> Result<Value, String> {
-    let (updated, reattaches) = update_persona(log, room, id, patch)?;
+    let Updated {
+        record,
+        reattaches,
+        taken,
+    } = update_persona(log, room, id, patch)?;
     drop(held);
+    let stopped = match taken {
+        Some(taken) => room.computer_taken_away(id, taken == Taken::Remove).await,
+        None => Ok(()),
+    };
     if reattaches {
         room.reattach_soon(id).await?;
     } else if patch.get("computer").is_some()
@@ -460,7 +491,91 @@ async fn apply_persona_update_locked(
     {
         room.computer_settings_changed(id).await;
     }
-    Ok(updated)
+    stopped?;
+    Ok(record)
+}
+
+/// What a saved change of a teammate leaves to do after its write.
+pub(super) struct Updated {
+    /// The record as written.
+    pub(super) record: Value,
+    /// A live session restarts for it ([`persona_update_reattaches`]).
+    pub(super) reattaches: bool,
+    /// It took something from the teammate's computer ([`computer_taken`]).
+    pub(super) taken: Option<Taken>,
+}
+
+/// What a change does to the teammate's container, if it took something
+/// from a computer that was on: the computer turned off; a granted folder
+/// or a declared mount taken away or made read-only; the workspace moved; a
+/// secret granted to the computer ungranted, kept off it or made protected
+/// after being readable; or the teammate coming to run as the person, which
+/// holds back the protected keys it was handed. What a change only adds
+/// needs nothing: the next start or handing over brings it.
+///
+/// A folder is recorded by the container, and the next start makes a
+/// container recorded with others again, so a stop is enough. The workspace
+/// and the declared mounts are recorded nowhere, so the container is
+/// removed: on Docker and Podman its named volumes (home, store, scratch)
+/// stay, and Apple `container` keeps nothing but its rw layer, the same as
+/// a folder change's remake. Secrets are held in the container's memory and
+/// in the environment of the jobs it started, and a stop ends both; the
+/// next start hands it the set granted then.
+pub(super) fn computer_taken(previous: &Persona, updated: &Persona) -> Option<Taken> {
+    let on = |persona: &Persona| {
+        persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+    };
+    if !on(previous) {
+        return None;
+    }
+    if !on(updated) {
+        return Some(Taken::Stop);
+    }
+    let mounts = |persona: &Persona| {
+        persona
+            .computer
+            .as_ref()
+            .and_then(|computer| computer.mounts.clone())
+            .unwrap_or_default()
+    };
+    let (had, has) = (mounts(previous), mounts(updated));
+    let mount_taken = had.iter().any(|old| {
+        !has.iter().any(|new| {
+            new.host.trim() == old.host.trim()
+                && new.path.trim() == old.path.trim()
+                && (old.readonly || !new.readonly)
+        })
+    });
+    if previous.cwd != updated.cwd || mount_taken {
+        return Some(Taken::Remove);
+    }
+    let folder_taken = previous.folders.iter().flatten().any(|old| {
+        !updated
+            .folders
+            .iter()
+            .flatten()
+            .any(|new| new.path == old.path && (new.writable || !old.writable))
+    });
+    let on_computer = |persona: &Persona| -> Vec<crate::contract::SecretGrant> {
+        persona
+            .grants()
+            .into_iter()
+            .filter(|grant| grant.reaches(crate::contract::GrantPlace::Computer))
+            .collect()
+    };
+    let (handed, handing) = (on_computer(previous), on_computer(updated));
+    let secret_taken = handed.iter().any(|old| {
+        !handing
+            .iter()
+            .any(|new| new.name == old.name && (new.readable || !old.readable))
+    });
+    let held_back = !crate::session::grants::runs_as_the_person(previous)
+        && crate::session::grants::runs_as_the_person(updated)
+        && handed.iter().any(|grant| !grant.readable);
+    (folder_taken || secret_taken || held_back).then_some(Taken::Stop)
 }
 
 /// The patch over the record, and the whole record written again: a stream
@@ -471,7 +586,7 @@ pub(super) fn update_persona(
     room: &Arc<dyn RoomHandle>,
     id: &str,
     patch: &Value,
-) -> Result<(Value, bool), String> {
+) -> Result<Updated, String> {
     let previous = living(log, id)?;
     if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
         return Err("A picture can only be cleared here, with `avatar: null`.".into());
@@ -534,7 +649,11 @@ pub(super) fn update_persona(
     if patch.get("folders").is_some() {
         updated.folders = checked_folders(updated.folders.take(), &updated.cwd, log.root())?;
     }
-    let reattaches = persona_update_reattaches(patch, &previous, &updated);
+    // What the computer had taken away restarts a live session too, so its
+    // handles end before the write, the same as for a folder taken away, and
+    // the restart is handed the computer made from the new record.
+    let taken = computer_taken(&previous, &updated);
+    let reattaches = persona_update_reattaches(patch, &previous, &updated) || taken.is_some();
     if reattaches {
         room.invalidate(id)?;
     }
@@ -548,13 +667,19 @@ pub(super) fn update_persona(
     if updated.avatar.is_none() {
         crate::session::avatar::remove_except(log.root(), id, None);
     }
-    Ok((json!(updated), reattaches))
+    Ok(Updated {
+        record: json!(updated),
+        reattaches,
+        taken,
+    })
 }
 
 /// Whether this update restarts a live session. The computer's own
 /// settings do not, short of turning it on or off: its limits, mounts and
 /// image take effect when the container is next made, and the teammate's
-/// secrets are handed to it where it runs. A turn in flight is not cut short for them.
+/// secrets are handed to it where it runs. A turn in flight is not cut short
+/// for them, unless they take something from the computer
+/// ([`computer_taken`], which `update_persona` adds to this).
 fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Persona) -> bool {
     let enabled = |persona: &Persona| {
         persona
@@ -727,13 +852,16 @@ fn expand_home(path: &str) -> String {
 
 /// The tombstone is the same kind and id again, so the fold finds it instead
 /// of the teammate and a mirror has a line to ship rather than an absence to
-/// notice.
+/// notice. Answers whether the teammate had its computer on, whose
+/// container the caller removes once the policy lock is let go.
 pub(super) fn delete_persona(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     id: &str,
-) -> Result<Value, String> {
-    living(log, id)?;
+) -> Result<bool, String> {
+    let had_computer = living(log, id)?
+        .computer
+        .is_some_and(|computer| computer.enabled);
     room.invalidate(id)?;
     append(
         log,
@@ -755,7 +883,7 @@ pub(super) fn delete_persona(
     room::settle_lead(log)?;
     crate::session::ledger::forget(id);
     room.forget(id);
-    Ok(Value::Null)
+    Ok(had_computer)
 }
 
 /// Pins `id` at `slot`, or unpins it. The list is the setting's whole value,

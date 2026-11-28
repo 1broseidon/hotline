@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
+mod off;
 mod restart;
 
 const SPLIT_IMAGE: &str = "hotline-computer:0.13.0-rc.3-probe";

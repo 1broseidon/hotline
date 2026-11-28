@@ -195,6 +195,19 @@ async fn a_restart_that_fails_after_the_answer_says_why_on_the_teammate() {
             && info.error.as_deref() == Some("The harness is not installed.")
     })
     .await;
+    // Nobody watches a band after "saved": it is said on the conversation.
+    until("the failed restart is said on the conversation", || {
+        Log::open(desk.root.join("desk"))
+            .load(&StreamId::Tape("ada".into()))
+            .last()
+            .is_some_and(|last| {
+                last["kind"] == "notice"
+                    && last["text"].as_str().is_some_and(|text| {
+                        text.ends_with("did not start: The harness is not installed.")
+                    })
+            })
+    })
+    .await;
     // Nothing is left quarantined: once the harness is back, ada starts.
     desk.agents.allow_starts();
     assert_eq!(

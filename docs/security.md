@@ -1114,8 +1114,15 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   activation, so it waits out an update still being written. The wire
   answers a teammate's change once the invalidate and the append are done,
   and the reattach goes on after the answer (`Room::reattach_soon`), so the
-  person is told a change is saved only when what it took away is already
-  revoked, and never waits on a computer being made to be told.
+  person is told a change is saved only when every handle Hotline gave out
+  on the old record is already revoked (the session's, its threads', its
+  helpers' and its peers' grants), and never waits on a computer being made
+  to be told. That is Hotline's side alone: the change does not stop the
+  computer's container, which keeps the folders, secrets and browser profile
+  it was made with until it is next made, and cookies lent into a computer
+  that was turned off are taken back after the answer, behind the start
+  gate. A process the teammate left running in there can use them until
+  then.
 - **Stop.** Advances the generation and the authority and leaves the epoch
   open: old handles, lasting ones included, are permanently dead, a later
   explicit start uses the current policy. A stop also invalidates a

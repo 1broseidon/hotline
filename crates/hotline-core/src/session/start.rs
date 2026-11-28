@@ -442,9 +442,10 @@ impl Room {
     /// teammate's requests hold of it as well, which a chapter's swap leaves
     /// standing.
     fn stop_session(&self, persona_id: &str) {
-        // A restart a change owed it is called off with it.
-        lock(&self.restarts_owed).remove(persona_id);
-        self.stop_with_capability(persona_id);
+        // A restart a change owed it is called off with it, where the
+        // session is taken out (see `swap_out_unless_claimed`).
+        self.swap_out_unless_claimed(persona_id, false, true)
+            .expect("a swap that waits for no one is made");
         self.capability_epoch(persona_id).stop();
         self.revoke_exchanges(persona_id);
     }
@@ -463,7 +464,7 @@ impl Room {
 
     /// [`Self::stop_with_capability`], and whether a session was running.
     fn swap_out(&self, persona_id: &str) -> (CapabilityLease, bool) {
-        self.swap_out_unless_claimed(persona_id, false)
+        self.swap_out_unless_claimed(persona_id, false, false)
             .expect("a swap that waits for no one is made")
     }
 
@@ -471,10 +472,20 @@ impl Room {
     /// touched) while a message has claimed the session's turn. The claim is
     /// looked at where the session is taken out of the map, with its turns
     /// locked, so none can be claimed between the look and the swap.
+    ///
+    /// With `stopped`, the person's stop: a restart a change owed the
+    /// teammate ([`Self::reattach_open`]) is called off in the same critical
+    /// section that takes the session out. That reattach reads the session
+    /// and sets its mark under this lock too, so it either ran before, and
+    /// its mark is cleared here with its lease ended, or runs after, and
+    /// finds no session and no mark. Cleared anywhere else, a stop landing
+    /// between its two steps would leave a mark behind, and the next
+    /// unrelated change would start a teammate the person stopped.
     fn swap_out_unless_claimed(
         &self,
         persona_id: &str,
         unless_claimed: bool,
+        stopped: bool,
     ) -> Option<(CapabilityLease, bool)> {
         let (session, capability) = {
             let _lifecycle = lock(&self.lifecycle);
@@ -490,6 +501,9 @@ impl Room {
             // is not reopened by the swap.
             let epoch = self.capability_epoch(persona_id);
             epoch.replace_session();
+            if stopped {
+                lock(&self.restarts_owed).remove(persona_id);
+            }
             (sessions.remove(persona_id), epoch.lease())
         };
         let Some(session) = session else {
@@ -569,7 +583,10 @@ impl Room {
         tokio::spawn(async move {
             let _working = working;
             let mut queued = std::pin::pin!(gate.lock_owned());
-            // One poll takes the gate or a place in its queue.
+            // One poll takes the gate or a place in its queue. This must
+            // stay the task's first await: tokio's acquire checks the
+            // task's cooperative budget before it queues, and with the
+            // budget spent it answers Pending with no place in line.
             let at_once =
                 std::future::poll_fn(|cx| std::task::Poll::Ready(queued.as_mut().poll(cx))).await;
             let (_held, opened) = match at_once {
@@ -701,18 +718,24 @@ impl Room {
             "{persona_id} did not come back after its change: {}",
             not_back.error
         );
-        let _lifecycle = lock(&self.lifecycle);
-        let told = lock(&self.resting)
-            .get(persona_id)
-            .is_some_and(|info| info.error.is_some());
-        if !told && !lock(&self.sessions).contains_key(persona_id) {
-            self.rest_as(
-                persona_id,
-                SessionState::Stopped,
-                Some(not_back.error.clone()),
-                false,
-            );
+        {
+            let _lifecycle = lock(&self.lifecycle);
+            let told = lock(&self.resting)
+                .get(persona_id)
+                .is_some_and(|info| info.error.is_some());
+            if !told && !lock(&self.sessions).contains_key(persona_id) {
+                self.rest_as(
+                    persona_id,
+                    SessionState::Stopped,
+                    Some(not_back.error.clone()),
+                    false,
+                );
+            }
         }
+        // The person was told the change is saved and is not watching a
+        // band, least of all on a phone: said on the conversation too, when
+        // this is what the teammate rests with.
+        self.say_refused_start(persona_id, not_back.error.clone());
     }
 
     /// Rebuilds a running main session from the teammate's current record
@@ -744,7 +767,8 @@ impl Room {
         self: &Arc<Self>,
         persona_id: &str,
     ) -> Result<Rebuilt, String> {
-        let Some((capability, was_running)) = self.swap_out_unless_claimed(persona_id, true) else {
+        let Some((capability, was_running)) = self.swap_out_unless_claimed(persona_id, true, false)
+        else {
             return Ok(Rebuilt::Claimed);
         };
         if !was_running {

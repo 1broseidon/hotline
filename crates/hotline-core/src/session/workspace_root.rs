@@ -23,6 +23,14 @@
 //! write (its workspace or a writable grant), compared by directory
 //! identity, not by spelling. Otherwise the person chooses it again. Only
 //! then is a missing folder made.
+//!
+//! A record whose identity does not outlive a restart (every Unix record a
+//! 0.50 beta made is `dev:ino`, and macOS numbers volumes as it mounts
+//! them) is rebound by a start, written the same way, when the directory
+//! there has the recorded inode and a confined teammate cannot have put it
+//! there ([`rebound`]); every other holder compares it as it always did
+//! until then. A record in a form that does outlive one (a volume UUID) is
+//! never rebound: another identity there is another directory.
 
 use crate::contract::{Persona, Reach};
 use std::path::{Path, PathBuf};
@@ -64,7 +72,9 @@ pub(crate) fn root_opener(persona: &Persona) -> OpenRoot {
 /// for a holder that has no handle of its own to compare (the computer's
 /// runtime binds the path itself, the desk's skill listing gates on it): a
 /// link at the root, a workspace not bound yet, or one that is missing,
-/// unreadable or another directory than the recorded one.
+/// unreadable or another directory than the recorded one. A record a start
+/// may rebind after a restart ([`rebound`]) waits for that start, and the
+/// person is told to start the teammate, not to choose the folder again.
 pub(crate) fn moved_workspace(persona: &Persona, cwd: &str) -> Option<String> {
     if persona.reach.unwrap_or_default() != Reach::Workspace {
         return None;
@@ -73,14 +83,18 @@ pub(crate) fn moved_workspace(persona: &Persona, cwd: &str) -> Option<String> {
     if let Some(why) = crate::tools::linked_root(path) {
         return Some(why);
     }
-    let Some(expected) = persona.cwd_identity.as_deref() else {
-        return Some(format!(
+    let start_first = || {
+        format!(
             "{}'s working directory {} is confirmed when the teammate next starts; start it first.",
             persona.name, cwd
-        ));
+        )
     };
-    match crate::tools::path_identity(path) {
-        Some(found) if found == expected => None,
+    let Some(expected) = persona.cwd_identity.as_deref() else {
+        return Some(start_first());
+    };
+    match crate::tools::DirectoryId::at(path) {
+        Some(found) if found.is(expected) => None,
+        Some(found) if found.same_inode(expected) => Some(start_first()),
         _ => Some(crate::tools::not_the_chosen_folder(path)),
     }
 }
@@ -88,10 +102,18 @@ pub(crate) fn moved_workspace(persona: &Persona, cwd: &str) -> Option<String> {
 /// Why `persona`'s granted folders are not to be used now, if one is not:
 /// one that resolves somewhere other than its own path (a link at it or
 /// above it), or a directory there that is not the one granted. The person
-/// is asked to grant it again rather than have its new target adopted. A
-/// folder that is gone is left out as before; Hotline's received folder is
-/// never in the record and is not asked about.
+/// is asked to grant it again rather than have its new target adopted, or,
+/// for a record a start may rebind after a restart ([`rebound`]), to start
+/// the teammate first. A folder that is gone is left out as before;
+/// Hotline's received folder is never in the record and is not asked about.
 pub(crate) fn moved_folder(persona: &Persona) -> Option<String> {
+    moved_folders(persona, true)
+}
+
+/// [`moved_folder`], comparing each grant's recorded directory only when
+/// `compared`: a session start compares them itself ([`bind_root`]), since
+/// it may rebind a record that does not outlive a restart.
+fn moved_folders(persona: &Persona, compared: bool) -> Option<String> {
     if persona.reach.unwrap_or_default() != Reach::Workspace {
         return None;
     }
@@ -99,11 +121,19 @@ pub(crate) fn moved_folder(persona: &Persona) -> Option<String> {
         let path = Path::new(&grant.path);
         std::fs::symlink_metadata(path).ok()?;
         let resolved = dunce::canonicalize(path).ok();
-        let moved = resolved.as_deref() != Some(path)
-            || grant.identity.as_deref().is_some_and(|expected| {
-                crate::tools::path_identity(path).as_deref() != Some(expected)
-            });
-        moved.then(|| grant_again(path, &persona.name))
+        if resolved.as_deref() != Some(path) {
+            return Some(grant_again(path, &persona.name));
+        }
+        let expected = grant.identity.as_deref().filter(|_| compared)?;
+        match crate::tools::DirectoryId::at(path) {
+            Some(found) if found.is(expected) => None,
+            Some(found) if found.same_inode(expected) => Some(format!(
+                "{}'s granted folder {} is confirmed when the teammate next starts; start it first.",
+                persona.name,
+                path.display()
+            )),
+            _ => Some(grant_again(path, &persona.name)),
+        }
     })
 }
 
@@ -205,21 +235,72 @@ fn replaceable(areas: Option<&[String]>, path: &Path) -> bool {
         })
 }
 
+/// The nearest folder above `path` (as spelled) that no confined teammate
+/// could replace, nor any folder leading to it ([`replaceable`]); its
+/// volume is the one a confined teammate cannot have moved `path` off.
+fn anchor<'a>(areas: Option<&[String]>, path: &'a Path) -> Option<&'a Path> {
+    path.ancestors()
+        .skip(1)
+        .find(|holder| !replaceable(areas, holder))
+}
+
+/// The identity a session start records for the bound workspace or granted
+/// folder at `path`, whose record says `expected`, given the directory
+/// `found` there now; `None` when that is not the recorded directory.
+///
+/// The same identity is kept. One that differs is another directory,
+/// unless the record is in a form that does not outlive a restart
+/// ([`crate::tools::rebindable_inode`]: every Unix record a 0.50 beta made
+/// is `dev:ino`, and macOS renumbers volumes when it starts). Such a
+/// record is rebound to `found`, in the form that does, when its inode is
+/// `found`'s and a confined teammate cannot have put `found` there: no
+/// confined teammate could replace `path` or a folder leading to it (the
+/// rule a record without an identity is first bound by), or else `found`
+/// is on the volume of the nearest folder above `path` none could replace,
+/// so no link a teammate made led off that volume, and that volume never
+/// gives a used inode number to another directory (APFS), or the record's
+/// own device number still matches.
+fn rebound(
+    areas: Option<&[String]>,
+    path: &Path,
+    expected: &str,
+    found: Option<&crate::tools::DirectoryId>,
+) -> Option<String> {
+    let found = found?;
+    let recorded = found.recorded();
+    if recorded == expected {
+        return Some(recorded);
+    }
+    if !found.same_inode(expected) {
+        return None;
+    }
+    if !replaceable(areas, path) {
+        return Some(recorded);
+    }
+    let held = anchor(areas, path)
+        .and_then(crate::tools::DirectoryId::at)
+        .is_some_and(|holder| holder.volume() == found.volume());
+    (held && (found.keeps_inodes() || found.is(expected))).then_some(recorded)
+}
+
 /// What a session start found for a teammate's workspace and granted
-/// folders: the identities to record where the record has none.
+/// folders: the identities to record, where the record has none or has one
+/// in a form it rebound ([`rebound`]). Each grant's is kept with the
+/// identity it replaces.
 #[derive(Default)]
 pub(super) struct Binding {
     root: Option<String>,
-    folders: Vec<(String, String)>,
+    folders: Vec<(String, Option<String>, String)>,
 }
 
 /// What a session start does with `subject` (the latest record, with the
 /// reach and folders the session will run with), before anything is made
 /// or written: refuses a root that is a link, a bound root that is missing,
 /// unreadable or another directory, and a granted folder that is now a link
-/// or another directory; binds an unbound root or grant only when no confined
-/// teammate could have replaced it ([`replaceable`]), making a missing root
-/// only then.
+/// or another directory; rebinds a record in a form that does not outlive a
+/// restart ([`rebound`]); binds an unbound root or grant only when no
+/// confined teammate could have replaced it ([`replaceable`]), making a
+/// missing root only then.
 pub(super) fn bind_root(roster: &[Persona], subject: &Persona) -> Result<Binding, String> {
     let path = Path::new(&subject.cwd);
     if subject.reach.unwrap_or_default() != Reach::Workspace {
@@ -229,7 +310,7 @@ pub(super) fn bind_root(roster: &[Persona], subject: &Persona) -> Result<Binding
     if let Some(why) = crate::tools::linked_root(path) {
         return Err(why);
     }
-    if let Some(why) = moved_folder(subject) {
+    if let Some(why) = moved_folders(subject, false) {
         return Err(why);
     }
     let areas = confined_areas(roster);
@@ -239,9 +320,11 @@ pub(super) fn bind_root(roster: &[Persona], subject: &Persona) -> Result<Binding
         let found = std::fs::metadata(path)
             .ok()
             .filter(std::fs::Metadata::is_dir)
-            .and_then(|_| crate::tools::path_identity(path));
-        if found.as_deref() != Some(expected) {
-            return Err(crate::tools::not_the_chosen_folder(path));
+            .and_then(|_| crate::tools::DirectoryId::at(path));
+        let identity = rebound(areas.as_deref(), path, expected, found.as_ref())
+            .ok_or_else(|| crate::tools::not_the_chosen_folder(path))?;
+        if identity != expected {
+            binding.root = Some(identity);
         }
     } else {
         if replaceable(areas.as_deref(), path) {
@@ -259,15 +342,31 @@ pub(super) fn bind_root(roster: &[Persona], subject: &Persona) -> Result<Binding
     }
     for grant in subject.folders.iter().flatten() {
         let path = Path::new(&grant.path);
-        if grant.identity.is_some() || absent(path) {
-            continue;
-        }
-        if replaceable(areas.as_deref(), path) {
-            return Err(grant_again(path, &subject.name));
-        }
-        let identity =
-            crate::tools::path_identity(path).ok_or_else(|| grant_again(path, &subject.name))?;
-        binding.folders.push((grant.path.clone(), identity));
+        let identity = if let Some(expected) = grant.identity.as_deref() {
+            // A bound folder that is gone is left out, as the tools leave
+            // it out ([`moved_folder`] passes it too).
+            if std::fs::symlink_metadata(path).is_err() {
+                continue;
+            }
+            let found = crate::tools::DirectoryId::at(path);
+            let identity = rebound(areas.as_deref(), path, expected, found.as_ref())
+                .ok_or_else(|| grant_again(path, &subject.name))?;
+            if identity == expected {
+                continue;
+            }
+            identity
+        } else {
+            if absent(path) {
+                continue;
+            }
+            if replaceable(areas.as_deref(), path) {
+                return Err(grant_again(path, &subject.name));
+            }
+            crate::tools::path_identity(path).ok_or_else(|| grant_again(path, &subject.name))?
+        };
+        binding
+            .folders
+            .push((grant.path.clone(), grant.identity.clone(), identity));
     }
     Ok(binding)
 }
@@ -403,9 +502,10 @@ impl super::Room {
         }
         let adopt = |grants: &mut Option<Vec<crate::contract::FolderGrant>>| {
             for grant in grants.iter_mut().flatten() {
-                if let Some((_, identity)) =
-                    binding.folders.iter().find(|(path, _)| *path == grant.path)
-                    && grant.identity.is_none()
+                if let Some((_, _, identity)) = binding
+                    .folders
+                    .iter()
+                    .find(|(path, was, _)| *path == grant.path && *was == grant.identity)
                 {
                     grant.identity = Some(identity.clone());
                 }
@@ -474,6 +574,46 @@ mod tests {
         assert!(moved_workspace(&ada, &ada.cwd).is_some_and(|why| why.contains("link")));
         ada.reach = Some(Reach::Machine);
         assert_eq!(moved_workspace(&ada, &ada.cwd), None);
+    }
+
+    /// A computer is not started on a record from before a restart that a
+    /// session start has not rebound yet (its device one off): the person
+    /// is told to start the teammate, not to choose or grant the folder
+    /// again; on the device it names, it starts as it always did.
+    #[test]
+    fn a_computer_waits_for_a_start_to_rebind_a_record_from_before_a_restart() {
+        use std::os::unix::fs::MetadataExt;
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().canonicalize().unwrap();
+        let work = base.join("work");
+        let shared = base.join("shared");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        let older = |path: &Path, off: u64| {
+            let found = std::fs::metadata(path).unwrap();
+            format!("{}:{}", found.dev().wrapping_add(off), found.ino())
+        };
+        let mut ada = confined("ada", &work);
+        for off in [0, 1] {
+            ada.cwd_identity = Some(older(&work, off));
+            ada.folders = Some(vec![crate::contract::FolderGrant {
+                path: shared.to_string_lossy().into_owned(),
+                writable: false,
+                identity: Some(older(&shared, off)),
+            }]);
+            if off == 0 {
+                assert_eq!(moved_workspace(&ada, &ada.cwd), None);
+                assert_eq!(moved_folder(&ada), None);
+            } else {
+                for why in [moved_workspace(&ada, &ada.cwd), moved_folder(&ada)] {
+                    assert!(
+                        why.as_ref()
+                            .is_some_and(|why| why.contains("start it first")),
+                        "{why:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// A computer opens its folders by path, so one is not made while a

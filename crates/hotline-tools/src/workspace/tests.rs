@@ -875,8 +875,50 @@ fn a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall() {
     assert!(super::linked_root(&directory.path().join("missing")).is_none());
 }
 
+/// A record from a 0.50 beta (`dev:ino`, digits only) still opens the
+/// root and a granted folder whose device and inode it names, as it always
+/// did; one whose device no longer matches (a restart) opens neither until a
+/// session start rebinds it, since only that start may.
+#[cfg(unix)]
+#[test]
+fn a_record_in_the_older_form_opens_what_it_always_opened() {
+    use std::os::unix::fs::MetadataExt;
+    let directory = TestDirectory::new();
+    let base = directory.path().canonicalize().unwrap();
+    let work = base.join("work");
+    let granted = base.join("granted");
+    fs::create_dir_all(&work).unwrap();
+    fs::create_dir_all(&granted).unwrap();
+    let older = |path: &Path, off: u64| {
+        let found = fs::metadata(path).unwrap();
+        format!("{}:{}", found.dev().wrapping_add(off), found.ino())
+    };
+    let open = |off: u64| {
+        let grants = [FolderGrant {
+            path: granted.to_string_lossy().into_owned(),
+            writable: true,
+            identity: Some(older(&granted, off)),
+        }];
+        Workspace::open_with_capability(
+            work.clone(),
+            Reach::Workspace,
+            base.join("overflow"),
+            &grants,
+            Some(&older(&work, off)),
+            None,
+        )
+    };
+    let workspace = open(0).unwrap();
+    assert_eq!(workspace.folders(), vec![(granted.clone(), true)]);
+    let refused = open(1).err().expect("a device one off is not it");
+    assert!(
+        refused.to_string().contains("no longer the folder chosen"),
+        "{refused}"
+    );
+}
+
 /// The working directory and each granted folder open only as the directory
-/// the record says they are (`dev:ino`, read from the handle just opened):
+/// the record says they are (read from the handle just opened):
 /// ordinary writes inside still land, while a root renamed away and remade,
 /// or reached through a folder above it that was renamed and replaced
 /// (possible on Linux inside a writable granted folder), is refused before
@@ -891,17 +933,17 @@ fn a_changed_root_or_folder_is_refused_before_any_tool_acts() {
     let granted = base.join("granted");
     fs::create_dir_all(&work).unwrap();
     fs::create_dir_all(&granted).unwrap();
-    let root_id = super::path_identity(&work).unwrap();
+    let root_id = crate::path_identity(&work).unwrap();
     let grants = [
         FolderGrant {
             path: granted.to_string_lossy().into_owned(),
             writable: true,
-            identity: super::path_identity(&granted),
+            identity: crate::path_identity(&granted),
         },
         FolderGrant {
             path: holder.to_string_lossy().into_owned(),
             writable: true,
-            identity: super::path_identity(&holder),
+            identity: crate::path_identity(&holder),
         },
     ];
     let open = |identity: &str| {

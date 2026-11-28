@@ -644,7 +644,7 @@ async fn turn(
 }
 
 /// A record's folders as granted, each checked to say which directory it
-/// is (Unix: `dev:ino`, read by the desk when granted) and then shown
+/// is (`identity`, read by the desk when granted) and then shown
 /// without it, for comparing with the paths and modes asked for.
 fn recorded(folders: &Value) -> Value {
     let folders = folders.as_array().cloned().unwrap_or_default();

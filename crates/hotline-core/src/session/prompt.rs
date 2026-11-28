@@ -52,7 +52,9 @@ impl Room {
                 return Err(crate::driver::failure::NO_PROVIDER.to_string());
             }
             let capability = self.stop_with_capability(persona_id);
-            self.start_now(persona_id, capability, false).await?;
+            self.start_now(persona_id, capability, false)
+                .await
+                .map_err(|error| self.say_refused_start(persona_id, error))?;
             return Ok((self.session(persona_id)?, held));
         }
         if self
@@ -63,8 +65,12 @@ impl Room {
         {
             return Ok((session, held));
         }
+        // A message is waiting on this start, so a refusal is said where
+        // whoever sent it reads.
         let capability = self.stop_with_capability(persona_id);
-        self.start_now(persona_id, capability, false).await?;
+        self.start_now(persona_id, capability, false)
+            .await
+            .map_err(|error| self.say_refused_start(persona_id, error))?;
         Ok((self.session(persona_id)?, held))
     }
 

@@ -485,8 +485,11 @@ impl RoomHandle for Desk {
         self.room.policy_update_lock()
     }
 
+    /// A client's start, for a person waiting on it (the window's send or
+    /// Start, a phone's message, a call's handoff): a refusal is said in the
+    /// conversation too.
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
-        self.room.start(persona_id).await
+        self.room.start_for_person(persona_id).await
     }
 
     fn stop(&self, persona_id: &str) -> Result<(), String> {

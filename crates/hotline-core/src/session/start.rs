@@ -12,6 +12,27 @@ impl Room {
     /// starts the same teammate — gets the session that exists, not a second
     /// agent on the same tape that only one of them could ever stop.
     pub async fn start(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
+        self.start_saying(persona_id, false).await
+    }
+
+    /// [`Room::start`] for a person waiting on the teammate: a message sent
+    /// from the window, a phone or a call, or Start pressed. A start that is
+    /// refused is also said in the teammate's conversation
+    /// ([`Room::say_refused_start`]), because the band that shows the reason
+    /// is the window's alone, and a phone, whose words simply come back,
+    /// reads only the conversation.
+    pub async fn start_for_person(
+        self: &Arc<Self>,
+        persona_id: &str,
+    ) -> Result<SessionInfo, String> {
+        self.start_saying(persona_id, true).await
+    }
+
+    async fn start_saying(
+        self: &Arc<Self>,
+        persona_id: &str,
+        say: bool,
+    ) -> Result<SessionInfo, String> {
         let _working = self.working()?;
         let capability = self.capability_lease(persona_id);
         let gate = self.start_gate(persona_id);
@@ -21,7 +42,55 @@ impl Room {
             self.session(persona_id)?;
             return Ok(self.info(persona_id));
         }
-        self.start_now(persona_id, capability, false).await
+        let started = self.start_now(persona_id, capability, false).await;
+        if say {
+            started.map_err(|error| self.say_refused_start(persona_id, error))
+        } else {
+            started
+        }
+    }
+
+    /// Says why a teammate did not start, as an error notice on its
+    /// conversation, when that refusal is what it rests with now: stopped,
+    /// with this reason on its band (see [`Room::end_starting`]). A stop
+    /// that came first, or the room closing, is not a refusal to explain.
+    /// The same words as the line before are not said again, so sending
+    /// again to a teammate that still cannot start adds nothing. Returns the
+    /// refusal, for the caller to hand back as it was. The caller holds the
+    /// teammate's start gate, so two refusals cannot both find the
+    /// conversation without it.
+    pub(super) fn say_refused_start(&self, persona_id: &str, error: String) -> String {
+        let resting = {
+            let _lifecycle = lock(&self.lifecycle);
+            !lock(&self.sessions).contains_key(persona_id)
+                && lock(&self.resting).get(persona_id).is_some_and(|info| {
+                    info.state == SessionState::Stopped
+                        && info.error.as_deref() == Some(error.as_str())
+                })
+        };
+        if !resting {
+            return error;
+        }
+        let text = match self.persona(persona_id) {
+            Ok(persona) => format!("{} did not start: {error}", persona.name),
+            Err(_) => error.clone(),
+        };
+        let said = self
+            .tape(persona_id)
+            .last()
+            .is_some_and(|last| last["kind"] == "notice" && last["text"] == text.as_str());
+        if !said {
+            self.write(
+                persona_id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Error,
+                    text,
+                },
+            );
+        }
+        error
     }
 
     /// This teammate's start gate, made the first time anyone starts it.

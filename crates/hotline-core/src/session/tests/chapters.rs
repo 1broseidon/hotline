@@ -723,3 +723,108 @@ async fn opening_the_room_compacts_the_room_stream() {
     assert_eq!(log.load(&StreamId::Room).len(), after);
     assert_eq!(crate::room::roster(&log).len(), 1);
 }
+
+/// A message that lands on a closed chapter starts its teammate again, and a
+/// start refused there (its folder replaced since it last started) is said in
+/// the conversation with the refusal's own words, once, as well as handed
+/// back: whoever sent it reads why, on whatever they sent it from.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_message_whose_new_chapter_cannot_start_says_why_in_the_conversation() {
+    let log = scratch("chapter-refused-start");
+    let work = log.root().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let mut ada = persona("ada");
+    ada.reach = None;
+    ada.cwd = work.to_string_lossy().into_owned();
+    ada.cwd_identity = crate::tools::path_identity(&work);
+    enrol(&log, &ada);
+    let room = Room::with_agents_and_computers(
+        log,
+        Arc::new(DeskKeys),
+        Fake::answering(
+            Scripted::turns(vec![saying("one", "Here.")]),
+            note_json("Roll call"),
+        ),
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "are you there?", None, None)
+        .await
+        .unwrap();
+    settled(&room, "ada", 3).await;
+    room.start_fresh_chapter("ada", ChapterClose::User)
+        .await
+        .unwrap();
+    std::fs::rename(&work, work.with_file_name("work-was")).unwrap();
+    std::fs::create_dir(&work).unwrap();
+    let refusal = crate::tools::not_the_chosen_folder(&work);
+
+    let refused = room
+        .prompt("ada", "still there?", None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(refused, refusal);
+    // Sent again, the client starts the teammate first, and is refused there.
+    let refused = room.start_for_person("ada").await.unwrap_err();
+    assert_eq!(refused, refusal);
+    let events = tape(&room, "ada");
+    let told: Vec<_> = events
+        .iter()
+        .filter(|event| event["kind"] == "notice")
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0]["level"], "error");
+    assert_eq!(
+        told[0]["text"],
+        format!("Ada did not start: {refusal}").as_str()
+    );
+    assert_eq!(
+        events.last(),
+        Some(told[0]),
+        "the refusal is the latest line"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["kind"] == "user")
+            .count(),
+        1,
+        "the refused lines are not written as said"
+    );
+    let info = room.info("ada");
+    assert_eq!(info.state, SessionState::Stopped);
+    assert_eq!(info.error.as_deref(), Some(refusal.as_str()));
+}
+
+/// A start nobody is waiting on (a rebuild, a schedule, the room's own
+/// pick-up) leaves its reason on the band alone, as before: the notice is for
+/// a person who asked.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_refused_start_nobody_asked_for_writes_nothing_on_the_tape() {
+    let log = scratch("chapter-refused-quiet");
+    let work = log.root().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let mut ada = persona("ada");
+    ada.reach = None;
+    ada.cwd = work.to_string_lossy().into_owned();
+    ada.cwd_identity = crate::tools::path_identity(&work);
+    enrol(&log, &ada);
+    std::fs::rename(&work, work.with_file_name("work-was")).unwrap();
+    std::fs::create_dir(&work).unwrap();
+    let room = Room::with_agents_and_computers(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(Vec::new())),
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    );
+    room.start("ada").await.unwrap_err();
+    assert_eq!(tape(&room, "ada"), Vec::<Value>::new());
+    // The person's start says it.
+    let refused = room.start_for_person("ada").await.unwrap_err();
+    assert_eq!(
+        tape(&room, "ada")[0]["text"],
+        format!("Ada did not start: {refused}").as_str()
+    );
+}

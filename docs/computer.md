@@ -202,6 +202,20 @@ next start removes it first, and fails while it cannot. Idle uses the room's swe
 thirty minutes after a session stops the container is stopped and its rw layer
 kept; seven days and it is removed.
 
+Turning a computer off stops its container before the change is answered;
+it is not removed, so turned on again it is the same container, with its
+home, rw layer and token. A folder or a secret taken from a computer that
+stays on stops it the same way, and its next start makes it again with the
+folders it has now and hands it the secrets granted then; a moved workspace
+or a declared mount taken away removes it instead, since a container records
+neither. Every start of a computer reads the teammate's record under the
+container's own lock (`Computer::ensure_current`), so nothing that read the
+teammate before such a change brings the old container back. The sweep
+never counts a teammate whose computer is off as using one, and stops such a
+container within a minute even while the teammate's session runs. A stop
+that fails is said, and the container is stopped again before its next use.
+The promise and its limits are in `docs/security.md` (Policy change).
+
 The image a computer runs is chosen when its container is created: the
 teammate's override, else the room's, else the release this desk pins. An
 existing container, running or stopped, is reused as it is, and nothing

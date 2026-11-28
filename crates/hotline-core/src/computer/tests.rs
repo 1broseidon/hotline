@@ -970,6 +970,11 @@ async fn stop_and_remove_send_the_right_subcommands() {
     );
 }
 
+/// The teammates these sweeps find with their computer turned on.
+fn ada_on() -> HashSet<String> {
+    HashSet::from(["ada".to_string()])
+}
+
 #[tokio::test]
 async fn sweep_stops_then_removes_by_idle_age() {
     let root = scratch("sweep");
@@ -989,7 +994,12 @@ async fn sweep_stops_then_removes_by_idle_age() {
     fs::write(&log, "").unwrap();
     let now = now_ms();
     computers
-        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_IDLE_STOP_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     let after_idle = log_text(&log);
     assert!(
@@ -1000,7 +1010,12 @@ async fn sweep_stops_then_removes_by_idle_age() {
     );
     fs::write(&log, "").unwrap();
     computers
-        .sweep(now + COMPUTER_HIBERNATE_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_HIBERNATE_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     let after_hibernate = log_text(&log);
     assert!(
@@ -1035,14 +1050,24 @@ async fn hibernating_a_computer_deletes_its_kept_attest_key() {
         .expect("an entry kept for it");
     let now = now_ms();
     computers
-        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_IDLE_STOP_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     assert!(
         store.get("computer-attest/ada").unwrap().is_some(),
         "a computer stopped for idling keeps it"
     );
     computers
-        .sweep(now + COMPUTER_HIBERNATE_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_HIBERNATE_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     assert_eq!(store.get("computer-attest/ada").unwrap(), None);
 
@@ -1164,13 +1189,23 @@ async fn a_container_left_by_a_previous_desk_is_adopted_and_idled() {
     let computers = Computer::with_path(root.as_os_str());
     let now = now_ms();
     computers
-        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_IDLE_STOP_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     assert!(!log_text(&log).contains("stop "), "nothing is known yet");
 
     computers.adopt(&["ada".to_string()], None, now).await;
     computers
-        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_IDLE_STOP_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     assert!(
         log_text(&log)
@@ -1180,7 +1215,12 @@ async fn a_container_left_by_a_previous_desk_is_adopted_and_idled() {
         log_text(&log)
     );
     computers
-        .sweep(now + COMPUTER_HIBERNATE_MS + 1, &HashSet::new())
+        .sweep(
+            now + COMPUTER_HIBERNATE_MS + 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     assert!(
         log_text(&log)
@@ -1210,11 +1250,16 @@ async fn a_teammate_in_use_is_not_swept_and_its_clock_starts_over() {
     let now = now_ms();
     let late = now + COMPUTER_HIBERNATE_MS + 1;
     computers
-        .sweep(late, &HashSet::from(["ada".to_string()]))
+        .sweep(late, &HashSet::from(["ada".to_string()]), &ada_on(), None)
         .await;
     assert_eq!(log_text(&log), "");
     computers
-        .sweep(late + COMPUTER_IDLE_STOP_MS - 1, &HashSet::new())
+        .sweep(
+            late + COMPUTER_IDLE_STOP_MS - 1,
+            &HashSet::new(),
+            &ada_on(),
+            None,
+        )
         .await;
     assert_eq!(
         log_text(&log),

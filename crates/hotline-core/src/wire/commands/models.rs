@@ -411,7 +411,7 @@ pub(super) async fn set_backend(
             None => Ok(room.info(persona_id)),
         };
     }
-    {
+    let taken = {
         let gate = room.policy_update_lock();
         let _held = gate.lock().await;
         let mut moved = living(log, persona_id)?;
@@ -432,7 +432,18 @@ pub(super) async fn set_backend(
         }
         room::append_persona(log, &moved)?;
         room::clear_checkpoint(log, persona_id, backend_id)?;
-    }
+        // A harness runs as the person, who could read a protected key out
+        // of its computer, so the keys it was handed protected are held back
+        // from now on and its running computer is stopped with them.
+        super::persona::computer_taken(&previous, &moved)
+    };
+    let stopped = match taken {
+        Some(taken) => {
+            room.computer_taken_away(persona_id, taken == crate::computer::Taken::Remove)
+                .await
+        }
+        None => Ok(()),
+    };
     if backend_id == HOTLINE_BACKEND_ID
         && let Some(model) = model_id
     {
@@ -453,6 +464,7 @@ pub(super) async fn set_backend(
     } else {
         room.reattach(persona_id).await?;
     }
+    stopped?;
     Ok(offered_info(log, room, persona_id))
 }
 

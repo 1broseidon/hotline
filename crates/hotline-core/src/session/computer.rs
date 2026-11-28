@@ -35,25 +35,20 @@ impl Room {
             // one would race it for the same container.
             return ComputerAtStart::Downloading;
         }
-        let settings = room::settings(&self.log);
-        let prefer = crate::computer::preferred_runtime(&settings);
-        let room_image = crate::computer::preferred_image(&settings);
         let (began, downloading) = oneshot::channel::<()>();
         let room = self.clone();
-        let wanted = persona.clone();
+        let wanted = persona.id.clone();
         let mut bringing_up = tokio::spawn(async move {
             let mut began = Some(began);
-            let mut tape = room.pull_reporter(&wanted.id);
+            let mut tape = room.pull_reporter(&wanted);
             let report = |report: crate::computer::PullReport| {
-                room.computer_download_progress(&wanted.id, &report);
+                room.computer_download_progress(&wanted, &report);
                 if let Some(began) = began.take() {
                     let _ = began.send(());
                 }
                 tape(report);
             };
-            room.computers
-                .ensure_running(&wanted, &wanted.cwd, prefer, room_image.as_deref(), report)
-                .await
+            room.computer_up(&wanted, report).await
         });
         tokio::select! {
             result = &mut bringing_up => match result {
@@ -294,20 +289,35 @@ impl Room {
             return Ok(Vec::new());
         }
         self.computer_overlap(persona)?;
+        let ready = self
+            .computer_up(&persona.id, self.pull_reporter(&persona.id))
+            .await?;
+        self.finish_grant(persona, &ready, driving).await
+    }
+
+    /// The teammate's computer made or started, from its record as it stands
+    /// once its container's lock is held, not as the caller read it, so
+    /// nothing a change turned off or took away is brought back up by a
+    /// caller that read the teammate before the change
+    /// (`Computer::ensure_current`). Every start of a computer goes through
+    /// here.
+    pub(crate) async fn computer_up(
+        &self,
+        persona_id: &str,
+        report: impl FnMut(crate::computer::PullReport),
+    ) -> Result<crate::computer::Ready, String> {
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);
-        let ready = self
-            .computers
-            .ensure_running(
-                persona,
-                &persona.cwd,
+        self.computers
+            .ensure_current(
+                persona_id,
+                || self.persona(persona_id),
                 prefer,
                 room_image.as_deref(),
-                self.pull_reporter(&persona.id),
+                report,
             )
-            .await?;
-        self.finish_grant(persona, &ready, driving).await
+            .await
     }
 
     /// The rest of the grant, once the computer is up: its guide as the
@@ -364,6 +374,12 @@ impl Room {
         Ok(vec![crate::computer::mcp_server(
             &crate::computer::Ready::new(gate.url, gate.token),
         )])
+    }
+
+    /// The room's computers, for a test that asks them directly.
+    #[cfg(all(test, unix))]
+    pub(crate) fn computers(&self) -> &crate::computer::Computer {
+        &self.computers
     }
 
     pub async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
@@ -663,6 +679,120 @@ impl Room {
             .await
     }
 
+    /// A teammate's change took something away from its computer, and is
+    /// durable: its container is stopped, or for [`Taken::Remove`] removed,
+    /// before the change is answered (see `wire/commands/persona.rs`).
+    ///
+    /// The stop runs on a task of its own, queued on the teammate's container
+    /// lock before this waits for it, so a restart the caller places after
+    /// this answers starts after the stop. The answer waits for the stop
+    /// [`TAKEN_AWAY_WAIT`] at most, far under the twenty seconds a phone
+    /// waits: a stop is a few seconds (Docker and Podman give the container
+    /// ten to end, Apple `container` five). One not done by then is not
+    /// abandoned: it keeps its place in the queue and goes on, and the change
+    /// is answered as saved. A stop that fails within the wait is the
+    /// answer's error; one that fails, now or later, is said on the
+    /// teammate's conversation and tried again before the container is next
+    /// used and at every sweep, and until one succeeds a change to the
+    /// teammate's computer answers the same error
+    /// ([`Self::computer_still_up`]).
+    ///
+    /// [`Taken::Remove`]: crate::computer::Taken::Remove
+    pub async fn computer_taken_away(
+        self: &Arc<Self>,
+        persona_id: &str,
+        taken: crate::computer::Taken,
+    ) -> Result<(), String> {
+        self.computer_taken_away_within(persona_id, taken, TAKEN_AWAY_WAIT)
+            .await
+    }
+
+    /// [`Self::computer_taken_away`], waiting `wait` for the stop.
+    pub(crate) async fn computer_taken_away_within(
+        self: &Arc<Self>,
+        persona_id: &str,
+        taken: crate::computer::Taken,
+        wait: Duration,
+    ) -> Result<(), String> {
+        let prefer = crate::computer::preferred_runtime(&room::settings(&self.log));
+        let (placed, queued) = oneshot::channel::<()>();
+        let (done, stopped) = oneshot::channel::<Result<(), String>>();
+        let room = self.clone();
+        let id = persona_id.to_string();
+        tokio::spawn(async move {
+            let result = room
+                .computers
+                .stop_for_change(&id, prefer, taken, placed)
+                .await;
+            if let Err(error) = &result {
+                room.say_computer_not_stopped(&id, error);
+            }
+            let _ = done.send(result);
+        });
+        // The task's end before it queued is the runtime shutting down.
+        let _ = queued.await;
+        match tokio::time::timeout(wait, stopped).await {
+            // Still going after the wait, the stop keeps its place in the
+            // container's queue ahead of everything after it, and is not let
+            // go: the change is saved and answered so, and a failure later is
+            // said on the conversation. An error here would have a phone say
+            // a saved change was not done, and a retried delete that the
+            // teammate does not exist.
+            Ok(Ok(Ok(())) | Err(_)) | Err(_) => Ok(()),
+            Ok(Ok(Err(error))) => Err(self.not_stopped_words(persona_id, &error)),
+        }
+    }
+
+    /// While a change's stop of this teammate's container has failed and no
+    /// later try has done it, the error a change to its computer, folders or
+    /// secrets answers, so a second change that finds nothing new to take is
+    /// not answered as though the container were stopped.
+    pub fn computer_still_up(&self, persona_id: &str) -> Result<(), String> {
+        match self.computers.not_stopped(persona_id) {
+            Some(error) => Err(self.not_stopped_words(persona_id, &error)),
+            None => Ok(()),
+        }
+    }
+
+    /// The answer for a stop that failed, in the person's words.
+    fn not_stopped_words(&self, persona_id: &str, error: &str) -> String {
+        // A teammate removed has no name left to say.
+        let whose = self.persona(persona_id).map_or_else(
+            |_| "its".to_string(),
+            |persona| format!("{}'s", persona.name),
+        );
+        format!(
+            "Saved, but {whose} computer did not stop, so it may still have what was taken away: {}.",
+            error.trim().trim_end_matches('.')
+        )
+    }
+
+    /// A stop a change asked for failed: said once on the teammate's
+    /// conversation, where the person looks whether or not they were still
+    /// waiting for the answer. A teammate who is gone has no conversation;
+    /// the answer says it.
+    fn say_computer_not_stopped(&self, persona_id: &str, error: &str) {
+        let Ok(persona) = self.persona(persona_id) else {
+            eprintln!("{persona_id}'s computer did not stop: {error}");
+            return;
+        };
+        let text = format!(
+            "{}'s computer did not stop, so it may still have what was taken away: {}. Hotline tries again before it is used and every minute.",
+            persona.name,
+            error.trim().trim_end_matches('.')
+        );
+        eprintln!("{text}");
+        self.write(
+            persona_id,
+            &TranscriptEvent::Notice {
+                id: new_id(),
+                ts: now_ms(),
+                level: NoticeLevel::Error,
+                text,
+            },
+        );
+    }
+
     pub async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
         self.computers
             .remove(
@@ -725,19 +855,8 @@ impl Room {
         // The computer has to be up to receive the login; a stopped one is
         // started, the same as opening its screen would.
         self.computer_overlap(&persona)?;
-        let settings = room::settings(&self.log);
-        let prefer = crate::computer::preferred_runtime(&settings);
-        let room_image = crate::computer::preferred_image(&settings);
-        let notice_id = persona.id.clone();
         let ready = self
-            .computers
-            .ensure_running(
-                &persona,
-                &persona.cwd,
-                prefer,
-                room_image.as_deref(),
-                self.pull_reporter(&notice_id),
-            )
+            .computer_up(&persona.id, self.pull_reporter(&persona.id))
             .await?;
 
         // The document the container's `login_load` reads. `storage` is empty:
@@ -770,7 +889,7 @@ impl Room {
         Ok(imported)
     }
 
-    pub(super) async fn sweep_computers(&self) {
+    pub(crate) async fn sweep_computers(&self) {
         let settings = room::settings(&self.log);
         let ids: Vec<String> = room::personas(&self.log.load(&StreamId::Room))
             .into_iter()
@@ -785,10 +904,30 @@ impl Room {
             .await;
         // In use is a main session running, or any thread — a side thread, a
         // call, a job — holding the gate's lease or making a call that needs
-        // none.
+        // none, of a teammate whose computer is turned on. A teammate's
+        // session running says nothing about a computer it no longer has:
+        // one turned off is stopped at this sweep (see `Computer::sweep`).
+        let on: HashSet<String> = room::roster(&self.log)
+            .into_iter()
+            .filter(|persona| {
+                persona
+                    .computer
+                    .as_ref()
+                    .is_some_and(|computer| computer.enabled)
+            })
+            .map(|persona| persona.id)
+            .collect();
         let mut in_use: HashSet<String> = lock(&self.sessions).keys().cloned().collect();
         in_use.extend(self.computer_leases.in_use());
-        self.computers.sweep(now_ms(), &in_use).await;
+        in_use.retain(|id| on.contains(id));
+        self.computers
+            .sweep(
+                now_ms(),
+                &in_use,
+                &on,
+                crate::computer::preferred_runtime(&settings),
+            )
+            .await;
         // The newest release is looked up on this clock too: once when the
         // room opens, then every six hours.
         self.computers.refresh_releases(now_ms()).await;
@@ -798,6 +937,12 @@ impl Room {
 /// How long a failed set-up is remembered. The teammate's next start or
 /// press of Start replaces it sooner; after this it is not news.
 const FAILED_FOR_MS: i64 = 10 * 60 * 1000;
+
+/// How long a change's answer waits for the computer it took something from
+/// to stop ([`Room::computer_taken_away`]): a Docker or Podman stop's ten
+/// seconds of grace and the CLI around it, and well under the twenty seconds
+/// a phone waits for any answer.
+pub(super) const TAKEN_AWAY_WAIT: Duration = Duration::from_secs(12);
 
 /// Where one teammate's computer set-up, update and swap stand: the one
 /// answer `computer_status`, `computer_start` and the attach and swap steps

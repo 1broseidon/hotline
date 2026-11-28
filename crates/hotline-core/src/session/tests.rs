@@ -976,8 +976,8 @@ async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
 pub(crate) struct ComputerRoom {
     pub(crate) room: Arc<Room>,
     pub(crate) agents: Arc<Fake>,
-    root: std::path::PathBuf,
-    cwd: std::path::PathBuf,
+    pub(crate) root: std::path::PathBuf,
+    pub(crate) cwd: std::path::PathBuf,
     /// How often the releases endpoint was asked.
     asked: Arc<std::sync::atomic::AtomicUsize>,
     /// Every set of secrets the fake computer was handed, in order.

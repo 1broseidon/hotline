@@ -316,6 +316,23 @@ struct Inner {
     /// remove: it is never adopted or started again with the bearer it
     /// has, only removed before the next one is made.
     retired: HashSet<String>,
+    /// Teammates whose container a change took something away from but the
+    /// runtime would not stop or remove ([`Computer::stop_for_change`]): it
+    /// is stopped or removed again before anything uses it, and at every
+    /// sweep, until that succeeds.
+    stale: HashMap<String, (Taken, String)>,
+}
+
+/// What a teammate's change did to the container it took something from.
+/// A stop keeps the container, its bearer, its home and its rw layer, so
+/// turning the computer on again brings the same one back, and the next
+/// start makes it again only if its recorded folders or limits differ. A
+/// remove is for what the container records nowhere (its workspace and
+/// declared mounts) and for a teammate who is gone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Taken {
+    Stop,
+    Remove,
 }
 
 struct Picked {
@@ -371,6 +388,7 @@ impl Computer {
                 known: releases::Known::default(),
                 picked: None,
                 retired: HashSet::new(),
+                stale: HashMap::new(),
             })),
             capacity: Arc::new(capacity::Cache::default()),
             statuses: Arc::default(),
@@ -394,6 +412,7 @@ impl Computer {
                 known: releases::Known::default(),
                 picked: None,
                 retired: HashSet::new(),
+                stale: HashMap::new(),
             })),
             capacity: Arc::new(capacity::Cache::default()),
             statuses: Arc::default(),
@@ -549,7 +568,7 @@ impl Computer {
 
     /// Callers waiting on, or holding, a teammate's container lock.
     #[cfg(all(test, unix))]
-    fn queued(&self, persona_id: &str) -> usize {
+    pub(crate) fn queued(&self, persona_id: &str) -> usize {
         self.lock()
             .turns
             .get(persona_id)
@@ -559,7 +578,12 @@ impl Computer {
     /// Makes the teammate's computer and starts it, or finds it running.
     /// Calls for one teammate go one at a time: the second sees what the
     /// first made.
-    pub async fn ensure_running(
+    ///
+    /// For tests alone, which hand it the teammate they mean: the desk
+    /// starts a computer only through [`Self::ensure_current`], which reads
+    /// the record under the container's lock.
+    #[cfg(test)]
+    pub(crate) async fn ensure_running(
         &self,
         persona: &Persona,
         workspace_cwd: &str,
@@ -576,6 +600,58 @@ impl Computer {
         }
         let _turn = self.turn_of(&persona.id).lock_owned().await;
         self.ensure_running_held(persona, workspace_cwd, prefer, room_image, report)
+            .await
+    }
+
+    /// [`Self::ensure_running`] from the teammate's record as it stands once
+    /// this caller holds the teammate's container lock: `record` is read
+    /// there, not before, and a teammate whose computer is off by then, or
+    /// who is gone, is refused without the runtime being asked anything.
+    ///
+    /// This is what keeps a change's stop from being undone. A change writes
+    /// its record durably and only then queues its stop on this same lock
+    /// ([`Self::stop_for_change`]), so every caller is on one side of it: one
+    /// that took the lock first brought up whatever it brought up before the
+    /// stop, which then stops it; one that takes it after reads the record
+    /// the change wrote. A start, a job, a thread, a cookie import or a
+    /// passkey arming that read the teammate before the change and is still
+    /// on its way here starts nothing from that read. A container a change
+    /// could not stop ([`Taken`]) is stopped or removed here before it is
+    /// used, and refused if it still will not go.
+    pub async fn ensure_current(
+        &self,
+        persona_id: &str,
+        record: impl FnOnce() -> Result<Persona, String>,
+        prefer: Option<Runtime>,
+        room_image: Option<&str>,
+        report: impl FnMut(PullReport),
+    ) -> Result<Ready, String> {
+        let _turn = self.turn_of(persona_id).lock_owned().await;
+        let persona = record()?;
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return Err(format!("{}'s computer is turned off.", persona.name));
+        }
+        if let Some(refused) = crate::session::moved_workspace(&persona, &persona.cwd)
+            .or_else(|| crate::session::moved_folder(&persona))
+        {
+            return Err(refused);
+        }
+        let stale = self.lock().stale.get(persona_id).map(|(taken, _)| *taken);
+        if let Some(taken) = stale {
+            self.take_away_held(persona_id, prefer, taken)
+                .await
+                .map_err(|error| {
+                    format!(
+                        "{}'s computer still has what a change took away and would not stop, so it is not used: {error}",
+                        persona.name
+                    )
+                })?;
+        }
+        self.ensure_running_held(&persona, &persona.cwd, prefer, room_image, report)
             .await
     }
 
@@ -802,11 +878,133 @@ impl Computer {
         Ok(())
     }
 
+    /// Why a teammate's container a change took something from would not
+    /// stop or go, while it is still marked so (see [`Inner::stale`]).
+    pub fn not_stopped(&self, persona_id: &str) -> Option<String> {
+        self.lock()
+            .stale
+            .get(persona_id)
+            .map(|(_, error)| error.clone())
+    }
+
+    /// Stops a teammate's container because a change took something away
+    /// from it — the computer turned off, a folder or a secret taken away —
+    /// or, for [`Taken::Remove`], removes it. Called once the change is
+    /// durable, and before the change is answered.
+    ///
+    /// `placed` is answered once this caller holds the teammate's container
+    /// lock or has its place in the lock's queue, so a caller that waits for
+    /// it before placing a restart knows the restart's start comes after the
+    /// stop: the lock is fair, and its first poll is what queues it. Whoever
+    /// took the lock before is stopped here after it is done; whoever comes
+    /// after reads the record the change wrote ([`Self::ensure_current`]).
+    ///
+    /// Strict where the pane's Stop is not: a runtime that cannot say whether
+    /// the container is running is an error, never taken as stopped. A stop
+    /// or remove that fails marks the container stale, so the next use and
+    /// every sweep try again before anything runs in it.
+    pub async fn stop_for_change(
+        &self,
+        persona_id: &str,
+        prefer: Option<Runtime>,
+        taken: Taken,
+        placed: tokio::sync::oneshot::Sender<()>,
+    ) -> Result<(), String> {
+        let turn = self.turn_of(persona_id);
+        let mut queued = std::pin::pin!(turn.lock_owned());
+        // This must stay the first await of the task it runs on: tokio's
+        // acquire checks the task's cooperative budget before it queues, and
+        // with the budget spent it answers Pending with no place in line.
+        let at_once =
+            std::future::poll_fn(|cx| std::task::Poll::Ready(queued.as_mut().poll(cx))).await;
+        let _ = placed.send(());
+        let _turn = match at_once {
+            std::task::Poll::Ready(held) => held,
+            std::task::Poll::Pending => queued.await,
+        };
+        self.take_away_held(persona_id, prefer, taken).await
+    }
+
+    /// The stop or remove itself, under the teammate's container lock; a
+    /// failure leaves the container stale ([`Inner::stale`]), a success
+    /// clears it. A remove outranks a stop still owed.
+    async fn take_away_held(
+        &self,
+        persona_id: &str,
+        prefer: Option<Runtime>,
+        taken: Taken,
+    ) -> Result<(), String> {
+        let owed = self.lock().stale.get(persona_id).map(|(taken, _)| *taken);
+        let taken = if owed == Some(Taken::Remove) {
+            Taken::Remove
+        } else {
+            taken
+        };
+        let result = match taken {
+            Taken::Stop => self.stop_strictly_held(persona_id, prefer).await,
+            Taken::Remove => self.remove_held(persona_id, prefer).await,
+        };
+        let mut inner = self.lock();
+        match &result {
+            Ok(()) => {
+                inner.stale.remove(persona_id);
+            }
+            Err(error) => {
+                inner
+                    .stale
+                    .insert(persona_id.to_string(), (taken, error.clone()));
+            }
+        }
+        result
+    }
+
+    /// Stops the container if it is running, and says so only once the
+    /// runtime has. A container this desk does not know of is looked for
+    /// with the room's runtime; one the desk cannot reach any runtime for
+    /// runs nothing, unless a runtime is there and not answering.
+    async fn stop_strictly_held(
+        &self,
+        persona_id: &str,
+        prefer: Option<Runtime>,
+    ) -> Result<(), String> {
+        let name = container_name(persona_id);
+        let known = self
+            .lock()
+            .containers
+            .get(persona_id)
+            .map(|live| (live.runtime, live.cmd.clone()));
+        let (runtime, cmd) = match known {
+            Some(found) => found,
+            None => match pick_runtime(prefer, &self.bins).await {
+                Ok(found) => found,
+                Err(error) => {
+                    let unsure = runtime::detect_with(&self.bins).await.iter().any(|report| {
+                        matches!(
+                            report.state,
+                            crate::contract::RuntimeState::NotResponding
+                                | crate::contract::RuntimeState::Failed
+                        )
+                    });
+                    return if unsure { Err(error) } else { Ok(()) };
+                }
+            },
+        };
+        if inspect(&cmd, runtime, &name).await?.running {
+            run(&cmd, &["stop", &name], STOP_TIMEOUT).await?;
+        }
+        Ok(())
+    }
+
     /// Removes the teammate's computer and forgets its bearer. One the
     /// runtime will not remove is stopped if it can be, retired so that
     /// nothing adopts or starts it again with that bearer, and said.
     pub async fn remove(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
         let _turn = self.turn_of(persona_id).lock_owned().await;
+        self.remove_held(persona_id, prefer).await
+    }
+
+    /// [`Self::remove`] for a caller holding the teammate's container lock.
+    async fn remove_held(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
         let name = container_name(persona_id);
         let removed = self.lock().containers.remove(persona_id);
         match &removed {
@@ -1016,18 +1214,36 @@ impl Computer {
     /// teammates still using theirs — a session running, or any thread
     /// holding the gate's lease — and their idle clock starts over now: a
     /// teammate still working is not idle. One being brought up is skipped.
-    pub async fn sweep(&self, now_ms: i64, in_use: &HashSet<String>) {
-        let ids: Vec<(String, i64, PathBuf, Runtime)> = {
+    ///
+    /// `on` are the teammates whose computer is turned on. Any other's
+    /// container — its computer turned off, or the teammate gone — is
+    /// stopped at this sweep however recently it was used, and is never in
+    /// use: a change that turned it off stops it before it is answered
+    /// ([`Self::stop_for_change`]), and this is the backstop for a desk that
+    /// went down between the write and the stop, and for containers an
+    /// older build left running. A container a change could not stop is
+    /// tried again here, whoever it belongs to.
+    pub async fn sweep(
+        &self,
+        now_ms: i64,
+        in_use: &HashSet<String>,
+        on: &HashSet<String>,
+        prefer: Option<Runtime>,
+    ) {
+        let (ids, stale): (Vec<Swept>, Vec<(String, Taken)>) = {
             let mut inner = self.lock();
             for id in in_use {
-                if let Some(live) = inner.containers.get_mut(id) {
+                if on.contains(id)
+                    && let Some(live) = inner.containers.get_mut(id)
+                {
                     live.last_activity_ms = now_ms;
                 }
             }
-            inner
+            let ids = inner
                 .containers
                 .iter()
-                .filter(|(id, _)| !in_use.contains(id.as_str()))
+                .filter(|(id, _)| !(in_use.contains(id.as_str()) && on.contains(id.as_str())))
+                .filter(|(id, _)| !inner.stale.contains_key(id.as_str()))
                 .map(|(id, live)| {
                     (
                         id.clone(),
@@ -1036,8 +1252,22 @@ impl Computer {
                         live.runtime,
                     )
                 })
-                .collect()
+                .collect();
+            let stale = inner
+                .stale
+                .iter()
+                .map(|(id, (taken, _))| (id.clone(), *taken))
+                .collect();
+            (ids, stale)
         };
+        for (id, taken) in stale {
+            let Ok(_turn) = self.turn_of(&id).try_lock_owned() else {
+                continue;
+            };
+            if let Err(error) = self.take_away_held(&id, prefer, taken).await {
+                eprintln!("{id}'s computer still would not stop: {error}");
+            }
+        }
         for (id, last, cmd, runtime) in ids {
             let idle = now_ms.saturating_sub(last);
             let name = container_name(&id);
@@ -1056,15 +1286,20 @@ impl Computer {
                         live.attest.forget().await;
                     }
                 }
-            } else if idle >= COMPUTER_IDLE_STOP_MS
+            } else if (idle >= COMPUTER_IDLE_STOP_MS || !on.contains(&id))
                 && let Ok(seen) = inspect(&cmd, runtime, &name).await
                 && seen.running
+                && let Err(error) = run(&cmd, &["stop", &name], STOP_TIMEOUT).await
+                && !on.contains(&id)
             {
-                let _ = run(&cmd, &["stop", &name], STOP_TIMEOUT).await;
+                eprintln!("{id}'s computer is turned off but would not stop: {error}");
             }
         }
     }
 }
+
+/// A container the sweep looks at: whose, its last use, and its runtime.
+type Swept = (String, i64, PathBuf, Runtime);
 
 impl Default for Computer {
     fn default() -> Self {

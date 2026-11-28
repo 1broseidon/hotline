@@ -11,11 +11,28 @@ impl Room {
     /// release too old to take any, a machine that would not answer or
     /// prove itself. The values pass vault → this process → container and
     /// are written nowhere on the way.
+    ///
+    /// The set is the teammate's record as it is when the handing over
+    /// begins, under the use watch, not as the caller read it: a start that
+    /// read the teammate before a change took a grant away, and hands over
+    /// after the change's own handing over, would otherwise put the grant
+    /// back. A teammate gone or whose computer is off by then is handed
+    /// nothing; its container is being stopped.
     pub(super) async fn hand_secrets(&self, persona: &Persona, ready: &crate::computer::Ready) {
         let watch = self.use_watch(&persona.id);
         let watch = watch.lock().await;
+        let Ok(current) = self.persona(&persona.id) else {
+            return;
+        };
+        if !current
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return;
+        }
         let automatic = watch.old && watch.ready.as_ref() == Some(ready);
-        self.put_secrets(persona, ready, automatic).await;
+        self.put_secrets(&current, ready, automatic).await;
     }
 
     /// The handing over itself, under the caller's hold on the teammate's
@@ -247,18 +264,8 @@ impl Room {
             ));
         }
         self.computer_overlap(&persona)?;
-        let settings = room::settings(&self.log);
-        let prefer = crate::computer::preferred_runtime(&settings);
-        let room_image = crate::computer::preferred_image(&settings);
         let ready = self
-            .computers
-            .ensure_running(
-                &persona,
-                &persona.cwd,
-                prefer,
-                room_image.as_deref(),
-                self.pull_reporter(&persona.id),
-            )
+            .computer_up(&persona.id, self.pull_reporter(&persona.id))
             .await?;
         // The desk's own ten minutes, counted from before the computer is
         // asked: the end the computer answers is its own, kept to tell its

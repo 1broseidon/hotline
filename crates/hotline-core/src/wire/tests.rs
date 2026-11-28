@@ -305,6 +305,19 @@ impl RoomHandle for CoreHandle {
         self.room.reattach_all().await
     }
 
+    async fn computer_taken_away(&self, persona_id: &str, remake: bool) -> Result<(), String> {
+        let taken = if remake {
+            crate::computer::Taken::Remove
+        } else {
+            crate::computer::Taken::Stop
+        };
+        self.room.computer_taken_away(persona_id, taken).await
+    }
+
+    fn computer_still_up(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_still_up(persona_id)
+    }
+
     /// The room keeps no vault, so there is nothing to forget: the sign-out
     /// is the revocation and the reattach around it.
     async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {
@@ -1219,6 +1232,22 @@ async fn hello_threads2(socket: &mut Socket, id: i64) -> Value {
     answered(socket, id).await
 }
 
+/// The owner seat's answer to one command on a real room, through the same
+/// frame reader and seat gate as the sockets: for a session test driving a
+/// real computer that needs the wire's own change path.
+#[cfg(target_os = "macos")]
+pub(crate) async fn owner_answer(room: &Arc<Room>, cmd: &str, params: Value) -> Value {
+    let handle: Arc<dyn RoomHandle> = Arc::new(CoreHandle { room: room.clone() });
+    remote_control_answer(
+        Seat::Owner,
+        &handle,
+        room.log(),
+        &Parts::default(),
+        json!({ "id": 1, "cmd": cmd, "params": params }),
+    )
+    .await
+}
+
 /// Exercise the same frame reader and seat gate as both socket transports.
 async fn remote_control_answer(
     seat: Seat,
@@ -1302,6 +1331,8 @@ mod asks;
 mod browser_drive;
 mod capabilities;
 mod capture;
+#[cfg(unix)]
+mod computer_off;
 mod consent;
 #[cfg(unix)]
 mod cookie_asks;

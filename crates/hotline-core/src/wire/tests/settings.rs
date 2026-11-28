@@ -2,8 +2,10 @@ use super::*;
 
 /// Turning the computer on or off restarts the teammate, because it gains
 /// or loses the tools. Its limits and mounts do not: they wait for the
-/// container to be made again. Nor do the teammate's secrets, which are
-/// handed to the computer where it runs. A turn in flight is not cut short.
+/// container to be made again. Nor does a secret granted, which is handed to
+/// the computer where it runs, and a turn in flight is not cut short for it.
+/// A secret taken from the computer does restart it: its container is
+/// stopped, and the teammate comes back on one handed the set it has now.
 #[tokio::test]
 async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     let quiet = Arc::new(Quiet::new());
@@ -50,12 +52,15 @@ async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     ask(
         &mut socket,
         json!({ "id": 6, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
-            "computer": { "enabled": true, "memory": "8g", "secrets": ["NPM_TOKEN"] },
+            "computer": { "enabled": true, "memory": "8g", "secrets": ["GITHUB_TOKEN", "NPM_TOKEN"] },
         } } }),
     )
     .await;
     let answer = answered(&mut socket, 6).await;
-    assert_eq!(answer["result"]["secrets"], json!(["NPM_TOKEN"]));
+    assert_eq!(
+        answer["result"]["secrets"],
+        json!(["GITHUB_TOKEN", "NPM_TOKEN"])
+    );
     assert!(answer["result"]["computer"].get("secrets").is_none());
     assert_eq!(
         quiet.reattached(),
@@ -63,6 +68,23 @@ async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
         "no second restart"
     );
     assert_eq!(*quiet.invalidations.lock().unwrap(), vec![ada_id.clone()]);
+
+    // One of them taken from the computer: that restarts it.
+    ask(
+        &mut socket,
+        json!({ "id": 7, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "secrets": ["NPM_TOKEN"],
+        } } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 7).await;
+    assert_eq!(answer["result"]["secrets"], json!(["NPM_TOKEN"]));
+    assert_eq!(quiet.reattached(), vec![ada_id.clone(), ada_id.clone()]);
+    assert_eq!(
+        *quiet.invalidations.lock().unwrap(),
+        vec![ada_id.clone(), ada_id.clone()],
+        "its handles end before the write"
+    );
 
     ask(
         &mut socket,
@@ -72,7 +94,10 @@ async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     )
     .await;
     assert_eq!(answered(&mut socket, 4).await["ok"], true);
-    assert_eq!(quiet.reattached(), vec![ada_id.clone(), ada_id]);
+    assert_eq!(
+        quiet.reattached(),
+        vec![ada_id.clone(), ada_id.clone(), ada_id]
+    );
 }
 
 /// Removing a tool source is the decision, so it leaves every teammate's

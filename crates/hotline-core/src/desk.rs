@@ -1423,6 +1423,19 @@ impl RoomHandle for Desk {
         self.room.secrets_changed().await;
     }
 
+    async fn computer_taken_away(&self, persona_id: &str, remake: bool) -> Result<(), String> {
+        let taken = if remake {
+            crate::computer::Taken::Remove
+        } else {
+            crate::computer::Taken::Stop
+        };
+        self.room.computer_taken_away(persona_id, taken).await
+    }
+
+    fn computer_still_up(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_still_up(persona_id)
+    }
+
     async fn cookie_lends(
         &self,
         persona_id: &str,

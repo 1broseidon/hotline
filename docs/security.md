@@ -115,10 +115,44 @@ decision for George, not a bug fix.
   every tool and the desk's own writers open it again by its path:
   - **Recorded identity.** When the person sets `cwd` or grants a folder,
     the desk records which directory it is (`cwdIdentity`, and `identity`
-    on each grant: Unix `dev:ino` from fstat; Windows the volume serial
-    number and file index from `GetFileInformationByHandle` on the open
-    handle). A client never sets either. Choosing the same folder again
-    reads it anew.
+    on each grant), read from the open handle as `<volume>:<inode>`
+    (`hotline-tools/src/identity.rs`). The volume part outlives a restart
+    where the system keeps a name for the volume: macOS `uuid:` and the
+    volume UUID from `fgetattrlist` (`snapshot:` for a volume mounted from
+    a snapshot, which answers its source's UUID), or for a volume with
+    none (devfs, a FAT disk whose serial is 0, some network shares)
+    `mount:` and the file system and what it was mounted from (`fstatfs`);
+    Linux `fsid:` and `f_fsid` on ext4, which folds its UUID into it,
+    otherwise `dev:` and `st_dev` (btrfs mixes the device number into its
+    `f_fsid`, and xfs derives it from that); Windows the volume serial
+    number and file index from `GetFileInformationByHandle`. A client
+    never sets either. Choosing the same folder again reads it anew.
+  - **Across a restart.** `st_dev` is not kept across one: macOS numbers
+    volumes as it mounts them, and Linux does for loop and device-mapper
+    minors and every btrfs subvolume's anonymous device. The 0.50 betas
+    recorded `dev:ino`, so a restart made every holder refuse the
+    person's folder.
+    A record in a form that does not outlive a restart (`dev:ino`, `dev:`,
+    `mount:`) is rebound by a session start, and written as a new choice
+    is, only when the directory there has the recorded inode and a
+    confined teammate cannot have put it there: no confined teammate could
+    replace it or a folder leading to it (the rule an unbound record is
+    first bound by), or else it is on the volume of the nearest folder
+    above it none could replace, so no link a teammate made led to another
+    volume, and that volume never reuses an inode number (APFS) or the
+    record's device still matches. Until then every other holder compares
+    such a record as before, by the handle's device and inode, and a
+    computer start on one whose inode still matches says to start the
+    teammate first rather than to choose the folder again. A record
+    that outlives a restart is never rebound. The confined shell's own
+    check compares `dev:ino` from `stat` with the handle opened in the
+    same boot, not the record. What this does not tell apart: two
+    volumes with the same UUID or `f_fsid` mounted at once (a cloned
+    disk), and two volumes without a UUID mounted from the same device
+    node at different times; neither can be set up by a confined teammate,
+    which can mount nothing. A volume that gives a removed directory's
+    inode number to a new one (ext4, FAT; never APFS) leaves the weakness
+    `dev:ino` always had there, and a rebind on one adds nothing to it.
   - **Checked on the handle.** Under workspace reach each holder compares
     the directory it actually opened, read from its own handle, with the
     record, and refuses another before it acts: the file tools
@@ -1972,6 +2006,7 @@ extend; when a change adds a boundary, it adds a row.
 | Linux: the host's abstract Unix sockets are refused from Linux 6.12 and reported reachable before it; a path socket outside the workspace, `/run`, the host's `/tmp` and the desktop session's variables are not in the shell; TCP and the sockets a command binds itself still work | `hotline-tools/src/shell/linux.rs` `host_unix_sockets_and_the_desktop_session_are_out_of_reach`, `the_shell_keeps_tcp_and_the_sockets_it_makes_itself` | Linux with bubblewrap; the abstract check needs 6.12 and says so when skipped |
 | Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `hotline-tools/src/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
 | macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `hotline-tools/src/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
+| A recorded workspace or granted folder survives a restart that renumbers volumes and still names only its directory: the identity of one directory is the same on every open, names a macOS volume by its UUID, and a volume without one by what it was mounted from, never the bare device number; a 0.50 beta's `dev:ino` record still opens what it opened and, with its device changed but its inode the same, is rebound by a start and rewritten for the record and the session, workspace and grant alike, and until then a computer start asks for that start; another directory at the recorded path is refused in either form and the record left as it was; where a teammate may write a folder above it, a link to another volume holding the recorded inode is refused | `hotline-tools/src/identity.rs` `one_directory_has_the_same_identity_on_every_open`, `a_record_in_the_older_form_is_compared_as_before`, `a_volume_without_a_uuid_is_named_by_what_it_was_mounted_from`; `hotline-support/src/file_identity_macos.rs` `a_directory_answers_its_volumes_uuid_and_devfs_none`; `hotline-support/src/file_identity_linux.rs` `the_same_directory_answers_the_same_id_and_procfs_none`; `hotline-tools/src/workspace/tests.rs` `a_record_in_the_older_form_opens_what_it_always_opened`; `session/agent.rs` `a_record_from_before_a_restart_opens_and_is_rewritten`, `another_directory_at_a_recorded_path_is_refused_in_either_form`, `a_record_inside_a_teammates_folder_is_rebound_only_on_its_own_volume`; `session/workspace_root.rs` `a_computer_waits_for_a_start_to_rebind_a_record_from_before_a_restart` | no test restarts a machine: the restart is planted as a device number one off; a FAT disk with serial 0 was checked by hand with `hdiutil` |
 | A workspace stays the directory the person chose: on macOS the confined shell cannot remove, rename or replace its workspace, a writable folder or a folder above one, while everything inside stays changeable; under workspace reach a working directory that has become a link, or another directory than the recorded one (renamed away and remade, or reached through a folder above it renamed and replaced), is refused by the file tools, the shell, the skills writer and readers, ACP callbacks and `AGENTS.md`, a session start and a computer start before any of them acts, and a granted folder remade at its path is left out; a folder above it that is a link is followed; the person's choice records which directory it is and a client cannot set that; a workspace or grant not bound yet is bound and recorded at its first start, under the policy lock and before the session goes on, only when no confined teammate could replace it or a folder leading to it, and a newer choice made meanwhile wins; a bound workspace that is gone is not made again; an older grant that is now a link refuses the start; a computer is not made while its workspace or a folder sits inside a folder a confined teammate may change | `hotline-tools/src/shell/macos.rs` `writable_roots_cannot_be_removed_renamed_or_replaced`, `granted_folders_are_in_the_profile_with_their_modes`; `hotline-tools/src/shell/tests.rs` `the_shell_runs_nothing_in_a_root_changed_after_it_was_opened`, `a_directory_the_shell_cannot_check_refuses_the_launch`; `hotline-tools/src/workspace/tests.rs` `a_working_directory_replaced_by_a_link_is_not_opened_as_the_wall`, `a_changed_root_or_folder_is_refused_before_any_tool_acts`; `session/agent.rs` `a_teammate_whose_workspace_became_a_link_does_not_start_through_it`, `a_teammate_starts_only_in_the_directory_its_record_names`, `a_start_waits_for_a_grant_change_and_the_newer_choice_wins`, `a_start_does_not_go_on_with_access_taken_away_while_it_waited`, `a_threads_own_narrower_access_survives_the_binding`; `skills.rs` `skills_are_written_only_into_the_recorded_workspace`, `skills_are_read_only_from_the_recorded_workspace`; `driver/acp/tests/session_new.rs` `callbacks_and_agents_md_act_only_in_the_recorded_workspace`, `callbacks_and_agents_md_refuse_a_linked_root_unless_the_whole_machine_is_granted`; `computer/tests.rs` `a_computer_is_not_made_on_a_changed_workspace_or_folder`; `session/workspace_root.rs` `a_computer_is_not_started_on_a_changed_workspace`, `a_computer_is_not_made_inside_a_folder_a_teammate_can_change`, `unknown_ancestry_is_never_read_as_safe`; `wire/tests/personas.rs` `a_chosen_working_directory_that_is_a_link_is_kept_as_its_folder` | the Seatbelt test: a real Mac; the shell test: a Mac, or Linux with bubblewrap |
 | macOS network stays available and package downloads land in private caches | `hotline-tools/src/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
 | Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree; cancelling during sleep cannot run the next statement (50 repetitions) | `hotline-tools/src/shell/tests.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started`, `cancellation_during_sleep_never_runs_the_next_statement`; `tests/steering.rs` `an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finishes` | macOS and Linux; sandbox test on Linux needs bubblewrap |

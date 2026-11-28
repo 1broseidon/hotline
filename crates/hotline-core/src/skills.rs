@@ -246,7 +246,7 @@ pub fn read_folder(folder: &Path, source: SkillSource, own_only: bool) -> Vec<Sk
 fn workspace_skills(cwd: &Path, identity: Option<&str>) -> Option<Dir> {
     let root = Dir::open_ambient_dir(cwd, ambient_authority()).ok()?;
     if let Some(expected) = identity
-        && crate::tools::dir_identity(&root).as_deref() != Some(expected)
+        && !crate::tools::is_recorded(&root, expected)
     {
         return None;
     }
@@ -668,7 +668,7 @@ fn open_skills(cwd: &Path, identity: Option<&str>) -> Result<Dir, String> {
     std::fs::create_dir_all(cwd).map_err(|error| made(cwd, error))?;
     let root = Dir::open_ambient_dir(cwd, ambient_authority()).map_err(|error| made(cwd, error))?;
     if let Some(expected) = identity
-        && crate::tools::dir_identity(&root).as_deref() != Some(expected)
+        && !crate::tools::is_recorded(&root, expected)
     {
         return Err(crate::tools::not_the_chosen_folder(cwd));
     }

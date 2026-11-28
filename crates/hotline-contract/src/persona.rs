@@ -136,14 +136,20 @@ pub struct Persona {
     pub bubble: Option<String>,
     pub backend_id: String,
     pub cwd: String,
-    /// Which directory `cwd` was when the person chose it (Unix: its device
-    /// and inode, `dev:ino`; Windows: volume serial and file index), set by
-    /// the desk when `cwd` is set, or at a teammate's first start under
-    /// workspace reach when the record has none and no confined teammate
-    /// could have replaced the folder or one above it. Under workspace reach
-    /// every holder of the workspace compares the directory it actually
-    /// opened with this and refuses another. Never taken from a client.
-    /// Absent on a record whose folder is not made yet, or not bound yet.
+    /// Which directory `cwd` was when the person chose it: `<volume>:<inode>`,
+    /// the volume named so it outlives a restart where the system keeps a
+    /// name for it (macOS `uuid:<volume UUID>`; Linux `fsid:` on ext4,
+    /// otherwise `dev:<st_dev>`; Windows the volume serial and file
+    /// index; `crates/hotline-tools/src/identity.rs`). Set by the desk when `cwd` is
+    /// set, or at a teammate's first start under workspace reach when the
+    /// record has none and no confined teammate could have replaced the
+    /// folder or one above it. A record in a form that does not outlive a
+    /// restart (a 0.50 beta's `dev:ino`) is rewritten at a start that finds
+    /// the same inode where no teammate could have put another directory.
+    /// Under workspace reach every holder of the workspace compares the
+    /// directory it actually opened with this and refuses another. Never
+    /// taken from a client. Absent on a record whose folder is not made yet,
+    /// or not bound yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd_identity: Option<String>,
     /// How far Hotline Agent's tools reach. Absent means the working directory.
@@ -340,11 +346,12 @@ pub struct FolderGrant {
     /// Absent is false: a grant is read-only unless the person said more.
     #[serde(default)]
     pub writable: bool,
-    /// Which directory it was when granted (Unix: `dev:ino`; Windows: volume
-    /// serial and file index), set by the desk with the grant, or at the
+    /// Which directory it was when granted, in the form of
+    /// [`Persona::cwd_identity`], set by the desk with the grant, or at the
     /// teammate's next start for an older grant no confined teammate could
-    /// have replaced. A folder that opens as another directory is left out.
-    /// Never taken from a client.
+    /// have replaced, and rewritten there as `cwd_identity` is. A folder
+    /// that opens as another directory is left out. Never taken from a
+    /// client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub identity: Option<String>,

@@ -5,6 +5,7 @@
 //! hotline-contract and hotline-support and no other Hotline crate by design.
 
 pub mod capability;
+mod identity;
 mod shell;
 mod workspace;
 
@@ -14,11 +15,14 @@ use std::{
     fmt::{self, Display},
 };
 
+pub use identity::{
+    DirectoryId, dir_identity, is_recorded, path_identity, path_is_recorded, rebindable_inode,
+};
 pub use shell::{CommandOutcome, CommandState, OutputTail, RunCommandArgs, STDERR_LINE};
 pub use shell::{RunCommand, RunEnv, ShellSecrets, shell_available};
 pub use workspace::{
-    EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile, dir_identity,
-    linked_root, not_the_chosen_folder, path_identity,
+    EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile, linked_root,
+    not_the_chosen_folder,
 };
 
 /// Names of the workspace tools Hotline Agent offers, in the order they are

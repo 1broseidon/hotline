@@ -13,6 +13,10 @@
 
 pub mod credentials;
 pub mod fence;
+#[cfg(target_os = "linux")]
+pub mod file_identity_linux;
+#[cfg(target_os = "macos")]
+pub mod file_identity_macos;
 #[cfg(windows)]
 pub mod file_identity_windows;
 pub mod images;

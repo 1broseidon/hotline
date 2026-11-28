@@ -1079,6 +1079,181 @@ mod tests {
         );
     }
 
+    /// A 0.50 beta recorded a directory as `dev:ino`, and macOS numbers
+    /// volumes as it mounts them, so after a restart the workspace
+    /// and a granted folder kept their inodes but not their device (planted
+    /// here as a device number one off). The start opens both, rewrites
+    /// each record in the form that outlives a restart, and the session
+    /// runs with the rewritten ones, so the person never chooses them again.
+    /// One still on the same device is rewritten too.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_record_from_before_a_restart_opens_and_is_rewritten() {
+        for device in ["moved", "same"] {
+            let log = scratch(&format!("agent-rebind-{device}"));
+            let base = log.root().canonicalize().unwrap();
+            let work = base.join("work");
+            let shared = base.join("shared");
+            std::fs::create_dir_all(&work).unwrap();
+            std::fs::create_dir_all(&shared).unwrap();
+            let legacy = |path: &std::path::Path| {
+                use std::os::unix::fs::MetadataExt;
+                let found = std::fs::metadata(path).unwrap();
+                let dev = if device == "moved" {
+                    found.dev().wrapping_add(1)
+                } else {
+                    found.dev()
+                };
+                format!("{dev}:{}", found.ino())
+            };
+            let mut ada = persona("ada");
+            ada.reach = None;
+            ada.cwd = work.to_string_lossy().into_owned();
+            ada.cwd_identity = Some(legacy(&work));
+            ada.folders = Some(vec![crate::contract::FolderGrant {
+                path: shared.to_string_lossy().into_owned(),
+                writable: true,
+                identity: Some(legacy(&shared)),
+            }]);
+            let agents = Fake::new(Scripted::new(reply("Hello.")));
+            let room = room_with(&ada, log, agents.clone());
+
+            room.start("ada").await.unwrap();
+            let rewritten = |path| crate::tools::path_identity(path);
+            let record = room.persona("ada").unwrap();
+            assert_eq!(record.cwd_identity, rewritten(&work), "{device}");
+            assert_eq!(record.folders.unwrap()[0].identity, rewritten(&shared));
+            if cfg!(target_os = "macos") {
+                let now = record.cwd_identity.as_deref().unwrap();
+                assert_eq!(crate::tools::rebindable_inode(now), None, "{now}");
+            }
+            let view = agents.views().pop().unwrap();
+            assert_eq!(view.cwd_identity, rewritten(&work));
+            assert_eq!(view.folders.unwrap()[0].identity, rewritten(&shared));
+            assert!(work.join(".agents/skills").is_dir());
+        }
+    }
+
+    /// Rebinding a record from before a restart is never a way to another
+    /// directory: one remade at the workspace's or a granted folder's path
+    /// has another inode and is refused, whether the record is in the older
+    /// form or the new one, and the record is left as it was.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn another_directory_at_a_recorded_path_is_refused_in_either_form() {
+        use std::os::unix::fs::MetadataExt;
+        let legacy = |path: &std::path::Path| {
+            let found = std::fs::metadata(path).unwrap();
+            format!("{}:{}", found.dev().wrapping_add(1), found.ino())
+        };
+        for (form, remade) in [
+            ("legacy", "work"),
+            ("legacy", "shared"),
+            ("new", "work"),
+            ("new", "shared"),
+        ] {
+            let log = scratch(&format!("agent-rebind-other-{form}-{remade}"));
+            let base = log.root().canonicalize().unwrap();
+            let work = base.join("work");
+            let shared = base.join("shared");
+            std::fs::create_dir_all(&work).unwrap();
+            std::fs::create_dir_all(&shared).unwrap();
+            let recorded = |path: &std::path::Path| match form {
+                "legacy" => legacy(path),
+                _ => crate::tools::path_identity(path).unwrap(),
+            };
+            let mut ada = persona("ada");
+            ada.reach = None;
+            ada.cwd = work.to_string_lossy().into_owned();
+            ada.cwd_identity = Some(recorded(&work));
+            ada.folders = Some(vec![crate::contract::FolderGrant {
+                path: shared.to_string_lossy().into_owned(),
+                writable: true,
+                identity: Some(recorded(&shared)),
+            }]);
+            let agents = Fake::new(Scripted::new(reply("Hello.")));
+            let room = room_with(&ada, log, agents.clone());
+            let path = base.join(remade);
+            std::fs::rename(&path, base.join(format!("{remade}-was"))).unwrap();
+            std::fs::create_dir(&path).unwrap();
+
+            let refused = room.start("ada").await.unwrap_err();
+            let said = if remade == "work" {
+                "no longer the folder chosen"
+            } else {
+                "Grant the folder again"
+            };
+            assert!(refused.contains(said), "{form} {remade}: {refused}");
+            assert!(agents.views().is_empty(), "{form} {remade}: nothing ran");
+            assert!(!work.join(".agents").exists(), "{form} {remade}");
+            let record = room.persona("ada").unwrap();
+            assert_eq!(record.cwd_identity, ada.cwd_identity, "{form} {remade}");
+            assert_eq!(record.folders, ada.folders, "{form} {remade}");
+        }
+    }
+
+    /// Where a confined teammate may write a folder above the workspace
+    /// (Bob's writable grant holds it), a record from before a restart is
+    /// rebound only on the volume of the nearest folder above it that no
+    /// teammate can change: Bob replacing a folder in his with a link to
+    /// another volume, where a directory with the recorded inode is found,
+    /// is refused. With no link, the same directory is rebound on APFS,
+    /// which never reuses an inode number; elsewhere, where a removed
+    /// directory's number can come back, only while the device still
+    /// matches.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_record_inside_a_teammates_folder_is_rebound_only_on_its_own_volume() {
+        use std::os::unix::fs::MetadataExt;
+        for planted in [true, false] {
+            let log = scratch(&format!("agent-rebind-held-{planted}"));
+            let base = log.root().canonicalize().unwrap();
+            let holder = base.join("holder");
+            std::fs::create_dir_all(holder.join("mid/dev")).unwrap();
+            let mut bob = persona("bob");
+            bob.reach = None;
+            bob.cwd = base.join("bob").to_string_lossy().into_owned();
+            bob.folders = Some(vec![crate::contract::FolderGrant {
+                path: holder.to_string_lossy().into_owned(),
+                writable: true,
+                identity: crate::tools::path_identity(&holder),
+            }]);
+            std::fs::create_dir_all(&bob.cwd).unwrap();
+            enrol(&log, &bob);
+            // Ada's workspace is `holder/mid/dev`; Bob may replace `mid`.
+            let work = holder.join("mid/dev");
+            let target = if planted {
+                std::fs::rename(holder.join("mid"), holder.join("mid-was")).unwrap();
+                std::os::unix::fs::symlink("/", holder.join("mid")).unwrap();
+                std::path::PathBuf::from("/dev")
+            } else {
+                work.clone()
+            };
+            let found = std::fs::metadata(&target).unwrap();
+            let mut ada = persona("ada");
+            ada.reach = None;
+            ada.cwd = work.to_string_lossy().into_owned();
+            ada.cwd_identity = Some(format!("{}:{}", found.dev().wrapping_add(1), found.ino()));
+            let agents = Fake::new(Scripted::new(reply("Hello.")));
+            let room = room_with(&ada, log, agents.clone());
+
+            let started = room.start("ada").await;
+            let apfs = crate::tools::DirectoryId::at(&base).is_some_and(|at| at.keeps_inodes());
+            if planted || !apfs {
+                let refused = started.unwrap_err();
+                assert!(refused.contains("no longer the folder chosen"), "{refused}");
+                assert!(agents.views().is_empty(), "nothing ran");
+                assert_eq!(room.persona("ada").unwrap().cwd_identity, ada.cwd_identity);
+            } else {
+                started.unwrap();
+                assert_eq!(
+                    room.persona("ada").unwrap().cwd_identity,
+                    crate::tools::path_identity(&work)
+                );
+            }
+        }
+    }
+
     /// Binding a workspace waits on the policy lock a grant change holds, and
     /// reads the record only then: a start that began while the person was
     /// choosing the folder again at the same path cannot finish until that

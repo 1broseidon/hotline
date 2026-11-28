@@ -689,10 +689,13 @@ impl Room {
     /// [`TAKEN_AWAY_WAIT`] at most, far under the twenty seconds a phone
     /// waits: a stop is a few seconds (Docker and Podman give the container
     /// ten to end, Apple `container` five). One not done by then is not
-    /// abandoned: the task goes on, an error says it is still stopping, and
-    /// a stop that fails, now or later, is said on the teammate's
-    /// conversation as well as in the answer, and is tried again before the
-    /// container is next used and at every sweep.
+    /// abandoned: it keeps its place in the queue and goes on, and the change
+    /// is answered as saved. A stop that fails within the wait is the
+    /// answer's error; one that fails, now or later, is said on the
+    /// teammate's conversation and tried again before the container is next
+    /// used and at every sweep, and until one succeeds a change to the
+    /// teammate's computer answers the same error
+    /// ([`Self::computer_still_up`]).
     ///
     /// [`Taken::Remove`]: crate::computer::Taken::Remove
     pub async fn computer_taken_away(
@@ -728,22 +731,40 @@ impl Room {
         });
         // The task's end before it queued is the runtime shutting down.
         let _ = queued.await;
-        // A teammate removed has no name left to say, nor a conversation.
-        let name = self.persona(persona_id).ok().map(|persona| persona.name);
         match tokio::time::timeout(wait, stopped).await {
-            Ok(Ok(Ok(())) | Err(_)) => Ok(()),
-            Ok(Ok(Err(error))) => Err(format!(
-                "Saved, but {} computer did not stop, so it may still have what was taken away: {}.",
-                name.map_or_else(|| "its".to_string(), |name| format!("{name}'s")),
-                error.trim().trim_end_matches('.')
-            )),
-            Err(_) => Err(match name {
-                Some(name) => format!(
-                    "Saved. {name}'s computer is still stopping; if it cannot stop, its conversation will say so."
-                ),
-                None => "Saved. Its computer is still stopping.".to_string(),
-            }),
+            // Still going after the wait, the stop keeps its place in the
+            // container's queue ahead of everything after it, and is not let
+            // go: the change is saved and answered so, and a failure later is
+            // said on the conversation. An error here would have a phone say
+            // a saved change was not done, and a retried delete that the
+            // teammate does not exist.
+            Ok(Ok(Ok(())) | Err(_)) | Err(_) => Ok(()),
+            Ok(Ok(Err(error))) => Err(self.not_stopped_words(persona_id, &error)),
         }
+    }
+
+    /// While a change's stop of this teammate's container has failed and no
+    /// later try has done it, the error a change to its computer, folders or
+    /// secrets answers, so a second change that finds nothing new to take is
+    /// not answered as though the container were stopped.
+    pub fn computer_still_up(&self, persona_id: &str) -> Result<(), String> {
+        match self.computers.not_stopped(persona_id) {
+            Some(error) => Err(self.not_stopped_words(persona_id, &error)),
+            None => Ok(()),
+        }
+    }
+
+    /// The answer for a stop that failed, in the person's words.
+    fn not_stopped_words(&self, persona_id: &str, error: &str) -> String {
+        // A teammate removed has no name left to say.
+        let whose = self.persona(persona_id).map_or_else(
+            |_| "its".to_string(),
+            |persona| format!("{}'s", persona.name),
+        );
+        format!(
+            "Saved, but {whose} computer did not stop, so it may still have what was taken away: {}.",
+            error.trim().trim_end_matches('.')
+        )
     }
 
     /// A stop a change asked for failed: said once on the teammate's

@@ -1432,6 +1432,10 @@ impl RoomHandle for Desk {
         self.room.computer_taken_away(persona_id, taken).await
     }
 
+    fn computer_still_up(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_still_up(persona_id)
+    }
+
     async fn cookie_lends(
         &self,
         persona_id: &str,

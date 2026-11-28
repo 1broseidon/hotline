@@ -466,12 +466,13 @@ mount or a secret from it, makes one read-only or protected, moves the
 workspace, or has the teammate run as the person — also stops its
 container before the answer (removes it, for a moved workspace or mount),
 and restarts a live session. The answer waits for that stop twelve seconds
-at most: past that it is an error, `Saved. <name>'s computer is still
-stopping; …`, and the stop goes on; a stop that fails is an error,
-`Saved, but <name>'s computer did not stop, …`, and is said on the
-teammate's conversation as well. Either error comes after the change is
-saved. `persona.delete` answers once the deleted teammate's container is
-removed, with the same errors. The restart is the desk's own
+at most; a stop still going then goes on, and the change is answered as
+saved. A stop that fails is an error, `Saved, but <name>'s computer did not
+stop, …`, which comes after the change is saved, and is said on the
+teammate's conversation too, as a failure after the answer is. Until a later
+try stops it, any change that touches that teammate's `computer`, `folders`,
+`secrets` or `secretGrants` answers the same error. `persona.delete` answers
+once the deleted teammate's container is removed, with the same error. The restart is the desk's own
 work after the answer: a computer turned on is made, started and checked in
 it, and a harness answers its handshake in it, which can take far longer
 than a phone waits for an answer (twenty seconds). The restart is told on the

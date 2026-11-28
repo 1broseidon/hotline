@@ -2693,8 +2693,8 @@ The wire answers the change before the restart is done
 person is told about, and a computer turned on is made inside the restart,
 which can outlast a phone's patience. A change that took something from the
 computer stops its container before the answer
-(`Room::computer_taken_away`, at most twelve seconds, then said as still
-stopping): the stop is queued on the container's lock before the restart is
+(`Room::computer_taken_away`, at most twelve seconds; one still going then
+goes on and the change is answered as saved): the stop is queued on the container's lock before the restart is
 placed, and every start of a computer reads the record under that lock
 (`Computer::ensure_current`), so neither the restart nor anything that read
 the teammate before the change starts the old one again. The restart runs on a task of its own

@@ -314,6 +314,10 @@ impl RoomHandle for CoreHandle {
         self.room.computer_taken_away(persona_id, taken).await
     }
 
+    fn computer_still_up(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_still_up(persona_id)
+    }
+
     /// The room keeps no vault, so there is nothing to forget: the sign-out
     /// is the revocation and the reattach around it.
     async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {

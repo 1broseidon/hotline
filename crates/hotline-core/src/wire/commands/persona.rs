@@ -458,9 +458,11 @@ pub(super) async fn apply_persona_update(
 ///   computer's gate refuses its lease, and nothing on the gate starts a
 ///   container.
 ///
-/// The stop waits a short while at most (`Room::computer_taken_away`), and
-/// is said to the person, here and on the conversation, when it failed or is
-/// still going. Bringing the teammate back up — a computer turned on is made
+/// The stop waits a short while at most (`Room::computer_taken_away`); one
+/// still going then keeps its place and goes on, and the change is answered
+/// as saved. One that failed is the answer's error and is said on the
+/// conversation, and so is any later failure; while it stays failed, a
+/// change to the teammate's computer, folders or secrets answers that error. Bringing the teammate back up — a computer turned on is made
 /// and started in it, a harness answers its handshake — is the room's own
 /// work after the answer ([`RoomHandle::reattach_soon`]), told on the
 /// teammate's session as any start is, a failure included. A phone gives up
@@ -479,10 +481,23 @@ async fn apply_persona_update_locked(
         taken,
     } = update_persona(log, room, id, patch)?;
     drop(held);
+    let touches_computer = ["computer", "folders", "secrets", "secretGrants"]
+        .iter()
+        .any(|key| patch.get(key).is_some());
     let stopped = match taken {
         Some(taken) => room.computer_taken_away(id, taken == Taken::Remove).await,
         None => Ok(()),
-    };
+    }
+    // A stop an earlier change asked for that failed, and that nothing has
+    // done since, is still this change's to say: a second "off" that finds
+    // nothing new to take must not answer as though the container were down.
+    .and_then(|()| {
+        if touches_computer {
+            room.computer_still_up(id)
+        } else {
+            Ok(())
+        }
+    });
     if reattaches {
         room.reattach_soon(id).await?;
     } else if patch.get("computer").is_some()

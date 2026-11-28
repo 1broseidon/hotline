@@ -87,9 +87,9 @@ async fn provision(
     }))?;
     let computers = computer::Computer::new();
     let ready = computers
-        .ensure_running(
-            &persona,
-            workspace.to_str().ok_or("workspace is not UTF-8")?,
+        .ensure_current(
+            &persona.id,
+            || Ok(persona.clone()),
             Some(computer::runtime::Runtime::Docker),
             None,
             |report| {
@@ -114,9 +114,9 @@ async fn provision(
         .stop(&persona.id, Some(computer::runtime::Runtime::Docker))
         .await?;
     let resumed = computers
-        .ensure_running(
-            &persona,
-            workspace.to_str().ok_or("workspace is not UTF-8")?,
+        .ensure_current(
+            &persona.id,
+            || Ok(persona.clone()),
             Some(computer::runtime::Runtime::Docker),
             None,
             |report| {

@@ -448,7 +448,8 @@ async fn a_stop_that_fails_is_told_and_tried_again_before_use_and_at_the_sweep()
 }
 
 /// A stop that is still going when the answer's wait runs out is not let
-/// go: the answer says so, the stop goes on, and a failure after the answer
+/// go: the change is answered as saved (a phone must not be told a saved
+/// change was not done), the stop goes on, and a failure after the answer
 /// is said on the conversation.
 #[tokio::test]
 async fn a_stop_past_the_answers_wait_goes_on_and_a_late_failure_is_told() {
@@ -459,15 +460,10 @@ async fn a_stop_past_the_answers_wait_goes_on_and_a_late_failure_is_told() {
     enrol(desk.room().log(), &ada);
 
     desk.hold("stopgate");
-    let slow = desk
-        .room()
+    desk.room()
         .computer_taken_away_within("ada", Taken::Stop, Duration::from_millis(50))
         .await
-        .unwrap_err();
-    assert_eq!(
-        slow,
-        "Saved. Ada's computer is still stopping; if it cannot stop, its conversation will say so."
-    );
+        .expect("a stop still going is answered as saved");
     assert_eq!(desk.container(), "running", "the stop is still held");
     desk.release("stopgate");
     until("the stop went on after the answer", || {
@@ -479,11 +475,10 @@ async fn a_stop_past_the_answers_wait_goes_on_and_a_late_failure_is_told() {
     std::fs::write(desk.fixture.root.join("state"), "running").unwrap();
     desk.hold("stopgate");
     desk.hold("stopfail");
-    let slow = desk
-        .room()
+    desk.room()
         .computer_taken_away_within("ada", Taken::Stop, Duration::from_millis(50))
-        .await;
-    assert!(slow.is_err());
+        .await
+        .expect("answered as saved");
     desk.release("stopgate");
     until("the late failure is said on the conversation", || {
         desk.notices()
@@ -491,6 +486,57 @@ async fn a_stop_past_the_answers_wait_goes_on_and_a_late_failure_is_told() {
             .any(|text| text.starts_with("Ada's computer did not stop"))
     })
     .await;
+    // And from then on a change to her computer says it, until it stops.
+    let again = desk.turn_computer(false).await;
+    assert_eq!(again["ok"], false, "{again}");
+}
+
+/// While a change's stop has failed and nothing has done it since, a second
+/// change to the computer that finds nothing new to take (a second "off")
+/// answers the same error rather than a clean "saved"; a change to
+/// anything else does not; once a later try stops it, the next is clean.
+#[tokio::test]
+async fn a_second_change_while_a_stop_has_failed_answers_the_same_error() {
+    let desk = desk("off-still-up").await;
+    desk.running().await;
+    desk.hold("stopfail");
+    let off = desk.turn_computer(false).await;
+    assert_eq!(off["ok"], false, "{off}");
+    let first = off["error"].as_str().unwrap().to_string();
+    assert!(
+        first.starts_with("Saved, but Ada's computer did not stop"),
+        "{first}"
+    );
+    desk.back().await;
+    assert_eq!(desk.container(), "running");
+
+    let again = desk.turn_computer(false).await;
+    assert_eq!(again["ok"], false, "{again}");
+    assert_eq!(
+        again["error"],
+        first.as_str(),
+        "the same error, nothing new taken"
+    );
+    let phone = desk
+        .ask(
+            "mobile.persona_computer",
+            json!({ "id": "ada", "enabled": false }),
+        )
+        .await;
+    assert_eq!(phone["error"], first.as_str(), "{phone}");
+    let named = desk
+        .ask(
+            "persona.update",
+            json!({ "id": "ada", "patch": { "name": "Ada" } }),
+        )
+        .await;
+    assert_eq!(named["ok"], true, "a name is not the computer's: {named}");
+
+    desk.release("stopfail");
+    desk.room().sweep_computers().await;
+    assert_eq!(desk.container(), "stopped");
+    let clean = desk.turn_computer(false).await;
+    assert_eq!(clean["ok"], true, "{clean}");
 }
 
 /// Nothing racing a change brings the old container back. A start already

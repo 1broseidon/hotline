@@ -1149,29 +1149,53 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   a computer turned off is refused, one changed is made from what it has
   now. The change's restart is placed only once the stop is queued. The
   answer waits for the stop twelve seconds at most, under the phone's
-  twenty; a stop still going then is answered as still stopping and goes
-  on, and one that fails is answered and said on the teammate's
-  conversation, and the container is marked so the next start, and every
-  sweep, stops or removes it again first and refuses it while that fails.
-  The room's sweep counts no teammate whose computer is off as using it,
-  and stops such a container within a minute even while its session runs:
-  the backstop for a desk that went down between the write and the stop,
-  and for containers an older build left running. Cookies lent into a
-  computer that was turned off stay at rest in its stopped container, which
-  nothing runs in, and are taken out at its next start, before the
+  twenty; on Apple `container` the stop measured 5.2 to 5.4 s, its full
+  five-second grace (`session/tests/real_computer/off.rs`), and Docker's
+  and Podman's grace is ten. A stop still going at twelve keeps its place
+  in the queue, goes on, and the change is answered as saved: an error
+  there would have a phone call a saved change not done, and a retried
+  delete answer that the teammate does not exist. A stop that fails within
+  the wait is the answer's error; a failure at any time is said on the
+  teammate's conversation, and the container is marked so the next start,
+  and every sweep, stops or removes it again first and refuses it while
+  that fails. While it stays marked, any later change that touches the
+  teammate's computer, folders or secrets answers the same error, so a
+  second "off" that finds nothing new to take does not answer clean. The
+  room's sweep counts no teammate whose computer is off as using it, and
+  stops such a container within a minute even while its session runs: the
+  backstop for a desk that went down between the write and the stop, and
+  for containers an older build left running. Cookies lent into a
+  computer that was turned off stay at rest in its stopped container,
+  which nothing runs in, and are taken out at its next start, before the
   teammate is handed it, if the share has ended or moved by then.
-  What is not covered: a value or file a job already copied out (into the
-  workspace, a granted folder or the network) stays where it went; a vault
-  secret deleted or replaced, rather than ungranted, is handed again to a
-  running computer without a stop, so a job already running keeps the old
-  value in its environment; after a desk went down between the write and
-  the stop, a computer still on keeps what the change took until its next
-  start, which remakes it for a folder but reuses it as it is for a moved
-  workspace or a taken mount, and keeps its running jobs for a secret; a
-  deleted teammate's container a crash left behind is not adopted, the
-  teammate being off the roster; and at
-  its next boot, before the desk hands it over, a stopped computer runs
-  whatever its own image starts.
+  What is not covered:
+  1. A desk that goes down between the write and a remove (a moved
+     workspace or a declared mount taken away) leaves the old container
+     with the old workspace or mount for good: nothing records either, so
+     its next start reuses it as it is. Removing the computer from the pane
+     is the way out.
+  2. A secret deleted from the vault or replaced there, rather than
+     ungranted, is handed to a running computer again without a stop, so a
+     job already running keeps the old value in its environment.
+  3. A deleted teammate's container that a crash left behind is never
+     adopted, because the teammate is no longer on the roster, and stays
+     until it is removed by hand. This must not be fixed by sweeping every
+     `hotline-computer-*` container: a development build and the installed
+     app share the runtime, and such a sweep would stop the other's
+     teammates.
+  4. A desk that goes down between the write and the stop, with a folder or
+     a secret taken and the computer staying on, is bounded: a folder is
+     gone at the next start, which makes the container again; a secret is
+     replaced at the next handing over, but jobs already running keep it
+     until the container next stops: the idle sweep, thirty minutes after
+     the teammate last used it, or a restart from its pane.
+  5. A value or file a job already copied out (into the workspace, a
+     granted folder or the network) stays where it went. A stop queued
+     behind a computer still downloading its image waits for the download;
+     the change is answered as saved and the container, which does not
+     exist yet, is stopped as soon as it is made. And at its next boot,
+     before the desk hands it over, a stopped computer runs whatever its
+     own image starts.
 - **Stop.** Advances the generation and the authority and leaves the epoch
   open: old handles, lasting ones included, are permanently dead, a later
   explicit start uses the current policy. A stop also invalidates a
@@ -2087,7 +2111,7 @@ extend; when a change adds a boundary, it adds a row.
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
 | `persona.update`, `settings.update` and `mcp.auth_sign_out` let go of the policy lock before the reattach that waits on a start gate, so a message closing a quiet chapter (start gate, then policy lock) and a policy update or an MCP sign-in never wait on each other | `wire/tests/lock_order.rs` `a_persona_update_lets_go_of_the_policy_lock_before_its_reattach`, `a_settings_update_lets_go_of_the_policy_lock_before_its_reattach`, `an_mcp_sign_out_lets_go_of_the_policy_lock_before_its_reattach`; `session/tests/chapters.rs` `a_sign_in_and_a_message_closing_a_quiet_chapter_both_finish`, `a_policy_update_and_a_message_closing_a_quiet_chapter_both_finish` | — |
 | A teammate's change that restarts it is answered once it is saved, before the restart: at the answer the old session's lease is already dead and the record durable, a start asked for after it waits for the restart and is not refused, a restart that fails says why on the teammate's session, a second change during a restart brings the teammate back on both, and a stop during one is not undone | `wire/tests/update_restarts.rs` `a_computer_turned_on_or_off_is_answered_saved_before_the_teammate_is_back`, `a_restart_that_fails_after_the_answer_says_why_on_the_teammate`, `a_second_change_during_a_restart_brings_the_teammate_back_on_both`, `a_stop_during_a_restart_is_not_undone_by_the_next_change` | — |
-| A change that takes something from a teammate's computer stops its container before it is answered: turned off from the pane or the phone it is stopped, not removed, and on again it is the same container with its bearer; removing the teammate removes it; a folder or a secret taken from a computer that stays on stops it, the teammate running or not, and the next start makes it again with what it has now; the sweep stops a turned-off computer while its teammate's session runs, and one an older build left running; a stop that fails is said in the answer and on the conversation, and the container is not used until a later try stops it; a stop past the answer's wait goes on and a late failure is said; a start already making the computer is stopped after it, and a caller that read the teammate before the change starts nothing | `wire/tests/computer_off.rs` `turning_a_computer_off_stops_it_before_the_answer_and_on_brings_the_same_one_back`, `the_phones_switch_and_removing_the_teammate_take_the_container_before_the_answer`, `a_folder_taken_from_a_computer_that_stays_on_stops_it_before_the_answer`, `a_secret_taken_from_a_computer_that_stays_on_stops_it_before_the_answer`, `the_sweep_stops_a_turned_off_computer_even_while_its_teammate_runs`, `a_stop_that_fails_is_told_and_tried_again_before_use_and_at_the_sweep`, `a_stop_past_the_answers_wait_goes_on_and_a_late_failure_is_told`, `nothing_racing_a_change_brings_the_old_container_back` | Unix (the scripted runtime); no real runtime's `stop` is exercised |
+| A change that takes something from a teammate's computer stops its container before it is answered: turned off from the pane or the phone it is stopped, not removed, and on again it is the same container with its bearer; removing the teammate removes it; a folder or a secret taken from a computer that stays on stops it, the teammate running or not, and the next start makes it again with what it has now; the sweep stops a turned-off computer while its teammate's session runs, and one an older build left running; a stop that fails is said in the answer and on the conversation, the container is not used until a later try stops it, and a second change to the computer meanwhile answers the same error; a stop past the answer's wait is answered as saved, goes on, and a late failure is said; on a real computer, a loop holding a granted file open with a secret in its environment is gone after off and on, the runtime reports the container stopped at the answer, a secret ungranted is in no new job, and a folder taken is not mounted after the remake; a start already making the computer is stopped after it, and a caller that read the teammate before the change starts nothing | `wire/tests/computer_off.rs` `turning_a_computer_off_stops_it_before_the_answer_and_on_brings_the_same_one_back`, `the_phones_switch_and_removing_the_teammate_take_the_container_before_the_answer`, `a_folder_taken_from_a_computer_that_stays_on_stops_it_before_the_answer`, `a_secret_taken_from_a_computer_that_stays_on_stops_it_before_the_answer`, `the_sweep_stops_a_turned_off_computer_even_while_its_teammate_runs`, `a_stop_that_fails_is_told_and_tried_again_before_use_and_at_the_sweep`, `a_stop_past_the_answers_wait_goes_on_and_a_late_failure_is_told`, `a_second_change_while_a_stop_has_failed_answers_the_same_error`, `nothing_racing_a_change_brings_the_old_container_back`; on a real Apple `container` computer, `session/tests/real_computer/off.rs` `turning_a_real_computer_off_stops_it_before_the_answer_and_on_brings_the_same_one_back` | the scripted runtime: Unix; the real one: a Mac, ignored, run by hand |
 | A lasting lease outlives a session replacement and not a stop or a policy update; a request outlives either teammate's chapter turning over, and Stop exchange, a stop, a policy change or a room-wide invalidation still end it | `hotline-tools/src/capability.rs` `a_lasting_lease_outlives_a_session_replacement_but_not_a_stop_or_a_policy_update`, `replacing_a_session_during_quarantine_does_not_reopen_it`; `session/exchanges/tests/lasting.rs` `a_handoff_outlives_either_teammates_chapter_turning_over`, `each_explicit_end_still_ends_a_request_a_chapter_left_standing` | — |
 | A computer joining once downloaded, a computer made again between turns and an MCP sign-in completing rebuild the running main session the way a chapter's swap does (`Room::rebuild`), ending none of the teammate's threads or requests, so a handoff at work goes on to its result; the sign-in's rebuild waits for the turn in flight; a job's stale agent is rebuilt for its next line | `session/exchanges/tests/lasting.rs` `a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in`, `an_mcp_sign_in_rebuilds_a_main_conversation_only_once_its_turn_is_over`; `session/tests/scheduled.rs` `a_stale_job_agent_is_rebuilt_for_the_next_line_whatever_waits_behind_it` | the computer's own runtime path: Unix (`session/tests/computer.rs`) |
 | Standing collaboration consent is cleared only by the recipient's access growing or its moving to another agent, each widening named and nothing else (goal, model, narrowing) counting; clearing takes the caller off `allowedSenders` too, counts at once and after compaction, and the next request that needs the card asks again; it survives reattaches, a room-wide reattach and a restart with the room stream compacted | `session/consent/tests.rs` `each_widening_of_the_recipients_access_is_named`, `nothing_that_leaves_the_recipient_reaching_as_far_clears_consent`, `a_cleared_consent_counts_at_once_and_after_compaction`, `always_asks_no_more_until_the_receivers_access_grows_and_then_asks_again`, `an_always_grant_survives_reattaches_a_sign_out_and_a_restart`; `wire/tests/consent.rs` `a_persona_update_clears_always_only_when_the_recipients_access_grows`, `a_server_added_to_the_desk_clears_always_for_a_teammate_granted_all`; `wire/tests/models.rs` `session_set_backend_takes_away_always_for_the_agent_it_left`; `session/peers/tests.rs` `always_for_a_teammate_on_another_agent_holds_until_it_moves_to_another` | — |

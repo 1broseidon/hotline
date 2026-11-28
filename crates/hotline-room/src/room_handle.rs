@@ -133,6 +133,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_taken_away(&self, _persona_id: &str, _remake: bool) -> Result<(), String> {
         Ok(())
     }
+    /// The error a change to a teammate's computer, folders or secrets
+    /// answers while a stop an earlier change asked for has failed and no
+    /// later try has done it: the container may still have what was taken.
+    fn computer_still_up(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
     /// Serializes policy persistence and reattachment across client sockets.
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>>;
     async fn agent_auth_start(

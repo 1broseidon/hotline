@@ -320,7 +320,7 @@ struct Inner {
     /// runtime would not stop or remove ([`Computer::stop_for_change`]): it
     /// is stopped or removed again before anything uses it, and at every
     /// sweep, until that succeeds.
-    stale: HashMap<String, Taken>,
+    stale: HashMap<String, (Taken, String)>,
 }
 
 /// What a teammate's change did to the container it took something from.
@@ -578,7 +578,12 @@ impl Computer {
     /// Makes the teammate's computer and starts it, or finds it running.
     /// Calls for one teammate go one at a time: the second sees what the
     /// first made.
-    pub async fn ensure_running(
+    ///
+    /// For tests alone, which hand it the teammate they mean: the desk
+    /// starts a computer only through [`Self::ensure_current`], which reads
+    /// the record under the container's lock.
+    #[cfg(test)]
+    pub(crate) async fn ensure_running(
         &self,
         persona: &Persona,
         workspace_cwd: &str,
@@ -635,7 +640,7 @@ impl Computer {
         {
             return Err(refused);
         }
-        let stale = self.lock().stale.get(persona_id).copied();
+        let stale = self.lock().stale.get(persona_id).map(|(taken, _)| *taken);
         if let Some(taken) = stale {
             self.take_away_held(persona_id, prefer, taken)
                 .await
@@ -873,6 +878,15 @@ impl Computer {
         Ok(())
     }
 
+    /// Why a teammate's container a change took something from would not
+    /// stop or go, while it is still marked so (see [`Inner::stale`]).
+    pub fn not_stopped(&self, persona_id: &str) -> Option<String> {
+        self.lock()
+            .stale
+            .get(persona_id)
+            .map(|(_, error)| error.clone())
+    }
+
     /// Stops a teammate's container because a change took something away
     /// from it — the computer turned off, a folder or a secret taken away —
     /// or, for [`Taken::Remove`], removes it. Called once the change is
@@ -920,7 +934,7 @@ impl Computer {
         prefer: Option<Runtime>,
         taken: Taken,
     ) -> Result<(), String> {
-        let owed = self.lock().stale.get(persona_id).copied();
+        let owed = self.lock().stale.get(persona_id).map(|(taken, _)| *taken);
         let taken = if owed == Some(Taken::Remove) {
             Taken::Remove
         } else {
@@ -935,8 +949,10 @@ impl Computer {
             Ok(()) => {
                 inner.stale.remove(persona_id);
             }
-            Err(_) => {
-                inner.stale.insert(persona_id.to_string(), taken);
+            Err(error) => {
+                inner
+                    .stale
+                    .insert(persona_id.to_string(), (taken, error.clone()));
             }
         }
         result
@@ -1240,7 +1256,7 @@ impl Computer {
             let stale = inner
                 .stale
                 .iter()
-                .map(|(id, taken)| (id.clone(), *taken))
+                .map(|(id, (taken, _))| (id.clone(), *taken))
                 .collect();
             (ids, stale)
         };

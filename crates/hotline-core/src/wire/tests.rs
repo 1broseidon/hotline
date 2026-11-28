@@ -297,6 +297,10 @@ impl RoomHandle for CoreHandle {
         self.room.reattach(persona_id).await
     }
 
+    async fn reattach_soon(&self, persona_id: &str) -> Result<(), String> {
+        self.room.reattach_soon(persona_id).await
+    }
+
     async fn reattach_all(&self) -> Result<(), String> {
         self.room.reattach_all().await
     }
@@ -1319,6 +1323,7 @@ mod seats;
 mod secret_uses;
 mod settings;
 mod threads;
+mod update_restarts;
 mod windows;
 
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {

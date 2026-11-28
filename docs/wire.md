@@ -112,12 +112,12 @@ answers itself (a phone's, a sign-in's, an upload's).
 | --- | --- | --- |
 | `persona.create` | `{draft}` | the created `Persona` |
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
-| `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
-| `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does; a mode switches live and is kept for the next start. Owner phone or local desk; advertised by the owner's `personaAccess` |
+| `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused. A goal restarts a live session as `persona.update` does, after the answer |
+| `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does, after the answer; a mode switches live and is kept for the next start. The mode is set first, so a restart the same change asks for comes back in it. Owner phone or local desk; advertised by the owner's `personaAccess` |
 | `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?, aboutItem?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead; `aboutItem` as on `session.prompt`, in the conversation only. A paired phone only |
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
-| `persona.update` | `{id, patch}` | the teammate after the patch |
+| `persona.update` | `{id, patch}` | the teammate after the patch, once it is saved; a restart the patch asks for goes on after the answer (see the patch rules below) |
 | `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.arrange` | `{ids}` | the desk's order of its team, as it now stands — the teammates in the order `ids` names, first to last (`teamOrder` below); an id that is no teammate on the desk, or a repeat, is dropped; an empty list leaves the desk unarranged; owner or local desk only |
@@ -227,7 +227,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `inbound.remove` | `{id}` | none; the source delivers nothing more, and what it delivered stays. The desk and owner seats |
 | `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
-| `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
+| `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`, once it is saved; turning the computer on or off restarts a live session as `persona.update` does, after the answer. Owner phone or desk only |
 | `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
 | `computer.releases` | `{}` | `ComputerReleases`: `floor`, `repository`, `newest?`, `releases` (floor up, newest first), `checkedAt?`, `error?` |
 | `computer.releases.check` | `{}` | the same, after asking the releases endpoint now |
@@ -448,10 +448,37 @@ it on, and `allowedSenders` defaults to an empty list. The whole teammate is wri
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `folders`, `goal`, `mcpPolicy`,
-`backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
+`skillPolicy`, `backgroundWork`, `allowedSenders`, `backendId` or
+`harnessOverride`, or turns `computer.enabled` on or off, invalidates
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
+
+A change is answered once it is saved. `persona.update`,
+`mobile.persona_update`, `mobile.persona_access` and
+`mobile.persona_computer` answer when the change is saved, not when the
+teammate is back. By the answer, what the change took away is gone (the old
+session's handles, its threads' and its peers' grants are revoked before the
+record is written) and the record is durable. The restart is the desk's own
+work after the answer: a computer turned on is made, started and checked in
+it, and a harness answers its handshake in it, which can take far longer
+than a phone waits for an answer (twenty seconds). The restart is told on the
+teammate's `SessionInfo` as any start is: `stopped`, then `starting`, then
+`ready`; or `stopped` with `error` saying why when it fails. The restart
+takes its place behind the teammate's start gate before the answer, so a
+prompt sent after the answer waits for it and lands on the session it brings
+up. When that gate is free as the change is answered, which is the usual
+case, the teammate's authority is opened again on the new record before the
+answer too, and a `session.start` sent after it waits for the restart rather
+than being refused; when another start holds the gate, the restart waits
+behind it, and a `session.start` meanwhile is refused as revoked, as during
+any policy change. A second change while a restart is under way starts the
+teammate again on both; a stop during it leaves the teammate stopped. A room
+preparing to restart for an update refuses the change's restart in the
+answer (`Hotline is restarting`), after the change is saved, as before.
+`session.set_mode` into or out of a mode its harness is launched in (Cursor's
+Run Everything), also when `mobile.persona_access` names one, still answers
+after that relaunch.
 
 `folders` is the teammate's extra folders, `[{path, writable?}]`, on the
 persona and the draft. Absent means none, and so does an empty list, which

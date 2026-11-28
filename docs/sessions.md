@@ -2683,7 +2683,27 @@ the reattach takes the teammate's start gate, and the one lock order is
 chapter takes them in. `Room::reattach_held` takes the policy lock again
 under the gate for its own invalidate and activation, so it never starts a
 change another update is still writing.
-New starts cannot acquire usable authority during that interval. A driver
+New starts cannot acquire usable authority during that interval.
+
+The wire answers the change before the restart is done
+(`Room::reattach_soon`): the revocation and the durable append are what the
+person is told about, and a computer turned on is made inside the restart,
+which can outlast a phone's patience. The restart runs on a task of its own
+in two halves, both behind the start gate: `reattach_open` (the policy lock,
+the invalidate again, the old session out, the epoch activated) and
+`reattach_finish` (the desk browser and shared cookies follow the computer,
+and the teammate is started again when it was up). The task takes the gate,
+or its place in the gate's queue, before the wire answers; tokio's mutex is
+fair, so a message or start asked for after the answer comes after the
+restart. Found free, the gate is held and `reattach_open` has run before the
+answer, so a start asked for after it captures an open epoch. A start the
+restart makes that fails leaves the teammate stopped with the reason on its
+`SessionInfo` (`start_now`), and `say_restart_failed` is where anything
+further about it is said. A start revoked by a later change is not a
+failure: it leaves its mark in `restarts_owed`, and the later change's
+reattach starts the teammate again although nothing is running; a stop takes
+the mark away. The awaited `Room::reattach` is the same two halves under the
+caller's gate. A driver
 still starting must validate its captured authority before publication.
 If persistence fails, affected sessions remain stopped and their old
 handles stay revoked. Retrying the settings change restores execution;

@@ -183,7 +183,7 @@ impl Scripted {
 
     /// An agent whose start-up waits for a permit, as a child's does while its
     /// process spawns and handshakes.
-    pub(super) fn slow_to_start(mut self, gate: Arc<Semaphore>) -> Self {
+    pub(crate) fn slow_to_start(mut self, gate: Arc<Semaphore>) -> Self {
         self.start_gate = Some(gate);
         self
     }
@@ -528,11 +528,11 @@ impl Fake {
     }
 
     /// From now on every start is refused, for a harness that stops coming up.
-    pub(super) fn fail_starts(&self, reason: &str) {
+    pub(crate) fn fail_starts(&self, reason: &str) {
         *lock(&self.driver.start_error) = Some(reason.to_string());
     }
 
-    pub(super) fn allow_starts(&self) {
+    pub(crate) fn allow_starts(&self) {
         *lock(&self.driver.start_error) = None;
     }
 
@@ -544,7 +544,7 @@ impl Fake {
     }
 
     /// The tools each agent was handed, in order.
-    pub(super) fn tools(&self) -> Vec<TeammateTools> {
+    pub(crate) fn tools(&self) -> Vec<TeammateTools> {
         lock(&self.tools).clone()
     }
 

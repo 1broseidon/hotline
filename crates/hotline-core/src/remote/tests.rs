@@ -318,6 +318,10 @@ impl RoomHandle for Computered {
     async fn reattach(&self, persona_id: &str) -> Result<(), String> {
         self.desk.reattach(persona_id).await
     }
+
+    async fn reattach_soon(&self, persona_id: &str) -> Result<(), String> {
+        self.desk.reattach_soon(persona_id).await
+    }
     async fn reattach_all(&self) -> Result<(), String> {
         self.desk.reattach_all().await
     }

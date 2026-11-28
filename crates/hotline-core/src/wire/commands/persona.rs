@@ -250,6 +250,12 @@ pub(super) async fn mobile_persona_access(
     if mode_id.is_some() && hotline {
         return Err("A Hotline Agent teammate has no mode; its access is its reach.".to_string());
     }
+    // The mode first: it switches on the session running now, and the
+    // restart background work asks for comes back in it. After that
+    // restart, the mode would meet a session already revoked.
+    if let Some(mode_id) = mode_id {
+        set_mode(log, room, id, &mode_id).await?;
+    }
     let mut patch = Map::new();
     if let Some(reach) = reach {
         patch.insert("reach".into(), json!(reach));
@@ -259,9 +265,6 @@ pub(super) async fn mobile_persona_access(
     }
     if !patch.is_empty() {
         apply_persona_update(log, room, id, &Value::Object(patch)).await?;
-    }
-    if let Some(mode_id) = mode_id {
-        set_mode(log, room, id, &mode_id).await?;
     }
     living(log, id).map(|persona| json!(persona))
 }
@@ -410,7 +413,10 @@ pub(super) async fn set_mode(
 }
 
 /// `persona.update` and `mobile.persona_update` both land here, under the
-/// policy gate, restarting a live session when the patch asks for it.
+/// policy gate, restarting a live session when the patch asks for it. The
+/// answer is the change saved: what it took away is already revoked and the
+/// record is written, and the restart goes on after it (see
+/// [`apply_persona_update_locked`]).
 pub(super) async fn apply_persona_update(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -427,6 +433,16 @@ pub(super) async fn apply_persona_update(
 /// gate. The one lock order is `start_gate -> policy_update_lock`, so those
 /// effects run with the policy lock let go: a chapter close takes the two in
 /// that order and would deadlock against this otherwise.
+///
+/// The answer does not wait for the restart. By the time the guard drops,
+/// everything the person is told stands: the old session's handles, its
+/// threads and its peers' grants are revoked (`update_persona` invalidates
+/// before it appends) and the record is durable. Bringing the teammate back
+/// up — a computer turned on is made and started in it, a harness answers
+/// its handshake — is the room's own work after the answer
+/// ([`RoomHandle::reattach_soon`]), told on the teammate's session as any
+/// start is, a failure included. A phone gives up on an answer after twenty
+/// seconds, and a computer coming up takes longer than that.
 async fn apply_persona_update_locked(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -437,7 +453,7 @@ async fn apply_persona_update_locked(
     let (updated, reattaches) = update_persona(log, room, id, patch)?;
     drop(held);
     if reattaches {
-        room.reattach(id).await?;
+        room.reattach_soon(id).await?;
     } else if patch.get("computer").is_some()
         || patch.get("secrets").is_some()
         || patch.get("secretGrants").is_some()

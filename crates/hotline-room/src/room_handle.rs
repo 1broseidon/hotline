@@ -173,6 +173,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn invalidate_all(&self) -> Result<(), String>;
     /// Rebuilds a live session from the teammate's current record.
     async fn reattach(&self, persona_id: &str) -> Result<(), String>;
+    /// [`Self::reattach`] left running, for a command that answers once its
+    /// change is saved: answers when the restart is placed behind the
+    /// teammate's start gate, not when the teammate is back, and a restart
+    /// that fails says so on the teammate's session. A room with no session
+    /// to bring back answers as `reattach` does.
+    async fn reattach_soon(&self, persona_id: &str) -> Result<(), String> {
+        self.reattach(persona_id).await
+    }
     /// Every live session: a change to the room's servers reaches all of them.
     async fn reattach_all(&self) -> Result<(), String>;
     async fn prompt(

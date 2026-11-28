@@ -83,6 +83,17 @@ async fn set_policy(client: &mut Client, persona_id: &str, mode: &str, server_id
         )
         .await;
     assert_eq!(patched["ok"], true, "{patched}");
+    back(client, persona_id).await;
+}
+
+/// A change that restarts the teammate is answered once it is saved, and the
+/// restart goes on after it; a start asked for then waits for the restart and
+/// answers the session it brought up (docs/wire.md).
+async fn back(client: &mut Client, persona_id: &str) {
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
 }
 
 async fn mcp_tools(client: &mut Client, persona_id: &str) -> Vec<String> {
@@ -420,6 +431,7 @@ async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
         )
         .await;
     assert_eq!(patched["ok"], true, "{patched}");
+    back(&mut client, &persona_id).await;
     assert_eq!(mcp_tools(&mut client, &persona_id).await, [] as [String; 0]);
 }
 

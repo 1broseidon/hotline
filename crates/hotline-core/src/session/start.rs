@@ -373,6 +373,8 @@ impl Room {
     /// teammate's requests hold of it as well, which a chapter's swap leaves
     /// standing.
     fn stop_session(&self, persona_id: &str) {
+        // A restart a change owed it is called off with it.
+        lock(&self.restarts_owed).remove(persona_id);
         self.stop_with_capability(persona_id);
         self.capability_epoch(persona_id).stop();
         self.revoke_exchanges(persona_id);
@@ -463,30 +465,120 @@ impl Room {
 
     /// [`Self::reattach`] for a caller already holding the start gate.
     pub(super) async fn reattach_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
-        let capability = {
-            // Already behind the start gate, so taking the policy lock here
-            // keeps the one order `start_gate -> policy_update_lock`. It also
-            // makes this wait for any policy update in flight to finish its
-            // own invalidate and durable append before the epoch is activated
-            // and the log is read to start: a change half-written cannot be
-            // started on. A second policy update arriving while this waits
-            // invalidates under the lock and quarantines the epoch again, for
-            // the reattach that update will run.
-            let policy_gate = self.policy_update_lock();
-            let _policy_held = policy_gate.lock().await;
-            // The wire invalidates before appending. Repeating it also gives
-            // direct callers the same stale-driver boundary.
-            self.invalidate(persona_id)?;
-            let _lifecycle = lock(&self.lifecycle);
-            let was_running = lock(&self.sessions).remove(persona_id).is_some();
-            if was_running {
-                self.rest_as(persona_id, SessionState::Stopped, None, false);
+        let capability = self.reattach_open(persona_id).await?;
+        self.reattach_finish(persona_id, capability)
+            .await
+            .map_err(|not_back| not_back.error)
+    }
+
+    /// [`Self::reattach`] on a task of its own, for the wire, which tells the
+    /// person their change is saved without waiting for the teammate to come
+    /// back: a computer turned on is made, started and checked inside the
+    /// restart, and a harness can take a minute to answer, far past what a
+    /// phone waits for. The caller has already revoked and written the change
+    /// (`wire/commands/persona.rs`), which is what the answer stands on.
+    ///
+    /// Answers once the restart is placed behind the teammate's start gate.
+    /// Found free, the gate is taken and the epoch the change closed is
+    /// opened again before this answers, so a start asked for after the
+    /// answer is not refused as revoked; found held, the restart waits in the
+    /// gate's queue. The gate is fair either way, so whatever takes it after
+    /// the answer (a message, a start, the next change's restart) comes after
+    /// this restart and finds the session it brought up. The work lease is
+    /// taken here, so a room preparing to restart refuses the change's
+    /// restart now, in the answer, and the task holds the room's restart off
+    /// until it is done.
+    ///
+    /// A restart that does not bring the teammate back is told on the
+    /// teammate itself ([`Self::say_restart_failed`]), never only here.
+    pub async fn reattach_soon(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let working = self.working()?;
+        let gate = self.start_gate(persona_id);
+        let (placed, answer) = oneshot::channel::<()>();
+        let room = self.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            let _working = working;
+            let mut queued = std::pin::pin!(gate.lock_owned());
+            // One poll takes the gate or a place in its queue.
+            let at_once =
+                std::future::poll_fn(|cx| std::task::Poll::Ready(queued.as_mut().poll(cx))).await;
+            let (_held, opened) = match at_once {
+                std::task::Poll::Ready(held) => {
+                    let opened = room.reattach_open(&persona_id).await;
+                    let _ = placed.send(());
+                    (held, opened)
+                }
+                std::task::Poll::Pending => {
+                    let _ = placed.send(());
+                    let held = queued.await;
+                    (held, room.reattach_open(&persona_id).await)
+                }
+            };
+            let settled = match opened {
+                Ok(capability) => room.reattach_finish(&persona_id, capability).await,
+                Err(error) => Err(NotBack {
+                    error,
+                    superseded: false,
+                }),
+            };
+            if let Err(not_back) = settled {
+                room.say_restart_failed(&persona_id, &not_back);
             }
-            let epoch = self.capability_epoch(persona_id);
-            epoch.activate();
-            self.schedule_changed.notify_one();
-            was_running.then(|| epoch.lease())
-        };
+        });
+        // The task's end, before it placed itself, is the runtime shutting
+        // down, and there is nobody left to answer.
+        let _ = answer.await;
+        Ok(())
+    }
+
+    /// The first half of a reattach, behind the start gate: the old session
+    /// out and the teammate's authority opened again on the record as it is
+    /// now. Answers the authority to start the teammate again on, when it was
+    /// running or a reattach before this one was bringing it up.
+    async fn reattach_open(
+        self: &Arc<Self>,
+        persona_id: &str,
+    ) -> Result<Option<CapabilityLease>, String> {
+        // Already behind the start gate, so taking the policy lock here
+        // keeps the one order `start_gate -> policy_update_lock`. It also
+        // makes this wait for any policy update in flight to finish its
+        // own invalidate and durable append before the epoch is activated
+        // and the log is read to start: a change half-written cannot be
+        // started on. A second policy update arriving while this waits
+        // invalidates under the lock and quarantines the epoch again, for
+        // the reattach that update will run.
+        let policy_gate = self.policy_update_lock();
+        let _policy_held = policy_gate.lock().await;
+        // The wire invalidates before appending. Repeating it also gives
+        // direct callers the same stale-driver boundary.
+        self.invalidate(persona_id)?;
+        let _lifecycle = lock(&self.lifecycle);
+        let was_running = lock(&self.sessions).remove(persona_id).is_some();
+        if was_running {
+            self.rest_as(persona_id, SessionState::Stopped, None, false);
+        }
+        // A reattach before this one whose start this change revoked: the
+        // teammate was coming back up, and still should.
+        let owed = lock(&self.restarts_owed).remove(persona_id);
+        let restart = was_running || owed;
+        if restart {
+            lock(&self.restarts_owed).insert(persona_id.to_string());
+        }
+        let epoch = self.capability_epoch(persona_id);
+        epoch.activate();
+        self.schedule_changed.notify_one();
+        Ok(restart.then(|| epoch.lease()))
+    }
+
+    /// The second half, still behind the start gate: the browser and the
+    /// shared cookies follow the computer, and the teammate is started again
+    /// when it was up.
+    async fn reattach_finish(
+        self: &Arc<Self>,
+        persona_id: &str,
+        capability: Option<CapabilityLease>,
+    ) -> Result<(), NotBack> {
         // A computer turned on takes its browser's place: the desk browser
         // closes, keeping its storage for when the computer is turned off.
         if self
@@ -500,7 +592,58 @@ impl Room {
         let Some(capability) = capability else {
             return Ok(());
         };
-        self.start_again(persona_id, capability).await
+        match self.start_again(persona_id, capability.clone()).await {
+            Ok(()) => {
+                lock(&self.restarts_owed).remove(persona_id);
+                Ok(())
+            }
+            // Ended by someone else: the person's stop, which took the mark
+            // away, or a later change, whose reattach finds it and starts
+            // the teammate again. Either way the mark is theirs to settle.
+            Err(error) if !capability.is_current() => Err(NotBack {
+                error,
+                superseded: true,
+            }),
+            Err(error) => {
+                lock(&self.restarts_owed).remove(persona_id);
+                Err(NotBack {
+                    error,
+                    superseded: false,
+                })
+            }
+        }
+    }
+
+    /// A restart nobody waits on did not bring the teammate back, and the
+    /// person is told where a failed start is told: the teammate's session
+    /// says it stopped, and why. A start that failed has said so already
+    /// (`start_now`); anything before the start is said here. A restart a
+    /// stop or a later change ended is not a failure: the person stopped it,
+    /// or the next restart is under way.
+    ///
+    /// This is the one place a detached restart's failure lands, so a notice
+    /// on the teammate's conversation (the refused-start notice) is written
+    /// from here when that lands.
+    fn say_restart_failed(&self, persona_id: &str, not_back: &NotBack) {
+        if not_back.superseded || self.persona(persona_id).is_err() {
+            return;
+        }
+        eprintln!(
+            "{persona_id} did not come back after its change: {}",
+            not_back.error
+        );
+        let _lifecycle = lock(&self.lifecycle);
+        let told = lock(&self.resting)
+            .get(persona_id)
+            .is_some_and(|info| info.error.is_some());
+        if !told && !lock(&self.sessions).contains_key(persona_id) {
+            self.rest_as(
+                persona_id,
+                SessionState::Stopped,
+                Some(not_back.error.clone()),
+                false,
+            );
+        }
     }
 
     /// Rebuilds a running main session from the teammate's current record
@@ -638,6 +781,14 @@ impl Room {
         }
         first_error.map_or(Ok(()), Err)
     }
+}
+
+/// A reattach that did not bring its teammate back up.
+struct NotBack {
+    error: String,
+    /// Its start was ended by someone else: the person's stop, or a later
+    /// change whose own restart follows. Nothing for the person to be told.
+    superseded: bool,
 }
 
 /// What a rebuild did.

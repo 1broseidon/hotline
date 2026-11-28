@@ -805,6 +805,12 @@ pub struct Room {
     /// stop afterwards. The gate is per teammate because a teammate is what is
     /// being started; two teammates starting together is not a race.
     starts: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Teammates a reattach is bringing back up, until that start settles.
+    /// A start that a later policy change revokes leaves its mark, so the
+    /// reattach that change queues starts the teammate again instead of
+    /// finding nothing running and leaving it stopped; the person's stop
+    /// takes the mark away (`session/start.rs`).
+    restarts_owed: Mutex<HashSet<String>>,
     info_changes: broadcast::Sender<SessionInfo>,
     /// Teammates whose picture is being drawn right now. Not session state:
     /// a picture is drawn whether or not a session is running, and nothing
@@ -1078,6 +1084,7 @@ impl Room {
             pending_file: Mutex::new(()),
             resting: Mutex::new(HashMap::new()),
             starts: Mutex::new(HashMap::new()),
+            restarts_owed: Mutex::new(HashSet::new()),
             computer_links: ComputerLinks::default(),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             drawing: Mutex::new(HashSet::new()),

@@ -1,5 +1,6 @@
 use super::ToolError;
 use crate::capability::CapabilityLease;
+use crate::identity::DirectoryId;
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
@@ -58,8 +59,8 @@ struct WorkspaceInner {
     /// The person's extra folders, opened once. Only workspace reach has
     /// them: whole-machine reach already opens everything from the root.
     folders: Vec<Folder>,
-    /// The identity of the root directory `dir` holds, under workspace reach.
-    identity: Option<String>,
+    /// Which directory the root `dir` holds is, under workspace reach.
+    identity: Option<DirectoryId>,
     capability: Option<CapabilityLease>,
 }
 
@@ -71,8 +72,8 @@ struct Folder {
     path: PathBuf,
     dir: Dir,
     writable: bool,
-    /// The identity of the directory `dir` holds.
-    identity: Option<String>,
+    /// Which directory `dir` holds.
+    identity: Option<DirectoryId>,
 }
 
 /// Which handle a resolved path is inside: the working directory (or, with
@@ -159,12 +160,12 @@ impl Workspace {
         // Compared on the handle just opened, which every tool then resolves
         // inside: what was checked is what is used.
         let opened = match reach {
-            Reach::Workspace => dir_identity(&dir),
+            Reach::Workspace => DirectoryId::of(&dir),
             Reach::Machine => None,
         };
         if reach == Reach::Workspace
             && let Some(expected) = identity
-            && opened.as_deref() != Some(expected)
+            && !opened.as_ref().is_some_and(|found| found.is(expected))
         {
             return Err(ToolError::permission_denied(not_the_chosen_folder(&shown)));
         }
@@ -197,22 +198,24 @@ impl Workspace {
             .collect()
     }
 
-    /// The identity of each directory this handle holds open, the root
-    /// first, by the path the confined shell is granted it at: the shell
-    /// checks each from inside its sandbox before the command runs, so a
-    /// path that now names another directory runs nothing.
+    /// The device and inode (`dev:ino`, as `stat` prints them) of each
+    /// directory this handle holds open, the root first, by the path the
+    /// confined shell is granted it at: the shell checks each from inside
+    /// its sandbox before the command runs, so a path that now names
+    /// another directory runs nothing. Not the recorded form: the shell
+    /// compares with this handle, opened in this same boot.
     pub(crate) fn opened_identities(&self) -> Vec<(PathBuf, String)> {
         let root = self
             .inner
             .identity
-            .clone()
-            .map(|identity| (self.inner.cwd.clone(), identity));
+            .as_ref()
+            .map(|identity| (self.inner.cwd.clone(), identity.checked()));
         root.into_iter()
             .chain(self.inner.folders.iter().filter_map(|folder| {
                 folder
                     .identity
-                    .clone()
-                    .map(|identity| (folder.path.clone(), identity))
+                    .as_ref()
+                    .map(|identity| (folder.path.clone(), identity.checked()))
             }))
             .collect()
     }
@@ -1212,37 +1215,6 @@ pub fn linked_root(cwd: &Path) -> Option<String> {
     ))
 }
 
-/// Which directory a handle holds, read from the handle itself, never by
-/// looking its path up again: on Unix its device and inode (fstat,
-/// `dev:ino`), on Windows its volume serial number and file index
-/// (`GetFileInformationByHandle`, `volume:index`). None where neither is
-/// available, which every holder treats as a directory it cannot confirm.
-pub fn dir_identity(dir: &Dir) -> Option<String> {
-    #[cfg(unix)]
-    {
-        use cap_std::fs::MetadataExt;
-        let metadata = dir.dir_metadata().ok()?;
-        Some(format!("{}:{}", metadata.dev(), metadata.ino()))
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsHandle;
-        hotline_support::file_identity_windows::of_handle(dir.as_handle())
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = dir;
-        None
-    }
-}
-
-/// [`dir_identity`] of the directory `path` opens now (following links), for
-/// recording what the person chose when they choose it.
-pub fn path_identity(path: &Path) -> Option<String> {
-    let dir = Dir::open_ambient_dir(path, ambient_authority()).ok()?;
-    dir_identity(&dir)
-}
-
 /// What a holder of the workspace says when the directory it opened is not
 /// the one recorded for the teammate.
 pub fn not_the_chosen_folder(cwd: &Path) -> String {
@@ -1268,11 +1240,11 @@ fn open_folders(grants: &[FolderGrant], cwd: &Path) -> Vec<Folder> {
             let dir = Dir::open_ambient_dir(&canonical, ambient_authority()).ok()?;
             // A grant that recorded which directory it was opens only that
             // one, compared on the handle every later step resolves inside.
-            let identity = dir_identity(&dir);
+            let identity = DirectoryId::of(&dir);
             if grant
                 .identity
                 .as_deref()
-                .is_some_and(|expected| identity.as_deref() != Some(expected))
+                .is_some_and(|expected| !identity.as_ref().is_some_and(|found| found.is(expected)))
             {
                 return None;
             }

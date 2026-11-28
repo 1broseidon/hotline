@@ -581,8 +581,9 @@ impl Computer {
     ///
     /// For tests alone, which hand it the teammate they mean: the desk
     /// starts a computer only through [`Self::ensure_current`], which reads
-    /// the record under the container's lock.
-    #[cfg(test)]
+    /// the record under the container's lock. Those tests script a runtime
+    /// with a shell, so they and this are Unix's.
+    #[cfg(all(test, unix))]
     pub(crate) async fn ensure_running(
         &self,
         persona: &Persona,
